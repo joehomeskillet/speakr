@@ -307,7 +307,8 @@ def _require_author(author_user_id):
 
 
 def _reject_transcript_write(_mapper, _connection, _target):
-    # The frozen model triggers protect clinic_original_version only.
+    # Early, readable error. The database triggers from install_clinic_guards
+    # are the real guard and also stop bulk update() and raw SQL.
     raise RevisionImmutable("transcript revisions are append-only")
 
 
