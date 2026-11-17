@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "task": "S06",
+  "title": "Confidential DS2 decoding evidence",
+  "recorded_date": "2026-11-18",
+  "confidentiality_notice": "Refers only to technical metadata of confidential local DS2 fixture; no audio, transcripts, or original filenames are disclosed.",
+  "fixture": {
+    "description": "confidential local DS2 fixture",
+    "sha256": "240f95d25c1fdbb7419a5770659dd09e05878423782b726d6d5af3c271f645cb",
+    "size_bytes": 4023296,
+    "container": "ds2"
+  },
+  "decoder": {
+    "package": "dss-codec",
+    "binary": "dss-decode",
+    "version": "0.1.0",
+    "license": "MIT",
+    "repository": "https://github.com/hirparak/dss-codec.git",
+    "pinned_commit": "c38d3192239005b0570c5987cbde62e69dd7dbbe",
+    "binary_sha256": "f1bfd338125e35a1462dfe20a0da5228be5110ada9fa24254de0d80d08d8b0cf",
+    "dependencies": {
+      "clap": "4",
+      "thiserror": "2",
+      "hound": "3",
+      "rubato": "0.16",
+      "sha1": "0.10",
+      "sha2": "0.10"
+    }
+  },
+  "decoding_parameters": {
+    "cli_template": "dss-decode -q -r 16000 -c 1 -b 16 -O <output.wav> <input>",
+    "arguments": [
+      "-q",
+      "-r",
+      "16000",
+      "-c",
+      "1",
+      "-b",
+      "16",
+      "-O",
+      "<output_path>",
+      "<input_path>"
+    ],
+    "target_rate_hz": 16000,
+    "target_channels": 1,
+    "target_bits": 16
+  },
+  "decoded_output": {
+    "container": "wav",
+    "codec": "pcm_s16le",
+    "sample_rate_hz": 16000,
+    "channels": 1,
+    "sample_width_bytes": 2,
+    "total_frames": 18165504,
+    "duration_seconds": 1135.344,
+    "output_size_bytes": 36331052,
+    "output_sha256": "27c84c90193b91a616a9570a23ec0196ac4e5dfce7a9850017d87654840ff00e",
+    "stability": "Identical sha256 and duration confirmed across multiple consecutive runs"
+  },
+  "execution_result": {
+    "exit_code": 0,
+    "verbatim_status": "ok",
+    "adapter_call": "decoder.decode_to_wav(fixture, out_dir, timeout_s=300)"
+  },
+  "unproven_scope": [
+    "Other DS2 modes",
+    "DSS (classic)",
+    "Encrypted DS2 files (with password)",
+    "Wiring into upload/transcription pipeline"
+  ]
+}
