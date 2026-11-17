@@ -212,15 +212,18 @@ class TranscriptionResponse:
         """
         self.normalize_speaker_labels()
         if self.segments:
-            return json.dumps([
-                {
+            out = []
+            for seg in self.segments:
+                item = {
                     'speaker': seg.speaker or 'Unknown Speaker',
                     'sentence': seg.text,
                     'start_time': seg.start_time,
                     'end_time': seg.end_time
                 }
-                for seg in self.segments
-            ])
+                if seg.words is not None:
+                    item['words'] = seg.words
+                out.append(item)
+            return json.dumps(out)
         # If no segments, return plain text (for non-diarized transcriptions)
         return self.text
 

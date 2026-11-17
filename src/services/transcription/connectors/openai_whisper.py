@@ -16,6 +16,7 @@ from ..base import (
     TranscriptionCapability,
     TranscriptionRequest,
     TranscriptionResponse,
+    TranscriptionSegment,
     ConnectorSpecifications,
 )
 from ..exceptions import TranscriptionError, ConfigurationError
@@ -92,13 +93,15 @@ class OpenAIWhisperConnector(BaseTranscriptionConnector):
             request: Standardized transcription request
 
         Returns:
-            TranscriptionResponse with plain text (no diarization)
+            TranscriptionResponse with segments and plain text (no diarization)
         """
         try:
             effective_model = self._effective_model(request)
             params = {
                 "model": effective_model,
                 "file": request.audio_file,
+                "response_format": "verbose_json",
+                "timestamp_granularities": ["segment"],
             }
 
             if request.language:
@@ -121,10 +124,111 @@ class OpenAIWhisperConnector(BaseTranscriptionConnector):
             logger.info(f"Sending request to Whisper API with model: {effective_model}")
             transcript = self.client.audio.transcriptions.create(**params)
 
+            # Robust parsing of response: handle TranscriptionVerbose, Transcription, dict, or str
+            text = ""
+            raw_segments = None
+            detected_language = None
+            duration = None
+
+            if isinstance(transcript, str):
+                text = transcript
+            elif isinstance(transcript, dict):
+                text = str(transcript.get("text") or "")
+                raw_segments = transcript.get("segments")
+                detected_language = transcript.get("language")
+                duration = transcript.get("duration")
+            elif hasattr(transcript, "text"):
+                text = str(getattr(transcript, "text", "") or "")
+                raw_segments = getattr(transcript, "segments", None)
+                detected_language = getattr(transcript, "language", None)
+                duration = getattr(transcript, "duration", None)
+            else:
+                text = ""
+                raw_segments = None
+                detected_language = None
+                duration = None
+
+            parsed_segments = []
+            if raw_segments and isinstance(raw_segments, list):
+                for seg in raw_segments:
+                    if isinstance(seg, dict):
+                        seg_text = seg.get("text")
+                        if seg_text is None:
+                            seg_text = seg.get("sentence", "")
+                        start = seg.get("start")
+                        if start is None:
+                            start = seg.get("start_time")
+                        end = seg.get("end")
+                        if end is None:
+                            end = seg.get("end_time")
+                        words = seg.get("words")
+                    else:
+                        seg_text = getattr(seg, "text", getattr(seg, "sentence", ""))
+                        start = getattr(seg, "start", getattr(seg, "start_time", None))
+                        end = getattr(seg, "end", getattr(seg, "end_time", None))
+                        words = getattr(seg, "words", None)
+
+                    try:
+                        start_time = float(start) if start is not None else None
+                    except (ValueError, TypeError):
+                        start_time = None
+                    try:
+                        end_time = float(end) if end is not None else None
+                    except (ValueError, TypeError):
+                        end_time = None
+
+                    parsed_words = None
+                    if isinstance(words, list):
+                        parsed_words = []
+                        for w in words:
+                            if isinstance(w, dict):
+                                parsed_words.append(w)
+                            elif hasattr(w, "model_dump"):
+                                try:
+                                    parsed_words.append(w.model_dump())
+                                except Exception:
+                                    parsed_words.append(vars(w))
+                            else:
+                                parsed_words.append({
+                                    "word": getattr(w, "word", ""),
+                                    "start": getattr(w, "start", None),
+                                    "end": getattr(w, "end", None),
+                                })
+
+                    parsed_segments.append(
+                        TranscriptionSegment(
+                            text=str(seg_text or ""),
+                            start_time=start_time,
+                            end_time=end_time,
+                            words=parsed_words,
+                        )
+                    )
+
+            if not text and parsed_segments:
+                text = " ".join(s.text for s in parsed_segments).strip()
+
+            try:
+                duration_sec = float(duration) if duration is not None else None
+            except (ValueError, TypeError):
+                duration_sec = None
+
+            raw_response = None
+            if hasattr(transcript, "model_dump"):
+                try:
+                    raw_response = transcript.model_dump()
+                except Exception:
+                    raw_response = None
+            elif isinstance(transcript, dict):
+                raw_response = transcript
+
             return TranscriptionResponse(
-                text=transcript.text,
+                text=text,
+                segments=parsed_segments if parsed_segments else None,
+                language=str(detected_language) if detected_language else None,
+                duration=duration_sec,
                 provider=self.PROVIDER_NAME,
-                model=effective_model
+                model=effective_model,
+                raw_response=raw_response,
             )
 
         except Exception as e:
