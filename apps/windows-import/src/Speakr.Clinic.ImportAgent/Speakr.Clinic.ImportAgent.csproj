@@ -4,4 +4,7 @@
     <RootNamespace>Speakr.Clinic.ImportAgent</RootNamespace>
     <Description>Clinic dictation import agent library. File import only.</Description>
   </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Speakr.Clinic.ImportAgent.Tests" />
+  </ItemGroup>
 </Project>

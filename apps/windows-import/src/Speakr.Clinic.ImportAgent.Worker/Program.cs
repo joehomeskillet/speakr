@@ -26,7 +26,8 @@ public static class Program
             var handler = HttpImportServer.CreateHandler(credential);
             return new HttpClient(handler, disposeHandler: true)
             {
-                BaseAddress = new Uri(options.ServerBaseUrl)
+                BaseAddress = options.RequireHttpsServer(),
+                Timeout = TimeSpan.FromSeconds(options.HttpTimeoutSeconds)
             };
         });
         builder.Services.AddSingleton<IImportServer>(services => new HttpImportServer(services.GetRequiredService<HttpClient>()));
@@ -38,7 +39,8 @@ public static class Program
                 options,
                 services.GetRequiredService<IImportServer>(),
                 services.GetRequiredService<ISecretStore>().GetSpoolKey(),
-                services.GetRequiredService<IImportLog>());
+                services.GetRequiredService<IImportLog>(),
+                services.GetRequiredService<ISecretStore>().GetIntentKey());
         });
         builder.Services.AddHostedService<ImportWorker>();
         builder.Build().Run();

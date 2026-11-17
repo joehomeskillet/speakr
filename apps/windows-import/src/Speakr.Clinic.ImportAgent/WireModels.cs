@@ -23,6 +23,14 @@ public sealed class ImportIntent
 
     [JsonPropertyName("post_step")]
     public string PostStep { get; set; } = "none";
+
+    // Not defined in clinic-api.openapi.json (the agent routes are not there at all). Client-side
+    // binding assumption, see README "Open contract gaps".
+    [JsonPropertyName("agent_id")]
+    public string AgentId { get; set; } = "";
+
+    [JsonPropertyName("signature")]
+    public string Signature { get; set; } = "";
 }
 
 public sealed class IntentList

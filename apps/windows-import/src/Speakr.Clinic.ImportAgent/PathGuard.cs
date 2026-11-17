@@ -7,6 +7,8 @@ public static class PathGuard
         fullPath = "";
         string root;
         string full;
+        if (HasForbiddenForm(candidatePath))
+            return false;
         try
         {
             root = Normalize(rootPath);
@@ -21,6 +23,29 @@ public static class PathGuard
             return false;
         fullPath = full;
         return true;
+    }
+
+    // Raw-form checks before GetFullPath, which on Windows would silently strip trailing dots and
+    // spaces and leaves device prefixes alone.
+    private static bool HasForbiddenForm(string raw)
+    {
+        if (raw.StartsWith(@"\\?\", StringComparison.Ordinal) || raw.StartsWith(@"\\.\", StringComparison.Ordinal)
+            || raw.StartsWith("//?/", StringComparison.Ordinal) || raw.StartsWith("//./", StringComparison.Ordinal))
+            return true;
+        var windows = OperatingSystem.IsWindows();
+        var tail = windows && raw.Length >= 2 && raw[1] == ':' ? raw[2..] : raw;
+        if (windows && tail.Contains(':', StringComparison.Ordinal))
+            return true;
+        foreach (var segment in raw.Split('/', '\\'))
+        {
+            if (segment.Length == 0 || segment == "." || segment == "..")
+                continue;
+            if (segment.EndsWith('.') || segment.EndsWith(' '))
+                return true;
+            if (windows && System.Text.RegularExpressions.Regex.IsMatch(segment, "~[0-9]"))
+                return true;
+        }
+        return false;
     }
 
     public static string Normalize(string path)
@@ -53,11 +78,31 @@ public static class PathGuard
             if (part == "..")
                 return true;
             cursor = Path.Combine(cursor, part);
-            if (!Path.Exists(cursor))
+            // Attributes, not Path.Exists: Exists follows links and reports a dangling link as absent.
+            FileAttributes attributes;
+            try
+            {
+                attributes = File.GetAttributes(cursor);
+            }
+            catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+            {
                 return false;
-            if (!IsReparse(cursor))
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return true;
+            }
+            if ((attributes & FileAttributes.ReparsePoint) == 0)
                 continue;
-            var target = File.ResolveLinkTarget(cursor, returnFinalTarget: true);
+            FileSystemInfo? target;
+            try
+            {
+                target = File.ResolveLinkTarget(cursor, returnFinalTarget: true);
+            }
+            catch (IOException)
+            {
+                return true;
+            }
             if (target is null)
                 return true;
             var resolved = target.FullName;
@@ -67,17 +112,5 @@ public static class PathGuard
             cursor = resolved;
         }
         return false;
-    }
-
-    private static bool IsReparse(string path)
-    {
-        try
-        {
-            return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return true;
-        }
     }
 }
