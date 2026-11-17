@@ -512,12 +512,10 @@ def test_paginated_text_search_treats_input_literally(owner):
     assert _search_ids(owner, f"{marker} 50%") & mine == {percent}
 
 
-def test_paginated_text_search_still_matches_title_transcript_and_notes(owner, other):
-    from src.models import InternalShare, SharedRecordingState
+def test_paginated_text_search_still_matches_title_transcript_and_notes(owner):
     marker = f"pos{uuid.uuid4().hex[:8]}"
     with _db():
         u = db.session.get(User, owner)
-        o = db.session.get(User, other)
         in_title = make_recording(u, title=f"meeting {marker}").id
         in_transcript = make_recording(
             u, title="t-only",
@@ -527,27 +525,11 @@ def test_paginated_text_search_still_matches_title_transcript_and_notes(owner, o
         noted = make_recording(u, title="n-only")
         noted.notes = f"remember {marker}"
         noted_id = noted.id
-        # Another user's recording shared with the owner, matched only by
-        # the owner's personal notes on it
-        shared = make_recording(o, title="shared-only")
-        shared_id = shared.id
-        db.session.add(InternalShare(recording_id=shared_id, owner_id=o.id,
-                                     shared_with_user_id=u.id, can_edit=False))
-        db.session.add(SharedRecordingState(recording_id=shared_id, user_id=u.id,
-                                            personal_notes=f"my note {marker}"))
         unrelated = make_recording(u, title="nothing here").id
         db.session.commit()
-    try:
-        with patch("src.app.ENABLE_INTERNAL_SHARING", True), \
-             patch.object(rec_module, "ENABLE_INTERNAL_SHARING", True):
-            ids = _search_ids(owner, marker)
-        assert {in_title, in_transcript, in_participants, noted_id, shared_id} <= ids
-        assert unrelated not in ids
-    finally:
-        with _db():
-            SharedRecordingState.query.filter_by(recording_id=shared_id).delete()
-            InternalShare.query.filter_by(recording_id=shared_id).delete()
-            db.session.commit()
+    ids = _search_ids(owner, marker)
+    assert {in_title, in_transcript, in_participants, noted_id} <= ids
+    assert unrelated not in ids
 
 
 def test_paginated_speaker_filter_percent_is_literal(owner):
@@ -800,7 +782,6 @@ def test_get_detail_owner_ok(owner):
     body = resp.get_json()
     assert body["id"] == rid
     assert body["is_owner"] is True
-    assert body["is_shared"] is False
 
 
 def test_get_detail_non_owner_denied(owner, other):

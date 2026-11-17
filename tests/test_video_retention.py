@@ -285,12 +285,6 @@ class TestSendFileConditional(unittest.TestCase):
         self.assertIn('mimetype=serve_mime,', content)
         self.assertIn('conditional=True,', content)
 
-    def test_shares_has_conditional(self):
-        """send_file in shares.py has conditional=True."""
-        content = self._read_file('src/api/shares.py')
-        self.assertIn('send_file(delivery.local_path, mimetype=serve_mime, conditional=True)', content)
-
-
 class TestFrontendTemplates(unittest.TestCase):
     """Test that frontend templates correctly switch between video and audio."""
 
@@ -302,7 +296,6 @@ class TestFrontendTemplates(unittest.TestCase):
         'templates/components/detail/desktop-bottom-player.html',
         'templates/components/detail/audio-player.html',
         'templates/modals/speaker-modal.html',
-        'templates/share.html',
     ]
 
     def _read_template(self, rel_path):

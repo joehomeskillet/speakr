@@ -457,7 +457,6 @@ def _default_log(log):
 
 def test_group_changes_log_ids_and_no_names_at_info(world, log):
     from src.models import Group, GroupMembership
-    import src.api.groups as groups_api
     prev = app.config.get("WTF_CSRF_ENABLED")
     app.config["WTF_CSRF_ENABLED"] = False
     s = uuid.uuid4().hex[:8]
@@ -470,17 +469,16 @@ def test_group_changes_log_ids_and_no_names_at_info(world, log):
     group_id = None
     try:
         client = _client_for(admin_id)
-        with patch.object(groups_api, "ENABLE_INTERNAL_SHARING", True):
-            created = client.post("/api/admin/groups", json={"name": f"{GROUP_NAME} {s}"})
-            assert created.status_code == 201, created.get_data(as_text=True)
-            group_id = created.get_json()["id"]
-            assert client.put(f"/api/admin/groups/{group_id}", json={"name": f"{GROUP_NEW_NAME} {s}"}).status_code == 200
-            assert client.post(f"/api/admin/groups/{group_id}/members",
-                               json={"user_id": member_id, "role": "member"}).status_code == 201
-            assert client.put(f"/api/admin/groups/{group_id}/members/{member_id}",
-                              json={"role": "admin"}).status_code == 200
-            assert client.delete(f"/api/admin/groups/{group_id}/members/{member_id}").status_code == 200
-            assert client.delete(f"/api/admin/groups/{group_id}").status_code == 200
+        created = client.post("/api/admin/groups", json={"name": f"{GROUP_NAME} {s}"})
+        assert created.status_code == 201, created.get_data(as_text=True)
+        group_id = created.get_json()["id"]
+        assert client.put(f"/api/admin/groups/{group_id}", json={"name": f"{GROUP_NEW_NAME} {s}"}).status_code == 200
+        assert client.post(f"/api/admin/groups/{group_id}/members",
+                           json={"user_id": member_id, "role": "member"}).status_code == 201
+        assert client.put(f"/api/admin/groups/{group_id}/members/{member_id}",
+                          json={"role": "admin"}).status_code == 200
+        assert client.delete(f"/api/admin/groups/{group_id}/members/{member_id}").status_code == 200
+        assert client.delete(f"/api/admin/groups/{group_id}").status_code == 200
     finally:
         app.config["WTF_CSRF_ENABLED"] = prev
         with app.app_context():

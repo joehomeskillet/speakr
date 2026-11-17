@@ -36,18 +36,18 @@ from src.models import Group, GroupMembership, Recording, User  # noqa: E402
 
 PASSWORD_HASH = bcrypt.generate_password_hash('Passw0rd!').decode()
 
-# name: (username, email, is_admin, can_share_publicly,
+# name: (username, email, is_admin,
 #        sizes of recordings with audio, sizes of recordings with deleted audio,
 #        age of the last use or None)
 HOUR = timedelta(hours=1)
 PEOPLE = {
-    'A': ('delta', 'm', False, True, [100, 200], [5000], HOUR),
-    'B': ('Alpha', 'Z', True, False, [1000], [], None),
-    'C': ('charlie', 'b', None, None, [], [], timedelta(days=200)),
-    'D': ('Bravo', 'Q', False, True, [None, 50], [], HOUR),
-    'E': ('echo', 'a', True, True, [], [700], None),
-    'F': ('foxtrot', 'k', False, False, [], [], timedelta(days=3)),
-    'G': ('golf', 'g', False, True, [], [], None),
+    'A': ('delta', 'm', False, [100, 200], [5000], HOUR),
+    'B': ('Alpha', 'Z', True, [1000], [], None),
+    'C': ('charlie', 'b', None, [], [], timedelta(days=200)),
+    'D': ('Bravo', 'Q', False, [None, 50], [], HOUR),
+    'E': ('echo', 'a', True, [], [700], None),
+    'F': ('foxtrot', 'k', False, [], [], timedelta(days=3)),
+    'G': ('golf', 'g', False, [], [], None),
 }
 DISPLAYED = {  # name: (recordings_count, storage_used)
     'A': (3, 300), 'B': (1, 1000), 'C': (0, 0), 'D': (2, 50),
@@ -60,7 +60,6 @@ ORDERS = {
     'username': ('BDCAEFG', 'GFEACDB'),
     'email': ('ECGFADB', 'BDAFGCE'),
     'is_admin': ('ACDFGBE', 'BEACDFG'),
-    'can_share_publicly': ('BCFADEG', 'ADEGBCF'),
     'recordings_count': ('CFGBEDA', 'ADBECFG'),
     'storage_used': ('CEFGDAB', 'BADCEFG'),
     'last_active': ('BEGCFAD', 'ADFCBEG'),
@@ -102,7 +101,7 @@ def world():
         db.session.add(admin)
         db.session.commit()
         users, recording_ids = {}, []
-        for name, (username, email, is_admin, share, live, removed, age) in PEOPLE.items():
+        for name, (username, email, is_admin, live, removed, age) in PEOPLE.items():
             user = User(username=f'{username}{tag}', email=f'{email}{tag}@local.test',
                         password=PASSWORD_HASH,
                         last_seen_at=(now - age) if age is not None else None)
@@ -110,7 +109,6 @@ def world():
             db.session.commit()
             # Set after the insert: the column defaults would replace a None.
             user.is_admin = is_admin
-            user.can_share_publicly = share
             db.session.commit()
             users[name] = user
             for size, deleted_at in [(s, None) for s in live] + [(s, now) for s in removed]:

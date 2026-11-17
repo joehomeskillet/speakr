@@ -108,7 +108,6 @@ async function mountGlobalHeader() {
                 toggleDarkMode,
                 openShortcutsHelp,
                 switchToUploadView: () => openInMainApp('upload=1'),
-                openSharesList: () => openInMainApp('open=shares'),
                 openColorSchemeModal: () => openInMainApp('open=appearance'),
                 // Installing the PWA is offered from the main app only.
                 showInstallButton: false,

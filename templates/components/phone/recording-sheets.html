@@ -109,14 +109,8 @@
     </button>
 
     <template v-if="!selectedRecording.incognito">
-        <div v-if="(!selectedRecording.is_shared || (selectedRecording.share_info && selectedRecording.share_info.can_reshare)) || !selectedRecording.audio_deleted_at"
+        <div v-if="!selectedRecording.audio_deleted_at"
              class="ph-group" v-text="t('phone.shareExport')"></div>
-        <button v-if="!selectedRecording.is_shared || (selectedRecording.share_info && selectedRecording.share_info.can_reshare)"
-                type="button" class="ph-row" data-phone-action="share"
-                @click="closePhoneSheet(); openUnifiedShareModal(selectedRecording)">
-            <i class="fas fa-share-alt" aria-hidden="true"></i><span class="ph-row__label" v-text="t('buttons.shareRecording')"></span>
-            <span v-if="!selectedRecording.is_shared && selectedRecording.shared_with_count > 0" class="ph-row__val" v-text="selectedRecording.shared_with_count"></span>
-        </button>
         <a v-if="!selectedRecording.audio_deleted_at" class="ph-row" data-phone-action="download-audio"
            :href="'/audio/' + selectedRecording.id + '?download=true'" download @click="closePhoneSheet()">
             <i class="fas fa-download" aria-hidden="true"></i><span class="ph-row__label" v-text="t('buttons.downloadAudio')"></span>
@@ -169,7 +163,6 @@
         <div v-if="selectedRecording.audio_duration || selectedRecording.duration"><dt v-text="t('metadata.duration')"></dt><dd v-text="formatDuration(selectedRecording.audio_duration || selectedRecording.duration)"></dd></div>
         <div v-if="selectedRecording.file_size"><dt v-text="t('metadata.fileSize')"></dt><dd v-text="formatFileSize(selectedRecording.file_size)"></dd></div>
         <div v-if="selectedRecording.original_filename" data-phone-info-filename><dt v-text="t('metadata.fileName')"></dt><dd dir="auto" v-text="selectedRecording.original_filename"></dd></div>
-        <div v-if="selectedRecording.is_shared"><dt v-text="t('unifiedShareModal.owner')"></dt><dd dir="auto" v-text="selectedRecording.owner_username || t('sharing.unknown')"></dd></div>
         <div><dt v-text="t('summary.participants')"></dt><dd dir="auto" v-text="selectedRecording.participants || t('help.noParticipants')"></dd></div>
         <div v-if="foldersEnabled && selectedRecording.folder_id && !selectedRecording.incognito"><dt v-text="t('phone.folder')"></dt><dd dir="auto" v-text="getFolderName(selectedRecording.folder_id)"></dd></div>
         <div v-if="getRecordingTags(selectedRecording).length > 0"><dt v-text="t('sidebar.tags')"></dt><dd dir="auto" v-text="getRecordingTags(selectedRecording).map(tag => tag.name).join(', ')"></dd></div>

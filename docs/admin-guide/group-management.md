@@ -7,38 +7,7 @@ nav_order: 6
 
 # Group Management
 
-Groups enable organized collaboration in multi-user Speakr instances by grouping users and automating recording access through group-specific tags. This powerful feature reduces administrative overhead while maintaining security and control over content access.
-
-## Prerequisites
-
-Before enabling groups, ensure internal sharing is configured. Groups build on Speakr's internal sharing infrastructure to automatically grant access when users apply group tags.
-
-### Required Configuration
-
-Add these settings to your `.env` file:
-
-```bash
-# Enable internal sharing (required for groups)
-ENABLE_INTERNAL_SHARING=true
-
-# Show the owner's username on shared recordings
-SHOW_USERNAMES_IN_UI=true
-
-# Who users can find by part of a username when sharing
-USER_SEARCH_SCOPE=groups    # everyone, groups or exact
-```
-
-After modifying `.env`, restart your Speakr instance for changes to take effect. The Groups tab will appear in the admin dashboard once internal sharing is enabled.
-
-### Privacy Considerations
-
-Two settings affect the entire instance. `SHOW_USERNAMES_IN_UI` controls whether the owner's username is displayed on recordings shared with a user. `USER_SEARCH_SCOPE` controls who a user can find in the share window by typing part of a username:
-
-- `everyone`: any account. This suits small, trusted instances where everyone knows each other.
-- `groups`: only people who share a group with the user. Anyone else is found by full username or full email address.
-- `exact`: nobody. The user types the full username or the full email address of the person.
-
-At every level the search starts at two characters and lists up to ten matches, so the full list of accounts is never loaded. An email address is matched only when typed in full, and the results show usernames only. Without `USER_SEARCH_SCOPE`, the level is `everyone` when usernames are shown and `exact` when they are hidden. Group functionality works identically at every level. See [Who Users Can Find](system-settings.md#who-users-can-find).
+Groups group users in a multi-user Speakr instance. Group tags and group folders belong to a group and are managed by its admins.
 
 ## Creating and Managing Groups
 
@@ -100,7 +69,7 @@ Click the red user-times icon next to any member to remove them from the group. 
 - They lose access to the recordings shared with them through the group's tags and folders
 - Their personal notes on group recordings are preserved
 
-A recording the owner shared with them by hand stays shared, as does one they still have through a tag or folder of another group.
+A recording they own stays theirs. A tag or folder of another group is unchanged.
 
 ### Deleting Groups
 
@@ -111,13 +80,12 @@ Click the red trash icon next to a group to delete it entirely. A confirmation d
 - Removes all group memberships
 - Deletes all group tags (via database cascade)
 - Preserves all recordings (including previously group-tagged ones)
-- Removes the internal shares made through the group's tags and folders
 
-Group deletion is irreversible. Once deleted, the group structure is gone and members lose the access they had through the group. Recordings and shares made by hand stay.
+Group deletion is irreversible. Once deleted, the group structure is gone. Recordings stay.
 
 ## Group Tags
 
-Group tags power automatic sharing within groups. Unlike personal tags that organize individual content, group tags trigger access grants across all group members whenever applied.
+Group tags belong to a group. Unlike personal tags, they are managed by the group's admins.
 
 ### Creating Group Tags
 
@@ -245,18 +213,6 @@ The database enforces these boundaries at the API level. Even if a group admin c
 ### Environment Variables
 
 ```bash
-# Internal Sharing (Required)
-ENABLE_INTERNAL_SHARING=true|false
-
-# Username Display
-SHOW_USERNAMES_IN_UI=true|false
-
-# Who users can find when sharing
-USER_SEARCH_SCOPE=everyone|groups|exact
-
-# Public Sharing Control (Affects group members' public sharing)
-ENABLE_PUBLIC_SHARING=true|false
-
 # Retention Settings (Groups can override)
 ENABLE_AUTO_DELETION=true|false
 GLOBAL_RETENTION_DAYS=90
@@ -288,45 +244,20 @@ Groups use several database tables that work together:
 - `team_id`: References Group (null for personal tags)
 - `retention_days`: Custom retention override (null uses global)
 - `protect_from_deletion`: Boolean protection flag
-- `auto_share_on_apply`: Boolean (share with all members)
-- `share_with_team_lead`: Boolean (share with group admins only)
 
-Cascade deletion is configured so deleting a group deletes its tags and memberships, but preserves recordings and shares.
+Cascade deletion is configured so deleting a group deletes its tags and memberships, but preserves recordings.
 
 ## Troubleshooting
 
-### Groups Tab Not Visible
-
-**Cause**: Internal sharing not enabled or not configured correctly.
-
-**Solution**:
-
-1. Check `.env` contains `ENABLE_INTERNAL_SHARING=true`
-2. Restart Speakr after `.env` changes
-3. Clear browser cache and reload
-4. Check application logs for startup errors
-
 ### Users Can't See Group Tags
 
-**Cause**: User not added to group, or internal sharing disabled.
+**Cause**: User not added to the group.
 
 **Solution**:
 
 1. Verify user is listed in group membership
-2. Confirm `ENABLE_INTERNAL_SHARING=true` in `.env`
-3. Check user is logged in (group tags hidden for anonymous users)
-4. Refresh the page to load updated tag lists
-
-### Auto-Sharing Not Working
-
-**Cause**: Group tag misconfigured or internal sharing disabled.
-
-**Solution**:
-
-1. Edit the group tag and verify "Share tagged recordings with all group members" or "Share tagged recordings with group admins" is enabled
-2. Confirm `ENABLE_INTERNAL_SHARING=true` in `.env`
-3. Check application logs when applying tags for sharing errors
-4. Try manually sharing the recording to verify sharing infrastructure works
+2. Check user is logged in (group tags hidden for anonymous users)
+3. Refresh the page to load updated tag lists
 
 ### Group Admin Can't Access Admin Interface
 
@@ -414,8 +345,6 @@ Document each group's admins in the group description or external documentation.
 
 Group tags automatically appear in Inquire Mode's available filters, enabling group-scoped semantic search. Users can search for "budget discussions" and filter to just their project group, finding relevant conversations without noise from other groups.
 
-Recordings shared via group tags are included in semantic search results. The vector store indexes all accessible recordings, meaning group content becomes part of users' searchable knowledge base automatically.
-
 ### Retention and Auto-Deletion
 
 Tag-level retention policies integrate with Speakr's auto-deletion system. The nightly retention check evaluates each recording's tags to determine applicable retention periods:
@@ -426,18 +355,9 @@ Tag-level retention policies integrate with Speakr's auto-deletion system. The n
 
 This cascading system lets groups set specific policies while maintaining instance-wide defaults for untagged content.
 
-### Public Sharing
-
-Group membership doesn't affect public sharing capabilities. Users' ability to create public share links is controlled by:
-
-1. Global `ENABLE_PUBLIC_SHARING` setting
-2. Per-user `can_share_publicly` permission (if global is enabled)
-
-Group members can create public links for group recordings if they have appropriate permissions, enabling external stakeholder communication while maintaining group-internal collaboration.
-
 ---
 
-Groups transform multi-user Speakr instances into collaborative platforms where information flows automatically to relevant people. Proper configuration and management ensure security while enabling seamless knowledge sharing.
+Groups group users and give their admins group tags and group folders.
 
 For user-focused group documentation, see the [Group Collaboration](../user-guide/groups.md) guide.
 

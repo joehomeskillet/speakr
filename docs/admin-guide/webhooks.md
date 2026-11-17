@@ -20,8 +20,6 @@ or programmatically via the `/api/v1/webhooks` API.
 | `recording.summary.failed` | Summary failed permanently | `recording_id`, `title`, `error` |
 | `recording.updated` | A change a user can see, from the web app or the API (see below) | `recording_id`, `title`, `fields_changed` (list of strings), `updated_at` |
 | `recording.deleted` | Recording removed | `recording_id`, `title` |
-| `recording.share.created` | A public share link was created | `recording_id`, `share_id`, `share_summary`, `share_notes` |
-| `recording.share.revoked` | A public share link was revoked | `recording_id`, `share_id`, `share_summary`, `share_notes` |
 | `webhook.test` | Synthetic event from the **Test** button or `POST /api/v1/webhooks/{id}/test` | `reason`, `webhook_id` |
 
 All events listed above fire in the current backend. The

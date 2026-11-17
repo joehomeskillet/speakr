@@ -1936,8 +1936,6 @@ These are the event types a webhook can subscribe to:
 | `recording.summary.failed` | Summary generation fails |
 | `recording.updated` | A recording is updated |
 | `recording.deleted` | A recording is deleted |
-| `recording.share.created` | A public share link is created |
-| `recording.share.revoked` | A public share link is revoked |
 | `webhook.test` | A manual test delivery (see Test Webhook below) |
 
 The `data` of most recording events holds the `title` of the recording, and `recording.created` also holds `original_filename`. An administrator can leave both fields out of every payload (`webhook_omit_titles`); a receiver then identifies the recording by `recording_id`. Delivery records are removed after `webhook_delivery_retention_days` (default 30 days), so an older delivery is no longer listed and cannot be replayed.

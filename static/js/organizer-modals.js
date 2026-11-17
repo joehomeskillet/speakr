@@ -100,8 +100,6 @@
         const groupId = formData.get('group_id');
         if (groupId) {
             tagData.group_id = parseInt(groupId);
-            tagData.auto_share_on_apply = document.getElementById('tagAutoShareOnApply')?.checked || false;
-            tagData.share_with_group_lead = document.getElementById('tagShareWithGroupLead')?.checked || false;
         } else {
             tagData.group_id = null;
         }
@@ -137,10 +135,6 @@
         const groupIdEl = document.getElementById('folderGroupId');
         if (groupIdEl && groupIdEl.value) {
             folderData.group_id = parseInt(groupIdEl.value);
-            const autoShareEl = document.getElementById('folderAutoShareOnApply');
-            folderData.auto_share_on_apply = autoShareEl ? autoShareEl.checked : true;
-            const shareLeadEl = document.getElementById('folderShareWithGroupLead');
-            folderData.share_with_group_lead = shareLeadEl ? shareLeadEl.checked : true;
         }
 
         // Parent folder (#585). "None" is sent as null, which makes the

@@ -26,7 +26,7 @@ from src.models import User
 app.config["WTF_CSRF_ENABLED"] = False
 
 # Markers only the shared template has.
-SHARED_MARKERS = ('data-notifications-toggle', 'openSharesList', 'openColorSchemeModal', 'switchToUploadView')
+SHARED_MARKERS = ('data-notifications-toggle', 'openColorSchemeModal', 'switchToUploadView')
 
 
 class _Client(FlaskClient):

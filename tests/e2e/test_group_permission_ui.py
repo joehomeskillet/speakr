@@ -151,7 +151,7 @@ def world():
         w = World(browser)
         admin = w.session("admin")
         admin.open("/admin")
-        for key, value, kind in (("enable_internal_sharing", "true", "boolean"), (SETTING, "admins", "string")):
+        for key, value, kind in ((SETTING, "admins", "string"),):
             r = admin.api("POST", "/admin/settings", {"key": key, "value": value, "setting_type": kind})
             assert r.ok, f"setting {key}: {r.status} {r.text()}"
         for who in ("a", "b", "c", "d"):
@@ -187,8 +187,6 @@ def _teardown(w):
     for user in w.users.values():
         admin.api("DELETE", f"/admin/users/{user['id']}")
     admin.api("POST", "/admin/settings", {"key": SETTING, "value": "admins", "setting_type": "string"})
-    # An empty value lets the .env value apply again
-    admin.api("POST", "/admin/settings", {"key": "enable_internal_sharing", "value": "", "setting_type": "boolean"})
 
 
 # --- Admin page helpers ---
