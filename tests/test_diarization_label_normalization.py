@@ -5,7 +5,7 @@ diarization_label_map() in src/utils/speaker_labels.py brings them to one
 form, and TranscriptionResponse.to_storage_format() applies it to every
 result before it is stored. The tests cover the mapping, each connector's
 own labels through the stored result, and the paths that store a result:
-upload and reprocessing (one function), chunked files and incognito mode.
+upload and reprocessing (one function) and chunked files.
 
 SHARED-DB: assertions are scoped to the rows the test made.
 """
