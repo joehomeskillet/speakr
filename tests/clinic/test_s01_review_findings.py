@@ -207,11 +207,11 @@ def test_7_registration_follows_the_setting_when_clinic_mode_is_off(clinic_off, 
         assert registration_enabled() is True
 
 
-# --- 8, 9: disabled share routes -------------------------------------------------------
+# --- 8, 9: disabled group routes -------------------------------------------------------
 
 @pytest.mark.parametrize('endpoint', sorted(
-    e for e, r in ROUTE_POLICY.items() if r.kind == 'disabled' and r.feature in ('public_sharing', 'internal_sharing')))
-def test_8_share_routes_are_denied_before_any_id_is_read(clinic_on, world, endpoint):
+    e for e, r in ROUTE_POLICY.items() if r.kind == 'disabled' and r.feature == 'internal_sharing'))
+def test_8_group_routes_are_denied_before_any_id_is_read(clinic_on, world, endpoint):
     from test_s01_routes import _url
     url, method = _url(endpoint, world, 'rec_a')
     for args in ({'query_string': {'recording_id': 'not-a-number'}}, {'json': {'recording_ids': [None, 'x']}},
@@ -222,11 +222,11 @@ def test_8_share_routes_are_denied_before_any_id_is_read(clinic_on, world, endpo
             assert _code(response) == 'clinic_feature_disabled'
 
 
-def test_9_a_share_route_that_gets_enabled_without_a_recording_id_is_refused(clinic_on, world, features_open):
-    """public_id / share_id name no recording: with the lock lifted the guard
+def test_9_a_group_route_that_gets_enabled_without_a_recording_id_is_refused(clinic_on, world, features_open):
+    """group_id names no recording: with the lock lifted the guard
     still cannot decide, so it refuses instead of letting the request through."""
     from test_s01_routes import _url
-    for endpoint in ('shares.view_shared_recording', 'shares.update_share'):
+    for endpoint in ('groups.get_team', 'groups.update_team'):
         url, method = _url(endpoint, world)
         response = _guard(world['user_a'], method, url, json={})
         assert response is not None and _code(response) == 'clinic_feature_unsupported', endpoint

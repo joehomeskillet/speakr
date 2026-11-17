@@ -258,8 +258,6 @@ def create_tag():
         default_transcription_model=data.get('default_transcription_model'),
         protect_from_deletion=protect_from_deletion,
         retention_days=retention_days,
-        auto_share_on_apply=data.get('auto_share_on_apply', True) if group_id else True,
-        share_with_group_lead=data.get('share_with_group_lead', True) if group_id else True,
         naming_template_id=naming_template_id,
         export_template_id=export_template_id,
         is_auto_process=is_auto_process,
@@ -317,8 +315,7 @@ def update_tag(tag_id):
             return jsonify(api_error('tag_edit_denied')), 403
 
     data = request.get_json()
-    from src.services.auto_shares import regroup_error, regroup_name_error, sharing_state, sync_source_shares
-    before = sharing_state(tag)
+    from src.services.group_assign import regroup_error, regroup_name_error
 
     if 'name' in data:
         # Check if new name conflicts with another tag
@@ -380,14 +377,6 @@ def update_tag(tag_id):
             # Regular retention period or null (use global)
             tag.protect_from_deletion = False
             tag.retention_days = retention_days if retention_days else None
-    if 'auto_share_on_apply' in data:
-        # Only applicable to group tags
-        if tag.group_id:
-            tag.auto_share_on_apply = bool(data['auto_share_on_apply'])
-    if 'share_with_group_lead' in data:
-        # Only applicable to group tags
-        if tag.group_id:
-            tag.share_with_group_lead = bool(data['share_with_group_lead'])
     if 'naming_template_id' in data:
         naming_template_id = data['naming_template_id']
         if naming_template_id:
@@ -426,8 +415,6 @@ def update_tag(tag_id):
     try:
         # A name clash surfaces here; the settings lookup below would hide it
         db.session.flush()
-        # A new group or new share settings: the shares follow (#570, #586)
-        sync_source_shares(tag, before, sharing_enabled=_self.ENABLE_INTERNAL_SHARING)
         db.session.commit()
     except IntegrityError as e:
         db.session.rollback()
@@ -480,11 +467,7 @@ def delete_tag(tag_id):
         if user:
             _remove_auto_process_folder(tag, user)
 
-    recording_ids = [rt.recording_id for rt in tag.recording_associations]
     db.session.delete(tag)
-    # Shares the tag made end with it (#570, #582)
-    from src.services.auto_shares import drop_stale_auto_shares
-    drop_stale_auto_shares(recording_ids=recording_ids)
     db.session.commit()
     return jsonify({'success': True})
 
@@ -494,9 +477,6 @@ def delete_tag(tag_id):
 @login_required
 def create_group_tag(group_id):
     """Create a group-scoped tag (group admins only)."""
-    if not _self.ENABLE_INTERNAL_SHARING:
-        return jsonify(api_error('group_tags_require_internal_sharing')), 403
-
     # Verify team exists
     team = db.session.get(Group, group_id)
     if not team:
@@ -562,8 +542,6 @@ def create_group_tag(group_id):
         default_transcription_model=data.get('default_transcription_model'),
         protect_from_deletion=data.get('protect_from_deletion', False),
         retention_days=data.get('retention_days'),
-        auto_share_on_apply=data.get('auto_share_on_apply', True),  # Default to True for group tags
-        share_with_group_lead=data.get('share_with_group_lead', True),  # Default to True for group tags
         naming_template_id=naming_template_id,
         export_template_id=export_template_id
     )
@@ -610,7 +588,6 @@ def get_group_tags(group_id):
 from src.utils.system_settings import apply_hot_settings
 _SYSTEM_SETTING_MAP = {
     "USERS_CAN_DELETE": ('users_can_delete', 'USERS_CAN_DELETE', True),
-    "ENABLE_INTERNAL_SHARING": ('enable_internal_sharing', 'ENABLE_INTERNAL_SHARING', False),
     "ENABLE_AUTO_DELETION": ('enable_auto_deletion', 'ENABLE_AUTO_DELETION', False),
 }
 _self, __getattr__ = apply_hot_settings(__name__, _SYSTEM_SETTING_MAP)

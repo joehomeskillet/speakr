@@ -12,7 +12,7 @@ from src.database import db
 
 
 class Group(db.Model):
-    """Groups for organizing users and sharing recordings."""
+    """Groups for organizing users."""
 
     __tablename__ = 'group'
 
@@ -118,10 +118,6 @@ class Folder(db.Model):
     protect_from_deletion = db.Column(db.Boolean, default=False)  # Exempt recordings in folder from auto-deletion
     retention_days = db.Column(db.Integer, nullable=True)  # Folder-specific retention override
 
-    # Group folder settings
-    auto_share_on_apply = db.Column(db.Boolean, default=True)  # Auto-share recording with group when moved to folder
-    share_with_group_lead = db.Column(db.Boolean, default=True)  # Share with group admins when moved to folder
-
     # Naming template for recordings in this folder
     naming_template_id = db.Column(db.Integer, db.ForeignKey('naming_template.id', ondelete='SET NULL'), nullable=True)
 
@@ -186,8 +182,6 @@ class Folder(db.Model):
             'default_transcription_model': self.default_transcription_model,
             'protect_from_deletion': self.protect_from_deletion,
             'retention_days': self.retention_days,
-            'auto_share_on_apply': self.auto_share_on_apply,
-            'share_with_group_lead': self.share_with_group_lead,
             'naming_template_id': self.naming_template_id,
             'naming_template_name': self.naming_template.name if self.naming_template else None,
             'export_template_id': self.export_template_id,
@@ -243,10 +237,6 @@ class Tag(db.Model):
     protect_from_deletion = db.Column(db.Boolean, default=False)  # Exempt tagged recordings from auto-deletion
     retention_days = db.Column(db.Integer, nullable=True)  # Group-specific retention override (overrides global)
 
-    # Group tag settings
-    auto_share_on_apply = db.Column(db.Boolean, default=True)  # Auto-share recording with group when this tag is applied
-    share_with_group_lead = db.Column(db.Boolean, default=True)  # Share with group admins when this tag is applied
-
     # Naming template for recordings with this tag
     naming_template_id = db.Column(db.Integer, db.ForeignKey('naming_template.id', ondelete='SET NULL'), nullable=True)
 
@@ -301,8 +291,6 @@ class Tag(db.Model):
             'default_transcription_model': self.default_transcription_model,
             'protect_from_deletion': self.protect_from_deletion,
             'retention_days': self.retention_days,
-            'auto_share_on_apply': self.auto_share_on_apply,
-            'share_with_group_lead': self.share_with_group_lead,
             'naming_template_id': self.naming_template_id,
             'naming_template_name': self.naming_template.name if self.naming_template else None,
             'export_template_id': self.export_template_id,

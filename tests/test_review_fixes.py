@@ -13,7 +13,6 @@ SHARED-DB: every test uses its own users and removes its recordings.
 """
 
 import json
-from contextlib import ExitStack
 import os
 import sys
 import uuid
@@ -28,24 +27,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.app import app, db
 from src.models import User, Recording, Speaker, SpeakerVoiceSample, SystemSetting, ProcessingJob
-from src.models.sharing import InternalShare, SharedRecordingState
 from src.services import voice_profiles as vp
 from src.services.recording_state import parse_archived_flag
 
 app.config["WTF_CSRF_ENABLED"] = False
 
 
-def _internal_sharing_on():
-    """Enable internal sharing for the test, whatever the environment says.
-
-    Each module copies ENABLE_INTERNAL_SHARING at import time; CI has no .env,
-    so sharing is off there unless the tests switch it on in every copy.
-    """
-    stack = ExitStack()
-    for name, module in list(sys.modules.items()):
-        if name.startswith("src") and module is not None and hasattr(module, "ENABLE_INTERNAL_SHARING"):
-            stack.enter_context(patch.object(module, "ENABLE_INTERNAL_SHARING", True))
-    return stack
 RNG = np.random.default_rng(11)
 DIM = 256
 _created = []
@@ -72,15 +59,13 @@ class _Client(FlaskClient):
 
 @pytest.fixture
 def ctx():
-    with app.app_context(), _internal_sharing_on():
+    with app.app_context():
         saved = {k: SystemSetting.get_setting(k, None) for k in (vp.SETTING_CURRENT_SPACE, vp.SETTING_LEGACY_SPACE)}
         vp._calibration_cache.clear()
         yield
         db.session.rollback()
         for rec_id in _created:
             SpeakerVoiceSample.query.filter_by(recording_id=rec_id).update({'recording_id': None})
-            InternalShare.query.filter_by(recording_id=rec_id).delete()
-            SharedRecordingState.query.filter_by(recording_id=rec_id).delete()
             ProcessingJob.query.filter_by(recording_id=rec_id).delete()
             Recording.query.filter_by(id=rec_id).delete()
         db.session.commit()
@@ -123,12 +108,6 @@ def _client(user):
     return c
 
 
-def _share(rec, owner, other, can_edit=True):
-    db.session.add(InternalShare(recording_id=rec.id, owner_id=owner.id,
-                                 shared_with_user_id=other.id, can_edit=can_edit))
-    db.session.commit()
-
-
 def _save_names(user, rec, mapping):
     body = {"speaker_map": {k: {"name": v} for k, v in mapping.items()}, "regenerate_summary": False}
     with patch("src.services.speaker_snippets.create_speaker_snippets", return_value=0):
@@ -139,44 +118,6 @@ def _save_names(user, rec, mapping):
 
 def _samples(user, rec):
     return {s.label: s for s in SpeakerVoiceSample.query.filter_by(user_id=user.id, recording_id=rec.id).all()}
-
-
-# ------------------------------------------------ 1. shared editor's save
-
-def test_shared_editors_save_leaves_the_owners_samples(ctx):
-    owner, editor = _user(), _user()
-    rec = _recording(owner, {"SPEAKER_00": person(), "SPEAKER_01": person()})
-    _save_names(owner, rec, {"SPEAKER_00": "Alice", "SPEAKER_01": "Ben"})
-    owners = _samples(owner, rec)
-    assert set(owners) == {"SPEAKER_00", "SPEAKER_01"}
-    alice_id = owners["SPEAKER_00"].speaker_id
-
-    _share(rec, owner, editor)
-    _save_names(editor, rec, {"Alice": "Alice Ng"})
-
-    owners = _samples(owner, rec)
-    assert set(owners) == {"SPEAKER_00", "SPEAKER_01"}
-    assert owners["SPEAKER_00"].speaker_id == alice_id
-    editors = _samples(editor, rec)
-    assert set(editors) == {"SPEAKER_00"}
-    assert db.session.get(Speaker, editors["SPEAKER_00"].speaker_id).user_id == editor.id
-
-
-def test_sample_list_hides_titles_of_recordings_no_longer_shared(ctx):
-    owner, editor = _user(), _user()
-    rec = _recording(owner, {"SPEAKER_00": person()})
-    _share(rec, owner, editor)
-    _save_names(editor, rec, {"SPEAKER_00": "Dana"})
-    speaker = Speaker.query.filter_by(user_id=editor.id, name="Dana").first()
-
-    body = _client(editor).get(f"/speakers/{speaker.id}/voice_samples").get_json()
-    assert body["samples"][0]["recording_title"] == rec.title
-
-    InternalShare.query.filter_by(recording_id=rec.id).delete()
-    db.session.commit()
-    body = _client(editor).get(f"/speakers/{speaker.id}/voice_samples").get_json()
-    assert body["samples"][0]["recording_title"] is None
-    assert body["samples"][0]["recording_id"] is None
 
 
 # --------------------------------------------------- 2. rename everywhere
@@ -280,21 +221,6 @@ def test_parse_archived_flag(value, expected):
     assert parse_archived_flag(value) is expected
 
 
-def test_api_v1_archive_by_a_shared_editor_is_personal(ctx):
-    owner, editor = _user(), _user()
-    rec = _recording(owner)
-    _share(rec, owner, editor)
-
-    r = _client(editor).patch(f"/api/v1/recordings/{rec.id}", json={"is_archived": True})
-    assert r.status_code == 200, r.get_data(as_text=True)
-    assert r.get_json()["recording"]["is_archived"] is True
-    db.session.expire_all()
-    assert not db.session.get(Recording, rec.id).is_archived
-
-    assert _client(editor).get(f"/api/v1/recordings/{rec.id}").get_json()["is_archived"] is True
-    assert _client(owner).get(f"/api/v1/recordings/{rec.id}").get_json()["is_archived"] is False
-
-
 def test_api_v1_archive_parses_strings_and_rejects_junk(ctx):
     user = _user()
     rec = _recording(user)
@@ -310,19 +236,6 @@ def test_api_v1_archive_parses_strings_and_rejects_junk(ctx):
     assert r.status_code == 200, r.get_data(as_text=True)
     db.session.expire_all()
     assert db.session.get(Recording, rec.id).is_archived is True
-
-
-def test_api_v1_batch_archive_by_a_shared_editor_is_personal(ctx):
-    owner, editor = _user(), _user()
-    rec = _recording(owner)
-    _share(rec, owner, editor)
-    r = _client(editor).patch("/api/v1/recordings/batch",
-                              json={"recording_ids": [rec.id], "updates": {"is_archived": True}})
-    assert r.status_code == 200, r.get_data(as_text=True)
-    db.session.expire_all()
-    assert not db.session.get(Recording, rec.id).is_archived
-    state = SharedRecordingState.query.filter_by(recording_id=rec.id, user_id=editor.id).first()
-    assert state is not None and state.is_archived
 
 
 # ------------------------------------------------ 5. calibration

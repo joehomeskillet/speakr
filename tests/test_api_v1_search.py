@@ -19,7 +19,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.app import app, db
-from src.models import APIToken, Recording, RecordingTag, SharedRecordingState, Tag, User
+from src.models import APIToken, Recording, RecordingTag, Tag, User
 from src.utils.token_auth import hash_token
 
 NEW_KEYS = [{"speaker": "Dana", "sentence": "Welcome back everyone.", "start_time": 0.0, "end_time": 3.0},
@@ -64,7 +64,6 @@ def world():
         users = [ids["me"], ids["other"]]
         rec_ids = [ids[k] for k in ("sync", "old", "plain", "theirs")]
         RecordingTag.query.filter(RecordingTag.recording_id.in_(rec_ids)).delete(synchronize_session=False)
-        SharedRecordingState.query.filter(SharedRecordingState.recording_id.in_(rec_ids)).delete(synchronize_session=False)
         Recording.query.filter(Recording.id.in_(rec_ids)).delete(synchronize_session=False)
         Tag.query.filter(Tag.user_id.in_(users)).delete(synchronize_session=False)
         APIToken.query.filter(APIToken.user_id.in_(users)).delete(synchronize_session=False)

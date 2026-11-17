@@ -152,7 +152,6 @@ def delete_event(event_id):
 from src.utils.system_settings import apply_hot_settings
 _SYSTEM_SETTING_MAP = {
     "USERS_CAN_DELETE": ('users_can_delete', 'USERS_CAN_DELETE', True),
-    "ENABLE_INTERNAL_SHARING": ('enable_internal_sharing', 'ENABLE_INTERNAL_SHARING', False),
     "ENABLE_AUTO_DELETION": ('enable_auto_deletion', 'ENABLE_AUTO_DELETION', False),
 }
 _self, __getattr__ = apply_hot_settings(__name__, _SYSTEM_SETTING_MAP)

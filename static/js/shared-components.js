@@ -152,78 +152,6 @@ function useColorScheme() {
     };
 }
 
-// Shared Transcripts Modal Composition
-function useSharesModal() {
-    const showSharesListModal = Vue.ref(false);
-    const userShares = Vue.ref([]);
-    const isLoadingShares = Vue.ref(false);
-    
-    // The Shared Transcripts dialog lives in the main app (#416), as on the
-    // other pages that use the shared header.
-    const openSharesList = () => {
-        window.location.href = "/?open=shares";
-    };
-
-    const closeSharesList = () => {
-        showSharesListModal.value = false;
-    };
-    
-    const copyShareLink = async (shareId) => {
-        const url = `${window.location.origin}/share/${shareId}`;
-        try {
-            await navigator.clipboard.writeText(url);
-            if (window.showToast) {
-                window.showToast(sharedT('sharing.linkCopied', 'Link copied'), 'fa-link');
-            }
-        } catch (err) {
-            if (window.setGlobalError) {
-                window.setGlobalError(sharedT('sharing.linkCopyFailed', 'Couldn\'t copy link to clipboard'));
-            }
-        }
-    };
-    
-    const deleteShare = async (shareId) => {
-        if (!(await window.confirmDialog({
-            message: sharedT('dialogs.deleteShare.message', 'Delete this share link? The link stops working.'),
-            confirmLabel: sharedT('common.delete', 'Delete'),
-            danger: true,
-        }))) return;
-        
-        try {
-            const response = await fetch(`/api/shares/${shareId}`, {
-                method: 'DELETE',
-                headers: {
-                    'X-CSRFToken': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
-                }
-            });
-            
-            if (!response.ok) {
-                const data = await response.json();
-                throw new Error(data.error || sharedT('errors.serverErrorStatus', `HTTP ${response.status}`, { status: response.status }));
-            }
-            
-            userShares.value = userShares.value.filter(share => share.id !== shareId);
-            if (window.showToast) {
-                window.showToast(sharedT('sharing.deleted', 'Share deleted'), 'fa-trash');
-            }
-        } catch (error) {
-            if (window.setGlobalError) {
-                window.setGlobalError(sharedT('sharing.deleteFailed', `Failed to delete share: ${error.message}`, { error: error.message }));
-            }
-        }
-    };
-    
-    return {
-        showSharesListModal,
-        userShares,
-        isLoadingShares,
-        openSharesList,
-        closeSharesList,
-        copyShareLink,
-        deleteShare
-    };
-}
-
 // User Menu Composition  
 function useUserMenu() {
     const isUserMenuOpen = Vue.ref(false);
@@ -272,6 +200,5 @@ function useUserMenu() {
 window.SharedComponents = {
     useDarkMode,
     useColorScheme,
-    useSharesModal,
     useUserMenu
 };

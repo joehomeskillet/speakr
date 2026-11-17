@@ -4,7 +4,6 @@ Database models package for the Speakr application.
 This package contains all database models organized by domain:
 - User and authentication models
 - Recording and transcript models
-- Sharing models (public and internal)
 - Organization models (groups and tags)
 - Event, template, and search session models
 - System configuration models
@@ -21,7 +20,6 @@ from .login_failure import LoginFailure
 from .speaker_snippet import SpeakerSnippet
 from .recording import Recording, RecordingTombstone, TranscriptChunk
 from .external_ref import RecordingExternalRef
-from .sharing import Share, InternalShare, SharedRecordingState
 from .organization import Group, GroupMembership, Tag, RecordingTag, Folder
 from .permission import PermissionGrant
 from .events import Event
@@ -31,7 +29,7 @@ from .export_template import ExportTemplate
 from .initial_prompt_template import InitialPromptTemplate
 from .inquire import InquireSession
 from .system import SystemSetting
-from .audit import AuditEvent, ShareAuditLog
+from .audit import AuditEvent
 from .push_subscription import PushSubscription
 from .notification import (
     Notification,
@@ -67,11 +65,6 @@ __all__ = [
     # Recording models
     'Recording',
     'TranscriptChunk', 'RecordingTombstone', 'RecordingExternalRef',
-    # Sharing models
-    'Share',
-    'InternalShare',
-    'SharedRecordingState',
-    'ShareAuditLog',
     'AuditEvent',
     # Organization models
     'Group',

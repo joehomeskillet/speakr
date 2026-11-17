@@ -2,7 +2,7 @@
 
 The model is mocked: no request leaves the test.
 
-SHARED-DB: users, tokens, shares, states and recordings are removed afterwards.
+SHARED-DB: users, tokens and recordings are removed afterwards.
 """
 
 import json
@@ -16,7 +16,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.app import app, db
-from src.models import APIToken, InternalShare, Recording, SharedRecordingState, User
+from src.models import APIToken, Recording, User
 from src.utils.token_auth import hash_token
 
 SEGMENTS = [{"speaker": "Dana", "sentence": "Welcome back.", "start_time": 0.0, "end_time": 3.0},
@@ -37,8 +37,6 @@ def world():
         other = Recording(user_id=guest.id, title="Guest only", status="COMPLETED", original_filename="b.wav")
         db.session.add_all([rec, other])
         db.session.commit()
-        db.session.add(InternalShare(recording_id=rec.id, owner_id=owner.id, shared_with_user_id=guest.id))
-        db.session.add(SharedRecordingState(recording_id=rec.id, user_id=guest.id, personal_notes="GUEST NOTE"))
         tokens = {}
         for key, user, scopes in (("process", owner, ["read", "process"]), ("read", owner, ["read"])):
             p = f"tok-{secrets.token_urlsafe(16)}"
@@ -49,8 +47,6 @@ def world():
     yield ids
     with app.app_context():
         db.session.rollback()
-        SharedRecordingState.query.filter_by(recording_id=ids["rec"]).delete()
-        InternalShare.query.filter_by(recording_id=ids["rec"]).delete()
         Recording.query.filter(Recording.id.in_([ids["rec"], ids["other"]])).delete(synchronize_session=False)
         APIToken.query.filter_by(user_id=ids["owner"]).delete()
         User.query.filter(User.id.in_([ids["owner"], ids["guest"]])).delete(synchronize_session=False)
@@ -94,16 +90,6 @@ def test_without_sources_nothing_changes(world):
     resp, messages = _chat(world, {"message": "Summarise"}, "A summary [S1].")
     assert resp.get_json() == {"response": "A summary [S1].", "sources": []}
     assert "[S1 " not in messages[0]["content"]
-
-
-def test_the_prompt_carries_the_notes_this_user_can_see(world):
-    from src.services.recording_chat import build_chat_messages
-    with app.app_context():
-        rec = db.session.get(Recording, world["rec"])
-        guest_prompt = build_chat_messages(rec, db.session.get(User, world["guest"]), "hi")[0][0]["content"]
-        owner_prompt = build_chat_messages(rec, db.session.get(User, world["owner"]), "hi")[0][0]["content"]
-    assert "GUEST NOTE" in guest_prompt and "OWNER SECRET NOTE" not in guest_prompt
-    assert "OWNER SECRET NOTE" in owner_prompt
 
 
 def _inquire(world, body, token="process", env="true"):

@@ -9,8 +9,6 @@ import { useAudio } from './modules/composables/audio.js';
 import { useUI } from './modules/composables/ui.js';
 import { useUiTheme } from './modules/composables/ui-theme.js';
 import { useModals } from './modules/composables/modals.js';
-import { useSharing } from './modules/composables/sharing.js';
-import { resolveSearchScope } from './modules/utils/share-picker.js';
 import { useReprocess } from './modules/composables/reprocess.js';
 import { useTranscription } from './modules/composables/transcription.js';
 import { useFindReplace } from './modules/composables/find-replace.js';
@@ -348,7 +346,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             const filterNeedsSpeakers = ref(false);
             const filterAudioRemoved = ref(false);  // recordings whose media file was removed
             const showArchivedRecordings = ref(false);  // the user's archive view (#394)
-            const showSharedWithMe = ref(false);
 
             // --- Pagination State ---
             const currentPage = ref(1);
@@ -792,8 +789,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 speakerModalVideoCollapsed.value = !speakerModalVideoCollapsed.value;
                 localStorage.setItem('speakerModalVideoCollapsed', String(speakerModalVideoCollapsed.value));
             };
-            const showShareModal = ref(false);
-            const showSharesListModal = ref(false);
             const showTextEditorModal = ref(false);
             const showAsrEditorModal = ref(false);
             // Segment editor: the open editing session (model and pane API,
@@ -824,20 +819,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             const editingParticipantsList = ref([]);
             const editingParticipantSuggestions = ref({});
             const allParticipants = ref([]);
-            const recordingToShare = ref(null);
-            const shareOptions = reactive({
-                share_summary: true,
-                share_notes: true,
-            });
-            const generatedShareLink = ref('');
-            const existingShareDetected = ref(false);
-            const recordingPublicShares = ref([]); // All public shares for current recording
-            const isLoadingPublicShares = ref(false);
-            const userShares = ref([]);
-            const isLoadingShares = ref(false);
-            const copiedShareId = ref(null);
-            const shareToDelete = ref(null);
-            const showShareDeleteModal = ref(false);
             const recordingToDelete = ref(null);
             const recordingToReset = ref(null);
             const reprocessType = ref(null);
@@ -1675,21 +1656,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const audioPlayerPosition = ref('bottom');        // User pref: 'bottom' or 'top' for desktop player placement
             const currentUserName = ref('');
             const canDeleteRecordings = ref(true);
-            const enableInternalSharing = ref(false);
             const enableAudioRemovedFilter = ref(false);
-            const showUsernamesInUI = ref(false);
-            const userSearchScope = ref('exact');             // user_search_scope: everyone, groups or exact
-
-            // --- Internal Sharing State ---
-            const showUnifiedShareModal = ref(false);
-            const internalShareUserSearch = ref('');
-            const internalShareSearchResults = ref([]);
-            const internalShareRecording = ref(null);
-            const internalSharePermissions = ref({ can_edit: false, can_reshare: false });
-            const internalShareMaxPermissions = ref({ can_edit: true, can_reshare: true });  // Permission ceiling for current user
-            const recordingInternalShares = ref([]);
-            const isLoadingInternalShares = ref(false);
-            const isSearchingUsers = ref(false);
 
             // --- Reprocessing Polls ---
             const reprocessingPolls = ref(new Map());
@@ -1960,7 +1927,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 showAdvancedFilters, filterTags, filterSpeakers, filterTagSearch, filterSpeakerSearch,
                 filterDateRange, filterDatePreset, filterTextQuery, filterStarred, filterInbox,
                 filterNeedsTranscription, filterNeedsSummary, filterNeedsSpeakers,
-                filterAudioRemoved, showArchivedRecordings, showSharedWithMe, sortBy, selectedTagFilter,
+                filterAudioRemoved, showArchivedRecordings, sortBy, selectedTagFilter,
 
                 // Pagination
                 currentPage, perPage, totalRecordings, totalPages, hasNextPage, hasPrevPage,
@@ -2014,14 +1981,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 // Modals
                 showEditModal, showDeleteModal, showEditTagsModal, selectedNewTagId, tagSearchFilter,
-                showReprocessModal, showResetModal, showSpeakerModal, speakerModalTab, speakerModalVideoCollapsed, toggleSpeakerModalVideo, showShareModal, showSharesListModal,
+                showReprocessModal, showResetModal, showSpeakerModal, speakerModalTab, speakerModalVideoCollapsed, toggleSpeakerModalVideo,
                 showTextEditorModal, showAsrEditorModal, asrEditorSession, asrEditorDirty, asrEditorRev, asrEditorSaving, asrEditorRegenerateSummary, showRegenerateSummaryModal, regenSummary, userSummaryPrompt, editingRecording, editingTranscriptionContent,
                 findReplace, availableSpeakers,
                 showEditParticipantsModal, editingParticipantsList, editingParticipantSuggestions, allParticipants,
-                recordingToShare, shareOptions,
-                generatedShareLink, existingShareDetected, recordingPublicShares, isLoadingPublicShares,
-                userShares, isLoadingShares, copiedShareId,
-                shareToDelete, showShareDeleteModal, recordingToDelete, recordingToReset,
+                recordingToDelete, recordingToReset,
                 reprocessType, reprocessRecording, reprocessPromptVariables, isAutoIdentifying, asrReprocessOptions,
                 speakerMap, speakerColorMap, modalSpeakers, regenerateSummaryAfterSpeakerUpdate,
                 voiceSuggestions, loadingVoiceSuggestions,
@@ -2075,12 +2039,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // Dropdown Positioning
 
                 // App Config
-                useAsrEndpoint, connectorSupportsDiarization, connectorSupportsSpeakerCount, connectorSupportsExactSpeakerCount, speakerCountMode, connectorSupportsHotwords, connectorSupportsInitialPrompt, showTimestampsSimpleView, editorAutosave, audioPlayerPosition, formatTimestamp, currentUserName, canDeleteRecordings, enableInternalSharing, enableAudioRemovedFilter, showUsernamesInUI, userSearchScope,
-
-                // Internal Sharing
-                showUnifiedShareModal, internalShareUserSearch, internalShareSearchResults,
-                internalShareRecording, internalSharePermissions, internalShareMaxPermissions, recordingInternalShares,
-                isLoadingInternalShares, isSearchingUsers,
+                useAsrEndpoint, connectorSupportsDiarization, connectorSupportsSpeakerCount, connectorSupportsExactSpeakerCount, speakerCountMode, connectorSupportsHotwords, connectorSupportsInitialPrompt, showTimestampsSimpleView, editorAutosave, audioPlayerPosition, formatTimestamp, currentUserName, canDeleteRecordings, enableAudioRemovedFilter,
 
                 // Reprocessing
                 reprocessingPolls,
@@ -2822,7 +2781,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             utils.discardActiveRecording = audioComposable.discardRecording;
             const uiComposable = useUI(state, utils, processedTranscription);
             const modalsComposable = useModals(state, utils);
-            const sharingComposable = useSharing(state, utils);
             const transcriptionComposable = useTranscription(state, utils);
             const asrEditorComposable = useAsrEditor(state, utils, {
                 saveTranscriptionContent: transcriptionComposable.saveTranscriptionContent
@@ -4201,15 +4159,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             watch(filterAudioRemoved, (newValue, oldValue) => {
                 if (newValue === oldValue) return;
-                // A filter like starred or inbox, so it combines with Shared.
-                recordingsComposable.loadRecordings(1, false, searchQuery.value);
-            });
-
-            watch(showSharedWithMe, (newValue, oldValue) => {
-                // Prevent unnecessary reloads when being set by the other watcher
-                if (newValue === oldValue) return;
-
-                // Reload recordings when switching to/from shared view
                 recordingsComposable.loadRecordings(1, false, searchQuery.value);
             });
 
@@ -4497,13 +4446,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // (polling starts only with something in progress).
                 fetchJobQueueStatus(true);
 
-                // ?open=shares|appearance: the header on the other pages opens
+                // ?open=appearance: the header on the other pages opens
                 // these main-app dialogs by linking here.
                 let openDialogDeepLink = null;
                 try {
                     const params = new URLSearchParams(window.location.search);
                     const wanted = params.get('open');
-                    if (wanted === 'shares' || wanted === 'appearance') {
+                    if (wanted === 'appearance') {
                         openDialogDeepLink = wanted;
                         params.delete('open');
                         const qs = params.toString();
@@ -4593,9 +4542,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // Now open the upload modal. The pending flag (set above)
                 // prevents the auto-selected recording's selectRecording() from
                 // closing it once its fetch resolves.
-                if (openDialogDeepLink === 'shares') {
-                    sharingComposable.openSharesList();
-                } else if (openDialogDeepLink === 'appearance') {
+                if (openDialogDeepLink === 'appearance') {
                     uiComposable.openColorSchemeModal();
                 }
                 if (wantUploadDeepLink) {
@@ -4629,10 +4576,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                         uploadDisclaimer.value = config.upload_disclaimer || '';
                         customBanner.value = config.custom_banner || '';
                         canDeleteRecordings.value = config.can_delete_recordings !== false;
-                        enableInternalSharing.value = config.enable_internal_sharing === true;
                         enableAudioRemovedFilter.value = config.enable_audio_removed_filter === true;
-                        showUsernamesInUI.value = config.show_usernames_in_ui === true;
-                        userSearchScope.value = resolveSearchScope(config.user_search_scope, showUsernamesInUI.value);
                         enableIncognitoMode.value = config.enable_incognito_mode === true;
                         foldersEnabled.value = config.enable_folders === true;
                         // What's new after an update: once per account. Every
@@ -5119,7 +5063,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 ...uiComposable,
                 ...notificationsComposable,
                 ...modalsComposable,
-                ...sharingComposable,
                 ...reprocessComposable,
                 ...transcriptionComposable,
                 ...asrEditorComposable,

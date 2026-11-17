@@ -488,15 +488,6 @@
                     const uiTheme = ref(document.documentElement.getAttribute('data-ui-theme') || 'default');
                     window.addEventListener('speakr:ui-theme', (e) => { uiTheme.value = (e.detail && e.detail.id) || 'default'; });
                     const setUiTheme = (id) => (window.speakrApplyUiTheme ? window.speakrApplyUiTheme(id) : uiTheme.value);
-                    const {
-                        showSharesListModal,
-                        userShares,
-                        isLoadingShares,
-                        openSharesList,
-                        closeSharesList,
-                        copyShareLink,
-                        deleteShare
-                    } = window.SharedComponents.useSharesModal();
                     const { isUserMenuOpen, toggleUserMenu, closeUserMenu } = window.SharedComponents.useUserMenu();
                     const isMobileSidebarOpen = ref(false);
                     
@@ -857,15 +848,6 @@
                         closeColorSchemeModal,
                         selectColorScheme,
                         resetColorScheme,
-                        
-                        // Shares Modal
-                        showSharesListModal,
-                        userShares,
-                        isLoadingShares,
-                        openSharesList,
-                        closeSharesList,
-                        copyShareLink,
-                        deleteShare,
                         
                         // Computed
                         hasActiveFilters,

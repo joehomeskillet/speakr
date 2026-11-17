@@ -13,7 +13,7 @@ import secrets
 import pytest
 
 from src.app import app, db
-from src.models import APIToken, Recording, Share, User
+from src.models import APIToken, Recording, User
 from src.utils.token_auth import hash_token
 
 app.config["WTF_CSRF_ENABLED"] = False
@@ -26,7 +26,7 @@ HOSTILE = "Summary <details open ontoggle=alert(1)></details> <iframe srcdoc=x><
 def world():
     with app.app_context():
         n = f"mdw_{secrets.token_hex(4)}"
-        u = User(username=n, email=f"{n}@local.test", password="x", can_share_publicly=True)
+        u = User(username=n, email=f"{n}@local.test", password="x")
         db.session.add(u)
         db.session.commit()
         r = Recording(user_id=u.id, title="t", status="COMPLETED", original_filename="s.wav",
@@ -41,7 +41,6 @@ def world():
     yield ids
     with app.app_context():
         db.session.rollback()
-        Share.query.filter_by(recording_id=ids["rec"]).delete()
         APIToken.query.filter_by(user_id=ids["user"]).delete()
         db.session.delete(db.session.get(Recording, ids["rec"]))
         db.session.delete(db.session.get(User, ids["user"]))
@@ -96,19 +95,3 @@ def test_a_stored_tag_is_never_rendered(world, path):
         assert data[field], field
         for bad in ("<details", "ontoggle", "<iframe", "srcdoc"):
             assert bad not in data[field], (field, bad)
-
-
-def test_share_page_renders_only_cleaned_html(world):
-    _web(world["user"]).post("/save", json={"id": world["rec"], "summary": HOSTILE, "notes": HOSTILE})
-    with app.app_context():
-        share = Share(recording_id=world["rec"], user_id=world["user"], share_summary=True, share_notes=True)
-        db.session.add(share)
-        db.session.commit()
-        public_id = share.public_id
-    page = app.test_client().get(f"/share/{public_id}").get_data(as_text=True)
-    assert "Summary" in page
-    # The raw text travels only JSON-escaped in #share-data, for the copy button
-    markup = re.sub(r'<script type="application/json" id="share-data">.*?</script>', "", page, flags=re.S)
-    assert markup != page
-    for bad in ("<details", "ontoggle", "<iframe", "srcdoc"):
-        assert bad not in markup, bad

@@ -19,7 +19,7 @@ from src.app import app, db
 from src.clinic import policy
 from src.clinic.models import install_clinic_guards
 from src.models import (
-    APIToken, Event, InternalShare, ProcessingJob, Recording, Share, SystemSetting, User,
+    APIToken, Event, ProcessingJob, Recording, SystemSetting, User,
 )
 from src.utils.token_auth import hash_token
 
@@ -50,8 +50,8 @@ def _no_policy_providers():
 def world():
     """Authors a and b (same routing pool in a later work package), one admin.
 
-    b's recording is also shared internally with a and publicly by link, and has
-    an event: every upstream path to it exists, the clinic policy must close them.
+    b's recording has an event: every upstream path to it exists, the clinic policy
+    must close them.
     """
     w = {}
     with app.app_context():
@@ -71,9 +71,6 @@ def world():
                           summary=f'{SECRET_MARKER}B-summary')
         db.session.add_all([rec_a, rec_b])
         db.session.commit()
-        share = Share(recording_id=rec_b.id, user_id=users['b'].id)
-        internal = InternalShare(recording_id=rec_b.id, owner_id=users['b'].id,
-                                 shared_with_user_id=users['a'].id, can_edit=True, can_reshare=True)
         event = Event(recording_id=rec_b.id, title='B event', start_datetime=datetime(2030, 1, 1, 9, 0))
         event_a = Event(recording_id=rec_a.id, title='A event', start_datetime=datetime(2030, 1, 2, 9, 0))
         plain = f'tok-{secrets.token_urlsafe(16)}'
@@ -83,12 +80,11 @@ def world():
         # a failed new upload: DELETE on it removes its recording as well
         job_a_new = ProcessingJob(user_id=users['a'].id, recording_id=rec_a.id, job_type='summarize',
                                   status='failed', is_new_upload=True)
-        db.session.add_all([share, internal, event, event_a, token, job_a, job_b, job_a_new])
+        db.session.add_all([event, event_a, token, job_a, job_b, job_a_new])
         db.session.commit()
         w.update(job_a=job_a.id, job_b=job_b.id, job_a_new=job_a_new.id)
-        w.update(rec_a=rec_a.id, rec_b=rec_b.id, public_id=share.public_id, event_a=event_a.id,
-                 event_b=event.id, token=plain, token_id=token.id, internal_id=internal.id,
-                 share_id=share.id)
+        w.update(rec_a=rec_a.id, rec_b=rec_b.id, event_a=event_a.id,
+                 event_b=event.id, token=plain, token_id=token.id)
     yield w
     with app.app_context():
         db.session.rollback()
@@ -96,15 +92,13 @@ def world():
             synchronize_session=False)
         ProcessingJob.query.filter(ProcessingJob.recording_id.in_([w['rec_a'], w['rec_b']])).delete(
             synchronize_session=False)
-        InternalShare.query.filter_by(recording_id=w['rec_b']).delete()
-        Share.query.filter_by(recording_id=w['rec_b']).delete()
         APIToken.query.filter_by(user_id=w['user_a']).delete()
         for key in ('rec_a', 'rec_b'):
             obj = db.session.get(Recording, w[key])
             if obj is not None:
                 db.session.delete(obj)
         SystemSetting.query.filter(SystemSetting.key.in_(
-            ['enable_public_sharing', 'enable_internal_sharing'])).delete(synchronize_session=False)
+            ['enable_internal_sharing'])).delete(synchronize_session=False)
         User.query.filter(User.id.in_([w['user_a'], w['user_b'], w['user_admin']])).delete(
             synchronize_session=False)
         db.session.commit()

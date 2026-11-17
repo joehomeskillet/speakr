@@ -17,7 +17,6 @@ from src.models import *
 from src.utils import *
 from src.utils.localization import api_error, translate
 from src.services import audit
-from src.services.auto_shares import drop_stale_auto_shares, ensure_recipient_state
 from src.auth.permissions import CREATE_GROUPS, group_has_grant, set_group_grant, user_can
 from sqlalchemy.exc import IntegrityError
 
@@ -44,11 +43,8 @@ def init_groups_helpers(**kwargs):
 
 
 def can_create_groups(user):
-    """Whether the user may create a group now (#576).
-
-    Groups need internal sharing, so nobody can create one while it is off.
-    """
-    return bool(_self.ENABLE_INTERNAL_SHARING) and user_can(user, CREATE_GROUPS)
+    """Whether the user may create a group now (#576)."""
+    return user_can(user, CREATE_GROUPS)
 
 
 def _is_admin_of_group(user, group_id):
@@ -92,109 +88,14 @@ def _find_user_exactly(identifier):
 
     The email comparison ignores case. No partial match, so a group admin who
     is not a site admin can add a person whose username or email they already
-    know (#576), at every level of the user_search_scope setting. The lookup
-    is the one the share window uses (src/services/user_lookup.py).
+    know (#576), at every level of the user_search_scope setting
+    (src/services/user_lookup.py).
     """
     from src.services import user_lookup
     return user_lookup.find_user_exactly(identifier)
 
 
 # --- Routes ---
-
-@groups_bp.route('/api/groups/<int:group_id>/sync-shares', methods=['POST'])
-@login_required
-def sync_team_tag_shares(group_id):
-    """Retroactively share recordings with group members based on group tags with auto-sharing enabled."""
-    # Verify group exists
-    group = db.session.get(Group, group_id)
-    if not group:
-        return jsonify(api_error('group_not_found')), 404
-
-    # Verify user is a group admin
-    membership = GroupMembership.query.filter_by(
-        group_id=group_id,
-        user_id=current_user.id,
-        role='admin'
-    ).first()
-
-    if not membership:
-        return jsonify(api_error('share_sync_admin_only')), 403
-
-    if not _self.ENABLE_INTERNAL_SHARING:
-        return jsonify(api_error('internal_sharing_disabled')), 403
-
-    # Get all group tags with auto-sharing enabled
-    group_tags = Tag.query.filter(
-        Tag.group_id == group_id,
-        db.or_(
-            Tag.auto_share_on_apply == True,
-            Tag.share_with_group_lead == True
-        )
-    ).all()
-
-    shares_created = 0
-    recordings_processed = 0
-
-    for tag in group_tags:
-        # Get all completed recordings with this tag
-        recordings = db.session.query(Recording).join(RecordingTag).filter(
-            RecordingTag.tag_id == tag.id,
-            Recording.status == 'COMPLETED'
-        ).all()
-
-        for recording in recordings:
-            recordings_processed += 1
-
-            # Determine who to share with
-            if tag.auto_share_on_apply:
-                group_members = GroupMembership.query.filter_by(group_id=group_id).all()
-            elif tag.share_with_group_lead:
-                group_members = GroupMembership.query.filter_by(group_id=group_id, role='admin').all()
-            else:
-                continue
-
-            for membership_to_share in group_members:
-                # Skip the recording owner
-                if membership_to_share.user_id == recording.user_id:
-                    continue
-
-                # Check if already shared
-                existing_share = InternalShare.query.filter_by(
-                    recording_id=recording.id,
-                    shared_with_user_id=membership_to_share.user_id
-                ).first()
-
-                if not existing_share:
-                    # Create internal share with correct permissions
-                    # Group admins get edit permission, regular members get read-only
-                    share = InternalShare(
-                        recording_id=recording.id,
-                        owner_id=recording.user_id,
-                        shared_with_user_id=membership_to_share.user_id,
-                        can_edit=(membership_to_share.role == 'admin'),
-                        can_reshare=False,
-                        source_type='group_tag',
-                        source_tag_id=tag.id
-                    )
-                    db.session.add(share)
-
-                    # The recipient's state row, reused when an earlier share left one (#571)
-                    ensure_recipient_state(recording.id, membership_to_share.user_id)
-
-                    shares_created += 1
-                    current_app.logger.info(f"Synced share: Recording {recording.id} with user {membership_to_share.user_id} (role={membership_to_share.role}) via group tag {tag.id}")
-
-    db.session.commit()
-
-    return jsonify({
-        'success': True,
-        'shares_created': shares_created,
-        'recordings_processed': recordings_processed,
-        'message': translate('server.apiMessage.sharesSynced', sharesCreated=shares_created,
-                             recordingsProcessed=recordings_processed)
-    })
-
-
 
 @groups_bp.route('/api/admin/groups', methods=['GET'])
 @login_required
@@ -235,9 +136,6 @@ def create_team():
     """
     if not user_can(current_user, CREATE_GROUPS):
         return jsonify(api_error('group_create_not_permitted')), 403
-
-    if not _self.ENABLE_INTERNAL_SHARING:
-        return jsonify(api_error('groups_require_internal_sharing')), 403
 
     data = request.get_json(silent=True) or {}
     name = (data.get('name') or '').strip()
@@ -366,7 +264,6 @@ def delete_team(group_id):
         return jsonify(api_error('group_delete_not_permitted')), 403
 
     group_name = group.name
-    member_ids = [m.user_id for m in group.memberships]
     # The group's folders become personal folders of their creators. A
     # parent created by someone else would then be in another user's
     # scope, so that child becomes top level (#585).
@@ -376,8 +273,6 @@ def delete_team(group_id):
         if folder.parent_id is not None and (parent is None or parent.user_id != folder.user_id):
             folder.parent_id = None
     db.session.delete(group)
-    # The group's tags and folders no longer share anything (#570)
-    drop_stale_auto_shares(user_ids=member_ids)
     audit.record_in_tx('group.deleted', group_id=group_id)
     db.session.commit()
 
@@ -391,9 +286,6 @@ def delete_team(group_id):
 @login_required
 def add_team_member(group_id):
     """Add a member to a group (admin or group admin)."""
-    if not _self.ENABLE_INTERNAL_SHARING:
-        return jsonify(api_error('groups_require_internal_sharing')), 403
-
     group = db.session.get(Group, group_id)
     if not group:
         return jsonify(api_error('group_not_found')), 404
@@ -475,8 +367,6 @@ def update_team_member(group_id, user_id):
 
     old_role = membership.role
     membership.role = role
-    # Group-made shares give edit to admins only, the rule that created them
-    drop_stale_auto_shares(user_ids=[user_id])
     if role != old_role:
         audit.record_in_tx('group.member.role_changed', group_id=group_id, target_user_id=user_id,
                            details={'role': role, 'old_role': audit.code(old_role, ('admin', 'member'), 'other')})
@@ -509,9 +399,6 @@ def remove_team_member(group_id, user_id):
     username = membership.user.username
     group_name = membership.group.name
     db.session.delete(membership)
-    # Shares the group's tags and folders made for this member end with the
-    # membership; a share the owner made by hand stays (#570)
-    drop_stale_auto_shares(user_ids=[user_id])
     audit.record_in_tx('group.member.removed', group_id=group_id, target_user_id=user_id)
     db.session.commit()
 
@@ -524,7 +411,6 @@ def remove_team_member(group_id, user_id):
 from src.utils.system_settings import apply_hot_settings
 _SYSTEM_SETTING_MAP = {
     "USERS_CAN_DELETE": ('users_can_delete', 'USERS_CAN_DELETE', True),
-    "ENABLE_INTERNAL_SHARING": ('enable_internal_sharing', 'ENABLE_INTERNAL_SHARING', False),
     "ENABLE_AUTO_DELETION": ('enable_auto_deletion', 'ENABLE_AUTO_DELETION', False),
 }
 _self, __getattr__ = apply_hot_settings(__name__, _SYSTEM_SETTING_MAP)

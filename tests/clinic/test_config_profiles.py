@@ -23,7 +23,7 @@ def test_clinic_mode_is_off_by_default(monkeypatch):
     # Off means nothing is locked: upstream behaviour stays as it is.
     assert config.feature_locked('chat') is False
     assert config.feature_locked('some_unknown_feature') is False
-    assert config.setting_ceiling('enable_public_sharing') == (False, None)
+    assert config.setting_ceiling('enable_auto_deletion') == (False, None)
 
 
 @pytest.mark.parametrize('value,expected', [
@@ -100,7 +100,6 @@ def test_client_cannot_select_its_profile(clinic):
 
 
 @pytest.mark.parametrize('key,forced', [
-    ('enable_public_sharing', False), ('enable_internal_sharing', False),
     ('api_query_tokens_enabled', False), ('sso_api_tokens_enabled', False),
     ('enable_incognito_mode', False), ('enable_auto_deletion', False),
     ('global_retention_days', 0), ('allow_registration', False),

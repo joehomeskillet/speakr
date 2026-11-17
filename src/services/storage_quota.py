@@ -3,7 +3,7 @@
 A user's storage is the size of their own recordings whose audio is still
 kept, the same figure the admin pages show: recordings with their audio
 removed do not count, archived and deletion-exempt ones do, and a recording
-shared with someone counts for its owner only. `user.storage_quota_mb` is the
+counts for its owner. `user.storage_quota_mb` is the
 limit in megabytes (MiB); NULL means no limit.
 
 Uploads are refused when they would go over the limit. A recording made in

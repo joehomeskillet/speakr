@@ -9,10 +9,10 @@ const t = (key, params) => (window.i18n ? window.i18n.t(key, params) : key);
 export function useModals(state, utils) {
     const {
         showEditModal, showDeleteModal, showEditTagsModal,
-        showReprocessModal, showResetModal, showShareModal,
-        showSharesListModal, showTextEditorModal, showAsrEditorModal,
+        showReprocessModal, showResetModal,
+        showTextEditorModal, showAsrEditorModal,
         showAddSpeakerModal, showEditTextModal,
-        showShareDeleteModal, showUnifiedShareModal, showColorSchemeModal,
+        showColorSchemeModal,
         showSystemAudioHelpModal, editingRecording, recordingToDelete, recordingToReset,
         selectedRecording, recordings, selectedNewTagId, tagSearchFilter,
         availableTags, currentView, totalRecordings, toasts, uploadQueue, allJobs,

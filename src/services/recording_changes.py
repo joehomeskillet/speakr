@@ -3,13 +3,11 @@ and ETags (mailr spec G2 and G11).
 
 updated_at is set in one before_flush listener, so no write path can forget
 it: a change to a field a client sees, or to a row that belongs to the
-recording (tags, events, shares, per-user state), moves it. Fields that only
+recording (tags, events), moves it. Fields that only
 processing uses (embeddings, timings, resolved settings, export file name) do
 not.
 
-Deleting a recording writes a tombstone for the owner and for every user it
-was shared with; removing an internal share writes an access_revoked
-tombstone for that user. The changes feed reads updated_at and the
+Deleting a recording writes a tombstone for the owner. The changes feed reads updated_at and the
 tombstones in one order, (changed_at, kind, id), and pages with an opaque
 cursor.
 
@@ -79,11 +77,10 @@ def _child_recording_ids(session):
     """{recording id: webhook field or None} for rows that belong to a recording.
 
     Tags, events and external references are part of the owner's view
-    (fields tags, events, external_refs). Shares and a recipient's own state
-    move updated_at but fire no recording.updated for the owner (None).
+    (fields tags, events, external_refs).
     """
-    from src.models import Event, InternalShare, RecordingTag, SharedRecordingState
-    kinds = [(RecordingTag, 'tags'), (Event, 'events'), (InternalShare, None), (SharedRecordingState, None)]
+    from src.models import Event, RecordingTag
+    kinds = [(RecordingTag, 'tags'), (Event, 'events')]
     try:
         from src.models import RecordingExternalRef  # G8
         kinds.append((RecordingExternalRef, 'external_refs'))
@@ -137,7 +134,7 @@ def _reconcile_translation(session, recording):
 
 
 def _before_flush(session, flush_context, instances):
-    from src.models import InternalShare, Recording
+    from src.models import Recording
     now = datetime.utcnow()
     changes = session.info.setdefault('recording_changes', {})
 
@@ -172,21 +169,12 @@ def _before_flush(session, flush_context, instances):
         for obj in session.deleted:
             if isinstance(obj, Recording):
                 _tombstones_for_deleted_recording(session, obj, now)
-            elif isinstance(obj, InternalShare) and obj.recording_id not in deleted_recordings:
-                _add_tombstone(session, obj.recording_id, obj.shared_with_user_id, now, 'access_revoked')
 
 
 def _tombstones_for_deleted_recording(session, recording, now):
-    from src.models import InternalShare
     reason = session.info.get('tombstone_reason', 'deleted')
-    users = set()
     if recording.user_id is not None:
-        users.add(recording.user_id)
-    for (uid,) in session.query(InternalShare.shared_with_user_id).filter(
-            InternalShare.recording_id == recording.id).all():
-        users.add(uid)
-    for uid in users:
-        _add_tombstone(session, recording.id, uid, now, reason)
+        _add_tombstone(session, recording.id, recording.user_id, now, reason)
 
 
 def _add_tombstone(session, recording_id, user_id, now, reason):
@@ -335,7 +323,7 @@ def cursor_expired(user_id, changed_at, full_since):
     return False
 
 
-def read_changes(user_id, cursor=None, limit=100, now=None, scope='own'):
+def read_changes(user_id, cursor=None, limit=100, now=None):
     """One page of the feed. Returns (items, next_cursor, has_more); each item
     is ('upsert', Recording) or ('delete', RecordingTombstone).
 
@@ -353,17 +341,16 @@ def read_changes(user_id, cursor=None, limit=100, now=None, scope='own'):
         key, full_since = None, now   # a full pass: tombstones only from its start
 
     changed = func.coalesce(Recording.updated_at, Recording.created_at)
-    from src.services.recording_scope import scope_condition
-    rq = Recording.query.filter(scope_condition(user_id, scope), changed <= settle)
+    rq = Recording.query.filter(Recording.user_id == user_id, changed <= settle)
     if key:
         rq = rq.filter(_after(changed, Recording.id, _UPSERT, key))
     recs = rq.order_by(changed.asc(), Recording.id.asc()).limit(limit + 1).all()
 
     tq = RecordingTombstone.query.filter(RecordingTombstone.user_id == user_id,
                                          RecordingTombstone.deleted_at <= settle)
-    if scope == 'own':
-        # access_revoked concerns recordings shared with the user
-        tq = tq.filter(RecordingTombstone.reason != 'access_revoked')
+    # Tombstones of the former sharing (reason access_revoked) concern
+    # recordings of other users and are never returned.
+    tq = tq.filter(RecordingTombstone.reason != 'access_revoked')
     if full_since is not None:
         tq = tq.filter(RecordingTombstone.deleted_at >= full_since)
     if key:

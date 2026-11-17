@@ -135,7 +135,7 @@ OPENAPI_SPEC = {
                            "description": "A personal API token or, when the administrator turns on SSO access "
                                           "tokens, the JWT access token that an allowed app received from the same "
                                           "OIDC provider as Speakr. Tokens may carry scopes: read, write, upload, "
-                                          "process, share, delete, webhooks, account. A token with no scopes "
+                                          "process, delete, webhooks, account. A token with no scopes "
                                           "(reported as [\"full\"]) has every scope. An SSO access token has the "
                                           "scopes the administrator sets in SSO_API_SCOPES (default read). Each "
                                           "operation lists the scopes it needs in x-required-scopes; a scoped token "
@@ -179,9 +179,6 @@ OPENAPI_SPEC = {
                     "tags": {"type": "array", "items": {"$ref": "#/components/schemas/Tag"}},
                     "keep_audio_only": {"type": "boolean", "description": "True if the upload was processed in audio-only mode (video stream discarded). Set at upload time; immutable via PATCH."},
                     "updated_at": {"type": "string", "format": "date-time", "description": "Last change a client can see; starts at created_at"},
-                    "is_shared": {"type": "boolean"},
-                    "owner": {"type": "object", "nullable": True},
-                    "share": {"type": "object", "nullable": True},
                     "external_refs": {"type": "array", "items": {"type": "object"}}
                 }
             },
@@ -212,8 +209,6 @@ OPENAPI_SPEC = {
                     "group_id": {"type": "integer", "nullable": True},
                     "parent_id": {"type": "integer", "nullable": True, "description": "Parent folder id; null for a top-level folder"},
                     "is_group_folder": {"type": "boolean"},
-                    "auto_share_on_apply": {"type": "boolean", "description": "Group folders: recordings in the folder are shared with every group member"},
-                    "share_with_group_lead": {"type": "boolean", "description": "Group folders: recordings in the folder are shared with the group admins"},
                     "custom_prompt": {"type": "string"},
                     "title_prompt": {"type": "string"},
                     "default_language": {"type": "string"},
@@ -358,8 +353,7 @@ OPENAPI_SPEC = {
                 "description": "Each create, edit and delete once, in latest state. Store next_cursor after every answer. 410 cursor_expired: start again without a cursor.",
                 "parameters": [
                     {"name": "cursor", "in": "query", "schema": {"type": "string"}},
-                    {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 100, "minimum": 1, "maximum": 500}},
-                    {"name": "scope", "in": "query", "schema": {"type": "string", "enum": ["own", "shared", "all"], "default": "own"}}
+                    {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 100, "minimum": 1, "maximum": 500}}
                 ],
                 "responses": {
                     "200": {"description": "A page of changes", "content": {"application/json": {"schema": {
@@ -370,7 +364,7 @@ OPENAPI_SPEC = {
                                 "recording": {"$ref": "#/components/schemas/Recording"},
                                 "id": {"type": "integer"},
                                 "deleted_at": {"type": "string", "format": "date-time"},
-                                "reason": {"type": "string", "enum": ["deleted", "retention", "access_revoked"]}}}},
+                                "reason": {"type": "string", "enum": ["deleted", "retention"]}}}},
                             "next_cursor": {"type": "string"},
                             "has_more": {"type": "boolean"}}}}}},
                     "400": {"description": "invalid_parameter"},
@@ -391,7 +385,7 @@ OPENAPI_SPEC = {
             "get": {
                 "tags": ["Users"],
                 "summary": "Get current user profile",
-                "description": "Returns the authenticated user's profile (id, username, email, name, role flags, can_share_publicly, can_create_groups, preferences), group memberships, and storage (used_bytes, quota_bytes, available_bytes; quota_bytes is null when there is no quota).",
+                "description": "Returns the authenticated user's profile (id, username, email, name, role flags, can_create_groups, preferences), group memberships, and storage (used_bytes, quota_bytes, available_bytes; quota_bytes is null when there is no quota).",
                 "responses": {"200": {"description": "User profile object"}}
             }
         },
@@ -406,8 +400,6 @@ OPENAPI_SPEC = {
                     {"name": "sort_by", "in": "query", "schema": {"type": "string", "enum": ["created_at", "meeting_date", "title", "file_size", "status", "updated_at"]}},
                     {"name": "updated_since", "in": "query", "schema": {"type": "string", "format": "date-time"}, "description": "Only recordings changed after this time"},
                     {"name": "date_field", "in": "query", "schema": {"type": "string", "enum": ["created_at", "meeting_date"], "default": "created_at"}, "description": "What date_from and date_to filter"},
-                    {"name": "scope", "in": "query", "schema": {"type": "string", "enum": ["own", "shared", "all"], "default": "own"}},
-                    {"name": "owner_id", "in": "query", "schema": {"type": "integer"}},
                     {"name": "sort_order", "in": "query", "schema": {"type": "string", "enum": ["asc", "desc"]}},
                     {"name": "tag_id", "in": "query", "schema": {"type": "integer"}},
                     {"name": "archived", "in": "query", "schema": {"type": "boolean"}, "description": "true: only archived recordings; false: only unarchived. Omitted: both, as before."},
@@ -604,7 +596,7 @@ OPENAPI_SPEC = {
             "post": {"tags": ["Tags"], "summary": "Create tag", "requestBody": {"content": {"application/json": {"schema": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string"}, "color": {"type": "string"}, "custom_prompt": {"type": "string"}, "title_prompt": {"type": "string"}, "default_language": {"type": "string"}, "default_min_speakers": {"type": "integer"}, "default_max_speakers": {"type": "integer"}}}}}}, "responses": {"201": {"description": "Tag created"}}}
         },
         "/tags/{id}": {
-            "put": {"tags": ["Tags"], "summary": "Update tag", "description": "After a change of group_id, auto_share_on_apply or share_with_group_lead, the recordings that carry the tag are shared as the new values say, as in the web app. A change that creates shares requires the share scope.", "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "integer"}}], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"name": {"type": "string"}, "color": {"type": "string"}, "custom_prompt": {"type": "string"}, "title_prompt": {"type": "string"}, "group_id": {"type": "integer", "nullable": True, "description": "Group of the tag; null for a personal tag. Only an admin of the new group can set it."}, "auto_share_on_apply": {"type": "boolean", "description": "Group tags only: share the tagged recordings with every group member"}, "share_with_group_lead": {"type": "boolean", "description": "Group tags only: share the tagged recordings with the group admins"}}}}}}, "responses": {"200": {"description": "Tag updated"}, "403": {"description": "Not an admin of the new group, a recording that does not allow the group tag, or a token without the share scope for a change that creates shares"}}},
+            "put": {"tags": ["Tags"], "summary": "Update tag", "description": "Only an admin of the new group can set group_id.", "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "integer"}}], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"name": {"type": "string"}, "color": {"type": "string"}, "custom_prompt": {"type": "string"}, "title_prompt": {"type": "string"}, "group_id": {"type": "integer", "nullable": True, "description": "Group of the tag; null for a personal tag. Only an admin of the new group can set it."}}}}}}, "responses": {"200": {"description": "Tag updated"}, "403": {"description": "Not an admin of the new group or a recording that does not allow the group tag"}}},
             "delete": {"tags": ["Tags"], "summary": "Delete tag", "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "integer"}}], "responses": {"200": {"description": "Tag deleted"}}}
         },
         "/folders": {
@@ -613,7 +605,7 @@ OPENAPI_SPEC = {
         },
         "/folders/{id}": {
             "get": {"tags": ["Folders"], "summary": "Get folder", "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "integer"}}], "responses": {"200": {"description": "Folder", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Folder"}}}}}},
-            "patch": {"tags": ["Folders"], "summary": "Update folder", "description": "Also accepted as PUT. After a change of group_id, auto_share_on_apply or share_with_group_lead, the recordings in the folder are shared as the new values say, as in the web app. A change that creates shares requires the share scope.", "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "integer"}}], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"name": {"type": "string"}, "color": {"type": "string"}, "parent_id": {"type": "integer", "nullable": True}, "group_id": {"type": "integer", "nullable": True, "description": "Group of the folder; null for a personal folder. Only an admin of the new group can set it; a folder with subfolders keeps its group."}, "auto_share_on_apply": {"type": "boolean", "description": "Group folders only: share the recordings in the folder with every group member"}, "share_with_group_lead": {"type": "boolean", "description": "Group folders only: share the recordings in the folder with the group admins"}, "custom_prompt": {"type": "string"}, "title_prompt": {"type": "string"}, "default_language": {"type": "string"}, "default_min_speakers": {"type": "integer"}, "default_max_speakers": {"type": "integer"}, "default_hotwords": {"type": "string"}, "default_initial_prompt": {"type": "string"}, "default_transcription_model": {"type": "string"}, "retention_days": {"type": "integer"}}}}}}, "responses": {"200": {"description": "Folder updated"}}},
+            "patch": {"tags": ["Folders"], "summary": "Update folder", "description": "Also accepted as PUT. Only an admin of the new group can set group_id.", "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "integer"}}], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"name": {"type": "string"}, "color": {"type": "string"}, "parent_id": {"type": "integer", "nullable": True}, "group_id": {"type": "integer", "nullable": True, "description": "Group of the folder; null for a personal folder. Only an admin of the new group can set it; a folder with subfolders keeps its group."}, "custom_prompt": {"type": "string"}, "title_prompt": {"type": "string"}, "default_language": {"type": "string"}, "default_min_speakers": {"type": "integer"}, "default_max_speakers": {"type": "integer"}, "default_hotwords": {"type": "string"}, "default_initial_prompt": {"type": "string"}, "default_transcription_model": {"type": "string"}, "retention_days": {"type": "integer"}}}}}}, "responses": {"200": {"description": "Folder updated"}}},
             "delete": {"tags": ["Folders"], "summary": "Delete folder", "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "integer"}}], "responses": {"200": {"description": "Folder deleted"}}}
         },
         "/transcription": {
@@ -1200,7 +1192,6 @@ CAPABILITY_FEATURES = {
     'webhook_signature_v2': True,
     'external_refs': True,
     'upload_idempotency': True,
-    'share_links': True,
     'chat_sources': True,
 }
 # search: {'keyword': True, 'semantic': <Inquire on>} is filled in get_capabilities.
@@ -1220,9 +1211,6 @@ def get_capabilities():
     from src.config.version import get_version
     features = dict(CAPABILITY_FEATURES)
     from src.models import SystemSetting
-    features['internal_sharing'] = bool(SystemSetting.get_setting('enable_internal_sharing', os.environ.get('ENABLE_INTERNAL_SHARING', 'false').lower() == 'true'))
-    features['public_sharing'] = bool(SystemSetting.get_setting('enable_public_sharing', os.environ.get('ENABLE_PUBLIC_SHARING', 'true').lower() == 'true'))
-    features['can_share_publicly'] = bool(features['public_sharing'] and getattr(current_user, 'can_share_publicly', True))
     features['can_create_groups'] = _can_create_groups(current_user)
     from src.services.search_v1 import semantic_available
     features['search'] = {'keyword': True, 'semantic': semantic_available()}
@@ -1299,7 +1287,6 @@ def get_current_user():
         'is_admin': bool(current_user.is_admin),
         'email_verified': bool(current_user.email_verified),
         'sso_provider': current_user.sso_provider,
-        'can_share_publicly': bool(current_user.can_share_publicly),
         # Whether this user may create groups (#576)
         'can_create_groups': _can_create_groups(current_user),
         'preferences': {
@@ -1344,7 +1331,13 @@ def _updated_at_z(recording):
     return iso_z(effective_updated_at(recording))
 
 
-def _recording_list_item(r, refs=None, shared=None):
+def _folder_ref(recording):
+    """The recording's folder as {'id', 'name'}, or None."""
+    folder = recording.folder
+    return {'id': folder.id, 'name': folder.name} if folder is not None else None
+
+
+def _recording_list_item(r, refs=None):
     """One recording as GET /recordings lists it; the changes feed uses the same shape.
 
     refs: this caller's external references of the recording, when the caller
@@ -1354,9 +1347,7 @@ def _recording_list_item(r, refs=None, shared=None):
         from src.services.external_refs import refs_for
         refs = [x.to_dict() for x in refs_for(r.id, current_user.id)]
     from src.services.recording_changes import effective_updated_at, iso_z
-    from src.services.recording_scope import visible_folder
-    # A shared row replaces folder and folder_id from its share (#516).
-    folder = visible_folder(r, current_user.id) if shared is None else None
+    folder = _folder_ref(r)
     return {
         'id': r.id,
         'title': r.title,
@@ -1387,10 +1378,7 @@ def _recording_list_item(r, refs=None, shared=None):
         'keep_audio_only': r.keep_audio_only,
         'updated_at': iso_z(effective_updated_at(r)),
         'external_refs': refs,
-        'is_shared': False,
-        'owner': None,
-        'share': None,
-    } if shared is None else dict(_recording_list_item(r, refs), **shared)
+    }
 
 
 @api_v1_bp.route('/recordings', methods=['GET'])
@@ -1413,8 +1401,6 @@ def list_recordings():
         inbox: Filter by inbox status (true/false)
         starred: Filter by starred status (true/false)
         archived: Filter by archive status (true/false); omitted returns both
-        scope: own (default), shared or all
-        owner_id: Only recordings of this owner
         updated_since: Only recordings changed after this time (ISO 8601)
         date_field: What date_from and date_to filter: created_at (default)
                     or meeting_date
@@ -1434,11 +1420,6 @@ def list_recordings():
     starred_filter = request.args.get('starred')
     archived_filter = request.args.get('archived')
     updated_since = request.args.get('updated_since')
-    from src.services.recording_scope import SCOPES, join_personal_state, personal_flag, scope_condition
-    scope = request.args.get('scope', 'own')
-    if scope not in SCOPES:
-        return jsonify({'error': translate('server.apiError.invalid_scope'), 'code': 'invalid_parameter'}), 400
-    owner_id = request.args.get('owner_id', type=int)
     date_field = request.args.get('date_field', 'created_at')
     if date_field not in ('created_at', 'meeting_date'):
         return jsonify({'error': translate('server.apiError.invalid_date_field'),
@@ -1458,12 +1439,8 @@ def list_recordings():
             joinedload(Recording.folder),
             joinedload(Recording.tag_associations).joinedload(RecordingTag.tag),
         )
-        .filter(scope_condition(current_user.id, scope))
+        .filter(Recording.user_id == current_user.id)
     )
-    if scope != 'own':
-        query = join_personal_state(query, current_user.id)
-    if owner_id is not None:
-        query = query.filter(Recording.user_id == owner_id)
 
     # Status filter
     if status_filter == 'pending':
@@ -1556,24 +1533,20 @@ def list_recordings():
             )
         )
 
-    # Inbox and starred filters: the caller's own value (a recipient's is on
-    # SharedRecordingState).
+    # Inbox and starred filters
     if inbox_filter is not None:
         is_inbox = inbox_filter.lower() == 'true'
-        query = query.filter((personal_flag(current_user.id, 'is_inbox', True) if scope != 'own'
-                              else Recording.is_inbox) == is_inbox)
+        query = query.filter(Recording.is_inbox == is_inbox)
 
     if starred_filter is not None:
         is_starred = starred_filter.lower() == 'true'
-        query = query.filter((personal_flag(current_user.id, 'is_highlighted', False) if scope != 'own'
-                              else Recording.is_highlighted) == is_starred)
+        query = query.filter(Recording.is_highlighted == is_starred)
 
     # Archive filter (#394). The API keeps returning archived recordings by
     # default so existing integrations see no change.
     if archived_filter is not None:
         is_archived = archived_filter.lower() == 'true'
-        query = query.filter((personal_flag(current_user.id, 'is_archived', False) if scope != 'own'
-                              else db.func.coalesce(Recording.is_archived, False)) == is_archived)
+        query = query.filter(db.func.coalesce(Recording.is_archived, False) == is_archived)
 
     # Sorting
     sort_columns = {
@@ -1596,10 +1569,8 @@ def list_recordings():
 
     # Build response
     from src.services.external_refs import refs_map
-    from src.services.recording_scope import share_details
     page_refs = refs_map([r.id for r in pagination.items], current_user.id)
-    page_shared = share_details(pagination.items, current_user)
-    recordings = [_recording_list_item(r, page_refs.get(r.id, []), page_shared.get(r.id))
+    recordings = [_recording_list_item(r, page_refs.get(r.id, []))
                   for r in pagination.items]
 
     return jsonify({
@@ -1657,7 +1628,7 @@ def search_recordings_v1():
     """Search titles, participants, notes, summaries and transcripts (mailr spec G3).
 
     Query params: q (2 to 500 characters), mode (keyword | semantic | auto),
-    fields, scope (own), recording_ids, tag_id, folder_id, speaker,
+    fields, recording_ids, tag_id, folder_id, speaker,
     date_from, date_to, date_field (meeting_date | created_at), limit (1-50),
     page (keyword mode).
     """
@@ -1669,9 +1640,6 @@ def search_recordings_v1():
     mode = args.get('mode', 'keyword')
     if mode not in ('keyword', 'semantic', 'auto'):
         return jsonify({'error': translate('server.apiError.invalid_search_mode'), 'code': 'invalid_parameter'}), 400
-    scope = args.get('scope', 'own')
-    if scope not in ('own', 'shared', 'all'):
-        return jsonify({'error': translate('server.apiError.invalid_scope'), 'code': 'invalid_parameter'}), 400
     fields = tuple(f.strip() for f in args.get('fields', ','.join(search_v1.FIELDS)).split(',') if f.strip())
     unknown = [f for f in fields if f not in search_v1.FIELDS]
     if unknown or not fields:
@@ -1700,7 +1668,7 @@ def search_recordings_v1():
             return jsonify({'error': translate('server.apiError.invalid_folder_id'), 'code': 'invalid_parameter'}), 400
     filters = dict(recording_ids=recording_ids, tag_id=args.get('tag_id', type=int), folder_id=folder_id,
                    date_from=args.get('date_from') or None, date_to=args.get('date_to') or None,
-                   date_field=date_field, scope=scope)
+                   date_field=date_field)
     speaker = (args.get('speaker') or '').strip() or None
     # A diarization label (SPEAKER_00) names nobody: the filter is ignored.
     if speaker and is_generic_speaker_label(speaker):
@@ -1801,75 +1769,6 @@ def delete_external_ref(recording_id, ref_id):
     return '', 204
 
 
-@api_v1_bp.route('/recordings/<int:recording_id>/share', methods=['POST'])
-@require_scope('share')
-@login_required
-@audit.emits('share.public.created')
-def create_public_share(recording_id):
-    """Create or reuse a public link (mailr spec G10). Notes are not shared
-    unless asked, and a reused link's flags change only with update_existing."""
-    from src.services.public_shares import get_or_create, link_is_https, public_url, share_dict
-    from src.models import SystemSetting
-    if not bool(SystemSetting.get_setting('enable_public_sharing', os.environ.get('ENABLE_PUBLIC_SHARING', 'true').lower() == 'true')):
-        return jsonify({'error': translate('server.apiError.public_sharing_off'), 'code': 'feature_disabled'}), 403
-    if not getattr(current_user, 'can_share_publicly', True):
-        return jsonify({'error': translate('server.apiError.public_link_not_permitted'), 'code': 'not_permitted'}), 403
-    if not link_is_https():
-        return jsonify({'error': translate('server.apiError.public_link_https_required'), 'code': 'https_required'}), 403
-    recording = db.session.get(Recording, recording_id)
-    if not recording or recording.user_id != current_user.id:
-        return jsonify({'error': translate('server.apiError.recording_not_found'), 'code': 'not_found'}), 404
-    data = request.get_json(silent=True) or {}
-    flags = {}
-    for key, default in (('share_summary', True), ('share_notes', False), ('force_new', False),
-                         ('update_existing', False)):
-        value = data.get(key, default)
-        if not isinstance(value, bool):
-            return jsonify({'error': translate('server.apiError.invalid_boolean_flag', key=key),
-                            'code': 'invalid_parameter'}), 400
-        flags[key] = value
-    days = data.get('expires_in_days')
-    if days is not None and (not isinstance(days, int) or isinstance(days, bool) or not 1 <= days <= 3650):
-        return jsonify({'error': translate('server.apiError.invalid_expires_in_days_range'), 'code': 'invalid_parameter'}), 400
-    share, created, differ = get_or_create(recording, current_user, flags['share_summary'], flags['share_notes'],
-                                           force_new=flags['force_new'], update_existing=flags['update_existing'],
-                                           expires_in_days=days)
-    return jsonify({
-        'share_url': public_url(share.public_id),
-        'existing': not created,
-        'flags_differ': differ,
-        'share': share_dict(share),
-    }), 201 if created else 200
-
-
-@api_v1_bp.route('/recordings/<int:recording_id>/shares', methods=['GET'])
-@require_scope('share')
-@login_required
-def list_public_shares(recording_id):
-    """Your public links of a recording."""
-    from src.models import Share
-    from src.services.public_shares import public_url, share_dict
-    recording = db.session.get(Recording, recording_id)
-    if not recording or recording.user_id != current_user.id:
-        return jsonify({'error': translate('server.apiError.recording_not_found'), 'code': 'not_found'}), 404
-    shares = (Share.query.filter_by(recording_id=recording.id, user_id=current_user.id)
-              .order_by(Share.created_at.desc()).all())
-    return jsonify({'shares': [dict(share_dict(s), share_url=public_url(s.public_id)) for s in shares]})
-
-
-@api_v1_bp.route('/shares/<int:share_id>', methods=['DELETE'])
-@require_scope('share')
-@login_required
-def revoke_public_share(share_id):
-    from src.models import Share
-    from src.services.public_shares import revoke
-    share = db.session.get(Share, share_id)
-    if share is None or share.user_id != current_user.id:
-        return jsonify({'error': translate('server.apiError.share_not_found'), 'code': 'not_found'}), 404
-    revoke(share)
-    return '', 204
-
-
 @api_v1_bp.route('/recordings/changes', methods=['GET'])
 @require_scope('read')
 @login_required
@@ -1880,7 +1779,6 @@ def list_recording_changes():
         cursor: from a previous answer; absent starts a full pass (every live
                 recording, no tombstones)
         limit: 1 to 500 (default 100)
-        scope: own (default; shared and all arrive with G4)
     """
     from src.services.recording_changes import (CursorError, cursor_expired, decode_cursor,
                                                 iso_z, read_changes)
@@ -1888,9 +1786,6 @@ def list_recording_changes():
     limit = request.args.get('limit', 100, type=int)
     if limit is None or not 1 <= limit <= 500:
         return jsonify({'error': translate('server.apiError.invalid_limit'), 'code': 'invalid_parameter'}), 400
-    scope = request.args.get('scope', 'own')
-    if scope not in ('own', 'shared', 'all'):
-        return jsonify({'error': translate('server.apiError.invalid_scope'), 'code': 'invalid_parameter'}), 400
     if cursor:
         try:
             changed_at, _, _, full_since = decode_cursor(cursor)
@@ -1899,17 +1794,15 @@ def list_recording_changes():
         if cursor_expired(current_user.id, changed_at, full_since):
             return jsonify({'error': translate('server.apiError.cursor_expired'),
                             'code': 'cursor_expired'}), 410
-    items, next_cursor, has_more = read_changes(current_user.id, cursor=cursor, limit=limit, scope=scope)
+    items, next_cursor, has_more = read_changes(current_user.id, cursor=cursor, limit=limit)
     from src.services.external_refs import refs_map
-    from src.services.recording_scope import share_details
     upserts = [obj for kind, obj in items if kind == 'upsert']
     page_refs = refs_map([obj.id for obj in upserts], current_user.id)
-    page_shared = share_details(upserts, current_user)
     changes = []
     for kind, obj in items:
         if kind == 'upsert':
             changes.append({'type': 'upsert', 'recording': _recording_list_item(
-                obj, page_refs.get(obj.id, []), page_shared.get(obj.id))})
+                obj, page_refs.get(obj.id, []))})
         else:
             changes.append({'type': 'delete', 'id': obj.recording_id,
                             'deleted_at': iso_z(obj.deleted_at), 'reason': obj.reason})
@@ -1937,17 +1830,11 @@ def get_recording(recording_id):
         return jsonify(api_error('recording_not_found')), 404
 
     from src.services.recording_changes import effective_updated_at, iso_z
-    from src.services.recording_scope import visible_folder
     include = request.args.get('include', 'transcription,summary,notes')
     include_fields = [f.strip() for f in include.split(',')]
     format_type = request.args.get('format', 'full')
 
-    share = None
-    if recording.user_id != current_user.id:
-        from src.models import InternalShare
-        share = InternalShare.query.filter_by(
-            recording_id=recording.id, shared_with_user_id=current_user.id).first()
-    folder = visible_folder(recording, current_user.id, share)
+    folder = _folder_ref(recording)
     caller_inbox, caller_highlighted = get_user_recording_status(recording, current_user)
 
     response = {
@@ -2231,7 +2118,6 @@ def update_recording(recording_id):
         except ValueError:
             return jsonify(api_error('invalid_meeting_date')), 400
     if 'is_inbox' in data or 'is_highlighted' in data:
-        # Inbox and star are per user: a shared editor sets their own (#599)
         set_user_recording_status(
             recording, current_user,
             is_inbox=bool(data['is_inbox']) if 'is_inbox' in data else None,
@@ -2241,32 +2127,24 @@ def update_recording(recording_id):
         archived = parse_archived_flag(data['is_archived'])
         if archived is None:
             return jsonify(api_error('invalid_is_archived')), 400
-        # Per user, like the web app: a shared editor archives it for
-        # themselves only (#394).
         set_user_archived(recording, current_user, archived, commit=False)
     if 'folder_id' in data:
         new_folder_id = data['folder_id']
         if new_folder_id is None:
             recording.folder_id = None
-            from src.services.auto_shares import drop_stale_auto_shares
-            drop_stale_auto_shares(recording_ids=[recording.id])
         else:
             from src.models.organization import Folder
             target = db.session.get(Folder, new_folder_id)
             if not target:
                 return jsonify(api_error('folder_id_not_found', folderId=new_folder_id)), 404
-            from src.api.folders import apply_group_folder_shares, folder_assign_error
+            from src.api.folders import folder_assign_error
             error_key = folder_assign_error(recording, target, current_user, 'target_folder_access_denied')
             if error_key:
                 return jsonify(api_error(error_key)), 403
             recording.folder_id = new_folder_id
-            apply_group_folder_shares(recording, target)
-            from src.services.auto_shares import drop_stale_auto_shares
-            drop_stale_auto_shares(recording_ids=[recording.id])
 
-    # The notes of a recipient are personal notes, not an edit of the recording.
     audit.edited(recording, [f for f in ('title', 'participants', 'summary', 'meeting_date') if f in data]
-                 + (['notes'] if 'notes' in data and recording.user_id == current_user.id else []))
+                 + (['notes'] if 'notes' in data else []))
     db.session.commit()
 
     # recording.updated goes out from the change listener after the commit
@@ -2623,8 +2501,7 @@ def update_tag(tag_id):
     data = request.get_json()
     if not data:
         return jsonify(api_error('no_data_provided')), 400
-    from src.services.auto_shares import regroup_error, regroup_name_error, share_scope_refusal, sharing_state, sync_source_shares
-    before = sharing_state(tag)
+    from src.services.group_assign import regroup_error, regroup_name_error
 
     if 'group_id' in data:
         # The rule of the web app: an admin of the new group, and each
@@ -2638,10 +2515,6 @@ def update_tag(tag_id):
             if error_key:
                 return jsonify(api_error(error_key)), 403
             tag.group_id = new_group_id
-    if 'auto_share_on_apply' in data and tag.group_id:
-        tag.auto_share_on_apply = bool(data['auto_share_on_apply'])
-    if 'share_with_group_lead' in data and tag.group_id:
-        tag.share_with_group_lead = bool(data['share_with_group_lead'])
     if 'name' in data:
         tag.name = data['name']
     if 'color' in data:
@@ -2661,12 +2534,6 @@ def update_tag(tag_id):
 
     try:
         db.session.flush()
-        # A new group or new share settings: the shares follow, as in the web app (#586)
-        _removed, created = sync_source_shares(tag, before)
-        refusal = share_scope_refusal(created)
-        if refusal is not None:
-            db.session.rollback()
-            return refusal
         db.session.commit()
     except IntegrityError:
         db.session.rollback()
@@ -2678,8 +2545,6 @@ def update_tag(tag_id):
         'color': tag.color,
         'is_group_tag': tag.group_id is not None,
         'group_id': tag.group_id,
-        'auto_share_on_apply': tag.auto_share_on_apply,
-        'share_with_group_lead': tag.share_with_group_lead,
         'custom_prompt': tag.custom_prompt,
         'title_prompt': tag.title_prompt,
         'default_language': tag.default_language,
@@ -2717,9 +2582,6 @@ def delete_tag(tag_id):
     RecordingTag.query.filter_by(tag_id=tag_id).delete()
 
     db.session.delete(tag)
-    # Shares the tag made end with it (#570, #582)
-    from src.services.auto_shares import drop_stale_auto_shares
-    drop_stale_auto_shares(recording_ids=recording_ids)
     db.session.commit()
 
     return jsonify({'success': True, 'message': translate('server.apiMessage.tagDeleted')})
@@ -2741,25 +2603,11 @@ def _tag_problem(recording, tag):
     return None if tag.user_id == current_user.id else 'no access'
 
 
-def _share_scope_refusal(recording, tags):
-    """403 when applying these tags would share the recording and the token
-    lacks the share scope (mailr spec section 8); nothing has changed yet."""
-    from src.services.tag_sharing import share_targets
-    from src.utils.token_auth import current_api_token, scope_error_response
-    token = current_api_token()
-    if token is None or token.scope_set is None or 'share' in token.scope_set:
-        return None
-    if any(share_targets(recording, tag) for tag in tags):
-        return scope_error_response({'share'}, token)
-    return None
-
-
 @api_v1_bp.route('/recordings/<int:recording_id>/tags', methods=['POST'])
 @require_scope('write')
 @login_required
 def add_tags_to_recording(recording_id):
-    """Add tag(s) to a recording. Needs edit access; a group tag that shares
-    the recording also needs the share scope on a scoped token."""
+    """Add tag(s) to a recording. Needs edit access."""
     recording = db.session.get(Recording, recording_id)
     if not recording or not has_recording_access(recording, current_user):
         return jsonify(api_error('recording_not_found')), 404
@@ -2790,16 +2638,10 @@ def add_tags_to_recording(recording_id):
         elif tag.id not in present and tag not in to_add:
             to_add.append(tag)
 
-    refusal = _share_scope_refusal(recording, to_add)
-    if refusal is not None:
-        return refusal
-
-    from src.services.tag_sharing import apply_tag_shares
     max_order = db.session.query(func.max(RecordingTag.order)).filter_by(recording_id=recording_id).scalar() or 0
     added_tags = []
     for offset, tag in enumerate(to_add, 1):
         db.session.add(RecordingTag(recording_id=recording_id, tag_id=tag.id, order=max_order + offset))
-        apply_tag_shares(recording, tag)
         added_tags.append({'id': tag.id, 'name': tag.name})
 
     db.session.commit()
@@ -2846,11 +2688,6 @@ def replace_recording_tags(recording_id):
     added = [t for t in wanted if t.id not in current_ids]
     removed = [rt.tag_id for rt in current if rt.tag_id in visible and rt.tag_id not in {t.id for t in wanted}]
 
-    refusal = _share_scope_refusal(recording, added)
-    if refusal is not None:
-        return refusal
-
-    from src.services.tag_sharing import apply_tag_shares
     for rt in current:
         if rt.tag_id in removed:
             db.session.delete(rt)
@@ -2865,14 +2702,9 @@ def replace_recording_tags(recording_id):
                 by_id[tag.id].order = order
         else:
             db.session.add(RecordingTag(recording_id=recording_id, tag_id=tag.id, order=order))
-            apply_tag_shares(recording, tag)
     for rt in kept_hidden:
         order += 1
         rt.order = order
-    if removed:
-        # Shares a removed tag made end with it (#570, #582)
-        from src.services.auto_shares import drop_stale_auto_shares
-        drop_stale_auto_shares(recording_ids=[recording_id])
     db.session.commit()
     return jsonify({
         'tags': [{'id': t.id, 'name': t.name, 'color': t.color} for t in wanted],
@@ -2902,9 +2734,6 @@ def remove_tag_from_recording(recording_id, tag_id):
         return jsonify(api_error('tag_not_on_recording')), 404
 
     db.session.delete(recording_tag)
-    # Shares the tag made end with it (#570, #582)
-    from src.services.auto_shares import drop_stale_auto_shares
-    drop_stale_auto_shares(recording_ids=[recording_id])
     db.session.commit()
 
     return jsonify({'success': True, 'message': translate('server.apiMessage.tagRemoved')})
@@ -3625,13 +3454,12 @@ def inquire_v1():
     """Ask a question across recordings (mailr spec G9).
 
     Body: question, filters {recording_ids, tag_ids, folder_ids, speakers,
-    date_from, date_to}, scope (own|shared|all), mode (rag|agent|auto), stream, history.
+    date_from, date_to}, mode (rag|agent|auto), stream, history.
     """
     import re as _re
     from flask import Response, stream_with_context
     from src.api.inquire import inquire_stream
     from src.services.inquire_agent import agent_enabled
-    from src.services.recording_scope import scope_condition
     if os.environ.get('ENABLE_INQUIRE_MODE', 'false').lower() != 'true':
         return jsonify({'error': translate('server.apiError.inquire_off'), 'code': 'feature_disabled'}), 403
     body = request.get_json(silent=True) or {}
@@ -3643,14 +3471,11 @@ def inquire_v1():
         return jsonify({'error': translate('server.apiError.invalid_inquire_mode'), 'code': 'invalid_parameter'}), 400
     if mode == 'agent' and not agent_enabled():
         return jsonify({'error': translate('server.apiError.inquire_agent_off'), 'code': 'feature_disabled'}), 403
-    scope = body.get('scope', 'own')
-    if scope not in ('own', 'shared', 'all'):
-        return jsonify({'error': translate('server.apiError.invalid_scope'), 'code': 'invalid_parameter'}), 400
     filters = body.get('filters') or {}
     if not isinstance(filters, dict):
         return jsonify({'error': translate('server.apiError.invalid_filters'), 'code': 'invalid_parameter'}), 400
 
-    allowed = [rid for (rid,) in db.session.query(Recording.id).filter(scope_condition(current_user.id, scope))]
+    allowed = [rid for (rid,) in db.session.query(Recording.id).filter(Recording.user_id == current_user.id)]
     if filters.get('recording_ids'):
         wanted = {int(r) for r in filters['recording_ids'] if str(r).isdigit()}
         allowed = [rid for rid in allowed if rid in wanted]
@@ -3884,7 +3709,6 @@ def batch_update_recordings():
 
         try:
             if 'is_inbox' in updates or 'is_highlighted' in updates:
-                # Per user, as on the single PATCH (#599)
                 set_user_recording_status(
                     recording, current_user,
                     is_inbox=bool(updates['is_inbox']) if 'is_inbox' in updates else None,
@@ -3896,9 +3720,6 @@ def batch_update_recordings():
                 # `target_folder_id` already validated above (None to remove,
                 # or a valid folder id the caller has access to).
                 recording.folder_id = target_folder_id
-                if target is not None:
-                    from src.api.folders import apply_group_folder_shares
-                    apply_group_folder_shares(recording, target)
 
             # Handle tag additions.
             # Authorize each tag_id: personal tags must be owned, group
@@ -3961,12 +3782,6 @@ def batch_update_recordings():
                         recording_id=recording_id,
                         tag_id=tag_id
                     ).delete()
-
-            if 'folder_id' in updates or 'remove_tag_ids' in updates:
-                # Leaving a group folder or losing a group tag ends the
-                # shares it made (#570, #582)
-                from src.services.auto_shares import drop_stale_auto_shares
-                drop_stale_auto_shares(recording_ids=[recording_id])
 
             results.append({'id': recording_id, 'success': True})
         except Exception as e:

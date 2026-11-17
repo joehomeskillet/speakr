@@ -1,35 +1,53 @@
 """Who may put a recording into a folder, on every move path (#515).
 
-The group-tag rule applied: a group folder takes another user's recording
-only from a group admin with edit access, and a personal folder only takes
-the caller's own recordings. Without it, an editor of a shared recording
-could share it with a whole group by moving it into their group folder.
+Only the owner of a recording moves it, into a personal folder or into a folder
+of a group they belong to. Another user's recording is never moved, and a
+personal folder of another user never takes a recording.
 """
 import os
 import sys
+import uuid
 
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.app import db
-from src.models import Folder, InternalShare, Recording
+from src.app import app, db
+from src.models import Folder, Group, GroupMembership, Recording, SystemSetting, User
 
-from tests.test_folder_group_shares import _client, _shares, team  # noqa: F401  (fixture)
+from tests.login_client import _client
+
+app.config["WTF_CSRF_ENABLED"] = False
 
 
 @pytest.fixture
-def editors(team, monkeypatch):
-    """The owner's recording, shared with edit rights with the other admin and the member."""
-    monkeypatch.setattr(sys.modules["src.app"], "ENABLE_INTERNAL_SHARING", True)
-    t = team
-    rec = t["recording"]()
-    for user in (t["other_admin"], t["member"]):
-        db.session.add(InternalShare(recording_id=rec.id, owner_id=t["owner"].id,
-                                     shared_with_user_id=user.id, can_edit=True, can_reshare=False))
-    db.session.commit()
-    t["rec"] = rec
-    return t
+def world():
+    with app.app_context():
+        SystemSetting.set_setting("enable_folders", "true", setting_type="boolean")
+        s = uuid.uuid4().hex[:8]
+        owner, other = (User(username=f"fa{k}_{s}", email=f"fa{k}_{s}@local.test", password="x")
+                        for k in ("o", "x"))
+        db.session.add_all([owner, other])
+        db.session.commit()
+        group = Group(name=f"fa_{s}")
+        db.session.add(group)
+        db.session.commit()
+        db.session.add(GroupMembership(user_id=owner.id, group_id=group.id, role="admin"))
+        group_folder = Folder(name=f"gf_{s}", user_id=owner.id, group_id=group.id)
+        personal = Folder(name=f"pf_{s}", user_id=owner.id)
+        others_folder = Folder(name=f"of_{s}", user_id=other.id)
+        rec = Recording(user_id=owner.id, title="r", audio_path="/tmp/r.mp3", status="COMPLETED")
+        db.session.add_all([group_folder, personal, others_folder, rec])
+        db.session.commit()
+        yield dict(owner=owner, other=other, rec=rec.id, group_folder=group_folder.id,
+                   personal=personal.id, others_folder=others_folder.id)
+        db.session.rollback()
+        Recording.query.filter_by(id=rec.id).delete()
+        Folder.query.filter(Folder.user_id.in_([owner.id, other.id])).delete(synchronize_session=False)
+        GroupMembership.query.filter_by(group_id=group.id).delete()
+        db.session.delete(group)
+        User.query.filter(User.id.in_([owner.id, other.id])).delete(synchronize_session=False)
+        db.session.commit()
 
 
 def _move(path, client, rec_id, folder_id):
@@ -44,75 +62,44 @@ def _move(path, client, rec_id, folder_id):
                         json={"recording_ids": [rec_id], "updates": {"folder_id": folder_id}})
 
 
-def _refused(path, resp):
-    if path == "batch":
-        assert resp.status_code == 200
-        result = resp.get_json()["results"][0]
-        return result["success"] is False and result["code"] == "folder_assign_restricted"
-    return resp.status_code == 403 and resp.get_json()["code"] == "folder_assign_restricted"
-
-
 PATHS = ["web", "bulk", "v1", "batch"]
 
 
-@pytest.mark.parametrize("path", PATHS)
-def test_member_editor_cannot_move_into_group_folder(editors, path):
-    t = editors
-    # A folder whose sharing would reach the whole group.
-    f = t["folder"]()
-    resp = _move(path, _client(t["member"]), t["rec"].id, f.id)
-    assert _refused(path, resp), resp.get_data(as_text=True)
-    db.session.expire_all()
-    assert db.session.get(Recording, t["rec"].id).folder_id is None
-    assert InternalShare.query.filter_by(recording_id=t["rec"].id, source_type="group_folder").count() == 0
+def _assert_not_moved(path, resp):
+    if path == "bulk":
+        assert resp.status_code in (200, 403, 404)
+        if resp.status_code == 200:
+            assert resp.get_json()["updated_count"] == 0
+    elif path == "batch" and resp.status_code == 200:
+        assert resp.get_json()["results"][0]["success"] is False
+    else:
+        assert resp.status_code in (403, 404), resp.get_data(as_text=True)
 
 
 @pytest.mark.parametrize("path", PATHS)
-def test_group_admin_editor_may_move_and_it_shares(editors, path):
-    t = editors
-    f = t["folder"]()
-    resp = _move(path, _client(t["other_admin"]), t["rec"].id, f.id)
-    assert resp.status_code == 200, resp.get_data(as_text=True)
-    if path == "batch":
-        assert resp.get_json()["results"][0]["success"] is True
-    db.session.expire_all()
-    assert db.session.get(Recording, t["rec"].id).folder_id == f.id
-    # The member already had a manual share; nobody else is in the group.
-    assert set(_shares(t["rec"].id)) == {t["other_admin"].id, t["member"].id}
-
-
-@pytest.mark.parametrize("path", PATHS)
-def test_editor_cannot_put_the_owners_recording_in_their_personal_folder(editors, path):
-    t = editors
-    theirs = Folder(name="member personal", user_id=t["member"].id)
-    db.session.add(theirs)
-    db.session.commit()
-    resp = _move(path, _client(t["member"]), t["rec"].id, theirs.id)
-    assert _refused(path, resp), resp.get_data(as_text=True)
-    db.session.expire_all()
-    assert db.session.get(Recording, t["rec"].id).folder_id is None
-
-
-@pytest.mark.parametrize("path", PATHS)
-def test_owner_moves_as_before(editors, path):
-    t = editors
-    group_folder, personal = t["folder"](), t["folder"](group_id=None)
-    client = _client(t["owner"])
-    for f in (group_folder, personal):
-        resp = _move(path, client, t["rec"].id, f.id)
+def test_owner_moves_into_a_group_and_a_personal_folder(world, path):
+    client = _client(world["owner"])
+    for folder_id in (world["group_folder"], world["personal"]):
+        resp = _move(path, client, world["rec"], folder_id)
         assert resp.status_code == 200, resp.get_data(as_text=True)
         db.session.expire_all()
-        assert db.session.get(Recording, t["rec"].id).folder_id == f.id
+        assert db.session.get(Recording, world["rec"]).folder_id == folder_id
 
 
 @pytest.mark.parametrize("path", PATHS)
-def test_editor_may_still_remove_from_a_folder(editors, path):
-    t = editors
-    f = t["folder"]()
-    rec = db.session.get(Recording, t["rec"].id)
-    rec.folder_id = f.id
+def test_another_user_cannot_move_the_recording(world, path):
+    other_folder = Folder(name="other target", user_id=world["other"].id)
+    db.session.add(other_folder)
     db.session.commit()
-    resp = _move(path, _client(t["member"]), t["rec"].id, None)
-    assert resp.status_code == 200, resp.get_data(as_text=True)
+    resp = _move(path, _client(world["other"]), world["rec"], other_folder.id)
+    _assert_not_moved(path, resp)
     db.session.expire_all()
-    assert db.session.get(Recording, t["rec"].id).folder_id is None
+    assert db.session.get(Recording, world["rec"]).folder_id is None
+
+
+@pytest.mark.parametrize("path", PATHS)
+def test_owner_cannot_move_into_another_users_personal_folder(world, path):
+    resp = _move(path, _client(world["owner"]), world["rec"], world["others_folder"])
+    _assert_not_moved(path, resp)
+    db.session.expire_all()
+    assert db.session.get(Recording, world["rec"]).folder_id is None

@@ -155,7 +155,7 @@ def settle_recording(recording, job, ran):
         if recording.status != 'COMPLETED':
             if ran and job.job_type in _TRANSCRIPTION_SIDE:
                 # The transcript of this run is complete: the steps that
-                # follow COMPLETED run (shares, export, Inquire chunks), the
+                # follow COMPLETED run (export, Inquire chunks), the
                 # LLM steps do not.
                 from src.tasks.processing import finish_processing
                 finish_processing(recording.id, extract_events=False)

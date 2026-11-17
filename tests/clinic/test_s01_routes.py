@@ -14,7 +14,7 @@ from src.clinic.guard import clinic_guard
 from src.clinic.route_policy import DISABLED, RECORDING, ROUTE_POLICY
 from src.models import SystemSetting, User
 
-_STRING_ARGS = {'public_id', 'session_id', 'group', 'label_name', 'token', 'filename'}
+_STRING_ARGS = {'session_id', 'group', 'label_name', 'token', 'filename'}
 
 
 def _rule_for(endpoint, arg=None):
@@ -38,8 +38,6 @@ def _url(endpoint, world, rec_key='rec_b'):
             values[name] = world['event_' + rec_key[-1]]
         elif name == 'job_id':
             values[name] = world['job_' + rec_key[-1]]
-        elif name == 'public_id':
-            values[name] = world['public_id']
         elif name in _STRING_ARGS:
             values[name] = 'x'
         else:
@@ -71,7 +69,7 @@ def _is_clinic_refusal(response):
 # --- (a) clinic mode off leaves upstream behaviour alone ------------------------
 
 def test_off_the_guard_never_refuses(clinic_off, world):
-    for endpoint in ('shares.view_shared_recording', 'webhooks.list_webhooks', 'tokens.list_tokens',
+    for endpoint in ('webhooks.list_webhooks', 'tokens.list_tokens',
                      'recordings.chat_with_transcription', 'api_v1.chat_with_recording'):
         url, method = _url(endpoint, world)
         response = login(world['user_a']).open(url, method=method, json={})
@@ -94,28 +92,7 @@ def test_off_webhook_dispatch_is_unchanged(clinic_off):
     assert webhook_dispatch._global_enabled() is True
 
 
-def test_off_a_stored_sharing_setting_still_applies(clinic_off, world):
-    set_setting('enable_internal_sharing', 'true')
-    with app.app_context():
-        assert SystemSetting.get_setting('enable_internal_sharing', False) is True
-
-
 # --- (b) clinic mode on blocks the forbidden functions --------------------------
-
-def test_public_share_link_is_blocked(clinic_on, world):
-    client = app.test_client()
-    for url in (f'/share/{world["public_id"]}', f'/share/audio/{world["public_id"]}'):
-        response = client.get(url)
-        assert response.status_code == 403 and _is_clinic_refusal(response)
-        assert SECRET_MARKER not in dump(response)
-
-
-def test_creating_a_public_share_is_blocked(clinic_on, world):
-    response = login(world['user_a']).post(f'/api/recording/{world["rec_a"]}/share', json={})
-    assert response.status_code == 403 and _is_clinic_refusal(response)
-    response = login(world['user_a']).post(f'/api/v1/recordings/{world["rec_a"]}/share', json={})
-    assert response.status_code == 403 and _is_clinic_refusal(response)
-
 
 @pytest.mark.parametrize('method,url', [
     ('POST', '/chat'), ('POST', '/api/inquire/chat'), ('POST', '/api/inquire/search'),
@@ -208,10 +185,7 @@ def test_anonymous_gets_the_login_answer_not_data(clinic_on, world):
 @pytest.mark.parametrize('as_user', ['user_a', 'user_admin'])
 @pytest.mark.parametrize('endpoint', _endpoints(RECORDING))
 def test_foreign_recording_is_denied_on_every_recording_route(clinic_on, world, endpoint, as_user):
-    """Admin included: there is no owner or admin shortcut. b's recording is
-    also shared with a internally and publicly, and internal sharing is
-    switched on in the stored settings, which must not matter."""
-    set_setting('enable_internal_sharing', 'true')
+    """Admin included: there is no owner or admin shortcut."""
     url, method = _url(endpoint, world)
     response = login(world[as_user]).open(url, method=method, json=_body(world))
     assert response.status_code == 404, (endpoint, url, response.status_code)
@@ -269,23 +243,6 @@ def test_lists_counts_and_search_show_only_own_recordings(clinic_on, world):
     assert stats['recordings']['total'] == 1
 
 
-def test_internal_shares_are_closed_even_when_the_setting_is_on(clinic_on, world):
-    set_setting('enable_internal_sharing', 'true')
-    with app.app_context():
-        assert SystemSetting.get_setting('enable_internal_sharing', True) is False
-    client = login(world['user_a'])
-    assert 'B dictation' not in dump(client.get('/api/v1/recordings?scope=all'))
-    assert client.get(f'/api/recordings/{world["rec_b"]}').status_code == 404
-    assert client.get('/api/recordings/shared-with-me').status_code == 403
-
-
-def test_without_clinic_mode_the_same_setting_opens_the_share(clinic_off, world):
-    """Control: the ceiling above is what closes it, not a test artefact."""
-    set_setting('enable_internal_sharing', 'true')
-    client = login(world['user_a'])
-    assert 'B dictation' in dump(client.get('/api/v1/recordings?scope=all'))
-
-
 # --- T-058: forged channel ------------------------------------------------------
 
 def test_forged_channel_headers_grant_nothing(clinic_on, world):
@@ -300,7 +257,6 @@ def test_forged_channel_headers_grant_nothing(clinic_on, world):
 # --- T-060: the settings API cannot lift the ceiling ----------------------------
 
 @pytest.mark.parametrize('key,value', [
-    ('enable_public_sharing', 'true'), ('enable_internal_sharing', 'true'),
     ('api_query_tokens_enabled', 'true'), ('enable_auto_deletion', 'true'),
     ('allow_registration', 'true'), ('global_retention_days', '30'),
 ])
@@ -320,18 +276,18 @@ def test_admin_cannot_switch_a_locked_setting_on(clinic_on, world, key, value):
 
 def test_admin_may_switch_a_locked_setting_off(clinic_on, world):
     response = login(world['user_admin']).post(
-        '/admin/settings', json={'key': 'enable_public_sharing', 'value': 'false', 'setting_type': 'boolean'})
+        '/admin/settings', json={'key': 'enable_auto_deletion', 'value': 'false', 'setting_type': 'boolean'})
     assert response.status_code == 200
 
 
 def test_a_stored_conflicting_setting_is_reported_and_overridden(clinic_off, world, monkeypatch):
     from src.clinic.config import find_setting_conflicts
-    set_setting('enable_public_sharing', 'true')
+    set_setting('enable_auto_deletion', 'true')
     monkeypatch.setenv('CLINIC_MODE', '1')
     with app.app_context():
-        assert SystemSetting.get_setting('enable_public_sharing', True) is False
+        assert SystemSetting.get_setting('enable_auto_deletion', True) is False
         conflicts = find_setting_conflicts()
-    assert {'key': 'enable_public_sharing', 'stored': 'true', 'effective': False} in conflicts
+    assert {'key': 'enable_auto_deletion', 'stored': 'true', 'effective': False} in conflicts
 
 
 def test_non_admin_cannot_use_admin_routes(clinic_on, world):

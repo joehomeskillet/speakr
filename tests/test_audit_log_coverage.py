@@ -24,9 +24,9 @@ import pytest
 
 from tests.audit_log_support import (  # noqa: E402
     anonymous_client, api_token, app, audit, bearer, client_for, db, make_recording, make_user,
-    max_id, remove_users, reset_audit_settings, rows_after, set_setting,
+    max_id, remove_users, reset_audit_settings, rows_after,
 )
-from src.models import AuditEvent, Share, SystemSetting  # noqa: E402
+from src.models import AuditEvent, SystemSetting  # noqa: E402
 
 app.config['WTF_CSRF_ENABLED'] = False
 app.config['TESTING'] = True
@@ -62,8 +62,6 @@ AUDITED = {
     'recordings.translate_transcription': REPROCESSED,
     'recordings.delete_recording': {'recording.deleted'},
     'recordings.delete_recording_audio': {'recording.audio.deleted'},
-    'shares.create_share': {'share.public.created', 'share.public.changed'},
-    'shares.share_recording_internal': {'share.internal.created'},
     # API v1
     'api_v1.get_recording': VIEWED,
     'api_v1.get_transcript': READ,
@@ -82,7 +80,6 @@ AUDITED = {
     'api_v1.api_regenerate_title': REPROCESSED,
     'api_v1.delete_recording': {'recording.deleted'},
     'api_v1.delete_recording_audio': {'recording.audio.deleted'},
-    'api_v1.create_public_share': {'share.public.created'},
 }
 
 # endpoint -> why no event is recorded
@@ -110,10 +107,6 @@ NOT_AUDITED = {
     'api_v1.add_external_ref': 'ids of an integration, no content',
     'api_v1.replace_external_refs': 'ids of an integration, no content',
     'api_v1.delete_external_ref': 'ids of an integration, no content',
-    # Lists of shares; creating, changing and revoking a share is recorded
-    'shares.get_existing_share': 'reads the link of the owner',
-    'shares.get_internal_shares': 'list of the shares of a recording',
-    'api_v1.list_public_shares': 'list of the links of a recording',
     # Processing helpers that store no content of their own
     'recordings.get_summary_prompt': 'the prompt of the owner, not the recording',
     'recordings.save_summary_prompt_route': 'the prompt of the owner, not the recording',
@@ -272,14 +265,6 @@ def test_the_auto_deletion_preview_is_gone():
     assert not [rule.rule for rule in app.url_map.iter_rules() if 'auto-deletion/preview' in rule.rule]
 
 
-def test_public_link_routes_record_their_events():
-    source = (ROOT / 'src' / 'api' / 'shares.py').read_text(encoding='utf-8')
-    opened = source[source.index('def view_shared_recording('):source.index('def get_shared_audio(')]
-    played = source[source.index('def get_shared_audio('):source.index('def get_existing_share(')]
-    assert "_audit_public_link('share.public.opened', share)" in opened
-    assert played.count("_audit_public_link('share.public.media.played', share)") == 2
-
-
 def test_every_event_of_the_registry_is_recorded_somewhere():
     """An event that no code records is a promise the documentation makes
     and the application does not keep."""
@@ -290,9 +275,6 @@ def test_every_event_of_the_registry_is_recorded_somewhere():
     after_registry = service[registry_end:]
     missing = []
     for name in audit.EVENTS:
-        if name.startswith('share.internal.'):
-            assert "f'share.internal.{action}'" in sources
-            continue
         if f"'{name}'" not in sources and f"'{name}'" not in after_registry:
             missing.append(name)
     assert not missing, f"events that nothing records: {missing}"
@@ -323,8 +305,6 @@ def created():
         with audit._lost_lock:
             audit._lost.clear()
         db.session.rollback()
-        for key in ('enable_internal_sharing', 'enable_public_sharing', 'user_search_scope'):
-            SystemSetting.set_setting(key, None, None, None)
         remove_users(users)
 
 
@@ -338,8 +318,8 @@ def _wav(tmp_path):
     return str(path)
 
 
-def _tour(owner, reader, recording, public_id, token):
-    """Reads, changes and shares that carry the marker wherever a user can type."""
+def _tour(owner, reader, recording, token):
+    """Reads and changes that carry the marker wherever a user can type."""
     client = client_for(owner)
     base = f'/api/v1/recordings/{recording.id}'
     headers = bearer(token)
@@ -351,7 +331,6 @@ def _tour(owner, reader, recording, public_id, token):
     client.post('/save', json={'id': recording.id, 'title': f'{MARK} title', 'notes': f'{MARK} notes',
                                'summary': f'{MARK} summary', 'participants': f'{MARK} person'})
     client.post(f'/recording/{recording.id}/update_transcription', json={'transcription': f'{MARK} text'})
-    client.post(f'/api/recordings/{recording.id}/share-internal', json={'user_id': reader.id})
     client.post('/api/tokens', json={'name': f'{MARK} token'})
     client.post('/admin/settings', json={'key': f'{MARK}_key', 'value': f'{MARK} value'})
     client.post('/admin/settings', json={'key': 'help_center_label', 'value': f'{MARK} label'})
@@ -360,9 +339,6 @@ def _tour(owner, reader, recording, public_id, token):
     anonymous_client().get(f'{base}/transcript?format=text&q={MARK}', headers=headers)
     anonymous_client().patch(base, json={'title': f'{MARK} api title'}, headers=headers)
     anonymous_client().put(f'{base}/notes', json={'notes': f'{MARK} api notes'}, headers=headers)
-    visitor = anonymous_client()
-    visitor.get(f'/share/{public_id}', headers={'User-Agent': 'visitor'})
-    visitor.get(f'/share/audio/{public_id}', headers={'User-Agent': 'visitor'}).close()
     stranger = anonymous_client()
     stranger.post('/login', data={'email': f'{MARK}@example.com', 'password': f'{MARK}-Passw0rd!'})
     stranger.post('/login', data={'email': owner.email, 'password': f'{MARK}-Passw0rd!'})
@@ -370,22 +346,15 @@ def _tour(owner, reader, recording, public_id, token):
 
 
 def test_no_marker_reaches_a_row_or_a_fallback_line(created, tmp_path, monkeypatch, caplog):
-    owner = make_user(created, prefix='own', is_admin=True, can_share_publicly=True)
+    owner = make_user(created, prefix='own', is_admin=True)
     reader = make_user(created, prefix='rdr')
-    set_setting('enable_internal_sharing', 'true')
-    set_setting('enable_public_sharing', 'true')
-    set_setting('user_search_scope', 'everyone')
     recording = make_recording(owner, title=f'{MARK} title', original_filename=f'{MARK}.wav',
                                notes=f'{MARK} notes', summary=f'{MARK} summary', participants=f'{MARK} person',
                                transcription=f'[{{"speaker": "SPEAKER_00", "sentence": "{MARK} words", '
                                              f'"start_time": 0, "end_time": 1}}]',
                                audio_path=_wav(tmp_path), mime_type='audio/wav')
-    share = Share(recording_id=recording.id, user_id=owner.id, share_summary=True, share_notes=True)
-    db.session.add(share)
-    db.session.commit()
-    public_id = share.public_id
     token, _ = api_token(owner, name=f'{MARK} token')
-    secrets = [MARK, public_id, token, owner.email, reader.email, reader.username]
+    secrets = [MARK, token, owner.email, reader.email, reader.username]
 
     # First with a database the writer cannot write: every queued event
     # becomes a fallback line.
@@ -395,13 +364,13 @@ def test_no_marker_reaches_a_row_or_a_fallback_line(created, tmp_path, monkeypat
     monkeypatch.setattr(audit, '_write_batch',
                         lambda main, rows: (_ for _ in ()).throw(RuntimeError(f'{MARK} database error')))
     with caplog.at_level(logging.ERROR, logger='speakr.audit'):
-        _tour(owner, reader, recording, public_id, token)
+        _tour(owner, reader, recording, token)
         assert audit.flush(timeout=20)
     lines = [r.getMessage() for r in caplog.records if r.name == 'speakr.audit']
     fallback = [line for line in lines if line.startswith('AUDIT-FALLBACK ')]
     assert len(fallback) >= 8, lines
     events_in_lines = {json.loads(line[len('AUDIT-FALLBACK '):])['event'] for line in fallback}
-    assert {'recording.viewed', 'recording.media.played', 'recording.downloaded', 'share.public.opened',
+    assert {'recording.viewed', 'recording.media.played', 'recording.downloaded',
             'auth.login.failed', 'recording.content.read', 'audit.viewed'} <= events_in_lines
     for line in lines:
         for secret in secrets:
@@ -416,14 +385,14 @@ def test_no_marker_reaches_a_row_or_a_fallback_line(created, tmp_path, monkeypat
     monkeypatch.setattr(audit, '_epoch', lambda: later)
     recording.title = f'{MARK} title'
     db.session.commit()
-    _tour(owner, reader, recording, public_id, token)
+    _tour(owner, reader, recording, token)
     client_for(owner).delete(f'/recording/{recording.id}')
 
     rows = rows_after(start)
     names = {row.event for row in rows}
     assert {'recording.viewed', 'recording.media.played', 'recording.media.downloaded', 'recording.downloaded',
-            'recording.edited', 'recording.content.read', 'recording.deleted', 'share.internal.created',
-            'share.public.opened', 'share.public.media.played', 'token.created', 'admin.setting.changed',
+            'recording.edited', 'recording.content.read', 'recording.deleted',
+            'token.created', 'admin.setting.changed',
             'group.created', 'auth.login.failed', 'audit.viewed'} <= names, sorted(names)
     dump = json.dumps([dict(row.to_dict(), dedup_key=row.dedup_key) for row in rows])
     for secret in secrets:

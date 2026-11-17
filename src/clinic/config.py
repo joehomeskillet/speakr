@@ -35,8 +35,6 @@ FALLBACK_CLIENT_PROFILE = 'managed_web_online'
 # applied where settings are read (SystemSetting.get_setting), so an admin
 # change through the stock settings API cannot re-enable the function (R-050).
 SETTING_CEILINGS: dict[str, tuple[str, Any]] = {
-    'enable_public_sharing': ('public_sharing', False),
-    'enable_internal_sharing': ('internal_sharing', False),
     'api_query_tokens_enabled': ('token_query_parameters', False),
     'sso_api_tokens_enabled': ('personal_api_tokens', False),
     'enable_incognito_mode': ('incognito_processing', False),

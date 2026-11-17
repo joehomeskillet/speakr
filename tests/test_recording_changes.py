@@ -1,8 +1,8 @@
 """updated_at, tombstones and the changes feed (mailr spec G2).
 
 Every write path a client can see moves Recording.updated_at, through one
-before_flush listener; processing-only fields do not. Deleting a recording or
-an internal share writes tombstones. GET /api/v1/recordings/changes returns
+before_flush listener; processing-only fields do not. Deleting a recording
+writes a tombstone. GET /api/v1/recordings/changes returns
 each create, edit and delete once, in latest state, with a cursor.
 
 SHARED-DB: users, tokens, tags, recordings and tombstones are removed afterwards.
@@ -23,7 +23,7 @@ from flask.testing import FlaskClient
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.app import app, db
-from src.models import (APIToken, Event, InternalShare, Recording, RecordingTag, RecordingTombstone,
+from src.models import (APIToken, Event, Recording, RecordingTag, RecordingTombstone,
                         Speaker, SystemSetting, Tag, User)
 from src.services import recording_changes as rc
 from src.utils.token_auth import hash_token
@@ -65,7 +65,6 @@ def world():
         rec_ids = [r.id for r in Recording.query.filter(Recording.user_id.in_(users))]
         RecordingTag.query.filter(RecordingTag.recording_id.in_(rec_ids)).delete(synchronize_session=False)
         Event.query.filter(Event.recording_id.in_(rec_ids)).delete(synchronize_session=False)
-        InternalShare.query.filter(InternalShare.recording_id.in_(rec_ids)).delete(synchronize_session=False)
         Recording.query.filter(Recording.id.in_(rec_ids)).delete(synchronize_session=False)
         RecordingTombstone.query.filter(RecordingTombstone.user_id.in_(users)).delete(synchronize_session=False)
         Tag.query.filter(Tag.user_id.in_(users)).delete(synchronize_session=False)
@@ -142,7 +141,7 @@ def test_tag_removal_moves_updated_at(world):
     assert _updated(world["rec"]) > PAST + timedelta(days=1000)
 
 
-@pytest.mark.parametrize("change", ["status", "event", "audio_deleted", "share"])
+@pytest.mark.parametrize("change", ["status", "event", "audio_deleted"])
 def test_processing_and_related_rows_move_updated_at(world, change):
     _backdate(world["rec"])
     with app.app_context():
@@ -151,10 +150,8 @@ def test_processing_and_related_rows_move_updated_at(world, change):
             r.status = "SUMMARIZING"
         elif change == "event":
             db.session.add(Event(recording_id=r.id, title="Review", start_datetime=datetime(2026, 10, 9, 15)))
-        elif change == "audio_deleted":
-            r.audio_deleted_at = datetime.utcnow()
         else:
-            db.session.add(InternalShare(recording_id=r.id, owner_id=world["me"], shared_with_user_id=world["other"]))
+            r.audio_deleted_at = datetime.utcnow()
         db.session.commit()
     assert _updated(world["rec"]) > PAST + timedelta(days=1000)
 
@@ -313,29 +310,14 @@ def test_another_users_changes_never_appear(world, no_settle):
     assert theirs not in ids
 
 
-def test_a_shared_recording_writes_tombstones_for_owner_and_recipient(world):
+def test_a_deleted_recording_writes_a_tombstone_for_its_owner_only(world):
     with app.app_context():
-        db.session.add(InternalShare(recording_id=world["rec"], owner_id=world["me"], shared_with_user_id=world["other"]))
-        db.session.commit()
         db.session.delete(db.session.get(Recording, world["rec"]))
         db.session.commit()
         stones = {(t.user_id, t.reason) for t in RecordingTombstone.query.filter(
             RecordingTombstone.recording_id == world["rec"],
             RecordingTombstone.user_id.in_([world["me"], world["other"]]))}
-    assert stones == {(world["me"], "deleted"), (world["other"], "deleted")}
-
-
-def test_removing_a_share_writes_access_revoked(world):
-    with app.app_context():
-        share = InternalShare(recording_id=world["rec"], owner_id=world["me"], shared_with_user_id=world["other"])
-        db.session.add(share)
-        db.session.commit()
-        db.session.delete(share)
-        db.session.commit()
-        stones = [(t.user_id, t.reason) for t in RecordingTombstone.query.filter(
-            RecordingTombstone.recording_id == world["rec"],
-            RecordingTombstone.user_id.in_([world["me"], world["other"]]))]
-    assert stones == [(world["other"], "access_revoked")]
+    assert stones == {(world["me"], "deleted")}
 
 
 def test_pruning_removes_old_tombstones_and_records_the_horizon(world):

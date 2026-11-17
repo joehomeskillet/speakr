@@ -19,7 +19,7 @@ from tests.audit_log_support import (  # noqa: E402
     anonymous_client, api_token, app, audit, bearer, client_for, db, make_recording, make_user,
     max_id, names, remove_users, reset_audit_settings, rows_after, set_setting,
 )
-from src.models import AuditEvent, InternalShare, ProcessingJob, Recording, SystemSetting  # noqa: E402
+from src.models import AuditEvent, ProcessingJob, Recording, SystemSetting  # noqa: E402
 
 app.config['WTF_CSRF_ENABLED'] = False
 app.config['TESTING'] = True
@@ -37,7 +37,6 @@ def created():
         yield users
         audit.flush()
         db.session.rollback()
-        SystemSetting.set_setting('enable_internal_sharing', None, None, 'boolean')
         remove_users(users)
 
 
@@ -87,20 +86,6 @@ def test_a_refused_view_of_an_existing_recording_is_denied_and_a_missing_one_is_
     assert names(rows) == ['recording.viewed']
     assert rows[0].outcome == 'denied' and rows[0].actor_user_id == other.id
     assert rows[0].recording_owner_id == owner.id
-
-
-def test_a_recipient_of_a_share_is_the_actor_and_the_owner_is_kept(created):
-    owner = make_user(created)
-    reader = make_user(created, prefix='rdr')
-    recording = make_recording(owner)
-    db.session.add(InternalShare(recording_id=recording.id, owner_id=owner.id, shared_with_user_id=reader.id,
-                                 can_edit=False, can_reshare=False))
-    db.session.commit()
-    set_setting('enable_internal_sharing', 'true')
-    start = max_id()
-    assert client_for(reader).get(f'/api/recordings/{recording.id}').status_code == 200
-    rows = rows_after(start, 'recording.viewed')
-    assert [(r.actor_user_id, r.recording_owner_id, r.outcome) for r in rows] == [(reader.id, owner.id, 'success')]
 
 
 def test_views_off_drops_the_view_and_keeps_the_download(created):

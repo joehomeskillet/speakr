@@ -87,9 +87,6 @@ _SYSTEM_SETTING_MAP = {
     "GLOBAL_RETENTION_DAYS": ("global_retention_days", "GLOBAL_RETENTION_DAYS", 0),
     "DELETION_MODE": ("deletion_mode", "DELETION_MODE", "full_recording"),
     "USERS_CAN_DELETE": ("users_can_delete", "USERS_CAN_DELETE", True),
-    "ENABLE_INTERNAL_SHARING": ("enable_internal_sharing", "ENABLE_INTERNAL_SHARING", False),
-    "SHOW_USERNAMES_IN_UI": ("show_usernames_in_ui", "SHOW_USERNAMES_IN_UI", False),
-    "ENABLE_PUBLIC_SHARING": ("enable_public_sharing", "ENABLE_PUBLIC_SHARING", True),
     "VIDEO_RETENTION": ("video_retention", "VIDEO_RETENTION", False),
 }
 _self, __getattr__ = apply_hot_settings(__name__, _SYSTEM_SETTING_MAP)
@@ -100,10 +97,6 @@ ENABLE_INQUIRE_MODE = os.environ.get('ENABLE_INQUIRE_MODE', 'false').lower() == 
 # Auto-deletion and retention configuration
 
 # Permission-based deletion control
-
-# Internal sharing configuration
-
-# Public sharing configuration
 
 # Video retention - when enabled, video files keep their video stream for playback
 
@@ -144,19 +137,6 @@ if _self.USERS_CAN_DELETE:
     print("ℹ️  User deletion: Enabled (all users can delete their recordings)")
 else:
     print("🔒 User deletion: Restricted (only admins can delete recordings)")
-
-# Log internal sharing status
-if _self.ENABLE_INTERNAL_SHARING:
-    username_visibility = "visible" if _self.SHOW_USERNAMES_IN_UI else "hidden"
-    print(f"✅ Internal sharing: Enabled (usernames {username_visibility})")
-else:
-    print("ℹ️  Internal sharing: Disabled (set ENABLE_INTERNAL_SHARING=true to enable)")
-
-# Log public sharing status
-if _self.ENABLE_PUBLIC_SHARING:
-    print("✅ Public sharing: Enabled (users can create public share links)")
-else:
-    print("🔒 Public sharing: Disabled (public share links are not allowed)")
 
 # Log video retention status
 if _self.VIDEO_RETENTION:
@@ -218,107 +198,27 @@ limiter = Limiter(
 # Utility functions (JSON parsing, markdown, datetime, security) have been extracted
 # to src/utils/ and imported at the top of this file
 
-def has_recording_access(recording, user, require_edit=False, require_reshare=False):
+def has_recording_access(recording, user, require_edit=False):
     """
     Check if a user has access to a recording.
+
+    Only the owner has access here; there is no sharing between users. The
+    clinic policy (src/clinic/) decides access in clinic mode.
 
     Args:
         recording: Recording object to check access for
         user: User object (typically current_user)
-        require_edit: If True, check for edit permission (default: False for view-only)
-        require_reshare: If True, check for reshare permission (default: False)
+        require_edit: Kept for the callers; the owner may always edit
 
     Returns:
         Boolean indicating if user has the required access level
     """
-    # Owner always has full access
-    if recording.user_id == user.id:
-        return True
-
-    # If internal sharing is not enabled, only owner has access
-    if not _self.ENABLE_INTERNAL_SHARING:
-        return False
-
-    # Check for shared access
-    share = InternalShare.query.filter_by(
-        recording_id=recording.id,
-        shared_with_user_id=user.id
-    ).first()
-
-    if not share:
-        return False
-
-    # If edit permission is required, check for it
-    if require_edit:
-        # First check if share directly grants edit permission
-        if share.can_edit:
-            pass  # Has direct edit permission
-        else:
-            # Check if user is a group admin for any group tag on this recording
-            # This grants edit permission even if share.can_edit is False
-            is_group_admin_for_recording = db.session.query(GroupMembership).join(
-                Tag, Tag.group_id == GroupMembership.group_id
-            ).join(
-                RecordingTag, RecordingTag.tag_id == Tag.id
-            ).filter(
-                RecordingTag.recording_id == recording.id,
-                GroupMembership.user_id == user.id,
-                GroupMembership.role == 'admin',
-                Tag.group_id.isnot(None),
-                db.or_(Tag.auto_share_on_apply == True, Tag.share_with_group_lead == True)
-            ).first()
-
-            if not is_group_admin_for_recording:
-                return False
-
-    # If reshare permission is required, check for it
-    if require_reshare and not share.can_reshare:
-        return False
-
-    # User has at least view access
-    return True
-
-
-def editable_recording_ids(recordings, user, share_map):
-    """has_recording_access(..., require_edit=True) for a page of recordings.
-
-    share_map is {recording_id: InternalShare} of the user's shares for these
-    recordings. Returns the ids the user may edit, with one query in all for
-    the group-admin rule instead of one per row (D#483).
-    """
-    editable = {r.id for r in recordings if r.user_id == user.id}
-    if not _self.ENABLE_INTERNAL_SHARING:
-        return editable
-    needs_admin = []
-    for recording in recordings:
-        share = share_map.get(recording.id)
-        if recording.id in editable or not share:
-            continue
-        if share.can_edit:
-            editable.add(recording.id)
-        else:
-            needs_admin.append(recording.id)
-    if needs_admin:
-        editable.update(rid for (rid,) in db.session.query(RecordingTag.recording_id).join(
-            Tag, RecordingTag.tag_id == Tag.id
-        ).join(
-            GroupMembership, Tag.group_id == GroupMembership.group_id
-        ).filter(
-            RecordingTag.recording_id.in_(needs_admin),
-            GroupMembership.user_id == user.id,
-            GroupMembership.role == 'admin',
-            Tag.group_id.isnot(None),
-            db.or_(Tag.auto_share_on_apply == True, Tag.share_with_group_lead == True)
-        ).distinct())
-    return editable
+    return recording.user_id == user.id
 
 
 def get_user_recording_status(recording, user):
     """
-    Get the inbox and highlighted status for a recording from a user's perspective.
-
-    For owners: Returns status from Recording model
-    For shared recipients: Returns status from SharedRecordingState (creates default if not exists)
+    Get the inbox and highlighted status for a recording.
 
     Args:
         recording: Recording object
@@ -327,29 +227,12 @@ def get_user_recording_status(recording, user):
     Returns:
         Tuple of (is_inbox, is_highlighted)
     """
-    # Owner uses the Recording model's global fields
-    if recording.user_id == user.id:
-        return (recording.is_inbox, recording.is_highlighted)
-
-    # Shared recipient uses SharedRecordingState
-    state = SharedRecordingState.query.filter_by(
-        recording_id=recording.id,
-        user_id=user.id
-    ).first()
-
-    if state:
-        return (state.is_inbox, state.is_highlighted)
-    else:
-        # Return defaults if no state exists yet (inbox=True, highlighted=False)
-        return (True, False)
+    return (recording.is_inbox, recording.is_highlighted)
 
 
 def set_user_recording_status(recording, user, is_inbox=None, is_highlighted=None, commit=True):
     """
-    Set the inbox and/or highlighted status for a recording from a user's perspective.
-
-    For owners: Updates Recording model
-    For shared recipients: Updates or creates SharedRecordingState
+    Set the inbox and/or highlighted status for a recording.
 
     Args:
         recording: Recording object
@@ -361,41 +244,13 @@ def set_user_recording_status(recording, user, is_inbox=None, is_highlighted=Non
     Returns:
         Tuple of (is_inbox, is_highlighted) after update
     """
-    # Owner updates the Recording model's global fields
-    if recording.user_id == user.id:
-        if is_inbox is not None:
-            recording.is_inbox = is_inbox
-        if is_highlighted is not None:
-            recording.is_highlighted = is_highlighted
-        if commit:
-            db.session.commit()
-        return (recording.is_inbox, recording.is_highlighted)
-
-    # Shared recipient uses SharedRecordingState
-    state = SharedRecordingState.query.filter_by(
-        recording_id=recording.id,
-        user_id=user.id
-    ).first()
-
-    if not state:
-        # Create new state with defaults
-        state = SharedRecordingState(
-            recording_id=recording.id,
-            user_id=user.id,
-            is_inbox=True,
-            is_highlighted=False
-        )
-        db.session.add(state)
-
-    # Update the requested fields
     if is_inbox is not None:
-        state.is_inbox = is_inbox
+        recording.is_inbox = is_inbox
     if is_highlighted is not None:
-        state.is_highlighted = is_highlighted
-
+        recording.is_highlighted = is_highlighted
     if commit:
         db.session.commit()
-    return (state.is_inbox, state.is_highlighted)
+    return (recording.is_inbox, recording.is_highlighted)
 
 
 def enrich_recording_dict_with_user_status(recording_dict, recording, user):
@@ -579,10 +434,10 @@ register_change_tracking()
 
 # Import all models from extracted modules
 from src.models import (
-    User, Speaker, Recording, TranscriptChunk, Share, InternalShare,
-    SharedRecordingState, Group, GroupMembership, Tag, RecordingTag,
+    User, Speaker, Recording, TranscriptChunk,
+    Group, GroupMembership, Tag, RecordingTag,
     Event, TranscriptTemplate, InquireSession, SystemSetting, PushSubscription,
-    APIToken, NamingTemplate, Folder, SpeakerSnippet, ShareAuditLog,
+    APIToken, NamingTemplate, Folder, SpeakerSnippet,
     ProcessingJob, TokenUsage, TranscriptionUsage
 )
 
@@ -709,8 +564,7 @@ def exempt_status_endpoints():
     # OBS writes) costs one request per fragment on load and on every seek:
     # a 30-minute video used 700+ requests, enough to exhaust the hourly IP
     # limit and block playback of every recording for up to an hour. The
-    # route is login-protected and access-checked; the public share route
-    # keeps its limit.
+    # route is login-protected and access-checked.
     if request.method == 'GET' and _AUDIO_PATH.fullmatch(request.path):
         from flask_login import current_user
         if current_user.is_authenticated:
@@ -1193,7 +1047,6 @@ def handle_unauthorized():
 
 from src.api.auth import auth_bp, init_auth_extensions
 from src.api.tokens import tokens_bp, init_tokens_helpers
-from src.api.shares import shares_bp, init_shares_helpers
 from src.api.recordings import recordings_bp, init_recordings_helpers
 from src.api.tags import tags_bp, init_tags_helpers
 from src.api.folders import folders_bp, init_folders_helpers
@@ -1227,10 +1080,9 @@ client, chunking_service, version = initialize_config(app)
 # Initialize blueprint helpers (inject extensions and utility functions)
 init_auth_extensions(bcrypt, csrf, limiter)
 init_tokens_helpers(bcrypt, csrf, limiter)
-init_shares_helpers(has_recording_access, limiter)
 from src.services import audit as _audit_log
 _audit_log.init_access_check(has_recording_access)
-init_recordings_helpers(has_recording_access=has_recording_access, editable_recording_ids=editable_recording_ids, get_user_recording_status=get_user_recording_status, set_user_recording_status=set_user_recording_status, enrich_recording_dict_with_user_status=enrich_recording_dict_with_user_status, bcrypt=bcrypt, csrf=csrf, limiter=limiter, chunking_service=chunking_service)
+init_recordings_helpers(has_recording_access=has_recording_access, get_user_recording_status=get_user_recording_status, set_user_recording_status=set_user_recording_status, enrich_recording_dict_with_user_status=enrich_recording_dict_with_user_status, bcrypt=bcrypt, csrf=csrf, limiter=limiter, chunking_service=chunking_service)
 init_tags_helpers(has_recording_access=has_recording_access, bcrypt=bcrypt, csrf=csrf, limiter=limiter)
 init_folders_helpers(has_recording_access=has_recording_access, bcrypt=bcrypt, csrf=csrf, limiter=limiter)
 init_groups_helpers(has_recording_access=has_recording_access, bcrypt=bcrypt, csrf=csrf, limiter=limiter)
@@ -1245,7 +1097,6 @@ init_api_v1_helpers(has_recording_access=has_recording_access, get_user_recordin
 # Register blueprints
 app.register_blueprint(auth_bp)
 app.register_blueprint(tokens_bp)
-app.register_blueprint(shares_bp)
 app.register_blueprint(recordings_bp)
 app.register_blueprint(tags_bp)
 app.register_blueprint(folders_bp)

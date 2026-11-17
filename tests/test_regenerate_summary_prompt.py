@@ -2,9 +2,8 @@
 
 Everyone sees only their own prompt: the viewer's tags with prompts on the
 recording, the folder prompt only for the owner, then the viewer's own default,
-the admin default and the shipped default. An editor runs the prompt they see;
-automatic summaries keep the owner's view. Save writes only to a target the
-viewer may change. An unchanged prompt sends the same request as before.
+the admin default and the shipped default. Automatic summaries keep the owner's
+view. Save writes only to a target the viewer may change. An unchanged prompt sends the same request as before.
 
 SHARED-DB: users, groups, tags, folders and the recording are removed afterwards.
 """
@@ -19,16 +18,15 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import src.app as app_module
 import src.tasks.processing as proc
 from src.app import app, db
-from src.models import (Folder, Group, GroupMembership, InternalShare, Recording, RecordingTag,
-                        SharedRecordingState, SystemSetting, Tag, User)
+from src.models import (Folder, Group, GroupMembership, Recording, RecordingTag,
+                        SystemSetting, Tag, User)
 from src.services.job_queue import job_queue
 from src.services.reprocessing import summary_prompt_params
 from src.services.summary_prompt import describe_summary_prompt
 
-from tests.test_folder_group_shares import _client
+from tests.login_client import _client
 
 app.config["WTF_CSRF_ENABLED"] = False
 
@@ -36,8 +34,7 @@ TRANSCRIPT = "Speaker 1: " + "we agreed on the plan for the launch. " * 5
 
 
 @pytest.fixture
-def world(monkeypatch):
-    monkeypatch.setattr(app_module, "ENABLE_INTERNAL_SHARING", True)
+def world():
     with app.app_context():
         previous_folders = SystemSetting.get_setting("enable_folders", False)
         SystemSetting.set_setting("enable_folders", "true", setting_type="boolean")
@@ -61,7 +58,7 @@ def world(monkeypatch):
             "editor": Tag(name=f"ed-{s}", user_id=users["editor"].id, custom_prompt="EDITOR TAG"),
             "editor_other": Tag(name=f"ed2-{s}", user_id=users["editor"].id, custom_prompt="EDITOR OTHER TAG"),
             "group": Tag(name=f"grp-{s}", user_id=users["owner"].id, group_id=group.id,
-                         custom_prompt="GROUP TAG", auto_share_on_apply=False, share_with_group_lead=False),
+                         custom_prompt="GROUP TAG"),
         }
         folder = Folder(name=f"f-{s}", user_id=users["owner"].id, custom_prompt="OWNER FOLDER")
         db.session.add_all(list(tags.values()) + [folder])
@@ -70,23 +67,13 @@ def world(monkeypatch):
                         status="COMPLETED", transcription=TRANSCRIPT, summary="Old summary")
         db.session.add(rec)
         db.session.commit()
-        db.session.add_all([
-            InternalShare(recording_id=rec.id, owner_id=users["owner"].id, shared_with_user_id=users["editor"].id,
-                          can_edit=True, can_reshare=False, source_type="manual"),
-            InternalShare(recording_id=rec.id, owner_id=users["owner"].id, shared_with_user_id=users["viewer"].id,
-                          can_edit=False, can_reshare=False, source_type="manual"),
-            InternalShare(recording_id=rec.id, owner_id=users["owner"].id, shared_with_user_id=users["member"].id,
-                          can_edit=True, can_reshare=False, source_type="manual"),
-        ])
-        db.session.commit()
         ids = {k: u.id for k, u in users.items()}
         ids.update({f"tag_{k}": t.id for k, t in tags.items()})
         ids.update(folder=folder.id, rec=rec.id, group=group.id)
     yield ids
     with app.app_context():
         db.session.rollback()
-        for model in (InternalShare, SharedRecordingState, RecordingTag):
-            model.query.filter_by(recording_id=ids["rec"]).delete()
+        RecordingTag.query.filter_by(recording_id=ids["rec"]).delete()
         Recording.query.filter_by(id=ids["rec"]).delete()
         user_ids = [ids[k] for k in ("owner", "editor", "viewer", "member")]
         Tag.query.filter(Tag.user_id.in_(user_ids)).delete(synchronize_session=False)
@@ -200,7 +187,7 @@ def test_the_admin_default_saves_to_the_viewers_default(world):
 
 # --- Routes -------------------------------------------------------------------
 
-def test_the_prompt_route_needs_edit_access(world):
+def test_the_prompt_route_is_the_owners_only(world):
     with app.app_context():
         _attach(world)
         users = {k: _user(world, k) for k in ("owner", "editor", "viewer")}
@@ -210,9 +197,9 @@ def test_the_prompt_route_needs_edit_access(world):
         try:
             path = f"/recording/{world['rec']}/summary_prompt"
             assert _client(users["owner"]).get(path).status_code == 200
-            assert _client(users["editor"]).get(path).status_code == 200
-            assert _client(users["viewer"]).get(path).status_code == 403
-            assert _client(users["viewer"]).post(path, json={"target": "user", "prompt": "x"}).status_code == 403
+            assert _client(users["editor"]).get(path).status_code == 404
+            assert _client(users["viewer"]).get(path).status_code == 404
+            assert _client(users["viewer"]).post(path, json={"target": "user", "prompt": "x"}).status_code == 404
             assert _client(stranger).get(path).status_code == 404
             assert _client(stranger).post(path, json={"target": "user", "prompt": "x"}).status_code == 404
         finally:
@@ -230,29 +217,27 @@ def test_save_to_own_targets(world):
         _attach(world, "owner", folder=True)
     assert _save(world, "owner", {"target": "tag", "id": world["tag_owner"], "prompt": "NEW TAG"}).status_code == 200
     assert _save(world, "owner", {"target": "folder", "id": world["folder"], "prompt": "NEW FOLDER"}).status_code == 200
-    resp = _save(world, "editor", {"target": "user", "prompt": "NEW EDITOR DEFAULT"})
+    resp = _save(world, "owner", {"target": "user", "prompt": "NEW OWNER DEFAULT"})
     assert resp.status_code == 200
-    assert resp.get_json()["prompt"] == "NEW EDITOR DEFAULT"
     with app.app_context():
         assert db.session.get(Tag, world["tag_owner"]).custom_prompt == "NEW TAG"
         assert db.session.get(Folder, world["folder"]).custom_prompt == "NEW FOLDER"
-        assert _user(world, "editor").summary_prompt == "NEW EDITOR DEFAULT"
-        assert _user(world, "owner").summary_prompt == "OWNER DEFAULT"
+        assert _user(world, "owner").summary_prompt == "NEW OWNER DEFAULT"
+        assert _user(world, "editor").summary_prompt == "EDITOR DEFAULT"
 
 
 @pytest.mark.parametrize("who,body", [
     ("editor", {"target": "tag", "id": "tag_owner"}),       # another user's personal tag
     ("editor", {"target": "folder", "id": "folder"}),       # the owner's folder
-    ("member", {"target": "tag", "id": "tag_group"}),       # group tag, not a group admin
+    ("member", {"target": "tag", "id": "tag_group"}),       # group tag, not the owner of the recording
     ("member", {"target": "folder", "id": "folder"}),
 ])
-def test_save_refuses_targets_the_viewer_cannot_change(world, who, body):
+def test_save_refuses_a_recording_of_another_user(world, who, body):
     with app.app_context():
         _attach(world, "owner", "group", folder=True)
     body = dict(body, id=world[body["id"]], prompt="HIJACK")
     resp = _save(world, who, body)
-    assert resp.status_code == 403
-    assert resp.get_json()["code"] == "summary_prompt_save_denied"
+    assert resp.status_code == 404
     with app.app_context():
         assert db.session.get(Tag, world["tag_owner"]).custom_prompt == "OWNER TAG"
         assert db.session.get(Tag, world["tag_group"]).custom_prompt == "GROUP TAG"
@@ -301,16 +286,16 @@ def test_unchanged_prompt_reprocess_queues_the_resolved_prompt(world):
 def test_an_edited_prompt_with_instructions_runs_as_sent(world):
     with app.app_context():
         _attach(world)
-        editor = _user(world, "editor")
+        owner = _user(world, "owner")
         with patch("src.services.llm.client", MagicMock()), \
                 patch.object(job_queue, "enqueue", return_value=1) as enq:
-            resp = _client(editor).post(f"/recording/{world['rec']}/reprocess_summary", json={
-                "reprocess_summary": True, "custom_prompt": "EDITOR DEFAULT", "prompt_mode": "replace",
+            resp = _client(owner).post(f"/recording/{world['rec']}/reprocess_summary", json={
+                "reprocess_summary": True, "custom_prompt": "OWNER DEFAULT", "prompt_mode": "replace",
                 "additional_instructions": "Focus on dates"})
         assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
         params = enq.call_args.kwargs["params"]
         assert params["custom_prompt_append"] is False
-        assert params["custom_prompt"] == "EDITOR DEFAULT\n\nAdditional context for this recording:\nFocus on dates"
+        assert params["custom_prompt"] == "OWNER DEFAULT\n\nAdditional context for this recording:\nFocus on dates"
 
 
 def test_an_automatic_summary_still_uses_the_owners_prompt(world):
@@ -368,28 +353,6 @@ def _v1_summarize(world, who, body):
     finally:
         APIToken.query.filter_by(user_id=world[who], name="rg-v1").delete()
         db.session.commit()
-
-
-def test_v1_summarize_by_an_editor_runs_the_editors_prompt(world):
-    with app.app_context():
-        _attach(world, "owner", "editor")
-        params = _v1_summarize(world, "editor", {})
-        assert (params["custom_prompt"], params["custom_prompt_append"]) == ("EDITOR TAG", False)
-
-
-def test_v1_summarize_by_an_editor_adds_instructions_to_the_editors_prompt(world):
-    with app.app_context():
-        _attach(world)
-        params = _v1_summarize(world, "editor", {"additional_instructions": "Focus on dates"})
-        assert params["custom_prompt_append"] is False
-        assert params["custom_prompt"] == "EDITOR DEFAULT\n\nAdditional context for this recording:\nFocus on dates"
-
-
-def test_v1_summarize_by_an_editor_keeps_a_replacing_prompt(world):
-    with app.app_context():
-        _attach(world, "editor")
-        params = _v1_summarize(world, "editor", {"custom_prompt": "Only the decisions"})
-        assert (params["custom_prompt"], params["custom_prompt_append"]) == ("Only the decisions", False)
 
 
 def test_v1_summarize_by_the_owner_is_unchanged(world):

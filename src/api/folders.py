@@ -16,8 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from src.database import db
 from src.models import *
 from src.utils.localization import api_error
-from src.services.auto_shares import (apply_folder_shares, drop_stale_auto_shares, regroup_error,
-                                      share_scope_refusal, sharing_state, sync_source_shares)
+from src.services.group_assign import regroup_error
 
 # Create blueprint
 folders_bp = Blueprint('folders', __name__)
@@ -249,8 +248,6 @@ def create_folder():
         default_transcription_model=data.get('default_transcription_model'),
         protect_from_deletion=protect_from_deletion,
         retention_days=retention_days,
-        auto_share_on_apply=data.get('auto_share_on_apply', True) if group_id else True,
-        share_with_group_lead=data.get('share_with_group_lead', True) if group_id else True,
         naming_template_id=naming_template_id,
         export_template_id=export_template_id
     )
@@ -299,7 +296,6 @@ def update_folder(folder_id):
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         data = {}
-    before = sharing_state(folder)
 
     if 'name' in data:
         # A stored name from before the length check (#512) can be sent back
@@ -390,14 +386,6 @@ def update_folder(folder_id):
             # Regular retention period or null (use global)
             folder.protect_from_deletion = False
             folder.retention_days = retention_days if retention_days else None
-    if 'auto_share_on_apply' in data:
-        # Only applicable to group folders
-        if folder.group_id:
-            folder.auto_share_on_apply = bool(data['auto_share_on_apply'])
-    if 'share_with_group_lead' in data:
-        # Only applicable to group folders
-        if folder.group_id:
-            folder.share_with_group_lead = bool(data['share_with_group_lead'])
     if 'naming_template_id' in data:
         naming_template_id = data['naming_template_id']
         if naming_template_id:
@@ -419,13 +407,6 @@ def update_folder(folder_id):
     try:
         # A name clash surfaces here; the settings lookup below would hide it
         db.session.flush()
-        # A new group or new share settings: the shares follow (#582, #586)
-        _removed, created = sync_source_shares(folder, before, sharing_enabled=_self.ENABLE_INTERNAL_SHARING)
-        # API v1 delegates here: a token without the share scope may not create shares
-        refusal = share_scope_refusal(created)
-        if refusal is not None:
-            db.session.rollback()
-            return refusal
         db.session.commit()
     except IntegrityError:
         # A duplicate name is a refused request, not an application error (#511).
@@ -467,11 +448,7 @@ def delete_folder(folder_id):
     # Recordings in this folder will have folder_id set to NULL via ondelete='SET NULL'.
     # Child folders move up to this folder's parent (Folder before_delete, #585).
     recording_ids = [rid for (rid,) in db.session.query(Recording.id).filter(Recording.folder_id == folder.id)]
-    recording_ids += [rid for (rid,) in db.session.query(InternalShare.recording_id).filter(
-        InternalShare.source_folder_id == folder.id)]
     db.session.delete(folder)
-    # The folder no longer shares what it held (#582)
-    drop_stale_auto_shares(recording_ids=recording_ids)
     db.session.commit()
     return jsonify({'success': True})
 
@@ -484,9 +461,6 @@ def create_group_folder(group_id):
     folders_enabled = SystemSetting.get_setting('enable_folders', False)
     if not folders_enabled:
         return jsonify(api_error('folders_disabled')), 403
-
-    if not _self.ENABLE_INTERNAL_SHARING:
-        return jsonify(api_error('group_folders_require_internal_sharing')), 403
 
     # Verify team exists
     team = db.session.get(Group, group_id)
@@ -557,8 +531,6 @@ def create_group_folder(group_id):
         default_transcription_model=data.get('default_transcription_model'),
         protect_from_deletion=data.get('protect_from_deletion', False),
         retention_days=data.get('retention_days'),
-        auto_share_on_apply=data.get('auto_share_on_apply', True),  # Default to True for group folders
-        share_with_group_lead=data.get('share_with_group_lead', True),  # Default to True for group folders
         naming_template_id=naming_template_id,
         export_template_id=export_template_id
     )
@@ -645,22 +617,12 @@ def assign_recording_folder(recording_id):
         if error_key:
             return jsonify(api_error(error_key)), 403
 
-        # Handle auto-sharing for group folders
-        old_folder_id = recording.folder_id
         recording.folder_id = folder_id
-
-        # Apply auto-shares if moving to a group folder
-        if folder.group_id and (folder.auto_share_on_apply or folder.share_with_group_lead):
-            _apply_folder_auto_shares(recording, folder)
-
-        # Leaving a group folder ends the shares it made (#582)
-        drop_stale_auto_shares(recording_ids=[recording.id])
         db.session.commit()
         current_app.logger.info(f"Recording {recording_id} moved to folder {folder_id} by user {current_user.id}")
     else:
         # Remove from folder
         recording.folder_id = None
-        drop_stale_auto_shares(recording_ids=[recording.id])
         db.session.commit()
         current_app.logger.info(f"Recording {recording_id} removed from folder by user {current_user.id}")
 
@@ -693,8 +655,6 @@ def remove_recording_folder(recording_id):
             return jsonify(api_error('recording_modify_denied')), 403
 
     recording.folder_id = None
-    # Leaving a group folder ends the shares it made (#582)
-    drop_stale_auto_shares(recording_ids=[recording.id])
     db.session.commit()
     current_app.logger.info(f"Recording {recording_id} removed from folder by user {current_user.id}")
 
@@ -760,15 +720,8 @@ def bulk_assign_folder():
     updated_count = 0
     for recording in recordings:
         recording.folder_id = folder_id
-
-        # Apply auto-shares if moving to a group folder
-        if folder and folder.group_id and (folder.auto_share_on_apply or folder.share_with_group_lead):
-            _apply_folder_auto_shares(recording, folder)
-
         updated_count += 1
 
-    # Leaving a group folder ends the shares it made (#582)
-    drop_stale_auto_shares(recording_ids=[r.id for r in recordings])
     db.session.commit()
     action = f"moved to folder {folder_id}" if folder_id else "removed from folder"
     current_app.logger.info(f"Bulk folder update: {updated_count} recordings {action} by user {current_user.id}")
@@ -781,9 +734,8 @@ def folder_assign_error(recording, folder, user, denied_key):
 
     The group-tag rule applies (#515): your own recordings go into your own
     folders and your groups' folders; another user's recording goes only into
-    a group folder, and only from an admin of that group. Without it, an
-    editor of a shared recording could share it with a whole group by moving
-    it. Edit access to the recording is checked by each move path.
+    a group folder, and only from an admin of that group. Edit access to the
+    recording is checked by each move path.
     denied_key is the path's error for a folder the user cannot use at all.
     """
     if folder.group_id:
@@ -802,27 +754,9 @@ def folder_assign_error(recording, folder, user, denied_key):
     return None
 
 
-def apply_group_folder_shares(recording, folder):
-    """Share a recording placed in a group folder, as that folder's settings say.
-
-    Every path that puts a recording in a folder calls this, so the v1 API and
-    uploads share the same way as moving it in the web app (#515).
-    """
-    if folder is not None and folder.group_id and (folder.auto_share_on_apply or folder.share_with_group_lead):
-        _apply_folder_auto_shares(recording, folder)
-
-
-def _apply_folder_auto_shares(recording, folder):
-    """Apply a group folder's auto-shares to a recording assigned to it (see apply_folder_shares)."""
-    created = apply_folder_shares(recording, folder, sharing_enabled=_self.ENABLE_INTERNAL_SHARING)
-    if created > 0:
-        current_app.logger.info(f"Created {created} auto-shares for recording {recording.id} via folder assignment")
-
-
 # Hot-applied System Settings (high priority) with environment fallback.
 from src.utils.system_settings import apply_hot_settings
 _SYSTEM_SETTING_MAP = {
-    "ENABLE_INTERNAL_SHARING": ('enable_internal_sharing', 'ENABLE_INTERNAL_SHARING', False),
     "ENABLE_AUTO_DELETION": ('enable_auto_deletion', 'ENABLE_AUTO_DELETION', False),
 }
 _self, __getattr__ = apply_hot_settings(__name__, _SYSTEM_SETTING_MAP)
