@@ -52,6 +52,7 @@ class ConnectorRegistry:
         from .connectors.assemblyai import AssemblyAITranscriptionConnector
         from .connectors.tencent_asr import TencentASRConnector
         from .connectors.openasr import OpenASRTranscriptionConnector
+        from .connectors.clinic_stub import ClinicStubTranscriptionConnector
 
         self.register('openai_whisper', OpenAIWhisperConnector)
         self.register('openai_transcribe', OpenAITranscribeConnector)
@@ -64,6 +65,7 @@ class ConnectorRegistry:
         self.register('assemblyai', AssemblyAITranscriptionConnector)
         self.register('tencent_asr', TencentASRConnector)
         self.register('openasr', OpenASRTranscriptionConnector)
+        self.register('clinic_stub', ClinicStubTranscriptionConnector)
 
     def register(self, name: str, connector_class: Type[BaseTranscriptionConnector]):
         """

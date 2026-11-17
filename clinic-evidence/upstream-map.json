@@ -1,0 +1,545 @@
+{
+  "schema_version": 1,
+  "sources_read": [
+    "clinic-spec/CLAUDE.md",
+    "clinic-spec/README.md",
+    "AGENTS.md",
+    "conftest.py",
+    ".github/workflows/test.yml",
+    "clinic-spec/tests/route-policy.json",
+    "clinic-spec/planning/backlog.json",
+    "clinic-spec/planning/requirements.json",
+    "clinic-spec/planning/parity-matrix.json",
+    "clinic-spec/planning/web-parity-gaps.json",
+    "clinic-spec/evidence/upstream-lock.json",
+    "clinic-spec/evidence/build-manifest.json",
+    "clinic-spec/evidence/package-checks.json",
+    "src/models/user.py",
+    "src/models/recording.py",
+    "src/models/organization.py",
+    "src/models/processing_job.py",
+    "src/models/audit.py",
+    "src/models/api_token.py",
+    "src/models/sharing.py",
+    "src/models/inquire.py",
+    "src/models/webhook.py",
+    "src/models/system.py",
+    "src/services/storage/__init__.py",
+    "src/services/storage/factory.py",
+    "src/services/storage/interfaces.py",
+    "src/services/storage/local.py",
+    "src/services/storage/locator.py",
+    "src/services/storage/s3.py",
+    "src/services/storage/service.py",
+    "src/services/storage_quota.py",
+    "src/services/document.py",
+    "src/file_exporter.py",
+    "src/services/job_queue.py",
+    "src/services/audit.py",
+    "src/auth/permissions.py",
+    "src/auth/sso.py",
+    "src/api/auth.py",
+    "src/api/recordings.py",
+    "src/api/shares.py",
+    "src/api/admin.py",
+    "src/api/tokens.py",
+    "src/api/webhooks.py",
+    "src/api/inquire.py",
+    "src/api/api_v1.py",
+    "src/config/app_config.py",
+    "src/config/startup.py",
+    "src/utils/database.py",
+    "src/init_db.py",
+    "static/js/modules/composables/audio.js",
+    "static/js/modules/composables/audioPlayer.js",
+    "static/js/modules/composables/asr-editor.js",
+    "static/js/modules/asr-editor/pane.js",
+    "static/js/modules/asr-editor/timeline.js",
+    "static/js/modules/asr-editor/model.js",
+    "static/js/modules/asr-editor/draft.js",
+    "static/js/modules/db/recording-persistence.js",
+    "static/js/modules/db/server-recording-sessions.js"
+  ],
+  "components": {
+    "user_model": {
+      "paths": [
+        "src/models/user.py"
+      ],
+      "description": "SQLAlchemy User model with credential hashing, session tokens, quotas, roles, and SSO subject links.",
+      "reuse_for": "Base identity record for all clinic users; local accounts first, Entra linked via user.id without auto-linking."
+    },
+    "recording_model": {
+      "paths": [
+        "src/models/recording.py"
+      ],
+      "description": "SQLAlchemy Recording model storing audio metadata, duration, transcript segments, language, and status.",
+      "reuse_for": "Core dictation entity; extended via clinic domain relations under src/clinic/ (non-destructive revisions, patient/KIS context)."
+    },
+    "group_membership_models": {
+      "paths": [
+        "src/models/organization.py"
+      ],
+      "description": "Group, GroupMembership, Folder, and RecordingTag models with role-based access control.",
+      "reuse_for": "Foundation for clinical author and transcriptionist pools; segregated into distinct author/pool visibility boundaries."
+    },
+    "storage_services": {
+      "paths": [
+        "src/services/storage/__init__.py",
+        "src/services/storage/factory.py",
+        "src/services/storage/interfaces.py",
+        "src/services/storage/local.py",
+        "src/services/storage/locator.py",
+        "src/services/storage/s3.py",
+        "src/services/storage/service.py",
+        "src/services/storage_quota.py"
+      ],
+      "description": "Abstract storage backend interfaces, local filesystem implementation, S3 adapter, and quota enforcement.",
+      "reuse_for": "Encapsulated dictation audio and revision artifact persistence with strict tenant isolation and path validation."
+    },
+    "export": {
+      "paths": [
+        "src/file_exporter.py",
+        "src/services/document.py",
+        "src/api/export_templates.py",
+        "src/models/export_template.py"
+      ],
+      "description": "Markdown-to-DOCX conversion, text rendering, attachment responses, and automated export templates.",
+      "reuse_for": "Clinical document export for approved dictation transcripts into docx and formatted text templates for KIS transfer."
+    },
+    "browser_recorder_and_asr_editor": {
+      "paths": [
+        "static/js/modules/composables/audio.js",
+        "static/js/modules/composables/asr-editor.js",
+        "static/js/modules/asr-editor/draft.js",
+        "static/js/modules/asr-editor/helpers.js",
+        "static/js/modules/asr-editor/model.js",
+        "static/js/modules/asr-editor/pane.js",
+        "static/js/modules/asr-editor/timeline.js",
+        "static/js/modules/asr-editor/timeline-geometry.js",
+        "static/js/modules/asr-editor/timeline-peaks.js",
+        "static/js/modules/asr-editor/virtual-list.js",
+        "static/js/modules/db/recording-persistence.js",
+        "static/js/modules/db/server-recording-sessions.js"
+      ],
+      "description": "Vue 3 web audio capture (MediaRecorder), segment-level waveform editor, word-aligned timeline, and chunk persistence.",
+      "reuse_for": "Primary web-only clinical recording, live dictation feedback, and transcriptionist correction workbench with minimum 16 undo steps."
+    },
+    "audio_player": {
+      "paths": [
+        "static/js/modules/composables/audioPlayer.js"
+      ],
+      "description": "HTML5 audio player composable managing playback state, rate control, scrubbing, and position tracking.",
+      "reuse_for": "Audio playback in the web review and correction views; foot pedal integration hooks attach to its playback APIs."
+    },
+    "processing_job_and_queue": {
+      "paths": [
+        "src/models/processing_job.py",
+        "src/services/job_queue.py",
+        "src/services/job_cancel.py",
+        "src/services/job_control.py"
+      ],
+      "description": "FairJobQueue asynchronous multi-threaded task runner with database-backed job states, priority, and retry tracking.",
+      "reuse_for": "Sole async processing pipeline for ASR transcription, alignment, and clinic background operations; no new queue framework."
+    },
+    "auth_login_sso": {
+      "paths": [
+        "src/api/auth.py",
+        "src/auth/permissions.py",
+        "src/auth/sso.py",
+        "src/auth/sso_access_tokens.py",
+        "src/models/login_failure.py",
+        "src/models/permission.py",
+        "src/services/login_lock.py",
+        "src/services/session_policy.py"
+      ],
+      "description": "Authentication endpoints, session lifecycle, CSRF tokens, lockout mitigation, and OIDC/SSO integration logic.",
+      "reuse_for": "Local username/password login initially; Entra ID adapter pre-wired under src/clinic/ and enabled via server profile."
+    },
+    "admin_ui": {
+      "paths": [
+        "src/api/admin.py",
+        "src/api/groups.py",
+        "src/services/admin_stats.py",
+        "templates/admin.html",
+        "templates/group-admin.html"
+      ],
+      "description": "Tabler-based administrative views for user management, system metrics, group configurations, and policy flags.",
+      "reuse_for": "Identity admin management of clinical author and secretarial pools; isolated from clinical audio content inspection."
+    },
+    "audit_log": {
+      "paths": [
+        "src/models/audit.py",
+        "src/services/audit.py",
+        "src/services/audit_import.py",
+        "tests/test_audit_log_coverage.py"
+      ],
+      "description": "AuditEvent model, IP/user auditing decorator and emitter, retention policy, and coverage assertions.",
+      "reuse_for": "HIPAA/clinical compliance audit logging for every access to patient dictation recordings, transcripts, and exports."
+    },
+    "api_tokens": {
+      "paths": [
+        "src/models/api_token.py",
+        "src/api/tokens.py",
+        "src/api/api_v1.py",
+        "static/js/modules/composables/tokens.js"
+      ],
+      "description": "Hashed bearer API tokens with scope enforcement for external programmatic access.",
+      "reuse_for": "Machine-to-machine authentication for the local apps/windows-import agent; disabled for arbitrary user self-service in clinic mode."
+    },
+    "public_share": {
+      "paths": [
+        "src/models/sharing.py",
+        "src/services/public_shares.py",
+        "src/services/auto_shares.py",
+        "src/services/tag_sharing.py",
+        "src/api/shares.py",
+        "templates/share.html",
+        "static/js/share-page.js"
+      ],
+      "description": "Unauthenticated public share tokens for streaming audio and viewing transcripts outside the organization.",
+      "reuse_for": "Strictly disabled in clinic deployment; retained in code for baseline test compatibility but blocked by route policy."
+    },
+    "chat_inquire": {
+      "paths": [
+        "src/models/inquire.py",
+        "src/services/inquire_agent.py",
+        "src/services/inquire_tools.py",
+        "src/services/inquire_prompts.py",
+        "src/services/inquire_compaction.py",
+        "src/services/recording_chat.py",
+        "src/api/inquire.py",
+        "templates/inquire.html",
+        "static/js/modules/composables/chat.js"
+      ],
+      "description": "Agentic transcript Q&A, LLM tool execution, chat threads, and streaming response delivery.",
+      "reuse_for": "Disabled in clinic default profile to avoid unverified LLM hallucinations; inspectable only with local verified models."
+    },
+    "webhooks": {
+      "paths": [
+        "src/models/webhook.py",
+        "src/services/webhook_dispatch.py",
+        "src/api/webhooks.py",
+        "static/js/account-webhooks.js"
+      ],
+      "description": "Webhook endpoint registry, HMAC signature generation, and background asynchronous delivery thread.",
+      "reuse_for": "Event notifications for clinic workflow integration (e.g. dictation available for pool, transcript completed)."
+    },
+    "feature_flags_and_config": {
+      "paths": [
+        "src/config/app_config.py",
+        "src/config/startup.py",
+        "src/config/ui_themes.py",
+        "src/config/version.py",
+        "src/models/system.py"
+      ],
+      "description": "Environment configuration parser, startup safety checks, theme styling, and database SystemSetting overrides.",
+      "reuse_for": "Clinic configuration defaults, enforcement of local-only ASR, and immutable startup security flags."
+    },
+    "db_migration_mechanism": {
+      "paths": [
+        "src/utils/database.py",
+        "src/init_db.py"
+      ],
+      "description": "One-shot programmatic migration ledger (schema_migrations table, run_once helper, dynamic column/index addition).",
+      "reuse_for": "Execution of clinic schema additions and indexes under src/clinic/migrations/ without introducing Alembic."
+    },
+    "test_layout_and_ci": {
+      "paths": [
+        "conftest.py",
+        "pytest.ini",
+        ".github/workflows/test.yml"
+      ],
+      "description": "Pytest configuration with isolated SQLite database and disabled services; GitHub Actions CI running unit, postgres, and smoke suites.",
+      "reuse_for": "Testing harness extended with clinic tests under tests/clinic/ to enforce domain rules and verify parity gates."
+    }
+  },
+  "legacy_routes_needing_clinic_policy": [
+    {
+      "rule": "/audio/<int:recording_id>",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "endpoint": "recordings.serve_audio",
+      "policy": "Restricted to author or assigned transcription pool; forbid generic administrative or unauthenticated access."
+    },
+    {
+      "rule": "/audio/<int:recording_id>/peaks",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "endpoint": "recordings.get_peaks",
+      "policy": "Waveform peaks metadata restricted to authorized dictation readers."
+    },
+    {
+      "rule": "/video/<int:recording_id>",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "endpoint": "recordings.serve_video",
+      "policy": "Restricted or disabled; video extraction defaults to audio-only in clinical context."
+    },
+    {
+      "rule": "/api/recordings/<int:recording_id>",
+      "methods": [
+        "GET"
+      ],
+      "endpoint": "recordings.get_recording",
+      "policy": "Metadata and transcript read restricted to dictation author or assigned pool members."
+    },
+    {
+      "rule": "/api/recordings/<int:recording_id>",
+      "methods": [
+        "DELETE"
+      ],
+      "endpoint": "recordings.delete_recording",
+      "policy": "Hard delete blocked for clinical users; soft-delete or archiving only with audit trail."
+    },
+    {
+      "rule": "/api/recordings/<int:recording_id>/delete_audio",
+      "methods": [
+        "POST"
+      ],
+      "endpoint": "recordings.delete_audio",
+      "policy": "Device source audio deletion restricted by medical retention policies."
+    },
+    {
+      "rule": "/api/recordings/<int:recording_id>/download/transcript",
+      "methods": [
+        "GET"
+      ],
+      "endpoint": "recordings.download_transcript",
+      "policy": "Export gate: audited download permitted only for finalized/approved dictations."
+    },
+    {
+      "rule": "/api/recordings/<int:recording_id>/download/summary",
+      "methods": [
+        "GET"
+      ],
+      "endpoint": "recordings.download_summary",
+      "policy": "Audited clinical export subject to approval gate."
+    },
+    {
+      "rule": "/api/recordings/<int:recording_id>/download/chat",
+      "methods": [
+        "POST"
+      ],
+      "endpoint": "recordings.download_chat",
+      "policy": "Disabled in clinic profile; interactive chat artifact export denied."
+    },
+    {
+      "rule": "/api/recordings/<int:recording_id>/download/notes",
+      "methods": [
+        "GET"
+      ],
+      "endpoint": "recordings.download_notes",
+      "policy": "Audited clinical notes export."
+    },
+    {
+      "rule": "/api/recordings/export-existing",
+      "methods": [
+        "POST"
+      ],
+      "endpoint": "recordings.export_existing_recordings",
+      "policy": "Uncontrolled bulk export disabled or restricted to identity admin with auditable scope."
+    },
+    {
+      "rule": "/api/recordings/<int:recording_id>/update_transcription",
+      "methods": [
+        "POST"
+      ],
+      "endpoint": "recordings.update_transcription",
+      "policy": "Non-destructive edit logging: each modification produces a versioned revision rather than overwriting."
+    },
+    {
+      "rule": "/api/recordings/<int:recording_id>/update_transcript",
+      "methods": [
+        "POST"
+      ],
+      "endpoint": "recordings.update_transcript",
+      "policy": "Versioned segment updates with author/pool permission check and audit event."
+    },
+    {
+      "rule": "/api/recordings/<int:recording_id>/translate_transcription",
+      "methods": [
+        "POST"
+      ],
+      "endpoint": "recordings.translate_transcription",
+      "policy": "Disabled or restricted to verified local models to avoid cloud data leaks."
+    },
+    {
+      "rule": "/api/recordings/<int:recording_id>/generate_summary",
+      "methods": [
+        "POST"
+      ],
+      "endpoint": "recordings.generate_summary",
+      "policy": "Cloud LLM calls prohibited; local-only processing enforced."
+    },
+    {
+      "rule": "/api/recordings/<int:recording_id>/reprocess_transcription",
+      "methods": [
+        "POST"
+      ],
+      "endpoint": "recordings.reprocess_transcription",
+      "policy": "Enforce local Speaches / whisper-compatible ASR connector; deny external cloud endpoints."
+    },
+    {
+      "rule": "/api/recordings/<int:recording_id>/reprocess_summary",
+      "methods": [
+        "POST"
+      ],
+      "endpoint": "recordings.reprocess_summary",
+      "policy": "Restricted to local processing without external API transmission."
+    },
+    {
+      "rule": "/share/<token>",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "endpoint": "shares.view_shared_recording",
+      "policy": "Disabled in clinic mode; unauthenticated public sharing denied."
+    },
+    {
+      "rule": "/share/<token>/audio",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "endpoint": "shares.stream_shared_audio",
+      "policy": "Disabled in clinic mode; unauthenticated audio streaming denied."
+    },
+    {
+      "rule": "/share/<token>/transcript",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "endpoint": "shares.download_shared_transcript",
+      "policy": "Disabled in clinic mode; unauthenticated transcript download denied."
+    },
+    {
+      "rule": "/api/shares/create",
+      "methods": [
+        "POST"
+      ],
+      "endpoint": "shares.create_share",
+      "policy": "Disabled in clinic mode; creation of public share tokens denied."
+    },
+    {
+      "rule": "/api/shares/revoke/<int:share_id>",
+      "methods": [
+        "POST"
+      ],
+      "endpoint": "shares.revoke_share",
+      "policy": "Revocation endpoint; public shares remain disabled."
+    },
+    {
+      "rule": "/api/shares/recording/<int:recording_id>",
+      "methods": [
+        "GET"
+      ],
+      "endpoint": "shares.get_recording_shares",
+      "policy": "Access restricted; public share list empty in clinic mode."
+    },
+    {
+      "rule": "/api/shares/group",
+      "methods": [
+        "POST"
+      ],
+      "endpoint": "shares.share_with_group",
+      "policy": "Managed via explicit clinical author/transcription pool assignment rather than ad-hoc user group sharing."
+    },
+    {
+      "rule": "/api/recordings/incognito",
+      "methods": [
+        "POST"
+      ],
+      "endpoint": "recordings.create_incognito_recording",
+      "policy": "Disabled in clinic mode; all medical dictations must be auditable and bound to an authenticated author."
+    },
+    {
+      "rule": "/api/recordings/incognito/chat",
+      "methods": [
+        "POST"
+      ],
+      "endpoint": "recordings.incognito_chat",
+      "policy": "Disabled in clinic mode."
+    },
+    {
+      "rule": "/api/recordings/incognito/summary",
+      "methods": [
+        "POST"
+      ],
+      "endpoint": "recordings.incognito_summary",
+      "policy": "Disabled in clinic mode."
+    },
+    {
+      "rule": "/chat",
+      "methods": [
+        "POST"
+      ],
+      "endpoint": "recordings.chat",
+      "policy": "Disabled in clinic mode to prevent clinical transcript leakage to chat models."
+    },
+    {
+      "rule": "/api/v1/recordings",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "endpoint": "api_v1.recordings",
+      "policy": "REST API access restricted to authorized service tokens (import agent) or clinical user session."
+    },
+    {
+      "rule": "/api/v1/recordings/<int:recording_id>",
+      "methods": [
+        "GET",
+        "DELETE"
+      ],
+      "endpoint": "api_v1.recording",
+      "policy": "Access restricted by clinical pool policy; hard deletion denied."
+    },
+    {
+      "rule": "/api/v1/recordings/<int:recording_id>/audio",
+      "methods": [
+        "GET"
+      ],
+      "endpoint": "api_v1.recording_audio",
+      "policy": "Audio download restricted to author, assigned pool, or authorized export agent."
+    },
+    {
+      "rule": "/api/v1/recordings/<int:recording_id>/transcript",
+      "methods": [
+        "GET"
+      ],
+      "endpoint": "api_v1.recording_transcript",
+      "policy": "Transcript download restricted by clinic ACL and audited."
+    },
+    {
+      "rule": "/api/v1/recordings/<int:recording_id>/summary",
+      "methods": [
+        "GET"
+      ],
+      "endpoint": "api_v1.recording_summary",
+      "policy": "Summary access restricted by clinic ACL."
+    },
+    {
+      "rule": "/api/v1/recordings/<int:recording_id>/shares",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "endpoint": "api_v1.recording_shares",
+      "policy": "Public share creation through API v1 disabled in clinic mode."
+    }
+  ]
+}

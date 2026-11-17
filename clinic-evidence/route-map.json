@@ -1,0 +1,2902 @@
+[
+  {
+    "rule": "/",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "recordings.index",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/account",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "auth.account",
+    "blueprint": "auth"
+  },
+  {
+    "rule": "/admin",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "admin.admin",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/audit-log",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "admin.admin_audit_log",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/audit-log/export",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "admin.admin_audit_log_export",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/auto-deletion/run",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "admin.run_auto_deletion",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/auto-deletion/stats",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "admin.get_auto_deletion_stats",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/auto-process/config",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "admin.admin_update_auto_process_config",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/auto-process/start",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "admin.admin_start_auto_process",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/auto-process/status",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "admin.admin_get_auto_process_status",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/auto-process/stop",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "admin.admin_stop_auto_process",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/auto-process/trigger",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "admin.admin_trigger_auto_process",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/inquire/process-recordings",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "admin.admin_process_recordings_for_inquire",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/inquire/status",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "admin.admin_inquire_status",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/llm-temperatures",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "admin.admin_get_llm_temperatures",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/llm-temperatures",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "admin.admin_set_llm_temperatures",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/settings",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "admin.admin_get_settings",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/settings",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "admin.admin_update_setting",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/stats",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "admin.admin_get_stats",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/stats/overview",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "admin.admin_get_stats_overview",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/token-stats",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "admin.admin_get_token_stats",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/token-stats/daily",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "admin.admin_get_daily_token_stats",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/token-stats/monthly",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "admin.admin_get_monthly_token_stats",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/token-stats/users",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "admin.admin_get_user_token_stats",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/transcription-stats",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "admin.admin_get_transcription_stats",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/transcription-stats/daily",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "admin.admin_get_daily_transcription_stats",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/transcription-stats/monthly",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "admin.admin_get_monthly_transcription_stats",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/transcription-stats/users",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "admin.admin_get_user_transcription_stats",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/transcription/discover-models",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "admin.admin_discover_transcription_models",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/transcription/visible-models",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "admin.admin_get_visible_models",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/transcription/visible-models",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "admin.admin_save_visible_models",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/users",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "admin.admin_add_user",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/users",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "admin.admin_get_users",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/users/<int:user_id>",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "admin.admin_delete_user",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/users/<int:user_id>",
+    "methods": [
+      "OPTIONS",
+      "PUT"
+    ],
+    "endpoint": "admin.admin_update_user",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/users/<int:user_id>/toggle-admin",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "admin.admin_toggle_admin",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/voice-embeddings/check",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "admin.admin_voice_embedding_check",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/voice-embeddings/rebaseline",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "admin.admin_voice_embedding_rebaseline",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/admin/voice-embeddings/status",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "admin.admin_voice_embedding_status",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/api/account/storage",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "auth.account_storage",
+    "blueprint": "auth"
+  },
+  {
+    "rule": "/api/admin/groups",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "groups.create_team",
+    "blueprint": "groups"
+  },
+  {
+    "rule": "/api/admin/groups",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "groups.get_teams",
+    "blueprint": "groups"
+  },
+  {
+    "rule": "/api/admin/groups/<int:group_id>",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "groups.delete_team",
+    "blueprint": "groups"
+  },
+  {
+    "rule": "/api/admin/groups/<int:group_id>",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "groups.get_team",
+    "blueprint": "groups"
+  },
+  {
+    "rule": "/api/admin/groups/<int:group_id>",
+    "methods": [
+      "OPTIONS",
+      "PUT"
+    ],
+    "endpoint": "groups.update_team",
+    "blueprint": "groups"
+  },
+  {
+    "rule": "/api/admin/groups/<int:group_id>/members",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "groups.add_team_member",
+    "blueprint": "groups"
+  },
+  {
+    "rule": "/api/admin/groups/<int:group_id>/members/<int:user_id>",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "groups.remove_team_member",
+    "blueprint": "groups"
+  },
+  {
+    "rule": "/api/admin/groups/<int:group_id>/members/<int:user_id>",
+    "methods": [
+      "OPTIONS",
+      "PUT"
+    ],
+    "endpoint": "groups.update_team_member",
+    "blueprint": "groups"
+  },
+  {
+    "rule": "/api/admin/migrate_recordings",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "admin.migrate_existing_recordings_api",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/api/config",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "system.get_config",
+    "blueprint": "system"
+  },
+  {
+    "rule": "/api/csrf-token",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "system.get_csrf_token",
+    "blueprint": "system"
+  },
+  {
+    "rule": "/api/event/<int:event_id>",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "events.delete_event",
+    "blueprint": "events"
+  },
+  {
+    "rule": "/api/event/<int:event_id>/ics",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "events.download_event_ics",
+    "blueprint": "events"
+  },
+  {
+    "rule": "/api/export-templates",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "export_templates.create_export_template",
+    "blueprint": "export_templates"
+  },
+  {
+    "rule": "/api/export-templates",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "export_templates.get_export_templates",
+    "blueprint": "export_templates"
+  },
+  {
+    "rule": "/api/export-templates/<int:template_id>",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "export_templates.delete_export_template",
+    "blueprint": "export_templates"
+  },
+  {
+    "rule": "/api/export-templates/<int:template_id>",
+    "methods": [
+      "OPTIONS",
+      "PUT"
+    ],
+    "endpoint": "export_templates.update_export_template",
+    "blueprint": "export_templates"
+  },
+  {
+    "rule": "/api/export-templates/create-defaults",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "export_templates.create_default_export_templates",
+    "blueprint": "export_templates"
+  },
+  {
+    "rule": "/api/export/apply-filename-template",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "export_templates.apply_filename_template",
+    "blueprint": "export_templates"
+  },
+  {
+    "rule": "/api/folders",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "folders.create_folder",
+    "blueprint": "folders"
+  },
+  {
+    "rule": "/api/folders",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "folders.get_folders",
+    "blueprint": "folders"
+  },
+  {
+    "rule": "/api/folders/<int:folder_id>",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "folders.delete_folder",
+    "blueprint": "folders"
+  },
+  {
+    "rule": "/api/folders/<int:folder_id>",
+    "methods": [
+      "OPTIONS",
+      "PUT"
+    ],
+    "endpoint": "folders.update_folder",
+    "blueprint": "folders"
+  },
+  {
+    "rule": "/api/groups/<int:group_id>/folders",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "folders.create_group_folder",
+    "blueprint": "folders"
+  },
+  {
+    "rule": "/api/groups/<int:group_id>/folders",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "folders.get_group_folders",
+    "blueprint": "folders"
+  },
+  {
+    "rule": "/api/groups/<int:group_id>/sync-shares",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "groups.sync_team_tag_shares",
+    "blueprint": "groups"
+  },
+  {
+    "rule": "/api/groups/<int:group_id>/tags",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "tags.create_group_tag",
+    "blueprint": "tags"
+  },
+  {
+    "rule": "/api/groups/<int:group_id>/tags",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "tags.get_group_tags",
+    "blueprint": "tags"
+  },
+  {
+    "rule": "/api/inbox_recordings",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "recordings.get_inbox_recordings",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/api/initial-prompt-templates",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "initial_prompt_templates.create_initial_prompt_template",
+    "blueprint": "initial_prompt_templates"
+  },
+  {
+    "rule": "/api/initial-prompt-templates",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "initial_prompt_templates.get_initial_prompt_templates",
+    "blueprint": "initial_prompt_templates"
+  },
+  {
+    "rule": "/api/initial-prompt-templates/<int:template_id>",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "initial_prompt_templates.delete_initial_prompt_template",
+    "blueprint": "initial_prompt_templates"
+  },
+  {
+    "rule": "/api/initial-prompt-templates/<int:template_id>",
+    "methods": [
+      "OPTIONS",
+      "PUT"
+    ],
+    "endpoint": "initial_prompt_templates.update_initial_prompt_template",
+    "blueprint": "initial_prompt_templates"
+  },
+  {
+    "rule": "/api/initial-prompt-templates/create-defaults",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "initial_prompt_templates.create_default_initial_prompt_templates",
+    "blueprint": "initial_prompt_templates"
+  },
+  {
+    "rule": "/api/inquire/available_filters",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "inquire.get_available_filters",
+    "blueprint": "inquire"
+  },
+  {
+    "rule": "/api/inquire/chat",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "inquire.inquire_chat",
+    "blueprint": "inquire"
+  },
+  {
+    "rule": "/api/inquire/download",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "inquire.download_inquire_conversation",
+    "blueprint": "inquire"
+  },
+  {
+    "rule": "/api/inquire/search",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "inquire.inquire_search",
+    "blueprint": "inquire"
+  },
+  {
+    "rule": "/api/inquire/sessions",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "inquire.create_inquire_session",
+    "blueprint": "inquire"
+  },
+  {
+    "rule": "/api/inquire/sessions",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "inquire.get_inquire_sessions",
+    "blueprint": "inquire"
+  },
+  {
+    "rule": "/api/internal-shares/<int:share_id>",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "shares.revoke_internal_share",
+    "blueprint": "shares"
+  },
+  {
+    "rule": "/api/internal-shares/<int:share_id>",
+    "methods": [
+      "OPTIONS",
+      "PATCH"
+    ],
+    "endpoint": "shares.update_internal_share",
+    "blueprint": "shares"
+  },
+  {
+    "rule": "/api/naming-templates",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "naming_templates.create_naming_template",
+    "blueprint": "naming_templates"
+  },
+  {
+    "rule": "/api/naming-templates",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "naming_templates.get_naming_templates",
+    "blueprint": "naming_templates"
+  },
+  {
+    "rule": "/api/naming-templates/<int:template_id>",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "naming_templates.delete_naming_template",
+    "blueprint": "naming_templates"
+  },
+  {
+    "rule": "/api/naming-templates/<int:template_id>",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "naming_templates.get_naming_template",
+    "blueprint": "naming_templates"
+  },
+  {
+    "rule": "/api/naming-templates/<int:template_id>",
+    "methods": [
+      "OPTIONS",
+      "PUT"
+    ],
+    "endpoint": "naming_templates.update_naming_template",
+    "blueprint": "naming_templates"
+  },
+  {
+    "rule": "/api/naming-templates/<int:template_id>/test",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "naming_templates.test_naming_template",
+    "blueprint": "naming_templates"
+  },
+  {
+    "rule": "/api/naming-templates/create-defaults",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "naming_templates.create_default_naming_templates",
+    "blueprint": "naming_templates"
+  },
+  {
+    "rule": "/api/naming-templates/default",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "naming_templates.get_default_naming_template",
+    "blueprint": "naming_templates"
+  },
+  {
+    "rule": "/api/naming-templates/default",
+    "methods": [
+      "OPTIONS",
+      "PUT"
+    ],
+    "endpoint": "naming_templates.set_default_naming_template",
+    "blueprint": "naming_templates"
+  },
+  {
+    "rule": "/api/notifications",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "notifications.list_notifications",
+    "blueprint": "notifications"
+  },
+  {
+    "rule": "/api/notifications/<int:notification_id>",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "notifications.dismiss_notification",
+    "blueprint": "notifications"
+  },
+  {
+    "rule": "/api/notifications/count",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "notifications.notification_count",
+    "blueprint": "notifications"
+  },
+  {
+    "rule": "/api/notifications/read",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "notifications.mark_notifications_read",
+    "blueprint": "notifications"
+  },
+  {
+    "rule": "/api/permissions/can-delete",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "system.check_deletion_permission",
+    "blueprint": "system"
+  },
+  {
+    "rule": "/api/permissions/can-share-publicly",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "shares.can_share_publicly",
+    "blueprint": "shares"
+  },
+  {
+    "rule": "/api/push/config",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "push.get_push_config",
+    "blueprint": "push"
+  },
+  {
+    "rule": "/api/push/subscribe",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "push.subscribe",
+    "blueprint": "push"
+  },
+  {
+    "rule": "/api/push/unsubscribe",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "push.unsubscribe",
+    "blueprint": "push"
+  },
+  {
+    "rule": "/api/recording/<int:recording_id>/events",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "events.get_recording_events",
+    "blueprint": "events"
+  },
+  {
+    "rule": "/api/recording/<int:recording_id>/events/ics",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "events.download_all_events_ics",
+    "blueprint": "events"
+  },
+  {
+    "rule": "/api/recording/<int:recording_id>/process_chunks",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.process_recording_chunks_endpoint",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/api/recording/<int:recording_id>/share",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "shares.create_share",
+    "blueprint": "shares"
+  },
+  {
+    "rule": "/api/recording/<int:recording_id>/share",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "shares.get_existing_share",
+    "blueprint": "shares"
+  },
+  {
+    "rule": "/api/recordings",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "recordings.get_recordings_paginated",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/api/recordings/<int:recording_id>",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "recordings.get_recording_detail",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/api/recordings/<int:recording_id>/folder",
+    "methods": [
+      "OPTIONS",
+      "PUT"
+    ],
+    "endpoint": "folders.assign_recording_folder",
+    "blueprint": "folders"
+  },
+  {
+    "rule": "/api/recordings/<int:recording_id>/folder",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "folders.remove_recording_folder",
+    "blueprint": "folders"
+  },
+  {
+    "rule": "/api/recordings/<int:recording_id>/share-internal",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "shares.share_recording_internal",
+    "blueprint": "shares"
+  },
+  {
+    "rule": "/api/recordings/<int:recording_id>/shares-internal",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "shares.get_internal_shares",
+    "blueprint": "shares"
+  },
+  {
+    "rule": "/api/recordings/<int:recording_id>/tags",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.add_tag_to_recording",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/api/recordings/<int:recording_id>/tags/<int:tag_id>",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "recordings.remove_tag_from_recording",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/api/recordings/<int:recording_id>/tags/reorder",
+    "methods": [
+      "OPTIONS",
+      "PUT"
+    ],
+    "endpoint": "recordings.reorder_recording_tags",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/api/recordings/<int:recording_id>/toggle_deletion_exempt",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.toggle_deletion_exempt",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/api/recordings/archived",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "recordings.get_archived_recordings",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/api/recordings/audio-removed",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "recordings.get_archived_recordings",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/api/recordings/batch-status",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.get_batch_recording_status",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/api/recordings/bulk",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "recordings.bulk_delete_recordings",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/api/recordings/bulk-reprocess",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.bulk_reprocess",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/api/recordings/bulk-tags",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.bulk_update_tags",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/api/recordings/bulk-toggle",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.bulk_toggle",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/api/recordings/bulk/folder",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "folders.bulk_assign_folder",
+    "blueprint": "folders"
+  },
+  {
+    "rule": "/api/recordings/export-existing",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.export_existing_recordings",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/api/recordings/incognito",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.upload_incognito",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/api/recordings/incognito/chat",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.chat_incognito",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/api/recordings/incognito/summary",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.generate_incognito_summary_endpoint",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/api/recordings/job-queue-status",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "recordings.get_job_queue_status",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/api/recordings/jobs/<int:job_id>",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "recordings.delete_job",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/api/recordings/jobs/<int:job_id>/retry",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.retry_failed_job",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/api/recordings/jobs/clear-completed",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.clear_completed_jobs",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/api/recordings/jobs/clear-failed",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.clear_failed_jobs",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/api/recordings/merge",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.merge_recordings_endpoint",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/api/recordings/shared-with-me",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "shares.get_shared_with_me",
+    "blueprint": "shares"
+  },
+  {
+    "rule": "/api/share/<int:share_id>",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "shares.delete_share",
+    "blueprint": "shares"
+  },
+  {
+    "rule": "/api/share/<int:share_id>",
+    "methods": [
+      "OPTIONS",
+      "PUT"
+    ],
+    "endpoint": "shares.update_share",
+    "blueprint": "shares"
+  },
+  {
+    "rule": "/api/shares",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "shares.get_shares",
+    "blueprint": "shares"
+  },
+  {
+    "rule": "/api/shares/overview",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "shares.get_shares_overview",
+    "blueprint": "shares"
+  },
+  {
+    "rule": "/api/system/info",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "system.get_system_info",
+    "blueprint": "system"
+  },
+  {
+    "rule": "/api/tags",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "tags.create_tag",
+    "blueprint": "tags"
+  },
+  {
+    "rule": "/api/tags",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "tags.get_tags",
+    "blueprint": "tags"
+  },
+  {
+    "rule": "/api/tags/<int:tag_id>",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "tags.delete_tag",
+    "blueprint": "tags"
+  },
+  {
+    "rule": "/api/tags/<int:tag_id>",
+    "methods": [
+      "OPTIONS",
+      "PUT"
+    ],
+    "endpoint": "tags.update_tag",
+    "blueprint": "tags"
+  },
+  {
+    "rule": "/api/tokens",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "tokens.create_token",
+    "blueprint": "tokens"
+  },
+  {
+    "rule": "/api/tokens",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "tokens.list_tokens",
+    "blueprint": "tokens"
+  },
+  {
+    "rule": "/api/tokens/<int:token_id>",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "tokens.revoke_token",
+    "blueprint": "tokens"
+  },
+  {
+    "rule": "/api/tokens/<int:token_id>",
+    "methods": [
+      "OPTIONS",
+      "PATCH"
+    ],
+    "endpoint": "tokens.update_token",
+    "blueprint": "tokens"
+  },
+  {
+    "rule": "/api/transcript-templates",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "templates.create_transcript_template",
+    "blueprint": "templates"
+  },
+  {
+    "rule": "/api/transcript-templates",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "templates.get_transcript_templates",
+    "blueprint": "templates"
+  },
+  {
+    "rule": "/api/transcript-templates/<int:template_id>",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "templates.delete_transcript_template",
+    "blueprint": "templates"
+  },
+  {
+    "rule": "/api/transcript-templates/<int:template_id>",
+    "methods": [
+      "OPTIONS",
+      "PUT"
+    ],
+    "endpoint": "templates.update_transcript_template",
+    "blueprint": "templates"
+  },
+  {
+    "rule": "/api/transcript-templates/create-defaults",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "templates.create_default_templates",
+    "blueprint": "templates"
+  },
+  {
+    "rule": "/api/user/auto-speaker-labelling",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "auth.update_auto_speaker_labelling",
+    "blueprint": "auth"
+  },
+  {
+    "rule": "/api/user/auto-summarization",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "auth.update_auto_summarization",
+    "blueprint": "auth"
+  },
+  {
+    "rule": "/api/user/preferences",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "system.save_user_preferences",
+    "blueprint": "system"
+  },
+  {
+    "rule": "/api/user/timezone",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "auth.record_timezone",
+    "blueprint": "auth"
+  },
+  {
+    "rule": "/api/user/token-budget",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "system.get_user_token_budget",
+    "blueprint": "system"
+  },
+  {
+    "rule": "/api/user/whats-new/seen",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "system.mark_whats_new_seen",
+    "blueprint": "system"
+  },
+  {
+    "rule": "/api/users/search",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "shares.search_users",
+    "blueprint": "shares"
+  },
+  {
+    "rule": "/api/v1/capabilities",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.get_capabilities",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/docs",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.get_docs",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/folders",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "api_v1.create_folder",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/folders",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.list_folders",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/folders/<int:folder_id>",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.delete_folder",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/folders/<int:folder_id>",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.get_folder",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/folders/<int:folder_id>",
+    "methods": [
+      "OPTIONS",
+      "PATCH",
+      "PUT"
+    ],
+    "endpoint": "api_v1.update_folder",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/inquire",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "api_v1.inquire_v1",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/integrations/asr-voice-recorder/upload",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "api_v1.upload_from_asr_voice_recorder",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/openapi.json",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.get_openapi_spec",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.list_recordings",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/<int:recording_id>",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.delete_recording",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/<int:recording_id>",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.get_recording",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/<int:recording_id>",
+    "methods": [
+      "OPTIONS",
+      "PATCH"
+    ],
+    "endpoint": "api_v1.update_recording",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/<int:recording_id>/audio",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.download_audio",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/<int:recording_id>/chat",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "api_v1.chat_with_recording",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/<int:recording_id>/delete-audio",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "api_v1.delete_recording_audio",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/<int:recording_id>/events",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.get_recording_events",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/<int:recording_id>/events/ics",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.download_events_ics",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/<int:recording_id>/external-refs",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "api_v1.add_external_ref",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/<int:recording_id>/external-refs",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.list_external_refs",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/<int:recording_id>/external-refs",
+    "methods": [
+      "OPTIONS",
+      "PUT"
+    ],
+    "endpoint": "api_v1.replace_external_refs",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/<int:recording_id>/external-refs/<int:ref_id>",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.delete_external_ref",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/<int:recording_id>/notes",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.get_notes",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/<int:recording_id>/notes",
+    "methods": [
+      "OPTIONS",
+      "PUT"
+    ],
+    "endpoint": "api_v1.replace_notes",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/<int:recording_id>/regenerate_title",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "api_v1.api_regenerate_title",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/<int:recording_id>/share",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "api_v1.create_public_share",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/<int:recording_id>/shares",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.list_public_shares",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/<int:recording_id>/speakers",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.get_recording_speakers",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/<int:recording_id>/speakers/assign",
+    "methods": [
+      "OPTIONS",
+      "PUT"
+    ],
+    "endpoint": "api_v1.assign_speakers",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/<int:recording_id>/speakers/identify",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "api_v1.identify_speakers",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/<int:recording_id>/status",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.get_recording_status",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/<int:recording_id>/summarize",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "api_v1.start_summarization",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/<int:recording_id>/summary",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.get_summary",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/<int:recording_id>/summary",
+    "methods": [
+      "OPTIONS",
+      "PUT"
+    ],
+    "endpoint": "api_v1.replace_summary",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/<int:recording_id>/tags",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "api_v1.add_tags_to_recording",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/<int:recording_id>/tags",
+    "methods": [
+      "OPTIONS",
+      "PUT"
+    ],
+    "endpoint": "api_v1.replace_recording_tags",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/<int:recording_id>/tags/<int:tag_id>",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.remove_tag_from_recording",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/<int:recording_id>/transcribe",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "api_v1.start_transcription",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/<int:recording_id>/transcript",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.get_transcript",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/batch",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.batch_delete_recordings",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/batch",
+    "methods": [
+      "OPTIONS",
+      "PATCH"
+    ],
+    "endpoint": "api_v1.batch_update_recordings",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/batch/transcribe",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "api_v1.batch_transcribe_recordings",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/changes",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.list_recording_changes",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/recordings/upload",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "api_v1.upload_recording",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/search",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.search_recordings_v1",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/settings/auto-summarization",
+    "methods": [
+      "OPTIONS",
+      "PUT"
+    ],
+    "endpoint": "api_v1.update_auto_summarization",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/shares/<int:share_id>",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.revoke_public_share",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/speakers",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "api_v1.create_speaker",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/speakers",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.list_speakers",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/speakers/<int:speaker_id>",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.delete_speaker",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/speakers/<int:speaker_id>",
+    "methods": [
+      "OPTIONS",
+      "PUT"
+    ],
+    "endpoint": "api_v1.update_speaker",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/sso/status",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.get_sso_status",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/stats",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.get_stats",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/tags",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "api_v1.create_tag",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/tags",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.list_tags",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/tags/<int:tag_id>",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.delete_tag",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/tags/<int:tag_id>",
+    "methods": [
+      "OPTIONS",
+      "PUT"
+    ],
+    "endpoint": "api_v1.update_tag",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/tokens/current",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.get_current_token",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/tokens/current",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.revoke_current_token",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/tokens/exchange",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "api_v1.exchange_sso_token",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/transcription",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.get_transcription_info",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/users/me",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "api_v1.get_current_user",
+    "blueprint": "api_v1"
+  },
+  {
+    "rule": "/api/v1/webhooks",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "webhooks.create_webhook",
+    "blueprint": "webhooks"
+  },
+  {
+    "rule": "/api/v1/webhooks",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "webhooks.list_webhooks",
+    "blueprint": "webhooks"
+  },
+  {
+    "rule": "/api/v1/webhooks/<int:webhook_id>",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "webhooks.delete_webhook",
+    "blueprint": "webhooks"
+  },
+  {
+    "rule": "/api/v1/webhooks/<int:webhook_id>",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "webhooks.get_webhook",
+    "blueprint": "webhooks"
+  },
+  {
+    "rule": "/api/v1/webhooks/<int:webhook_id>",
+    "methods": [
+      "OPTIONS",
+      "PATCH"
+    ],
+    "endpoint": "webhooks.update_webhook",
+    "blueprint": "webhooks"
+  },
+  {
+    "rule": "/api/v1/webhooks/<int:webhook_id>/deliveries",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "webhooks.list_deliveries",
+    "blueprint": "webhooks"
+  },
+  {
+    "rule": "/api/v1/webhooks/<int:webhook_id>/deliveries/<int:delivery_id>",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "webhooks.get_delivery",
+    "blueprint": "webhooks"
+  },
+  {
+    "rule": "/api/v1/webhooks/<int:webhook_id>/deliveries/<int:delivery_id>/replay",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "webhooks.replay_delivery",
+    "blueprint": "webhooks"
+  },
+  {
+    "rule": "/api/v1/webhooks/<int:webhook_id>/rotate-secret",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "webhooks.rotate_secret",
+    "blueprint": "webhooks"
+  },
+  {
+    "rule": "/api/v1/webhooks/<int:webhook_id>/test",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "webhooks.test_fire",
+    "blueprint": "webhooks"
+  },
+  {
+    "rule": "/ask",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "inquire.inquire",
+    "blueprint": "inquire"
+  },
+  {
+    "rule": "/audio/<int:recording_id>",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "recordings.get_audio",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/audio/<int:recording_id>/peaks",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "recordings.get_audio_peaks",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/auth/sso/callback",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "auth.sso_callback",
+    "blueprint": "auth"
+  },
+  {
+    "rule": "/auth/sso/link",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "auth.sso_link",
+    "blueprint": "auth"
+  },
+  {
+    "rule": "/auth/sso/login",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "auth.sso_login",
+    "blueprint": "auth"
+  },
+  {
+    "rule": "/auth/sso/unlink",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "auth.sso_unlink",
+    "blueprint": "auth"
+  },
+  {
+    "rule": "/change_password",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "auth.change_password",
+    "blueprint": "auth"
+  },
+  {
+    "rule": "/chat",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.chat_with_transcription",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/docs/transcript-templates-guide",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "auth.transcript_templates_guide",
+    "blueprint": "auth"
+  },
+  {
+    "rule": "/forgot-password",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "auth.forgot_password",
+    "blueprint": "auth"
+  },
+  {
+    "rule": "/group-management",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "admin.group_management",
+    "blueprint": "admin"
+  },
+  {
+    "rule": "/inquire",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "inquire.inquire",
+    "blueprint": "inquire"
+  },
+  {
+    "rule": "/label/<label_name>",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "recordings.index",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/login",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "auth.login",
+    "blueprint": "auth"
+  },
+  {
+    "rule": "/logout",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "auth.logout",
+    "blueprint": "auth"
+  },
+  {
+    "rule": "/recording/<int:recording_id>",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "recordings.delete_recording",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/recording/<int:recording_id>/auto_identify_speakers",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.auto_identify_speakers",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/recording/<int:recording_id>/delete_audio",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.delete_recording_audio",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/recording/<int:recording_id>/download/chat",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.download_chat_word",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/recording/<int:recording_id>/download/notes",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "recordings.download_notes_word",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/recording/<int:recording_id>/download/summary",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "recordings.download_summary_word",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/recording/<int:recording_id>/download/transcript",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "recordings.download_transcript_with_template",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/recording/<int:recording_id>/generate_summary",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.generate_summary_endpoint",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/recording/<int:recording_id>/regenerate_title",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.regenerate_title",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/recording/<int:recording_id>/reprocess_summary",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.reprocess_summary",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/recording/<int:recording_id>/reprocess_transcription",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.reprocess_transcription",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/recording/<int:recording_id>/reset_status",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.reset_status",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/recording/<int:recording_id>/status",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "recordings.get_recording_status_only",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/recording/<int:recording_id>/summary_prompt",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "recordings.get_summary_prompt",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/recording/<int:recording_id>/summary_prompt",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.save_summary_prompt_route",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/recording/<int:recording_id>/toggle_archive",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.toggle_archive",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/recording/<int:recording_id>/toggle_highlight",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.toggle_highlight",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/recording/<int:recording_id>/toggle_inbox",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.toggle_inbox",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/recording/<int:recording_id>/translate_transcription",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.translate_transcription",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/recording/<int:recording_id>/update_speakers",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.update_speakers",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/recording/<int:recording_id>/update_transcript",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.update_transcript",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/recording/<int:recording_id>/update_transcription",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.update_transcription",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/recordings",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "recordings.get_recordings",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/recordings/<int:recording_id>",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "recordings.index",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/register",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "auth.register",
+    "blueprint": "auth"
+  },
+  {
+    "rule": "/resend-verification",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "auth.resend_verification",
+    "blueprint": "auth"
+  },
+  {
+    "rule": "/reset-password/<token>",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "auth.reset_password",
+    "blueprint": "auth"
+  },
+  {
+    "rule": "/robots.txt",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "robots_txt",
+    "blueprint": null
+  },
+  {
+    "rule": "/save",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.save_metadata",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/share-target",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.share_target",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/share/<string:public_id>",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "shares.view_shared_recording",
+    "blueprint": "shares"
+  },
+  {
+    "rule": "/share/audio/<string:public_id>",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "shares.get_shared_audio",
+    "blueprint": "shares"
+  },
+  {
+    "rule": "/speakers",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "speakers.create_speaker",
+    "blueprint": "speakers"
+  },
+  {
+    "rule": "/speakers",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "speakers.get_speakers",
+    "blueprint": "speakers"
+  },
+  {
+    "rule": "/speakers/<int:speaker_id>",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "speakers.delete_speaker",
+    "blueprint": "speakers"
+  },
+  {
+    "rule": "/speakers/<int:speaker_id>",
+    "methods": [
+      "OPTIONS",
+      "PUT"
+    ],
+    "endpoint": "speakers.update_speaker",
+    "blueprint": "speakers"
+  },
+  {
+    "rule": "/speakers/<int:speaker_id>/clear_embeddings",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "speakers.clear_speaker_embeddings",
+    "blueprint": "speakers"
+  },
+  {
+    "rule": "/speakers/<int:speaker_id>/recordings",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "speakers.get_speaker_recordings",
+    "blueprint": "speakers"
+  },
+  {
+    "rule": "/speakers/<int:speaker_id>/snippets",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "speakers.get_snippets",
+    "blueprint": "speakers"
+  },
+  {
+    "rule": "/speakers/<int:speaker_id>/voice_samples",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "speakers.list_voice_samples",
+    "blueprint": "speakers"
+  },
+  {
+    "rule": "/speakers/<int:speaker_id>/voice_samples/<int:sample_id>",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "speakers.delete_voice_sample",
+    "blueprint": "speakers"
+  },
+  {
+    "rule": "/speakers/delete_all",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "speakers.delete_all_speakers",
+    "blueprint": "speakers"
+  },
+  {
+    "rule": "/speakers/merge",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "speakers.merge_speaker_profiles",
+    "blueprint": "speakers"
+  },
+  {
+    "rule": "/speakers/search",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "speakers.search_speakers",
+    "blueprint": "speakers"
+  },
+  {
+    "rule": "/speakers/snippet-audio/<int:recording_id>",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "speakers.get_snippet_audio",
+    "blueprint": "speakers"
+  },
+  {
+    "rule": "/speakers/suggestions/<int:recording_id>",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "speakers.get_speaker_suggestions",
+    "blueprint": "speakers"
+  },
+  {
+    "rule": "/static/<path:filename>",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "static",
+    "blueprint": null
+  },
+  {
+    "rule": "/status/<int:recording_id>",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "recordings.get_status",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/sw.js",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "service_worker",
+    "blueprint": null
+  },
+  {
+    "rule": "/upload",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.upload_file",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/upload/cancel",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recordings.cancel_upload_route",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/upload/join/<string:group>",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "recordings.discard_upload_join",
+    "blueprint": "recordings"
+  },
+  {
+    "rule": "/upload/session",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recording_sessions.create_session",
+    "blueprint": "recording_sessions"
+  },
+  {
+    "rule": "/upload/session/<string:session_id>",
+    "methods": [
+      "DELETE",
+      "OPTIONS"
+    ],
+    "endpoint": "recording_sessions.abort_session",
+    "blueprint": "recording_sessions"
+  },
+  {
+    "rule": "/upload/session/<string:session_id>",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "recording_sessions.get_session",
+    "blueprint": "recording_sessions"
+  },
+  {
+    "rule": "/upload/session/<string:session_id>/chunks/<int:chunk_index>",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recording_sessions.upload_chunk",
+    "blueprint": "recording_sessions"
+  },
+  {
+    "rule": "/upload/session/<string:session_id>/finalize",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recording_sessions.finalize_session",
+    "blueprint": "recording_sessions"
+  },
+  {
+    "rule": "/upload/session/<string:session_id>/finalize-upload",
+    "methods": [
+      "OPTIONS",
+      "POST"
+    ],
+    "endpoint": "recording_sessions.finalize_sliced_upload",
+    "blueprint": "recording_sessions"
+  },
+  {
+    "rule": "/verify-email/<token>",
+    "methods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "endpoint": "auth.verify_email",
+    "blueprint": "auth"
+  }
+]
