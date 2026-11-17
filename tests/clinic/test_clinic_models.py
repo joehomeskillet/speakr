@@ -80,11 +80,28 @@ def _audio(dictation, content_hash=None):
     return row
 
 
-def _transcript(dictation, digest=None):
+def _original(dictation):
+    row = ClinicOriginal(
+        dictation_id=dictation.id,
+        content_hash="o" * 64,
+        size_bytes=128,
+        storage_key="originals/" + uuid.uuid4().hex,
+        receipt="stored",
+        origin_ref="device:test",
+    )
+    db.session.add(row)
+    db.session.flush()
+    return row
+
+
+def _transcript(dictation, digest=None, original=None):
     digest = digest or ("t" * 64)
+    original = original or _original(dictation)
     row = ClinicTranscriptRevision(
         dictation_id=dictation.id,
+        original_version_id=original.id,
         kind="ASR",
+        model_ref="stub-asr:1",
         body="recognised text",
         normalised_text_hash=digest,
     )
@@ -99,6 +116,7 @@ def _context(dictation):
         source_system="kis",
         tenant_scope="site",
         case_ref="case-1",
+        patient_ref="patient-1",
     )
     db.session.add(row)
     db.session.flush()
@@ -115,6 +133,7 @@ def _release(dictation, audio, transcript, context, actor):
         actor_user_id=actor.id,
         document_type="report",
         release_type="clinical",
+        authorization_decision="{}",
     )
     db.session.add(row)
     db.session.flush()
@@ -150,6 +169,7 @@ def test_release_rejects_revision_of_another_dictation(clinic_db, field):
         "actor_user_id": author.id,
         "document_type": "report",
         "release_type": "clinical",
+        "authorization_decision": "{}",
     }
     if field == "transcript":
         foreign = _transcript(dict_b, digest="b" * 64)
@@ -176,6 +196,7 @@ def test_release_rejects_text_hash_that_does_not_match_the_revision(clinic_db):
         actor_user_id=author.id,
         document_type="report",
         release_type="clinical",
+        authorization_decision="{}",
     ))
     with pytest.raises(IntegrityError):
         db.session.flush()
@@ -190,12 +211,76 @@ def test_original_cannot_be_updated_in_place(clinic_db):
         size_bytes=128,
         storage_key="originals/one",
         receipt="stored",
+        origin_ref="device:test",
     )
     db.session.add(original)
     db.session.flush()
     original.content_hash = "b" * 64
     with pytest.raises(IntegrityError):
         db.session.flush()
+
+
+def test_original_cannot_be_deleted(clinic_db):
+    author, recording = _account()
+    original = _original(_dictation(author, recording))
+    db.session.delete(original)
+    with pytest.raises(IntegrityError):
+        db.session.flush()
+
+
+def test_original_table_name_follows_the_contract():
+    assert ClinicOriginal.__tablename__ == "clinic_original_version"
+
+
+def test_transcript_rejects_original_of_another_dictation(clinic_db):
+    _author, dict_a, dict_b, _audio_row, _transcript_row, _context_row = _pair()
+    foreign = _original(dict_b)
+    db.session.add(ClinicTranscriptRevision(
+        dictation_id=dict_a.id,
+        original_version_id=foreign.id,
+        kind="ASR",
+        model_ref="stub-asr:1",
+        body="x",
+        normalised_text_hash="z" * 64,
+    ))
+    with pytest.raises(IntegrityError):
+        db.session.flush()
+
+
+def test_asr_transcript_requires_model_reference(clinic_db):
+    author, recording = _account()
+    dictation = _dictation(author, recording)
+    original = _original(dictation)
+    db.session.add(ClinicTranscriptRevision(
+        dictation_id=dictation.id,
+        original_version_id=original.id,
+        kind="ASR",
+        body="x",
+        normalised_text_hash="z" * 64,
+    ))
+    with pytest.raises(IntegrityError):
+        db.session.flush()
+
+
+def test_created_at_is_timezone_aware(clinic_db):
+    author, dict_a, _dict_b, audio, transcript, context = _pair()
+    release = _release(dict_a, audio, transcript, context, author)
+    delivery = ClinicDelivery(
+        release_id=release.id,
+        target="kis",
+        idempotency_key="k-" + uuid.uuid4().hex,
+        payload_hash="p" * 64,
+        state="SENT",
+        external_document_id="doc-1",
+    )
+    db.session.add(delivery)
+    db.session.flush()
+    db.session.expire_all()
+    for row in (dict_a, release, delivery):
+        assert row.created_at is not None
+    if db.engine.dialect.name == "postgresql":
+        for row in (dict_a, release, delivery):
+            assert row.created_at.tzinfo is not None
 
 
 def test_lease_generation_must_increase(clinic_db):

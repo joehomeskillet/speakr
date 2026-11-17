@@ -8,14 +8,29 @@ the foreign key targets ``(dictation_id, id)``, not ``id`` alone.
 """
 
 import uuid
+from datetime import datetime, timezone
 
-from sqlalchemy import CheckConstraint, ForeignKeyConstraint, UniqueConstraint, text
+from sqlalchemy import CheckConstraint, ForeignKeyConstraint, UniqueConstraint, func, text
 
 from src.database import db
 
 
 def new_id() -> str:
     return str(uuid.uuid4())
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _created_at():
+    """timestamptz, UTC. The UI converts to Europe/Zurich."""
+    return db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        server_default=func.now(),
+    )
 
 
 TRANSCRIPT_KINDS = ("ASR", "HUMAN")
@@ -44,12 +59,16 @@ class ClinicDictation(db.Model):
         db.Integer, db.ForeignKey("user.id"), nullable=False, index=True
     )
     version_counter = db.Column(db.Integer, nullable=False, default=0, server_default="0")
+    # clinic_pool is a separate work package; until it exists this is a plain
+    # UUID reference without a foreign key.
+    pool_id = db.Column(db.String(36), nullable=True, index=True)
+    created_at = _created_at()
 
 
 class ClinicOriginal(db.Model):
     """Immutable stored original. Bytes live under storage_key; this row is the receipt."""
 
-    __tablename__ = "clinic_original"
+    __tablename__ = "clinic_original_version"
 
     id = _uuid()
     dictation_id = db.Column(db.String(36), nullable=False)
@@ -57,6 +76,8 @@ class ClinicOriginal(db.Model):
     size_bytes = db.Column(db.BigInteger, nullable=False)
     storage_key = db.Column(db.String(500), nullable=False)
     receipt = db.Column(db.Text, nullable=False)
+    origin_ref = db.Column(db.String(255), nullable=False)
+    created_at = _created_at()
 
     __table_args__ = (
         ForeignKeyConstraint(
@@ -100,10 +121,21 @@ class ClinicTranscriptRevision(db.Model):
     kind = db.Column(db.String(16), nullable=False)
     body = db.Column(db.Text, nullable=False)
     normalised_text_hash = db.Column(db.String(128), nullable=False)
+    original_version_id = db.Column(db.String(36), nullable=False)
+    # Modellnachweis. Required for ASR rows, empty for human corrections.
+    model_ref = db.Column(db.String(255), nullable=True)
 
     __table_args__ = (
         ForeignKeyConstraint(
             ["dictation_id"], ["clinic_dictation.id"], name="fk_clinic_transcript_dictation"
+        ),
+        ForeignKeyConstraint(
+            ["dictation_id", "original_version_id"],
+            ["clinic_original_version.dictation_id", "clinic_original_version.id"],
+            name="fk_clinic_transcript_original_same_dictation",
+        ),
+        CheckConstraint(
+            "kind <> 'ASR' OR model_ref IS NOT NULL", name="ck_clinic_transcript_asr_model"
         ),
         UniqueConstraint("dictation_id", "id", name="uq_clinic_transcript_dictation"),
         UniqueConstraint(
@@ -130,6 +162,7 @@ class ClinicContextRevision(db.Model):
     source_system = db.Column(db.String(120), nullable=True)
     tenant_scope = db.Column(db.String(120), nullable=True)
     case_ref = db.Column(db.String(120), nullable=True)
+    patient_ref = db.Column(db.String(120), nullable=True)
 
     __table_args__ = (
         ForeignKeyConstraint(
@@ -177,6 +210,9 @@ class ClinicRelease(db.Model):
     actor_user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
     document_type = db.Column(db.String(80), nullable=False)
     release_type = db.Column(db.String(80), nullable=False)
+    # Record of the permission decision taken at release time (JSON text).
+    authorization_decision = db.Column(db.Text, nullable=False)
+    created_at = _created_at()
 
     __table_args__ = (
         ForeignKeyConstraint(
@@ -215,6 +251,9 @@ class ClinicDelivery(db.Model):
     idempotency_key = db.Column(db.String(255), nullable=False)
     payload_hash = db.Column(db.String(128), nullable=False)
     state = db.Column(db.String(20), nullable=False)
+    # Receipt id from the receiving system. Empty until it confirms.
+    external_document_id = db.Column(db.String(255), nullable=True)
+    created_at = _created_at()
 
     __table_args__ = (
         # Same key and target cannot carry a second payload. A different target
@@ -227,11 +266,12 @@ class ClinicDelivery(db.Model):
 
 
 _ORIGINAL_TRIGGER = "clinic_original_immutable"
+_ORIGINAL_DELETE_TRIGGER = "clinic_original_no_delete"
 _LEASE_TRIGGER = "clinic_lease_generation_monotone"
 
 
 def install_clinic_guards(engine) -> None:
-    """Reject in-place original edits and a non-increasing lease generation.
+    """Reject original UPDATE and DELETE and a non-increasing lease generation.
 
     Idempotent. SQLite and PostgreSQL need different trigger DDL; other
     engines keep the tables without these two guards.
@@ -241,10 +281,19 @@ def install_clinic_guards(engine) -> None:
             "DROP TRIGGER IF EXISTS " + _ORIGINAL_TRIGGER,
             (
                 "CREATE TRIGGER " + _ORIGINAL_TRIGGER + " "
-                "BEFORE UPDATE ON clinic_original "
+                "BEFORE UPDATE ON clinic_original_version "
                 "FOR EACH ROW "
                 "BEGIN "
                 "SELECT RAISE(ABORT, 'clinic original is immutable'); "
+                "END"
+            ),
+            "DROP TRIGGER IF EXISTS " + _ORIGINAL_DELETE_TRIGGER,
+            (
+                "CREATE TRIGGER " + _ORIGINAL_DELETE_TRIGGER + " "
+                "BEFORE DELETE ON clinic_original_version "
+                "FOR EACH ROW "
+                "BEGIN "
+                "SELECT RAISE(ABORT, 'clinic original cannot be deleted'); "
                 "END"
             ),
             "DROP TRIGGER IF EXISTS " + _LEASE_TRIGGER,
@@ -269,10 +318,10 @@ def install_clinic_guards(engine) -> None:
             END;
             $$
             """,
-            "DROP TRIGGER IF EXISTS " + _ORIGINAL_TRIGGER + " ON clinic_original",
+            "DROP TRIGGER IF EXISTS " + _ORIGINAL_TRIGGER + " ON clinic_original_version",
             """
             CREATE TRIGGER clinic_original_immutable
-            BEFORE UPDATE ON clinic_original
+            BEFORE UPDATE OR DELETE ON clinic_original_version
             FOR EACH ROW EXECUTE PROCEDURE clinic_original_immutable()
             """,
             """
