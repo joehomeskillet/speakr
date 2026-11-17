@@ -241,8 +241,6 @@ def test_a_probe_that_timed_out_still_trusts_the_video_extension(user):
     assert enqueue.call_count == 1
 
 
-# --- incognito ---------------------------------------------------------------
-
 @needs_ffmpeg
 @pytest.mark.parametrize("payload", ["binary", "text"])
 def test_junk_named_flac_is_refused(user, payload):
