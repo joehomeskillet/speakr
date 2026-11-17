@@ -5,6 +5,7 @@ instance/
 uploads/
 *.db
 *.db-journal
+/secret_key
 __pycache__/
 *.pyc
 *.log
