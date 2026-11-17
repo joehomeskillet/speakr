@@ -16,8 +16,12 @@ and no stdin. Network isolation is a deployment property (no egress for the
 media worker); neither tool is given a URL or protocol that needs the network:
 ffmpeg is restricted to ``-protocol_whitelist file``.
 
-Real DS2 decoding is not proven here: it needs the pinned binary and a real
-DS2 fixture. The dss-codec call convention assumed is ``<bin> <input> <output.wav>``.
+Real CLI of the pinned ``dss-decode`` binary (verified against the build):
+``dss-decode -q -r 16000 -c 1 -b 16 -O <output.wav> <input>``. Exit code 0 on
+success, 1 on error (message on stderr, e.g. ``Error decoding <file>: ...``).
+It resamples itself with ``-r``; if the output is nevertheless not 16 kHz mono
+16-bit PCM, ffmpeg normalises it. Real DS2 decoding is only exercised by the
+env-gated tests in ``tests/clinic/test_decoder.py``.
 """
 from __future__ import annotations
 
@@ -88,6 +92,11 @@ def _wav_duration(path: Path) -> float:
         return wav.getnframes() / float(wav.getframerate())
 
 
+def _is_16k_mono_pcm(path: Path) -> bool:
+    with wave.open(str(path), 'rb') as wav:
+        return (wav.getframerate(), wav.getnchannels(), wav.getsampwidth()) == (16000, 1, 2)
+
+
 def decode_to_wav(src, out_dir, *, timeout_s: int = DEFAULT_TIMEOUT_S,
                   max_output_bytes: int = DEFAULT_MAX_OUTPUT_BYTES,
                   ffmpeg_bin: str = 'ffmpeg') -> DecodeResult:
@@ -115,7 +124,8 @@ def decode_to_wav(src, out_dir, *, timeout_s: int = DEFAULT_TIMEOUT_S,
         binary = os.environ.get(DSS_CODEC_BIN_ENV, '').strip()
         if not binary:
             return result(DECODER_MISSING, f'{DSS_CODEC_BIN_ENV} not set')
-        cmd = [binary, str(src), str(out)]
+        cmd = [binary, '-q', '-r', '16000', '-c', '1', '-b', '16',
+               '-O', str(out), str(src)]
     else:
         cmd = [ffmpeg_bin, '-nostdin', '-v', 'error', '-protocol_whitelist', 'file',
                '-threads', '1', '-i', str(src), '-vn', '-ac', '1', '-ar', '16000',
@@ -138,8 +148,22 @@ def decode_to_wav(src, out_dir, *, timeout_s: int = DEFAULT_TIMEOUT_S,
         out.unlink(missing_ok=True)
         return result(CORRUPT, 'output exceeds size cap')
     try:
+        if container in ('dss', 'ds2') and not _is_16k_mono_pcm(out):
+            fixed = out.with_name(out.stem + '.norm.wav')
+            norm = _run([ffmpeg_bin, '-nostdin', '-v', 'error', '-protocol_whitelist', 'file',
+                         '-threads', '1', '-i', str(out), '-vn', '-ac', '1', '-ar', '16000',
+                         '-c:a', 'pcm_s16le', '-fs', str(max_output_bytes + 1), '-y',
+                         str(fixed)], timeout_s)
+            if norm is None or norm[0] != 0 or not fixed.is_file():
+                fixed.unlink(missing_ok=True)
+                out.unlink(missing_ok=True)
+                return result(CORRUPT, 'resampling decoder output failed')
+            fixed.replace(out)
+            if out.stat().st_size > max_output_bytes:
+                out.unlink(missing_ok=True)
+                return result(CORRUPT, 'output exceeds size cap')
         duration = _wav_duration(out)
-    except (wave.Error, EOFError, ZeroDivisionError):
+    except (wave.Error, EOFError, ZeroDivisionError, OSError):
         out.unlink(missing_ok=True)
         return result(CORRUPT, 'decoder output is not a valid WAV')
     if duration <= 0:
