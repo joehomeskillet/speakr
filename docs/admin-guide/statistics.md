@@ -10,7 +10,7 @@ Six cards sit at the top of the tab:
 
 - **Recordings**: recordings created in the period.
 - **Audio transcribed**: hours and minutes of audio sent for transcription.
-- **AI requests**: language-model calls for titles, summaries, chat, events, speaker identification and Inquire. Embedding requests are not counted.
+- **AI requests**: language-model calls for titles, summaries, chat, speaker identification and Inquire. Embedding requests are not counted.
 - **AI cost**: language-model, embedding and transcription cost together. It reads "Local" when every model runs locally and costs nothing.
 - **Active users**: users who created at least one recording in the period, out of all users.
 - **Total storage**: audio and video kept on disk, without recordings whose audio was removed.
@@ -33,7 +33,7 @@ This card checks that the transcription backend still produces voice embeddings 
 
 ## Usage and Cost
 
-**Language model tokens per day, by task** stacks each day's tokens by operation: chat, summarization, title generation, event extraction, speaker identification and Inquire. When the backend reports prompt caching, a line below the chart gives the tokens read from and written to the cache in the period. Cache reads appear only when the text-generation backend returns them in its responses; see [Prefix-Cache-Friendly Prompts](model-configuration.md#prefix-cache-friendly-prompts-prefix_cache_optimized_prompts).
+**Language model tokens per day, by task** stacks each day's tokens by operation: chat, summarization, title generation, speaker identification and Inquire. When the backend reports prompt caching, a line below the chart gives the tokens read from and written to the cache in the period. Cache reads appear only when the text-generation backend returns them in its responses; see [Prefix-Cache-Friendly Prompts](model-configuration.md#prefix-cache-friendly-prompts-prefix_cache_optimized_prompts).
 
 **Audio transcribed per day** and **Embedding tokens per day** are separate charts. Embedding volume is usually many times the language-model volume at a far lower price, so a shared axis would hide the language-model bars. A re-embed of the whole library shows up as one tall embedding bar.
 

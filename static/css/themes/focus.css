@@ -848,7 +848,7 @@ html[data-ui-theme="focus"] body .prose-flush th { font-family: var(--f-font-ui)
 html[data-ui-theme="focus"] body .prose-flush table { font-size: 15px; font-family: var(--f-font-ui); }
 html[data-ui-theme="focus"] body .prose-flush input[type="checkbox"] { margin-inline-end: 8px; width: 15px; height: 15px; vertical-align: -2px; }
 
-/* stats / events / notes surfaces: hairlines, not boxes */
+/* stats / notes surfaces: hairlines, not boxes */
 html[data-ui-theme="focus"] body #rightMainColumn .rounded-lg.border,
 html[data-ui-theme="focus"] body #rightMainColumn .rounded-xl.border { border-color: var(--f-divider); border-radius: 12px; }
 html[data-ui-theme="focus"] body #rightMainColumn .bg-\[var\(--bg-tertiary\)\] { background: var(--f-surface-2); }

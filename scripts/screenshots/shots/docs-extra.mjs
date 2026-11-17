@@ -121,16 +121,6 @@ export default [
         },
     },
     {
-        name: 'event-extraction',
-        description: 'Calendar events extracted from a meeting',
-        theme: { dark: true, scheme: 'teal' },
-        run: async (page) => {
-            await go(page, '/');
-            await openWithSidebar(page, 'Fortnightly Team Meeting at ABC Manufacturing', ANCHOR.interviews);
-            await rightTab(page, 'Events');
-        },
-    },
-    {
         name: 'main-view-notes-tab',
         description: 'The Notes tab of a recording',
         theme: { dark: true, scheme: 'purple' },

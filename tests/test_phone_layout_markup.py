@@ -25,7 +25,7 @@ PHONE_DIR = os.path.join(TEMPLATES, 'components', 'phone')
 DETAIL_DIR = os.path.join(TEMPLATES, 'components', 'detail')
 PHONE_DETAIL_PARTS = (
     'mobile-summary-panel.html', 'mobile-transcript-panel.html', 'mobile-notes-panel.html',
-    'mobile-chat-panel.html', 'mobile-events-panel.html', 'mobile-stats-panel.html',
+    'mobile-chat-panel.html', 'mobile-stats-panel.html',
     'audio-player.html', 'tab-navigation.html',
 )
 
@@ -69,7 +69,6 @@ def test_every_desktop_action_of_a_recording_is_on_the_phone():
     desktop += _read(TEMPLATES, 'themes', 'default', 'detail-meta.html')
     desktop += _read(DETAIL_DIR, 'desktop-transcription-panel.html')
     desktop += _read(DETAIL_DIR, 'desktop-right-panel.html')
-    desktop += _read(DETAIL_DIR, 'desktop-events-tab.html')
     desktop += _read(DETAIL_DIR, 'desktop-summary-tab.html')
     desktop += _read(DETAIL_DIR, 'desktop-notes-tab.html')
     desktop += _read(TEMPLATES, 'components', 'header.html')
@@ -81,7 +80,7 @@ def test_every_desktop_action_of_a_recording_is_on_the_phone():
             'openParticipantsModal', 'openMeetingDatePicker', 'openDuplicatesModal', 'regenerateTitle',
             'toggleFollowPlayerMode', 'toggleTranscriptionViewMode', 'toggleTranscriptFind', 'copyTranscription',
             'openTranscriptionEditor', 'generateTranslation', 'copySummary', 'downloadSummary', 'toggleEditSummary',
-            'copyNotes', 'downloadNotes', 'toggleEditNotes', 'downloadEventICS', 'deleteEvent',
+            'copyNotes', 'downloadNotes', 'toggleEditNotes',
             'generateSummary'} <= wanted
     phone = _calls(_phone_markup())
     assert not (wanted - phone), sorted(wanted - phone)
@@ -92,7 +91,7 @@ def test_every_desktop_action_of_a_recording_is_on_the_phone():
 def test_phone_only_actions_are_kept():
     """What the phone header offered before the shared layout and the desktop does not."""
     phone = _calls(_phone_markup())
-    for name in ('downloadTranscript', 'downloadICS', 'clearChat', 'downloadChat',
+    for name in ('downloadTranscript', 'clearChat', 'downloadChat',
                  'phoneFilterByTag', 'skipAudio', 'setPlaybackRate',
                  'toggleAudioPlayback', 'enterVideoFullscreen'):
         assert name in phone, name
@@ -179,16 +178,16 @@ def test_phone_texts_exist_and_are_used():
     assert used == keys, (sorted(used - keys), sorted(keys - used))
 
 
-def test_events_and_stats_are_opened_from_the_row_above_the_summary():
+def test_stats_are_opened_from_the_row_above_the_summary():
     summary = _read(DETAIL_DIR, 'mobile-summary-panel.html')
     row = summary[summary.index('data-phone-acts="summary"'):]
     row = row[:row.index('\n        </div>')]
-    assert 'data-phone-open="events"' in row and 'data-phone-open="stats"' in row
-    # only there: nothing after the text of the summary opens them
-    assert summary.count('data-phone-open=') == 2
+    assert 'data-phone-open="stats"' in row
+    # only there: nothing after the text of the summary opens it
+    assert summary.count('data-phone-open=') == 1
     assert 'ph-also' not in summary and '.ph-also' not in _read(ROOT, 'static', 'css', 'phone.css')
     # an icon button has a name
-    for name in ('events', 'stats'):
+    for name in ('stats',):
         assert ':aria-label=' in _element_with(row, f'data-phone-open="{name}"'), name
 
 

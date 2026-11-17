@@ -1,7 +1,7 @@
 """Coverage-focused tests for src/tasks/processing.py.
 
 These exercise the async pipeline task functions directly (not via HTTP):
-title generation, summary generation, event extraction, the Inquire
+title generation, summary generation, the Inquire
 embeddings hook, status transitions, duration bookkeeping, and the
 transcribe-with-connector orchestration (including the video retention /
 passthrough branches) — all with the network, LLM client, ASR connector,
@@ -23,7 +23,7 @@ import pytest
 
 from src.app import app, db
 from src.models import (
-    User, Recording, Event, SystemSetting,
+    User, Recording, SystemSetting,
     Group, GroupMembership, Tag, RecordingTag, InternalShare,
     SharedRecordingState, NamingTemplate,
 )
@@ -237,19 +237,6 @@ def test_summary_custom_prompt_append():
         assert "EXTRA agenda context" in sent
 
 
-def test_summary_event_extraction_invoked_when_user_extract_events():
-    with app.app_context():
-        user = _make_user("sum_events", extract_events=True)
-        rec = _make_recording(user.id)
-        rid = rec.id
-        with _patch_llm(content="A summary body."), \
-             patch.object(proc, "ENABLE_INQUIRE_MODE", False), \
-             patch.object(proc, "extract_events_from_transcript") as mock_extract:
-            proc.generate_summary_only_task(app.app_context(), rid)
-        mock_extract.assert_called_once()
-        assert mock_extract.call_args.args[0] == rid
-
-
 def test_summary_missing_recording_returns_quietly():
     with app.app_context():
         # An ID that does not exist must not raise.
@@ -392,66 +379,6 @@ def test_title_budget_exceeded_skips_gracefully():
         # Budget skip → falls back to filename, still completes.
         assert out.status == "COMPLETED"
         assert out.title == "cov"
-
-
-# ---------------------------------------------------------------------------
-# extract_events_from_transcript
-# ---------------------------------------------------------------------------
-
-def test_extract_events_creates_events():
-    with app.app_context():
-        user = _make_user("ev_create", extract_events=True)
-        rec = _make_recording(user.id)
-        rid = rec.id
-        events_json = (
-            '{"events": [{"title": "Review Meeting", '
-            '"description": "Quarterly review", '
-            '"start_datetime": "2025-07-22T14:00:00", '
-            '"end_datetime": "2025-07-22T15:30:00", '
-            '"location": "Room A", "attendees": ["Jane"], '
-            '"reminder_minutes": 30}]}'
-        )
-        with _patch_llm(content=events_json):
-            proc.extract_events_from_transcript(rid, "transcript text", "summary text")
-
-        events = Event.query.filter_by(recording_id=rid).all()
-        assert len(events) == 1
-        assert events[0].title == "Review Meeting"
-        assert events[0].reminder_minutes == 30
-
-
-def test_extract_events_empty_list():
-    with app.app_context():
-        user = _make_user("ev_empty", extract_events=True)
-        rec = _make_recording(user.id)
-        rid = rec.id
-        with _patch_llm(content='{"events": []}'):
-            proc.extract_events_from_transcript(rid, "transcript", "summary")
-        assert Event.query.filter_by(recording_id=rid).count() == 0
-
-
-def test_extract_events_disabled_user_no_op():
-    with app.app_context():
-        user = _make_user("ev_disabled", extract_events=False)
-        rec = _make_recording(user.id)
-        rid = rec.id
-        with _patch_llm(content='{"events": [{"title": "X", "start_datetime": "2025-01-01T09:00:00"}]}') as mock_call:
-            proc.extract_events_from_transcript(rid, "transcript", "summary")
-        # Returns before calling the LLM.
-        mock_call.assert_not_called()
-        assert Event.query.filter_by(recording_id=rid).count() == 0
-
-
-def test_extract_events_bad_date_skipped():
-    with app.app_context():
-        user = _make_user("ev_baddate", extract_events=True)
-        rec = _make_recording(user.id)
-        rid = rec.id
-        bad = '{"events": [{"title": "Bad", "start_datetime": "not-a-date"}]}'
-        with _patch_llm(content=bad):
-            proc.extract_events_from_transcript(rid, "transcript", "summary")
-        # Unparseable start date → event skipped.
-        assert Event.query.filter_by(recording_id=rid).count() == 0
 
 
 # ---------------------------------------------------------------------------

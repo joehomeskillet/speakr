@@ -898,7 +898,6 @@ def _real_summary_step(llm):
          patch.object(proc, "apply_team_tag_auto_shares"), \
          patch.object(proc, "export_recording"), \
          patch.object(proc, "queue_inquire_chunks"), \
-         patch.object(proc, "extract_events_from_transcript"), \
          patch("src.services.webhook_dispatch.emit_webhook_event") as emit, \
          patch.object(job_queue, "_emit_failure_email"):
         yield emit

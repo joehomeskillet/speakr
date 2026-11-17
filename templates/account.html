@@ -861,37 +861,6 @@
                             </label>
                         </div>
 
-                        <!-- Event Extraction Settings -->
-                        <div class="bg-[var(--bg-tertiary)] p-6 rounded-lg border border-[var(--border-primary)]">
-                            <h3 class="text-lg font-medium text-[var(--text-secondary)] mb-4">
-                                <i class="fas fa-calendar-alt mr-2"></i>
-                                <span data-i18n="eventExtraction.title">Event extraction</span>
-                            </h3>
-
-                            <div class="mb-4">
-                                <label class="flex items-start space-x-3">
-                                    <input type="checkbox" name="extract_events" id="extract_events"
-                                        {% if current_user.extract_events %}checked{% endif %}
-                                        class="mt-1 h-4 w-4 text-[var(--border-accent)] focus:ring-[var(--border-focus)] border-[var(--border-secondary)] rounded">
-                                    <div>
-                                        <span class="block text-sm font-medium text-[var(--text-primary)]" data-i18n="eventExtraction.enableLabel">
-                                            Find events in transcripts
-                                        </span>
-                                        <span class="block text-xs text-[var(--text-muted)] mt-1" data-i18n="eventExtraction.description">
-                                            Find meetings, appointments and deadlines mentioned in recordings, as calendar events you can download.
-                                        </span>
-                                    </div>
-                                </label>
-                            </div>
-
-                            <div class="mt-4 p-3 bg-[var(--bg-info-light)] text-[var(--text-info-strong)] rounded-lg text-sm">
-                                <i class="fas fa-info-circle mr-1"></i>
-                                <span data-i18n="eventExtraction.info">
-                                    Extracted events will appear in a new "Events" tab on recordings where calendar items are detected.
-                                </span>
-                            </div>
-                        </div>
-
                         <!-- Privacy for Ask Ambrose (the library page): what the assistant may read.
                              Transcripts are always available (the minimum for
                              Inquire to work); summaries and notes are optional.

@@ -155,7 +155,7 @@ def test_routes_with_a_recording_argument_are_never_public_or_plain_auth():
     """A route that names a recording must be decided by the central policy."""
     wrong = sorted(
         r.endpoint for r in _rules()
-        if {'recording_id', 'event_id'} & r.arguments
+        if {'recording_id'} & r.arguments
         and ROUTE_POLICY[r.endpoint].kind in (PUBLIC, AUTH, ADMIN)
     )
     assert not wrong, wrong

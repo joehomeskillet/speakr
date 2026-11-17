@@ -19,7 +19,6 @@ All text is kept in the application database (SQLite by default, PostgreSQL as a
 | Title, participants, notes, transcript, translation, summary, original file name, storage path of the media, error text, prompt variables, resolved hotwords and initial prompt, name of the exported file. Voice embeddings of every voice of the recording, named or not, under its diarization label, when embeddings are returned by the transcription service. | `recording` |
 | Transcript passages, their embeddings and the name of the main speaker of each passage when that speaker is named, when Ask Ambrose is enabled (`ENABLE_INQUIRE_MODE=true`) | `transcript_chunk` |
 | Speakers that a user named: name, email address and aliases when entered, voice embeddings, and short quotes of up to 200 characters. Nothing is stored here for an unnamed voice (see [Diarization labels](#diarization-labels)). | `speaker`, `speaker_voice_sample`, `speaker_snippet` |
-| Calendar events extracted from a transcript: title, description, location and attendees | `event` |
 | Job parameters (including hotwords and initial prompt) and error text of a job | `processing_job` |
 | Public links, with the address part of each link, and internal shares | `share`, `internal_share` |
 | Personal notes of a user on a recording shared with that user, with the inbox, star and archive state | `shared_recording_state` |
@@ -169,7 +168,7 @@ No telemetry, analytics or update check is contained in the application. The fol
 | Destination | Data sent | Control |
 |---|---|---|
 | Transcription service | Audio, language, initial prompt, hotwords, speaker count, and voice samples of earlier chunks for some connectors. With asynchronous jobs of a WhisperX service, also a key built from the recording id, and a hash of the audio. | Required. The address is set with `ASR_BASE_URL` or `TRANSCRIPTION_BASE_URL` and the connector with `TRANSCRIPTION_CONNECTOR`. With a local service, the audio stays on the network of the institution. For a hosted connector, the address of its vendor is the default. |
-| LLM for titles, summaries, event extraction and speaker identification | Transcript and prompts, with recording details such as participants and notes where the prompt includes them | `TEXT_MODEL_BASE_URL`. The default of the variable is `https://openrouter.ai/api/v1`. Without a text model, these features are unavailable. |
+| LLM for titles, summaries and speaker identification | Transcript and prompts, with recording details such as participants and notes where the prompt includes them | `TEXT_MODEL_BASE_URL`. The default of the variable is `https://openrouter.ai/api/v1`. Without a text model, these features are unavailable. |
 | LLM for chat and for translation | Transcript, question, chat history; text to translate | `CHAT_MODEL_BASE_URL` and `TRANSLATION_MODEL_BASE_URL`. When unset, the text model is used. |
 | Embedding API | Transcript passages and search queries | Only with `ENABLE_INQUIRE_MODE=true` and `EMBEDDING_BASE_URL` set. Without `EMBEDDING_BASE_URL`, embeddings are computed inside the container. |
 | Hugging Face Hub | No user data. The local embedding model is downloaded on first use. | Only with Ask Ambrose and local embeddings. The model can be placed in `HF_HOME` in advance, and the download is prevented with `HF_HUB_OFFLINE=1`. |

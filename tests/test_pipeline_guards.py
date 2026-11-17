@@ -7,9 +7,8 @@ cannot quietly re-implement a step and miss a setting added later.
 
 - AI title + naming template: src/services/titling.py (compute_title). The
   template preview endpoint may apply a template to sample values.
-- Events and team-tag auto-shares: finish_processing in src/tasks/processing.py,
+- Team-tag auto-shares: finish_processing in src/tasks/processing.py,
   the last step of every processing path.
-- Multi-event calendar files: src/services/calendar.py (generate_combined_ics).
 """
 
 import ast
@@ -21,7 +20,6 @@ SRC = os.path.join(ROOT, "src")
 # call name -> allowed (relative file, enclosing function or None for any)
 ALLOWED = {
     "_generate_ai_title": {("src/services/titling.py", "compute_title")},
-    "extract_events_from_transcript": {("src/tasks/processing.py", "finish_processing")},
     "apply_team_tag_auto_shares": {("src/tasks/processing.py", "finish_processing")},
 }
 NAMING_TEMPLATE_APPLY = {("src/services/titling.py", "compute_title"),
@@ -75,12 +73,6 @@ def test_naming_templates_are_applied_only_by_the_title_step():
         if "template" in text.lower() and (rel, fn) not in NAMING_TEMPLATE_APPLY:
             offenders.append(f"{rel}:{fn} calls {text}.apply")
     assert not offenders, "Use src.services.titling.compute_title:\n" + "\n".join(offenders)
-
-
-def test_calendar_files_are_built_in_one_place():
-    for rel in ("src/api/api_v1.py", "src/api/events.py"):
-        text = open(os.path.join(ROOT, rel), encoding="utf-8").read()
-        assert "BEGIN:VEVENT" not in text, f"{rel} builds ICS itself; use generate_combined_ics"
 
 
 def test_reprocess_jobs_are_queued_only_by_the_reprocessing_service():

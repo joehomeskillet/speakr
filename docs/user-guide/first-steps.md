@@ -58,12 +58,11 @@ Spanning across the top of both the center and right panels, the metadata bar di
 
 ## Right Rail Tabs (Desktop)
 
-The right-rail carries three core tabs (Summary, Notes, Chat) plus two contextual ones that appear when applicable:
+The right-rail carries three core tabs (Summary, Notes, Chat) plus one contextual one that appears when applicable:
 
 - **Stats** — A per-recording metrics tab with total length, speaker count, conversation turns, word count as headline cards, then a per-speaker table showing each speaker's speaking time, percentage of total audio, turn count, words, and words-per-minute. A trailing silence row shows how much of the recording was actually quiet. The tab only appears when the transcript has speaker diarisation with per-segment timestamps.
-- **Events** — Extracted calendar events from the transcript when present, with export-to-ICS.
 
-The tab bar carries an inline action toolbar on the right (copy / download / edit for Summary and Notes; export-to-calendar for Events) so per-tab actions are reachable without leaving the tab.
+The tab bar carries an inline action toolbar on the right (copy / download / edit for Summary and Notes) so per-tab actions are reachable without leaving the tab.
 
 ## Right Panel - Playback, Summary, Notes, and Chat
 

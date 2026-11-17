@@ -2250,18 +2250,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return parts.join(' ');
             };
 
-            const formatEventDateTime = (dateString, timeOnly = false) => {
-                if (!dateString) return '';
-                const date = new Date(dateString);
-                if (timeOnly) {
-                    return date.toLocaleTimeString(window.i18n?.getIntlLocale?.(), { hour: '2-digit', minute: '2-digit' });
-                }
-                return date.toLocaleString(window.i18n?.getIntlLocale?.(), {
-                    weekday: 'short', month: 'short', day: 'numeric',
-                    hour: '2-digit', minute: '2-digit'
-                });
-            };
-
             // Date helper functions. meeting_date and created_at are both naive
             // UTC instants, so the sidebar groups by the same local day the
             // label shows (#412: meeting_date was parsed as local, so a
@@ -2332,7 +2320,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const utils = {
                 t, tc, setGlobalError, showToast, formatFileSize, formatDisplayDate, formatShortDate,
                 parseServerInstant,
-                formatStatus, getStatusClass, formatTime, formatDuration, formatEventDateTime,
+                formatStatus, getStatusClass, formatTime, formatDuration,
                 getDateForSorting, isToday, isYesterday, isThisWeek, isLastWeek, isThisMonth, isLastMonth, isSameDay,
                 nextTick,
                 onChatComplete: loadTokenBudget,  // Refresh token budget after chat
@@ -4998,8 +4986,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 getStatusClass,
                 formatTime,
                 formatDuration,
-                formatEventDateTime,
-                formatDateTime: formatEventDateTime, // Alias for recovery modal
                 setGlobalError,
                 showToast,
                 loadTokenBudget,

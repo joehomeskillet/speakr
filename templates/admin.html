@@ -4153,9 +4153,9 @@ Summarization Instructions:
                 };
 
                 // ---- Generation temperatures (#411) ----
-                const temperatureKinds = ['summary', 'title', 'chat', 'event'];
+                const temperatureKinds = ['summary', 'title', 'chat'];
                 const temperatureStatus = ref({});
-                const temperatureInputs = ref({ summary: '', title: '', chat: '', event: '' });
+                const temperatureInputs = ref({ summary: '', title: '', chat: '' });
                 const isSavingTemperatures = ref(false);
                 const temperatureSaveMessage = ref('');
                 const temperatureSaveError = ref(false);

@@ -23,7 +23,7 @@ from flask.testing import FlaskClient
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.app import app, db
-from src.models import (APIToken, Event, InternalShare, Recording, RecordingTag, RecordingTombstone,
+from src.models import (APIToken, InternalShare, Recording, RecordingTag, RecordingTombstone,
                         Speaker, SystemSetting, Tag, User)
 from src.services import recording_changes as rc
 from src.utils.token_auth import hash_token
@@ -64,7 +64,6 @@ def world():
         users = [ids["me"], ids["other"]]
         rec_ids = [r.id for r in Recording.query.filter(Recording.user_id.in_(users))]
         RecordingTag.query.filter(RecordingTag.recording_id.in_(rec_ids)).delete(synchronize_session=False)
-        Event.query.filter(Event.recording_id.in_(rec_ids)).delete(synchronize_session=False)
         InternalShare.query.filter(InternalShare.recording_id.in_(rec_ids)).delete(synchronize_session=False)
         Recording.query.filter(Recording.id.in_(rec_ids)).delete(synchronize_session=False)
         RecordingTombstone.query.filter(RecordingTombstone.user_id.in_(users)).delete(synchronize_session=False)
@@ -142,15 +141,13 @@ def test_tag_removal_moves_updated_at(world):
     assert _updated(world["rec"]) > PAST + timedelta(days=1000)
 
 
-@pytest.mark.parametrize("change", ["status", "event", "audio_deleted", "share"])
+@pytest.mark.parametrize("change", ["status", "audio_deleted", "share"])
 def test_processing_and_related_rows_move_updated_at(world, change):
     _backdate(world["rec"])
     with app.app_context():
         r = db.session.get(Recording, world["rec"])
         if change == "status":
             r.status = "SUMMARIZING"
-        elif change == "event":
-            db.session.add(Event(recording_id=r.id, title="Review", start_datetime=datetime(2026, 10, 9, 15)))
         elif change == "audio_deleted":
             r.audio_deleted_at = datetime.utcnow()
         else:

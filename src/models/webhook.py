@@ -26,7 +26,6 @@ WEBHOOK_EVENT_TYPES = (
     'recording.transcription.failed',
     'recording.summary.completed',
     'recording.summary.failed',
-    'recording.events.extracted',
     'recording.updated',
     'recording.deleted',
     'recording.share.created',

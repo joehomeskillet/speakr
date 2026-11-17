@@ -34,13 +34,6 @@
                     <span>${ t('stats.title') }</span>
                     <span class="tab__count">${ recordingStats.total.speakers }</span>
                 </button>
-                <button v-if="selectedRecording.events && selectedRecording.events.length > 0"
-                        @click="selectedTab = 'events'"
-                        class="tab"
-                        :class="{'is-active': selectedTab === 'events'}">
-                    <span>${ t('events.title') }</span>
-                    <span class="tab__count">${ selectedRecording.events.length }</span>
-                </button>
             </div>
 
             <!-- Per-tab action toolbar. Each tab surfaces its own contextual
@@ -119,7 +112,6 @@
             {% include 'components/detail/desktop-summary-tab.html' %}
             {% include 'components/detail/desktop-notes-tab.html' %}
             {% include 'components/detail/desktop-stats-tab.html' %}
-            {% include 'components/detail/desktop-events-tab.html' %}
         </div>
     </div>
 

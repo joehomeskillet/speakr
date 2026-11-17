@@ -184,17 +184,15 @@ _DISABLED = {
 # Recording routes by the action they need. The recording id is in the URL.
 _RECORDING = {
     'view': """
-        api_v1.get_recording api_v1.get_notes api_v1.get_recording_events
+        api_v1.get_recording api_v1.get_notes
         api_v1.get_recording_speakers api_v1.get_recording_status api_v1.get_summary
-        api_v1.get_transcript api_v1.list_external_refs events.get_recording_events
+        api_v1.get_transcript api_v1.list_external_refs
         recordings.get_recording_detail recordings.get_recording_status_only
         recordings.get_status recordings.get_summary_prompt recordings.index""",
     'play': """
         recordings.get_audio recordings.get_audio_peaks""",
     'download': """
         api_v1.download_audio""",
-    'export': """
-        api_v1.download_events_ics events.download_all_events_ics""",
     'edit': """
         api_v1.add_external_ref api_v1.add_tags_to_recording api_v1.assign_speakers
         api_v1.delete_external_ref api_v1.remove_tag_from_recording
@@ -209,9 +207,6 @@ _RECORDING = {
         recordings.toggle_inbox recordings.update_speakers recordings.update_transcript
         recordings.update_transcription""",
 }
-
-# Routes whose URL carries an event id instead of a recording id.
-_EVENT_ROUTES = {'events.delete_event': 'edit', 'events.download_event_ics': 'export'}
 
 # Routes whose URL carries a job id; the job resolves to its recording.
 _JOB_ROUTES = {'recordings.delete_job': 'edit', 'recordings.retry_failed_job': 'edit'}
@@ -262,8 +257,6 @@ def _build() -> dict[str, RouteRule]:
     for action, endpoints in _RECORDING.items():
         for endpoint in _split(endpoints):
             add(endpoint, RouteRule(RECORDING, action=action))
-    for endpoint, action in _EVENT_ROUTES.items():
-        add(endpoint, RouteRule(RECORDING, action=action, arg='event_id'))
     for endpoint, action in _JOB_ROUTES.items():
         add(endpoint, RouteRule(RECORDING, action=action, arg='job_id'))
     for endpoint, (action, keys) in _BODY_ROUTES.items():

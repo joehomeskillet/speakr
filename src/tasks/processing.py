@@ -4,7 +4,6 @@ Background task functions for audio processing, transcription, and summarization
 These functions handle asynchronous processing tasks:
 - Audio transcription (Whisper API and custom ASR endpoints)
 - Title and summary generation
-- Event extraction from transcripts
 - Audio/video format conversion
 """
 
@@ -22,7 +21,7 @@ from openai import OpenAI
 
 from src.services.llm_settings import get_temperature
 from src.database import db
-from src.models import Recording, Tag, Event, TranscriptChunk, SystemSetting, GroupMembership, RecordingTag, InternalShare, SharedRecordingState, User, NamingTemplate
+from src.models import Recording, Tag, TranscriptChunk, SystemSetting, GroupMembership, RecordingTag, InternalShare, SharedRecordingState, User, NamingTemplate
 from src.services.llm import is_using_openai_api, call_llm_completion, format_api_error_message, TEXT_MODEL_NAME, client, http_client_no_proxy, TokenBudgetExceeded
 from src.utils import extract_json_object, safe_json_loads
 from src.utils.ffprobe import get_codec_info, is_video_file, is_lossless_audio, FFProbeError, has_audio_stream, probe_rejected_input
@@ -325,36 +324,20 @@ def _connector_specs_log(specs):
     )
 
 
-def finish_processing(recording_id, events_transcript=None, events_summary=None, extract_events=True):
+def finish_processing(recording_id):
     """The last step of every processing path (#412).
 
-    Extracts events (when the owner has event extraction on), marks the
-    recording COMPLETED, then applies team-tag auto-shares, writes the
-    auto-export and builds the Inquire chunks. Every exit of the pipeline calls
-    this (title only, summary, empty or skipped summary, short transcription),
-    so none of them can skip a step. Events no longer depend on a summary: with
-    auto-summarization off they are extracted from the transcript. The steps
-    after COMPLETED are best-effort: a failure is logged and the recording
-    stays COMPLETED. The Inquire chunks are built by the index workers, so the
-    worker running this step is free for the next job.
-
-    extract_events=False leaves out the event extraction, an LLM call: a
-    canceled job whose transcript is kept finishes without one.
+    Marks the recording COMPLETED, then applies team-tag auto-shares, writes
+    the auto-export and builds the Inquire chunks. Every exit of the pipeline
+    calls this (title only, summary, empty or skipped summary, short
+    transcription), so none of them can skip a step. The steps after COMPLETED
+    are best-effort: a failure is logged and the recording stays COMPLETED. The
+    Inquire chunks are built by the index workers, so the worker running this
+    step is free for the next job.
     """
     recording = db.session.get(Recording, recording_id)
     if not recording:
         return
-    loaded_created_at = recording.created_at
-    from src.utils.error_formatting import is_transcription_error
-    owner = recording.owner
-    if (extract_events and owner and owner.extract_events and client is not None and recording.transcription
-            and len(recording.transcription.strip()) >= 10 and not is_transcription_error(recording.transcription)):
-        transcript = events_transcript or format_transcription_for_llm(recording.transcription)
-        extract_events_from_transcript(recording_id, transcript, events_summary or "")
-        _stop_if_recording_replaced(recording_id, loaded_created_at)
-        recording = db.session.get(Recording, recording_id)
-        if not recording:
-            return
     recording.status = 'COMPLETED'
     recording.completed_at = datetime.utcnow()
     db.session.commit()
@@ -859,12 +842,11 @@ def generate_summary_only_task(app_context, recording_id, custom_prompt_override
             db.session.commit()
             current_app.logger.info(f"Summarization completed for recording {recording_id} in {recording.summarization_duration_seconds}s.")
 
-            # Events, status, auto-shares, export and Inquire chunks (#305, #412).
+            # Status, auto-shares, export and Inquire chunks (#305, #412).
             # The steps after COMPLETED are best-effort inside finish_processing,
             # so a share/export hiccup cannot reach the except below and
             # overwrite a good summary with an error.
-            finish_processing(recording_id, events_transcript=formatted_transcription,
-                              events_summary=summary)
+            finish_processing(recording_id)
             from src.services.webhook_dispatch import emit_summary_result
             emit_summary_result(db.session.get(Recording, recording_id), ok=True)
 
@@ -895,339 +877,6 @@ def generate_summary_only_task(app_context, recording_id, custom_prompt_override
             # transcription job completed.
             from src.services.error_classification import SummaryStepFailed
             raise SummaryStepFailed(str(e), stored_summary=error_msg) from e
-
-
-def extract_events_from_transcript(recording_id, transcript_text, summary_text):
-    """Extract calendar events from transcript using LLM.
-
-    Args:
-        recording_id: ID of the recording
-        transcript_text: The formatted transcript text
-        summary_text: The generated summary text
-    """
-    try:
-        recording = db.session.get(Recording, recording_id)
-        if not recording or not recording.owner or not recording.owner.extract_events:
-            return  # Event extraction not enabled for this user
-
-        current_app.logger.info(f"Extracting events for recording {recording_id}")
-
-        # Delete existing events for this recording before extracting new ones
-        existing_events = Event.query.filter_by(recording_id=recording_id).all()
-        if existing_events:
-            current_app.logger.info(f"Clearing {len(existing_events)} existing events for recording {recording_id}")
-            for event in existing_events:
-                db.session.delete(event)
-            db.session.commit()
-
-        # Get user language preference
-        user_output_language = None
-        if recording.owner:
-            user_output_language = recording.owner.output_language
-
-        # With a summary: the summary plus a transcript excerpt, as before. Without
-        # one (auto-summarization off, #412): the transcript itself, up to the
-        # admin transcript length limit.
-        if summary_text:
-            events_source = (f"Transcript Summary:\n{summary_text}\n\n"
-                             f"Transcript excerpt (for additional context):\n{transcript_text[:8000]}")
-        else:
-            limit = SystemSetting.get_setting('transcript_length_limit', 30000)
-            body = transcript_text if limit == -1 else transcript_text[:limit]
-            events_source = f"Transcript:\n{body}"
-
-        # Build comprehensive context information. All dates are the owner's
-        # local calendar (#412): relative dates such as "tomorrow" are counted
-        # from the local day, and the event times returned are local wall-clock.
-        from src.utils.timezones import now_local, to_local, user_timezone
-        _zone = user_timezone(recording.owner)
-        current_date = now_local(_zone)
-        local_meeting = to_local(recording.meeting_date, _zone)
-        local_created = to_local(recording.created_at, _zone)
-        context_parts = []
-
-        # CRITICAL: Determine the reference date for relative date calculations
-        reference_date = None
-        reference_date_source = ""
-
-        if recording.meeting_date:
-            # Prefer meeting date if available
-            reference_date = local_meeting
-            reference_date_source = "Meeting Date"
-            context_parts.append(f"**MEETING DATE (use this for relative date calculations): {local_meeting.strftime('%A, %B %d, %Y')}**")
-        elif recording.created_at:
-            # Fall back to upload date
-            reference_date = local_created.date()
-            reference_date_source = "Upload Date (no meeting date available)"
-            context_parts.append(f"**REFERENCE DATE (use this for relative date calculations): {local_created.strftime('%A, %B %d, %Y')}**")
-
-        context_parts.append(f"Today's actual date: {current_date.strftime('%A, %B %d, %Y')}")
-        context_parts.append(f"Current time: {current_date.strftime('%I:%M %p')}")
-
-        # Add additional recording context
-        if recording.created_at:
-            context_parts.append(f"Recording uploaded on: {local_created.strftime('%B %d, %Y at %I:%M %p')}")
-        if recording.meeting_date and reference_date_source == "Meeting Date":
-            # Calculate days between meeting and today for context
-            # Ensure both sides are date objects (meeting_date might be datetime or date)
-            meeting_date_obj = local_meeting.date() if isinstance(local_meeting, datetime) else local_meeting
-            days_since = (current_date.date() - meeting_date_obj).days
-            if days_since == 0:
-                context_parts.append("This meeting happened today")
-            elif days_since == 1:
-                context_parts.append("This meeting happened yesterday")
-            else:
-                context_parts.append(f"This meeting happened {days_since} days ago")
-
-        # Add user context for better understanding
-        if recording.owner:
-            user_context = []
-            if recording.owner.name:
-                user_context.append(f"User's name: {recording.owner.name}")
-            if recording.owner.job_title:
-                user_context.append(f"Job title: {recording.owner.job_title}")
-            if recording.owner.company:
-                user_context.append(f"Company: {recording.owner.company}")
-            if user_context:
-                context_parts.append("User information: " + ", ".join(user_context))
-
-        # Add participants if available
-        if recording.participants:
-            context_parts.append(f"Participants in the meeting: {recording.participants}")
-
-        context_section = "\n".join(context_parts)
-
-        # Add language directive if user has a language preference
-        language_directive = ""
-        if user_output_language:
-            language_directive = f"\n\nLANGUAGE REQUIREMENT:\n**CRITICAL**: You MUST generate ALL event titles and descriptions in {user_output_language}. This is mandatory. The entire event content (title, description, location) must be in {user_output_language}."
-
-        # Prepare the prompt for event extraction
-        event_prompt = f"""You are analyzing a meeting transcript to extract calendar events. Use the context below to correctly interpret relative dates and times.
-
-IMPORTANT CONTEXT:
-{context_section}{language_directive}
-
-INSTRUCTIONS:
-1. **CRITICAL**: Use the MEETING DATE shown above as your reference point for ALL relative date calculations
-2. When people say "next Wednesday" or "tomorrow" or "next week", calculate from the MEETING DATE, not today's date
-3. Example: If the meeting date is September 13, 2025 and someone says "next Wednesday", that means September 17, 2025
-4. If no specific time is mentioned for an event, use 09:00:00 (9 AM) as the default start time
-5. Pay attention to time zones if mentioned
-6. Extract ONLY events that are explicitly discussed as future appointments, meetings, or deadlines
-7. Do NOT create events for past occurrences or general discussions
-
-STRICT QUALIFYING CRITERIA - Events MUST have:
-- Explicit action words indicating a scheduled event (meeting, appointment, call, deadline, interview, presentation, review, etc.)
-- A specific or calculable date/time
-- A reasonable duration (typically under 8 hours, unless explicitly specified for a multi-day event, trip, conference)
-- Clear purpose or agenda
-
-DO NOT EXTRACT (explicit exclusions):
-- Long-term plans or durations (study periods, job contracts, project timelines spanning weeks/months/years)
-- General statements about future intentions without specific scheduling ("I'm going to study here for a year", "I'll be working on this project")
-- Implied or inferred locations - only use locations explicitly stated in the conversation
-- Vague commitments without concrete times ("we should meet sometime", "let's catch up soon")
-- Personal life events not discussed as scheduled appointments
-- Events where you need to guess or infer critical details
-
-For each event found, extract:
-- Title: A clear, concise title for the event
-- Description: Brief description including context from the meeting
-- Start date/time: The calculated actual date/time (in ISO format YYYY-MM-DDTHH:MM:SS, use 09:00:00 if no time specified)
-- End date/time: When the event ends (if mentioned, in ISO format, default to 1 hour after start if not specified)
-- Location: Where the event will take place (if mentioned)
-- Attendees: List of people who should attend (if mentioned)
-- Reminder minutes: How how long before to remind (default 1 day)
-
-{events_source}
-
-RESPONSE FORMAT:
-Respond with a JSON object containing an "events" array. If no events are found, return a JSON object with an empty events array.
-
-Example response:
-{{
-  "events": [
-    {{
-      "title": "Project Review Meeting",
-      "description": "Quarterly review to discuss project progress and next steps as discussed in the meeting",
-      "start_datetime": "2025-07-22T14:00:00",
-      "end_datetime": "2025-07-22T15:30:00",
-      "location": "Conference Room A",
-      "attendees": ["John Smith", "Jane Doe", "Bob Johnson"],
-      "reminder_minutes": 15
-    }}
-  ]
-}}
-
-NEGATIVE EXAMPLES - Do NOT extract events like these:
-
-❌ "I'm going to study here for one year" → NOT an event (long-term plan, no specific appointment)
-❌ "I'll be working on this project until March" → NOT an event (duration/timeline, not a meeting)
-❌ "We should get coffee sometime" → NOT an event (vague, no specific time)
-❌ "The semester starts in September" → NOT an event (general information, not a scheduled appointment)
-❌ "I moved here from California" → NOT an event (past occurrence)
-
-✅ "Let's meet next Tuesday at 2pm to review the proposal" → IS an event (specific time, action word, clear purpose)
-✅ "The deadline for submissions is Friday at 5pm" → IS an event (specific deadline)
-✅ "I have a doctor's appointment tomorrow at 10am" → IS an event (specific appointment)
-
-CRITICAL RULES:
-1. **BASE ALL DATE CALCULATIONS ON THE MEETING DATE PROVIDED IN THE CONTEXT ABOVE**
-2. Only extract events that are FUTURE relative to the MEETING DATE (not today's date)
-3. Convert all relative dates using the MEETING DATE as the reference point
-4. Example: If the meeting date is September 13, 2025 (Friday) and someone says:
-   - "next Wednesday" = September 17, 2025
-   - "tomorrow" = September 14, 2025
-   - "next week" = week of September 15-19, 2025
-5. IMPORTANT: If no time is mentioned, always use 09:00:00 (9 AM) as the start time, NOT midnight
-6. Include context from the discussion in the description
-7. Do NOT invent or assume events not explicitly discussed
-8. If unsure about a date/time, do not include that event"""
-
-        # Build system message with language requirement if applicable
-        system_message_content = """You are an expert at extracting calendar events from meeting transcripts. You excel at:
-1. Understanding relative date references ("next Tuesday", "tomorrow", "in two weeks") and converting them to absolute dates
-2. Identifying genuine future appointments, meetings, and deadlines from conversations
-3. Distinguishing between actual planned events vs. general discussions
-4. Extracting participant names and meeting details accurately
-
-You must respond with valid JSON format only."""
-
-        if user_output_language:
-            system_message_content += f"\n\nLanguage Requirement: You MUST generate ALL event titles, descriptions, and locations in {user_output_language}. This is mandatory."
-
-        llm_temperature = get_temperature('event')  # read before the transaction ends
-        _end_transaction_before_external_call(recording)
-        completion = call_llm_completion(
-            messages=[
-                {"role": "system", "content": system_message_content},
-                {"role": "user", "content": event_prompt}
-            ],
-            temperature=llm_temperature,
-            response_format={"type": "json_object"},
-            # EVENT_MAX_TOKENS gives reasoning-model users a knob to raise
-            # the budget when hidden thinking tokens crowd out the JSON output.
-            max_tokens=int(os.environ.get("EVENT_MAX_TOKENS", "3000")),
-            user_id=recording.user_id,
-            operation_type='event_extraction'
-        )
-
-        response_content = completion.choices[0].message.content
-        events_data = safe_json_loads(response_content, {})
-
-        # Handle both {"events": [...]} and direct array format
-        if isinstance(events_data, dict) and 'events' in events_data:
-            events_list = events_data['events']
-        elif isinstance(events_data, list):
-            events_list = events_data
-        else:
-            events_list = []
-
-        current_app.logger.info(f"Found {len(events_list)} events for recording {recording_id}")
-
-        # Save events to database
-        for event_data in events_list:
-            try:
-                # Parse dates
-                start_dt = None
-                end_dt = None
-
-                if 'start_datetime' in event_data:
-                    try:
-                        # Try ISO format first
-                        start_dt = datetime.fromisoformat(event_data['start_datetime'].replace('Z', '+00:00'))
-                    except (ValueError, TypeError, AttributeError) as iso_err:
-                        # Try other common formats via dateutil.
-                        from dateutil import parser
-                        try:
-                            start_dt = parser.parse(event_data['start_datetime'])
-                        except (ValueError, TypeError, parser.ParserError) as parse_err:
-                            current_app.logger.warning(
-                                f"Could not parse start_datetime "
-                                f"{event_data.get('start_datetime')!r}: "
-                                f"iso={iso_err!r}, dateutil={parse_err!r}"
-                            )
-                            continue  # Skip this event if we can't parse the date
-
-                if 'end_datetime' in event_data and event_data['end_datetime']:
-                    try:
-                        end_dt = datetime.fromisoformat(event_data['end_datetime'].replace('Z', '+00:00'))
-                    except (ValueError, TypeError, AttributeError):
-                        from dateutil import parser
-                        try:
-                            end_dt = parser.parse(event_data['end_datetime'])
-                        except (ValueError, TypeError, parser.ParserError) as parse_err:
-                            # End time is optional; log instead of swallowing
-                            # so a systematically-bad LLM output surfaces.
-                            current_app.logger.warning(
-                                f"Could not parse end_datetime "
-                                f"{event_data.get('end_datetime')!r}: {parse_err!r}"
-                            )
-
-                # Event times are floating wall-clock times: keep what the
-                # model wrote and drop any zone, so SQLite and PostgreSQL
-                # store the same value (mailr spec G5, open question 1).
-                if start_dt is not None and start_dt.tzinfo is not None:
-                    start_dt = start_dt.replace(tzinfo=None)
-                if end_dt is not None and end_dt.tzinfo is not None:
-                    end_dt = end_dt.replace(tzinfo=None)
-
-                # Create event record
-                event = Event(
-                    recording_id=recording_id,
-                    title=event_data.get('title', 'Untitled Event')[:200],
-                    description=event_data.get('description', ''),
-                    start_datetime=start_dt,
-                    end_datetime=end_dt,
-                    location=event_data.get('location', '')[:500] if event_data.get('location') else None,
-                    attendees=json.dumps(event_data.get('attendees', [])) if event_data.get('attendees') else None,
-                    reminder_minutes=event_data.get('reminder_minutes', 15)
-                )
-
-                db.session.add(event)
-                current_app.logger.info(f"Added an event for recording {recording_id}")
-                current_app.logger.debug(f"Event added for recording {recording_id}: '{event.title}'")
-
-            except Exception as e:
-                current_app.logger.error(f"Error saving event for recording {recording_id}: {str(e)}")
-                continue
-
-        db.session.commit()
-
-        # Refresh the recording to ensure events relationship is loaded
-        recording = db.session.get(Recording, recording_id)
-        if recording:
-            db.session.refresh(recording)
-
-        # Webhook fan-out (#275). Fires only if at least one event was
-        # successfully written; receivers care about "there are events
-        # to consume," not "we ran the extractor and found nothing."
-        try:
-            events_count = Event.query.filter_by(recording_id=recording_id).count()
-        except Exception:
-            events_count = 0
-        if events_count > 0 and recording is not None:
-            try:
-                from src.services.webhook_dispatch import emit_webhook_event
-                emit_webhook_event(
-                    user_id=recording.user_id,
-                    event_type='recording.events.extracted',
-                    data={
-                        'recording_id': recording.id,
-                        'title': recording.title,
-                        'events_count': events_count,
-                    },
-                )
-            except Exception as webhook_err:
-                current_app.logger.warning(
-                    f"Webhook emit (recording.events.extracted) failed for recording {recording_id}: {webhook_err}"
-                )
-
-    except Exception as e:
-        log_failure(current_app.logger, logging.ERROR,
-                    f"Error extracting events for recording {recording_id}", e)
-        db.session.rollback()
 
 
 def make_retained_video_seekable(recording, filepath):

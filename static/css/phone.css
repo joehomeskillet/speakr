@@ -309,7 +309,7 @@ button.ph-chip::after { content: ""; position: absolute; inset: -10px -2px; }
 .ph-pane .prose-flush { font-family: var(--ph-font-read); }
 /* Copy, Download and Edit above a text */
 .ph-acts { display: flex; flex-wrap: wrap; align-items: center; margin: 0 -10px 2px; }
-/* Events and Speaker stats, at the end of the summary's row */
+/* Speaker stats, at the end of the summary's row */
 .ph-acts__end { display: inline-flex; align-items: center; margin-inline-start: auto; }
 .ph-acts__end .ph-ib { color: var(--ph-link); }
 .ph-pane .markdown-editor-container { min-height: 0; }

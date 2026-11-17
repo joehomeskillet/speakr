@@ -79,7 +79,7 @@ Speakr takes a recording from raw audio to organized, searchable, shareable know
     <h4>Understand</h4>
     <ul>
       <li><a href="features#automatic-summarization">Customizable AI summaries</a></li>
-      <li>Event extraction and per-recording chat</li>
+      <li>Per-recording chat</li>
       <li><a href="user-guide/inquire-mode">Inquire Mode: semantic search across everything</a></li>
     </ul>
   </div>
