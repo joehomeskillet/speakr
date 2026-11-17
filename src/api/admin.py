@@ -971,7 +971,7 @@ def admin_get_stats():
         })
     
     # AI requests this month: every model call except embeddings (chat,
-    # summaries, titles, events, speakers, Inquire). It replaces a "total
+    # summaries, titles, speakers, Inquire). It replaces a "total
     # queries" figure that was a hard-coded 0.
     from datetime import date as _date
     from src.models import TokenUsage

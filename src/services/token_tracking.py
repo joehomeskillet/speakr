@@ -23,7 +23,6 @@ class TokenTracker:
         'summarization',
         'chat',
         'title_generation',
-        'event_extraction',
         'query_routing',
         'query_enrichment',
         'embedding',

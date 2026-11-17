@@ -3,15 +3,14 @@
 API v1 transcribe and summarize, the v1 batch and the web bulk action now use
 the same service as the web reprocess buttons: the same checks (audio present,
 not already processing, a usable transcript, an LLM client), the same clearing
-of old transcript, summary and events, and the same job parameters.
+of old transcript and summary, and the same job parameters.
 
-SHARED-DB: users, recordings, events and tokens are removed afterwards.
+SHARED-DB: users, recordings and tokens are removed afterwards.
 """
 
 import os
 import secrets
 import sys
-from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -19,7 +18,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.app import app, db
-from src.models import APIToken, Event, Recording, User
+from src.models import APIToken, Recording, User
 from src.services.job_queue import job_queue
 from src.utils.token_auth import hash_token
 
@@ -39,12 +38,9 @@ def world():
         t = APIToken(user_id=u.id, token_hash=hash_token(plain), name="reproc")
         db.session.add_all([r, t])
         db.session.commit()
-        db.session.add(Event(recording_id=r.id, title="Old event", start_datetime=datetime(2026, 3, 9, 9)))
-        db.session.commit()
         ids = dict(user=u.id, rec=r.id, token=t.id)
     yield ids, plain
     with app.app_context():
-        Event.query.filter_by(recording_id=ids["rec"]).delete()
         for model, key in ((APIToken, "token"), (Recording, "rec"), (User, "user")):
             obj = db.session.get(model, ids[key])
             if obj is not None:
@@ -73,7 +69,6 @@ def test_v1_transcribe_clears_old_results_like_the_web_route(world):
     with app.app_context():
         r = db.session.get(Recording, ids["rec"])
         assert (r.transcription, r.summary, r.status) == (None, None, "QUEUED")
-        assert Event.query.filter_by(recording_id=ids["rec"]).count() == 0
 
 
 def test_v1_transcribe_refuses_a_recording_already_processing(world):
@@ -105,7 +100,6 @@ def test_v1_summarize_supports_append_mode_and_clears_old_results(world):
     assert params["custom_prompt"] == "Focus on dates" and params["custom_prompt_append"] is True
     with app.app_context():
         assert db.session.get(Recording, ids["rec"]).summary is None
-        assert Event.query.filter_by(recording_id=ids["rec"]).count() == 0
 
 
 def test_v1_summarize_refuses_a_failed_transcription(world):
@@ -156,7 +150,6 @@ def test_transcription_reprocess_keeps_results_when_settings_lookup_fails(world)
     with app.app_context():
         r = db.session.get(Recording, ids["rec"])
         assert (r.transcription, r.summary, r.status) == (TRANSCRIPT, "Old summary", "COMPLETED")
-        assert Event.query.filter_by(recording_id=ids["rec"]).count() == 1
 
 
 def test_transcription_reprocess_is_not_left_queued_when_enqueue_fails(world):

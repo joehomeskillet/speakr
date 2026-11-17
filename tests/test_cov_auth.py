@@ -621,14 +621,12 @@ def test_account_prompts_branch_persists_summary_prompt(cleanup_users):
     with _client_logged_in_as(user) as client:
         resp = client.post('/account', data={
             'summary_prompt': 'Summarize tightly.',
-            'extract_events': 'on',
             'transcription_hotwords': 'Speakr',
         })
         assert resp.status_code == 302
         assert '#prompts' in resp.headers['Location']
     refreshed = db.session.get(User, uid)
     assert refreshed.summary_prompt == 'Summarize tightly.'
-    assert refreshed.extract_events is True
     assert refreshed.transcription_hotwords == 'Speakr'
 
 

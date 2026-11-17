@@ -46,7 +46,6 @@ def test_users_me_returns_authenticated_user():
             is_admin=True,
             email_verified=True,
             ui_language="fr",
-            extract_events=True,
         )
         client = app.test_client()
         _login(client, user)
@@ -60,7 +59,6 @@ def test_users_me_returns_authenticated_user():
         assert body["is_admin"] is True
         assert body["email_verified"] is True
         assert body["preferences"]["ui_language"] == "fr"
-        assert body["preferences"]["extract_events"] is True
         assert body["group_memberships"] == []
         db.session.delete(user)
         db.session.commit()

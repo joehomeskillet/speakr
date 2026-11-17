@@ -28,7 +28,7 @@ def rec():
     with app.app_context():
         s = uuid.uuid4().hex[:8]
         u = User(username=f"loc_{s}", email=f"loc_{s}@local.test", password="x",
-                 timezone="Asia/Tokyo", timezone_mode="fixed", extract_events=True,
+                 timezone="Asia/Tokyo", timezone_mode="fixed",
                  export_filename_template="{{date}} {{title}}")
         db.session.add(u)
         db.session.commit()
@@ -52,7 +52,7 @@ def _capture():
 
     def fake(messages, **kwargs):
         seen.append("\n".join(m["content"] for m in messages))
-        msg = MagicMock(content='{"events": []}', reasoning=None)
+        msg = MagicMock(content='A summary.', reasoning=None)
         return MagicMock(choices=[MagicMock(message=msg)])
     return seen, fake
 
@@ -69,19 +69,7 @@ def test_summary_prompt_recording_date_is_local(rec):
     seen, fake = _capture()
     with app.app_context(), patch.object(proc, "client", MagicMock()), \
          patch.object(proc, "call_llm_completion", side_effect=fake), \
-         patch.object(proc, "extract_events_from_transcript"), \
          patch.object(proc, "apply_team_tag_auto_shares"), patch.object(proc, "export_recording"), \
          patch.object(proc, "queue_inquire_chunks"):
         proc.generate_summary_only_task(app.app_context(), rid)
     assert any("Recording date: March 05, 2026" in p for p in seen)
-
-
-def test_event_prompt_reference_dates_are_local(rec):
-    uid, rid = rec
-    seen, fake = _capture()
-    with app.app_context(), patch.object(proc, "call_llm_completion", side_effect=fake), \
-         patch.object(proc, "client", MagicMock()):
-        proc.extract_events_from_transcript(rid, "We meet again tomorrow at ten.", "")
-    prompt = seen[0]
-    assert "MEETING DATE (use this for relative date calculations): Thursday, March 05, 2026" in prompt
-    assert "Recording uploaded on: March 05, 2026 at 08:40 AM" in prompt

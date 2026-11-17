@@ -85,9 +85,9 @@ def expected_to_work(service, admin_default):
 
 
 def _fake_llm(messages, response_format=None, **kwargs):
-    """The example's language model is out of scope here: titles, summaries
-    and events get a fixed answer so only the ASR path decides the outcome."""
-    content = '{"events": []}' if response_format else "Test meeting"
+    """The example's language model is out of scope here: titles and summaries
+    get a fixed answer so only the ASR path decides the outcome."""
+    content = "Test meeting"
     return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content),
                                                     finish_reason="stop")], usage=None)
 
