@@ -121,7 +121,9 @@ def test_setting_without_ceiling_is_untouched(clinic):
     'http://172.31.255.255', 'http://192.168.1.20:8080/v1', 'http://ollama:11434/v1',
     'http://llm_server/v1', 'ollama:11434', 'http://[fd12:3456::1]/v1',
 ])
-def test_local_model_urls(url):
+def test_local_model_urls(monkeypatch, url):
+    # service names are local only when on the list (finding 11); name these two
+    monkeypatch.setenv('CLINIC_LOCAL_MODEL_HOSTS', 'localhost,ollama,llm_server')
     assert config.is_local_model_url(url) is True
 
 
@@ -138,6 +140,7 @@ def test_non_local_model_urls(url):
 
 @pytest.mark.parametrize('feature', ['chat', 'inquire', 'generative_summary'])
 def test_text_model_features_follow_the_model_host(clinic, monkeypatch, feature):
+    monkeypatch.setenv('CLINIC_LOCAL_MODEL_HOSTS', 'ollama')
     monkeypatch.setenv('TEXT_MODEL_BASE_URL', 'https://api.openai.com/v1')
     assert config.feature_locked(feature) is True
     monkeypatch.setenv('TEXT_MODEL_BASE_URL', '')
@@ -147,6 +150,7 @@ def test_text_model_features_follow_the_model_host(clinic, monkeypatch, feature)
 
 
 def test_local_model_does_not_unlock_other_features(clinic, monkeypatch):
+    monkeypatch.setenv('CLINIC_LOCAL_MODEL_HOSTS', 'ollama')
     monkeypatch.setenv('TEXT_MODEL_BASE_URL', 'http://ollama:11434/v1')
     for feature in ('public_sharing', 'user_webhooks', 'personal_api_tokens', 'incognito_processing'):
         assert config.feature_locked(feature) is True

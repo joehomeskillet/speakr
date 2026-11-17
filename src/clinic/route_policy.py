@@ -18,7 +18,7 @@ enabled in the defaults, so enabling a feature never opens an ACL bypass.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 PUBLIC = 'public'
 AUTH = 'auth'
@@ -41,7 +41,15 @@ class RouteRule:
     action: str | None = None
     feature: str | None = None
     arg: str = 'recording_id'          # URL argument that identifies the recording
-    body_keys: tuple[str, ...] = ()    # request body keys that carry recording ids
+    # Keys that carry recording ids besides the generic ones (any key whose name
+    # has "recording" and "id", see src/clinic/request_ids.py), in any channel.
+    body_keys: tuple[str, ...] = ()
+    # Flags that turn the call into a hard delete of the recordings it names.
+    delete_flags: tuple[str, ...] = ()
+    # The call works on every recording of the caller without naming them.
+    batch_all: bool = False
+    # (query argument, value) pairs the route refuses in clinic mode.
+    forbid_args: tuple[tuple[str, str], ...] = ()
 
 
 def _split(text: str) -> tuple[str, ...]:
@@ -83,9 +91,9 @@ _AUTH = _split("""
     recording_sessions.finalize_session recording_sessions.finalize_sliced_upload
     recording_sessions.get_session recording_sessions.upload_chunk
     recordings.cancel_upload_route recordings.clear_completed_jobs recordings.clear_failed_jobs
-    recordings.delete_job recordings.discard_upload_join recordings.get_archived_recordings
+    recordings.discard_upload_join recordings.get_archived_recordings
     recordings.get_inbox_recordings recordings.get_job_queue_status recordings.get_recordings
-    recordings.get_recordings_paginated recordings.retry_failed_job recordings.share_target
+    recordings.get_recordings_paginated recordings.share_target
     recordings.upload_file
     system.check_deletion_permission system.get_config system.get_system_info
     system.get_user_token_budget system.mark_whats_new_seen system.save_user_preferences
@@ -210,6 +218,9 @@ _RECORDING = {
 # Routes whose URL carries an event id instead of a recording id.
 _EVENT_ROUTES = {'events.delete_event': 'edit', 'events.download_event_ics': 'export'}
 
+# Routes whose URL carries a job id; the job resolves to its recording.
+_JOB_ROUTES = {'recordings.delete_job': 'edit', 'recordings.retry_failed_job': 'edit'}
+
 # Routes that name recordings in the request body: endpoint -> (action, keys).
 _BODY_ROUTES = {
     'recordings.save_metadata': ('edit', ('id',)),
@@ -221,6 +232,17 @@ _BODY_ROUTES = {
     'folders.bulk_assign_folder': ('edit', ('recording_ids',)),
     'api_v1.batch_update_recordings': ('edit', ('recording_ids',)),
     'api_v1.batch_transcribe_recordings': ('edit', ('recording_ids',)),
+}
+
+
+# Per-endpoint additions on top of the kind: endpoint -> RouteRule fields.
+_EXTRAS: dict[str, dict] = {
+    # merge can hard-delete its sources (delete_originals) or their audio.
+    'recordings.merge_recordings_endpoint': {'delete_flags': ('delete_originals', 'remove_original_audio')},
+    # exports every recording of the caller: each one needs the export grant.
+    'recordings.export_existing_recordings': {'batch_all': True},
+    # scope=all gives an admin the global counts.
+    'api_v1.get_stats': {'forbid_args': (('scope', 'all'),)},
 }
 
 
@@ -247,8 +269,12 @@ def _build() -> dict[str, RouteRule]:
             add(endpoint, RouteRule(RECORDING, action=action))
     for endpoint, action in _EVENT_ROUTES.items():
         add(endpoint, RouteRule(RECORDING, action=action, arg='event_id'))
+    for endpoint, action in _JOB_ROUTES.items():
+        add(endpoint, RouteRule(RECORDING, action=action, arg='job_id'))
     for endpoint, (action, keys) in _BODY_ROUTES.items():
         add(endpoint, RouteRule(RECORDING, action=action, body_keys=keys))
+    for endpoint, extra in _EXTRAS.items():
+        table[endpoint] = replace(table[endpoint], **extra)
     return table
 
 

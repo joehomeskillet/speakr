@@ -12,7 +12,7 @@ import pytest
 from src.app import app, db
 from src.clinic import policy
 from src.models import (
-    APIToken, Event, InternalShare, Recording, Share, SystemSetting, User,
+    APIToken, Event, InternalShare, ProcessingJob, Recording, Share, SystemSetting, User,
 )
 from src.utils.token_auth import hash_token
 
@@ -71,8 +71,14 @@ def world():
         event_a = Event(recording_id=rec_a.id, title='A event', start_datetime=datetime(2030, 1, 2, 9, 0))
         plain = f'tok-{secrets.token_urlsafe(16)}'
         token = APIToken(user_id=users['a'].id, token_hash=hash_token(plain), name='clinic-test')
-        db.session.add_all([share, internal, event, event_a, token])
+        job_a = ProcessingJob(user_id=users['a'].id, recording_id=rec_a.id, job_type='transcribe', status='queued')
+        job_b = ProcessingJob(user_id=users['b'].id, recording_id=rec_b.id, job_type='transcribe', status='queued')
+        # a failed new upload: DELETE on it removes its recording as well
+        job_a_new = ProcessingJob(user_id=users['a'].id, recording_id=rec_a.id, job_type='summarize',
+                                  status='failed', is_new_upload=True)
+        db.session.add_all([share, internal, event, event_a, token, job_a, job_b, job_a_new])
         db.session.commit()
+        w.update(job_a=job_a.id, job_b=job_b.id, job_a_new=job_a_new.id)
         w.update(rec_a=rec_a.id, rec_b=rec_b.id, public_id=share.public_id, event_a=event_a.id,
                  event_b=event.id, token=plain, token_id=token.id, internal_id=internal.id,
                  share_id=share.id)
@@ -80,6 +86,8 @@ def world():
     with app.app_context():
         db.session.rollback()
         Event.query.filter(Event.recording_id.in_([w['rec_a'], w['rec_b']])).delete(
+            synchronize_session=False)
+        ProcessingJob.query.filter(ProcessingJob.recording_id.in_([w['rec_a'], w['rec_b']])).delete(
             synchronize_session=False)
         InternalShare.query.filter_by(recording_id=w['rec_b']).delete()
         Share.query.filter_by(recording_id=w['rec_b']).delete()

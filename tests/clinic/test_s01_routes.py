@@ -36,6 +36,8 @@ def _url(endpoint, world, rec_key='rec_b'):
             values[name] = world[rec_key]
         elif name == 'event_id':
             values[name] = world['event_' + rec_key[-1]]
+        elif name == 'job_id':
+            values[name] = world['job_' + rec_key[-1]]
         elif name == 'public_id':
             values[name] = world['public_id']
         elif name in _STRING_ARGS:

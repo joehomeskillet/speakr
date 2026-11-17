@@ -1295,6 +1295,9 @@ run_startup_tasks(app)
 # Session idle timeout, and warnings about cookies and plain-http services.
 from src.services import session_policy as _session_policy
 _session_policy.init_app(app)
+# init_app puts its idle hook at index 0: put the clinic guard back in front.
+from src.clinic.guard import ensure_guard_first as _ensure_guard_first
+_ensure_guard_first(app)
 from src.config.outbound_warnings import log_plain_http_warnings as _log_plain_http_warnings
 _log_plain_http_warnings(app)
 

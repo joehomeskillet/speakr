@@ -108,36 +108,68 @@ LOCAL_MODEL_FEATURES = frozenset({'chat', 'inquire', 'generative_summary'})
 _LOCAL_NETWORKS = tuple(ipaddress.ip_network(n) for n in (
     '127.0.0.0/8', '::1/128', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', 'fc00::/7',
 ))
-_SERVICE_NAME = re.compile(r'^[a-z][a-z0-9_-]*$')
+DEFAULT_LOCAL_MODEL_HOSTS = ('speaches', 'host.docker.internal', 'localhost')
+# The text model is required; the others fall back to it (chat, translation) or
+# are optional (embedding service) and only count when they are set.
+REQUIRED_MODEL_URL = 'TEXT_MODEL_BASE_URL'
+OPTIONAL_MODEL_URLS = ('CHAT_MODEL_BASE_URL', 'TRANSLATION_MODEL_BASE_URL', 'EMBEDDING_BASE_URL')
+_FORBIDDEN_URL_CHARS = re.compile(r'[\\\s\x00-\x1f\x7f@]')
+
+
+def local_model_hosts() -> frozenset[str]:
+    """Service names that count as local: CLINIC_LOCAL_MODEL_HOSTS (comma
+    separated) or the default list. Loopback and private addresses always do."""
+    raw = os.environ.get('CLINIC_LOCAL_MODEL_HOSTS')
+    names = DEFAULT_LOCAL_MODEL_HOSTS if raw is None else raw.split(',')
+    return frozenset(n.strip().lower() for n in names if n.strip())
 
 
 def is_local_model_url(url: str | None) -> bool:
-    """True when the URL names a loopback, RFC1918 or single-label host.
+    """True when the URL names a loopback or private address, or a service name
+    on the local-host list (local_model_hosts).
 
-    A single-label host is a compose service name and must start with a letter,
-    so numeric spellings of an address (2130706433, 0x7f000001) do not pass.
-    Empty, unparsable and public hosts are not local.
+    A bare single-label name such as ai is NOT local: it may resolve to a
+    public host through a search domain. A URL with a backslash, whitespace, a
+    control character or userinfo is refused, because clients and parsers
+    disagree on where its host ends. Empty, unparsable and public hosts are not
+    local.
     """
     if not url or not url.strip():
         return False
     candidate = url.strip()
+    if _FORBIDDEN_URL_CHARS.search(candidate):
+        return False
     if '://' not in candidate:
         candidate = f'//{candidate}'
     try:
-        host = urlsplit(candidate).hostname
+        parts = urlsplit(candidate)
+        host = parts.hostname
+        _ = parts.port  # raises ValueError for a port that is not a number
     except ValueError:
         return False
-    if not host:
+    if parts.scheme not in ('', 'http', 'https') or not host:
         return False
     try:
         address = ipaddress.ip_address(host)
     except ValueError:
-        return bool(_SERVICE_NAME.match(host))  # no dot: a dotted name is public
+        return host.lower() in local_model_hosts()
     return any(address in network for network in _LOCAL_NETWORKS)
 
 
+def _model_url(name: str) -> str:
+    """The variable as the LLM client reads it (src/services/llm.py): text after # is dropped."""
+    return os.environ.get(name, '').split('#')[0].strip()
+
+
 def text_model_is_local() -> bool:
-    return is_local_model_url(os.environ.get('TEXT_MODEL_BASE_URL'))
+    """True when every text, chat, translation and embedding endpoint is local.
+
+    A transcript goes to any of them (summary, chat, translation, inquire
+    chunks), so one public URL makes the whole set non-local.
+    """
+    if not is_local_model_url(_model_url(REQUIRED_MODEL_URL)):
+        return False
+    return all(is_local_model_url(_model_url(n)) for n in OPTIONAL_MODEL_URLS if _model_url(n))
 
 
 def feature_locked(name: str) -> bool:
