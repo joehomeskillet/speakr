@@ -50,7 +50,7 @@ def world():
         db.session.add(RecordingTag(recording_id=rec.id, tag_id=a.id, order=1))
         tokens = {}
         for key, user, scopes in (("full", owner, None), ("write", owner, ["read", "write"]),
-                                  ("share", owner, ["read", "write", "share"]), ("viewer", viewer, None)):
+                                  ("viewer", viewer, None)):
             p = f"tok-{secrets.token_urlsafe(16)}"
             db.session.add(APIToken(user_id=user.id, token_hash=hash_token(p), name=key,
                                     scopes=None if scopes is None else json.dumps(scopes)))

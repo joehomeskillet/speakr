@@ -35,7 +35,7 @@ def scoped(world):
         row = SystemSetting.query.filter_by(key=KEY).first()
         saved = (row.value, row.setting_type) if row is not None else None
         SystemSetting.set_setting(KEY, None, None, "string")
-    world["settings"].setenv("SSO_API_SCOPES", "read,write,upload,share,webhooks")
+    world["settings"].setenv("SSO_API_SCOPES", "read,write,upload,webhooks")
     world["settings"].setenv("SSO_API_EXCHANGE_CLIENTS", f"{MAILR}, {CLIENT}")
     world["settings"].setenv("SSO_API_CLIENT_SCOPES", f"{CLIENT}=read")
     yield world
@@ -70,7 +70,7 @@ def test_unlisted_client_keeps_the_global_scopes(scoped):
     _, sub, _ = _alice(scoped)
     mailr = _mailr(scoped, sub)
     current = scoped["client"].get("/api/v1/tokens/current", headers=_bearer(mailr)).get_json()
-    assert current["scopes"] == ["read", "share", "upload", "webhooks", "write"]
+    assert current["scopes"] == ["read", "upload", "webhooks", "write"]
     assert _rec_patch(scoped, mailr).status_code == 200
 
 
@@ -121,7 +121,7 @@ def test_client_scopes_parse(monkeypatch):
         try:
             assert sat.client_scopes() == {
                 "a": frozenset({"read", "write"}),
-                "b": frozenset({"read", "upload", "share"}),
+                "b": frozenset({"read", "upload"}),
                 "c": frozenset(),
                 "e": frozenset(),
             }

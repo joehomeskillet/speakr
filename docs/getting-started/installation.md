@@ -525,7 +525,7 @@ of proxies in front of Speakr.
 
 When Speakr is reachable directly, without a proxy, set `TRUSTED_PROXY_HOPS=0`
 so that these headers cannot be forged, and set `APP_BASE_URL` so that the links
-in password-reset and verification emails and public share links always use your
+in password-reset and verification emails always use your
 address.
 
 `TRUSTED_PROXIES` names the proxies themselves: a comma-separated list of

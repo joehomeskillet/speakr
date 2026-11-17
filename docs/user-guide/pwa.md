@@ -66,8 +66,8 @@ On a screen narrower than 768 px, the recording list and a recording are two sep
 **The recording list**
 
 - The top bar holds the menu button, the search field and the button for selection mode. Tags, speakers, a date range and the other filters are opened with the button inside the search field.
-- Under the top bar, filter chips are shown for the sort order, the folder, **Inbox**, **Starred**, **Archived** and **From others**. The chips are one row; the row is swiped sideways where the chips do not fit.
-- Notifications, shared recordings, settings, the color scheme, dark mode and **Sign out** are found in the menu. The same menu leads to Ask Ambrose and, for administrators, to the admin pages.
+- Under the top bar, filter chips are shown for the sort order, the folder, **Inbox**, **Starred** and **Archived**. The chips are one row; the row is swiped sideways where the chips do not fit.
+- Notifications, settings, the color scheme, dark mode and **Sign out** are found in the menu. The same menu leads to Ask Ambrose and, for administrators, to the admin pages.
 - A recording is opened with a tap on its row.
 - **New recording** is a button over the lower right corner of the list. The upload and record choices are opened with it.
 - In selection mode, the actions for the selected recordings are shown in a bar at the bottom edge. Selection mode is left with **Done**.
@@ -78,8 +78,8 @@ On a screen narrower than 768 px, the recording list and a recording are two sep
 
 - One top bar is shown: the back arrow to the list, the title on up to two lines, the star and **More**.
 - The details block under the top bar is scrolled away with the text. Its first line gives the meeting date, the upload date when the recording was uploaded on another day, the length and the file size. Participants, the folder, tags and **Info** follow. The block is folded with a tap on its first line.
-- **Info** opens a sheet with the full details: both dates with their times, the file name, the owner of a shared recording, processing times and the transcription hints. The meeting date and the participants are changed from this sheet.
-- **More** opens the **Actions** sheet, in which every action for the recording is listed with a label: inbox, star and archive, folder, tags, rename, regenerate title, identify speakers, edit transcript, bubble view, download transcript, translate, reprocess, regenerate summary, speaker stats, share, download audio and the two delete actions. An action that the user's rights or the state of the recording do not allow is left out.
+- **Info** opens a sheet with the full details: both dates with their times, the file name, processing times and the transcription hints. The meeting date and the participants are changed from this sheet.
+- **More** opens the **Actions** sheet, in which every action for the recording is listed with a label: inbox, star and archive, folder, tags, rename, regenerate title, identify speakers, edit transcript, bubble view, download transcript, translate, reprocess, regenerate summary, speaker stats, download audio and the two delete actions. An action that the user's rights or the state of the recording do not allow is left out.
 - Four tabs are always shown at the bottom: **Summary**, **Transcript**, **Notes** and the assistant. Speaker stats are opened as a sheet, from **Actions** or from the button at the right end of the row above the summary.
 - **Copy**, **Download** and **Edit** are found above the summary and above the notes. The button for speaker stats is in the same row of the **Summary** tab, in the same place with and without a summary.
 - An empty tab shows an icon, a title and one hint, at the same height in all four tabs.
@@ -223,7 +223,7 @@ A service worker is registered on the signed-in pages, with the whole app as its
 
 - **Application files** under `/static/` are kept in the browser's Cache Storage and are taken from there first.
 - **Pages** are always requested from the server. When that fails, the "You are offline" page is shown. No page is stored.
-- **Everything else** is passed to the server untouched: recordings, transcripts, audio, shared pages, the admin pages, sign-in, uploads. None of it is stored.
+- **Everything else** is passed to the server untouched: recordings, transcripts, audio, the admin pages, sign-in, uploads. None of it is stored.
 - **At sign-out**, Cache Storage is emptied, together with the other data of the account in the browser. See [Browser storage](../admin-guide/privacy.md#browser-storage).
 
 Push messages, system notifications and background sync are not implemented.

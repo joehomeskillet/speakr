@@ -36,7 +36,7 @@ All settings are read from the environment. Only `FILE_STORAGE_BACKEND` is requi
 | `S3_USE_PATH_STYLE` | `false` | Use path-style addressing. Required for MinIO; leave `false` for providers that use virtual-hosted-style. |
 | `S3_VERIFY_SSL` | `true` | Verify TLS certificates. Set `false` only for a local MinIO without TLS. |
 | `S3_PRESIGN_TTL_SECONDS` | `900` | Lifetime of presigned URLs for owner playback and download (15 minutes). |
-| `S3_PRESIGN_PUBLIC_TTL_SECONDS` | `300` | Lifetime of presigned URLs for public share links (5 minutes). |
+| `S3_PRESIGN_PUBLIC_TTL_SECONDS` | `300` | Shorter presign lifetime read by the storage factory (5 minutes). The audio routes in this build pass `is_public=False` and use `S3_PRESIGN_TTL_SECONDS`. |
 
 S3 support requires the `boto3` package, which is included in the default Docker image. If you build from source, install `boto3>=1.34.0`.
 

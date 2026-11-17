@@ -262,7 +262,6 @@
       "scopeWrite": "Edit recordings, notes, summaries, tags, folders and speakers",
       "scopeUpload": "Upload recordings",
       "scopeProcess": "Transcribe, summarize, chat and other model calls",
-      "scopeShare": "Create and revoke share links",
       "scopeDelete": "Delete recordings, audio, tags, folders and speakers",
       "scopeWebhooks": "Manage webhooks",
       "scopeAccount": "Change account settings",

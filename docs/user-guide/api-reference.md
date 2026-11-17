@@ -46,7 +46,6 @@ A token has full access or a set of scopes. Each endpoint below lists the scope 
 | `write` | Editing recordings, notes and summaries; adding and removing tags; creating and editing tags, folders and speakers; assigning speakers |
 | `upload` | `POST /recordings/upload` and the ASR Voice Recorder upload |
 | `process` | Requests that use model or GPU time: transcribe, summarize, regenerate title, identify speakers, chat |
-| `share` | Creating, listing and revoking shares |
 | `delete` | Deleting recordings, audio, tags, folders and speakers |
 | `webhooks` | Everything under `/api/v1/webhooks` |
 | `account` | Account settings under `/api/v1/settings` |
@@ -356,7 +355,6 @@ Returns the authenticated user's profile, preferences, and group memberships. Us
   "is_admin": false,
   "email_verified": true,
   "sso_provider": null,
-  "can_share_publicly": true,
   "can_create_groups": false,
   "preferences": {
     "ui_language": "en",
@@ -583,7 +581,7 @@ GET /api/v1/recordings
 | `date_field` | string | `created_at` | What `date_from` and `date_to` filter: `created_at` or `meeting_date` |
 | `updated_since` | string | - | Only recordings changed after this time (ISO 8601). Deletions are not listed; use the [changes feed](#changes-feed) for those. |
 | `external_system`, `external_ref`, `external_kind` | string | - | Only recordings that carry this [external reference](#external-references) of yours (`external_kind` optional) |
-| `scope` | string | `own` | `own`, `shared` (recordings other users shared with you) or `all` |
+| `scope` | string | `own` | Ignored. The list is the caller's own recordings. |
 | `owner_id` | integer | - | Only recordings of this owner |
 | `tag_id` | integer | - | Filter by tag ID |
 | `q` | string | - | Search query (title, participants) |
@@ -640,24 +638,11 @@ GET /api/v1/recordings
 }
 ```
 
-**Shared recordings.** With `scope=shared` or `scope=all` the list includes completed recordings other users shared with you (shared directly, through a group tag or through a group folder), as the web app's shared list does. Every item says whose it is:
-
-```json
-{
-  "is_shared": true,
-  "owner": {"id": 3, "username": "evan", "name": "Evan Ross"},
-  "share": {"id": 51, "can_edit": false, "can_reshare": false, "source": "group_tag",
-            "shared_at": "2026-09-20T10:00:00.000000Z"}
-}
-```
-
-Your own recordings have `"is_shared": false, "owner": null, "share": null`. `owner.username` and `owner.name` are `null` unless the administrator sets `SHOW_USERNAMES_IN_UI=true`. For a shared recording, `is_inbox`, `is_highlighted` and `is_archived` are your own values and `tags` are the tags you can see. With internal sharing turned off, `shared` is empty and `all` is the same as `own`.
-
-`updated_at` is the time of the last change a client can see: title, participants, notes, summary, transcript, status, dates, folder, flags, tags or sharing. It is present on every recording in API v1 and starts at `created_at`.
+`updated_at` is the time of the last change a client can see:`updated_at` is the time of the last change a client can see: title, participants, notes, summary, transcript, status, dates, folder, flags or tags. It is present on every recording in API v1 and starts at `created_at`.
 
 ### External References
 
-A reference links a recording to an item in another system, such as a calendar event or a conversation in a mail client. References are private: you see only the ones you added, and a user a recording is shared with sees only their own. Every recording in the API carries your references in `external_refs`.
+A reference links a recording to an item in another system, such as a calendar event or a conversation in a mail client. References are private: you see only the ones you added. Every recording in the API carries your references in `external_refs`.
 
 ```json
 {
@@ -719,7 +704,7 @@ Every create, edit and delete of your recordings since a cursor, each once and i
 |-----------|------|---------|-------------|
 | `cursor` | string | - | `next_cursor` from the previous answer. Without it, the answer lists every recording (a full pass) and no older deletions. |
 | `limit` | integer | 100 | 1 to 500 |
-| `scope` | string | `own` | `own`, `shared` or `all`. With `shared` or `all`, a share that is removed arrives as a delete with reason `access_revoked`. |
+| `scope` | string | `own` | Ignored. The feed is the caller's own recordings. |
 
 **Response:**
 
@@ -735,7 +720,7 @@ Every create, edit and delete of your recordings since a cursor, each once and i
 ```
 
 - `recording` in an upsert has the same fields as one item of [List Recordings](#list-recordings).
-- `reason` on a delete is `deleted` (by a user, the API or a merge), `retention` (auto-deletion) or `access_revoked` (a recording shared with you is no longer shared).
+- `reason` on a delete is `deleted` (by a user, the API or a merge) or `retention` (auto-deletion). Tombstones with reason `access_revoked` from an earlier release are not returned.
 - Changes from the last two seconds wait for the next call, so a change saved late is never skipped.
 - The cursor is opaque. Store `next_cursor` after every answer, including an answer with no changes.
 - `400` with `"code": "invalid_parameter"`: the cursor cannot be read.
@@ -926,7 +911,7 @@ GET /api/v1/recordings/{id}/notes
 
 **Scope:** `read`
 
-Notes are per user. The owner gets the recording's notes. A user the recording is shared with gets only their own personal notes, never the owner's; the same holds for `notes` in the recording details and in search.
+Notes are the owner's notes on the recording. The same value is `notes` in the recording details and in search.
 
 **Response:**
 
@@ -1018,7 +1003,7 @@ PATCH /api/v1/recordings/{id}
 
 All fields are optional. Set `folder_id` to an integer to move the recording into that folder (you must have access to the target folder), or to `null` to remove it from any folder. `folder_id` requires folders to be enabled.
 
-On a recording shared with you, `is_inbox`, `is_highlighted` and `is_archived` are your own values: setting them changes them for you only, and the owner's values stay as they are. The response and `GET /api/v1/recordings/{id}` show your values.
+The response and `GET /api/v1/recordings/{id}` show the recording's values.
 
 ### Replace Notes
 
@@ -1028,7 +1013,7 @@ PUT /api/v1/recordings/{id}/notes
 
 **Scope:** `write`
 
-The owner replaces the recording's notes. A user the recording is shared with, even with view access only, replaces their own personal notes; the owner's notes do not change. `notes` in `PATCH /api/v1/recordings/{id}` follows the same rule.
+The owner replaces the recording's notes. `notes` in `PATCH /api/v1/recordings/{id}` does the same.
 
 **Request Body:**
 
@@ -1092,66 +1077,7 @@ DELETE /api/v1/recordings/{id}
 
 ---
 
-## Share Links
-
-### Create or Reuse a Share Link
-
-```http
-POST /api/v1/recordings/{id}/share
-```
-
-**Scope:** `share`
-
-Only the recording's owner can create a link. Without `force_new`, the newest link of the recording is reused.
-
-```json
-{"share_summary": true, "share_notes": false, "force_new": false, "update_existing": false, "expires_in_days": 30}
-```
-
-| Field | Default | Meaning |
-|-------|---------|---------|
-| `share_summary` | `true` | Show the summary on the shared page |
-| `share_notes` | `false` | Show the owner's notes. Off unless asked (the web dialog defaults to on). |
-| `force_new` | `false` | Create a new link even when one exists |
-| `update_existing` | `false` | Give a reused link the flags of this request. Without it a reused link keeps its flags, and `flags_differ` says when they differ from the request. |
-| `expires_in_days` | none | 1 to 3650; after that the link answers `404` |
-
-`201` for a new link, `200` for a reused one:
-
-```json
-{
-  "share_url": "https://speakr.example.com/share/AbC123",
-  "existing": true,
-  "flags_differ": false,
-  "share": {"id": 31, "share_summary": true, "share_notes": false,
-            "created_at": "2026-10-02T09:00:00.000000Z", "expires_at": null, "active": true}
-}
-```
-
-`active` is `false` while the link is answered with `404`: public sharing is turned off, your account no longer has the permission to share publicly, or the link has expired. The link is kept, and it is served again when the administrator turns public sharing on again or returns the permission.
-
-`403` with `code` `feature_disabled` (public sharing is off), `not_permitted` (your account may not create public links) or `https_required` (the link would not be an HTTPS link: when `APP_BASE_URL` is set, its scheme decides and links use that address; otherwise the request must arrive over HTTPS, and behind a reverse proxy Speakr reads `X-Forwarded-Proto`, see `TRUSTED_PROXY_HOPS` and `TRUSTED_PROXIES`).
-
-### List Share Links
-
-```http
-GET /api/v1/recordings/{id}/shares
-```
-
-**Scope:** `share`
-
-Your links of the recording, newest first, each with its `share_url` and its `active` state.
-
-### Revoke a Share Link
-
-```http
-DELETE /api/v1/shares/{share_id}
-```
-
-**Scope:** `share`
-
-`204`. The link stops working at once.
-
+## Search
 ## Search
 
 ### Search Recordings
@@ -1169,7 +1095,6 @@ Finds words in the titles, participants, notes, summaries and transcripts of you
 | `q` | string | required | 2 to 500 characters. Words are matched separately; `"a quoted phrase"` stays together. Every word must appear in the recording. `%` and `_` are literal. |
 | `mode` | string | `keyword` | `keyword`, `semantic`, or `auto` (semantic when available, else keyword) |
 | `fields` | string | all | Comma list of `title`, `participants`, `notes`, `summary`, `transcript` (keyword mode) |
-| `scope` | string | `own` | `own`, `shared` or `all` (see [List Recordings](#list-recordings)) |
 | `recording_ids` | string | - | Comma list of recording ids |
 | `tag_id`, `folder_id` | - | - | As on [List Recordings](#list-recordings) |
 | `speaker` | string | - | Transcript hits of this speaker only (exact name, any case). A diarization label such as `SPEAKER_00` is ignored, as if the parameter was not sent. |
@@ -1282,13 +1207,11 @@ PUT /api/v1/tags/{id}
   "name": "Updated Name",
   "color": "#EF4444",
   "custom_prompt": "New prompt...",
-  "group_id": 3,
-  "auto_share_on_apply": true,
-  "share_with_group_lead": true
+  "group_id": 3
 }
 ```
 
-All fields are optional. `group_id` moves the tag to a group, or makes it personal again with `null`; only an admin of the new group can set it, and each recording that carries the tag must allow the group tag (on another user's recording, edit access is required). `auto_share_on_apply` and `share_with_group_lead` apply to group tags only. After a change of any of these three fields, the completed recordings that carry the tag are shared as the new values say, as in the web app, and access the tag no longer gives ends. Manual shares and access through another group tag or group folder stay. A change that creates shares requires the `share` scope (`403 insufficient_scope` otherwise; nothing is changed). The response contains the updated tag, including `group_id`, `is_group_tag`, `auto_share_on_apply` and `share_with_group_lead`.
+All fields are optional. `group_id` moves the tag to a group, or makes it personal again with `null`. Only an admin of the new group can set it, and every recording that already carries the tag must be one the caller owns. The response contains the updated tag, including `group_id` and `is_group_tag`.
 
 ### Delete Tag
 
@@ -1314,9 +1237,7 @@ POST /api/v1/recordings/{id}/tags
 }
 ```
 
-Adds the tags after the ones already on the recording. Needs edit access to the recording. A group tag can be applied by the recording's owner or a group admin.
-
-**Tags that share.** A group tag with *auto-share on apply* (or *share with group lead*) shares a completed recording with the group, as in the web app: admins get edit access, members read access. A scoped token needs the `share` scope for such a tag; without it the request gets `403 insufficient_scope` and nothing changes.
+Adds the tags after the ones already on the recording. Needs edit access to the recording. A group tag can be applied by the recording's owner when that owner is a member of the group, or by a group admin who owns the recording.
 
 ### Set Recording Tags
 
@@ -1388,7 +1309,7 @@ A speaker is a person you named. A diarization label (`SPEAKER_00`, `Speaker 1`,
 }
 ```
 
-`email` and `aliases` are contact details you give your speakers. Only you see them: they are not part of shared recordings, public shares, exports or webhooks, and they are deleted with the speaker.
+`email` and `aliases` are contact details you give your speakers. Only you see them: they are not part of exports or webhooks, and they are deleted with the speaker.
 
 ### Create Speaker
 
@@ -1555,7 +1476,7 @@ All fields are optional.
 | `prompt_mode` | `replace` (default) runs `custom_prompt` instead of the recording's prompt; `append` adds it after that prompt |
 | `additional_instructions` | Context for this run only, added after the prompt that runs |
 
-Without `custom_prompt`, the recording's prompt is resolved as in the Regenerate summary dialog: tag prompts first, then the folder prompt, your default prompt, the admin default and the built-in default. On a recording shared with you, your own tags and default prompt are used, and the owner's folder prompt is not.
+Without `custom_prompt`, the recording's prompt is resolved as in the Regenerate summary dialog: tag prompts first, then the folder prompt, your default prompt, the admin default and the built-in default.
 
 ---
 
@@ -1604,7 +1525,7 @@ Ask questions about a recording's content using AI.
 
 `verified` is `true` when the quote appears in that segment (ignoring case and spacing). A citation of a segment that does not exist has `segment_index: null` and `verified: false`.
 
-The notes in the chat context are the ones you can see: your own for your recordings, your personal notes for a recording shared with you. Chat sends the transcript to the chat model of the instance; `GET /api/v1/capabilities` reports `models_local`.
+The notes in the chat context are the recording's notes. Chat sends the transcript to the chat model of the instance; `GET /api/v1/capabilities` reports `models_local`.
 
 ---
 
@@ -1632,7 +1553,7 @@ Answers a question from the recordings you can read, with Inquire's search (and 
 ```
 
 - `mode`: `rag`, `agent` (`403 feature_disabled` when the agent is off) or `auto` (the agent when it is on).
-- `scope`: `own`, `shared` or `all`, as on [List Recordings](#list-recordings).
+- The question covers the caller's own recordings. A `scope` field in the body is not read.
 - `stream: true` returns the server-sent events of the web app's Inquire (`delta`, `status`, `agent_step`, `agent_summary`, `error`).
 
 **Response** (`stream: false`):
@@ -1699,7 +1620,7 @@ PATCH /api/v1/recordings/batch
 }
 ```
 
-Supported `updates` fields: `is_inbox`, `is_highlighted`, `add_tag_ids`, `remove_tag_ids`, and `folder_id` (move all selected recordings into that folder, or `null` to remove them from their folders; you must have access to the target folder, and folders must be enabled). A `403` is returned if you lack access to the target folder, and `404` if it does not exist. On a recording shared with you, `is_inbox` and `is_highlighted` set your own values, as in the single update.
+Supported `updates` fields: `is_inbox`, `is_highlighted`, `add_tag_ids`, `remove_tag_ids`, and `folder_id` (move all selected recordings into that folder, or `null` to remove them from their folders; you must have access to the target folder, and folders must be enabled). A `403` is returned if you lack access to the target folder, and `404` if it does not exist.
 
 **Response:**
 
@@ -1790,8 +1711,6 @@ Returns personal folders plus any group folders you have access to.
     "default_transcription_model": null,
     "protect_from_deletion": false,
     "retention_days": null,
-    "auto_share_on_apply": true,
-    "share_with_group_lead": true,
     "naming_template_id": null,
     "naming_template_name": null,
     "export_template_id": null,
@@ -1853,7 +1772,7 @@ PUT   /api/v1/folders/{id}
 **Scope:** `write`
 ```
 
-Accepts the same fields as create, plus `auto_share_on_apply` and `share_with_group_lead` for a group folder; all are optional. A folder cannot be moved beneath itself or a descendant, and a folder with child folders cannot change its group. Only the folder owner (personal) or a group admin (group folder) may update. `group_id` moves the folder to a group, or makes it personal again with `null`; only an admin of the new group can set it, with edit access to every recording in the folder that belongs to another user. After a change of `group_id`, `auto_share_on_apply` or `share_with_group_lead`, the recordings in the folder are shared as the new values say, and access the folder no longer gives ends; manual shares and access through a group tag stay. A change that creates shares requires the `share` scope. Returns the updated folder.
+Accepts the same fields as create; all are optional. A folder cannot be moved beneath itself or a descendant, and a folder with child folders cannot change its group. Only the folder owner (personal) or a group admin (group folder) may update. `group_id` moves the folder to a group, or makes it personal again with `null`. Only an admin of the new group can set it, and every recording in the folder that belongs to another user blocks the move. Returns the updated folder.
 
 ### Delete Folder
 
@@ -2191,7 +2110,7 @@ Requests made with an API token are held by two limits for each kind of request.
 | Kind | Endpoints | Token limit | Account limit |
 |------|-----------|-------------|---------------|
 | Read | Endpoints that need only `read` | 120 requests/minute (`API_TOKEN_RATE_LIMIT_READ`) | 240 requests/minute (`API_USER_RATE_LIMIT_READ`) |
-| Write | Endpoints that need `write`, `upload`, `share`, `delete`, `webhooks` or `account` | 30 requests/minute (`API_TOKEN_RATE_LIMIT_WRITE`) | 60 requests/minute (`API_USER_RATE_LIMIT_WRITE`) |
+| Write | Endpoints that need `write`, `upload`, `delete`, `webhooks` or `account` | 30 requests/minute (`API_TOKEN_RATE_LIMIT_WRITE`) | 60 requests/minute (`API_USER_RATE_LIMIT_WRITE`) |
 | Process | Endpoints that need `process` | 10 requests/minute (`API_TOKEN_RATE_LIMIT_PROCESS`) | 20 requests/minute (`API_USER_RATE_LIMIT_PROCESS`) |
 
 An account limit that is not set is twice the token limit of the same kind, so a client with a single token is held by its token limit. Because both limits are per endpoint, a client that polls several endpoints, such as a mail client during a sync, is never refused by the account limit while each endpoint stays within its token limit. The limits apply to full-access and scoped tokens alike. A request that the token limit refuses does not count against the account limit.

@@ -96,8 +96,7 @@ Speakr takes a recording from raw audio to organized, searchable, shareable know
   <div class="feature-card">
     <h4>Collaborate</h4>
     <ul>
-      <li><a href="user-guide/sharing">Granular internal sharing and public links</a></li>
-      <li>Groups with auto-share group tags</li>
+      <li><a href="user-guide/groups">Groups, group tags and group folders</a></li>
       <li><a href="features#single-sign-on-sso">Multi-user with Single Sign-On (OIDC)</a></li>
     </ul>
   </div>
@@ -142,12 +141,12 @@ Learn more about [audio synchronization features](user-guide/transcripts.md#audi
     - **Fixes** - User deletion on PostgreSQL, and titles of other users' failed recordings in admin answers.
 
 !!! info "Version 0.10.23-alpha - Segment editor with a timeline, long transcripts, group creation"
-    No action is required. A security fix for public share pages is included. Read the Upgrading section of the release notes for the changes to WhisperX jobs, user search, sharing through the API and API v1.
+    This upstream release included a security fix for public share pages. This build does not include public share links or internal shares.
 
     - **Editing** - A timeline with the waveform, drag editing, undo and redo, and drafts in the segment editor.
-    - **Long transcripts** - Fast display on the recording page, on public share links and in Identify speakers, with a find bar on Ctrl+F.
-    - **Administration** - Settings for who can create groups and who users can find when sharing, and asynchronous WhisperX jobs.
-    - **Fixes** - Shared summaries and notes on public links, voice-match suggestions, and the recording shown after quick selection.
+    - **Long transcripts** - Fast display on the recording page and in Identify speakers, with a find bar on Ctrl+F.
+    - **Administration** - A setting for who can create groups, and asynchronous WhisperX jobs.
+    - **Fixes** - Voice-match suggestions, and the recording shown after quick selection.
 
 !!! note "Earlier releases"
     Release notes for v0.10.22 and earlier are on the [GitHub Releases page](https://github.com/murtaza-nasir/speakr/releases).

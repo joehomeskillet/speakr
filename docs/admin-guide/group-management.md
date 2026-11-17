@@ -43,14 +43,14 @@ Group names are unique across the instance, ignoring case. A name that is alread
 
 Click the users-cog icon next to any group to open the group management modal. This interface shows current members, their roles, and provides tools for adding or removing members.
 
-To add a member, search for a user and choose their role. A site admin searches all users by username or email address. A group admin who is not a site admin enters the exact username or the exact email address of the person to add; no list of users and no partial search is available to them on this page at any level of `USER_SEARCH_SCOPE`, so the user directory is not exposed to group admins. The email address is compared without regard to case.
+To add a member, search for a user and choose their role. A site admin searches all users by username or email address. A group admin who is not a site admin enters the exact username or the exact email address of the person to add; no list of users and no partial search is available to them on this page, so the user directory is not exposed to group admins. The email address is compared without regard to case.
 
 The roles are:
 
-- **Member**: Can use group tags and access group-tagged recordings. Suitable for most group participants who need to collaborate on content.
-- **Admin**: All member capabilities plus the ability to manage group membership, create and delete group tags, and access group management features. Useful for group leads or managers who need administrative control.
+- **Member**: Can use the group's tags and folders on their own recordings.
+- **Admin**: All member capabilities plus the ability to manage group membership, create and delete group tags, and open group management. Useful for group leads or managers.
 
-Click "Add member" to grant access. The user immediately gains visibility to group tags and will receive future group-tagged recordings. They don't automatically gain access to existing group-tagged recordings - only new ones tagged after they join.
+Click "Add member". The user can then use this group's tags on their own recordings. Membership does not open other members' recordings.
 
 ### Changing Member Roles
 
@@ -58,18 +58,15 @@ Group roles can change as responsibilities evolve. Click the role dropdown next 
 
 Promoting members to admin grants them access to group management capabilities. They'll see a "Groups" link in their interface and can add/remove members, create tags, and manage the group independently. This distributes administrative workload and empowers group leads.
 
-Demoting admins to members removes their management capabilities but preserves their group membership. They retain access to group tags and recordings but can no longer manage group membership or tags. Recordings shared with them through the group become read-only for them, as they are for other members; promoting a member gives edit access to those recordings.
+Demoting admins to members removes their management capabilities but preserves their group membership. They can still use the group's tags on their own recordings.
 
 ### Removing Group Members
 
 Click the red user-times icon next to any member to remove them from the group. Removal is immediate and has several effects:
 
-- The user loses access to group tags
-- They won't receive new group-tagged recordings
-- They lose access to the recordings shared with them through the group's tags and folders
-- Their personal notes on group recordings are preserved
-
-A recording they own stays theirs. A tag or folder of another group is unchanged.
+- The user loses the group's tags in their tag selectors
+- A recording they own stays theirs
+- A tag or folder of another group is unchanged
 
 ### Deleting Groups
 
@@ -123,47 +120,7 @@ Use protection for recordings that must be permanently preserved:
 
 Protection can be removed by editing the tag later if preservation requirements change. Removing protection doesn't immediately delete recordings - they'll be evaluated for deletion on the next retention check based on their age and other applicable retention policies.
 
-### Auto-Share Settings
-
-Group tags support two levels of automatic sharing that trigger when any group member applies the tag to a recording:
-
-**Share tagged recordings with all group members** is the default and recommended approach. When enabled, applying this tag shares the recording with every group member (excluding the owner). All members receive view and edit permissions, enabling full collaboration.
-
-**Share tagged recordings with group admins** restricts automatic sharing to group admins. When enabled, only users with the admin role in this group receive automatic access. Regular members don't get automatic access, though group admins can manually share with them if needed. This option suits sensitive content that requires administrative oversight before wider distribution.
-
-Both options can be enabled simultaneously, though this is redundant - sharing with all members already includes group admins. Use one or the other based on your content sensitivity and group structure.
-
-### Managing Group Tags
-
-Existing group tags appear in the group tags modal with their current settings. Click the edit icon to modify a tag's name, color, retention, protection, or sharing settings. A change of the sharing settings also applies to the recordings that already carry the tag: members the new settings include gain access to the completed recordings, and members they leave out lose the access the tag gave them. A share made by hand, and access through another group tag or group folder, stay.
-
-Delete group tags by clicking the trash icon. Deleted tags:
-
-- Are removed from all recordings they were applied to
-- Disappear from tag selectors for all group members
-- Don't delete the recordings themselves
-- End the access granted through the tag, except where a share made by hand, another group tag or a group folder still gives it
-
-If a tag was widely used, consider the impact before deletion. Users may have organized content around that tag, and deletion removes that organizational structure. In most cases, retaining unused tags causes no harm.
-
-### Syncing Group Shares
-
-If your instance enabled group features after recordings were already tagged, or if group membership changed significantly, you might have group-tagged recordings that weren't automatically shared with current group members. The "Sync group shares" feature addresses this.
-
-Click "Sync group shares" in the group management modal to open the sync dialog. Review the information about what the sync will do - it applies automatic sharing retroactively to all existing recordings with this group's tags.
-
-The sync operation:
-
-- Identifies all recordings tagged with any of this group's tags
-- Checks each recording for existing shares with current group members
-- Creates missing shares for group members who should have access but don't
-- Respects the tag's sharing settings (all members vs. group admins only)
-- Skips recordings where members already have access
-
-Confirm the sync to execute. Depending on the number of tagged recordings and group size, this might take a few seconds to several minutes. A result modal shows how many shares were created and how many recordings were processed.
-
-Sync is safe to run multiple times - it won't create duplicate shares. Use it after adding many new members, after fixing misconfigured tags, or when migrating from older Speakr versions that didn't have full group support.
-
+## Group Admin Role
 ## Group Admin Role
 
 Group admins are group members with elevated permissions within their group's scope. Unlike full instance administrators who can manage all groups and system settings, group admins can only manage groups where they have the admin role.
@@ -182,9 +139,8 @@ Group admins can perform these actions within their groups:
 - Remove existing members (excluding themselves)
 - Change member roles between admin and member
 - Create new group tags with full configuration options
-- Edit existing group tags including retention and sharing settings
+- Edit existing group tags including retention and protection
 - Delete group tags
-- Sync group shares for their groups
 
 Group admins cannot:
 
@@ -282,17 +238,7 @@ Cascade deletion is configured so deleting a group deletes its tags and membersh
 4. Review cron scheduler logs for deletion errors
 5. Check tag retention_days is set correctly (null = use global)
 
-### Sync Group Shares Shows Zero Shares Created
-
-**Cause**: All applicable shares already exist, or no recordings have group tags.
-
-**Solution**:
-
-1. Verify recordings actually have tags from this group
-2. Check if group members already have access via other shares
-3. Review whether recordings are owned by current group members (no self-sharing)
-4. Confirm group has members beyond the recording owners
-
+## Best Practices
 ## Best Practices
 
 ### Group Structure
@@ -335,7 +281,7 @@ Review retention policies quarterly to ensure they remain appropriate as busines
 
 Grant group admin roles to natural group leaders - project managers, department heads, tech leads. This distributes administrative workload and empowers groups to self-manage.
 
-Avoid granting group admin too liberally. While it's scoped to individual groups, group admins can add members and create tags that affect access. Limit the role to trusted individuals who understand security implications.
+Avoid granting group admin too liberally. While it's scoped to individual groups, group admins can add members and create tags. Limit the role to trusted individuals.
 
 Document each group's admins in the group description or external documentation. Future administrators will appreciate knowing who to contact about group-specific questions.
 

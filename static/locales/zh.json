@@ -262,7 +262,6 @@
       "scopeWrite": "编辑录音、笔记、摘要、标签、文件夹和发言人",
       "scopeUpload": "上传录音",
       "scopeProcess": "转录、摘要、聊天及其他模型调用",
-      "scopeShare": "创建和撤销共享链接",
       "scopeDelete": "删除录音、音频、标签、文件夹和发言人",
       "scopeWebhooks": "管理 Webhook",
       "scopeAccount": "更改账户设置",

@@ -262,7 +262,6 @@
       "scopeWrite": "Modifier les enregistrements, notes, résumés, étiquettes, dossiers et intervenants",
       "scopeUpload": "Envoyer des enregistrements",
       "scopeProcess": "Transcrire, résumer, discuter et autres appels de modèles",
-      "scopeShare": "Créer et révoquer des liens de partage",
       "scopeDelete": "Supprimer des enregistrements, de l'audio, des étiquettes, des dossiers et des intervenants",
       "scopeWebhooks": "Gérer les webhooks",
       "scopeAccount": "Modifier les paramètres du compte",

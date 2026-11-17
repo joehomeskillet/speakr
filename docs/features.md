@@ -147,59 +147,17 @@ Set `DISABLE_VOICE_EMBEDDING_CHECK=true` to turn the check off. The clip costs o
 
 Shape AI behavior with [custom prompts](admin-guide/prompts.md) at multiple levels. Understand the [prompt hierarchy](admin-guide/prompts.md#understanding-prompt-hierarchy) for effective configuration. Personal prompts apply to all your recordings, while tag-specific prompts activate for particular content types. The hierarchical system ensures the right prompt applies to each recording, with intelligent stacking when multiple prompts are relevant.
 
-## Sharing and Collaboration
+## Collaboration
 
-Speakr provides comprehensive collaboration features that scale from individual sharing to organization-wide group management. Choose the right sharing method for each situation - collaborate with specific colleagues through user-to-user sharing, automate access for groups through group tags, or create public links for external stakeholders.
-
-### Internal Sharing (User-to-User)
-
-Share recordings directly with other users in your Speakr instance through secure, tracked internal shares. Search for colleagues by username and grant precisely the access level they need - view-only for information distribution, edit permissions for collaborative documentation, or re-share rights for group coordinators who need to extend access to others.
-
-Recipients with view access can read transcriptions, review summaries and notes, listen to audio, and use the AI chat feature to explore content. Edit permissions add the ability to modify metadata, update notes, and manage tags. Re-share permissions enable recipients to share with additional users and manage those downstream shares.
-
-Each user can maintain completely private personal notes on shared recordings. These notes remain invisible to the recording owner and other recipients, providing a secure space for individual observations and follow-ups. Access revocation is immediate and thorough - when you revoke someone's access, they lose all capabilities and their personal notes are automatically removed.
-
-The centralized share management interface shows all current shares with each recipient's permission level and share creation date. Modify permissions or revoke access instantly, maintaining complete control over collaborative access throughout the recording's lifecycle. Read more in the [Sharing & Collaboration guide](user-guide/sharing.md).
-
-### Group Management
-
-Organize users into groups for streamlined collaboration on projects, departments, or any grouping that regularly works together. Groups eliminate the tedious process of individually sharing each recording with multiple colleagues by automating access through group tags.
-
-Full instance administrators create groups and can assign group admin roles to group leads or managers. Group admins can manage membership, add or remove users, change roles, and control their group's organizational structure without requiring global administrative access. This distributed administration scales group management while maintaining security boundaries.
-
-Group members see group-specific tags in their interface and automatically receive recordings when any teammate applies group tags. This creates a collaborative space where information flows naturally to everyone who needs it. Groups integrate seamlessly with personal organization - users maintain their private tags alongside group tags, creating systems that serve both individual and group needs. Learn more in the [Group Collaboration guide](user-guide/groups.md).
-
-### Group Tags with Auto-Share
-
-Group tags are the automation engine for group collaboration. Unlike personal tags that organize individual content, group tags trigger automatic sharing with all group members when applied to any recording.
-
-Any group member can apply group tags to their recordings. The moment a group tag is applied, Speakr creates internal shares for all group members (excluding the owner), granting view and edit permissions. This automatic sharing happens intelligently - existing shares aren't duplicated, group leads can create admin-only tags for sensitive content, and the system tracks all sharing for audit purposes.
-
-Group tags appear with a distinctive users icon (👥) throughout the interface, making group content immediately recognizable. Apply multiple group tags to share with multiple groups simultaneously, enabling cross-functional collaboration. Custom retention policies can be attached to group tags, automatically managing content lifecycle based on group-specific requirements.
-
-Advanced auto-sharing options let group admins control sharing scope. Share with all group members for full collaboration, or restrict to group admins only for sensitive content requiring administrative oversight. Retroactive syncing can share existing group-tagged recordings with current members after group restructuring. See the [Group Management guide](admin-guide/group-management.md) for administrative details.
-
-### Secure Share Links
-
-Generate cryptographically secure links to [share recordings](user-guide/sharing.md) with people outside your Speakr instance - clients, partners, or anyone who needs access without an account. Each link uses unguessable tokens and works over HTTPS for security, providing read-only access to exactly the content you choose to share.
-
-Control precisely what recipients see by including or excluding summaries and notes. The transcription is always included as the core content, but you decide whether to add AI-generated insights or your personal annotations. Recipients get a clean, professional view optimized for content consumption without access to your administrative interface or other recordings.
-
-Administrators can control public sharing at multiple levels. Disable public sharing globally to prevent all public link creation, or leave it enabled and grant permissions per-user for granular control. This flexibility supports organizations with varying security requirements - some users might need external sharing capabilities while others should only share internally.
-
-Share links remain valid until explicitly revoked through the central share management interface. Modify what's included in a share without generating new links, or delete shares instantly to revoke access. All your shared recordings are tracked in one interface for easy management and audit. Security best practices are enforced - HTTPS is required for sharing operations, and the system warns against posting links publicly or sharing sensitive content inappropriately.
+Groups collect users. Group tags and group folders belong to a group and are managed by its admins. Applying a group tag organizes a recording. It does not give other accounts access to it. Learn more in the [Group Collaboration guide](user-guide/groups.md) and the [Group Management guide](admin-guide/group-management.md).
 
 ### Export Options
 
-Export recordings in multiple formats for different purposes. Generate Word documents with complete transcripts, summaries, and notes for formal documentation. Copy formatted text to clipboards for quick sharing. Export individual components like summaries or notes for focused distribution. Download transcriptions with [customizable templates](user-guide/transcript-templates.md) that format your content for different use cases, from subtitles to interview formats.
-
-### Real-Time Monitoring
-
-Track all your shared recordings from a central location. See what's been shared, when, and with what permissions. Modify share settings without generating new links, or instantly revoke access when shares are no longer appropriate. View shared recordings alongside your own content with clear visual indicators showing ownership and group affiliation.
+Export recordings in multiple formats for different purposes. Generate Word documents with complete transcripts, summaries, and notes for formal documentation. Copy formatted text to clipboards for pasting elsewhere. Export individual components like summaries or notes for focused distribution. Download transcriptions with [customizable templates](user-guide/transcript-templates.md) that format your content for different use cases, from subtitles to interview formats.
 
 ### Audit Log
 
-Sign-ins, access to recordings, changes, shares and administrative actions are listed in the Audit log tab for site admins, with filters and export as CSV or JSONL. Titles, file names and transcript text are not recorded. See the [audit log page](admin-guide/audit-log.md) and [Privacy and regulated data](admin-guide/privacy.md).
+Sign-ins, access to recordings, changes and administrative actions are listed in the Audit log tab for site admins, with filters and export as CSV or JSONL. Titles, file names and transcript text are not recorded. See the [audit log page](admin-guide/audit-log.md) and [Privacy and regulated data](admin-guide/privacy.md).
 
 ### Keyboard Shortcuts
 

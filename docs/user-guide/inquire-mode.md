@@ -71,7 +71,7 @@ Some examples:
 
 Answers in agent mode take longer, typically ten to thirty seconds for questions with several steps. Without the agent, Ambrose answers from one search of your library.
 
-Ambrose reads summaries and notes only as far as your settings allow. Under Account → Prompt options → **What Ambrose can read** (formerly Inquire Privacy), summaries are on by default and notes are off by default (see [Settings](settings.md#what-ambrose-can-read)). Only your own notes are used, never notes on recordings shared with you.
+Ambrose reads summaries and notes only as far as your settings allow. Under Account → Prompt options → **What Ambrose can read** (formerly Inquire Privacy), summaries are on by default and notes are off by default (see [Settings](settings.md#what-ambrose-can-read)). Only your own notes are used.
 
 ### Long conversations
 
@@ -112,4 +112,4 @@ For administrators: see [Ambrose settings](../admin-guide/ambrose.md) for the se
 
 ---
 
-Next: [Sharing Recordings](sharing.md) →
+Next: [Groups](groups.md) →

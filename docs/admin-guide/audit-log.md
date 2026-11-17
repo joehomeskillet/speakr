@@ -74,16 +74,9 @@ A deletion by a retention rule is recorded with the actor `system`.
 
 ### Sharing
 
-| Event | Recorded when | Details |
-|---|---|---|
-| `share.internal.created`, `share.internal.changed`, `share.internal.revoked` | A recording was shared with another account, the permissions of the share were changed, or the share was revoked | `share_id`, `can_edit`, `can_reshare`, the earlier values on a change, `cascade` for a share that was revoked together with another one |
-| `share.public.created`, `share.public.changed`, `share.public.revoked` | A public link was created, its options were changed, or it was revoked | `share_id`, `share_summary`, `share_notes`, `expires` |
-| `share.public.opened` | The page of a public link was opened. One row per 30 minutes for each link and visitor. | `share_id` |
-| `share.public.media.played` | The audio of a public link was requested. One row per 30 minutes for each link and visitor. | `share_id` |
+Public share links and internal shares are not part of this build, so the events `share.internal.*` and `share.public.*` are not written. Rows already stored keep their names. `share.public.opened` and `share.public.media.played` never stored the address part of a link.
 
-The address part of a public link gives access to the recording and is never stored in the log. A visitor of a public link has no account, so the row holds the client address and the user agent only.
-
-Rows with `imported` in the details were copied from the table `share_audit_log` of earlier releases (see [Upgrade](#upgrade)).
+Rows with `imported` in the details were copied from `share_audit_log` by an earlier version (see [Upgrade](#upgrade)). This build does not copy that table.
 
 ### Administration
 
@@ -116,7 +109,6 @@ One row is written for each incognito upload, also for one that is refused or fa
 - Lists of recordings, searches, and questions to Ask Ambrose or to the chat of a recording
 - The creation of a recording by an upload
 - Changes of tags, folders, and of the personal inbox, star and archive state
-- Shares made by a group tag or a group folder
 - A sign-in through the "Remember me" cookie, and a request with an invalid API token
 - The status requests that are sent on a timer from an open page, and the waveform of a recording
 - The statistics pages of a site administrator. They hold counts and sizes per account, and the five latest failed recordings by id, with the username, the time and the stored error text, without a title or a file name.
@@ -131,7 +123,7 @@ The settings are changed under **System settings** or in `.env`. A value in `.en
 | `audit_log_enabled` | `AUDIT_LOG_ENABLED` | `true` | `false`: no event is recorded, with the exceptions below. |
 | `audit_log_retention_days` | `AUDIT_LOG_RETENTION_DAYS` | `365` | Days after which a row is removed. `0`: rows are kept without limit. |
 | `audit_log_store_ip` | `AUDIT_LOG_STORE_IP` | `full` | `full`: the client address is stored. `truncated`: the `/24` network of an IPv4 address or the `/48` network of an IPv6 address is stored. `off`: no address is stored. |
-| `audit_log_record_views` | `AUDIT_LOG_RECORD_VIEWS` | `true` | `false`: `recording.viewed` and `recording.media.played` are not recorded. Downloads, exports, reads through API v1 and the events of public links are recorded in either case. |
+| `audit_log_record_views` | `AUDIT_LOG_RECORD_VIEWS` | `true` | `false`: `recording.viewed` and `recording.media.played` are not recorded. Downloads, exports and reads through API v1 are recorded in either case. |
 
 While the log is off, four kinds of events are still recorded, so that turning the log off is itself on record: a change of one of the `audit_log_*` settings, the reading and export of the log, the removal of old rows, and the `audit.write_failed` row. Every other event, including `incognito.used`, is not recorded while the log is off.
 

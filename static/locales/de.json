@@ -262,7 +262,6 @@
       "scopeWrite": "Aufnahmen, Notizen, Zusammenfassungen, Tags, Ordner und Sprecher bearbeiten",
       "scopeUpload": "Aufnahmen hochladen",
       "scopeProcess": "Transkribieren, zusammenfassen, chatten und andere Modellaufrufe",
-      "scopeShare": "Freigabelinks erstellen und widerrufen",
       "scopeDelete": "Aufnahmen, Audio, Tags, Ordner und Sprecher löschen",
       "scopeWebhooks": "Webhooks verwalten",
       "scopeAccount": "Kontoeinstellungen ändern",

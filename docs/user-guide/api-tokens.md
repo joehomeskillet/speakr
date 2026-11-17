@@ -43,7 +43,6 @@ A token with scopes can call only the API v1 routes those scopes cover. The scop
 | `write` | Editing recordings, notes and summaries; adding and removing tags; creating and editing tags, folders and speakers; assigning speakers |
 | `upload` | `POST /recordings/upload` and the ASR Voice Recorder upload |
 | `process` | Requests that use model or GPU time: transcribe, summarize, regenerate title, identify speakers, chat |
-| `share` | Creating, listing and revoking shares |
 | `delete` | Deleting recordings, audio, tags, folders and speakers |
 | `webhooks` | Everything under `/api/v1/webhooks` |
 | `account` | Account settings under `/api/v1/settings` |
@@ -57,7 +56,7 @@ A token with scopes can call only the API v1 routes those scopes cover. The scop
 To see the scopes of the token in use, call `GET /api/v1/tokens/current`.
 
 !!! tip "Give each integration its own scoped, expiring token"
-    An integration that only reads recordings needs **Read only**. A phone recorder needs **Recorder**. If such a token leaks, it cannot delete recordings, share them or change webhooks.
+    An integration that only reads recordings needs **Read only**. A phone recorder needs **Recorder**. If such a token leaks, it cannot delete recordings or change webhooks.
 
 ## Using Your Token
 
