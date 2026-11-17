@@ -16,8 +16,22 @@ public sealed class AgentOptions
     public int StabilitySamples { get; set; } = 3;
     public int StabilityIntervalSeconds { get; set; } = 2;
     public int PollIntervalSeconds { get; set; } = 15;
+    public int FinalizePollAttempts { get; set; } = 3;
+    public int FinalizePollDelayMs { get; set; } = 500;
+    public int HttpTimeoutSeconds { get; set; } = 300;
     public string Mode { get; set; } = "production";
     public List<AllowedRoot> AllowedRoots { get; set; } = [];
+
+    public const int MaxSourceFieldChars = 128;
+    public const int MaxChunks = 10000;
+
+    // Server base URL must be absolute https: no cleartext transfer of dictation originals.
+    public Uri RequireHttpsServer()
+    {
+        if (!Uri.TryCreate(ServerBaseUrl, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
+            throw new InvalidOperationException("ServerBaseUrl must be an absolute https URL.");
+        return uri;
+    }
 
     public bool SimulatorMode => string.Equals(Mode, "simulator", StringComparison.Ordinal);
 
@@ -35,11 +49,17 @@ public sealed class AgentOptions
             throw new InvalidOperationException("SpoolMaxBytes must be positive.");
         if (string.IsNullOrWhiteSpace(SpoolDirectory) || !Path.IsPathRooted(SpoolDirectory))
             throw new InvalidOperationException("SpoolDirectory must be an absolute path.");
+        if (FinalizePollAttempts < 0 || FinalizePollDelayMs < 0 || HttpTimeoutSeconds < 1)
+            throw new InvalidOperationException("Finalize polling and HTTP timeout values are out of range.");
+        if (ServerBaseUrl.Length > 0)
+            RequireHttpsServer();
         var ids = new HashSet<string>(StringComparer.Ordinal);
         foreach (var root in AllowedRoots)
         {
             if (string.IsNullOrWhiteSpace(root.Id) || string.IsNullOrWhiteSpace(root.Path))
                 throw new InvalidOperationException("Each allowed root needs an id and a path.");
+            if (root.Id.Length > MaxSourceFieldChars)
+                throw new InvalidOperationException("Allowed root ids are limited to 128 characters by the ingest contract.");
             if (!Path.IsPathRooted(root.Path))
                 throw new InvalidOperationException("Allowed roots must be absolute paths.");
             if (!ids.Add(root.Id))

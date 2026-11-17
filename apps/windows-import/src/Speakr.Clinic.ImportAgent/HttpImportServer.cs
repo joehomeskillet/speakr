@@ -28,10 +28,20 @@ public sealed class HttpImportServer : IImportServer
     {
         if (credential.ClientCertificatePfx is not { Length: > 0 })
             throw new InvalidOperationException("A machine client certificate is required.");
-        var certificate = X509CertificateLoader.LoadPkcs12(credential.ClientCertificatePfx, credential.PfxPassword);
+        // Ephemeral: the private key is not persisted into the user's key store.
+        var certificate = X509CertificateLoader.LoadPkcs12(
+            credential.ClientCertificatePfx,
+            credential.PfxPassword,
+            X509KeyStorageFlags.EphemeralKeySet);
+        var now = DateTime.UtcNow;
+        if (now < certificate.NotBefore.ToUniversalTime() || now > certificate.NotAfter.ToUniversalTime())
+            throw new InvalidOperationException("The machine client certificate is outside its validity period.");
         var handler = new HttpClientHandler
         {
-            ClientCertificateOptions = ClientCertificateOption.Manual
+            ClientCertificateOptions = ClientCertificateOption.Manual,
+            // A redirect would carry chunk bodies and the client certificate handshake to another host.
+            AllowAutoRedirect = false,
+            SslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13
         };
         handler.ClientCertificates.Add(certificate);
         return handler;
@@ -45,8 +55,8 @@ public sealed class HttpImportServer : IImportServer
 
     public async Task<IReadOnlyList<ImportIntent>> PollIntentsAsync(string agentId, CancellationToken cancellationToken)
     {
-        var url = "api/clinic/v1/agent/intents?agent_id=" + Uri.EscapeDataString(agentId);
-        var body = await _http.GetFromJsonAsync<IntentList>(url, ImportJson.Options, cancellationToken);
+        // The agent identity is the mTLS client certificate; a self-asserted query parameter is never sent.
+        var body = await _http.GetFromJsonAsync<IntentList>("api/clinic/v1/agent/intents", ImportJson.Options, cancellationToken);
         return body?.Intents ?? [];
     }
 
@@ -70,7 +80,7 @@ public sealed class HttpImportServer : IImportServer
     {
         using var content = new ByteArrayContent(body.ToArray());
         content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
-        using var request = new HttpRequestMessage(HttpMethod.Put, $"api/clinic/v1/ingests/{ingestId}/chunks/{sequence}")
+        using var request = new HttpRequestMessage(HttpMethod.Put, $"api/clinic/v1/ingests/{IngestPath(ingestId)}/chunks/{sequence}")
         {
             Content = content
         };
@@ -85,7 +95,7 @@ public sealed class HttpImportServer : IImportServer
         string idempotencyKey,
         CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"api/clinic/v1/ingests/{ingestId}/finalize")
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"api/clinic/v1/ingests/{IngestPath(ingestId)}/finalize")
         {
             Content = JsonContent.Create(body, options: ImportJson.Options)
         };
@@ -96,16 +106,29 @@ public sealed class HttpImportServer : IImportServer
 
     public async Task<IngestReceipt> GetAsync(string ingestId, CancellationToken cancellationToken)
     {
-        using var response = await _http.GetAsync($"api/clinic/v1/ingests/{ingestId}", cancellationToken);
+        using var response = await _http.GetAsync($"api/clinic/v1/ingests/{IngestPath(ingestId)}", cancellationToken);
         return await ReadReceipt(response, cancellationToken);
+    }
+
+    // The ingest id is server supplied. Only a canonical GUID may reach a URL path.
+    private static string IngestPath(string ingestId)
+    {
+        if (!Guid.TryParseExact(ingestId, "D", out var id))
+            throw new ImportServerException(0, "ingest id is not a canonical GUID");
+        return id.ToString("D");
     }
 
     private static async Task<IngestReceipt> ReadReceipt(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         await EnsureSuccess(response, cancellationToken);
         var receipt = await response.Content.ReadFromJsonAsync<IngestReceipt>(ImportJson.Options, cancellationToken);
-        if (receipt is null || receipt.IngestId.Length == 0)
-            throw new ImportServerException((int)response.StatusCode, "missing receipt");
+        if (receipt is null || !Guid.TryParseExact(receipt.IngestId, "D", out _))
+            throw new ImportServerException((int)response.StatusCode, "missing receipt or malformed ingest id");
+        receipt.ReceivedChunks ??= [];
+        receipt.CorrelationId ??= "";
+        receipt.State ??= "";
+        receipt.Durability ??= "";
+        receipt.DecodeState ??= "";
         return receipt;
     }
 
@@ -114,8 +137,7 @@ public sealed class HttpImportServer : IImportServer
         if ((int)response.StatusCode is >= 200 and <= 299)
             return;
         var text = await response.Content.ReadAsStringAsync(cancellationToken);
-        if (text.Length > 240)
-            text = text[..240];
+        text = LogText.Clean(text, 240);
         if ((int)response.StatusCode == 409)
             throw new ImportConflictException(text);
         throw new ImportServerException((int)response.StatusCode, text);

@@ -16,6 +16,7 @@ public static class Hashing
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(material));
         hash[6] = (byte)((hash[6] & 0x0F) | 0x50);
         hash[8] = (byte)((hash[8] & 0x3F) | 0x80);
-        return new Guid(hash.AsSpan(0, 16));
+        // Big-endian so the version and variant nibbles appear at their RFC 4122 text positions.
+        return new Guid(hash.AsSpan(0, 16), bigEndian: true);
     }
 }

@@ -37,7 +37,8 @@ public sealed record BoundReceipt(
     string IngestId,
     string CorrelationId,
     string State,
-    string Durability)
+    string Durability,
+    string DecodeState = "")
 {
     public bool IsDurable =>
         string.Equals(State, "STORED", StringComparison.Ordinal)
@@ -50,6 +51,7 @@ public sealed record BoundReceipt(
         && string.Equals(ContentSha256, item.ContentSha256, StringComparison.Ordinal)
         && Size == item.Size
         && string.Equals(IngestId, ingestId, StringComparison.Ordinal)
+        && !string.Equals(DecodeState, "INVALID", StringComparison.Ordinal)
         && CorrelationId.Length > 0;
 }
 
@@ -60,7 +62,8 @@ public enum PostImportOutcome
     Moved,
     Deleted,
     Conflict,
-    RejectedStep
+    RejectedStep,
+    RefusedUnbound
 }
 
 public sealed class ImportConflictException : Exception
