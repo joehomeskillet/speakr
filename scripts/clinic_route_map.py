@@ -60,7 +60,7 @@ def main() -> int:
         # Sort routes by rule, endpoint, methods
         routes.sort(key=lambda r: (r["rule"], r["endpoint"], r["methods"]))
 
-        output_path = Path(__file__).resolve().parent.parent / "clinic-spec" / "evidence" / "route-map.json"
+        output_path = Path(__file__).resolve().parent.parent / "clinic-evidence" / "route-map.json"
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(routes, f, indent=2, ensure_ascii=False)
