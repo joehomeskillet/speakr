@@ -1,0 +1,371 @@
+{
+  "spike_id": "P10-asr-capability-spike",
+  "task_id": "P10",
+  "title": "Früher Capability-Spike: Speaches v0.8.3 vs PAR-ASR-001..007 und V4-008",
+  "date": "2026-11-17",
+  "status": "source_review_only",
+  "tests_passed_by_this_spike": false,
+  "product_tests_executed": false,
+  "runtime_asr_executed": false,
+  "full_parity_validated": false,
+  "method": "Source- and documentation review of Speaches at the pinned tag, faster-whisper/CTranslate2 APIs, Speakr transcription connectors, and clinic-spec JSON catalogs. No Speaches process, GPU job, or labelled German medical audio was run.",
+  "spec_files_requested": {
+    "clinic-spec/CLAUDE.md": "absent_in_this_worktree",
+    "clinic-spec/docs/14_Wortschatz_Profile_ASR.md": "listed_in_evidence/build-manifest.json but absent_on_disk",
+    "clinic-spec/supplements/grok-review/docs/11_ASR_Qualitaetsplan.md": "listed_in_supplements/grok-review/evidence/manifest.json but absent_on_disk"
+  },
+  "spec_sources_used_instead": [
+    "clinic-spec/README.md",
+    "clinic-spec/planning/backlog.json#P10",
+    "clinic-spec/planning/requirements.json (PAR-ASR-001..007, V4-008, PAR-VOC-003/007)",
+    "clinic-spec/tests/acceptance.json (BT-ASR-001..007, X4-013, X4-014, WB-018)",
+    "clinic-spec/sources/dns-functional/evidence/manual/09_asr.json",
+    "clinic-spec/supplements/grok-review/tests/asr-benchmark-plan.json",
+    "clinic-spec/config/decisions.json (D08, D44)",
+    "clinic-spec/config/dev.defaults.json asr block",
+    "src/services/transcription/"
+  ],
+  "engine_pin": {
+    "id": "speaches",
+    "repository": "https://github.com/speaches-ai/speaches",
+    "tag": "v0.8.3",
+    "commit": "c78b77d5ce56f8c1042f6bc11209697cca2b2445",
+    "release_note": "GitHub release v0.8.3 is commit c78b77d (19 Sep). src/speaches/main.py at this commit still advertises FastAPI version 'v0.8.2'.",
+    "license": "MIT",
+    "stt_backend": "faster-whisper>=1.1.1 on CTranslate2>=4.5.0",
+    "tts_backends": ["kokoro-onnx", "piper-tts (linux)"]
+  },
+  "honest_product_wording_global": "Hotword- and prompt biasing is decoder-side context for Whisper, not acoustic training, not a pronunciation lexicon, not speaker adaptation, and not a negative vocabulary. A Speaches/faster-whisper request that returns text after sending prompt or hotwords is not a train_capability proof.",
+  "speaches_v083_capabilities": {
+    "openai_compatible_batch_stt": {
+      "endpoint": "POST /v1/audio/transcriptions",
+      "source": "src/speaches/routers/stt.py:transcribe_file at c78b77d",
+      "form_fields_confirmed": [
+        "model",
+        "language",
+        "prompt (mapped to faster-whisper initial_prompt)",
+        "response_format (text|json|verbose_json|srt|vtt)",
+        "temperature",
+        "timestamp_granularities[] (segment|word; word timestamps only with verbose_json)",
+        "stream (SSE per completed segment)",
+        "hotwords (passed through to faster-whisper)",
+        "vad_filter (default config._unstable_vad_filter, True in config.py)"
+      ],
+      "local_model_required": "404 if the model is not already installed; download is POST /v1/models/{model_id}, not implicit on transcribe (stt.py get_model_repo_path)."
+    },
+    "translation": {
+      "endpoint": "POST /v1/audio/translations",
+      "source": "src/speaches/routers/stt.py:translate_file",
+      "note": "Whisper translate-to-English task. Clinic language default is de; this is not German medical dictation."
+    },
+    "streaming_file_stt": {
+      "mechanism": "SSE (text/event-stream) when stream=true on the same transcriptions endpoint",
+      "source": "stt.py segments_to_streaming_response; README.md Features",
+      "note": "This streams segments of an already-uploaded file. It is not a microphone session."
+    },
+    "realtime": {
+      "endpoints": ["WebSocket /v1/realtime", "WebRTC router src/speaches/routers/realtime/rtc.py"],
+      "source": ["src/speaches/routers/realtime/ws.py", "src/speaches/realtime/session.py", "docs/usage/realtime-api.md"],
+      "defaults_at_this_tag": {
+        "input_audio_transcription.model": "Systran/faster-distil-whisper-small.en",
+        "input_audio_transcription.language": "en",
+        "speech_model": "speaches-ai/Kokoro-82M-v1.0-ONNX",
+        "modalities": ["audio", "text"],
+        "turn_detection": "server_vad",
+        "create_response": true,
+        "session_duration_seconds": 1800
+      },
+      "transcription_only_mode": "Not present in session.py at this tag. Later Speaches docs describe a transcription-only extension; that is unverified for v0.8.3.",
+      "documented_limitations": [
+        "response.cancel and conversation.item.truncate unsupported",
+        "conversation.item.create with input_audio unsupported",
+        "CUDA recommended for realtime performance"
+      ]
+    },
+    "model_management": {
+      "endpoints": [
+        "GET /v1/models",
+        "GET /v1/models/{id}",
+        "POST /v1/models/{id} (download)",
+        "DELETE /v1/models/{id}",
+        "GET /v1/registry",
+        "GET /v1/audio/models",
+        "GET /v1/audio/voices"
+      ],
+      "source": "src/speaches/routers/models.py",
+      "whisper_filter": "Hugging Face models with library ctranslate2 and task automatic-speech-recognition (src/speaches/executors/whisper/utils.py).",
+      "ttl": "whisper.ttl default 300s; -1 never unload; 0 unload after use (src/speaches/config.py WhisperConfig)."
+    },
+    "vad": {
+      "in_stt": "vad_filter form field plus default _unstable_vad_filter=True (Silero via faster-whisper).",
+      "standalone": "POST /v1/audio/speech/timestamps, model silero_vad_v5 only (src/speaches/routers/vad.py, docs/usage/vad.md).",
+      "realtime": "server_vad in session turn_detection."
+    },
+    "word_timestamps": {
+      "supported": true,
+      "condition": "timestamp_granularities[] includes word AND response_format=verbose_json",
+      "source": "stt.py word_timestamps='word' in timestamp_granularities"
+    },
+    "language": {
+      "batch_stt": "ISO language code passed to faster-whisper; None = auto-detect first 30s.",
+      "clinic_default": "de in clinic-spec/config/dev.defaults.json",
+      "realtime_default_at_tag": "en on an English-only distil model — unsuitable for German medical dictation unless the session is reconfigured."
+    },
+    "tts": {
+      "endpoint": "POST /v1/audio/speech",
+      "source": "src/speaches/routers/speech.py",
+      "engines": ["Kokoro ONNX", "Piper"],
+      "formats": ["mp3", "flac", "wav", "pcm"],
+      "clinic_relevance": "Not a dictation recognition capability. Irrelevant to PAR-ASR-001..007 recognition quality."
+    },
+    "not_present_at_this_tag": [
+      "POST /asr (whisper-asr-webservice) — Speakr ASREndpointConnector cannot talk to Speaches without a new adapter",
+      "Any train / adapt / fine-tune / pronunciation / speaker-profile endpoint",
+      "Negative lexicon / word suppression API",
+      "Phonetic form editing",
+      "Speaker diarization on the STT router (v0.8.3 models.py lists only ASR + TTS registries)",
+      "Job queue, wait-timeout, or late-result merge semantics",
+      "User/workstation profile store"
+    ]
+  },
+  "faster_whisper_and_ctranslate2": {
+    "faster_whisper": {
+      "pin_in_speaches": ">=1.1.1",
+      "source": "https://github.com/SYSTRAN/faster-whisper/blob/v1.1.1/faster_whisper/transcribe.py",
+      "vocabulary_biasing": "hotwords= is encoded into the decoder prompt after sot_prev (get_prompt). Documented as 'Hotwords/hint phrases to provide the model with. Has no effect if prefix is not None.' Token budget is about max_length/2. This is prompt biasing, not a vocabulary table and not acoustic training (PR #731).",
+      "initial_prompt": "Optional text or token ids prepended as previous_tokens for each window. Style and spelling hint only.",
+      "pronunciation": "No pronunciation dictionary, no spoken-form / written-form pair, no phoneme editor.",
+      "speaker_or_acoustic_adaptation": "None. Weights are frozen CTranslate2 inference graphs.",
+      "word_timestamps": "word_timestamps=True via cross-attention + DTW.",
+      "vad": "Silero VAD when vad_filter=True.",
+      "offline_finetune_path": "README 'Model conversion': convert a Transformers-compatible (including user fine-tuned) Whisper checkpoint with ct2-transformers-converter, then load the CT2 directory. Training itself is outside faster-whisper."
+    },
+    "ctranslate2": {
+      "role": "C++/Python inference engine for Transformer models (README: 'efficient inference').",
+      "training": "No training or online adaptation API. Workflow is convert-then-infer (ct2-transformers-converter, quantization). Docs: https://opennmt.net/CTranslate2/quickstart.html",
+      "clinic_consequence": "A DNS-style correction-to-acoustic-model job cannot run inside Speaches/CT2. An offline Hugging Face fine-tune plus conversion is a separate pipeline, not a Speaches capability, and is not proven here."
+    }
+  },
+  "speakr_connector_mapping": {
+    "asr_endpoint": "POST {base}/asr (whisper-asr-webservice / WhisperX). Speaches v0.8.3 does not expose /asr.",
+    "openai_whisper": "OpenAI SDK audio.transcriptions.create. Can point at Speaches if base_url is the Speaches server, but today concatenates hotwords into prompt (does not send the Speaches hotwords form field), does not request verbose_json/word timestamps, and applies a 25 MB OpenAI file limit that Speaches does not declare.",
+    "capabilities_enum": "src/services/transcription/base.py already distinguishes HOTWORDS, INITIAL_PROMPT, STREAMING, TIMESTAMPS. STREAMING is not declared on openai_whisper or asr_endpoint.",
+    "adapter_work": "A Speaches-specific connector (or a strict OpenAI-compatible path that forwards language, prompt, hotwords, vad_filter, timestamp_granularities, verbose_json, and stream) is required before PAR-ASR-001 can be claimed against this engine."
+  },
+  "requirements": [
+    {
+      "id": "PAR-ASR-001",
+      "title": "Lokale Hintergrundtranskription",
+      "original_clause": "Zur Hintergrund-Erkennung markierte Audioaufträge werden in Text plus Korrekturinformationen umgesetzt; Korrektur ist ein nachgelagerter menschlicher Schritt.",
+      "speaches_capability": "Batch STT via POST /v1/audio/transcriptions returns text and, with verbose_json, segment and optional word timestamps; VAD can drop silence. Speaches does not mark a dictation as clinically accepted and has no correction workflow.",
+      "source_refs": [
+        "speaches src/speaches/routers/stt.py transcribe_file (c78b77d)",
+        "docs/usage/speech-to-text.md at v0.8.3",
+        "Speakr src/services/transcription/ (job queue exists; /asr connector is the wrong protocol)"
+      ],
+      "classification": "supported_with_adapter_work",
+      "real_proof_requires": "Pinned German-capable CT2 model (candidate Systran/faster-whisper-large-v3, revision recorded), CUDA or documented CPU, labelled German medical audio with hashes, Speaches connector using verbose_json timestamps, isolation of defective audio, and a UI state that leaves human review independent of ASR success.",
+      "honest_product_wording": "Lokale Hintergrundtranskription mit faster-whisper über Speaches. Zeitbezug sind Whisper-Segmente/Wortalignments, kein DNS-Korrekturprotokoll. Erkennung ist nicht fachliche Abnahme.",
+      "tests_not_passed": ["BT-ASR-001"],
+      "unverified": [
+        "WER/critical-error rate on clinic German medical speech",
+        "Exact decode matrix of clinic codecs (dss/philips/webm) through Speaches PyAV at this tag (speech-to-text.md lists audio format as TODO)"
+      ]
+    },
+    {
+      "id": "PAR-ASR-002",
+      "title": "Getrennte Online-/Offlineprofile und Quellen",
+      "original_clause": "Autoren können für Live- und Hintergrund-Erkennung getrennte Profile für unterschiedliche Aufnahmequellen führen; ohne Trennung kann ein Profil beide Aufgaben bedienen.",
+      "speaches_capability": "Each HTTP request can choose model, language, prompt, hotwords and vad_filter. There is no speaker-acoustic profile, no source-device profile, and no engine-side user store. Realtime WS/RTC exists but v0.8.3 session.py hard-defaults to Systran/faster-distil-whisper-small.en language=en plus Kokoro TTS. Speakr already stores per-user/tag/folder language, hotwords, prompt and model as config, not as engine speaker profiles.",
+      "source_refs": [
+        "stt.py form fields model/language/prompt/hotwords/vad_filter",
+        "src/speaches/realtime/session.py create_session_object_configuration",
+        "BT-ASR-002 then: Eine ASR-Engine ohne Sprecherprofile wird als solche ausgewiesen",
+        "clinic-spec/config/decisions.json D08"
+      ],
+      "classification": "supported_with_adapter_work",
+      "real_proof_requires": "Author+source+mode profile records in Speakr that actually change the Speaches request (model id, language=de, prompt/hotwords, live vs batch endpoint); a live path using a German multilingual model rather than the English distil default; explicit UI copy that Speaches has no acoustic speaker profile; restart of a second workstation loading the same config.",
+      "honest_product_wording": "Profile sind Konfiguration (Modell, Sprache, Prompt/Hotwords, Live- vs Batch-Endpunkt) pro Autor, Quelle und Modus. Speaches hat keine sprecherakustischen DNS-Profile. Eine Engine ohne Sprecherprofile wird so ausgewiesen.",
+      "tests_not_passed": ["BT-ASR-002"],
+      "unverified": [
+        "Whether Speaches realtime at this tag can be configured into a stable German transcription-only session (transcription-only is not in session.py)",
+        "Live latency/quality on Philips 9600/9620 vs browser mic"
+      ]
+    },
+    {
+      "id": "PAR-ASR-003",
+      "title": "ASR-Wartezeit mit manueller Ersatzbearbeitung",
+      "original_clause": "Nach konfigurierbarer maximaler Wartezeit kann Hintergrund-Erkennung übersprungen und manuelle Abschrift angeboten werden.",
+      "speaches_capability": "None. Batch STT is a synchronous HTTP call; Speaches has no recognition job queue, wait policy, or late-result merge. Timeout, skip-to-manual, and never-overwrite of a human revision are Speakr application semantics (ASR_TIMEOUT / job queue exist; the late-ASR vs manual-revision contract is not implemented as a clinic gate).",
+      "source_refs": [
+        "stt.py transcribe_file (sync, optional SSE of segments)",
+        "Speakr config/env.asr.example ASR_TIMEOUT",
+        "clinic-spec/config/dev.defaults.json asr_timeout_seconds=3600",
+        "09_asr.json explicit_new_contract: Verspätete Erkennung darf bestätigte manuelle Textversion nicht überschreiben"
+      ],
+      "classification": "supported_with_adapter_work",
+      "real_proof_requires": "Configurable wait, skip-to-manual UI, disabled-timeout behaviour, and a replay of a late Speaches response against an already-edited revision showing no overwrite. GPU/model optional for this test; a blocked worker plus labelled or synthetic audio is enough, plus clock control.",
+      "honest_product_wording": "Wartezeit und manuelle Ersatzbearbeitung sind Produktlogik vor der Engine. Speaches liefert keine Job-Frist.",
+      "tests_not_passed": ["BT-ASR-003"],
+      "unverified": [
+        "Current Speakr processing job behaviour when ASR_TIMEOUT fires versus a late HTTP completion"
+      ]
+    },
+    {
+      "id": "PAR-ASR-004",
+      "title": "Optimierung aus geprüfter Korrektur",
+      "original_clause": "Fertigstellung kann geprüften Text oder Text+Audio zur Verbesserung von Wortschatz/Sprach-/Akustikmodell verwenden; Text+Audio verlangt vollständige Übereinstimmung.",
+      "speaches_capability": "No train, adapt, or pronunciation endpoint. faster-whisper hotwords/initial_prompt only inject decoder prompt tokens. CTranslate2 is inference-only; a separate Hugging Face Whisper fine-tune can later be converted with ct2-transformers-converter, which is not a Speaches job and is not correction-driven acoustic adaptation.",
+      "source_refs": [
+        "No matching router under src/speaches/routers at c78b77d",
+        "faster-whisper transcribe.py get_prompt hotwords (v1.1.1)",
+        "faster-whisper README Model conversion / ct2-transformers-converter",
+        "CTranslate2 README: efficient inference; converters, no trainer",
+        "requirements PAR-ASR-004 implementation_rule; V4-008; X4-013; WB-018; decisions D44"
+      ],
+      "classification": "not_supported_gap",
+      "real_proof_requires": "If the gap stays: CAPABILITY_UNAVAILABLE on train/pronunciation UI, no dummy success, no prompt stored as a model artefact (X4-013, WB-018). If an offline fine-tune is later proposed: GPU, labelled aligned German medical audio+text pairs with documented consent, a new CT2 artefact with eval WER vs baseline, and a versioned model id — still not Speaches-native and not this spike.",
+      "honest_product_wording": "Speaches/faster-whisper lernen nicht aus Korrekturen. Hotword- und Prompt-Biasing ist kein akustisches Training, kein Sprachmodell-Update und kein Aussprachetraining. train_capability ist false.",
+      "tests_not_passed": ["BT-ASR-004", "X4-013", "WB-018"],
+      "unverified": [
+        "Whether a clinic-legal offline Whisper fine-tune would beat prompt/hotword biasing on the future labelled set — no corpus exists in this spike"
+      ]
+    },
+    {
+      "id": "PAR-ASR-005",
+      "title": "Optimierungsfenster und Mindestdatenmenge",
+      "original_clause": "Zeitfenster können aufwendige Modelloptimierungen begrenzen; akustische Daten können gesammelt werden, bis genügend Material vorliegt.",
+      "speaches_capability": "None. There is no optimisation job type, no waiting_data state, and no minimum-audio policy in Speaches. A Speakr scheduler around a non-existent train job would still be a gap, not a windowed optimisation.",
+      "source_refs": [
+        "Speaches routers at c78b77d (stt, speech, vad, models, realtime, chat, misc only)",
+        "09_asr.json open_question: Handbuch nennt unter 180 Sekunden als nicht sinnvoll, nicht universell harte Untergrenze"
+      ],
+      "classification": "not_supported_gap",
+      "real_proof_requires": "Either keep CAPABILITY_UNAVAILABLE (insufficient data must not report succeeded), or a real local training pipeline with a documented minimum duration, a clock-bounded window, and parallel recognition jobs that stay a different job class. GPU plus labelled German medical audio only matter if that pipeline exists.",
+      "honest_product_wording": "Es gibt kein Optimierungsfenster, weil es keinen Optimierungsjob gibt. Hotword-Listen nachts umzuschreiben ist kein Modelltraining.",
+      "tests_not_passed": ["BT-ASR-005", "X4-013"],
+      "unverified": []
+    },
+    {
+      "id": "PAR-ASR-006",
+      "title": "Profil-Speicherung und Arbeitsstationswechsel",
+      "original_clause": "Profiländerungen lassen sich nie/nach Rückfrage/immer speichern und optional zentral hinterlegen; ein neuer Arbeitsplatz kann den gespeicherten Stand laden.",
+      "speaches_capability": "No profile persistence. Model files live in the Hugging Face cache of the Speaches host; request options are stateless. Never/ask/always save, central versioning, and second-workstation load are Speakr identity/config work around prompt, hotwords, language, model id — not engine speaker profiles.",
+      "source_refs": [
+        "models.py local HF cache only",
+        "Speakr user/tag/folder transcription defaults (tests/test_transcription_defaults.py)",
+        "BT-ASR-006; 09_asr.json open_question on stateless engine"
+      ],
+      "classification": "supported_with_adapter_work",
+      "real_proof_requires": "Persist never/ask/always for clinic ASR config (model, language, prompt/hotwords, live vs batch). Load the same versioned record on a second browser/workstation. Conflict UI. No biometric speaker identification. Disclose that the portable artefact is configuration, not a Dragon user acoustic profile.",
+      "honest_product_wording": "Gespeicherte Profile sind zentrale Konfiguration (Modell, Sprache, Hinweise). Sie sind kein mitgeführtes Akustikmodell und keine biometrische Sprecheridentifikation.",
+      "tests_not_passed": ["BT-ASR-006"],
+      "unverified": [
+        "Conflict behaviour of current Speakr user settings across two sessions"
+      ]
+    },
+    {
+      "id": "PAR-ASR-007",
+      "title": "Diktierquelle und Versand-Audioformat",
+      "original_clause": "Quelle kann während Sitzung gewechselt oder beim Start vorgegeben werden; für Versand ist Standardaudio oder unterstützte Kompression wählbar.",
+      "speaches_capability": "Speaches accepts a multipart audio file and decodes it (faster-whisper/PyAV). It is not a capture-source switcher and not the clinic send/export path. Speakr already converts uploads with ffmpeg (AUDIO_CODEC/BITRATE) and can refuse unsupported codecs; source change is web recorder or import-agent work.",
+      "source_refs": [
+        "stt.py AudioFileDependency",
+        "docs/usage/speech-to-text.md (audio format still TODO at this tag)",
+        "Speakr config/env.asr.example AUDIO_CODEC / AUDIO_UNSUPPORTED_CODECS",
+        "speech.py TTS formats mp3/flac/wav/pcm are synthesis, not dictation send"
+      ],
+      "classification": "supported_with_adapter_work",
+      "real_proof_requires": "Two real sources (e.g. Philips device via import-agent and browser mic), confirmed segment boundary on source change, ffmpeg-probed export of a declared codec that plays, and rejection of an unsupported format without extension relabel. Speaches need only transcribe the resulting PCM/file; codec claims must be probed, not inferred.",
+      "honest_product_wording": "Quellenwechsel und Versandcodec sind Aufnahme- und Exportfunktionen der Anwendung. Speaches transkribiert gelieferte Audiodateien; es definiert den Versandcodec nicht.",
+      "tests_not_passed": ["BT-ASR-007"],
+      "unverified": [
+        "Which clinic containers Speaches PyAV actually decodes at v0.8.3",
+        "dss-codec round-trip (S00 pin still unresolved in upstream-lock.json)"
+      ]
+    },
+    {
+      "id": "V4-008",
+      "title": "Echte ASR-Fähigkeiten",
+      "original_clause": "Capabilities aus realen Prüfungen, explizite Profil-/Lexikon-/Trainingssemantik; kein Hotwordprompt als Ersatz für akustische Optimierung.",
+      "speaches_capability": "This source review is the first capability inventory. Confirmed: batch STT, language, prompt, hotwords, VAD, word timestamps, model download/TTL, file SSE streaming, realtime WS/RTC (English TTS session defaults), TTS. Confirmed absent: acoustic training, pronunciation training, negative lexicon engine effect, speaker-acoustic profiles. Speakr already has a HOTWORDS/INITIAL_PROMPT capability enum; clinic defaults set training_mode=capability_gated and training_ui_without_capability_forbidden=true.",
+      "source_refs": [
+        "This file",
+        "decisions.json D08 D44",
+        "dev.defaults.json asr.training_mode / unverified_capability_success=false",
+        "X4-013 X4-014 WB-018",
+        "PAR-VOC-003 implementation_rule: Prompt oder Ergebnis-nachträglich-löschen ist kein harter Lexikonausschluss",
+        "PAR-VOC-007: Keine Behauptung dass Vorlesen Training sei"
+      ],
+      "classification": "supported_with_adapter_work",
+      "real_proof_requires": "Runtime capability flags from a live Speaches v0.8.3 probe (not this JSON). Training/pronunciation/negative-lexicon actions must return CAPABILITY_UNAVAILABLE. Hotword effect on labelled German medical terms must be measured and labelled biasing, never training. X4-014 needs a real recording after profile reload; UI storage alone is not a pass.",
+      "honest_product_wording": "Fähigkeiten sind die dieser Spike-Tabelle, nicht die DNS-Handbuchseite. Hotword-/Prompt-Biasing ist kein akustisches Training. train_capability bleibt false, bis ein unabhängiger, evaluierter Modellartefakt-Job existiert.",
+      "tests_not_passed": ["X4-013", "X4-014", "WB-018"],
+      "unverified": [
+        "Measured hotword lift on German medical terms",
+        "Negative-lexicon engine effect (not offered by Speaches; cannot pass X4-014 against this engine)",
+        "Realtime German transcription-only session at this tag"
+      ]
+    }
+  ],
+  "related_vocabulary_gaps_not_in_p10_scope_but_blocking_honesty": [
+    {
+      "id": "PAR-VOC-003",
+      "note": "Negative word list has no Speaches/faster-whisper API. Prompt omission or post-filtering is not a hard lexicon exclusion (implementation_rule). X4-014 cannot pass against this engine without a different ASR."
+    },
+    {
+      "id": "PAR-VOC-007",
+      "note": "No pronunciation training or phonetic editor. TTS playback of a spelling is not training."
+    }
+  ],
+  "classification_summary": [
+    {"id": "PAR-ASR-001", "classification": "supported_with_adapter_work"},
+    {"id": "PAR-ASR-002", "classification": "supported_with_adapter_work"},
+    {"id": "PAR-ASR-003", "classification": "supported_with_adapter_work"},
+    {"id": "PAR-ASR-004", "classification": "not_supported_gap"},
+    {"id": "PAR-ASR-005", "classification": "not_supported_gap"},
+    {"id": "PAR-ASR-006", "classification": "supported_with_adapter_work"},
+    {"id": "PAR-ASR-007", "classification": "supported_with_adapter_work"},
+    {"id": "V4-008", "classification": "supported_with_adapter_work"}
+  ],
+  "open_gaps": [
+    "Acoustic / language-model adaptation from reviewed corrections (PAR-ASR-004/005) — Speaches and CT2 cannot do this.",
+    "Speaker-acoustic profiles (DNS user profile) — disclose absence; config profiles only.",
+    "Negative lexicon engine effect (PAR-VOC-003 / X4-014).",
+    "Pronunciation / phonetic training (PAR-VOC-007).",
+    "Speakr /asr connector vs Speaches /v1/audio/transcriptions protocol mismatch.",
+    "Realtime default at v0.8.3 is English distil-whisper + Kokoro TTS, not German transcription-only.",
+    "No labelled German medical corpus, no GPU run, no WER in this spike.",
+    "clinic-spec markdown docs 14 and grok 11_ASR_Qualitaetsplan were not on disk in this worktree."
+  ],
+  "proposed_regression_benchmark_outline": {
+    "status": "proposal_only",
+    "extends": "clinic-spec/supplements/grok-review/tests/asr-benchmark-plan.json",
+    "truthfulness": "Fixtures and this spike do not pass hardware, model, or medical quality.",
+    "engine_pin": "speaches v0.8.3 c78b77d + recorded faster-whisper/CT2 versions + model id/revision",
+    "minimum_cases_when_lab_exists": {
+      "sources": {"philips_9600": 20, "philips_9620": 20, "browser_mic": 20},
+      "language_groups": ["Standarddeutsch", "Schweizer Aussprache"],
+      "content": "Approved German medical dictation phrases including clinic proper names; no unapproved real patient audio"
+    },
+    "conditions": [
+      "baseline: language=de, no prompt, no hotwords, vad_filter documented",
+      "hotword_bias: same audio with clinic lexicon in hotwords and/or prompt — report as biasing, never as training",
+      "bad_audio: truncated/silent file must isolate, not fail the queue",
+      "timeout_manual: blocked worker, skip-to-manual, late result must not overwrite"
+    ],
+    "metrics": [
+      "WER with documented normalization",
+      "critical errors by category (negation, dosage, names, laterality) raw vs after human correction",
+      "active correction seconds per audio minute",
+      "ASR latency median/P95",
+      "hotword lift vs baseline (delta WER on targeted terms only)"
+    ],
+    "gates_that_must_stay_failed_until_runtime": [
+      "BT-ASR-001..007",
+      "X4-013",
+      "X4-014",
+      "WB-018"
+    ]
+  }
+}
