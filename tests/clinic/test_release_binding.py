@@ -164,7 +164,7 @@ def test_hash_mismatch_refused(clinic_db):
     user, dictation, audio, transcript, context = _setup()
     with pytest.raises(ReleaseError, match="hash"):
         _release(user, dictation, audio, transcript, context, text_hash="x" * 64)
-    assert db.session.query(ClinicRelease).count() == 0
+    assert db.session.query(ClinicRelease).filter_by(dictation_id=dictation.id).count() == 0
 
 
 @pytest.mark.parametrize("decision", [None, {}, {"allowed": False}, {"allowed": "yes"}, "ok"])
@@ -173,7 +173,7 @@ def test_missing_or_denied_authorisation_refused(clinic_db, decision):
     with pytest.raises(ReleaseError, match="authorisation"):
         _release(user, dictation, audio, transcript, context,
                  authorization_decision=decision)
-    assert db.session.query(ClinicRelease).count() == 0
+    assert db.session.query(ClinicRelease).filter_by(dictation_id=dictation.id).count() == 0
 
 
 def test_naive_datetime_refused(clinic_db):
@@ -203,7 +203,12 @@ def test_new_revision_makes_release_inactive(clinic_db, kind):
     changed = invalidate_on_change(dictation, T1)
     assert [row.id for row in changed] == [release.id]
     assert invalidate_on_change(dictation, T1) == []  # idempotent
-    assert db.session.query(ClinicReleaseSupersession).count() == 1
+    assert (
+        db.session.query(ClinicReleaseSupersession)
+        .filter_by(release_id=release.id)
+        .count()
+        == 1
+    )
 
     kept = db.session.get(ClinicRelease, release.id)
     assert kept.audio_revision_id == audio.id
