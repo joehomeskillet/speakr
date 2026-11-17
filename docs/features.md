@@ -32,21 +32,13 @@ Uploads of files larger than 16 MB are sent as fixed-size slices through the sam
 
 ### Multi-Engine Support
 
-Speakr supports multiple transcription engines to match your needs and budget. Use [OpenAI's Whisper API](getting-started.md#option-a-openai-whisper-configuration) for quick, cloud-based transcription with excellent accuracy. Deploy the [recommended ASR container](getting-started.md#option-b-custom-asr-endpoint-configuration) for advanced features like speaker diarization and local processing. Use [Mistral Voxtral](getting-started/installation.md#for-mistral-voxtral-cloud-based-diarization) for cloud-based diarization via the Mistral API, or run [VibeVoice ASR](getting-started/installation.md#for-vibevoice-asr-self-hosted-via-vllm) on your own hardware for fully self-hosted transcription with diarization. For long, multi-speaker meetings, [AssemblyAI](getting-started/installation.md#for-assemblyai-cloud-based-diarization) offers cloud diarization and handles multi-hour files in a single job. For Chinese and English meetings, [Tencent Cloud ASR](advanced/tencent-asr.md) provides recording-file recognition with speaker labels and hotwords. See the [installation guide](getting-started/installation.md) for detailed setup instructions. The system automatically handles different audio formats, converting them as needed for optimal transcription quality.
+Speakr supports local and self-hosted transcription engines. Use an [OpenAI-compatible Whisper service](getting-started.md#option-a-openai-whisper-configuration) (such as Speaches) for local transcription. Deploy the [recommended ASR container](getting-started.md#option-b-custom-asr-endpoint-configuration) (WhisperX) for advanced features like speaker diarization and voice profiles. See the [installation guide](getting-started/installation.md) for detailed setup instructions. The system automatically handles different audio formats, converting them as needed for optimal transcription quality.
 
 ### Speaker Diarization
 
 When using the [ASR endpoint](getting-started.md#option-b-custom-asr-endpoint-configuration), Speakr automatically identifies different speakers in your recordings. If you encounter issues, check the [troubleshooting guide](troubleshooting.md#speaker-identification-not-working). Each speaker gets a unique label that you can later customize with actual names. The system remembers these speaker profiles, building a library that improves identification accuracy over time. Manage your speaker library in [account settings](user-guide/settings.md). This feature transforms multi-person meetings from walls of text into organized conversations.
 
-You can guide diarization with a speaker count. The upload, recording, and reprocess dialogs offer a Range / Exact toggle (remembered per user): Range sends a minimum and maximum, while Exact sends one number, and providers that only accept an exact count (such as OpenASR) show the single field automatically. Tag and folder defaults work with either form.
-
-**Self-Hosted Diarization with OpenASR**: OpenASR runs locally with an OpenAI-compatible API, diarizes with an exact speaker count, and, on servers from openasr#379 onward, returns speaker embeddings when `ASR_RETURN_SPEAKER_EMBEDDINGS=true`, so voice profiles work with it the same way they do with WhisperX.
-
-**Cloud Diarization with OpenAI**: When using OpenAI's `gpt-4o-transcribe-diarize` model, speaker diarization is also available. The letters returned by the service (A, B, C) are stored as `SPEAKER_00`, `SPEAKER_01`, `SPEAKER_02`. For longer files (over ~23 minutes) that require chunking, the system maintains speaker identity across chunks using audio reference samples. This technique supports **up to 4 speakers** - recordings with more speakers may have inconsistent labels across different sections of the transcript.
-
-**Cloud Diarization with Mistral**: Mistral's Voxtral model provides built-in speaker diarization and automatic language detection. It handles chunking internally, so long files work without extra configuration.
-
-**Self-Hosted Diarization with VibeVoice**: Microsoft's VibeVoice ASR model runs on your own hardware via vLLM and provides speaker diarization with timestamps and language detection for 50+ languages. It's a good option if you want the quality of a dedicated ASR model without any cloud dependency.
+You can guide diarization with a speaker count. The upload, recording, and reprocess dialogs offer a Range / Exact toggle (remembered per user): Range sends a minimum and maximum, while Exact sends one number. Tag and folder defaults work with either form.
 
 ### Interactive Audio Synchronization
 
@@ -68,10 +60,6 @@ Transcribe content in dozens of languages with automatic detection or manual sel
 ### Automatic Summarization
 
 Every recording receives an AI-generated summary that captures key points, decisions, and action items. Configure this through [custom prompts](admin-guide/prompts.md). Users can also set [personal prompts](user-guide/settings.md#custom-prompts-tab) for their recordings. Summaries adapt to your content type - technical meetings get detailed technical summaries, while casual conversations receive lighter overviews. Custom prompts let you shape summaries to match your specific needs. For optimal results, Speakr supports [advanced AI models](admin-guide/model-configuration.md) including OpenAI's GPT-5 series with specialized parameters for reasoning depth and output verbosity.
-
-### Event Extraction
-
-Speakr can automatically extract calendar-worthy events from your recordings during the summary process. When enabled in your account settings, the system identifies mentions of meetings, deadlines, appointments, and other time-sensitive items. Each detected event can be exported as an ICS file compatible with any calendar application. The feature intelligently parses relative date references and provides sensible defaults when specific times aren't mentioned. Learn more about [using event extraction](user-guide/transcripts.md#event-extraction) in your workflow.
 
 ### Interactive Chat
 
@@ -242,7 +230,7 @@ All tokens are hashed using SHA-256 before storage - the plaintext token is show
 
 Speakr can push outbound, HMAC-signed webhooks to your own endpoints when recordings move through their lifecycle. Subscriptions are managed from the account UI or the `/api/v1/webhooks` API, and delivery is resilient: failed sends are retried with exponential backoff, a subscription is auto-paused after repeated failures, and outbound requests are guarded by SSRF protection.
 
-The events that can be subscribed to are `recording.created`, `recording.transcription.started`, `recording.transcription.completed`, `recording.transcription.failed`, `recording.summary.completed`, `recording.summary.failed`, `recording.events.extracted`, `recording.updated`, and `recording.deleted`. See the [Webhooks admin guide](admin-guide/webhooks.md) for payload formats and setup.
+The events that can be subscribed to are `recording.created`, `recording.transcription.started`, `recording.transcription.completed`, `recording.transcription.failed`, `recording.summary.completed`, `recording.summary.failed`, `recording.updated`, and `recording.deleted`. See the [Webhooks admin guide](admin-guide/webhooks.md) for payload formats and setup.
 
 ## Advanced Capabilities
 
@@ -332,7 +320,7 @@ Track system health with comprehensive statistics and metrics. Monitor transcrip
 
 ### Token Usage Tracking & Budgets
 
-Monitor and control LLM API consumption with per-user token tracking and budget enforcement. The system tracks all AI operations including summarization, chat, title generation, and event extraction.
+Monitor and control LLM API consumption with per-user token tracking and budget enforcement. The system tracks all AI operations including summarization, chat and title generation.
 
 **Per-User Budgets**: Set monthly token limits for individual users to control costs. Users see their remaining budget in the interface and receive warnings at 80% consumption. Once a budget is exhausted, AI operations are blocked until the next month.
 

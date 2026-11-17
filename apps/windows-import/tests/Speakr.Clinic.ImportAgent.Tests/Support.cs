@@ -11,6 +11,8 @@ static class Temp
         return key;
     }
 
+    public static byte[] IntentKey { get; } = Enumerable.Range(1, 32).Select(i => (byte)i).ToArray();
+
     public static AgentOptions Options(
         string root,
         string spool,
@@ -31,6 +33,7 @@ static class Temp
             StabilitySamples = 3,
             StabilityIntervalSeconds = 2,
             PollIntervalSeconds = 15,
+            FinalizePollDelayMs = 0,
             Mode = mode,
             BackupFolder = backup ?? "",
             SpoolMaxBytes = spoolMax,
@@ -51,7 +54,7 @@ static class Temp
     }
 
     public static ImportOrchestrator Agent(AgentOptions options, IImportServer server, IImportLog? log = null) =>
-        ImportOrchestrator.Create(options, server, Key(), log);
+        ImportOrchestrator.Create(options, server, Key(), log, IntentKey);
 
     public static async Task<RunResult> Stabilize(ImportOrchestrator agent, DateTimeOffset start)
     {
@@ -60,14 +63,20 @@ static class Temp
         return await agent.RunOnceAsync(start.AddSeconds(4));
     }
 
-    public static ImportIntent Intent(InventoryItem item, string step) => new()
+    public static ImportIntent Intent(InventoryItem item, string step)
     {
-        IntentId = Guid.NewGuid().ToString(),
-        Kind = ImportIntentKind.ImportSnapshot,
-        SourceId = item.SourceId,
-        SnapshotVersion = item.SnapshotVersion,
-        PostStep = step
-    };
+        var intent = new ImportIntent
+        {
+            IntentId = Guid.NewGuid().ToString(),
+            Kind = ImportIntentKind.ImportSnapshot,
+            SourceId = item.SourceId,
+            SnapshotVersion = item.SnapshotVersion,
+            PostStep = step,
+            AgentId = "agent-1"
+        };
+        intent.Signature = IntentBinding.Sign(intent, "agent-1", IntentKey);
+        return intent;
+    }
 
     public static void Delete(params string[] paths)
     {

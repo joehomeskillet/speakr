@@ -218,7 +218,7 @@ def test_loggable_locator():
     assert loggable_locator(legacy) == "<stored file /data/uploads/20261115101500_0123456789ab.wav>"
     # A name of no known scheme: a keyed digest, never the extension alone (#620).
     assert re.fullmatch(r"<stored file /data/uploads/[0-9a-f]{10}\.m4a>", loggable_locator("/data/uploads/Jane Doe intake.m4a"))
-    assert re.fullmatch(r"<stored file funasr/42/[0-9a-f]{10}\.flac>", loggable_locator("funasr/42/Jane_Doe.flac"))
+    assert re.fullmatch(r"<stored file staging/42/[0-9a-f]{10}\.flac>", loggable_locator("staging/42/Jane_Doe.flac"))
     assert re.fullmatch(r"<stored file [0-9a-f]{10}>", loggable_locator("Jane Doe"))
     assert loggable_locator(None) == "<no file>"
     # The error text of the storage backend names the file as well.

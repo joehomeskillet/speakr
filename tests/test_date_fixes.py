@@ -1,9 +1,9 @@
-"""Date handling fixes from the #412 audit (search, Inquire, edits, watch folder, ICS, API v1).
+"""Date handling fixes from the #412 audit (search, Inquire, edits, watch folder, API v1).
 
 Dates are stored as naive UTC. These tests pin how calendar-day questions are
 answered in the viewer's timezone and that no end day is dropped.
 
-SHARED-DB: users, recordings, events and tokens are removed afterwards.
+SHARED-DB: users, recordings and tokens are removed afterwards.
 """
 
 import os
@@ -12,7 +12,6 @@ import secrets
 import sys
 import tempfile
 from datetime import date, datetime, timedelta
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -23,7 +22,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.app import app, db
 from src.models import APIToken, Recording, User
-from src.services.calendar import generate_combined_ics, generate_ics_content
 from src.utils.token_auth import hash_token
 
 app.config["WTF_CSRF_ENABLED"] = False
@@ -157,25 +155,6 @@ def test_file_mtime_is_naive_utc_whatever_the_server_zone():
             else:
                 os.environ["TZ"] = old
             time.tzset()
-
-
-# ------------------------------------------------------------ B7: ICS
-
-def _event(i, title):
-    return SimpleNamespace(id=i, title=title, description="Plan, review; decide", location=None,
-                           start_datetime=datetime(2026, 3, 9, 9, 0), end_datetime=None,
-                           attendees=None, reminder_minutes=None)
-
-
-def test_ics_stamp_is_utc_and_both_downloads_share_one_builder():
-    single = generate_ics_content(_event(1, "Review"))
-    assert re.search(r"^DTSTAMP:\d{8}T\d{6}Z\r?$", single, re.M)
-    combined = generate_combined_ics([_event(1, "Review"), _event(2, "Launch, v2")])
-    assert combined.count("BEGIN:VEVENT") == 2 and combined.startswith("BEGIN:VCALENDAR")
-    assert "SUMMARY:Launch\\, v2" in combined             # escaped as in the single download
-    assert "DTEND:20260309T100000" in combined            # default one-hour end
-    v1 = open(os.path.join(ROOT, "src", "api", "api_v1.py"), encoding="utf-8").read()
-    assert "generate_combined_ics" in v1 and "ics_lines" not in v1
 
 
 # ------------------------------------------------- B8: API v1 date filters

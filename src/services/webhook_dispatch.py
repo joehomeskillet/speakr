@@ -107,6 +107,9 @@ def _max_per_user() -> int:
 
 
 def _global_enabled() -> bool:
+    from src.clinic.config import feature_locked
+    if feature_locked('user_webhooks'):
+        return False
     return os.environ.get('WEBHOOK_GLOBAL_ENABLED', 'true').lower() != 'false'
 
 

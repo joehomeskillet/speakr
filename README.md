@@ -49,7 +49,6 @@ Speakr turns a recording into organized, searchable, shareable knowledge. Here i
 
 ### Understand
 - **Summaries** - generated automatically, with prompts you can fully customize per recording, tag, or folder (including reusable prompt variables).
-- **Event extraction** - surface action items and calendar-worthy events from a transcript.
 - **Per-recording chat** - ask questions about a single recording in a floating, dockable panel; answers cite transcript timestamps as clickable chips that start playback at that moment.
 - **Inquire Mode** - semantic search and natural-language chat across your entire library at once. An optional **agentic mode** (opt-in beta) upgrades this to an AI researcher that iteratively searches, lists, and reads your recordings until it can answer - showing every step live, and citing its sources with numbered links that open the recording and start playback at the cited segment. Ask "what did we decide about the pricing change, and did anyone disagree?" and it reads across the relevant meetings and cites each position back to where it was said. You decide what it may read: transcripts always, summaries and private notes only if you allow them.
 
@@ -158,25 +157,18 @@ docker compose up -d
 
 ### Transcription Options
 
-Speakr uses a **connector-based architecture** that auto-detects your transcription provider:
+Speakr uses a **connector-based architecture** for local and self-hosted transcription:
 
 | Option | Setup | Speaker Diarization | Voice Profiles |
 |--------|-------|---------------------|----------------|
-| **OpenAI Transcribe** | API key | Yes (`gpt-4o-transcribe-diarize`) | No |
-| **WhisperX ASR** | GPU container | Yes (best quality) | Yes |
-| **Mistral Voxtral** | API key | Yes (built-in) | No |
-| **VibeVoice ASR** | Self-hosted (vLLM) | Yes (built-in) | No |
-| **MOSI/Mossland MOSS** | Hosted API key | Yes (built-in) | No |
-| **AssemblyAI** | API key | Yes (built-in) | No |
-| **Tencent Cloud ASR** | API keys (+ S3/COS bucket for files over 5 MiB) | Yes (built-in) | No |
-| **OpenASR** | Self-hosted server | Yes (built-in) | No |
-| **Alibaba FunASR** | API key + OSS bucket | Yes (built-in) | No |
-| **Legacy Whisper** | API key | No | No |
+| **Local OpenAI-compatible Whisper** (e.g. Speaches) | `TRANSCRIPTION_BASE_URL` | Optional | No |
+| **WhisperX ASR** (`asr_endpoint`) | GPU container | Yes (best quality) | Yes |
 
-**Simplest setup (OpenAI with diarization):**
+**Local OpenAI-compatible Whisper (e.g. Speaches):**
 ```bash
-TRANSCRIPTION_API_KEY=sk-your-openai-key
-TRANSCRIPTION_MODEL=gpt-4o-transcribe-diarize
+TRANSCRIPTION_CONNECTOR=openai_whisper
+TRANSCRIPTION_BASE_URL=http://speaches:8000/v1
+TRANSCRIPTION_MODEL=Systran/faster-whisper-large-v3
 ```
 
 **Best quality (Self-hosted WhisperX):**
@@ -185,44 +177,6 @@ ASR_BASE_URL=http://whisperx-asr:9000
 ASR_RETURN_SPEAKER_EMBEDDINGS=true  # Enable voice profiles
 ```
 Requires [WhisperX ASR Service](https://github.com/murtaza-nasir/whisperx-asr-service) container with GPU.
-
-**Mistral Voxtral (cloud diarization):**
-```bash
-TRANSCRIPTION_CONNECTOR=mistral
-TRANSCRIPTION_API_KEY=your-mistral-key
-TRANSCRIPTION_MODEL=voxtral-mini-latest
-```
-
-**VibeVoice ASR (self-hosted, no cloud dependency):**
-```bash
-TRANSCRIPTION_CONNECTOR=vibevoice
-TRANSCRIPTION_BASE_URL=http://your-vllm-server:8000
-TRANSCRIPTION_MODEL=vibevoice
-```
-Requires [VibeVoice](https://huggingface.co/microsoft/VibeVoice-ASR) served via vLLM with GPU.
-
-**MOSI/Mossland MOSS (hosted multi-speaker transcription):**
-```bash
-TRANSCRIPTION_CONNECTOR=mossland
-TRANSCRIPTION_API_KEY=your-mosi-api-key
-TRANSCRIPTION_MODEL=moss-transcribe-diarize
-```
-Create a key in the [MOSI API Key console](https://studio.mosi.cn/app/api-keys). The connector keeps long recordings in one provider task so speaker labels remain consistent, and it resumes stalled SSE jobs through task polling without submitting a duplicate. This connector uploads recordings to the third-party MOSI/Mossland service at `api.mosi.cn`; audio is not processed entirely on your self-hosted Speakr instance.
-
-**AssemblyAI (cloud diarization, long multi-speaker meetings):**
-```bash
-TRANSCRIPTION_CONNECTOR=assemblyai
-TRANSCRIPTION_API_KEY=your-assemblyai-key
-```
-Handles multi-hour, multi-speaker files in a single job. New accounts get free credits with no card required.
-
-**Tencent Cloud ASR (Chinese and English meetings):**
-```bash
-TRANSCRIPTION_CONNECTOR=tencent_asr
-TENCENT_SECRET_ID=your-secret-id
-TENCENT_SECRET_KEY=your-secret-key
-```
-Files over 5 MiB are passed to Tencent through an S3-compatible bucket such as Tencent COS. See the [Tencent ASR guide](https://murtaza-nasir.github.io/speakr/advanced/tencent-asr) for engines and storage.
 
 > **PyTorch 2.6 Users:** If you encounter a "Weights only load failed" error with WhisperX, add `TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=true` to your ASR container. See [troubleshooting](https://murtaza-nasir.github.io/speakr/troubleshooting#pytorch-26-weights-loading-error-whisperx-asr-service) for details.
 

@@ -26,7 +26,7 @@ describe('errorTextMatches', () => {
     it('tests a RegExp pattern as a regex', () => {
         // The no-speech code, anchored so that Whisper's no_speech_prob does not match.
         const noSpeech = /\bno_speech\b/;
-        expect(errorTextMatches('openasr request failed (status 400): {"error":{"code":"no_speech"}}', noSpeech)).toBe(true);
+        expect(errorTextMatches('asr request failed (status 400): {"error":{"code":"no_speech"}}', noSpeech)).toBe(true);
         expect(errorTextMatches('asr request failed: no_speech', noSpeech)).toBe(true);
         expect(errorTextMatches('{"segments":[{"no_speech_prob":0.91}]} invalid request', noSpeech)).toBe(false);
     });

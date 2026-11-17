@@ -8,7 +8,6 @@ Speakr uses AI models for several key features:
 
 - **Summary Generation**: Creating intelligent summaries of your transcriptions
 - **Title Generation**: Automatically generating descriptive titles for recordings
-- **Event Extraction**: Identifying calendar-worthy events from conversations
 - **Interactive Chat**: Answering questions about your recordings
 - **Speaker Identification**: Detecting speaker names from conversation context
 
@@ -489,9 +488,6 @@ CHAT_MAX_TOKENS=2000
 # Bump for reasoning models (o1, Kimi 2.5, etc.) that consume budget on hidden thinking tokens
 TITLE_MAX_TOKENS=200
 
-# Optional: Maximum tokens for event extraction from transcripts (default: 4000)
-EVENT_MAX_TOKENS=4000
-
 # Optional: Prefix-cache-friendly title/summary prompts (default: false). See below.
 PREFIX_CACHE_OPTIMIZED_PROMPTS=false
 # Optional: cache breakpoints for Anthropic models (default: false). See below.
@@ -564,7 +560,7 @@ trailing instructions.
 - You want the exact upstream prompt wording. With the flag off, prompts are
   unchanged.
 
-Scope is title + summary only. The flag has no effect on chat, event extraction,
+Scope is title + summary only. The flag has no effect on chat
 or other calls.
 
 ### Enabling prefix caching on your backend
@@ -641,9 +637,9 @@ By default Speakr uses the single `TRANSCRIPTION_MODEL` set in `.env` for every 
 
 ```bash
 # Comma-separated list of model identifiers users can pick.
-TRANSCRIPTION_MODELS_AVAILABLE=whisper-1,gpt-4o-transcribe,gpt-4o-transcribe-diarize,vibevoice
+TRANSCRIPTION_MODELS_AVAILABLE=whisper-1,whisper-large-v3
 # Optional parallel list of display names. Falls back to the model id when omitted.
-TRANSCRIPTION_MODEL_LABELS=Whisper,GPT-4o,GPT-4o (Diarize),VibeVoice
+TRANSCRIPTION_MODEL_LABELS=Whisper-1,Whisper Large v3
 ```
 
 When the list is non-empty, a "Transcription model" dropdown appears in the upload form's Advanced ASR Options and in the reprocess modal. Tags and folders also gain a "Default transcription model" field in their edit forms — set one and any recording uploaded with that tag or in that folder uses the chosen model unless the user picks a different one at upload time.
@@ -658,16 +654,16 @@ Resolution order at upload time:
 
 If the override isn't in `TRANSCRIPTION_MODELS_AVAILABLE`, it's dropped with a warning in the log and the recording uses the connector's own model, which guards against stale browser caches sending old model ids. The same resolution applies to reprocessing, bulk reprocessing, API v1, watch folders, incognito mode and the startup voice embedding check.
 
-The override is propagated to the connector via the `model` field on `TranscriptionRequest`. Connectors that key on a model name (OpenAI Whisper / Transcribe, Mistral, VibeVoice) honour it directly. The `asr_endpoint` connector forwards the override as a `model=` query parameter; the [whisperx-asr-service](https://github.com/murtaza-nasir/whisperx-asr-service) fork uses it to switch the loaded Whisper model on demand, while the upstream `ahmetoner/whisper-asr-webservice` ignores unknown query parameters, so the override is safe in either case.
+The override is propagated to the connector via the `model` field on `TranscriptionRequest`. Connectors that key on a model name (OpenAI Whisper) honour it directly. The `asr_endpoint` connector forwards the override as a `model=` query parameter; the [whisperx-asr-service](https://github.com/murtaza-nasir/whisperx-asr-service) fork uses it to switch the loaded Whisper model on demand, while the upstream `ahmetoner/whisper-asr-webservice` ignores unknown query parameters, so the override is safe in either case.
 
 !!! warning "List only models compatible with the active connector"
-    The dropdown changes the model name **within the currently active connector**; it does not switch between providers. Speakr selects exactly one connector at startup based on `TRANSCRIPTION_CONNECTOR`, `USE_ASR_ENDPOINT`, and `TRANSCRIPTION_BASE_URL`, and every transcription request is routed there. If the list contains a model name the active connector does not recognise (for example, putting `gpt-4o-transcribe` in the list while `USE_ASR_ENDPOINT=true` is set), requests for that model fail with a 500 from the upstream service.
+    The dropdown changes the model name **within the currently active connector**; it does not switch between providers. Speakr selects exactly one connector at startup based on `TRANSCRIPTION_CONNECTOR`, `USE_ASR_ENDPOINT`, and `TRANSCRIPTION_BASE_URL`, and every transcription request is routed there. If the list contains a model name the active connector does not recognise, requests for that model fail with a 500 from the upstream service.
 
-    For a WhisperX backend, list Whisper variants (`large-v3`, `medium`, `distil-medium.en`, etc.). For OpenAI's API, list `whisper-1`, `gpt-4o-transcribe`, `gpt-4o-mini-transcribe`, `gpt-4o-transcribe-diarize`. Mixing providers in one dropdown is a planned feature for a future release.
+    For a WhisperX backend, list Whisper variants (`large-v3`, `medium`, `distil-medium.en`, etc.). For OpenAI-compatible Whisper, list supported model identifiers (e.g. `whisper-1`, `Systran/faster-whisper-large-v3`). Mixing providers in one dropdown is a planned feature for a future release.
 
 ### Admin-Managed Model List with `/v1/models` Discovery
 
-For connectors that expose an OpenAI-compatible `/v1/models` endpoint (OpenAI, Azure OpenAI, vLLM, and the WhisperX ASR service when configured to advertise its loaded models), admins can curate the available list directly from the **Default Prompts → Transcription Models** section of the admin dashboard rather than via env var. Click "Refresh from connector" to query `/v1/models`, tick the models you want users to see, and save.
+For connectors that expose an OpenAI-compatible `/v1/models` endpoint (such as Speaches or the WhisperX ASR service when configured to advertise its loaded models), admins can curate the available list directly from the **Default Prompts → Transcription Models** section of the admin dashboard rather than via env var. Click "Refresh from connector" to query `/v1/models`, tick the models you want users to see, and save.
 
 The DB-backed list (stored in the `system_setting` table) overrides `TRANSCRIPTION_MODELS_AVAILABLE` when set. To revert to env-var control, clear the list in the dashboard. The env var is still useful for installations where the connector does not advertise its models or where you want config-as-code behaviour.
 
@@ -744,18 +740,6 @@ API mode does not require sentence-transformers to be installed, so the lightwei
 ### Compatibility Note
 
 The active embedding identifier (provider plus model) is recorded in `system_setting` on first startup. If you later change `EMBEDDING_MODEL` or `EMBEDDING_BASE_URL`, Speakr logs a warning at startup and Inquire mode will return wrong results until you reprocess affected recordings, because chunks embedded with the previous configuration occupy a different vector space. To rebuild embeddings after a change, reprocess each recording.
-
-## Mistral Voxtral Chunking
-
-Voxtral handles up to 3 hours per request natively, but the cloud API can time out near that limit on long meeting recordings. To opt into app-side chunking for the Mistral connector:
-
-```bash
-TRANSCRIPTION_CONNECTOR=mistral
-MISTRAL_ENABLE_CHUNKING=true
-MISTRAL_MAX_DURATION_SECONDS=7200   # 2 hours; chunks at 80% of this
-```
-
-Diarization across chunks: Mistral doesn't return voice embeddings, so speakers are remapped per chunk (`SPEAKER_00` in chunk 1 ≠ `SPEAKER_00` in chunk 2). If you need consistent speaker identity across an entire long recording, use `gpt-4o-transcribe-diarize` (uses known-speaker references) or `whisperx-asr-service` with embeddings enabled.
 
 ## Troubleshooting
 

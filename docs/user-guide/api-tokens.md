@@ -39,7 +39,7 @@ A token with scopes can call only the API v1 routes those scopes cover. The scop
 
 | Scope | Allows |
 |-------|--------|
-| `read` | Every GET under `/api/v1` except webhook management: recordings, transcripts, summaries, notes, events, speakers, tags, folders, statistics, audio download |
+| `read` | Every GET under `/api/v1` except webhook management: recordings, transcripts, summaries, notes, speakers, tags, folders, statistics, audio download |
 | `write` | Editing recordings, notes and summaries; adding and removing tags; creating and editing tags, folders and speakers; assigning speakers |
 | `upload` | `POST /recordings/upload` and the ASR Voice Recorder upload |
 | `process` | Requests that use model or GPU time: transcribe, summarize, regenerate title, identify speakers, chat |

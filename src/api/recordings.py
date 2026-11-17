@@ -1089,7 +1089,7 @@ def index(recording_id=None, label_name=None):
     # Defaults to USE_ASR_ENDPOINT for backwards compatibility
     connector_supports_diarization = USE_ASR_ENDPOINT
     connector_supports_speaker_count = USE_ASR_ENDPOINT  # ASR endpoint supports min/max speakers
-    connector_supports_exact_speaker_count = False  # Exact-N connectors (openasr) declare it (#362)
+    connector_supports_exact_speaker_count = False  # Exact-N connectors declare it (#362)
     connector_supports_hotwords = USE_ASR_ENDPOINT
     connector_supports_initial_prompt = USE_ASR_ENDPOINT
     if USE_NEW_TRANSCRIPTION_ARCHITECTURE:
@@ -3165,7 +3165,7 @@ def get_status(recording_id):
         if not recording or not has_recording_access(recording, current_user):
             return jsonify(api_error('recording_not_found')), 404
 
-        # Ensure events are loaded (refresh the recording to get latest relationships)
+        # Refresh the recording to get latest relationships
         db.session.refresh(recording)
 
         # Get recording dict and enrich with per-user status

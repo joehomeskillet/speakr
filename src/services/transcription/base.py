@@ -83,7 +83,7 @@ class TranscriptionRequest:
 
     # Per-request model override. When set, the connector uses this model name
     # instead of its configured default. Only honoured if the connector supports
-    # multiple models (asr_endpoint, openai_*, mistral). Issue #266.
+    # multiple models (asr_endpoint, openai_whisper). Issue #266.
     model: Optional[str] = None
 
     # Provider-specific options (passthrough)

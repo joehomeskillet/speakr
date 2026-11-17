@@ -4,9 +4,9 @@ Transcription service package.
 Provides a connector-based architecture for speech-to-text transcription
 with support for multiple providers:
 
-- OpenAI Whisper (whisper-1)
-- OpenAI GPT-4o Transcribe (gpt-4o-transcribe, gpt-4o-mini-transcribe, gpt-4o-transcribe-diarize)
-- Custom ASR endpoints (whisper-asr-webservice, WhisperX, etc.)
+- OpenAI Whisper / Speaches compatible local API (openai_whisper)
+- Custom self-hosted ASR endpoints (asr_endpoint)
+- Offline synthetic test stub (clinic_stub)
 
 Usage:
     from src.services.transcription import (
@@ -60,9 +60,8 @@ from .registry import (
 
 from .connectors import (
     OpenAIWhisperConnector,
-    OpenAITranscribeConnector,
     ASREndpointConnector,
-    AlibabaFunASRConnector,
+    ClinicStubTranscriptionConnector,
 )
 
 __all__ = [
@@ -94,7 +93,6 @@ __all__ = [
 
     # Connectors
     'OpenAIWhisperConnector',
-    'OpenAITranscribeConnector',
     'ASREndpointConnector',
-    'AlibabaFunASRConnector',
+    'ClinicStubTranscriptionConnector',
 ]

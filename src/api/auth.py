@@ -193,6 +193,10 @@ def registration_enabled() -> bool:
     the page never advertises a route that refuses (#479). Read per request:
     the environment can change under the test suite.
     """
+    from src.clinic.config import setting_ceiling
+    locked, forced = setting_ceiling('allow_registration')  # clinic ceiling (R-050)
+    if locked:
+        return bool(forced)
     try:
         from src.models import SystemSetting
         row = SystemSetting.query.filter_by(key='allow_registration').first()
@@ -1002,8 +1006,6 @@ def account():
             if 'title_prompt' in request.form:
                 title_prompt_text = (request.form.get('title_prompt') or '').strip()
                 current_user.title_prompt = title_prompt_text or None
-            # Handle event extraction setting
-            current_user.extract_events = 'extract_events' in request.form
             # Inquire content availability (agentic inquire). Gated on the
             # marker field so form submissions without this section cannot
             # clobber the settings (same reasoning as audio_player_position).

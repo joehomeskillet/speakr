@@ -1033,15 +1033,15 @@ def extract_speaker_samples(
     Extract audio samples for each unique speaker from diarized segments.
 
     This is used to maintain speaker identity across chunks when processing
-    long audio files with the gpt-4o-transcribe-diarize model.
+    long audio files with speaker diarization.
 
     Args:
         audio_path: Path to the source audio file (should be the converted chunk MP3)
         segments: List of diarized segments with speaker, start_time, end_time
         output_dir: Directory to store extracted speaker samples
-        min_duration: Minimum duration for a speaker sample (OpenAI requires 1.2-10s)
+        min_duration: Minimum duration for a speaker sample (e.g. 1.2-10s)
         max_duration: Maximum duration for a speaker sample
-        max_speakers: Maximum number of speakers to extract (OpenAI supports up to 4)
+        max_speakers: Maximum number of speakers to extract (up to 4)
 
     Returns:
         Dict mapping speaker label (e.g., "A", "B") to path of extracted audio sample

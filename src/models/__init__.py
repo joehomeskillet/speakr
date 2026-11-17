@@ -6,7 +6,7 @@ This package contains all database models organized by domain:
 - Recording and transcript models
 - Sharing models (public and internal)
 - Organization models (groups and tags)
-- Event, template, and search session models
+- Template and search session models
 - System configuration models
 """
 
@@ -24,7 +24,6 @@ from .external_ref import RecordingExternalRef
 from .sharing import Share, InternalShare, SharedRecordingState
 from .organization import Group, GroupMembership, Tag, RecordingTag, Folder
 from .permission import PermissionGrant
-from .events import Event
 from .templates import TranscriptTemplate
 from .naming_template import NamingTemplate
 from .export_template import ExportTemplate
@@ -81,7 +80,6 @@ __all__ = [
     'Folder',
     'PermissionGrant',
     # Other models
-    'Event',
     'TranscriptTemplate',
     'NamingTemplate',
     'ExportTemplate',

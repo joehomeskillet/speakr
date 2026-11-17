@@ -149,27 +149,3 @@ def test_asr_ok_html_body_stays_a_status_only_error(caplog):
     _assert_clean(message)
     _assert_clean(caplog.text)
 
-
-def test_openasr_html_error_omits_the_page(caplog):
-    from src.services.transcription.connectors.openasr import OpenASRTranscriptionConnector
-    connector = OpenASRTranscriptionConnector({'base_url': 'http://asr.test:8000', 'model': 'whisper-1'})
-    with patch('src.services.transcription.connectors.openasr.httpx.Client',
-               return_value=_Client(502, GATEWAY_PAGE)), caplog.at_level(logging.DEBUG):
-        with pytest.raises(TranscriptionError) as exc:
-            connector.transcribe(_request())
-    assert 'status 502' in str(exc.value)
-    _assert_clean(str(exc.value))
-    _assert_clean(caplog.text)
-
-
-def test_funasr_html_error_omits_the_page(caplog):
-    from src.services.transcription.connectors.alibaba_funasr import AlibabaFunASRConnector
-    connector = AlibabaFunASRConnector({'api_key': 'k-test', 'base_url': 'https://funasr.test/api/v1'})
-    request = TranscriptionRequest(audio_file=io.BytesIO(b'x'), filename='clip.wav',
-                                   extra_options={'funasr_file_urls': ['https://files.test/clip.wav']})
-    with patch('src.services.transcription.connectors.alibaba_funasr.httpx.Client',
-               return_value=_Client(503, GATEWAY_PAGE)), caplog.at_level(logging.DEBUG):
-        with pytest.raises(TranscriptionError) as exc:
-            connector.transcribe(request)
-    _assert_clean(str(exc.value))
-    _assert_clean(caplog.text)

@@ -19,9 +19,8 @@ services:
     #    cp config/env.transcription.example .env
     #
     #    This supports all providers with auto-detection:
-    #    - OpenAI GPT-4o with diarization (set TRANSCRIPTION_MODEL=gpt-4o-transcribe-diarize)
     #    - Self-hosted ASR/WhisperX (set ASR_BASE_URL=http://your-asr:9000)
-    #    - Legacy Whisper (set TRANSCRIPTION_MODEL=whisper-1)
+    #    - OpenAI-compatible Whisper (set TRANSCRIPTION_BASE_URL=http://your-whisper:8000/v1)
     #
     #    Legacy config files (still supported):
     #    - config/env.whisper.example    - Standard Whisper API

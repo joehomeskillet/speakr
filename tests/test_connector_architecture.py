@@ -180,12 +180,11 @@ def test_auto_detection():
     def t4():
         clear_env()
         reset_registry()
-        os.environ['TRANSCRIPTION_API_KEY'] = 'test-key'
-        os.environ['TRANSCRIPTION_MODEL'] = 'gpt-4o-transcribe-diarize'
+        os.environ['TRANSCRIPTION_CONNECTOR'] = 'clinic_stub'
         registry = get_registry()
         registry.initialize_from_env()
-        assert registry.get_active_connector_name() == 'openai_transcribe'
-    run_test("gpt-4o model auto-detects openai_transcribe", t4)
+        assert registry.get_active_connector_name() == 'clinic_stub'
+    run_test("TRANSCRIPTION_CONNECTOR clinic_stub initializes clinic_stub", t4)
 
     def t5():
         clear_env()
@@ -226,8 +225,8 @@ def test_connector_specifications():
     print("\n=== Testing Connector Specifications ===")
 
     from src.services.transcription.connectors.openai_whisper import OpenAIWhisperConnector
-    from src.services.transcription.connectors.openai_transcribe import OpenAITranscribeConnector
     from src.services.transcription.connectors.asr_endpoint import ASREndpointConnector
+    from src.services.transcription.connectors.clinic_stub import ClinicStubTranscriptionConnector
     from src.services.transcription.base import TranscriptionCapability
 
     def t1():
@@ -242,12 +241,6 @@ def test_connector_specifications():
         assert 'opus' in specs.unsupported_codecs
     run_test("OpenAI Whisper declares opus as unsupported", t2)
 
-    def t3():
-        specs = OpenAITranscribeConnector.SPECIFICATIONS
-        assert specs.handles_chunking_internally is False  # App must chunk for OpenAI Transcribe
-        assert specs.requires_chunking_param is True  # Must send chunking_strategy param for >30s
-    run_test("OpenAI Transcribe requires app-level chunking with chunking_strategy param", t3)
-
     def t4():
         specs = ASREndpointConnector.SPECIFICATIONS
         assert specs.max_file_size_bytes is None
@@ -258,13 +251,6 @@ def test_connector_specifications():
         assert TranscriptionCapability.DIARIZATION not in OpenAIWhisperConnector.CAPABILITIES
     run_test("OpenAI Whisper does NOT support diarization", t5)
 
-    def t6():
-        # Diarization is added dynamically based on model at instance level
-        connector = OpenAITranscribeConnector({'api_key': 'test', 'model': 'gpt-4o-transcribe-diarize'})
-        assert TranscriptionCapability.DIARIZATION in connector.CAPABILITIES
-        assert connector.supports_diarization is True
-    run_test("OpenAI Transcribe with diarize model supports diarization", t6)
-
     def t7():
         assert TranscriptionCapability.DIARIZATION in ASREndpointConnector.CAPABILITIES
         assert TranscriptionCapability.SPEAKER_COUNT_CONTROL in ASREndpointConnector.CAPABILITIES
@@ -272,7 +258,6 @@ def test_connector_specifications():
 
     def t8():
         assert TranscriptionCapability.SPEAKER_COUNT_CONTROL not in OpenAIWhisperConnector.CAPABILITIES
-        assert TranscriptionCapability.SPEAKER_COUNT_CONTROL not in OpenAITranscribeConnector.CAPABILITIES
     run_test("OpenAI connectors do NOT support speaker count control", t8)
 
 
@@ -434,7 +419,7 @@ def test_connector_capabilities():
     print("\n=== Testing Connector Capabilities ===")
 
     from src.services.transcription.connectors.asr_endpoint import ASREndpointConnector
-    from src.services.transcription.connectors.openai_transcribe import OpenAITranscribeConnector
+    from src.services.transcription.connectors.openai_whisper import OpenAIWhisperConnector
     from src.services.transcription.base import TranscriptionCapability
 
     def t1():
@@ -448,10 +433,10 @@ def test_connector_capabilities():
     run_test("ASR connector supports_speaker_count_control property", t2)
 
     def t3():
-        connector = OpenAITranscribeConnector({'api_key': 'test-key', 'model': 'gpt-4o-transcribe-diarize'})
-        assert connector.supports_diarization is True
+        connector = OpenAIWhisperConnector({'api_key': 'test-key'})
+        assert connector.supports_diarization is False
         assert connector.supports_speaker_count_control is False
-    run_test("OpenAI Transcribe supports diarization but not speaker_count_control", t3)
+    run_test("OpenAI Whisper supports neither diarization nor speaker_count_control", t3)
 
     def t4():
         connector = ASREndpointConnector({'base_url': 'http://test:9000'})
@@ -477,8 +462,9 @@ def test_registry_operations():
         connectors = registry.list_connectors()
         names = [c['name'] for c in connectors]
         assert 'openai_whisper' in names
-        assert 'openai_transcribe' in names
         assert 'asr_endpoint' in names
+        assert 'clinic_stub' in names
+        assert 'openai_transcribe' not in names
     run_test("Registry lists all built-in connectors", t1)
 
     def t2():
@@ -500,9 +486,9 @@ def test_registry_operations():
         registry.initialize_from_env()
         assert registry.get_active_connector_name() == 'openai_whisper'
 
-        os.environ['TRANSCRIPTION_MODEL'] = 'gpt-4o-transcribe-diarize'
+        os.environ['TRANSCRIPTION_CONNECTOR'] = 'clinic_stub'
         registry.reinitialize()
-        assert registry.get_active_connector_name() == 'openai_transcribe'
+        assert registry.get_active_connector_name() == 'clinic_stub'
     run_test("reinitialize() resets the active connector", t3)
 
 

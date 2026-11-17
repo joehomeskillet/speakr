@@ -78,6 +78,9 @@ class OpenAIWhisperConnector(BaseTranscriptionConnector):
 
     def _validate_config(self) -> None:
         """Validate required configuration."""
+        from ..local_only import validate_clinic_base_url
+        validate_clinic_base_url(self.config.get('base_url'))
+
         if not self.config.get('api_key'):
             raise ConfigurationError("api_key is required for OpenAI Whisper connector")
 

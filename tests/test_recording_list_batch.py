@@ -42,7 +42,7 @@ import src.api.recordings as rec_module
 import src.api.shares as shares_module
 from src.app import app, db
 from src.models import (
-    APIToken, Event, ExportTemplate, Folder, Group, GroupMembership, InternalShare, NamingTemplate, Recording,
+    APIToken, ExportTemplate, Folder, Group, GroupMembership, InternalShare, NamingTemplate, Recording,
     RecordingTag, Share, SharedRecordingState, SystemSetting, Tag, User,
 )
 from src.utils.token_auth import hash_token
@@ -141,7 +141,7 @@ def _cleanup(user_ids, group_ids):
         db.session.rollback()
         rec_ids = [r for (r,) in db.session.query(Recording.id).filter(Recording.user_id.in_(user_ids))]
         if rec_ids:
-            for model in (RecordingTag, Share, InternalShare, SharedRecordingState, Event):
+            for model in (RecordingTag, Share, InternalShare, SharedRecordingState):
                 model.query.filter(model.recording_id.in_(rec_ids)).delete(synchronize_session=False)
             Recording.query.filter(Recording.id.in_(rec_ids)).delete(synchronize_session=False)
         Tag.query.filter(Tag.user_id.in_(user_ids)).delete(synchronize_session=False)
@@ -357,7 +357,6 @@ def world():
         _tag(c, t_personal, 0)
         _tag(e, t_member, 0)
         _tag(e, t_personal, 1)
-        db.session.add(Event(recording_id=a.id, title="Kickoff", start_datetime=base, location="Room 1"))
         _share(a, o1, can_edit=True)
         _share(a, o2)
         db.session.add(Share(recording_id=a.id, user_id=viewer.id))
@@ -526,7 +525,6 @@ def _build_scenario(kind, n):
                     rec.file_hash = f"hash{i // 2}-{viewer.id}"    # pairs of duplicates
                     rec.notes = f"notes {i}"
                     _tag(rec, tag, 0)
-                    db.session.add(Event(recording_id=rec.id, title=f"e{i}", start_datetime=base))
         else:
             group = Group(name=f"{_PREFIX}_sc_{uuid.uuid4().hex[:8]}")
             db.session.add(group)
@@ -768,7 +766,7 @@ def test_get_recordings_matches_the_per_row_path(world):
     assert [r["id"] for r in rows] == [w[k] for k in ("v2", "v1", "e", "d", "c", "b", "a")]
     assert rows == _legacy_get_recordings(w["viewer"])
     a = rows[-1]
-    assert a["events"][0]["title"] == "Kickoff" and a["notes"] == "owner notes" and a["transcription"] == "hello"
+    assert a["notes"] == "owner notes" and a["transcription"] == "hello"
     assert [t["name"] for t in a["tags"]] == ["Personal", "TeamTag"] and a["tags"][0]["recording_count"] == 4
     assert (a["shared_with_count"], a["public_share_count"]) == (2, 1)
     assert a["duplicate_info"]["total_copies"] == 2 and a["folder"]["recording_count"] == 4

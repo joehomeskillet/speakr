@@ -22,13 +22,6 @@ TRANSCRIPTION_PRICING = {
         'whisper-1': 0.006,  # $0.006/min
         'default': 0.006,
     },
-    'openai_transcribe': {
-        'gpt-4o-transcribe': 0.006,      # $0.006/min
-        'gpt-4o-mini-transcribe': 0.003,  # $0.003/min
-        'gpt-4o-mini-transcribe-2025-12-15': 0.003,
-        'gpt-4o-transcribe-diarize': 0.006,
-        'default': 0.006,
-    },
     'asr_endpoint': {
         'default': 0.0,  # Self-hosted = free
     },
@@ -60,7 +53,6 @@ class TranscriptionTracker:
 
     CONNECTOR_TYPES = [
         'openai_whisper',
-        'openai_transcribe',
         'asr_endpoint',
     ]
 
@@ -77,7 +69,7 @@ class TranscriptionTracker:
 
         Args:
             user_id: User ID who made the request
-            connector_type: Type of connector (openai_whisper, openai_transcribe, asr_endpoint)
+            connector_type: Type of connector (openai_whisper, asr_endpoint)
             audio_duration_seconds: Duration of audio transcribed in seconds
             model_name: Name of the model used
             estimated_cost: Pre-calculated cost (if None, calculated from pricing config)

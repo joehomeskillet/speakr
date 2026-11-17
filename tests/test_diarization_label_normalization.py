@@ -177,105 +177,8 @@ def test_a_result_without_segments_is_stored_as_its_text():
 
 
 # ---------------------------------------------------------------------------
-# Each connector's own labels, through the stored result
+# Kept connector labels, through the stored result
 # ---------------------------------------------------------------------------
-
-def test_assemblyai_letters_are_stored_normalized():
-    from src.services.transcription.connectors.assemblyai import AssemblyAITranscriptionConnector
-    connector = AssemblyAITranscriptionConnector({'api_key': 'fake', 'poll_interval': 0})
-    response = connector._parse_result({'text': 'Hello Hi', 'utterances': [
-        {'speaker': 'A', 'text': 'Hello', 'start': 0, 'end': 900},
-        {'speaker': 'B', 'text': 'Hi', 'start': 1000, 'end': 1500},
-        {'speaker': 'A', 'text': 'Bye', 'start': 1600, 'end': 2000}]})
-    assert response.speakers == ['A', 'B']       # what the service returned
-    assert _stored_speakers(response) == ['SPEAKER_00', 'SPEAKER_01', 'SPEAKER_00']
-    assert response.speakers == ['SPEAKER_00', 'SPEAKER_01']
-
-
-def test_openai_diarize_letters_are_stored_normalized():
-    from src.services.transcription.connectors.openai_transcribe import OpenAITranscribeConnector
-    connector = OpenAITranscribeConnector({'api_key': 'fake', 'model': 'gpt-4o-transcribe-diarize'})
-    as_dicts = connector._parse_diarized_response({'segments': [
-        {'speaker': 'B', 'text': 'Hello', 'start': 0.0, 'end': 1.0},
-        {'speaker': 'A', 'text': 'Hi', 'start': 1.0, 'end': 2.0}]})
-    assert _stored_speakers(as_dicts) == ['SPEAKER_01', 'SPEAKER_00']
-    assert as_dicts.text == '[SPEAKER_01]: Hello\n[SPEAKER_00]: Hi'
-    as_objects = connector._parse_diarized_response(SimpleNamespace(segments=[
-        SimpleNamespace(speaker='A', text='Hello', start=0.0, end=1.0),
-        SimpleNamespace(speaker='B', text='Hi', start=1.0, end=2.0)]))
-    assert _stored_speakers(as_objects) == ['SPEAKER_00', 'SPEAKER_01']
-
-
-def test_azure_openai_diarize_letters_are_stored_normalized():
-    from src.services.transcription.connectors.azure_openai_transcribe import AzureOpenAITranscribeConnector
-    connector = AzureOpenAITranscribeConnector({
-        'api_key': 'fake', 'endpoint': 'https://example.invalid', 'deployment_name': 'diarize'})
-    response = connector._parse_diarized_response({'segments': [
-        {'speaker': 'A', 'text': 'Hello', 'start': 0.0, 'end': 1.0},
-        {'speaker': 'B', 'text': 'Hi', 'start': 1.0, 'end': 2.0}]})
-    assert _stored_speakers(response) == ['SPEAKER_00', 'SPEAKER_01']
-
-
-def test_mossland_labels_are_stored_normalized():
-    from src.services.transcription.connectors.mossland import MosslandTranscriptionConnector
-    segments = MosslandTranscriptionConnector._segments([
-        {'speaker': 'S01', 'text': 'One', 'start': 0, 'end': 1},
-        {'speaker': 'S02', 'text': 'two', 'start': 1, 'end': 2}])
-    response = MosslandTranscriptionConnector._result('One two', segments, 'moss-transcribe-diarize')
-    assert response.speakers == ['S01', 'S02']
-    assert _stored_speakers(response) == ['SPEAKER_01', 'SPEAKER_02']
-
-
-def test_funasr_labels_are_stored_with_two_digits():
-    from src.services.transcription.connectors.alibaba_funasr import AlibabaFunASRConnector
-    connector = AlibabaFunASRConnector({'base_url': 'https://example.invalid/api/v1', 'api_key': 'fake'})
-    response = connector._parse_transcription_data({'transcripts': [{'sentences': [
-        {'text': 'One', 'speaker_id': 0, 'begin_time': 0, 'end_time': 900},
-        {'text': 'two', 'speaker_id': 1, 'begin_time': 1000, 'end_time': 1900},
-        {'text': 'ten', 'speaker_id': 10, 'begin_time': 2000, 'end_time': 2900}]}]})
-    assert response.speakers == ['SPEAKER_0', 'SPEAKER_1', 'SPEAKER_10']
-    assert _stored_speakers(response) == ['SPEAKER_00', 'SPEAKER_01', 'SPEAKER_10']
-    assert response.text.splitlines()[0] == '[SPEAKER_00]: One'
-
-
-def test_mistral_labels_are_stored_normalized():
-    from src.services.transcription.connectors.mistral import MistralTranscriptionConnector
-    connector = MistralTranscriptionConnector({'api_key': 'fake'})
-    segments = connector._parse_segments([
-        {'text': 'One', 'speaker_id': 'speaker_0', 'start': 0.0, 'end': 1.0},
-        {'text': 'two', 'speaker_id': 'speaker_1', 'start': 1.0, 'end': 2.0}])
-    response = TranscriptionResponse(text='One two', segments=segments, speakers=['speaker_0', 'speaker_1'])
-    assert _stored_speakers(response) == ['SPEAKER_00', 'SPEAKER_01']
-
-
-def test_vibevoice_labels_are_stored_normalized():
-    from src.services.transcription.connectors.vibevoice import VibeVoiceTranscriptionConnector
-    connector = VibeVoiceTranscriptionConnector({'base_url': 'http://127.0.0.1:8000'})
-    numbered = connector._parse_segments([
-        {'Speaker': 0, 'Content': 'One', 'Start': 0.0, 'End': 1.0},
-        {'Content': '[Silence]', 'Start': 1.0, 'End': 1.5},
-        {'Speaker': 1, 'Content': 'two', 'Start': 1.5, 'End': 2.0}])
-    assert [s.speaker for s in numbered] == ['SPEAKER_00', 'SPEAKER_00', 'SPEAKER_01']
-    assert _stored_speakers(TranscriptionResponse(text='', segments=numbered)) == [
-        'SPEAKER_00', 'SPEAKER_00', 'SPEAKER_01']
-    # A speaker value that is text passes through the connector as it is.
-    as_text = connector._parse_segments([
-        {'Speaker': '0', 'Content': 'One', 'Start': 0.0, 'End': 1.0},
-        {'Speaker': 'Speaker 1', 'Content': 'two', 'Start': 1.0, 'End': 2.0},
-        {'Speaker': 'Dana', 'Content': 'three', 'Start': 2.0, 'End': 3.0}])
-    assert _stored_speakers(TranscriptionResponse(text='', segments=as_text)) == [
-        'SPEAKER_00', 'SPEAKER_01', 'Dana']
-
-
-def test_tencent_labels_are_already_normalized():
-    from src.services.transcription.connectors.tencent_asr import TencentASRConnector
-    connector = TencentASRConnector({'secret_id': 'test-id', 'secret_key': 'test-secret'})
-    response = connector._parse_result({'ResultDetail': [
-        {'FinalSentence': 'One', 'SpeakerId': 0, 'StartMs': 0, 'EndMs': 900},
-        {'FinalSentence': 'two', 'SpeakerId': 1, 'StartMs': 1000, 'EndMs': 1900}]}, 'model', True)
-    assert response.normalize_speaker_labels() == {}
-    assert _stored_speakers(response) == ['SPEAKER_00', 'SPEAKER_01']
-
 
 def test_whisperx_endpoint_labels_and_embeddings_are_unchanged():
     from src.services.transcription.connectors.asr_endpoint import ASREndpointConnector
@@ -301,19 +204,6 @@ def test_asr_endpoint_with_other_labels_keeps_embeddings_on_the_same_voice():
         'speaker_embeddings': {'spk_0': [0.1], 'spk_1': [0.3]}})
     assert _stored_speakers(response) == ['SPEAKER_01', 'SPEAKER_00']
     assert response.speaker_embeddings == {'SPEAKER_00': [0.1], 'SPEAKER_01': [0.3]}
-
-
-def test_openasr_labels_and_embeddings_stay_in_step():
-    from src.services.transcription.connectors.openasr import OpenASRTranscriptionConnector
-    connector = OpenASRTranscriptionConnector({'base_url': 'http://127.0.0.1:8080', 'model': 'm'})
-    data = {'text': 'One two',
-            'segments': [{'speaker': 'SPEAKER_2', 'text': 'One', 'start': 0.0, 'end': 1.0},
-                         {'speaker': 'SPEAKER_10', 'text': 'two', 'start': 1.0, 'end': 2.0}],
-            'speaker_embeddings': {'SPEAKER_2': [0.1], 'SPEAKER_10': [0.3]}}
-    response = connector._parse_response(data, 'm', True)
-    assert _stored_speakers(response) == ['SPEAKER_02', 'SPEAKER_10']
-    assert response.speaker_embeddings == {'SPEAKER_02': [0.1], 'SPEAKER_10': [0.3]}
-    assert response.speakers == ['SPEAKER_02', 'SPEAKER_10']
 
 
 # ---------------------------------------------------------------------------

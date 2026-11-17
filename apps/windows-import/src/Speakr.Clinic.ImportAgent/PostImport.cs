@@ -3,11 +3,16 @@ namespace Speakr.Clinic.ImportAgent;
 public sealed class PostImport
 {
     private readonly AgentOptions _options;
+    private readonly byte[]? _intentKey;
 
-    public PostImport(AgentOptions options)
+    public PostImport(AgentOptions options, byte[]? intentKey = null)
     {
         _options = options;
+        _intentKey = intentKey;
     }
+
+    // Test seam: runs after the captured file is verified and before delete/move completes.
+    internal Action<string>? AfterVerify { get; set; }
 
     public PostImportOutcome Apply(InventoryItem item, ImportIntent intent, BoundReceipt receipt)
     {
@@ -20,40 +25,81 @@ public sealed class PostImport
         if (!string.Equals(intent.SourceId, item.SourceId, StringComparison.Ordinal)
             || !string.Equals(intent.SnapshotVersion, item.SnapshotVersion, StringComparison.Ordinal))
             return PostImportOutcome.Conflict;
+        var delete = string.Equals(intent.PostStep, "delete", StringComparison.Ordinal);
+        var move = string.Equals(intent.PostStep, "move_backup", StringComparison.Ordinal);
+        if (!delete && !move)
+            return PostImportOutcome.RejectedStep;
+        // Destructive steps need an intent that is verifiably addressed to this agent. Without it the
+        // source stays untouched (the contract defines no intent signature yet, see README).
+        if (IntentBinding.Verify(intent, _options.AgentId, _intentKey) != IntentBindingState.Valid)
+            return PostImportOutcome.RefusedUnbound;
         if (!PathGuard.TryAdmit(item.RootPath, item.FullPath, out var full))
             return PostImportOutcome.Conflict;
-        if (!File.Exists(full) || !SameSnapshot(item, full))
+        if (!File.Exists(full))
             return PostImportOutcome.Conflict;
-        if (string.Equals(intent.PostStep, "delete", StringComparison.Ordinal))
-        {
-            File.Delete(full);
-            return PostImportOutcome.Deleted;
-        }
-        if (string.Equals(intent.PostStep, "move_backup", StringComparison.Ordinal))
+        string dest = "";
+        if (move)
         {
             if (_options.BackupFolder.Length == 0)
                 throw new InvalidOperationException("BackupFolder is not configured.");
-            var dest = Path.Combine(_options.BackupFolder, item.RootId, item.RelativePath.Replace('/', Path.DirectorySeparatorChar));
-            if (!PathGuard.TryAdmit(_options.BackupFolder, dest, out var admittedDest))
+            var target = Path.Combine(_options.BackupFolder, item.RootId, item.RelativePath.Replace('/', Path.DirectorySeparatorChar));
+            if (!PathGuard.TryAdmit(_options.BackupFolder, target, out dest))
                 return PostImportOutcome.Conflict;
-            var parent = Path.GetDirectoryName(admittedDest);
+            if (File.Exists(dest) || Path.Exists(dest))
+                return PostImportOutcome.Conflict;
+        }
+
+        // Capture the directory entry first. What is verified below is exactly what gets deleted or
+        // copied; a file that replaces the original name afterwards is never touched.
+        var hold = full + ".import-hold-" + Guid.NewGuid().ToString("N");
+        File.Move(full, hold);
+        var restore = true;
+        try
+        {
+            if (!SameSnapshot(item, hold))
+                return PostImportOutcome.Conflict;
+            AfterVerify?.Invoke(full);
+            if (delete)
+            {
+                File.Delete(hold);
+                restore = false;
+                return PostImportOutcome.Deleted;
+            }
+            var parent = Path.GetDirectoryName(dest);
             if (!string.IsNullOrEmpty(parent))
                 Directory.CreateDirectory(parent);
-            if (File.Exists(admittedDest))
-                return PostImportOutcome.Conflict;
-            File.Move(full, admittedDest);
+            var part = dest + ".part";
+            try
+            {
+                File.Copy(hold, part, overwrite: false);
+                if (!string.Equals(Hashing.Sha256Hex(File.ReadAllBytes(part)), item.ContentSha256, StringComparison.Ordinal))
+                    return PostImportOutcome.Conflict;
+                File.Move(part, dest, overwrite: false);
+            }
+            finally
+            {
+                if (File.Exists(part))
+                    File.Delete(part);
+            }
+            File.Delete(hold);
+            restore = false;
             return PostImportOutcome.Moved;
         }
-        return PostImportOutcome.RejectedStep;
+        finally
+        {
+            // Mismatch or failure: put the captured original back. If the name is taken meanwhile the
+            // original stays in place under the hold name; nothing is deleted.
+            if (restore && File.Exists(hold) && !File.Exists(full))
+                File.Move(hold, full);
+        }
     }
 
-    private static bool SameSnapshot(InventoryItem item, string fullPath)
+    private static bool SameSnapshot(InventoryItem item, string path)
     {
-        // shortcut: identity is rechecked immediately before delete/move, but the file can still be replaced after the handle closes. Upgrade path is delete-by-open-handle on Windows.
-        using var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.None);
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
         if (stream.Length != item.Size)
             return false;
-        var info = new FileInfo(fullPath);
+        var info = new FileInfo(path);
         if (new DateTimeOffset(info.LastWriteTimeUtc, TimeSpan.Zero) != item.MtimeUtc)
             return false;
         using var memory = new MemoryStream();

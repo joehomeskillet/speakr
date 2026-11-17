@@ -22,7 +22,7 @@ from src.models import APIToken, Recording, TranscriptTemplate, User
 from src.utils.token_auth import hash_token
 
 SEGMENTS = [{"speaker": "Jane", "sentence": "Launch moves to Q3.", "start_time": 0.0, "end_time": 2.0}]
-ROUTES = ["", "/transcript", "/transcript?format=text", "/summary", "/notes", "/events", "/speakers"]
+ROUTES = ["", "/transcript", "/transcript?format=text", "/summary", "/notes", "/speakers"]
 
 
 @pytest.fixture
@@ -75,10 +75,7 @@ def test_unchanged_answers_304_and_a_change_answers_200(world, route):
                                                                    "participants": "Jane"},
                        headers=_h(world)).status_code == 200
         after = c.get(url, headers=_h(world, etag=etag))
-    if route in ("/events",):
-        assert after.status_code in (200, 304)   # unaffected content may keep its body
-    else:
-        assert after.status_code == 200 and after.headers["ETag"] != etag
+    assert after.status_code == 200 and after.headers["ETag"] != etag
 
 
 def test_the_text_transcript_follows_the_users_template(world):

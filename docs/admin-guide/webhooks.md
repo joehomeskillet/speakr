@@ -18,7 +18,6 @@ or programmatically via the `/api/v1/webhooks` API.
 | `recording.transcription.failed` | Transcription failed permanently (retries exhausted), the transcription service returned no text, or the owner's monthly transcription budget was used up | `recording_id`, `title`, `error` |
 | `recording.summary.completed` | Summary generated successfully | `recording_id`, `title`, `summarization_duration_seconds` |
 | `recording.summary.failed` | Summary failed permanently | `recording_id`, `title`, `error` |
-| `recording.events.extracted` | Calendar event extraction finished and produced at least one event | `recording_id`, `title`, `events_count` |
 | `recording.updated` | A change a user can see, from the web app or the API (see below) | `recording_id`, `title`, `fields_changed` (list of strings), `updated_at` |
 | `recording.deleted` | Recording removed | `recording_id`, `title` |
 | `recording.share.created` | A public share link was created | `recording_id`, `share_id`, `share_summary`, `share_notes` |
@@ -62,7 +61,6 @@ app, through API v1 or by a speaker rename or merge. `fields_changed` uses these
 | `speakers` | which name each diarization label shows |
 | `tags` | a tag was added, removed or reordered |
 | `external_refs` | the webhook owner's external references |
-| `events` | extracted calendar events changed |
 | `is_inbox`, `is_highlighted`, `is_archived` | the owner's flags |
 | `audio` | the audio was removed |
 | `deletion_exempt`, `prompt_variables` | that setting |

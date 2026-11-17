@@ -42,7 +42,7 @@ A token has full access or a set of scopes. Each endpoint below lists the scope 
 
 | Scope | Allows |
 |-------|--------|
-| `read` | Every GET under `/api/v1` except webhook management: recordings, transcripts, summaries, notes, events, speakers, tags, folders, statistics, audio download |
+| `read` | Every GET under `/api/v1` except webhook management: recordings, transcripts, summaries, notes, speakers, tags, folders, statistics, audio download |
 | `write` | Editing recordings, notes and summaries; adding and removing tags; creating and editing tags, folders and speakers; assigning speakers |
 | `upload` | `POST /recordings/upload` and the ASR Voice Recorder upload |
 | `process` | Requests that use model or GPU time: transcribe, summarize, regenerate title, identify speakers, chat |
@@ -362,7 +362,6 @@ Returns the authenticated user's profile, preferences, and group memberships. Us
     "ui_language": "en",
     "transcription_language": "en",
     "output_language": "en",
-    "extract_events": true,
     "auto_speaker_labelling": true,
     "auto_speaker_labelling_threshold": 0.75,
     "auto_summarization": true,
@@ -654,7 +653,7 @@ GET /api/v1/recordings
 
 Your own recordings have `"is_shared": false, "owner": null, "share": null`. `owner.username` and `owner.name` are `null` unless the administrator sets `SHOW_USERNAMES_IN_UI=true`. For a shared recording, `is_inbox`, `is_highlighted` and `is_archived` are your own values and `tags` are the tags you can see. With internal sharing turned off, `shared` is empty and `all` is the same as `own`.
 
-`updated_at` is the time of the last change a client can see: title, participants, notes, summary, transcript, status, dates, folder, flags, tags, events or sharing. It is present on every recording in API v1 and starts at `created_at`.
+`updated_at` is the time of the last change a client can see: title, participants, notes, summary, transcript, status, dates, folder, flags, tags or sharing. It is present on every recording in API v1 and starts at `created_at`.
 
 ### External References
 
@@ -764,7 +763,6 @@ These requests send a weak `ETag` header:
 | `GET /api/v1/recordings/{id}/transcript` | the transcript, the format and, for `format=text`, your transcript template |
 | `GET /api/v1/recordings/{id}/summary` | the summary |
 | `GET /api/v1/recordings/{id}/notes` | the notes you can see |
-| `GET /api/v1/recordings/{id}/events` | the extracted events |
 | `GET /api/v1/recordings/{id}/speakers` | the speakers and the voice suggestions |
 
 Send the value back in `If-None-Match`. When nothing in the answer changed, the answer is `304 Not Modified` with no body. Treat the value as opaque. The access check comes first, so a caller without access gets `404`, never `304`. The answers carry `Cache-Control: private, no-cache`.
@@ -815,16 +813,6 @@ GET /api/v1/recordings/{id}
   "folder_id": 5,
   "folder": {"id": 5, "name": "Client Calls"},
   "deletion_exempt": false,
-  "events": [
-    {
-      "id": 1,
-      "title": "Follow-up Meeting",
-      "start_datetime": "2024-01-22T10:00:00Z",
-      "end_datetime": "2024-01-22T11:00:00Z",
-      "description": "Discuss project progress",
-      "location": "Conference Room A"
-    }
-  ],
   "error_message": null,
   "duplicate_info": null,
   "keep_audio_only": false,
@@ -835,7 +823,7 @@ GET /api/v1/recordings/{id}
 ```
 
 !!! note "Field notes"
-    `audio_duration` is in seconds. The `*_duration_seconds` fields report how long each processing stage took. `events` is only populated when calendar-event extraction is enabled. `error_message` is non-null only when `status` is `FAILED`. `folder` / `folder_id` are populated when folders are enabled and the recording is assigned to one.
+    `audio_duration` is in seconds. The `*_duration_seconds` fields report how long each processing stage took. `error_message` is non-null only when `status` is `FAILED`. `folder` / `folder_id` are populated when folders are enabled and the recording is assigned to one.
 
 !!! note "Transcript Formatting"
     The `transcription` field is automatically formatted using your default transcript template. Configure templates in Account Settings → Transcript Templates.
@@ -1515,7 +1503,7 @@ POST /api/v1/recordings/{id}/transcribe
   "max_speakers": 5,
   "hotwords": "Speakr, WhisperX, diarization",
   "initial_prompt": "Technical discussion about audio transcription.",
-  "transcription_model": "gpt-4o-transcribe-diarize"
+  "transcription_model": "whisper-1"
 }
 ```
 
@@ -1526,7 +1514,7 @@ All parameters are optional.
 | `language` | string | Language hint (ISO 639-1). Empty string forces auto-detect. |
 | `min_speakers` | integer | Minimum speaker count for diarization. |
 | `max_speakers` | integer | Maximum speaker count for diarization. |
-| `hotwords` | string | Word-biasing hint. Connectors that accept biasing route this to their native parameter (WhisperX hotwords, Mistral context bias, OpenAI prompt). Connectors that ignore it drop it silently. |
+| `hotwords` | string | Word-biasing hint. Connectors that accept biasing route this to their native parameter (WhisperX hotwords, OpenAI prompt). Connectors that ignore it drop it silently. |
 | `initial_prompt` | string | Free-text context hint. Same per-connector behavior as `hotwords`. |
 | `transcription_model` | string | Per-request model override. Validated against the admin-curated visible-models list; falls back to the configured default if absent or invalid. Use [`GET /api/v1/transcription`](#transcription-connector) to discover valid values. |
 
@@ -1665,59 +1653,6 @@ Answers a question from the recordings you can read, with Inquire's search (and 
 ```
 
 Every citation names a recording you can read. The question and the matching transcript passages go to the instance's chat model.
-
----
-
-## Events
-
-### Get Calendar Events
-
-```http
-GET /api/v1/recordings/{id}/events
-```
-
-**Scope:** `read`
-
-Returns calendar events extracted from the recording. The `events` in [Get Recording Details](#get-recording-details) are the same objects.
-
-**Response:**
-
-```json
-{
-  "events": [
-    {
-      "id": 1,
-      "recording_id": 412,
-      "title": "Follow-up Meeting",
-      "start_datetime": "2024-01-22T10:00:00",
-      "end_datetime": "2024-01-22T11:00:00",
-      "floating": true,
-      "description": "Discuss project progress",
-      "location": "Conference Room A",
-      "attendees": [
-        {"name": "Dana Lee", "email": null},
-        {"name": "Priya Shah", "email": "priya@example.org"}
-      ],
-      "reminder_minutes": 15,
-      "created_at": "2024-01-15T10:05:00"
-    }
-  ]
-}
-```
-
-- `floating: true`: `start_datetime` and `end_datetime` are wall-clock times as said in the recording, without a time zone. Show them as they are, in the user's own zone.
-- `attendees` are objects: a name, an address, or both. A name the transcript gave without an address has `email: null`.
-- Before v0.10.11-alpha, `attendees` in the recording details were plain strings.
-
-### Download Events as ICS
-
-```http
-GET /api/v1/recordings/{id}/events/ics
-```
-
-**Scope:** `read`
-
-Returns an ICS file containing all events from the recording. Times are floating (no zone). Attendees with an address are `ATTENDEE` entries; names without an address are listed at the end of the description. `reminder_minutes` becomes an alarm.
 
 ---
 
@@ -1902,7 +1837,7 @@ POST /api/v1/folders
   "default_max_speakers": 5,
   "default_hotwords": "Acme, Speakr",
   "default_initial_prompt": "Sales call.",
-  "default_transcription_model": "gpt-4o-transcribe-diarize",
+  "default_transcription_model": "whisper-1",
   "retention_days": null
 }
 ```
@@ -1957,20 +1892,20 @@ Returns the active transcription connector, the optional fields it accepts, the 
 
 ```json
 {
-  "connector": "openai_transcribe",
+  "connector": "openai_whisper",
   "capabilities": {
-    "diarization": true,
+    "diarization": false,
     "speaker_count_control": false,
     "hotwords": true,
     "initial_prompt": true,
     "timestamps": true,
     "language_detection": true,
-    "chunking": false
+    "chunking": true
   },
   "models": [
-    {"value": "gpt-4o-transcribe-diarize", "label": "GPT-4o Diarize"}
+    {"value": "whisper-1", "label": "Whisper 1"}
   ],
-  "default_model": "gpt-4o-transcribe-diarize"
+  "default_model": "whisper-1"
 }
 ```
 
@@ -1999,7 +1934,6 @@ These are the event types a webhook can subscribe to:
 | `recording.transcription.failed` | Transcription fails |
 | `recording.summary.completed` | Summary generation finishes |
 | `recording.summary.failed` | Summary generation fails |
-| `recording.events.extracted` | Calendar events are extracted |
 | `recording.updated` | A recording is updated |
 | `recording.deleted` | A recording is deleted |
 | `recording.share.created` | A public share link is created |
@@ -2043,7 +1977,6 @@ GET /api/v1/webhooks
     "recording.transcription.failed",
     "recording.summary.completed",
     "recording.summary.failed",
-    "recording.events.extracted",
     "recording.updated",
     "recording.deleted",
     "webhook.test"
