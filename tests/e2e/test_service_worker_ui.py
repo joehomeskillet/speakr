@@ -368,7 +368,7 @@ def test_sign_out_empties_cache_storage(context, signed_in):
         const cache = await caches.open(name);
         await cache.put('/static/sentinel-of-the-signed-in-user.js?v=1', new Response('x'));
         await (await caches.open('another-cache')).put('/static/other', new Response('y'));
-        sessionStorage.setItem('speakr_incognito_recording', JSON.stringify({
+        sessionStorage.setItem('speakr_session_item', JSON.stringify({
             title: 'private', original_filename: 'Jane Doe intake.mp3', file_size: 123 }));
         sessionStorage.setItem('speakr_chat_threads:1', '[]');
         // An upload in slices that ended before the sign-out (past its 24 hours:

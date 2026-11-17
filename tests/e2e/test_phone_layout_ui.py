@@ -10,7 +10,7 @@ test opens the seeded recordings at phone widths and checks:
 - the details line with both dates, and with one date when the meeting and
   the upload fall on the same day, and the Info sheet;
 - the actions in the sheet behind More for a recording of one's own, one
-  shared without rights, a failed one and an incognito one;
+  shared without rights, and a failed one;
 - the four tabs, with Speaker stats as a sheet, opened from the
   row at the top of the summary, in the same place with a long summary and
   without one;
@@ -25,14 +25,12 @@ test opens the seeded recordings at phone widths and checks:
 - no sideways scrolling at 360 and 430 px, and touch targets of 44 px;
 - the same structure in each of the six UI themes;
 - on the desktop: the Transcription / Translation switch stays in view while
-  the transcript scrolls, and an incognito recording has no download control.
+  the transcript scrolls.
 
 A recording's state (another meeting date, shared without rights, failed, a
 translation) is given to the page by changing the response of
 GET /api/recordings/<id> in the browser, so the instance's data stays as it
-is. The incognito recording is put in sessionStorage, where the app keeps
-one, with incognito mode switched on in the response of GET /api/config.
-The long transcript is stored through the app's own save route and replaced
+is. The long transcript is stored through the app's own save route and replaced
 by the seeded one afterwards.
 
 Every test fails on a JavaScript error, a same-origin response of 400 or
@@ -329,14 +327,14 @@ def phone(browser):
 
 @pytest.fixture(autouse=True)
 def plain_state(request):
-    """Each test starts without changed responses and without an incognito recording."""
+    """Each test starts without changed responses."""
     session = request.getfixturevalue("phone") if "phone" in request.fixturenames else None
     yield
     if session:
         session.patches.clear()
         session.config.clear()
         if session.page.url.startswith(BASE):
-            session.page.evaluate("() => { sessionStorage.removeItem('speakr_incognito_recording'); localStorage.removeItem('transcriptionViewMode'); }")
+            session.page.evaluate("() => { localStorage.removeItem('transcriptionViewMode'); }")
 
 
 @pytest.fixture(scope="module")
