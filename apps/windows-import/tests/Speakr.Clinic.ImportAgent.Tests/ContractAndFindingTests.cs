@@ -180,8 +180,7 @@ public class ContractAndFindingTests
             return;
         }
 
-        if (!wrote)
-            return;
+        Assert.True(wrote);
         Assert.True(WindowsEventLog.RecentContains(marker));
     }
 
