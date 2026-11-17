@@ -128,22 +128,26 @@ def test_dss_call_convention_matches_real_cli(tmp_path, monkeypatch):
     assert argv[-2] == str(src)
 
 
-# Real-decoder test: defined only when a pinned binary and a private DS2 fixture
-# are configured (no skip markers; the default run never references the fixture).
+# Real-decoder test: exercised when a pinned binary and a private DS2 fixture
+# are configured; skips cleanly in CI when either is unset.
 _REAL_BIN = os.environ.get('CLINIC_DSS_CODEC_BIN', '')
 _REAL_FIXTURE = os.environ.get('CLINIC_PRIVATE_DS2_FIXTURE', '')
+needs_real_dss = pytest.mark.skipif(
+    not (_REAL_BIN and _REAL_FIXTURE and Path(_REAL_BIN).is_file() and Path(_REAL_FIXTURE).is_file()),
+    reason='Requires CLINIC_DSS_CODEC_BIN and CLINIC_PRIVATE_DS2_FIXTURE',
+)
 
-if _REAL_BIN and _REAL_FIXTURE and Path(_REAL_BIN).is_file() and Path(_REAL_FIXTURE).is_file():
 
-    def test_real_ds2_decodes_to_16k_mono_pcm(tmp_path):
-        src = Path(_REAL_FIXTURE)
-        before = decoder.sha256_file(src)
-        res = decoder.decode_to_wav(src, tmp_path, timeout_s=300)
-        assert res.status == decoder.OK, res.detail
-        assert res.container == 'ds2'
-        assert res.input_sha256 == before
-        assert decoder.sha256_file(src) == before
-        with wave.open(res.output_path, 'rb') as wav:
-            assert (wav.getframerate(), wav.getnchannels(), wav.getsampwidth()) == (16000, 1, 2)
-        assert 10 < res.duration_s < 4 * 3600
-        assert res.output_sha256 == decoder.sha256_file(res.output_path)
+@needs_real_dss
+def test_real_ds2_decodes_to_16k_mono_pcm(tmp_path):
+    src = Path(_REAL_FIXTURE)
+    before = decoder.sha256_file(src)
+    res = decoder.decode_to_wav(src, tmp_path, timeout_s=300)
+    assert res.status == decoder.OK, res.detail
+    assert res.container == 'ds2'
+    assert res.input_sha256 == before
+    assert decoder.sha256_file(src) == before
+    with wave.open(res.output_path, 'rb') as wav:
+        assert (wav.getframerate(), wav.getnchannels(), wav.getsampwidth()) == (16000, 1, 2)
+    assert 10 < res.duration_s < 4 * 3600
+    assert res.output_sha256 == decoder.sha256_file(res.output_path)
