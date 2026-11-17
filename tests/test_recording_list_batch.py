@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.app import app, db
 from src.models import (
-    APIToken, Event, ExportTemplate, Folder, Group, GroupMembership, NamingTemplate, Recording,
+    APIToken, ExportTemplate, Folder, Group, GroupMembership, NamingTemplate, Recording,
     RecordingTag, SystemSetting, Tag, User,
 )
 from src.utils.token_auth import hash_token
@@ -107,7 +107,7 @@ def _cleanup(user_ids, group_ids):
         db.session.rollback()
         rec_ids = [r for (r,) in db.session.query(Recording.id).filter(Recording.user_id.in_(user_ids))]
         if rec_ids:
-            for model in (RecordingTag, Event):
+            for model in (RecordingTag,):
                 model.query.filter(model.recording_id.in_(rec_ids)).delete(synchronize_session=False)
             Recording.query.filter(Recording.id.in_(rec_ids)).delete(synchronize_session=False)
         Tag.query.filter(Tag.user_id.in_(user_ids)).delete(synchronize_session=False)
@@ -210,7 +210,6 @@ def _build_scenario(kind, n):
                 rec.file_hash = f"hash{i // 2}-{viewer.id}"    # pairs of duplicates
                 rec.notes = f"notes {i}"
                 _tag(rec, tag, 0)
-                db.session.add(Event(recording_id=rec.id, title=f"e{i}", start_datetime=base))
         db.session.commit()
         return viewer.id, [viewer.id], []
 

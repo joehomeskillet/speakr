@@ -2980,7 +2980,7 @@ def get_status(recording_id):
         if not recording or not has_recording_access(recording, current_user):
             return jsonify(api_error('recording_not_found')), 404
 
-        # Ensure events are loaded (refresh the recording to get latest relationships)
+        # Refresh the recording to get latest relationships
         db.session.refresh(recording)
 
         # Get recording dict and enrich with per-user status

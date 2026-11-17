@@ -373,8 +373,8 @@ The recording after a cancel:
 | Situation | Recording |
 |---|---|
 | A transcript is stored. This includes a cancel during the title or the summary of a transcription, where the transcript of that run is complete, and a canceled summary job without a stored copy. | `COMPLETED`. The transcript is kept. Shares, the export and the Inquire chunks are updated; events are not extracted. |
-| No transcript is stored and the job was a reprocess. | The transcript, summary, events and status from before the reprocess are restored. |
-| A canceled summary reprocess. | The summary, events and status from before the reprocess are restored. |
+| No transcript is stored and the job was a reprocess. | The transcript, summary and status from before the reprocess are restored. |
+| A canceled summary reprocess. | The summary and status from before the reprocess are restored. |
 | No transcript is stored and nothing was cleared (a first transcription or a conversion). | `FAILED` with the error message `Processing was canceled.` The audio is kept, and the transcription is started again with Reprocess. |
 
 A partial transcript is never stored: the transcript is written in one step after the answer of the transcription service has arrived.

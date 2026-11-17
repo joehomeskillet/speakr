@@ -68,7 +68,7 @@ def _exists(rec_id):
         return db.session.get(Recording, rec_id) is not None
 
 
-READS = ["", "/transcript", "/summary", "/notes", "/status", "/audio", "/events", "/speakers"]
+READS = ["", "/transcript", "/summary", "/notes", "/status", "/audio", "/speakers"]
 
 
 @pytest.mark.parametrize("suffix", READS)

@@ -86,7 +86,6 @@ REQUIRED_DETAIL_FIELDS = {
     "folder_id",
     "folder",
     "deletion_exempt",
-    "events",
 }
 
 REQUIRED_LIST_FIELDS = {
@@ -120,7 +119,6 @@ def test_detail_has_all_new_fields():
         assert body["folder_id"] == folder.id
         assert body["folder"] == {"id": folder.id, "name": folder.name}
         assert body["deletion_exempt"] is True
-        assert body["events"] == []
 
 
 def test_list_has_all_new_fields():

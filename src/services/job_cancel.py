@@ -12,8 +12,8 @@ The recording after a cancel (``settle_recording``):
   during the title or the summary of a transcription (the transcript of
   that run is complete and is kept), and a canceled summary of a recording
   that has a transcript.
-- No transcript, and the job was a reprocess: the transcript, summary,
-  events and status the reprocess cleared are put back
+- No transcript, and the job was a reprocess: the transcript, summary
+  and status the reprocess cleared are put back
   (``ProcessingJob.restore_state``), so the recording is as it was.
 - No transcript and nothing to put back (a first transcription): the
   recording is FAILED with ``CANCELED_MESSAGE``; Reprocess starts it again.
@@ -25,7 +25,6 @@ failure, and the person who canceled knows.
 
 import json
 import logging
-from datetime import datetime
 from types import SimpleNamespace
 
 from src.database import db
@@ -66,25 +65,13 @@ class NotCancelable(Exception):
 def snapshot_for_reprocess(recording, kind):
     """What a reprocess is about to clear, as the job's restore_state.
 
-    kind: 'transcription' (transcript, summary, events, status and the
-    resolved hints) or 'summary' (summary, events, status). Call before the
+    kind: 'transcription' (transcript, summary, status and the
+    resolved hints) or 'summary' (summary, status). Call before the
     clearing.
     """
-    from src.models import Event
-
     state = {'v': 1, 'kind': kind}
     for field in _SNAPSHOT_FIELDS[kind]:
         state[field] = getattr(recording, field, None)
-    events = []
-    for event in Event.query.filter_by(recording_id=recording.id).all():
-        row = {}
-        for column in Event.__table__.columns:
-            if column.name in ('id', 'recording_id'):
-                continue
-            value = getattr(event, column.name)
-            row[column.name] = value.isoformat() if isinstance(value, datetime) else value
-        events.append(row)
-    state['events'] = events
     return state
 
 
@@ -99,8 +86,6 @@ def _load_snapshot(raw):
 
 
 def _restore_snapshot(recording, state):
-    from src.models import Event
-
     for field in _SNAPSHOT_FIELDS[state['kind']]:
         if field == 'status':
             continue
@@ -109,18 +94,6 @@ def _restore_snapshot(recording, state):
     if status not in ('COMPLETED', 'FAILED'):
         status = 'COMPLETED' if _has_transcript(recording) else 'FAILED'
     recording.status = status
-
-    Event.query.filter_by(recording_id=recording.id).delete()
-    for row in state.get('events') or []:
-        values = {}
-        for column in Event.__table__.columns:
-            if column.name in ('id', 'recording_id') or column.name not in row:
-                continue
-            value = row[column.name]
-            if value is not None and isinstance(column.type, db.DateTime):
-                value = datetime.fromisoformat(value)
-            values[column.name] = value
-        db.session.add(Event(recording_id=recording.id, **values))
 
 
 # --- the recording after a cancel -----------------------------------------------
@@ -147,7 +120,7 @@ def settle_recording(recording, job, ran):
     state = _load_snapshot(job.restore_state)
 
     if job.job_type not in _TRANSCRIPTION_SIDE and state is not None:
-        # A canceled summary: the summary and events it cleared come back.
+        # A canceled summary: the summary it cleared comes back.
         _restore_snapshot(recording, state)
         return 'restored'
 
@@ -158,7 +131,7 @@ def settle_recording(recording, job, ran):
                 # follow COMPLETED run (export, Inquire chunks), the
                 # LLM steps do not.
                 from src.tasks.processing import finish_processing
-                finish_processing(recording.id, extract_events=False)
+                finish_processing(recording.id)
             else:
                 recording.status = 'COMPLETED'
         return 'kept'

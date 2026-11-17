@@ -9,7 +9,6 @@ clean-up and put back right after.
 """
 
 import secrets
-from datetime import datetime
 
 import pytest
 from sqlalchemy import inspect, text
@@ -19,7 +18,7 @@ from src.app import app, db
 from src.clinic import policy
 from src.clinic.models import install_clinic_guards
 from src.models import (
-    APIToken, Event, ProcessingJob, Recording, SystemSetting, User,
+    APIToken, ProcessingJob, Recording, SystemSetting, User,
 )
 from src.utils.token_auth import hash_token
 
@@ -50,8 +49,8 @@ def _no_policy_providers():
 def world():
     """Authors a and b (same routing pool in a later work package), one admin.
 
-    b's recording has an event: every upstream path to it exists, the clinic policy
-    must close them.
+    Each author owns one recording. The clinic policy must close every remaining
+    upstream path to the other author's recording.
     """
     w = {}
     with app.app_context():
@@ -71,8 +70,6 @@ def world():
                           summary=f'{SECRET_MARKER}B-summary')
         db.session.add_all([rec_a, rec_b])
         db.session.commit()
-        event = Event(recording_id=rec_b.id, title='B event', start_datetime=datetime(2030, 1, 1, 9, 0))
-        event_a = Event(recording_id=rec_a.id, title='A event', start_datetime=datetime(2030, 1, 2, 9, 0))
         plain = f'tok-{secrets.token_urlsafe(16)}'
         token = APIToken(user_id=users['a'].id, token_hash=hash_token(plain), name='clinic-test')
         job_a = ProcessingJob(user_id=users['a'].id, recording_id=rec_a.id, job_type='transcribe', status='queued')
@@ -80,16 +77,13 @@ def world():
         # a failed new upload: DELETE on it removes its recording as well
         job_a_new = ProcessingJob(user_id=users['a'].id, recording_id=rec_a.id, job_type='summarize',
                                   status='failed', is_new_upload=True)
-        db.session.add_all([event, event_a, token, job_a, job_b, job_a_new])
+        db.session.add_all([token, job_a, job_b, job_a_new])
         db.session.commit()
         w.update(job_a=job_a.id, job_b=job_b.id, job_a_new=job_a_new.id)
-        w.update(rec_a=rec_a.id, rec_b=rec_b.id, event_a=event_a.id,
-                 event_b=event.id, token=plain, token_id=token.id)
+        w.update(rec_a=rec_a.id, rec_b=rec_b.id, token=plain, token_id=token.id)
     yield w
     with app.app_context():
         db.session.rollback()
-        Event.query.filter(Event.recording_id.in_([w['rec_a'], w['rec_b']])).delete(
-            synchronize_session=False)
         ProcessingJob.query.filter(ProcessingJob.recording_id.in_([w['rec_a'], w['rec_b']])).delete(
             synchronize_session=False)
         APIToken.query.filter_by(user_id=w['user_a']).delete()
@@ -106,6 +100,8 @@ def world():
 
 _ORIGINAL_TABLE = "clinic_original_version"
 _ORIGINAL_TRIGGERS = ("clinic_original_immutable", "clinic_original_no_delete")
+_TRANSCRIPT_TABLE = "clinic_transcript_revision"
+_TRANSCRIPT_TRIGGERS = ("clinic_transcript_immutable", "clinic_transcript_no_delete")
 
 
 def _clinic_tables_children_first():
@@ -124,14 +120,20 @@ def _purge_clinic_rows():
     dialect = db.engine.dialect.name
     with db.engine.begin() as conn:
         if dialect == "sqlite":
-            for trigger in (*_ORIGINAL_TRIGGERS, "clinic_lease_generation_monotone"):
+            for trigger in (
+                *_ORIGINAL_TRIGGERS,
+                *_TRANSCRIPT_TRIGGERS,
+                "clinic_lease_generation_monotone",
+            ):
                 conn.execute(text("DROP TRIGGER IF EXISTS " + trigger))
         elif dialect == "postgresql":
-            conn.execute(text("ALTER TABLE " + _ORIGINAL_TABLE + " DISABLE TRIGGER USER"))
+            for table_name in (_ORIGINAL_TABLE, _TRANSCRIPT_TABLE):
+                conn.execute(text("ALTER TABLE " + table_name + " DISABLE TRIGGER USER"))
         for table in tables:
             conn.execute(table.delete())
         if dialect == "postgresql":
-            conn.execute(text("ALTER TABLE " + _ORIGINAL_TABLE + " ENABLE TRIGGER USER"))
+            for table_name in (_ORIGINAL_TABLE, _TRANSCRIPT_TABLE):
+                conn.execute(text("ALTER TABLE " + table_name + " ENABLE TRIGGER USER"))
     if dialect == "sqlite":
         install_clinic_guards(db.engine)
 

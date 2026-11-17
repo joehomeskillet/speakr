@@ -488,7 +488,6 @@ class Recording(db.Model):
             'folder_id': folder_id_ser,
             'folder': folder_ser,
             'tags': tags_ser,
-            'events': [event.to_dict() for event in self.events] if self.events else [],
             'prompt_variables': self.prompt_variables or {},
             'resolved_hotwords': self.resolved_hotwords,
             'resolved_initial_prompt': self.resolved_initial_prompt,

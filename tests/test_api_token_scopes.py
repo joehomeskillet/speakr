@@ -107,7 +107,7 @@ def test_a_read_token_reads(world):
         for path in ("/api/v1/users/me", "/api/v1/stats", "/api/v1/recordings", f"/api/v1/recordings/{world['rec']}",
                      f"/api/v1/recordings/{world['rec']}/transcript", f"/api/v1/recordings/{world['rec']}/summary",
                      f"/api/v1/recordings/{world['rec']}/notes", f"/api/v1/recordings/{world['rec']}/speakers",
-                     f"/api/v1/recordings/{world['rec']}/events", "/api/v1/tags", "/api/v1/folders"):
+                     "/api/v1/tags", "/api/v1/folders"):
             resp = c.get(path, headers=_h(plain))
             assert resp.status_code != 403, (path, resp.get_json())
 

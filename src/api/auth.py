@@ -1006,8 +1006,6 @@ def account():
             if 'title_prompt' in request.form:
                 title_prompt_text = (request.form.get('title_prompt') or '').strip()
                 current_user.title_prompt = title_prompt_text or None
-            # Handle event extraction setting
-            current_user.extract_events = 'extract_events' in request.form
             # Inquire content availability (agentic inquire). Gated on the
             # marker field so form submissions without this section cannot
             # clobber the settings (same reasoning as audio_player_position).

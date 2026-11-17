@@ -5,7 +5,7 @@ This package contains all database models organized by domain:
 - User and authentication models
 - Recording and transcript models
 - Organization models (groups and tags)
-- Event, template, and search session models
+- Template and search session models
 - System configuration models
 """
 
@@ -22,7 +22,6 @@ from .recording import Recording, RecordingTombstone, TranscriptChunk
 from .external_ref import RecordingExternalRef
 from .organization import Group, GroupMembership, Tag, RecordingTag, Folder
 from .permission import PermissionGrant
-from .events import Event
 from .templates import TranscriptTemplate
 from .naming_template import NamingTemplate
 from .export_template import ExportTemplate
@@ -74,7 +73,6 @@ __all__ = [
     'Folder',
     'PermissionGrant',
     # Other models
-    'Event',
     'TranscriptTemplate',
     'NamingTemplate',
     'ExportTemplate',

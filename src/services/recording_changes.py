@@ -3,7 +3,7 @@ and ETags (mailr spec G2 and G11).
 
 updated_at is set in one before_flush listener, so no write path can forget
 it: a change to a field a client sees, or to a row that belongs to the
-recording (tags, events), moves it. Fields that only
+recording (tags), moves it. Fields that only
 processing uses (embeddings, timings, resolved settings, export file name) do
 not.
 
@@ -76,11 +76,11 @@ def effective_updated_at(recording):
 def _child_recording_ids(session):
     """{recording id: webhook field or None} for rows that belong to a recording.
 
-    Tags, events and external references are part of the owner's view
-    (fields tags, events, external_refs).
+    Tags and external references are part of the owner's view
+    (fields tags, external_refs).
     """
-    from src.models import Event, RecordingTag
-    kinds = [(RecordingTag, 'tags'), (Event, 'events')]
+    from src.models import RecordingTag
+    kinds = [(RecordingTag, 'tags')]
     try:
         from src.models import RecordingExternalRef  # G8
         kinds.append((RecordingExternalRef, 'external_refs'))
@@ -203,7 +203,7 @@ def _after_commit(session):
     events = []
     for rid, columns in changes.items():
         fields = sorted({WEBHOOK_FIELD_NAMES.get(c, c) for c in columns
-                         if c in WEBHOOK_FIELD_NAMES or c in ('tags', 'events', 'external_refs')})
+                         if c in WEBHOOK_FIELD_NAMES or c in ('tags', 'external_refs')})
         if fields and rid in facts:
             user_id, title, updated_at = facts[rid]
             events.append((user_id, {'recording_id': rid, 'title': title, 'fields_changed': fields,

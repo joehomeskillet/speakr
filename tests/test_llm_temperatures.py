@@ -1,6 +1,6 @@
 """Configurable sampling temperatures (#411).
 
-Each kind of request (summary, title, chat, event) is sent with the admin value
+Each kind of request (summary, title, chat) is sent with the admin value
 from the Default Prompts tab, else the built-in default. An invalid saved value
 is ignored and the default is used.
 """
@@ -49,7 +49,7 @@ def _admin_value(kind, value):
 # ---------------------------------------------------------------- resolution
 
 def test_defaults_are_unchanged_from_earlier_releases(ctx):
-    assert {k: ls.get_temperature(k) for k in ls.TEMPERATURES} == {'summary': 0.5, 'title': 0.7, 'chat': 0.7, 'event': 0.2}
+    assert {k: ls.get_temperature(k) for k in ls.TEMPERATURES} == {'summary': 0.5, 'title': 0.7, 'chat': 0.7}
     assert ls.resolve_temperature('summary') == (0.5, 'default')
 
 
@@ -66,8 +66,8 @@ def test_environment_variables_are_not_read(ctx, monkeypatch):
 
 @pytest.mark.parametrize('raw', ['abc', '-0.1', '2.5', 'nan', ' ', ''])
 def test_invalid_admin_values_fall_back_to_the_default(ctx, raw):
-    _admin_value('event', raw)
-    assert ls.resolve_temperature('event') == (0.2, 'default')
+    _admin_value('title', raw)
+    assert ls.resolve_temperature('title') == (0.7, 'default')
 
 
 @pytest.mark.parametrize('raw,expected', [('0', 0.0), ('2', 2.0), ('1.25', 1.25), (0.3, 0.3), (' 0.5 ', 0.5)])
@@ -87,7 +87,6 @@ CALL_SITES = {
     os.path.join('src', 'tasks', 'processing.py'): {
         '_generate_ai_title': 'title',
         'generate_summary_only_task': 'summary',
-        'extract_events_from_transcript': 'event',
         '_generate_incognito_title': 'title',
         'generate_incognito_summary': 'summary',
     },
@@ -189,14 +188,14 @@ def test_api_reports_values_and_sources(users):
 def test_api_saves_and_clears(users):
     admin, _ = users
     c = _client(admin)
-    r = c.post('/admin/llm-temperatures', json={'values': {'summary': 0, 'event': '0.1'}})
+    r = c.post('/admin/llm-temperatures', json={'values': {'summary': 0, 'title': '0.1'}})
     assert r.status_code == 200, r.get_data(as_text=True)
     assert ls.resolve_temperature('summary') == (0.0, 'admin')
-    assert ls.resolve_temperature('event') == (0.1, 'admin')
+    assert ls.resolve_temperature('title') == (0.1, 'admin')
     r = c.post('/admin/llm-temperatures', json={'values': {'summary': None}})
     assert r.status_code == 200
     assert ls.resolve_temperature('summary') == (0.5, 'default')
-    assert ls.resolve_temperature('event') == (0.1, 'admin')
+    assert ls.resolve_temperature('title') == (0.1, 'admin')
 
 
 @pytest.mark.parametrize('values', [{'summary': 3}, {'summary': 'hot'}, {'summary': True}, {'nope': 0.1}, {}])

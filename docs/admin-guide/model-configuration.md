@@ -8,7 +8,6 @@ Speakr uses AI models for several key features:
 
 - **Summary Generation**: Creating intelligent summaries of your transcriptions
 - **Title Generation**: Automatically generating descriptive titles for recordings
-- **Event Extraction**: Identifying calendar-worthy events from conversations
 - **Interactive Chat**: Answering questions about your recordings
 - **Speaker Identification**: Detecting speaker names from conversation context
 
@@ -489,9 +488,6 @@ CHAT_MAX_TOKENS=2000
 # Bump for reasoning models (o1, Kimi 2.5, etc.) that consume budget on hidden thinking tokens
 TITLE_MAX_TOKENS=200
 
-# Optional: Maximum tokens for event extraction from transcripts (default: 4000)
-EVENT_MAX_TOKENS=4000
-
 # Optional: Prefix-cache-friendly title/summary prompts (default: false). See below.
 PREFIX_CACHE_OPTIMIZED_PROMPTS=false
 # Optional: cache breakpoints for Anthropic models (default: false). See below.
@@ -564,7 +560,7 @@ trailing instructions.
 - You want the exact upstream prompt wording. With the flag off, prompts are
   unchanged.
 
-Scope is title + summary only. The flag has no effect on chat, event extraction,
+Scope is title + summary only. The flag has no effect on chat
 or other calls.
 
 ### Enabling prefix caching on your backend

@@ -25,7 +25,7 @@ from sqlalchemy import text
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.app import app, db
-from src.models import Event, ProcessingJob, Recording, User
+from src.models import ProcessingJob, Recording, User
 from src.services import job_cancel, job_control
 from src.services.job_cancel import CANCELED_MESSAGE
 from src.services.job_queue import FairJobQueue, job_queue
@@ -163,7 +163,6 @@ def _reprocess_snapshot(recording, kind='transcription'):
     if kind == 'transcription':
         recording.transcription = None
     recording.summary = None
-    Event.query.filter_by(recording_id=recording.id).delete()
     db.session.commit()
     job_type = 'reprocess_transcription' if kind == 'transcription' else 'reprocess_summary'
     return job_queue.enqueue(user_id=recording.user_id, recording_id=recording.id, job_type=job_type,
@@ -173,9 +172,6 @@ def _reprocess_snapshot(recording, kind='transcription'):
 def _completed_recording(user=None):
     recording = _recording(user, status='COMPLETED', transcription=TRANSCRIPT, summary=SUMMARY,
                            resolved_hotwords='Speakr', transcription_requested_language='en')
-    db.session.add(Event(recording_id=recording.id, title='Launch review',
-                         start_datetime=datetime(2026, 12, 1, 9, 30), attendees='["Ada"]'))
-    db.session.commit()
     return recording
 
 
@@ -208,7 +204,6 @@ def test_a_waiting_reprocess_puts_the_recording_back(notices):
     job_id = _reprocess_snapshot(recording)
     recording = _fresh(Recording, recording.id)
     assert (recording.transcription, recording.summary, recording.status) == (None, None, 'QUEUED')
-    assert Event.query.filter_by(recording_id=recording.id).count() == 0
 
     assert _cancel(recording.user_id, job_id).status_code == 200
     recording = _fresh(Recording, recording.id)
@@ -217,9 +212,6 @@ def test_a_waiting_reprocess_puts_the_recording_back(notices):
     assert recording.summary == SUMMARY
     assert recording.resolved_hotwords == 'Speakr'
     assert recording.error_message is None
-    events = Event.query.filter_by(recording_id=recording.id).all()
-    assert [(e.title, e.start_datetime, e.attendees) for e in events] == [
-        ('Launch review', datetime(2026, 12, 1, 9, 30), '["Ada"]')]
     assert _exists(job_id) is None
     _assert_no_notice(notices)
 
@@ -235,7 +227,6 @@ def test_the_reprocess_service_stores_what_it_clears():
     state = json.loads(db.session.get(ProcessingJob, job_id).restore_state)
     assert state['kind'] == 'transcription'
     assert (state['transcription'], state['summary'], state['status']) == (TRANSCRIPT, SUMMARY, 'COMPLETED')
-    assert [e['title'] for e in state['events']] == ['Launch review']
     assert _cancel(user.id, job_id).status_code == 200
     assert _fresh(Recording, recording.id).transcription == TRANSCRIPT
 
@@ -247,7 +238,6 @@ def test_the_reprocess_service_stores_what_it_clears():
     assert _cancel(user.id, job_id).status_code == 200
     other = _fresh(Recording, other.id)
     assert (other.summary, other.status, other.transcription) == (SUMMARY, 'COMPLETED', TRANSCRIPT)
-    assert Event.query.filter_by(recording_id=other.id).count() == 1
 
 
 def test_a_canceled_reprocess_of_a_failed_recording_is_failed_as_before():
@@ -527,7 +517,6 @@ def test_a_cancel_between_chunks_stops_there_and_stores_nothing(notices, tmp_pat
     recording = _fresh(Recording, recording.id)
     # No half transcript: the recording is as it was before the reprocess.
     assert (recording.status, recording.transcription, recording.summary) == ('COMPLETED', TRANSCRIPT, SUMMARY)
-    assert Event.query.filter_by(recording_id=recording.id).count() == 1
     _assert_no_notice(notices)
 
 
@@ -633,7 +622,6 @@ def test_a_summary_canceled_before_the_llm_call_puts_the_summary_back(notices):
     assert _exists(job_id) is None
     recording = _fresh(Recording, recording.id)
     assert (recording.status, recording.summary, recording.transcription) == ('COMPLETED', SUMMARY, TRANSCRIPT)
-    assert Event.query.filter_by(recording_id=recording.id).count() == 1
     _assert_no_notice(notices)
 
 

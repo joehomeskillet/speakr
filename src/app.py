@@ -436,7 +436,7 @@ register_change_tracking()
 from src.models import (
     User, Speaker, Recording, TranscriptChunk,
     Group, GroupMembership, Tag, RecordingTag,
-    Event, TranscriptTemplate, InquireSession, SystemSetting, PushSubscription,
+    TranscriptTemplate, InquireSession, SystemSetting, PushSubscription,
     APIToken, NamingTemplate, Folder, SpeakerSnippet,
     ProcessingJob, TokenUsage, TranscriptionUsage
 )
@@ -462,11 +462,10 @@ from src.services.document import process_markdown_to_docx
 from src.services.retention import (
     is_recording_exempt_from_deletion, get_retention_days_for_recording, process_auto_deletion
 )
-from src.services.calendar import generate_ics_content, escape_ical_text
 
 # Import background task functions
 from src.tasks.processing import (
-    generate_title_task, generate_summary_only_task, extract_events_from_transcript,
+    generate_title_task, generate_summary_only_task,
     extract_audio_from_video, transcribe_audio_task, transcribe_with_connector,
     transcribe_chunks_with_connector, transcribe_incognito
 )
@@ -1058,7 +1057,6 @@ from src.api.templates import templates_bp, init_templates_helpers
 from src.api.naming_templates import naming_templates_bp
 from src.api.export_templates import export_templates_bp
 from src.api.initial_prompt_templates import initial_prompt_templates_bp
-from src.api.events import events_bp, init_events_helpers
 from src.api.system import system_bp, init_system_helpers
 from src.api.push_notifications import push_bp
 from src.api.notifications import notifications_bp
@@ -1090,7 +1088,6 @@ init_admin_helpers(has_recording_access=has_recording_access, bcrypt=bcrypt, csr
 init_speakers_helpers(has_recording_access=has_recording_access, bcrypt=bcrypt, csrf=csrf, limiter=limiter)
 init_inquire_helpers(has_recording_access=has_recording_access, bcrypt=bcrypt, csrf=csrf, limiter=limiter)
 init_templates_helpers(has_recording_access=has_recording_access, bcrypt=bcrypt, csrf=csrf, limiter=limiter)
-init_events_helpers(has_recording_access=has_recording_access, bcrypt=bcrypt, csrf=csrf, limiter=limiter)
 init_system_helpers(has_recording_access=has_recording_access, bcrypt=bcrypt, csrf=csrf, limiter=limiter, chunking_service=chunking_service)
 init_api_v1_helpers(has_recording_access=has_recording_access, get_user_recording_status=get_user_recording_status, set_user_recording_status=set_user_recording_status, enrich_recording_dict_with_user_status=enrich_recording_dict_with_user_status, bcrypt=bcrypt, csrf=csrf, limiter=limiter, chunking_service=chunking_service)
 
@@ -1108,7 +1105,6 @@ app.register_blueprint(templates_bp)
 app.register_blueprint(naming_templates_bp)
 app.register_blueprint(export_templates_bp)
 app.register_blueprint(initial_prompt_templates_bp)
-app.register_blueprint(events_bp)
 app.register_blueprint(system_bp)
 app.register_blueprint(push_bp)
 app.register_blueprint(notifications_bp)

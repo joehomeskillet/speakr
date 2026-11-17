@@ -1,0 +1,227 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Clinic import-agent channel (proposed addition, not part of the delivered clinic-api.openapi.json)",
+    "version": "0.1.0-proposal",
+    "description": "Server contract for the Windows import agent. The agent identity is the authenticated transport credential (mTLS certificate fingerprint or token id); no request body or query field carries an agent id. An agent is a machine principal: it has no access to dictation text or audio. Implemented by src/clinic/agent_channel.py and src/clinic/agent_channel_ingest.py."
+  },
+  "paths": {
+    "/api/clinic/v1/agent/inventory": {
+      "put": {
+        "operationId": "reportAgentInventory",
+        "summary": "Report allowed source and snapshot inventory",
+        "description": "Replaces or adds the reported snapshots. Any item whose root_id is not registered for the calling agent refuses the whole report with 403. No author or patient right is derived from it. A body field agent_id is ignored.",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/InventoryReport"}}}},
+        "responses": {
+          "200": {"description": "Stored", "content": {"application/json": {"schema": {"type": "object", "additionalProperties": false, "properties": {"accepted": {"type": "integer", "minimum": 0}}, "required": ["accepted"]}}}},
+          "400": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/api/clinic/v1/agent/intents": {
+      "get": {
+        "operationId": "pollAgentIntents",
+        "summary": "Signed, unexpired, unfinished import intents for the calling agent",
+        "responses": {
+          "200": {"description": "Intents", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/IntentList"}}}},
+          "403": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/api/clinic/v1/agent/ingests": {
+      "post": {
+        "operationId": "beginAgentIngest",
+        "summary": "Begin a resumable ingest session for one intent",
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BeginAgentIngest"}}}},
+        "responses": {
+          "201": {"description": "Session created, or the same session for a replayed key", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AgentReceipt"}}}},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "409": {"$ref": "#/components/responses/Problem"},
+          "410": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/api/clinic/v1/agent/ingests/{ingest_id}": {
+      "parameters": [{"$ref": "#/components/parameters/IngestId"}],
+      "get": {
+        "operationId": "getAgentIngest",
+        "summary": "Current receipt of an own session",
+        "responses": {
+          "200": {"description": "Receipt", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AgentReceipt"}}}},
+          "404": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/api/clinic/v1/agent/ingests/{ingest_id}/chunks/{sequence}": {
+      "parameters": [{"$ref": "#/components/parameters/IngestId"}, {"name": "sequence", "in": "path", "required": true, "schema": {"type": "integer", "minimum": 0, "maximum": 9999}}],
+      "put": {
+        "operationId": "putAgentChunk",
+        "summary": "Append one chunk at a byte offset",
+        "description": "Chunks must arrive in order; offset must equal the number of bytes of all lower sequences. An identical replay is a no-op; the same sequence with other content is 409.",
+        "parameters": [
+          {"name": "X-Chunk-SHA256", "in": "header", "required": true, "schema": {"type": "string", "pattern": "^[a-f0-9]{64}$"}},
+          {"name": "X-Chunk-Offset", "in": "header", "required": true, "schema": {"type": "integer", "minimum": 0}}
+        ],
+        "requestBody": {"required": true, "content": {"application/octet-stream": {"schema": {"type": "string", "format": "binary", "maxLength": 4194304}}}},
+        "responses": {
+          "200": {"description": "Receipt with received chunks", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AgentReceipt"}}}},
+          "400": {"$ref": "#/components/responses/Problem"},
+          "404": {"$ref": "#/components/responses/Problem"},
+          "409": {"$ref": "#/components/responses/Problem"},
+          "410": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/api/clinic/v1/agent/ingests/{ingest_id}/finalize": {
+      "parameters": [{"$ref": "#/components/parameters/IngestId"}],
+      "post": {
+        "operationId": "finalizeAgentIngest",
+        "summary": "Verify and store the original; returns the bound receipt",
+        "description": "400 if total size or total hash differs from the begin declaration (session stays RECEIVING). A failed or ambiguous store leaves state UNKNOWN (200); UNKNOWN is never STORED. A replay after STORED returns the same receipt.",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FinalizeAgentIngest"}}}},
+        "responses": {
+          "200": {"description": "Receipt (STORED, UNKNOWN or INVALID)", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AgentReceipt"}}}},
+          "400": {"$ref": "#/components/responses/Problem"},
+          "404": {"$ref": "#/components/responses/Problem"},
+          "409": {"$ref": "#/components/responses/Problem"},
+          "410": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/api/clinic/v1/agent/ingests/{ingest_id}/abort": {
+      "parameters": [{"$ref": "#/components/parameters/IngestId"}],
+      "post": {
+        "operationId": "abortAgentIngest",
+        "summary": "Abort a RECEIVING session",
+        "description": "UNKNOWN and STORED sessions cannot be aborted (409): the bytes may be durable.",
+        "responses": {
+          "200": {"description": "ABORTED receipt", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AgentReceipt"}}}},
+          "404": {"$ref": "#/components/responses/Problem"},
+          "409": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/api/clinic/v1/agent/outcomes": {
+      "post": {
+        "operationId": "reportAgentOutcome",
+        "summary": "Append what the agent did with the source (audit)",
+        "description": "Append-only. A deleted or moved outcome that no STORED receipt permitted is stored flagged as violation (the response says so).",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AgentOutcome"}}}},
+        "responses": {
+          "200": {"description": "Recorded", "content": {"application/json": {"schema": {"type": "object", "additionalProperties": false, "properties": {"recorded": {"type": "boolean"}, "violation": {"type": "boolean"}}, "required": ["recorded", "violation"]}}}},
+          "400": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "IngestId": {"name": "ingest_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
+      "IdempotencyKey": {"name": "Idempotency-Key", "in": "header", "required": true, "schema": {"type": "string", "minLength": 8, "maxLength": 255}}
+    },
+    "responses": {
+      "Problem": {"description": "Refusal. Stable code: forbidden (403), not_found (404), conflict (409), invalid (400), expired (410).", "content": {"application/problem+json": {"schema": {"type": "object", "properties": {"code": {"type": "string", "enum": ["forbidden", "not_found", "conflict", "invalid", "expired"]}, "detail": {"type": "string"}}, "required": ["code"]}}}}
+    },
+    "schemas": {
+      "InventoryItem": {
+        "type": "object", "additionalProperties": true,
+        "properties": {
+          "source_id": {"type": "string", "pattern": "^[A-Za-z0-9._:@-]{1,128}$"},
+          "root_id": {"type": "string", "pattern": "^[A-Za-z0-9._:@-]{1,128}$", "description": "Must be one of the roots registered for the agent."},
+          "relative_path": {"type": "string", "maxLength": 1024, "description": "Relative, no .. segment, no drive prefix."},
+          "size": {"type": "integer", "minimum": 0, "maximum": 134217728},
+          "mtime_utc": {"type": "string", "format": "date-time"},
+          "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "snapshot_version": {"type": "string", "pattern": "^[A-Za-z0-9._:@-]{1,128}$"}
+        },
+        "required": ["source_id", "root_id", "relative_path", "size", "mtime_utc", "sha256", "snapshot_version"]
+      },
+      "InventoryReport": {
+        "type": "object", "additionalProperties": true,
+        "properties": {
+          "agent_id": {"type": "string", "deprecated": true, "description": "Ignored by the server. Identity is the transport credential."},
+          "items": {"type": "array", "maxItems": 5000, "items": {"$ref": "#/components/schemas/InventoryItem"}}
+        },
+        "required": ["items"]
+      },
+      "Intent": {
+        "type": "object", "additionalProperties": false,
+        "properties": {
+          "intent_id": {"type": "string", "format": "uuid"},
+          "kind": {"type": "string", "enum": ["import_snapshot"]},
+          "agent_id": {"type": "string", "format": "uuid"},
+          "source_id": {"type": "string"},
+          "snapshot_version": {"type": "string"},
+          "post_step": {"type": "string", "enum": ["none", "move_backup", "delete"], "default": "none", "description": "Other than none only if the server policy allows a post-import step (default: not allowed)."},
+          "expires_at": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$", "description": "UTC, whole seconds, signed."},
+          "signature": {"type": "string", "pattern": "^[a-f0-9]{64}$", "description": "Lowercase hex HMAC-SHA256 of the canonical text with the per-agent key. Canonical text: the eight lines speakr-import-intent-v2, intent_id, kind, agent_id, source_id, snapshot_version, post_step, expires_at, joined by LF without a trailing LF, UTF-8."}
+        },
+        "required": ["intent_id", "kind", "agent_id", "source_id", "snapshot_version", "post_step", "expires_at", "signature"]
+      },
+      "IntentList": {"type": "object", "additionalProperties": false, "properties": {"intents": {"type": "array", "items": {"$ref": "#/components/schemas/Intent"}}}, "required": ["intents"]},
+      "BeginAgentIngest": {
+        "type": "object", "additionalProperties": false,
+        "properties": {
+          "intent_id": {"type": "string", "format": "uuid"},
+          "declared_size": {"type": "integer", "minimum": 1, "maximum": 134217728, "description": "Must equal the size of the reported snapshot."},
+          "declared_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$", "description": "Must equal the sha256 of the reported snapshot."}
+        },
+        "required": ["intent_id", "declared_size", "declared_sha256"]
+      },
+      "ChunkDigest": {
+        "type": "object", "additionalProperties": false,
+        "properties": {"sequence": {"type": "integer", "minimum": 0}, "bytes": {"type": "integer", "minimum": 1, "maximum": 4194304}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}},
+        "required": ["sequence", "bytes", "sha256"]
+      },
+      "FinalizeAgentIngest": {
+        "type": "object", "additionalProperties": true,
+        "properties": {
+          "chunks": {"type": "array", "minItems": 1, "maxItems": 10000, "items": {"$ref": "#/components/schemas/ChunkDigest"}},
+          "total_bytes": {"type": "integer", "minimum": 1},
+          "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "source_finished_reading": {"type": "boolean"}
+        },
+        "required": ["chunks", "total_bytes", "sha256"]
+      },
+      "AgentReceipt": {
+        "type": "object", "additionalProperties": false,
+        "description": "Superset of the delivered IngestReceipt. Bound to ingest id, source id, snapshot version, sha256, size and the stored original id. sha256, original_id and dictation_id are null unless state is STORED.",
+        "properties": {
+          "ingest_id": {"type": "string", "format": "uuid"},
+          "state": {"type": "string", "enum": ["RECEIVING", "UNKNOWN", "STORED", "INVALID", "ABORTED"], "description": "UNKNOWN = ambiguous, never to be treated as STORED."},
+          "received_chunks": {"type": "array", "items": {"type": "integer", "minimum": 0}},
+          "received_bytes": {"type": "integer", "minimum": 0},
+          "sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+          "dictation_id": {"type": ["string", "null"]},
+          "durability": {"type": "string", "enum": ["RECEIVED", "STORED"]},
+          "decode_state": {"type": "string", "enum": ["NOT_STARTED", "PENDING", "VALID", "INVALID"]},
+          "completion": {"type": "string", "enum": ["DRAFT", "UNKNOWN", "SUBMITTED"]},
+          "author_state": {"type": "string", "enum": ["UNRESOLVED", "RESOLVED"]},
+          "correlation_id": {"type": "string", "format": "uuid"},
+          "agent_id": {"type": "string", "format": "uuid"},
+          "intent_id": {"type": "string", "format": "uuid"},
+          "source_id": {"type": "string"},
+          "snapshot_version": {"type": "string"},
+          "size": {"type": "integer", "minimum": 1},
+          "original_id": {"type": ["string", "null"]},
+          "permitted_post_step": {"type": "string", "enum": ["none", "move_backup", "delete"], "description": "none unless the state is STORED, server policy allows it, the intent asked for it and (default) a dictation id exists."},
+          "deletion_permitted": {"type": "boolean", "description": "True only if permitted_post_step is delete. Default false."}
+        },
+        "required": ["ingest_id", "state", "received_chunks", "received_bytes", "durability", "decode_state", "completion", "author_state", "correlation_id", "agent_id", "intent_id", "source_id", "snapshot_version", "size", "permitted_post_step", "deletion_permitted"]
+      },
+      "AgentOutcome": {
+        "type": "object", "additionalProperties": false,
+        "properties": {
+          "intent_id": {"type": "string", "format": "uuid"},
+          "ingest_id": {"type": ["string", "null"], "format": "uuid"},
+          "outcome": {"type": "string", "enum": ["stored", "moved", "deleted", "conflict", "refused"]},
+          "detail": {"type": "string", "maxLength": 240}
+        },
+        "required": ["intent_id", "outcome"]
+      }
+    }
+  }
+}

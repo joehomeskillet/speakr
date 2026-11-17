@@ -51,7 +51,7 @@ For every later request with an API token, the id of the token is stored in `act
 | `recording.content.read` | The transcript, summary, notes, speakers or events of a recording were read through API v1. One row per 30 minutes for each token, recording and part. | `part` |
 | `recording.media.played` | The audio or video was requested for playback, or a speaker sample was played. One row per 30 minutes. | |
 | `recording.media.downloaded` | The audio or video was requested as a download. One row per 5 minutes. | |
-| `recording.downloaded` | The transcript, summary, notes, chat or calendar events were downloaded as a file | `part`, `format` |
+| `recording.downloaded` | The transcript, summary, notes or chat were downloaded as a file | `part`, `format` |
 | `recording.exported` | Existing recordings were written to the export folder | `count` |
 
 With `recording.viewed`, the transcript, the summary and the notes were delivered to the browser. Text copied or saved in the browser afterwards is not visible to the server and is not recorded.

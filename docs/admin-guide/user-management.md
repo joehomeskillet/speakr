@@ -43,7 +43,7 @@ Control LLM costs by setting monthly token budgets for individual users. When cr
 - **Budget Reset**: Token counts reset automatically at the start of each calendar month
 - **No Limit**: Leave the budget field empty for unlimited usage
 
-Token budgets are set in increments of 10,000 tokens with a minimum of 100,000. The budget covers all AI operations including summarization, chat, title generation, and event extraction. View detailed token usage statistics in the [System Statistics](statistics.md#users) users table.
+Token budgets are set in increments of 10,000 tokens with a minimum of 100,000. The budget covers all AI operations including summarization, chat and title generation. View detailed token usage statistics in the [System Statistics](statistics.md#users) users table.
 
 ### Transcription Budget Management
 

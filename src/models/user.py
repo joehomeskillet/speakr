@@ -41,7 +41,6 @@ class User(db.Model, UserMixin):
     ui_language = db.Column(db.String(10), nullable=True, default='en')  # For UI language preference (en, es, fr, zh)
     summary_prompt = db.Column(db.Text, nullable=True)
     title_prompt = db.Column(db.Text, nullable=True)  # Instructions for AI titles (#400)
-    extract_events = db.Column(db.Boolean, default=False)  # Enable event extraction from transcripts
     # Inquire content availability (agentic inquire). Transcripts are always
     # available; summaries/notes are optional. NULL = use the admin env
     # default (INQUIRE_DEFAULT_ALLOW_SUMMARIES=true / INQUIRE_DEFAULT_ALLOW_NOTES=false).

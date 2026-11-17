@@ -172,13 +172,13 @@ def test_api_reads_record_the_token_and_the_part(created):
     plain, token_id = api_token(owner, scopes='["read"]', name=SENTINEL)
     headers = bearer(plain)
     start = max_id()
-    paths = ['', '/transcript', '/transcript?format=text', '/summary', '/notes', '/speakers', '/events']
+    paths = ['', '/transcript', '/transcript?format=text', '/summary', '/notes', '/speakers']
     for path in paths + paths:
         resp = anonymous_client().get(f'/api/v1/recordings/{recording.id}{path}', headers=headers)
         assert resp.status_code == 200, (path, resp.status_code, resp.data[:200])
     rows = [r for r in rows_after(start) if r.event != 'token.first_used']
     assert sorted((r.event, (r.details or {}).get('part')) for r in rows) == [
-        ('recording.content.read', 'events'), ('recording.content.read', 'notes'),
+        ('recording.content.read', 'notes'),
         ('recording.content.read', 'speakers'), ('recording.content.read', 'summary'),
         ('recording.content.read', 'transcript'), ('recording.viewed', None)]
     assert all(r.actor_kind == 'api_token' and r.actor_token_id == token_id for r in rows)
