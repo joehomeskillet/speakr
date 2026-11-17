@@ -22,7 +22,6 @@ TEMPERATURES = {
     'summary': 0.5,
     'title': 0.7,
     'chat': 0.7,
-    'event': 0.2,
 }
 
 

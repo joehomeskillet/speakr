@@ -13,8 +13,7 @@ its button, and that the keys leave the rest of the app alone.
   Esc takes the frame back to the open recording, s and i change the star
   and the inbox mark through the app's own routes, # asks in the delete
   dialog and deletes nothing.
-- The open recording and the player: the tab keys (with events given to the
-  page for the fourth), the view key, the summary editor, archive and
+- The open recording and the player: the tab keys, the view key, the summary editor, archive and
   unarchive, play and pause with p and with Space, skipping and the speed.
 - No key fires while text is typed in the search field, the notes editor or
   the chat field, and Enter and Space on a focused button press that button.
@@ -591,7 +590,7 @@ def test_tab_and_view_keys(desk):
     def tab_names():
         return page.evaluate("() => [...[...document.querySelectorAll('#mainContentColumns .tabs-bar')][1].querySelectorAll('.tab')].map((t) => t.querySelector('span').textContent.trim())")
 
-    # The seeded recording has two speakers, so it has speaker stats; it has no events
+    # The seeded recording has two speakers, so it has speaker stats
     assert tab_names() == [en("summary.title"), en("notes.title"), en("stats.title")]
     assert tabs() == en("summary.title")
     desk.press("2")
@@ -601,7 +600,7 @@ def test_tab_and_view_keys(desk):
     assert page.locator("#mainContentColumns").get_by_text("SPEAKER_00").first.is_visible(), "the speaker stats are not shown"
     desk.press("1")
     assert tabs() == en("summary.title")
-    # Without events 4 has no button to stand for
+    # There is no fourth tab: 4 has no button to stand for
     desk.press("4")
     assert tabs() == en("summary.title")
 
@@ -612,20 +611,6 @@ def test_tab_and_view_keys(desk):
     desk.press("v")
     desk.wait(f"() => !({bubble})()")
     desk.check("tabs and view")
-
-    # With events the fourth tab is there, and 4 shows it
-    desk.patches[recording_id] = {"events": [{"id": 901, "title": "Design review", "description": "Screens",
-                                              "start_datetime": "2026-03-10T14:00:00", "end_datetime": "2026-03-10T14:30:00",
-                                              "location": "Room 2", "attendees": ["Dana", "Marco"]}]}
-    desk.open(MEETING_TITLE)
-    assert tab_names() == [en("summary.title"), en("notes.title"), en("stats.title"), en("events.title")]
-    desk.press("4")
-    assert tabs() == en("events.title")
-    assert page.locator("#mainContentColumns").get_by_text("Design review").first.is_visible()
-    desk.press("3")
-    assert tabs() == en("stats.title")
-    desk.press("1")
-    desk.check("events tab")
 
 
 def test_shift_e_edits_the_summary(desk):

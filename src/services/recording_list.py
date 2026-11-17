@@ -77,7 +77,7 @@ def list_load_options():
 
 def full_load_options():
     """Loader options for a list query whose rows go through to_dict."""
-    return [*_tags_and_folder_options(), selectinload(Recording.events)]
+    return [*_tags_and_folder_options()]
 
 
 def tag_dicts(tags):

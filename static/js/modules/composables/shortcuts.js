@@ -142,7 +142,7 @@ export function useAppShortcuts(ctx) {
         if (field) field.focus();
     };
     const tab = (name, shown = () => true) => ({
-        keys: [String(['summary', 'notes', 'stats', 'events'].indexOf(name) + 1)], scope: 'recording', group: 'recording',
+        keys: [String(['summary', 'notes', 'stats'].indexOf(name) + 1)], scope: 'recording', group: 'recording',
         label: `shortcuts.tab.${name}`, when: () => !!open() && shown(), run: () => { selectedTab.value = name; },
     });
 
@@ -198,7 +198,6 @@ export function useAppShortcuts(ctx) {
         tab('summary'),
         tab('notes'),
         tab('stats', () => !!hasRecordingStats.value),
-        tab('events', () => { const r = open(); return !!(r.events && r.events.length > 0); }),
         { keys: ['v'], scope: 'recording', group: 'recording', label: 'shortcuts.toggleView',
             when: () => !!processedTranscription.value.hasDialogue, run: () => toggleTranscriptionViewMode() },
         { keys: ['c'], scope: 'recording', group: 'recording', label: 'shortcuts.copyTranscript', run: () => copyTranscription() },

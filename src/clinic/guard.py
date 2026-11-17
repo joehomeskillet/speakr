@@ -43,12 +43,6 @@ def _owner_of_recording(recording_id: int) -> int | None:
     return db.session.query(Recording.user_id).filter(Recording.id == recording_id).scalar()
 
 
-def _recording_of_event(event_id: int) -> int | None:
-    from src.database import db
-    from src.models import Event
-    return db.session.query(Event.recording_id).filter(Event.id == event_id).scalar()
-
-
 def _job_target(job_id: int) -> tuple[int, bool]:
     """(recording of the job, True when the call deletes that recording).
 
@@ -81,12 +75,7 @@ def _targets(rule: RouteRule) -> tuple[list[int], str]:
     ids = request_ids(rule.body_keys)
     arg = (request.view_args or {}).get(rule.arg)
     if arg is not None:
-        if rule.arg == 'event_id':
-            recording_id = _recording_of_event(arg)
-            if recording_id is None:
-                raise LookupError(arg)
-            ids.append(recording_id)
-        elif rule.arg == 'job_id':
+        if rule.arg == 'job_id':
             recording_id, destructive = _job_target(arg)
             ids.append(recording_id)
             if destructive:

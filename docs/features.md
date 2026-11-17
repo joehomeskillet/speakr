@@ -61,10 +61,6 @@ Transcribe content in dozens of languages with automatic detection or manual sel
 
 Every recording receives an AI-generated summary that captures key points, decisions, and action items. Configure this through [custom prompts](admin-guide/prompts.md). Users can also set [personal prompts](user-guide/settings.md#custom-prompts-tab) for their recordings. Summaries adapt to your content type - technical meetings get detailed technical summaries, while casual conversations receive lighter overviews. Custom prompts let you shape summaries to match your specific needs. For optimal results, Speakr supports [advanced AI models](admin-guide/model-configuration.md) including OpenAI's GPT-5 series with specialized parameters for reasoning depth and output verbosity.
 
-### Event Extraction
-
-Speakr can automatically extract calendar-worthy events from your recordings during the summary process. When enabled in your account settings, the system identifies mentions of meetings, deadlines, appointments, and other time-sensitive items. Each detected event can be exported as an ICS file compatible with any calendar application. The feature intelligently parses relative date references and provides sensible defaults when specific times aren't mentioned. Learn more about [using event extraction](user-guide/transcripts.md#event-extraction) in your workflow.
-
 ### Interactive Chat
 
 Ambrose, the assistant, answers questions about a recording from its full transcript. Each answer cites passages of the transcript, and a click on a citation plays that moment. You can ask for custom summaries, specific information, or text such as emails or reports, and ask follow-up questions in the same chat. Each recording keeps its own chat until you close the browser tab, and with the agent on, Ambrose can also search your other recordings. See [Ambrose](user-guide/ambrose.md).
@@ -234,7 +230,7 @@ All tokens are hashed using SHA-256 before storage - the plaintext token is show
 
 Speakr can push outbound, HMAC-signed webhooks to your own endpoints when recordings move through their lifecycle. Subscriptions are managed from the account UI or the `/api/v1/webhooks` API, and delivery is resilient: failed sends are retried with exponential backoff, a subscription is auto-paused after repeated failures, and outbound requests are guarded by SSRF protection.
 
-The events that can be subscribed to are `recording.created`, `recording.transcription.started`, `recording.transcription.completed`, `recording.transcription.failed`, `recording.summary.completed`, `recording.summary.failed`, `recording.events.extracted`, `recording.updated`, and `recording.deleted`. See the [Webhooks admin guide](admin-guide/webhooks.md) for payload formats and setup.
+The events that can be subscribed to are `recording.created`, `recording.transcription.started`, `recording.transcription.completed`, `recording.transcription.failed`, `recording.summary.completed`, `recording.summary.failed`, `recording.updated`, and `recording.deleted`. See the [Webhooks admin guide](admin-guide/webhooks.md) for payload formats and setup.
 
 ## Advanced Capabilities
 
@@ -324,7 +320,7 @@ Track system health with comprehensive statistics and metrics. Monitor transcrip
 
 ### Token Usage Tracking & Budgets
 
-Monitor and control LLM API consumption with per-user token tracking and budget enforcement. The system tracks all AI operations including summarization, chat, title generation, and event extraction.
+Monitor and control LLM API consumption with per-user token tracking and budget enforcement. The system tracks all AI operations including summarization, chat and title generation.
 
 **Per-User Budgets**: Set monthly token limits for individual users to control costs. Users see their remaining budget in the interface and receive warnings at 80% consumption. Once a budget is exhausted, AI operations are blocked until the next month.
 

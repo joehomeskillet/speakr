@@ -35,7 +35,7 @@ from werkzeug.utils import secure_filename
 
 from src.database import db
 from src.services.recording_state import get_user_archived, set_user_archived, parse_archived_flag
-from src.models import Recording, User, Tag, RecordingTag, Speaker, Event, TranscriptTemplate
+from src.models import Recording, User, Tag, RecordingTag, Speaker, TranscriptTemplate
 from src.models.processing_job import ProcessingJob
 from src.models.token_usage import TokenUsage
 from src.models.transcription_usage import TranscriptionUsage
@@ -175,7 +175,6 @@ OPENAPI_SPEC = {
                     "prompt_variables": {"type": "object", "description": "Per-recording {{name}} substitutions used when summarising"},
                     "folder_id": {"type": "integer", "nullable": True},
                     "folder": {"type": "object", "nullable": True, "properties": {"id": {"type": "integer"}, "name": {"type": "string"}}},
-                    "events": {"type": "array", "description": "Calendar events extracted from the recording (detail endpoint only)", "items": {"type": "object"}},
                     "tags": {"type": "array", "items": {"$ref": "#/components/schemas/Tag"}},
                     "keep_audio_only": {"type": "boolean", "description": "True if the upload was processed in audio-only mode (video stream discarded). Set at upload time; immutable via PATCH."},
                     "updated_at": {"type": "string", "format": "date-time", "description": "Last change a client can see; starts at created_at"},
@@ -479,12 +478,6 @@ OPENAPI_SPEC = {
         "/recordings/{id}/chat": {
             "post": {"tags": ["Chat"], "summary": "Chat about recording", "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "integer"}}], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "required": ["message"], "properties": {"message": {"type": "string"}, "conversation_history": {"type": "array"}}}}}}, "responses": {"200": {"description": "Chat response"}}}
         },
-        "/recordings/{id}/events": {
-            "get": {"tags": ["Events"], "summary": "Get calendar events", "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "integer"}}], "responses": {"200": {"description": "List of events"}}}
-        },
-        "/recordings/{id}/events/ics": {
-            "get": {"tags": ["Events"], "summary": "Download events as ICS", "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "integer"}}], "responses": {"200": {"description": "ICS file", "content": {"text/calendar": {}}}}}
-        },
         "/recordings/{id}/audio": {
             "get": {"tags": ["Audio"], "summary": "Download audio", "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "integer"}}, {"name": "download", "in": "query", "schema": {"type": "boolean"}}], "responses": {"200": {"description": "Audio file"}}}
         },
@@ -686,7 +679,6 @@ OPENAPI_SPEC = {
         {"name": "Recordings", "description": "Recording CRUD operations"},
         {"name": "Processing", "description": "Transcription and summarization"},
         {"name": "Chat", "description": "Chat with recordings"},
-        {"name": "Events", "description": "Calendar events"},
         {"name": "Audio", "description": "Audio file operations"},
         {"name": "Tags", "description": "Tag management"},
         {"name": "Folders", "description": "Folder management"},
@@ -1306,7 +1298,6 @@ def get_current_user():
             'ui_language': current_user.ui_language,
             'transcription_language': current_user.transcription_language,
             'output_language': current_user.output_language,
-            'extract_events': bool(current_user.extract_events),
             'auto_speaker_labelling': bool(current_user.auto_speaker_labelling),
             'auto_speaker_labelling_threshold': current_user.auto_speaker_labelling_threshold,
             # None means enabled, as in processing (#412 audit S10).
@@ -1975,7 +1966,6 @@ def get_recording(recording_id):
         'folder_id': folder['id'] if folder else None,
         'folder': folder,
         'deletion_exempt': recording.deletion_exempt,
-        'events': [e.api_dict() for e in recording.events] if hasattr(recording, 'events') else [],
         'error_message': recording.error_message if recording.status == 'FAILED' else None,
         'tags': [{'id': t.id, 'name': t.name, 'color': t.color} for t in recording.tags],
         'duplicate_info': recording.get_duplicate_info(),
@@ -3713,54 +3703,6 @@ def inquire_v1():
 
     text = link.sub(_cite, text)
     return jsonify({'answer': text, 'citations': citations, 'mode_used': mode_used, 'steps': steps, 'usage': None})
-
-
-# =============================================================================
-# Calendar Events
-# =============================================================================
-
-@api_v1_bp.route('/recordings/<int:recording_id>/events', methods=['GET'])
-@require_scope('read')
-@login_required
-@audit.access('recording.content.read', dedup=audit.DEDUP_VIEW, details={'part': 'events'})
-@_conditional('e')
-def get_recording_events(recording_id):
-    """Get calendar events extracted from a recording."""
-    recording = db.session.get(Recording, recording_id)
-    if not recording or not has_recording_access(recording, current_user):
-        return jsonify(api_error('recording_not_found')), 404
-
-    events = Event.query.filter_by(recording_id=recording_id).all()
-
-    return jsonify({'events': [e.api_dict() for e in events]})
-
-
-@api_v1_bp.route('/recordings/<int:recording_id>/events/ics', methods=['GET'])
-@require_scope('read')
-@login_required
-@audit.access('recording.content.read', dedup=audit.DEDUP_VIEW, details={'part': 'events_ics'})
-def download_events_ics(recording_id):
-    """Download all events as ICS file."""
-    from src.api.events import generate_ics_content
-
-    recording = db.session.get(Recording, recording_id)
-    if not recording or not has_recording_access(recording, current_user):
-        return jsonify(api_error('recording_not_found')), 404
-
-    events = Event.query.filter_by(recording_id=recording_id).all()
-    if not events:
-        return jsonify(api_error('no_events')), 404
-
-    # Same builder as the web download (#412).
-    from src.services.calendar import generate_combined_ics
-    ics_text = generate_combined_ics(events)
-
-    from flask import Response
-    return Response(
-        ics_text,
-        mimetype='text/calendar',
-        headers={'Content-Disposition': f'attachment; filename=events-{recording_id}.ics'}
-    )
 
 
 # =============================================================================

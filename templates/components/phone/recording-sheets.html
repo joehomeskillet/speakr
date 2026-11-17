@@ -1,5 +1,5 @@
 {#- The sheets of a recording on a phone (composables/phone-layout.js):
-    Actions (behind More in the top bar), Info, Events, Speaker stats, the
+    Actions (behind More in the top bar), Info, Speaker stats, the
     folder picker and the summary's download formats. The player sheet is
     with the player (components/detail/audio-player.html).
 
@@ -101,11 +101,6 @@
     </template>
 
     <div class="ph-group" v-text="t('phone.about')"></div>
-    <button v-if="selectedRecording.events && selectedRecording.events.length > 0"
-            type="button" class="ph-row" data-phone-action="events" @click="openPhoneSheet('events')">
-        <i class="fas fa-calendar-alt" aria-hidden="true"></i><span class="ph-row__label" v-text="t('events.title')"></span>
-        <span class="ph-row__val"><span class="ph-pill ph-pill--info" v-text="selectedRecording.events.length"></span></span>
-    </button>
     <button v-if="hasRecordingStats" type="button" class="ph-row" data-phone-action="stats" @click="openPhoneSheet('stats')">
         <i class="fas fa-chart-bar" aria-hidden="true"></i><span class="ph-row__label" v-text="t('phone.speakerStats')"></span>
     </button>
@@ -195,17 +190,6 @@
     </button>
     <button type="button" class="ph-row" data-phone-action="info-participants" @click="closePhoneSheet(); openParticipantsModal()">
         <i class="fas fa-users" aria-hidden="true"></i><span class="ph-row__label" v-text="t('phone.editParticipants')"></span>
-    </button>
-{% endcall %}
-
-{% call phone_sheet('events', "t('events.title')") %}
-    {% include 'components/detail/mobile-events-panel.html' %}
-    <div v-if="!(selectedRecording.events && selectedRecording.events.length > 0)" class="empty">
-        <div class="empty__title" v-text="t('events.noEvents')"></div>
-    </div>
-    <button v-if="selectedRecording.events && selectedRecording.events.length > 0" type="button" class="ph-row" data-phone-action="export-events"
-            @click="downloadICS()">
-        <i class="fas fa-calendar-plus" aria-hidden="true"></i><span class="ph-row__label" v-text="t('buttons.exportCalendar')"></span>
     </button>
 {% endcall %}
 

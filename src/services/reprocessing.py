@@ -1,7 +1,7 @@
 """Queue a transcription or summary again: the one way every route does it.
 
 Before #412 the web routes, API v1 (single and batch) and the bulk action each
-had their own copy: some cleared the old transcript, summary and events and
+had their own copy: some cleared the old transcript and summary and
 some did not, and the API skipped the status, audio and transcription checks.
 Every reprocess path now calls these functions, so the checks, the clearing
 and the resolved settings are the same on all of them. The routes keep their
@@ -9,7 +9,6 @@ own access checks and response shapes.
 """
 
 from src.database import db
-from src.models import Event
 
 IN_PROGRESS = ('QUEUED', 'PROCESSING', 'SUMMARIZING')
 
@@ -33,7 +32,7 @@ class ReprocessError(Exception):
 
 
 def queue_transcription_reprocess(recording, user, overrides=None):
-    """Clear the transcript, summary and events and queue a new transcription.
+    """Clear the transcript and summary and queue a new transcription.
 
     overrides: per-request transcription settings (language, speaker counts,
     hotwords, initial prompt, model); the rest comes from tag, folder, account
@@ -63,7 +62,6 @@ def queue_transcription_reprocess(recording, user, overrides=None):
     recording.transcription = None
     recording.summary = None
     recording.status = 'QUEUED'
-    Event.query.filter_by(recording_id=recording.id).delete()
     from src.services import audit
     audit.record_in_tx('recording.reprocessed', recording=recording, details={'kind': 'transcription'})
     db.session.commit()
@@ -133,7 +131,7 @@ def caller_summary_prompt(recording, user, custom_prompt, append):
 def queue_summary_reprocess(recording, user, custom_prompt=None, prompt_mode='replace',
                             prompt_variables=None, job_type='reprocess_summary',
                             additional_instructions=None):
-    """Clear the summary and events and queue a new summary. Returns the job id.
+    """Clear the summary and queue a new summary. Returns the job id.
 
     custom_prompt, prompt_mode and additional_instructions are read by
     summary_prompt_params. prompt_variables, when given, replace the
@@ -162,7 +160,6 @@ def queue_summary_reprocess(recording, user, custom_prompt=None, prompt_mode='re
     restore_state = snapshot_for_reprocess(recording, 'summary')
 
     recording.summary = None
-    Event.query.filter_by(recording_id=recording.id).delete()
     from src.services import audit
     audit.record_in_tx('recording.reprocessed', recording=recording, details={'kind': 'summary'})
     db.session.commit()

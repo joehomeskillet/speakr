@@ -116,7 +116,7 @@ class TestDatabaseMigrations(unittest.TestCase):
             expected = [
                 'id', 'username', 'email', 'password',
                 'transcription_language', 'output_language', 'ui_language',
-                'summary_prompt', 'extract_events', 'name', 'job_title',
+                'summary_prompt', 'name', 'job_title',
                 'company', 'diarize', 'sso_provider', 'sso_subject',
                 'can_share_publicly', 'monthly_token_budget',
                 'monthly_transcription_budget', 'email_verified',

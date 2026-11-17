@@ -8,7 +8,6 @@ were removed. All transcription now uses the connector architecture via transcri
 from .processing import (
     generate_title_task,
     generate_summary_only_task,
-    extract_events_from_transcript,
     extract_audio_from_video,
     compress_lossless_audio,
     transcribe_audio_task,
@@ -20,7 +19,6 @@ from .processing import (
 __all__ = [
     'generate_title_task',
     'generate_summary_only_task',
-    'extract_events_from_transcript',
     'extract_audio_from_video',
     'compress_lossless_audio',
     'transcribe_audio_task',

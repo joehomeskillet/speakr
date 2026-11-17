@@ -354,9 +354,6 @@ def _run_migrations(app, engine):
         if add_column_if_not_exists(engine, 'user', 'transcription_language', 'VARCHAR(10)'):
             app.logger.info("Added transcription_language column to user table")
 
-        # Add extract_events column to User table
-        if add_column_if_not_exists(engine, 'user', 'extract_events', 'BOOLEAN DEFAULT 0'):
-            app.logger.info("Added extract_events column to user table")
         if add_column_if_not_exists(engine, 'user', 'output_language', 'VARCHAR(50)'):
             app.logger.info("Added output_language column to user table")
         # Per-user timezone for generated text (#412)

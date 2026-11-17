@@ -412,9 +412,6 @@ html[data-ui-theme="workspace"] #rightMainColumn table.w-full .speaker-tablet { 
 html[data-ui-theme="workspace"] #rightMainColumn table.w-full th:first-child,
 html[data-ui-theme="workspace"] #rightMainColumn table.w-full td:first-child { padding-left: 12px; }
 
-/* Events cards: title block and actions wrap instead of pushing the actions out of the card. */
-html[data-ui-theme="workspace"] #rightMainColumn .space-y-4 > div > .flex.justify-between.items-start { flex-wrap: wrap; gap: 8px; }
-
 /* Narrow desktop: a slimmer rail and list leave the right pane more room. */
 @media (min-width: 1024px) and (max-width: 1279px) {
     html[data-ui-theme="workspace"] {
@@ -1208,7 +1205,7 @@ html[data-ui-theme="workspace"] .prose-flush li { margin: 2px 0; }
 html[data-ui-theme="workspace"] .desktop-bottom-player,
 html[data-ui-theme="workspace"] [data-bottom-player] { background: var(--bg-secondary); }
 
-/* Stats, events cards */
+/* Stats cards */
 html[data-ui-theme="workspace"] .stat-card,
 html[data-ui-theme="workspace"] .stats-card { border-radius: var(--radius-lg); box-shadow: none; }
 
@@ -1266,7 +1263,7 @@ html[data-ui-theme="workspace"] .floating-chat-fab {
 }
 /* The app places the button 24px inside the bottom-right corner of the content area
    (inline style). A strip of 24 + 44 + 4px below the right pane keeps it clear of the
-   summary, notes, stats and events; the strip exists only where the button is shown. */
+   summary, notes and stats; the strip exists only where the button is shown. */
 @media (min-width: 769px) {
     html[data-ui-theme="workspace"] #rightMainColumn { padding-bottom: 72px; }
 }
