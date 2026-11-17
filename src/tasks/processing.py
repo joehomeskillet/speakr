@@ -1230,6 +1230,14 @@ def merge_diarized_chunks(chunk_results):
                         if w_end is not None:
                             w_copy['end'] = w_end + chunk_start_offset
                         adjusted_words.append(w_copy)
+                    elif hasattr(w, 'start') and hasattr(w, 'end'):
+                        w_start = getattr(w, 'start', None)
+                        w_end = getattr(w, 'end', None)
+                        adjusted_words.append({
+                            'word': getattr(w, 'word', ''),
+                            'start': w_start + chunk_start_offset if w_start is not None else None,
+                            'end': w_end + chunk_start_offset if w_end is not None else None,
+                        })
                     else:
                         adjusted_words.append(w)
 
@@ -1843,7 +1851,7 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
                         if hasattr(chunk_result, 'segments') and chunk_result.segments:
                             # Store with segments for click-to-seek and editor
                             recording.transcription = chunk_result.to_storage_format()
-                            if chunk_result.has_diarization():
+                            if hasattr(chunk_result, 'has_diarization') and chunk_result.has_diarization():
                                 current_app.logger.info(f"Chunked diarized transcription completed: {len(chunk_result.text)} characters, {len(chunk_result.segments)} segments")
                             else:
                                 current_app.logger.info(f"Chunked transcription completed: {len(chunk_result.text)} characters, {len(chunk_result.segments)} segments")
@@ -2572,10 +2580,10 @@ def transcribe_incognito(filepath, original_filename, language=None, min_speaker
 
                 response = connector.transcribe(request)
 
-            if response.segments:
+            if hasattr(response, 'segments') and response.segments:
                 result['transcription'] = response.to_storage_format()
             else:
-                result['transcription'] = response.text
+                result['transcription'] = response.text if hasattr(response, 'text') else response
 
         result['processing_time_seconds'] = int(time.time() - start_time)
         if not _has_transcript_content(result['transcription']):

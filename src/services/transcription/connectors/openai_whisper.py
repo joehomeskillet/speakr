@@ -137,11 +137,16 @@ class OpenAIWhisperConnector(BaseTranscriptionConnector):
                 raw_segments = transcript.get("segments")
                 detected_language = transcript.get("language")
                 duration = transcript.get("duration")
-            else:
+            elif hasattr(transcript, "text"):
                 text = str(getattr(transcript, "text", "") or "")
                 raw_segments = getattr(transcript, "segments", None)
                 detected_language = getattr(transcript, "language", None)
                 duration = getattr(transcript, "duration", None)
+            else:
+                text = ""
+                raw_segments = None
+                detected_language = None
+                duration = None
 
             parsed_segments = []
             if raw_segments and isinstance(raw_segments, list):
