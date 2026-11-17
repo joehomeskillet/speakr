@@ -243,53 +243,6 @@ def test_a_probe_that_timed_out_still_trusts_the_video_extension(user):
 
 # --- incognito ---------------------------------------------------------------
 
-def _incognito(user_id, payload, filename):
-    connector = MagicMock(PROVIDER_NAME="test", supports_diarization=False, default_diarize=False)
-    connector.specifications = MagicMock(max_duration_seconds=1800, handles_chunking_internally=False,
-                                         recommended_chunk_seconds=600, unsupported_codecs=[],
-                                         preserve_original_audio=False)
-    response = MagicMock(text="hello world transcript", segments=None, speakers=None, speaker_embeddings=None)
-    response.has_diarization.return_value = False
-    connector.transcribe.return_value = response
-    registry = MagicMock()
-    registry.get_active_connector.return_value = connector
-    client = app.test_client()
-    with client.session_transaction() as sess:
-        sess["_user_id"] = str(user_id)
-    with patch("src.api.recordings.ENABLE_INCOGNITO_MODE", True), \
-         patch("src.services.transcription.get_registry", return_value=registry), \
-         patch.object(proc, "VIDEO_PASSTHROUGH_ASR", True), \
-         patch.object(proc, "chunking_service", None), patch.object(proc, "client", None):
-        resp = client.post("/api/recordings/incognito",
-                           data={"file": (io.BytesIO(payload), filename)},
-                           content_type="multipart/form-data")
-    return resp, connector
-
-
-@needs_ffmpeg
-def test_incognito_passthrough_refuses_junk_with_a_video_extension(user):
-    resp, connector = _incognito(user, JUNK, "meeting.mp4")
-    assert resp.status_code == 400, resp.get_data(as_text=True)
-    assert resp.get_json()["code"] == "audio_decode_failed"
-    assert "ffmpeg" not in resp.get_data(as_text=True).lower()
-    assert connector.transcribe.call_count == 0
-
-
-@needs_ffmpeg
-def test_incognito_passthrough_refuses_a_video_without_audio(user, tmp_path):
-    resp, connector = _incognito(user, _ffmpeg_video(tmp_path / "s.mp4", with_audio=False), "s.mp4")
-    assert resp.status_code == 400, resp.get_data(as_text=True)
-    assert resp.get_json()["code"] == "audio_decode_failed"
-    assert connector.transcribe.call_count == 0
-
-
-@needs_ffmpeg
-def test_incognito_passthrough_sends_a_real_video(user, tmp_path):
-    resp, connector = _incognito(user, _ffmpeg_video(tmp_path / "t.mp4"), "t.mp4")
-    assert resp.status_code == 200, resp.get_data(as_text=True)
-    assert connector.transcribe.call_count == 1
-
-
 @needs_ffmpeg
 @pytest.mark.parametrize("payload", ["binary", "text"])
 def test_junk_named_flac_is_refused(user, payload):

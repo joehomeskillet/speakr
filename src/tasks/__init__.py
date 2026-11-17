@@ -14,7 +14,6 @@ from .processing import (
     transcribe_audio_task,
     transcribe_with_connector,
     transcribe_chunks_with_connector,
-    transcribe_incognito,
 )
 
 __all__ = [
@@ -26,5 +25,4 @@ __all__ = [
     'transcribe_audio_task',
     'transcribe_with_connector',
     'transcribe_chunks_with_connector',
-    'transcribe_incognito',
 ]

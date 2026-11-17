@@ -5,8 +5,7 @@
  * Every key stands for a button of the page. Its `run` is the function that
  * button calls, and its `when` is the condition under which the button is
  * shown and enabled, so a key does nothing where the button is absent
- * (a shared recording without the right, an incognito recording, a
- * recording without audio).
+ * (a shared recording without the right, a recording without audio).
  *
  * The registry, its guards and the help are in utils/keyboard-shortcuts.js
  * and utils/shortcut-help.js. Keys that other parts of the app handle
@@ -60,7 +59,7 @@ export function useAppShortcuts(ctx) {
     const keyboardCursorId = ref(null);
 
     const open = () => (currentView.value === 'detail' && selectedRecording.value ? selectedRecording.value : null);
-    const stored = (recording) => !!recording && !recording.incognito && recording.id !== 'incognito';
+    const stored = (recording) => !!recording;
     const listShown = () => !isSidebarCollapsed.value && !selectionMode.value;
 
     /** The row under the cursor, when that is not the open recording. */
@@ -79,7 +78,7 @@ export function useAppShortcuts(ctx) {
     };
 
     watch(() => (selectedRecording.value ? selectedRecording.value.id : null), (id) => {
-        keyboardCursorId.value = id != null && id !== 'incognito' ? id : null;
+        keyboardCursorId.value = id != null ? id : null;
     });
     // A row that left the list (a filter, an archived or deleted recording) takes the cursor with it
     watch(visibleRecordingIds, (ids) => {
@@ -115,7 +114,7 @@ export function useAppShortcuts(ctx) {
 
     // ---- the open recording --------------------------------------------------
 
-    const hasPlayer = () => { const r = open(); return !!r && !r.audio_deleted_at && !r.incognito; };
+    const hasPlayer = () => { const r = open(); return !!r && !r.audio_deleted_at; };
     const canPlay = () => hasPlayer() && open().audio_ready !== false;
     const transcriptShown = () => {
         const r = open();

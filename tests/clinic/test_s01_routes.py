@@ -119,7 +119,7 @@ def test_creating_a_public_share_is_blocked(clinic_on, world):
 
 @pytest.mark.parametrize('method,url', [
     ('POST', '/chat'), ('POST', '/api/inquire/chat'), ('POST', '/api/inquire/search'),
-    ('GET', '/inquire'), ('POST', '/api/v1/inquire'), ('POST', '/api/recordings/incognito/chat'),
+    ('GET', '/inquire'), ('POST', '/api/v1/inquire'),
 ])
 def test_chat_and_inquire_are_blocked(clinic_on, world, method, url):
     response = login(world['user_a']).open(url, method=method, json={'recording_id': world['rec_a']})
@@ -302,7 +302,7 @@ def test_forged_channel_headers_grant_nothing(clinic_on, world):
 @pytest.mark.parametrize('key,value', [
     ('enable_public_sharing', 'true'), ('enable_internal_sharing', 'true'),
     ('api_query_tokens_enabled', 'true'), ('enable_auto_deletion', 'true'),
-    ('allow_registration', 'true'), ('global_retention_days', '30'),
+    ('global_retention_days', '30'),
 ])
 def test_admin_cannot_switch_a_locked_setting_on(clinic_on, world, key, value):
     def stored():

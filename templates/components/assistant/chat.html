@@ -9,13 +9,12 @@
     The caller block is the empty state (default: the monogram). `footer` is
     a macro for the lines under the composer. `composer_rows` is the height
     of the empty composer in lines and `composer_attrs` extra attributes of
-    its element (the phone layout). `download_if` is a condition for the
-    Download button of an answer (an incognito recording has no downloads). Bindings only, no ${ }
+    its element (the phone layout). Bindings only, no ${ }
     expressions, so one app's delimiters never matter (phase 1 guard). -#}
 {% macro assistant_chat(timeline_class='floating-chat-messages', composer_class='floating-chat-input',
                         answer_class='bidi-auto', bubble_class='', rows=false, placeholder='chat.placeholder',
                         download='downloadChatResponse', memory=false, footer=none,
-                        composer_rows=2, composer_attrs='', download_if=none) -%}
+                        composer_rows=2, composer_attrs='') -%}
 <div :ref="assistant.setScroller" class="{{ timeline_class }} assistant-timeline"
      @scroll.passive="assistant.onScroll" @click="assistant.onTimelineClick">
     <div v-if="assistant.messages.length === 0" class="assistant-empty">
@@ -96,7 +95,7 @@
                         :aria-label="t('buttons.copyMessage')">
                     <i class="fas fa-copy"></i>
                 </button>
-                <button{% if download_if %} v-if="{{ download_if }}"{% endif %} type="button" @click="{{ download }}(index)"
+                <button type="button" @click="{{ download }}(index)"
                         class="btn btn--icon btn--sm"
                         :title="t('buttons.downloadResponse')"
                         :aria-label="t('buttons.downloadResponse')">

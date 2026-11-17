@@ -50,7 +50,7 @@ def _file_sha256(path):
 def audio_task_key(scope, audio_path, part=None):
     """A task key for a transcription that has no saved provider task.
 
-    scope names who asks (a recording, an incognito user, the voice check),
+    scope names who asks (a recording, the voice check),
     part the chunk within it, and the digest the audio bytes. A retry of the
     same audio in the same scope therefore gets the same key and attaches to
     the job the service still holds; other audio never does. None when the
@@ -68,7 +68,7 @@ def provider_task_context(recording_id, provider, audio_path):
     """Return the ProviderTaskContext of the recording's running job.
 
     Every field is None when no transcription job is running for the
-    recording, as in incognito mode.
+    recording.
     """
     job = (ProcessingJob.query
            .filter(ProcessingJob.recording_id == recording_id,
@@ -110,8 +110,7 @@ def provider_task_context(recording_id, provider, audio_path):
 def provider_task_for(recording_id, provider, audio_path):
     """Return (saved task, save function) for the recording's running job.
 
-    Both are None when no transcription job is running for the recording, as
-    in incognito mode.
+    Both are None when no transcription job is running for the recording.
     """
     context = provider_task_context(recording_id, provider, audio_path)
     return context.saved, context.save

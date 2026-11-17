@@ -1,11 +1,10 @@
 /**
- * Friendly titles and guidance for a failed upload (upload dialog,
- * incognito upload).
+ * Friendly titles and guidance for a failed upload (upload dialog).
  *
  * The server's `code` decides when there is one (#482): the message text can
  * already be localized, and an unreadable file must not fall through to the
  * generic "try reprocessing the recording", since no recording was created.
- * An incognito transcription error carries the server's error type instead
+ * A transcription error can carry the server's error type instead
  * (src/utils/error_formatting.py); its message is a fixed English text.
  * Without either, the message text is matched against the patterns below.
  */

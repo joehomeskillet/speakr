@@ -139,7 +139,6 @@ def test_agent_events_pass_through_unchanged():
 # ---------------------------------------------------------------------------
 
 def test_tools_follow_the_surface():
-    assert tools_for_surface('incognito') == []
     assert tools_for_surface('recording') == list(LIBRARY_TOOLS)
     assert tools_for_surface('ask') is None
     with pytest.raises(ValueError):

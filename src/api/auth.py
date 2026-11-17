@@ -1,11 +1,10 @@
 """
 Authentication and user management routes.
 
-This blueprint handles user registration, login, logout, account management,
-and password changes.
+This blueprint handles login, logout, account management, and password
+changes.
 """
 
-import hmac
 import os
 import re
 import mimetypes
@@ -14,10 +13,9 @@ from markupsafe import escape
 from flask_login import login_user, logout_user, login_required, current_user
 from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField, SubmitField, BooleanField
-from wtforms.validators import DataRequired, Length, Email, EqualTo, ValidationError
+from wtforms.validators import DataRequired, Email, ValidationError
 from email_validator import validate_email, EmailNotValidError
 from werkzeug.security import generate_password_hash, check_password_hash
-import markdown
 
 from src.database import db
 from src.models import User, SystemSetting, GroupMembership
@@ -35,18 +33,7 @@ from src.auth.sso import (
     resolve_userinfo,
     update_user_profile_from_claims,
 )
-from src.services.email import (
-    is_email_verification_enabled,
-    is_email_verification_required,
-    is_smtp_configured,
-    can_email_user,
-    send_verification_email,
-    send_password_reset_email,
-    verify_email_token,
-    verify_reset_token,
-    can_resend_verification,
-    can_resend_password_reset,
-)
+from src.services.email import can_email_user
 
 # Create blueprint
 auth_bp = Blueprint('auth', __name__)
@@ -54,7 +41,7 @@ auth_bp = Blueprint('auth', __name__)
 
 @auth_bp.context_processor
 def inject_page_translation():
-    """Server-side text for the sign-in pages (login, register, auth/*).
+    """Server-side text for the sign-in pages (login).
 
     These pages are plain forms that work without JavaScript, so their text
     is translated here rather than by i18n.js: ``t('key', name=value)`` in
@@ -87,7 +74,7 @@ def rate_limit(limit_string):
     imported (and after the routes below are decorated), so we can't wrap the
     view with limiter.limit() at decoration time. Instead we apply and cache
     it lazily on the first request. Previously this decorator was a no-op that
-    only stashed the limit string, so login/register/password-reset ran with
+    only stashed the limit string, so login and password change ran with
     only the loose global default — a brute-force exposure.
     """
     def decorator(f):
@@ -126,14 +113,12 @@ class AccountEmail:
 
     email_validator refuses special-use and reserved domains (.local, .home.arpa
     and others) whatever its options, so an internal mail domain cannot pass
-    Email(). Registration accepts such an address when its domain is listed in
-    REGISTRATION_ALLOWED_DOMAINS, and sign-in accepts any well-formed one, since
-    it only looks the account up. For these addresses only the part before the
-    @ is checked by email_validator.
+    Email(). Sign-in accepts any well-formed one, since it only looks the
+    account up. For these addresses only the part before the @ is checked by
+    email_validator.
     """
 
-    def __init__(self, any_domain=False):
-        self.any_domain = any_domain
+    def __init__(self):
         self.email = Email(message=_INVALID_EMAIL)
 
     def __call__(self, form, field):
@@ -144,101 +129,21 @@ class AccountEmail:
             local, at, domain = (field.data or '').rpartition('@')
             if not (at and local and _DOMAIN_RE.match(domain)):
                 raise
-            if not (self.any_domain or domain in registration_allowed_domains()):
-                raise
             try:
                 validate_email(f'{local}@example.com', check_deliverability=False)
             except EmailNotValidError:
                 raise ValidationError(_INVALID_EMAIL) from None
 
 
-class RegistrationForm(FlaskForm):
-    username = StringField('Username', validators=[
-        DataRequired(message=_REQUIRED),
-        Length(min=2, max=20, message=LazyTranslation('server.form.usernameLength', min=2, max=20))])
-    email = StringField('Email', filters=[_normalize_email_filter], validators=[
-        DataRequired(message=_REQUIRED), AccountEmail()])
-    password = PasswordField('Password', validators=[DataRequired(message=_REQUIRED), password_check])
-    confirm_password = PasswordField('Confirm Password', validators=[
-        DataRequired(message=_REQUIRED),
-        EqualTo('password', message=LazyTranslation('server.form.passwordsMustMatch'))])
-    submit = SubmitField('Sign Up')
-
-    def validate_username(self, username):
-        user = User.query.filter_by(username=username.data).first()
-        if user:
-            raise ValidationError(translate('server.form.usernameTaken'))
-
-    def validate_email(self, email):
-        # Case-insensitive so a case-variant of an existing address can't be
-        # registered as a separate account.
-        if User.find_by_email(email.data):
-            raise ValidationError(translate('server.form.emailTaken'))
-
-
 class LoginForm(FlaskForm):
     email = StringField('Email', filters=[_normalize_email_filter], validators=[
-        DataRequired(message=_REQUIRED), AccountEmail(any_domain=True)])
+        DataRequired(message=_REQUIRED), AccountEmail()])
     password = PasswordField('Password', validators=[DataRequired(message=_REQUIRED)])
     remember = BooleanField('Remember Me')
     submit = SubmitField('Login')
 
 
 # --- Helper Functions ---
-
-def registration_enabled() -> bool:
-    """Whether self-service registration is open (ALLOW_REGISTRATION).
-
-    The /register route and the login page's register link both ask this, so
-    the page never advertises a route that refuses (#479). Read per request:
-    the environment can change under the test suite.
-    """
-    from src.clinic.config import setting_ceiling
-    locked, forced = setting_ceiling('allow_registration')  # clinic ceiling (R-050)
-    if locked:
-        return bool(forced)
-    try:
-        from src.models import SystemSetting
-        row = SystemSetting.query.filter_by(key='allow_registration').first()
-        if row is not None and row.value is not None:
-            return row.value.strip().lower() == 'true'
-    except Exception:
-        pass
-    return os.environ.get('ALLOW_REGISTRATION', 'true').strip().lower() == 'true'
-
-
-def registration_allowed_domains() -> list:
-    """The domains in REGISTRATION_ALLOWED_DOMAINS, lowercased; empty when unset."""
-    try:
-        from src.models import SystemSetting
-        domains_env = SystemSetting.get_setting('registration_allowed_domains', os.environ.get('REGISTRATION_ALLOWED_DOMAINS', ''))
-    except Exception:
-        domains_env = os.environ.get('REGISTRATION_ALLOWED_DOMAINS', '')
-    if domains_env is None:
-        domains_env = ''
-    return [d.strip().lower() for d in domains_env.split(',') if d.strip()]
-
-
-def is_registration_domain_allowed(email: str) -> bool:
-    """Check if email domain is allowed for registration.
-
-    Returns True if no domain restrictions are configured or if the
-    email domain is in the allowed list.
-    """
-    if not email:
-        return False
-
-    allowed = registration_allowed_domains()
-    if not allowed:
-        return True  # No restriction configured
-
-    parts = email.lower().rsplit('@', 1)
-    if len(parts) != 2:
-        return False  # Invalid email format
-
-    domain = parts[1]
-    return domain in allowed
-
 
 def _email_notifications_available(user) -> bool:
     """Whether to offer this user the completion-email toggle (#386).
@@ -275,63 +180,6 @@ def record_timezone():
         'timezone': user_timezone(current_user),
         'mode': current_user.timezone_mode or MODE_AUTO,
     })
-
-
-@auth_bp.route('/register', methods=['GET', 'POST'])
-@rate_limit("10 per minute")
-def register():
-    if not registration_enabled():
-        flash(translate('server.flash.registrationDisabled'), 'danger')
-        return redirect(url_for('auth.login'))
-
-    if current_user.is_authenticated:
-        return redirect(url_for('recordings.index'))
-
-    form = RegistrationForm()
-    if form.validate_on_submit():
-        # Check if email domain is allowed
-        if not is_registration_domain_allowed(form.email.data):
-            flash(translate('server.flash.registrationRestricted'), 'danger')
-            return render_template('register.html', title='Register', form=form)
-
-        hashed_password = bcrypt.generate_password_hash(form.password.data).decode('utf-8')
-
-        # Set email_verified based on whether verification is enabled
-        # If verification is enabled, new users start unverified
-        # If disabled, new users are considered verified by default
-        email_verified = not is_email_verification_enabled()
-
-        user = User(
-            username=form.username.data,
-            email=form.email.data,
-            password=hashed_password,
-            email_verified=email_verified
-        )
-        from src.services.storage_quota import default_quota_mb
-        user.storage_quota_mb = default_quota_mb()
-        from src.config.ui_themes import apply_new_user_defaults
-        apply_new_user_defaults(user)
-        db.session.add(user)
-        db.session.flush()
-        audit.record_in_tx('auth.registered', target_user_id=user.id)
-        db.session.commit()
-
-        # Send verification email if enabled
-        if is_email_verification_enabled() and is_smtp_configured():
-            if send_verification_email(user):
-                return render_template('auth/check_email.html',
-                                     title='Check Your Email',
-                                     email=user.email,
-                                     action='verification')
-            else:
-                # Email failed to send, but account was created
-                flash(translate('server.flash.accountCreatedVerificationFailed'), 'warning')
-                return redirect(url_for('auth.login'))
-
-        flash(translate('server.flash.accountCreated'), 'success')
-        return redirect(url_for('auth.login'))
-
-    return render_template('register.html', title='Register', form=form)
 
 
 def _password_accepted(user, password):
@@ -413,17 +261,6 @@ def login():
             _audit_login_failed(user, refusal)
             flash(translate('server.flash.loginFailed'), 'danger')
         else:
-            # Check email verification if required
-            if is_email_verification_required() and not user.email_verified:
-                _audit_login_failed(user, 'unverified_email')
-                # Store user email in session for resend functionality
-                session['unverified_email'] = user.email
-                return render_template('auth/check_email.html',
-                                     title='Email Verification Required',
-                                     email=user.email,
-                                     action='verification_required',
-                                     show_resend=True)
-
             login_user(user, remember=form.remember.data)
             audit.record('auth.login.succeeded', actor_kind='session', actor_user_id=user.id,
                          details={'method': 'password', 'remember': bool(form.remember.data)})
@@ -618,208 +455,6 @@ def logout():
         audit.record('auth.logout')
     logout_user()
     return signed_out_redirect()
-
-
-# --- Email Verification Routes ---
-
-@auth_bp.route('/verify-email/<token>')
-def verify_email(token):
-    """Verify email address using token from email link."""
-    user_id = verify_email_token(token)
-
-    if user_id is None:
-        flash(translate('server.flash.verificationLinkInvalid'), 'danger')
-        return redirect(url_for('auth.login'))
-
-    user = db.session.get(User, user_id)
-    if not user:
-        flash(translate('server.flash.userNotFound'), 'danger')
-        return redirect(url_for('auth.login'))
-
-    if user.email_verified:
-        flash(translate('server.flash.emailAlreadyVerified'), 'info')
-        return redirect(url_for('auth.login'))
-
-    # Verify the email
-    user.email_verified = True
-    user.email_verification_token = None  # Clear the token
-    db.session.commit()
-
-    return render_template('auth/verify_success.html', title='Email Verified')
-
-
-@auth_bp.route('/resend-verification', methods=['POST'])
-@rate_limit("3 per minute")
-def resend_verification():
-    """Resend verification email."""
-    if not is_email_verification_enabled():
-        flash(translate('server.flash.emailVerificationDisabled'), 'danger')
-        return redirect(url_for('auth.login'))
-
-    if not is_smtp_configured():
-        flash(translate('server.flash.emailServiceNotConfigured'), 'danger')
-        return redirect(url_for('auth.login'))
-
-    # Get email from session (set during failed login) or form
-    email = User.normalize_email(session.get('unverified_email') or request.form.get('email'))
-
-    if not email:
-        flash(translate('server.flash.emailRequired'), 'danger')
-        return redirect(url_for('auth.login'))
-
-    user = User.find_by_email(email)
-
-    if not user:
-        # Don't reveal if user exists
-        flash(translate('server.flash.verificationSentIfExists'), 'info')
-        return redirect(url_for('auth.login'))
-
-    if user.email_verified:
-        flash(translate('server.flash.emailAlreadyVerified'), 'info')
-        return redirect(url_for('auth.login'))
-
-    # Check cooldown
-    can_resend, remaining = can_resend_verification(user)
-    if not can_resend:
-        flash(translate('server.flash.verificationCooldown', seconds=remaining), 'warning')
-        return render_template('auth/check_email.html',
-                             title='Check Your Email',
-                             email=email,
-                             action='verification_required',
-                             show_resend=True)
-
-    if send_verification_email(user):
-        flash(translate('server.flash.verificationResent'), 'success')
-    else:
-        flash(translate('server.flash.verificationSendFailed'), 'danger')
-
-    return render_template('auth/check_email.html',
-                         title='Check Your Email',
-                         email=email,
-                         action='verification',
-                         show_resend=True)
-
-
-# --- Password Reset Routes ---
-
-@auth_bp.route('/forgot-password', methods=['GET', 'POST'])
-@rate_limit("5 per minute")
-def forgot_password():
-    """Show and handle forgot password form."""
-    if current_user.is_authenticated:
-        return redirect(url_for('recordings.index'))
-
-    if not is_smtp_configured():
-        flash(translate('server.flash.passwordResetUnavailable'), 'warning')
-        return redirect(url_for('auth.login'))
-
-    if request.method == 'POST':
-        email = User.normalize_email(request.form.get('email'))
-
-        if not email:
-            flash(translate('server.flash.emailRequired'), 'danger')
-            return render_template('auth/forgot_password.html', title='Forgot Password')
-
-        user = User.find_by_email(email)
-        # The account when it exists, never the typed address.
-        audit.record('auth.password.reset_requested',
-                     target_user_id=user.id if user else None, dedup=audit.DEDUP_RESET_REQUESTED)
-
-        # Always show the same message to prevent email enumeration
-        if user:
-            # Issue a reset link for both regular users and SSO-only users
-            # (whose password is None). For SSO-only users this doubles as
-            # the "add a password to my account" flow, gated by access to
-            # the user's email. The reset_password route handles either
-            # case by setting user.password from the form input; if the
-            # SSO link is also present, the user ends up with both, which
-            # is the prerequisite for sso_unlink later.
-            # Only send if outside the resend cooldown, but never surface the
-            # cooldown to the caller: a "please wait N seconds" message would
-            # only ever appear for a real account, confirming the address
-            # exists. Silently skip within the window; the generic message
-            # below is returned identically whether or not the account exists.
-            can_resend, _ = can_resend_password_reset(user)
-            if can_resend:
-                send_password_reset_email(user)
-
-        flash(translate('server.flash.passwordResetSentIfExists'), 'info')
-        return render_template('auth/check_email.html',
-                             title='Check Your Email',
-                             email=email,
-                             action='password_reset')
-
-    return render_template('auth/forgot_password.html', title='Forgot Password')
-
-
-@auth_bp.route('/reset-password/<token>', methods=['GET', 'POST'])
-@rate_limit("10 per minute")
-def reset_password(token):
-    """Handle password reset form."""
-    if current_user.is_authenticated:
-        return redirect(url_for('recordings.index'))
-
-    user_id = verify_reset_token(token)
-
-    if user_id is None:
-        flash(translate('server.flash.resetLinkInvalid'), 'danger')
-        return redirect(url_for('auth.forgot_password'))
-
-    user = db.session.get(User, user_id)
-    if not user:
-        flash(translate('server.flash.userNotFound'), 'danger')
-        return redirect(url_for('auth.forgot_password'))
-
-    # Single-use enforcement: the itsdangerous token is only signature+expiry
-    # checked, so on its own it stays replayable for the whole TTL even after
-    # it has been used or superseded. Bind it to the token currently stored on
-    # the user: a used token (cleared on reset) or one superseded by a newer
-    # reset request no longer matches and is rejected immediately.
-    stored_token = user.password_reset_token or ''
-    if not stored_token or not hmac.compare_digest(stored_token, token):
-        flash(translate('server.flash.resetLinkInvalid'), 'danger')
-        return redirect(url_for('auth.forgot_password'))
-
-    if request.method == 'POST':
-        password = request.form.get('password')
-        confirm_password = request.form.get('confirm_password')
-
-        if not password or not confirm_password:
-            flash(translate('server.flash.passwordFieldsRequired'), 'danger')
-            return render_template('auth/reset_password.html', title='Reset Password', token=token)
-
-        if password != confirm_password:
-            flash(translate('server.flash.passwordsDoNotMatch'), 'danger')
-            return render_template('auth/reset_password.html', title='Reset Password', token=token)
-
-        # Validate password
-        try:
-            password_check(None, type('obj', (object,), {'data': password}))
-        except ValidationError as e:
-            flash(str(e), 'danger')
-            return render_template('auth/reset_password.html', title='Reset Password', token=token)
-
-        # Update password
-        hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
-        user.password = hashed_password
-        user.password_reset_token = None  # Clear the token
-        user.password_reset_sent_at = None
-        # Sign the account out of every browser (#437)
-        user.end_all_sessions()
-        # A new password ends any login lock on the account (#529)
-        login_lock.clear_failures(user.id)
-
-        # Also verify email if not already verified
-        if not user.email_verified:
-            user.email_verified = True
-
-        audit.record_in_tx('auth.password.reset', target_user_id=user.id)
-        db.session.commit()
-
-        flash(translate('server.flash.passwordResetDone'), 'success')
-        return redirect(url_for('auth.login'))
-
-    return render_template('auth/reset_password.html', title='Reset Password', token=token)
 
 
 def _storage_usage(user):
@@ -1268,11 +903,8 @@ def change_password():
     # finding) could silently set a password on an SSO-only account and
     # then log in directly with the new credentials, bypassing SSO.
     #
-    # The safe way for an SSO-only user to add a password is the
-    # password-reset flow: their email account is the proof-of-ownership
-    # gate, the same trust boundary every password-reset flow relies on.
-    # We redirect them there instead of letting this endpoint set the
-    # password without any second factor.
+    # This endpoint therefore refuses to set a password on an account that
+    # has none; an administrator issues the credential instead.
     if not has_existing_password:
         flash(translate('server.flash.noLocalPassword'), 'warning')
         return redirect(url_for('auth.account'))
@@ -1306,10 +938,6 @@ def change_password():
     # Update password
     hashed_password = bcrypt.generate_password_hash(new_password).decode('utf-8')
     current_user.password = hashed_password
-    # Invalidate any outstanding password-reset link: a deliberate change must
-    # not leave an emailed reset token able to overwrite the new password.
-    current_user.password_reset_token = None
-    current_user.password_reset_sent_at = None
     # Sign the account out of every other browser (#437), and sign this one
     # in again with the new login id.
     remembered = current_app.config.get('REMEMBER_COOKIE_NAME', 'remember_token') in request.cookies
@@ -1323,62 +951,3 @@ def change_password():
 
     flash(translate('server.flash.passwordUpdated'), 'success')
     return redirect(url_for('auth.account'))
-
-
-@auth_bp.route('/docs/transcript-templates-guide')
-def transcript_templates_guide():
-    """Serve the transcript templates documentation."""
-    from flask import current_app
-
-    docs_path = os.path.join(current_app.root_path, '..', 'docs', 'transcript-templates-guide.md')
-
-    if not os.path.exists(docs_path):
-        return "Documentation not found", 404
-
-    with open(docs_path, 'r', encoding='utf-8') as f:
-        content = f.read()
-
-    # Convert markdown to HTML
-    html_content = markdown.markdown(content, extensions=['tables', 'fenced_code', 'codehilite'])
-
-    # Wrap in basic HTML template with Speakr styling
-    html_template = f'''
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Transcript Templates Guide - Speakr</title>
-        <link rel="stylesheet" href="/static/css/output.css">
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-        <style>
-            .markdown-body {{
-                max-width: 900px;
-                margin: 0 auto;
-                padding: 2rem;
-                line-height: 1.6;
-            }}
-            .markdown-body h1 {{ font-size: 2.5rem; margin-bottom: 1rem; }}
-            .markdown-body h2 {{ font-size: 2rem; margin-top: 2rem; margin-bottom: 1rem; }}
-            .markdown-body h3 {{ font-size: 1.5rem; margin-top: 1.5rem; margin-bottom: 0.75rem; }}
-            .markdown-body pre {{ background: #f4f4f4; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; }}
-            .markdown-body code {{ background: #f4f4f4; padding: 0.2rem 0.4rem; border-radius: 0.25rem; }}
-            .markdown-body pre code {{ background: none; padding: 0; }}
-            .markdown-body ul, .markdown-body ol {{ margin-left: 2rem; margin-bottom: 1rem; }}
-            .markdown-body li {{ margin-bottom: 0.5rem; }}
-            .markdown-body blockquote {{ border-left: 4px solid #ddd; padding-left: 1rem; margin: 1rem 0; }}
-            .markdown-body table {{ border-collapse: collapse; width: 100%; margin: 1rem 0; }}
-            .markdown-body th, .markdown-body td {{ border: 1px solid #ddd; padding: 0.5rem; }}
-            .markdown-body th {{ background: #f4f4f4; font-weight: bold; }}
-        </style>
-    </head>
-    <body>
-        <div class="markdown-body">
-            <a href="/" class="btn-primary" style="display: inline-block; margin-bottom: 1rem; padding: 0.5rem 1rem; background: #3b82f6; color: white; text-decoration: none; border-radius: 0.5rem;">← Back to App</a>
-            {html_content}
-        </div>
-    </body>
-    </html>
-    '''
-
-    return html_template

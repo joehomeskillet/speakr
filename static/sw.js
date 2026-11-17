@@ -19,7 +19,7 @@
 //     uploads, every request that is not a GET, every cross-origin request,
 //     media and Range requests. Nothing of these reaches Cache Storage, so a
 //     later user of the same browser cannot be shown an earlier user's lists,
-//     transcripts or summaries, and nothing of an incognito request is kept.
+//     transcripts or summaries.
 //   - At sign-out every cache is deleted (the SIGN_OUT message of
 //     service-worker-client.js, and the POST /logout request itself).
 //

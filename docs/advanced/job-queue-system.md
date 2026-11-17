@@ -313,12 +313,11 @@ A failed attempt with retries left keeps the remote job, so that the retry can p
 
 #### Requests Outside a Processing Job
 
-Three kinds of request have no processing job to save a task on: the chunks of a chunked transcription, incognito mode and the voice check. Their remote jobs cannot be resumed, so the connector deletes the remote job on every failed attempt (a timeout, failed polls, an unreadable result or a shutdown). Their `Idempotency-Key` is built by `audio_task_key()`:
+Two kinds of request have no processing job to save a task on: the chunks of a chunked transcription and the voice check. Their remote jobs cannot be resumed, so the connector deletes the remote job on every failed attempt (a timeout, failed polls, an unreadable result or a shutdown). Their `Idempotency-Key` is built by `audio_task_key()`:
 
 | Request | Key before the parameter digest |
 |---|---|
 | Chunk | `speakr-<recording id>-chunk<n>-<audio hash>`; without a recording, a scope made for the call takes the place of the recording id |
-| Incognito mode | `speakr-incognito-<user id>-<audio hash>` |
 | Voice check | `speakr-voice-check-<audio hash>` |
 
 A retry of the same chunk therefore attaches to a job the service still holds, and different audio never shares a key.

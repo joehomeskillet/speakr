@@ -9,7 +9,7 @@
 <div v-else-if="selectedRecording.status !== 'COMPLETED'" class="t-meta mt-2">
     <span v-text="t('chat.availableAfterTranscription', { name: assistantName })"></span>
 </div>
-<!-- Threads live in sessionStorage (composables/chat-threads.js); incognito ones are never kept. -->
-<div v-else-if="chatMessages.length > 0 && !selectedRecording.incognito" class="t-meta mt-2"
+<!-- Threads live in sessionStorage (composables/chat-threads.js). -->
+<div v-else-if="chatMessages.length > 0" class="t-meta mt-2"
      v-text="t('chat.keptUntilTabCloses')"></div>
 {%- endmacro %}

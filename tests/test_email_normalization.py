@@ -106,27 +106,3 @@ def test_login_still_rejects_syntactically_invalid_email():
 
 
 # --- registration form: normalize-on-write + case-insensitive uniqueness ---
-
-def test_registration_form_normalizes_email_before_storage():
-    from src.api.auth import RegistrationForm
-    with app.test_request_context('/register', method='POST', data={
-            'username': 'newbie', 'email': '  New.User@Example.COM ',
-            'password': 'Passw0rd!', 'confirm_password': 'Passw0rd!'}):
-        form = RegistrationForm()
-        # The field filter runs on construction, so what gets stored is normalized.
-        assert form.email.data == 'new.user@example.com'
-
-
-def test_registration_rejects_case_variant_of_existing_email():
-    from src.api.auth import RegistrationForm
-    with app.app_context():
-        u = _mk_user('taken@example.com')
-        try:
-            with app.test_request_context('/register', method='POST', data={
-                    'username': 'someone', 'email': 'TAKEN@Example.com',
-                    'password': 'Passw0rd!', 'confirm_password': 'Passw0rd!'}):
-                form = RegistrationForm()
-                assert not form.validate()
-                assert any('already registered' in e for e in form.email.errors)
-        finally:
-            db.session.delete(u); db.session.commit()

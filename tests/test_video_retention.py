@@ -200,7 +200,7 @@ class TestUploadHandlerVideoRetention(unittest.TestCase):
         proc_content = open(os.path.join(PROJECT_ROOT, 'src/tasks/processing.py')).read()
         # After the video extraction block, convert_if_needed runs on actual_filepath
         self.assertIn('conversion_result = convert_if_needed(\n'
-                      '                    filepath=actual_filepath,', proc_content)
+                      '                        filepath=actual_filepath,', proc_content)
 
 
 class TestFileMonitorVideoRetention(unittest.TestCase):
@@ -457,16 +457,6 @@ class TestVideoRetentionMatrix(unittest.TestCase):
         self.assertIn('keep_video_for_this_upload = (', ingest)
         self.assertIn('convert_if_needed(', ingest)
 
-    def test_incognito_not_affected(self):
-        """Incognito processing path should NOT reference VIDEO_RETENTION."""
-        content = self._read_file('src/tasks/processing.py')
-        # Find the incognito section (marked with [Incognito])
-        incognito_section = content[content.find('[Incognito]'):]
-        # VIDEO_RETENTION should not appear in incognito section
-        # (incognito always strips video per the plan)
-        self.assertNotIn('_self.VIDEO_RETENTION', incognito_section,
-                        "VIDEO_RETENTION should not be referenced in incognito processing")
-
     def test_all_three_entry_points_skip_for_video_retention(self):
         """All entry points (upload, file monitor, processing) honour
         video retention. The web upload and the processing task also
@@ -489,7 +479,7 @@ class TestVideoRetentionMatrix(unittest.TestCase):
         # The convert_if_needed call on actual_filepath happens AFTER the video
         # extraction block, regardless of VIDEO_RETENTION setting
         video_block_pos = content.find('if is_video:')
-        convert_pos = content.find('convert_if_needed(\n                    filepath=actual_filepath,')
+        convert_pos = content.find('convert_if_needed(\n                        filepath=actual_filepath,')
         self.assertGreater(convert_pos, video_block_pos,
                           "convert_if_needed must run after video extraction block")
 

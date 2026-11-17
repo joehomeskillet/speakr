@@ -882,7 +882,6 @@
       "change": "Cambios",
       "share": "Compartir",
       "admin": "Administración",
-      "incognito": "Incógnito",
       "audit": "Registro de auditoría"
     },
     "outcomes": {
@@ -1562,7 +1561,6 @@
     "noAudioTrackInScreenShare": "La pantalla compartida no tiene audio. Marque «Compartir audio del sistema» o «Compartir audio de la pestaña» al compartir. La guía de ayuda que se acaba de abrir incluye los pasos para cada sistema.",
     "startRecordingFailed": "No se pudo iniciar la grabación: {{error}}",
     "noRecordedAudioToUpload": "No hay audio grabado para subir.",
-    "incognitoResumedNotAllowed": "Una grabación reanudada no se puede procesar en modo incógnito, porque su audio anterior ya está en el servidor. Use la subida normal.",
     "addTagFailed": "No se pudo añadir la etiqueta",
     "addTagFailedDetail": "No se pudo añadir la etiqueta: {{error}}",
     "removeTagFailed": "No se pudo quitar la etiqueta",
@@ -2065,30 +2063,6 @@
     "newTag": "Nueva etiqueta",
     "autoIdentifyTooltip": "Los nombres mencionados en la conversación se buscan con el modelo de texto. Las coincidencias de voz se sugieren sin esto.",
     "autoIdentifyNoModel": "Se necesita un modelo de texto y no hay ninguno configurado. Las coincidencias de voz se sugieren sin él."
-  },
-  "incognito": {
-    "audioNotStored": "El audio no se almacena en modo incógnito",
-    "discardConfirm": "¿Descartar la grabación de incógnito? No se podrá recuperar.",
-    "lostIfTabCloses": "Se pierde si se cierra la pestaña o el navegador",
-    "mode": "Modo incógnito",
-    "notSavedToAccount": "No guardado en la cuenta",
-    "oneFileAtATime": "Un archivo a la vez en modo incógnito",
-    "processInIncognito": "Procesar en incógnito",
-    "processWithoutSaving": "Procesar sin guardar",
-    "processing": "Procesando…",
-    "processingComplete": "Procesamiento completado",
-    "processingInProgress": "Procesando en modo incógnito…",
-    "recordingDiscarded": "Grabación incógnita descartada",
-    "recordingProcessed": "Grabación de incógnito procesada. Desaparecerá al cerrar esta pestaña.",
-    "recordingReady": "Grabación de incógnito lista",
-    "recordingTitle": "Grabación de incógnito",
-    "selectExactlyOneFile": "Seleccione exactamente 1 archivo",
-    "sessionOnly": "Solo sesión",
-    "uploadingFile": "Subiendo archivo para procesamiento incógnito…",
-    "uploadingRecording": "Subiendo la grabación para el procesamiento incógnito…",
-    "processingFailed": "Error en el procesamiento incógnito: {{error}}",
-    "badge": "Incógnito",
-    "switchDiscardConfirm": "¿Abrir otra grabación y descartar la de incógnito?"
   },
   "initialPromptTemplates": {
     "tabTitle": "Indicaciones de transcripción",
@@ -2826,7 +2800,6 @@
     "colorRepeats": "Color repetido",
     "editText": "Editar texto",
     "hideVideo": "Ocultar vídeo",
-    "incognitoAudio": "El audio no se guarda en las grabaciones de incógnito.",
     "mergeAllInto": "Combinar todos con…",
     "mergeInto": "Combinar con…",
     "mergedSpeakers": "{{count}} hablante combinado con {{name}}. Guarde para conservar el cambio.",
@@ -3030,7 +3003,6 @@
     "recordingPaused": "Grabación en pausa",
     "recordingResumed": "Grabación reanudada",
     "recordingMaxDurationApproaching": "La grabación se detendrá en unos {{minutes}} minutos, al llegar a la duración máxima.",
-    "resumedRecordingNotIncognito": "Modo incógnito desactivado. Esta grabación reanudada ya estaba en el servidor.",
     "recordingMaxDurationReached": "La grabación se detuvo al llegar a la duración máxima.",
     "recordingResumeFound": "Se encontró una grabación sin terminar de este navegador. ¿Reanudarla?",
     "recordingSizeSoftWarning": "La grabación ocupa {{size}}. Deténgala pronto si puede.",
@@ -3060,7 +3032,6 @@
     "clearChat": "Limpiar chat",
     "copyTranscript": "Copiar transcripción",
     "deleteTeam": "Eliminar grupo",
-    "discardIncognito": "Descartar grabación incógnita",
     "dockBottom": "Mover abajo",
     "dockLeft": "Mover a la columna izquierda",
     "dockRight": "Mover a la columna derecha",
@@ -3123,7 +3094,6 @@
     "tagDragToReorder": "{{name}} (arrastre para reordenar)",
     "translateTranscript": "Traducir transcripción",
     "reprocessTranslation": "Reprocesar traducción",
-    "translateTranscriptIncognito": "La traducción no está disponible para grabaciones de incógnito.",
     "editTranslation": "Editar traducción"
   },
   "transcriptTemplates": {
@@ -3149,7 +3119,6 @@
     "template": "Plantilla",
     "templateName": "Nombre de plantilla",
     "title": "Plantillas de transcripción",
-    "viewGuide": "Ver guía de plantillas",
     "format": "Formato"
   },
   "transcription": {
@@ -3337,42 +3306,16 @@
     "email": {
       "common": {
         "contactAdmin": "Si tiene preguntas, póngase en contacto con su administrador.",
-        "copyLink": "O copie y pegue este enlace en su navegador:",
         "footer": "Enviado por Speakr. Si tiene preguntas, póngase en contacto con su administrador.",
-        "greeting": "Hola, {{name}}:",
         "tagline": "Transcripción de audio y notas",
         "textFooter": "Enviado por Speakr ({{tagline}})."
-      },
-      "reset": {
-        "button": "Restablecer contraseña",
-        "expiry": "El enlace caduca en 1 hora.",
-        "heading": "Restablezca su contraseña",
-        "ignore": "Si no lo solicitó, ignore este correo. Su contraseña no cambiará.",
-        "intro": "Alguien solicitó restablecer la contraseña de su cuenta de Speakr. Haga clic en el botón para elegir una nueva.",
-        "subject": "Restablezca su contraseña de Speakr",
-        "textIntro": "Alguien solicitó restablecer la contraseña de su cuenta de Speakr. Abra el siguiente enlace para elegir una nueva:"
-      },
-      "verify": {
-        "button": "Verificar dirección de correo",
-        "expiry": "El enlace caduca en 24 horas.",
-        "heading": "Verifique su dirección de correo electrónico",
-        "ignore": "Si no creó una cuenta de Speakr, ignore este correo.",
-        "intro": "Bienvenido a Speakr. Verifique su dirección de correo electrónico para terminar el registro.",
-        "subject": "Verifique su correo electrónico para Speakr",
-        "textLink": "Abra este enlace para verificar:"
       }
     },
     "flash": {
-      "accountCreated": "Cuenta creada. Ya puede iniciar sesión.",
-      "accountCreatedVerificationFailed": "Cuenta creada, pero no se pudo enviar el correo de verificación. Póngase en contacto con soporte.",
       "accountUpdated": "Datos de la cuenta guardados",
       "adminAccessDenied": "No puede abrir la página de administración.",
       "currentPasswordIncorrect": "La contraseña actual es incorrecta.",
       "currentPasswordRequired": "La contraseña actual es obligatoria.",
-      "emailAlreadyVerified": "Su correo electrónico ya ha sido verificado.",
-      "emailRequired": "La dirección de correo electrónico es obligatoria.",
-      "emailServiceNotConfigured": "El servicio de correo no está configurado.",
-      "emailVerificationDisabled": "La verificación de correo electrónico no está habilitada.",
       "exportTemplateSeparators": "La plantilla de nombre de archivo no puede contener separadores de ruta (/ o \\).",
       "groupAccessDenied": "No puede gestionar grupos.",
       "inquireDisabled": "La búsqueda en la biblioteca no está habilitada en este servidor.",
@@ -3380,18 +3323,10 @@
       "loginRequired": "Inicie sesión para ver esta página.",
       "newPasswordMismatch": "La nueva contraseña y la confirmación no coinciden.",
       "newPasswordRequired": "La nueva contraseña y la confirmación son obligatorias.",
-      "noLocalPassword": "Esta cuenta no tiene contraseña. Para establecer una, use «¿Olvidó su contraseña?» en la página de inicio de sesión.",
-      "passwordFieldsRequired": "Ambos campos de contraseña son obligatorios.",
+      "noLocalPassword": "Esta cuenta no tiene contraseña. Pida a su administración que establezca una.",
       "passwordLoginDisabled": "Inicie sesión con SSO. El inicio de sesión con contraseña está desactivado.",
       "passwordManagementDisabled": "Las contraseñas no se pueden cambiar aquí. Inicie sesión con SSO.",
-      "passwordResetDone": "Contraseña restablecida. Inicie sesión con su nueva contraseña.",
-      "passwordResetSentIfExists": "Si existe una cuenta con este correo, se ha enviado un enlace para restablecer la contraseña.",
-      "passwordResetUnavailable": "El restablecimiento de contraseña está desactivado. Póngase en contacto con su administrador.",
       "passwordUpdated": "Contraseña cambiada",
-      "passwordsDoNotMatch": "Las contraseñas no coinciden.",
-      "registrationDisabled": "El registro está cerrado. Póngase en contacto con su administrador.",
-      "registrationRestricted": "El registro está restringido. Póngase en contacto con su administrador.",
-      "resetLinkInvalid": "El enlace para restablecer la contraseña no es válido o ha caducado.",
       "ssoAlreadyLinked": "Esta cuenta SSO ya está vinculada a otro usuario.",
       "ssoClientFailed": "No se pudo iniciar SSO. Revise los registros del servidor.",
       "ssoLinkUserNotFound": "No se pudo vincular la cuenta: usuario no encontrado.",
@@ -3401,14 +3336,8 @@
       "ssoMissingSubject": "La respuesta de SSO no incluía un identificador de sujeto.",
       "ssoNotConfigured": "SSO no está configurado. Póngase en contacto con el administrador.",
       "ssoNotLinked": "Su cuenta no está vinculada a SSO.",
-      "ssoUnlinkNoPassword": "No puede desvincular SSO sin una contraseña. Use «¿Olvidó su contraseña?» en la página de inicio de sesión para establecer una.",
+      "ssoUnlinkNoPassword": "No puede desvincular SSO sin una contraseña. Pida a su administración que establezca una.",
       "ssoUnlinked": "Cuenta SSO desvinculada.",
-      "userNotFound": "Usuario no encontrado.",
-      "verificationCooldown": "Espere {{seconds}} segundos antes de solicitar otro correo de verificación.",
-      "verificationLinkInvalid": "El enlace de verificación no es válido o ha caducado.",
-      "verificationResent": "Se ha enviado un nuevo correo de verificación.",
-      "verificationSendFailed": "No se pudo enviar el correo de verificación. Inténtelo de nuevo más tarde.",
-      "verificationSentIfExists": "Si existe una cuenta con este correo, se ha enviado un enlace de verificación.",
       "pageExpired": "La página había caducado. Vuelva a intentarlo."
     },
     "password": {
@@ -3457,7 +3386,6 @@
       "cannot_delete_self": "No puede eliminar su propia cuenta",
       "chat_blocked_transcription_failed": "La transcripción falló. Reprocese primero la grabación.",
       "chat_client_not_configured": "El servicio de chat no está disponible (cliente de chat no configurado)",
-      "chat_error": "Se produjo un error durante el chat",
       "chat_failed": "Error en el chat",
       "chat_openrouter_not_configured": "El servicio de chat no está disponible (cliente de OpenRouter no configurado)",
       "chat_unavailable": "Servicio de chat no disponible",
@@ -3534,7 +3462,6 @@
       "group_tags_members_only": "Solo los miembros del grupo pueden ver las etiquetas del grupo",
       "group_tags_require_internal_sharing": "Las etiquetas de grupo requieren que el uso compartido interno esté habilitado. Establezca ENABLE_INTERNAL_SHARING=true en su configuración.",
       "groups_require_internal_sharing": "Los grupos requieren que el uso compartido interno esté habilitado. Establezca ENABLE_INTERNAL_SHARING=true en su configuración.",
-      "incognito_disabled": "El modo incógnito no está habilitado en este servidor",
       "inquire_agent_off": "El modo agente de la búsqueda en la biblioteca está desactivado en este servidor",
       "inquire_disabled": "La búsqueda en la biblioteca no está habilitada",
       "inquire_off": "La búsqueda en la biblioteca está desactivada en este servidor",
@@ -3654,7 +3581,6 @@
       "no_transcription_for_recording": "No hay transcripción para esta grabación",
       "no_transcription_for_summary": "No hay transcripción que resumir",
       "no_transcription_for_title": "No hay transcripción a partir de la cual generar un título",
-      "no_transcription_provided": "No se proporcionó ninguna transcripción",
       "no_translation": "No hay traducción para esta grabación",
       "not_found": "No encontrado",
       "notes_field_required": "El campo notes es obligatorio",
@@ -3736,7 +3662,6 @@
       "summary_blocked_transcription_failed": "La transcripción falló, así que no hay nada que resumir. Reprocese primero la grabación.",
       "summary_field_required": "El campo summary es obligatorio",
       "summary_generate_denied": "No tiene permiso para generar un resumen de esta grabación",
-      "summary_generation_failed": "No se pudo generar el resumen. Compruebe que el servicio del modelo de lenguaje esté en ejecución.",
       "summary_llm_not_configured": "El servicio de resumen no está disponible (cliente LLM no configurado)",
       "summary_openrouter_not_configured": "El servicio de resumen no está disponible (cliente de OpenRouter no configurado)",
       "system_info_unavailable": "No se pudo obtener la información del sistema",
@@ -3773,7 +3698,6 @@
       "unexpected_error": "Algo salió mal.",
       "unexpected_error_deleting": "Algo salió mal al eliminar.",
       "unexpected_error_detail": "Algo salió mal: {{detail}}",
-      "unexpected_error_processing": "Algo salió mal durante el procesamiento.",
       "unexpected_error_saving": "Algo salió mal al guardar.",
       "unexpected_error_updating_transcription": "Algo salió mal al guardar la transcripción.",
       "unexpected_error_upload": "Algo salió mal durante la subida.",
@@ -3878,11 +3802,7 @@
     },
     "form": {
       "required": "Este campo es obligatorio.",
-      "invalidEmail": "Dirección de correo electrónico no válida.",
-      "usernameLength": "El nombre de usuario debe tener entre {{min}} y {{max}} caracteres.",
-      "passwordsMustMatch": "Las contraseñas deben coincidir.",
-      "usernameTaken": "Ese nombre de usuario ya está en uso.",
-      "emailTaken": "Ese correo electrónico ya está registrado."
+      "invalidEmail": "Dirección de correo electrónico no válida."
     },
     "assistant": {
       "step": {
@@ -4052,39 +3972,7 @@
     "rememberMe": "Recordarme",
     "adminLogin": "Inicio de sesión de administrador",
     "adminEmailPlaceholder": "Correo del administrador",
-    "signIn": "Iniciar sesión",
-    "forgotPasswordLink": "¿Olvidó su contraseña?",
-    "noAccount": "¿No tiene una cuenta?",
-    "registerHere": "Crear una cuenta",
-    "registerTitle": "Crear una cuenta",
-    "createAccount": "Crear una cuenta",
-    "signUp": "Registrarse",
-    "haveAccount": "¿Ya tiene una cuenta?",
-    "loginHere": "Iniciar sesión",
-    "checkEmailTitle": "Revise su correo electrónico",
-    "verificationSentTo": "Enlace de verificación enviado a:",
-    "verificationLinkHelp": "Haga clic en el enlace del correo para verificar su cuenta. Caduca en 24 horas.",
-    "verificationRequiredTitle": "Se requiere verificar el correo electrónico",
-    "pleaseVerify": "Verifique su dirección de correo electrónico:",
-    "verificationRequiredHelp": "Busque el correo de verificación en su bandeja de entrada o solicite uno nuevo.",
-    "resetSentTo": "Si existe una cuenta con este correo electrónico:",
-    "resetLinkHelp": "Si es así, se envió un enlace de restablecimiento. Caduca en 1 hora.",
-    "resendVerification": "Reenviar el correo de verificación",
-    "backToLogin": "Volver al inicio de sesión",
-    "forgotPasswordTitle": "Contraseña olvidada",
-    "forgotPasswordHelp": "Introduzca su dirección de correo electrónico para recibir un enlace de restablecimiento de contraseña.",
-    "emailAddress": "Dirección de correo electrónico",
-    "emailPlaceholder": "Introduzca su dirección de correo electrónico",
-    "sendResetLink": "Enviar enlace de restablecimiento",
-    "rememberPassword": "¿Recuerda su contraseña?",
-    "resetPasswordTitle": "Restablecer contraseña",
-    "resetPasswordHelp": "Elija una nueva contraseña.",
-    "newPasswordPlaceholder": "Introduzca su nueva contraseña",
-    "confirmPasswordPlaceholder": "Confirme su nueva contraseña",
-    "emailVerifiedTitle": "Correo electrónico verificado",
-    "emailVerifiedHeading": "Correo electrónico verificado",
-    "emailVerifiedHelp": "Su correo electrónico está verificado. Ya puede iniciar sesión.",
-    "continueToLogin": "Iniciar sesión"
+    "signIn": "Iniciar sesión"
   },
   "translation": {
     "title": "Traducción",
@@ -4095,7 +3983,6 @@
     "targetLanguage": "Idioma de destino",
     "preferences": "Preferencias de traducción",
     "toggle": "Mostrar u ocultar la traducción",
-    "incognitoUnavailable": "La traducción no está disponible para grabaciones de incógnito.",
     "progress": "Traduciendo · {{done}} de {{total}}",
     "alreadyInLanguage": "La transcripción ya está en {{language}}."
   },
@@ -4103,39 +3990,6 @@
     "library": "Biblioteca",
     "recordings": "Grabaciones",
     "share": "Compartir"
-  },
-  "whatsNew": {
-    "title": "Novedades de Speakr {{version}}",
-    "titleSince": "Novedades desde su última visita",
-    "releaseHeading": "Speakr {{version}}",
-    "dismiss": "Entendido",
-    "releases": {
-      "0_10_20": {
-        "1": "Elija un aspecto nuevo: seis temas de la interfaz en Configuración de cuenta → Preferencias → Apariencia, cada uno con su esquema de color y el modo oscuro.",
-        "2": "El chat e Inquire son ahora Ambrose, un asistente al que puede cambiar el nombre. Haga clic en un número de cita para reproducir ese momento.",
-        "3": "Cada grabación conserva su propio chat hasta que cierre la pestaña.",
-        "4": "Las carpetas pueden contener subcarpetas. Elija una carpeta principal al crear o editar una carpeta.",
-        "5": "En Regenerar resumen, verá el prompt que se ejecutará y podrá editarlo antes.",
-        "6": "Siga el progreso de una traducción en la cola de procesamiento y en la pestaña Traducción.",
-        "7": "Descargue un resumen en Markdown, y respuestas sueltas o conversaciones completas de Preguntar a Ambrose como documentos de Word."
-      },
-      "0_10_21": {
-        "1": "Puede conectar Speakr con aplicaciones como Open WebUI mediante el inicio de sesión único.",
-        "2": "Ambrose tiene una herramienta para buscar personas por nombre."
-      },
-      "0_10_22": {
-        "1": "Las notificaciones se muestran con los colores de su tema. Los mensajes de error se mantienen en pantalla hasta que los cierra, y cada notificación tiene un botón para cerrarla."
-      },
-      "0_10_23": {
-        "1": "El editor de transcripciones tiene una línea de tiempo con la forma de onda. Los segmentos se pueden mover o redimensionar haciendo clic y arrastrando.",
-        "2": "En las transcripciones largas se puede buscar con el atajo Ctrl+F."
-      },
-      "0_11_0": {
-        "1": "El diseño para teléfonos se ha rehecho, con un único diseño en todos los temas.",
-        "2": "La cola de procesamiento muestra los trabajos activos, en espera y fallidos. Los trabajos y las subidas se pueden cancelar.",
-        "3": "En el escritorio hay atajos de teclado. Las teclas se muestran con ?."
-      }
-    }
   },
   "assistant": {
     "ask": "Preguntar a {{name}}",

@@ -179,11 +179,6 @@ root_logger.handlers.clear()
 root_logger.setLevel(log_level)
 root_logger.addHandler(handler)
 
-# An incognito request logs metadata only, at every level: the record factory
-# replaces every other record created while such a request runs.
-from src.utils.incognito_logging import install as _install_incognito_logging
-_install_incognito_logging()
-
 # httpx logs each request URL at INFO: without its query string, which holds
 # the initial prompt and the hotwords of a transcription request.
 from src.utils.log_filters import install as _install_log_filters
@@ -196,7 +191,7 @@ markdown_logger.setLevel(logging.WARNING)
 # --- Rate Limiting Setup (will be configured after app creation) ---
 # RATELIMIT_ENABLED (default true) lets the test suite and any deployment that
 # fronts its own rate limiting turn Flask-Limiter off. The per-endpoint auth
-# limits (login/register/password-reset) are applied via the rate_limit
+# limits (login, password change) are applied via the rate_limit
 # decorator in src/api/auth.py and src/api/tokens.py.
 _RATELIMIT_ENABLED = os.environ.get('RATELIMIT_ENABLED', 'true').lower() != 'false'
 def _token_request_exempt():
@@ -613,7 +608,7 @@ from src.services.calendar import generate_ics_content, escape_ical_text
 from src.tasks.processing import (
     generate_title_task, generate_summary_only_task, extract_events_from_transcript,
     extract_audio_from_video, transcribe_audio_task, transcribe_with_connector,
-    transcribe_chunks_with_connector, transcribe_incognito
+    transcribe_chunks_with_connector
 )
 
 # Import configuration helpers
@@ -1072,12 +1067,6 @@ def inject_help_center_link():
     }
 
 @app.context_processor
-def inject_registration_flag():
-    """The login page offers the register link only when /register accepts (#479)."""
-    from src.api.auth import registration_enabled
-    return {'registration_enabled': registration_enabled()}
-
-@app.context_processor
 def inject_output_languages():
     """Shared list of output/translation target language names (#translation)."""
     from src.utils.language import OUTPUT_LANGUAGES
@@ -1300,13 +1289,6 @@ from src.clinic.guard import ensure_guard_first as _ensure_guard_first
 _ensure_guard_first(app)
 from src.config.outbound_warnings import log_plain_http_warnings as _log_plain_http_warnings
 _log_plain_http_warnings(app)
-
-# Temporary files left by an incognito request that did not end normally.
-# In every process: only entries older than incognito_temp_max_age_hours are
-# removed, so workers starting together and a request in flight are safe.
-from src.services.incognito_temp import cleanup_stale as _cleanup_incognito_temp
-with app.app_context():
-    _cleanup_incognito_temp()
 
 # --- No-Crawl System: HTTP Headers ---
 @app.after_request

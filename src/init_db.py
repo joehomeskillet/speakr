@@ -628,11 +628,6 @@ def _run_migrations(app, engine):
         if add_column_if_not_exists(engine, 'user', 'assistant_name', 'VARCHAR(40)'):
             app.logger.info("Added assistant_name column to user table")
 
-        # Release whose "What's new" notes the user has seen; NULL (existing
-        # accounts) shows the current notes once
-        if add_column_if_not_exists(engine, 'user', 'whats_new_seen', 'VARCHAR(32)'):
-            app.logger.info("Added whats_new_seen column to user table")
-
         # Raised when the password is set, to end the account's sign-ins (#437)
         if add_column_if_not_exists(engine, 'user', 'session_version', 'INTEGER'):
             app.logger.info("Added session_version column to user table")
@@ -650,7 +645,7 @@ def _run_migrations(app, engine):
         if add_column_if_not_exists(engine, 'user', 'notify_email_on_completion', 'BOOLEAN DEFAULT 0'):
             app.logger.info("Added notify_email_on_completion column to user table")
 
-        # Email verification fields
+        # Email verified flag
         email_verified_added = add_column_if_not_exists(engine, 'user', 'email_verified', 'BOOLEAN DEFAULT 0')
         if email_verified_added:
             app.logger.info("Added email_verified column to user table")
@@ -662,15 +657,6 @@ def _run_migrations(app, engine):
                     app.logger.info("Set email_verified=True for all existing users (grandfathered)")
             except Exception as e:
                 app.logger.warning(f"Could not update existing users email_verified status: {e}")
-
-        if add_column_if_not_exists(engine, 'user', 'email_verification_token', 'VARCHAR(200)'):
-            app.logger.info("Added email_verification_token column to user table")
-        if add_column_if_not_exists(engine, 'user', 'email_verification_sent_at', 'DATETIME'):
-            app.logger.info("Added email_verification_sent_at column to user table")
-        if add_column_if_not_exists(engine, 'user', 'password_reset_token', 'VARCHAR(200)'):
-            app.logger.info("Added password_reset_token column to user table")
-        if add_column_if_not_exists(engine, 'user', 'password_reset_sent_at', 'DATETIME'):
-            app.logger.info("Added password_reset_sent_at column to user table")
 
         # Auto speaker labelling settings
         if add_column_if_not_exists(engine, 'user', 'auto_speaker_labelling', 'BOOLEAN DEFAULT 0'):
@@ -757,14 +743,6 @@ def _run_migrations(app, engine):
                 app.logger.info(f"Added title_prompt column to {table} table")
 
     with _migration_section(app, failures, "token indexes, export templates and sharing columns"):
-        # Create indexes for token lookups (for faster token verification)
-        try:
-            if create_index_if_not_exists(engine, 'ix_user_email_verification_token', 'user', 'email_verification_token'):
-                app.logger.info("Created index ix_user_email_verification_token on user.email_verification_token")
-            if create_index_if_not_exists(engine, 'ix_user_password_reset_token', 'user', 'password_reset_token'):
-                app.logger.info("Created index ix_user_password_reset_token on user.password_reset_token")
-        except Exception as e:
-            app.logger.warning(f"Could not create token indexes: {e}")
         if add_column_if_not_exists(engine, 'tag', 'naming_template_id', 'INTEGER'):
             app.logger.info("Added naming_template_id column to tag table")
 
@@ -1338,15 +1316,6 @@ def _run_migrations(app, engine):
                 setting_type='string'
             )
             app.logger.info("Initialized admin_default_initial_prompt setting")
-
-        if not SystemSetting.query.filter_by(key='show_whats_new').first():
-            SystemSetting.set_setting(
-                key='show_whats_new',
-                value='true',
-                description="After an update, show each user a short list of the new features once.",
-                setting_type='boolean'
-            )
-            app.logger.info("Initialized show_whats_new setting")
 
         if not SystemSetting.query.filter_by(key='enable_folders').first():
             SystemSetting.set_setting(

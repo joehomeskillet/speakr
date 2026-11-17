@@ -162,48 +162,6 @@
                     </p>
                 </div>
 
-                <!-- Incognito Mode Toggle (only shown if feature is enabled via ENABLE_INCOGNITO_MODE env var) -->
-                <div v-if="enableIncognitoMode" class="mt-3">
-                    <button @click="incognitoMode = !incognitoMode"
-                            :class="[
-                                'w-full flex items-center justify-between px-3 py-2.5 rounded-lg border transition-all duration-200',
-                                incognitoMode
-                                    ? 'bg-gradient-to-r from-violet-500/10 to-purple-500/10 border-violet-400/50 dark:border-violet-500/50'
-                                    : 'bg-[var(--bg-tertiary)] border-[var(--border-secondary)] hover:border-[var(--border-focus)]'
-                            ]">
-                        <div class="flex items-center gap-3">
-                            <div :class="[
-                                'w-8 h-8 rounded-full flex items-center justify-center transition-all',
-                                incognitoMode
-                                    ? 'bg-gradient-to-br from-violet-500 to-purple-600 text-white'
-                                    : 'bg-[var(--bg-secondary)] text-[var(--text-muted)]'
-                            ]">
-                                <i class="fas fa-user-secret text-sm"></i>
-                            </div>
-                            <div class="text-left">
-                                <span :class="['text-sm font-medium', incognitoMode ? 'text-violet-700 dark:text-violet-300' : 'text-[var(--text-secondary)]']">
-                                    ${ t('incognito.mode') }
-                                </span>
-                                <p v-if="!incognitoMode" class="text-[10px] text-[var(--text-muted)]">
-                                    ${ t('incognito.processWithoutSaving') }
-                                </p>
-                                <p v-else class="text-[10px] text-violet-600 dark:text-violet-400">
-                                    ${ t('incognito.sessionOnly') } &bull; ${ t('incognito.notSavedToAccount') }
-                                </p>
-                            </div>
-                        </div>
-                        <div :class="[
-                            'w-10 h-5 rounded-full relative transition-all duration-200',
-                            incognitoMode ? 'bg-gradient-to-r from-violet-500 to-purple-500' : 'bg-[var(--bg-secondary)]'
-                        ]">
-                            <div :class="[
-                                'absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all duration-200',
-                                incognitoMode ? 'left-5' : 'left-0.5'
-                            ]"></div>
-                        </div>
-                    </button>
-                </div>
-
                 <!-- Keep audio only toggle. Shown only when VIDEO_RETENTION
                      is enabled at the server AND the queue contains at
                      least one video file. When off, videos in the queue
@@ -265,7 +223,7 @@
                     </button>
                 </div>
 
-                <!-- Note: Upload + Incognito-upload buttons moved to
+                <!-- Note: Upload buttons moved to
                      the sticky modal-footer below so the primary
                      action is always reachable without scrolling. -->
             </div>
@@ -679,21 +637,13 @@
         <!-- Sticky modal-footer: primary Upload action always visible
              without scrolling. The button is enabled only when the
              queue has files; otherwise it's a clear, disabled
-             affordance pointing at the next required step. The
-             Incognito variant swaps in when incognito mode is active. -->
-        <p v-if="enableIncognitoMode && incognitoMode && pendingQueueFiles.length > 1"
-           class="text-xs text-violet-600 dark:text-violet-400 text-center px-5 py-2 border-t"
-           style="border-top-color: var(--border-primary);">
-            <i class="fas fa-info-circle mr-1"></i>
-            ${ t('incognito.oneFileAtATime') }
-        </p>
+             affordance pointing at the next required step. -->
         <div class="modal-footer modal-footer--between">
             <button @click="closeUploadView" class="btn btn--ghost">
                 <span v-text="t('common.cancel')"></span>
             </button>
 
-            <!-- Normal Upload Buttons (when not in incognito mode or feature disabled) -->
-            <div v-if="!incognitoMode || !enableIncognitoMode" class="flex items-center gap-2">
+            <div class="flex items-center gap-2">
                 <!-- Queue the files but keep the modal open for more -->
                 <button v-if="!joinActive" @click="startUpload"
                         :disabled="pendingQueueFiles.length === 0"
@@ -711,18 +661,6 @@
                     <span v-else v-text="t('upload.uploadNFiles', { count: pendingQueueFiles.length })"></span>
                 </button>
             </div>
-
-            <!-- Incognito Upload Button (only when feature enabled and mode selected) -->
-            <button v-else
-                    @click="startIncognitoUpload"
-                    :disabled="incognitoProcessing || pendingQueueFiles.length !== 1"
-                    class="btn btn--primary"
-                    style="background: linear-gradient(to right, #8b5cf6, #9333ea); border-color: transparent; color: white;">
-                <i :class="incognitoProcessing ? 'fas fa-spinner fa-spin' : 'fas fa-user-secret'"></i>
-                <span v-if="incognitoProcessing">${ t('incognito.processing') }</span>
-                <span v-else-if="pendingQueueFiles.length !== 1">${ t('incognito.selectExactlyOneFile') }</span>
-                <span v-else>${ t('incognito.processInIncognito') }</span>
-            </button>
         </div>
     </div>
 </div>

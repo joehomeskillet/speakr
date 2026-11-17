@@ -882,7 +882,6 @@
       "change": "更改",
       "share": "共享",
       "admin": "管理",
-      "incognito": "无痕模式",
       "audit": "审计日志"
     },
     "outcomes": {
@@ -1562,7 +1561,6 @@
     "noAudioTrackInScreenShare": "屏幕共享没有音频。共享时请勾选“共享系统音频”或“共享标签页音频”。刚打开的帮助指南提供了各系统的操作步骤。",
     "startRecordingFailed": "无法开始录音：{{error}}",
     "noRecordedAudioToUpload": "没有可上传的录音。",
-    "incognitoResumedNotAllowed": "恢复的录音无法在隐身模式下处理，因为其之前的音频已在服务器上。请使用普通上传。",
     "addTagFailed": "无法添加标签",
     "addTagFailedDetail": "无法添加标签：{{error}}",
     "removeTagFailed": "无法移除标签",
@@ -2065,30 +2063,6 @@
     "newTag": "新建标签",
     "autoIdentifyTooltip": "使用文本模型查找对话中提到的名字。声纹匹配无需此功能也会被建议。",
     "autoIdentifyNoModel": "需要文本模型，但尚未配置。声纹匹配无需它也会被建议。"
-  },
-  "incognito": {
-    "audioNotStored": "隐身模式下不会保存音频",
-    "discardConfirm": "丢弃隐身录音？丢弃后无法恢复。",
-    "lostIfTabCloses": "关闭标签页或浏览器后将丢失",
-    "mode": "隐身模式",
-    "notSavedToAccount": "不会保存到账号",
-    "oneFileAtATime": "隐身模式下一次只能处理一个文件",
-    "processInIncognito": "在隐身模式下处理",
-    "processWithoutSaving": "处理但不保存",
-    "processing": "处理中…",
-    "processingComplete": "处理完成",
-    "processingInProgress": "正在以隐身模式处理…",
-    "recordingDiscarded": "隐身录音已丢弃",
-    "recordingProcessed": "隐身录音已处理。关闭此标签页后它将消失。",
-    "recordingReady": "隐身录音已就绪",
-    "recordingTitle": "隐身录音",
-    "selectExactlyOneFile": "请正好选择 1 个文件",
-    "sessionOnly": "仅当前会话",
-    "uploadingFile": "正在上传文件用于隐身处理…",
-    "uploadingRecording": "正在上传录音用于隐身处理…",
-    "processingFailed": "隐身处理失败：{{error}}",
-    "badge": "隐身",
-    "switchDiscardConfirm": "打开其他录音并丢弃隐身录音？"
   },
   "initialPromptTemplates": {
     "tabTitle": "转录提示",
@@ -2826,7 +2800,6 @@
     "colorRepeats": "颜色重复",
     "editText": "编辑文本",
     "hideVideo": "隐藏视频",
-    "incognitoAudio": "隐身录音不保存音频。",
     "mergeAllInto": "全部合并到…",
     "mergeInto": "合并到…",
     "mergedSpeakers": "已将 {{count}} 位发言人合并到 {{name}}。保存后生效。",
@@ -3030,7 +3003,6 @@
     "recordingPaused": "录音已暂停",
     "recordingResumed": "录音已恢复",
     "recordingMaxDurationApproaching": "录音将在约 {{minutes}} 分钟后达到最长时长并停止。",
-    "resumedRecordingNotIncognito": "隐身模式已关闭。此恢复的录音已在服务器上。",
     "recordingMaxDurationReached": "录音已达到最长时长，已停止。",
     "recordingResumeFound": "发现此浏览器中一段未完成的录音。是否继续？",
     "recordingSizeSoftWarning": "录音大小为 {{size}}。如可能，请尽快停止。",
@@ -3060,7 +3032,6 @@
     "clearChat": "清空聊天",
     "copyTranscript": "复制转录",
     "deleteTeam": "删除群组",
-    "discardIncognito": "丢弃隐身录音",
     "dockBottom": "移到底部",
     "dockLeft": "移到左栏",
     "dockRight": "移到右栏",
@@ -3123,7 +3094,6 @@
     "tagDragToReorder": "{{name}}（拖动以重新排序）",
     "translateTranscript": "翻译转录",
     "reprocessTranslation": "重新处理翻译",
-    "translateTranscriptIncognito": "翻译不适用于无痕录音。",
     "editTranslation": "编辑翻译"
   },
   "transcriptTemplates": {
@@ -3149,7 +3119,6 @@
     "template": "模板",
     "templateName": "模板名称",
     "title": "转录模板",
-    "viewGuide": "查看模板指南",
     "format": "格式"
   },
   "transcription": {
@@ -3337,42 +3306,16 @@
     "email": {
       "common": {
         "contactAdmin": "如有疑问，请联系您的管理员。",
-        "copyLink": "或将此链接复制并粘贴到浏览器中：",
         "footer": "由 Speakr 发送。如有疑问，请联系您的管理员。",
-        "greeting": "{{name}}，您好：",
         "tagline": "音频转录和笔记",
         "textFooter": "由 Speakr 发送（{{tagline}}）。"
-      },
-      "reset": {
-        "button": "重置密码",
-        "expiry": "链接将在 1 小时后失效。",
-        "heading": "重置您的密码",
-        "ignore": "如果这不是您申请的，请忽略此邮件。您的密码保持不变。",
-        "intro": "有人申请重置您的 Speakr 账户密码。请点击按钮设置新密码。",
-        "subject": "重置您的 Speakr 密码",
-        "textIntro": "有人申请重置您的 Speakr 账户密码。请打开下方链接设置新密码："
-      },
-      "verify": {
-        "button": "验证邮箱地址",
-        "expiry": "链接将在 24 小时后失效。",
-        "heading": "验证您的邮箱地址",
-        "ignore": "如果您没有创建 Speakr 账户，请忽略此邮件。",
-        "intro": "欢迎使用 Speakr。请验证您的邮箱地址以完成注册。",
-        "subject": "验证您的 Speakr 邮箱",
-        "textLink": "打开此链接进行验证："
       }
     },
     "flash": {
-      "accountCreated": "账户已创建。现在可以登录了。",
-      "accountCreatedVerificationFailed": "账户已创建，但无法发送验证邮件。请联系支持人员。",
       "accountUpdated": "账户信息已保存",
       "adminAccessDenied": "您无法打开管理页面。",
       "currentPasswordIncorrect": "当前密码不正确。",
       "currentPasswordRequired": "请输入当前密码。",
-      "emailAlreadyVerified": "您的邮箱已验证。",
-      "emailRequired": "请输入邮箱地址。",
-      "emailServiceNotConfigured": "邮件服务未配置。",
-      "emailVerificationDisabled": "未启用邮箱验证。",
       "exportTemplateSeparators": "文件名模板不能包含路径分隔符（/ 或 \\）。",
       "groupAccessDenied": "您无法管理群组。",
       "inquireDisabled": "此服务器未启用录音库搜索。",
@@ -3380,18 +3323,10 @@
       "loginRequired": "登录后即可查看此页面。",
       "newPasswordMismatch": "新密码与确认密码不一致。",
       "newPasswordRequired": "请输入新密码和确认密码。",
-      "noLocalPassword": "此账户没有密码。如需设置，请在登录页面使用“忘记密码”。",
-      "passwordFieldsRequired": "两个密码字段均为必填项。",
+      "noLocalPassword": "此账户没有密码。请联系管理员设置。",
       "passwordLoginDisabled": "请使用 SSO 登录。密码登录已关闭。",
       "passwordManagementDisabled": "无法在此更改密码。请使用 SSO 登录。",
-      "passwordResetDone": "密码已重置。请使用新密码登录。",
-      "passwordResetSentIfExists": "如果存在使用此邮箱的账户，密码重置链接已发送。",
-      "passwordResetUnavailable": "密码重置已关闭。请联系您的管理员。",
       "passwordUpdated": "密码已更改",
-      "passwordsDoNotMatch": "两次输入的密码不一致。",
-      "registrationDisabled": "注册已关闭。请联系您的管理员。",
-      "registrationRestricted": "注册受限。请联系您的管理员。",
-      "resetLinkInvalid": "密码重置链接无效或已过期。",
       "ssoAlreadyLinked": "此 SSO 账户已关联到其他用户。",
       "ssoClientFailed": "无法启动 SSO。请查看服务器日志。",
       "ssoLinkUserNotFound": "无法关联账户：未找到用户。",
@@ -3401,14 +3336,8 @@
       "ssoMissingSubject": "SSO 响应中未包含主体标识符。",
       "ssoNotConfigured": "SSO 未配置。联系管理员。",
       "ssoNotLinked": "您的账户未关联 SSO。",
-      "ssoUnlinkNoPassword": "没有密码就无法取消 SSO 关联。请在登录页面使用“忘记密码”设置密码。",
+      "ssoUnlinkNoPassword": "没有密码就无法取消 SSO 关联。请联系管理员设置密码。",
       "ssoUnlinked": "SSO 账户已解除关联。",
-      "userNotFound": "未找到用户。",
-      "verificationCooldown": "等待 {{seconds}} 秒后再申请新的验证邮件。",
-      "verificationLinkInvalid": "验证链接无效或已过期。",
-      "verificationResent": "新的验证邮件已发送。",
-      "verificationSendFailed": "无法发送验证邮件。请稍后重试。",
-      "verificationSentIfExists": "如果存在使用此邮箱的账户，验证链接已发送。",
       "pageExpired": "页面已过期，请重试。"
     },
     "password": {
@@ -3457,7 +3386,6 @@
       "cannot_delete_self": "不能删除您自己的账户",
       "chat_blocked_transcription_failed": "转录失败。请先重新处理该录音。",
       "chat_client_not_configured": "聊天服务不可用（未配置聊天客户端）",
-      "chat_error": "聊天过程中出错",
       "chat_failed": "聊天失败",
       "chat_openrouter_not_configured": "聊天服务不可用（未配置 OpenRouter 客户端）",
       "chat_unavailable": "聊天服务不可用",
@@ -3534,7 +3462,6 @@
       "group_tags_members_only": "只有群组成员可以查看群组标签",
       "group_tags_require_internal_sharing": "群组标签需要启用内部分享。在配置中设置 ENABLE_INTERNAL_SHARING=true。",
       "groups_require_internal_sharing": "群组功能需要启用内部分享。在配置中设置 ENABLE_INTERNAL_SHARING=true。",
-      "incognito_disabled": "此服务器未启用无痕模式",
       "inquire_agent_off": "此服务器已关闭录音库搜索的代理模式",
       "inquire_disabled": "未启用录音库搜索",
       "inquire_off": "此服务器已关闭录音库搜索",
@@ -3654,7 +3581,6 @@
       "no_transcription_for_recording": "此录音没有转录文本",
       "no_transcription_for_summary": "没有可生成摘要的转录文本",
       "no_transcription_for_title": "没有可生成标题的转录文本",
-      "no_transcription_provided": "未提供转录",
       "no_translation": "此录音没有翻译",
       "not_found": "未找到",
       "notes_field_required": "notes 字段为必填项",
@@ -3736,7 +3662,6 @@
       "summary_blocked_transcription_failed": "转录失败，没有可生成摘要的内容。请先重新处理该录音。",
       "summary_field_required": "summary 字段为必填项",
       "summary_generate_denied": "您没有为此录音生成摘要的权限",
-      "summary_generation_failed": "无法生成摘要。请检查语言模型服务是否正在运行。",
       "summary_llm_not_configured": "摘要服务不可用（未配置 LLM 客户端）",
       "summary_openrouter_not_configured": "摘要服务不可用（未配置 OpenRouter 客户端）",
       "system_info_unavailable": "无法获取系统信息",
@@ -3773,7 +3698,6 @@
       "unexpected_error": "出现问题。",
       "unexpected_error_deleting": "删除时出现问题。",
       "unexpected_error_detail": "出现问题：{{detail}}",
-      "unexpected_error_processing": "处理时出现问题。",
       "unexpected_error_saving": "保存时出现问题。",
       "unexpected_error_updating_transcription": "保存转录文本时出现问题。",
       "unexpected_error_upload": "上传时出现问题。",
@@ -3878,11 +3802,7 @@
     },
     "form": {
       "required": "此字段为必填项。",
-      "invalidEmail": "电子邮件地址无效。",
-      "usernameLength": "用户名长度必须在 {{min}} 到 {{max}} 个字符之间。",
-      "passwordsMustMatch": "两次输入的密码必须一致。",
-      "usernameTaken": "该用户名已被使用。",
-      "emailTaken": "该邮箱已注册。"
+      "invalidEmail": "电子邮件地址无效。"
     },
     "assistant": {
       "step": {
@@ -4052,39 +3972,7 @@
     "rememberMe": "记住我",
     "adminLogin": "管理员登录",
     "adminEmailPlaceholder": "管理员邮箱",
-    "signIn": "登录",
-    "forgotPasswordLink": "忘记密码？",
-    "noAccount": "还没有账户？",
-    "registerHere": "创建账户",
-    "registerTitle": "创建账户",
-    "createAccount": "创建账户",
-    "signUp": "注册",
-    "haveAccount": "已有账户？",
-    "loginHere": "登录",
-    "checkEmailTitle": "请查收邮件",
-    "verificationSentTo": "验证链接已发送至：",
-    "verificationLinkHelp": "点击邮件中的链接以验证您的账户。链接将在 24 小时后失效。",
-    "verificationRequiredTitle": "需要验证邮箱",
-    "pleaseVerify": "验证您的邮箱地址：",
-    "verificationRequiredHelp": "请在收件箱中查找验证邮件，或重新请求一封。",
-    "resetSentTo": "如果存在使用此邮箱的账户：",
-    "resetLinkHelp": "如果是，重置链接已发送。链接将在 1 小时后失效。",
-    "resendVerification": "重新发送验证邮件",
-    "backToLogin": "返回登录",
-    "forgotPasswordTitle": "忘记密码",
-    "forgotPasswordHelp": "输入您的邮箱地址以获取密码重置链接。",
-    "emailAddress": "邮箱地址",
-    "emailPlaceholder": "请输入您的邮箱地址",
-    "sendResetLink": "发送重置链接",
-    "rememberPassword": "想起密码了？",
-    "resetPasswordTitle": "重置密码",
-    "resetPasswordHelp": "设置新密码。",
-    "newPasswordPlaceholder": "请输入新密码",
-    "confirmPasswordPlaceholder": "请确认新密码",
-    "emailVerifiedTitle": "邮箱已验证",
-    "emailVerifiedHeading": "邮箱已验证",
-    "emailVerifiedHelp": "您的邮箱已验证。现在可以登录了。",
-    "continueToLogin": "登录"
+    "signIn": "登录"
   },
   "translation": {
     "title": "翻译",
@@ -4095,7 +3983,6 @@
     "targetLanguage": "目标语言",
     "preferences": "翻译偏好设置",
     "toggle": "切换翻译",
-    "incognitoUnavailable": "翻译不适用于无痕录音。",
     "progress": "正在翻译 · {{done}}/{{total}}",
     "alreadyInLanguage": "转录内容已经是{{language}}。"
   },
@@ -4103,39 +3990,6 @@
     "library": "资源库",
     "recordings": "录音",
     "share": "分享"
-  },
-  "whatsNew": {
-    "title": "Speakr {{version}} 新功能",
-    "titleSince": "自您上次访问以来的新功能",
-    "releaseHeading": "Speakr {{version}}",
-    "dismiss": "知道了",
-    "releases": {
-      "0_10_20": {
-        "1": "选择新的外观：在“账户设置 → 偏好设置 → 外观”中有六种界面主题，每种都配合您的配色方案和深色模式。",
-        "2": "聊天和 Inquire 现在合为 Ambrose，您可以为这个助手改名。点击引用编号即可播放对应时刻。",
-        "3": "每条录音都有自己的聊天，保留到您关闭此标签页为止。",
-        "4": "文件夹可以包含子文件夹。创建或编辑文件夹时可选择父文件夹。",
-        "5": "在“重新生成摘要”中，您可以看到将要运行的提示词，并可事先编辑。",
-        "6": "在处理队列和“翻译”标签页中查看翻译进度。",
-        "7": "将摘要下载为 Markdown，或将单条回答或整个“询问 Ambrose”对话下载为 Word 文档。"
-      },
-      "0_10_21": {
-        "1": "您可以通过单点登录将 Speakr 连接到 Open WebUI 等应用。",
-        "2": "Ambrose 有一个按姓名搜索人员的工具。"
-      },
-      "0_10_22": {
-        "1": "通知以您的主题颜色显示。错误消息会一直显示，直到您将其关闭；每条通知都有关闭按钮。"
-      },
-      "0_10_23": {
-        "1": "转录编辑器带有显示波形的时间轴。点击并拖动即可移动片段或调整其长度。",
-        "2": "长转录可使用 Ctrl+F 快捷键搜索。"
-      },
-      "0_11_0": {
-        "1": "手机界面已重新设计，所有主题使用同一布局。",
-        "2": "处理队列显示进行中、等待中和失败的任务。任务和上传可以取消。",
-        "3": "桌面端提供键盘快捷键。按 ? 可查看按键列表。"
-      }
-    }
   },
   "assistant": {
     "ask": "询问 {{name}}",
