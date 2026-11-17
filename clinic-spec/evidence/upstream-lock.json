@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "status": "base_pinned_dependency_resolution_pending",
+  "status": "upstream_pinned_image_and_asr_hashes_unresolved_production_blocked",
   "components": [
     {
       "id": "speakr",
@@ -8,36 +8,39 @@
       "ref": "v0.11.1",
       "commit": "48d3018fb7d80b77f897bedd86bcc89b5034d1f5",
       "license": "AGPL-3.0",
-      "resolution": "verified_release_link",
+      "resolution": "tag v0.11.1 verified locally to resolve to commit 48d3018fb7d80b77f897bedd86bcc89b5034d1f5; tests executed locally, see evidence/s00-baseline.json; image not built, source_built stays false",
       "source_built": false,
-      "tests_executed": false
+      "tests_executed": true,
+      "note": "Tag v0.11.1 verified locally to resolve to commit 48d3018fb7d80b77f897bedd86bcc89b5034d1f5. Local test execution documented in evidence/s00-baseline.json. Image not built, source_built stays false."
     },
     {
       "id": "dss-codec",
       "repository": "https://github.com/hirparak/dss-codec.git",
-      "ref": null,
-      "commit": null,
+      "ref": "HEAD (default branch, resolved 2026-11-17)",
+      "commit": "c38d3192239005b0570c5987cbde62e69dd7dbbe",
       "license": "MIT",
-      "resolution": "task_S00_resolve_default_branch_once_then_lock",
+      "resolution": "resolved default branch HEAD to commit c38d3192239005b0570c5987cbde62e69dd7dbbe on 2026-11-17; build from source pending",
       "source_built": false
     },
     {
       "id": "speaches",
       "repository": "https://github.com/speaches-ai/speaches.git",
-      "ref": null,
-      "commit": null,
+      "ref": "v0.8.3",
+      "commit": "c78b77d5ce56f8c1042f6bc11209697cca2b2445",
       "license": "MIT",
-      "resolution": "task_S00_latest_non_prerelease_semver_if_available_else_pin_default_branch_as_dev_only",
+      "resolution": "resolved latest non-prerelease semver tag v0.8.3 to commit c78b77d5ce56f8c1042f6bc11209697cca2b2445 (v0.9.0-rc.3 skipped as release candidate); container image digest and ASR model hashes unresolved",
       "source_built": false
     },
     {
       "id": "keycloak-dev",
       "repository": "https://github.com/keycloak/keycloak.git",
-      "ref": null,
-      "commit": null,
+      "ref": "26.8.2",
+      "commit": "e514445f9dcdabc5bdcf67cab56c1e49655de067",
       "license": "Apache-2.0",
-      "resolution": "task_S00_supported_release_and_image_digest",
+      "resolution": "resolved supported release tag 26.8.2 to commit e514445f9dcdabc5bdcf67cab56c1e49655de067; image_digest null with no image pulled",
       "source_built": false,
+      "image_digest": null,
+      "image_digest_note": "No image was pulled during S00; image digest remains null and unresolved",
       "optional": true,
       "required_in_profiles": [
         "ldap"
@@ -45,5 +48,5 @@
       "usage": "Optional isolated OIDC tests or later LDAP federation; never required for local runtime or direct Entra runtime."
     }
   ],
-  "note": "Null is an explicit unperformed resolution step, not a fake hash. Production is blocked until all deployed artifacts/models have verified pins and scans."
+  "note": "Git refs and commits resolved on 2026-11-17. Image digests and ASR model hashes unresolved; production stays blocked."
 }
