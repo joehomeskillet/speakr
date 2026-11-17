@@ -363,9 +363,9 @@ def test_filename_sanitising(clinic_db):
 
 
 def test_docx_roundtrip_umlauts_and_long_text(clinic_db):
-    release, transcript, _dict_b = _released()
-    transcript.body = LONG
-    db.session.flush()
+    # Revisions are append-only: bind the release to a revision created with LONG.
+    author, dict_a, _dict_b, audio, transcript, context = _pair(body=LONG)
+    release = _release(dict_a, audio, transcript, context, author)
     rendered = render_docx(release)
     document = Document(BytesIO(rendered.content))
     lines = [paragraph.text for paragraph in document.paragraphs]

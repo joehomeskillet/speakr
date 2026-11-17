@@ -268,10 +268,12 @@ class ClinicDelivery(db.Model):
 _ORIGINAL_TRIGGER = "clinic_original_immutable"
 _ORIGINAL_DELETE_TRIGGER = "clinic_original_no_delete"
 _LEASE_TRIGGER = "clinic_lease_generation_monotone"
+_TRANSCRIPT_TRIGGER = "clinic_transcript_immutable"
+_TRANSCRIPT_DELETE_TRIGGER = "clinic_transcript_no_delete"
 
 
 def install_clinic_guards(engine) -> None:
-    """Reject original UPDATE and DELETE and a non-increasing lease generation.
+    """Reject original and transcript revision UPDATE and DELETE and a non-increasing lease generation.
 
     Idempotent. SQLite and PostgreSQL need different trigger DDL; other
     engines keep the tables without these two guards.
@@ -294,6 +296,24 @@ def install_clinic_guards(engine) -> None:
                 "FOR EACH ROW "
                 "BEGIN "
                 "SELECT RAISE(ABORT, 'clinic original cannot be deleted'); "
+                "END"
+            ),
+            "DROP TRIGGER IF EXISTS " + _TRANSCRIPT_TRIGGER,
+            (
+                "CREATE TRIGGER " + _TRANSCRIPT_TRIGGER + " "
+                "BEFORE UPDATE ON clinic_transcript_revision "
+                "FOR EACH ROW "
+                "BEGIN "
+                "SELECT RAISE(ABORT, 'clinic transcript revision is immutable'); "
+                "END"
+            ),
+            "DROP TRIGGER IF EXISTS " + _TRANSCRIPT_DELETE_TRIGGER,
+            (
+                "CREATE TRIGGER " + _TRANSCRIPT_DELETE_TRIGGER + " "
+                "BEFORE DELETE ON clinic_transcript_revision "
+                "FOR EACH ROW "
+                "BEGIN "
+                "SELECT RAISE(ABORT, 'clinic transcript revision cannot be deleted'); "
                 "END"
             ),
             "DROP TRIGGER IF EXISTS " + _LEASE_TRIGGER,
@@ -323,6 +343,21 @@ def install_clinic_guards(engine) -> None:
             CREATE TRIGGER clinic_original_immutable
             BEFORE UPDATE OR DELETE ON clinic_original_version
             FOR EACH ROW EXECUTE PROCEDURE clinic_original_immutable()
+            """,
+            """
+            CREATE OR REPLACE FUNCTION clinic_transcript_immutable()
+            RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN
+                RAISE EXCEPTION 'clinic transcript revision is immutable'
+                    USING ERRCODE = 'check_violation';
+            END;
+            $$
+            """,
+            "DROP TRIGGER IF EXISTS " + _TRANSCRIPT_TRIGGER + " ON clinic_transcript_revision",
+            """
+            CREATE TRIGGER clinic_transcript_immutable
+            BEFORE UPDATE OR DELETE ON clinic_transcript_revision
+            FOR EACH ROW EXECUTE PROCEDURE clinic_transcript_immutable()
             """,
             """
             CREATE OR REPLACE FUNCTION clinic_lease_generation_monotone()

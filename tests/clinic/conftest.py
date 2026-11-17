@@ -112,6 +112,8 @@ def world():
 
 _ORIGINAL_TABLE = "clinic_original_version"
 _ORIGINAL_TRIGGERS = ("clinic_original_immutable", "clinic_original_no_delete")
+_TRANSCRIPT_TABLE = "clinic_transcript_revision"
+_TRANSCRIPT_TRIGGERS = ("clinic_transcript_immutable", "clinic_transcript_no_delete")
 
 
 def _clinic_tables_children_first():
@@ -130,14 +132,20 @@ def _purge_clinic_rows():
     dialect = db.engine.dialect.name
     with db.engine.begin() as conn:
         if dialect == "sqlite":
-            for trigger in (*_ORIGINAL_TRIGGERS, "clinic_lease_generation_monotone"):
+            for trigger in (
+                *_ORIGINAL_TRIGGERS,
+                *_TRANSCRIPT_TRIGGERS,
+                "clinic_lease_generation_monotone",
+            ):
                 conn.execute(text("DROP TRIGGER IF EXISTS " + trigger))
         elif dialect == "postgresql":
-            conn.execute(text("ALTER TABLE " + _ORIGINAL_TABLE + " DISABLE TRIGGER USER"))
+            for table_name in (_ORIGINAL_TABLE, _TRANSCRIPT_TABLE):
+                conn.execute(text("ALTER TABLE " + table_name + " DISABLE TRIGGER USER"))
         for table in tables:
             conn.execute(table.delete())
         if dialect == "postgresql":
-            conn.execute(text("ALTER TABLE " + _ORIGINAL_TABLE + " ENABLE TRIGGER USER"))
+            for table_name in (_ORIGINAL_TABLE, _TRANSCRIPT_TABLE):
+                conn.execute(text("ALTER TABLE " + table_name + " ENABLE TRIGGER USER"))
     if dialect == "sqlite":
         install_clinic_guards(db.engine)
 

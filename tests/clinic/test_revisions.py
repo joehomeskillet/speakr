@@ -8,7 +8,8 @@ import hashlib
 import uuid
 
 import pytest
-from sqlalchemy import event
+from sqlalchemy import event, text
+from sqlalchemy.exc import DBAPIError
 
 from src.app import app, db
 from src.clinic.models import ClinicDictation, ClinicOriginal, ClinicTranscriptRevision
@@ -227,6 +228,25 @@ def test_delete_of_a_revision_is_rejected(clinic_db):
     db.session.delete(revision)
     with pytest.raises(RevisionImmutable):
         db.session.flush()
+
+
+def test_bulk_update_and_raw_sql_of_a_revision_are_rejected_by_the_database(clinic_db):
+    _author, dictation, original = _scene()
+    revision = add_asr_revision(dictation, original, "alpha", "stub-asr:1")
+    db.session.commit()
+    revision_id = revision.id
+    with pytest.raises(DBAPIError):
+        db.session.query(ClinicTranscriptRevision).filter_by(id=revision_id).update(
+            {"body": "tampered"}, synchronize_session=False
+        )
+    db.session.rollback()
+    with pytest.raises(DBAPIError):
+        db.session.execute(
+            text("DELETE FROM clinic_transcript_revision WHERE id = :i"),
+            {"i": revision_id},
+        )
+    db.session.rollback()
+    assert db.session.get(ClinicTranscriptRevision, revision_id).body == "alpha"
 
 
 def test_revision_of_another_dictation_cannot_be_parent(clinic_db):
