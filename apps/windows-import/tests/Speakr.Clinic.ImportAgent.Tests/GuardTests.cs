@@ -74,14 +74,16 @@ public class GuardTests
     {
         var bytes = Encoding.UTF8.GetBytes("abcdefghijklmnopqrst");
         var sha = Hashing.Sha256Hex(bytes);
-        var handler = new RecordingHandler(sha, bytes.Length);
+        var snapshot = Hashing.Sha256Hex(Encoding.UTF8.GetBytes("version"));
+        const string intentId = "33333333-3333-3333-3333-333333333333";
+        var handler = new RecordingHandler(sha, bytes.Length, "root-a:note.dss", snapshot, intentId);
         var spoolDir = Temp.Dir();
         try
         {
             using var client = new HttpClient(handler) { BaseAddress = new Uri("https://clinic.example.invalid") };
             var server = new HttpImportServer(client);
             var item = new InventoryItem(
-                "root-a/note.dss",
+                "root-a:note.dss",
                 "root-a",
                 "/tmp/root-a",
                 "note.dss",
@@ -89,7 +91,7 @@ public class GuardTests
                 bytes.Length,
                 DateTimeOffset.Parse("2026-01-02T03:04:05Z"),
                 sha,
-                Hashing.Sha256Hex(Encoding.UTF8.GetBytes("version")),
+                snapshot,
                 CompletionObservation.Unknown);
             var spool = new EncryptedSpool(spoolDir, Temp.Key(), 1024);
             spool.Put(item.SnapshotVersion, bytes);
@@ -103,7 +105,6 @@ public class GuardTests
             var uploader = new ResumableUploader(server, spool, options);
             await server.ReportInventoryAsync(new InventoryReport
             {
-                AgentId = "agent-1",
                 Items =
                 [
                     new InventoryItemWire
@@ -118,13 +119,22 @@ public class GuardTests
                 ]
             }, CancellationToken.None);
             await server.PollIntentsAsync("agent-1", CancellationToken.None);
-            var receipt = await uploader.UploadAsync(item, CancellationToken.None);
+            var intent = new ImportIntent
+            {
+                IntentId = intentId,
+                Kind = ImportIntentKind.ImportSnapshot,
+                SourceId = item.SourceId,
+                SnapshotVersion = item.SnapshotVersion,
+                PostStep = "none",
+                ExpiresAt = "2099-01-01T00:00:00Z"
+            };
+            var receipt = await uploader.UploadAsync(item, intent, CancellationToken.None);
             Assert.Equal(sha, receipt.ContentSha256);
             Assert.True(receipt.IsDurable);
 
             Assert.Contains(handler.Calls, call => call.Method == "PUT" && call.Path == "/api/clinic/v1/agent/inventory");
             Assert.Contains(handler.Calls, call => call.Method == "GET" && call.Path == "/api/clinic/v1/agent/intents");
-            Assert.Contains(handler.Calls, call => call.Method == "POST" && call.Path == "/api/clinic/v1/ingests");
+            Assert.Contains(handler.Calls, call => call.Method == "POST" && call.Path == "/api/clinic/v1/agent/ingests");
             Assert.Contains(handler.Calls, call => call.Method == "PUT" && call.Path.EndsWith("/chunks/1", StringComparison.Ordinal));
             Assert.Contains(handler.Calls, call => call.Method == "PUT" && call.Path.EndsWith("/chunks/2", StringComparison.Ordinal));
             Assert.DoesNotContain(handler.Calls, call => call.Path.Contains("/chunks/0", StringComparison.Ordinal));
@@ -135,19 +145,27 @@ public class GuardTests
             var chunk1 = handler.Calls.Single(call => call.Path.EndsWith("/chunks/1", StringComparison.Ordinal));
             Assert.Equal(bytes.AsSpan(8, 8).ToArray(), chunk1.Body);
             Assert.Equal(Hashing.Sha256Hex(chunk1.Body), Assert.Single(chunk1.Headers["X-Chunk-SHA256"]));
-            var begin = handler.Calls.Single(call => call.Method == "POST" && call.Path == "/api/clinic/v1/ingests");
+            Assert.Equal("8", Assert.Single(chunk1.Headers["X-Chunk-Offset"]));
+            var begin = handler.Calls.Single(call => call.Method == "POST" && call.Path == "/api/clinic/v1/agent/ingests");
             var beginBody = JsonSerializer.Deserialize<WireBeginIngest>(begin.Body, ImportJson.Options);
             Assert.NotNull(beginBody);
-            Assert.Equal(Assert.Single(begin.Headers["Idempotency-Key"]), beginBody.RequestId);
-            Assert.Equal("device", beginBody.SourceKind);
-            Assert.Equal(sha, beginBody.ExpectedSha256);
+            Assert.Equal(intentId, beginBody.IntentId);
+            Assert.Equal(bytes.Length, beginBody.DeclaredSize);
+            Assert.Equal(sha, beginBody.DeclaredSha256);
+            var beginText = Encoding.UTF8.GetString(begin.Body);
+            Assert.DoesNotContain("request_id", beginText);
+            Assert.DoesNotContain("source_kind", beginText);
+            Assert.DoesNotContain("expected_sha256", beginText);
+            Assert.True(Guid.TryParseExact(Assert.Single(begin.Headers["Idempotency-Key"]), "D", out _));
             Assert.All(handler.Calls, call =>
             {
                 Assert.False(call.Headers.ContainsKey("X-CSRFToken"));
                 Assert.False(call.Headers.ContainsKey("Cookie"));
             });
             var inventory = handler.Calls.Single(call => call.Path.EndsWith("/inventory", StringComparison.Ordinal));
-            Assert.DoesNotContain("/tmp/root-a", Encoding.UTF8.GetString(inventory.Body));
+            var inventoryText = Encoding.UTF8.GetString(inventory.Body);
+            Assert.DoesNotContain("/tmp/root-a", inventoryText);
+            Assert.DoesNotContain("agent_id", inventoryText);
         }
         finally
         {
@@ -307,7 +325,7 @@ public class GuardTests
         "Execute", "OpenFile", "StartProcess", "SendInput", "RegisterHotKey", "SetClipboard"
     };
 
-    private sealed class RecordingHandler(string sha, int total) : HttpMessageHandler
+    private sealed class RecordingHandler(string sha, int total, string sourceId, string snapshot, string intentId) : HttpMessageHandler
     {
         public List<Call> Calls { get; } = [];
 
@@ -327,11 +345,11 @@ public class GuardTests
             Calls.Add(new Call(request.Method.Method, request.RequestUri!.AbsolutePath, request.RequestUri.Scheme, headers, body));
             var path = request.RequestUri.AbsolutePath;
             if (path.EndsWith("/inventory", StringComparison.Ordinal))
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NoContent));
+                return Task.FromResult(Json("{\"accepted\":1}"));
             if (path.EndsWith("/intents", StringComparison.Ordinal))
                 return Task.FromResult(Json("{\"intents\":[]}"));
             if (request.Method == HttpMethod.Post && path.EndsWith("/ingests", StringComparison.Ordinal))
-                return Task.FromResult(Json(Receipt("RECEIVING", "RECEIVED", null, 0, [0])));
+                return Task.FromResult(Json(Receipt("RECEIVING", "RECEIVED", null, 0, [0]), HttpStatusCode.Created));
             if (request.Method == HttpMethod.Put && path.Contains("/chunks/", StringComparison.Ordinal))
                 return Task.FromResult(Json(Receipt("RECEIVING", "RECEIVED", null, body.Length, [0])));
             if (path.EndsWith("/finalize", StringComparison.Ordinal))
@@ -339,29 +357,34 @@ public class GuardTests
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
         }
 
-        private static HttpResponseMessage Json(string json)
+        private static HttpResponseMessage Json(string json, HttpStatusCode status = HttpStatusCode.OK)
         {
-            return new HttpResponseMessage(HttpStatusCode.OK)
+            return new HttpResponseMessage(status)
             {
                 Content = new StringContent(json, Encoding.UTF8, "application/json")
             };
         }
 
-        private static string Receipt(string state, string durability, string? hash, long size, int[] chunks)
+        private string Receipt(string state, string durability, string? hash, long received, int[] chunks)
         {
             return JsonSerializer.Serialize(new IngestReceipt
             {
                 IngestId = "11111111-1111-1111-1111-111111111111",
                 State = state,
                 ReceivedChunks = chunks,
-                ReceivedBytes = size,
+                ReceivedBytes = received,
                 Sha256 = hash,
                 DictationId = null,
                 Durability = durability,
                 DecodeState = "NOT_STARTED",
                 Completion = "UNKNOWN",
                 AuthorState = "UNRESOLVED",
-                CorrelationId = "22222222-2222-2222-2222-222222222222"
+                CorrelationId = "22222222-2222-2222-2222-222222222222",
+                IntentId = intentId,
+                SourceId = sourceId,
+                SnapshotVersion = snapshot,
+                Size = total,
+                PermittedPostStep = "none"
             }, ImportJson.Options);
         }
     }

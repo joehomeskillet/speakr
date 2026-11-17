@@ -22,13 +22,17 @@ public class ReviewFixTests
 
         public virtual Task<IngestReceipt> BeginAsync(WireBeginIngest body, string key, CancellationToken ct) => Inner.BeginAsync(body, key, ct);
 
-        public virtual Task<IngestReceipt> PutChunkAsync(string id, int seq, ReadOnlyMemory<byte> body, string sha, CancellationToken ct) =>
-            Inner.PutChunkAsync(id, seq, body, sha, ct);
+        public virtual Task<IngestReceipt> PutChunkAsync(string id, int seq, long offset, ReadOnlyMemory<byte> body, string sha, CancellationToken ct) =>
+            Inner.PutChunkAsync(id, seq, offset, body, sha, ct);
 
         public virtual Task<IngestReceipt> FinalizeAsync(string id, WireFinalizeIngest body, string key, CancellationToken ct) =>
             Inner.FinalizeAsync(id, body, key, ct);
 
         public virtual Task<IngestReceipt> GetAsync(string id, CancellationToken ct) => Inner.GetAsync(id, ct);
+
+        public virtual Task<IngestReceipt> AbortAsync(string ingestId, CancellationToken ct) => Inner.AbortAsync(ingestId, ct);
+
+        public virtual Task ReportOutcomeAsync(AgentOutcome outcome, CancellationToken ct) => Inner.ReportOutcomeAsync(outcome, ct);
     }
 
     private sealed class Recording : HttpMessageHandler
@@ -59,14 +63,14 @@ public class ReviewFixTests
     }, ImportJson.Options);
 
     private static async Task<(InventoryItem Item, BoundReceipt Receipt, AgentOptions Options, ImportOrchestrator Agent, string Path)> Stored(
-        string root, string spool, string? backup, string text)
+        string root, string spool, string? backup, string text, string step = "delete")
     {
         var path = Path.Combine(root, "note.dss");
         Temp.Write(path, text);
         var options = Temp.Options(root, spool, post: true, backup: backup);
         var agent = Temp.Agent(options, new SimulatorImportServer());
         var item = Assert.Single((await Temp.Stabilize(agent, Start)).Inventory);
-        var receipt = await agent.UploadAsync(item);
+        var receipt = await agent.UploadAsync(item, Temp.Intent(item, step));
         return (item, receipt, options, agent, path);
     }
 
@@ -100,7 +104,7 @@ public class ReviewFixTests
         var backup = Temp.Dir();
         try
         {
-            var (item, receipt, options, _, path) = await Stored(root, spool, backup, "original-bytes");
+            var (item, receipt, options, _, path) = await Stored(root, spool, backup, "original-bytes", "move_backup");
             var post = new PostImport(options, Temp.IntentKey)
             {
                 AfterVerify = original => File.WriteAllText(original, "replacement-after-check")
@@ -225,7 +229,7 @@ public class ReviewFixTests
         await Assert.ThrowsAsync<ImportServerException>(() =>
             server.BeginAsync(new WireBeginIngest(), Guid.NewGuid().ToString(), CancellationToken.None));
         await Assert.ThrowsAsync<ImportServerException>(() =>
-            server.PutChunkAsync("../../agent/inventory", 0, new byte[] { 1 }, "00", CancellationToken.None));
+            server.PutChunkAsync("../../agent/inventory", 0, 0, new byte[] { 1 }, "00", CancellationToken.None));
         await Assert.ThrowsAsync<ImportServerException>(() => server.GetAsync("x/../y", CancellationToken.None));
         Assert.Single(handler.Uris);
     }
@@ -466,7 +470,7 @@ public class ReviewFixTests
     }
 
     [Fact]
-    public async Task Names_longer_than_the_contract_allows_are_not_inventoried_and_log_lines_are_clean()
+    public async Task Long_names_within_1024_are_inventoried_and_log_lines_are_clean()
     {
         var root = Temp.Dir();
         var spool = Temp.Dir();
@@ -476,7 +480,10 @@ public class ReviewFixTests
             var log = new ListLog();
             var server = new SimulatorImportServer();
             var agent = Temp.Agent(Temp.Options(root, spool), server, log);
-            Assert.Empty((await Temp.Stabilize(agent, Start)).Inventory);
+            var inventoried = await Temp.Stabilize(agent, Start);
+            Assert.Single(inventoried.Inventory);
+            Assert.True(ContractIds.IsId(inventoried.Inventory[0].SourceId));
+            Assert.False(ContractIds.IsRelativePath(new string('n', 1025)));
             server.Enqueue(new ImportIntent { Kind = ImportIntentKind.ImportSnapshot, SourceId = "x\nFORGED line", SnapshotVersion = "v" });
             await agent.RunOnceAsync(Start.AddSeconds(6));
             Assert.DoesNotContain(log.Lines, line => line.Contains('\n', StringComparison.Ordinal));

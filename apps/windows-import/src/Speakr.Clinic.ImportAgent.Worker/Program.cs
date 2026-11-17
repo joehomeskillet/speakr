@@ -7,7 +7,31 @@ namespace Speakr.Clinic.ImportAgent.Worker;
 
 public static class Program
 {
-    public static void Main(string[] args)
+    public static int Main(string[] args)
+    {
+        using var host = BuildHost(args);
+        try
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                var store = host.Services.GetRequiredService<ISecretStore>();
+                _ = store.GetMachineCredential();
+                _ = store.GetSpoolKey();
+                _ = store.GetIntentKey();
+            }
+            host.Run();
+            return 0;
+        }
+        catch (SecretStoreException ex)
+        {
+            var text = "Speakr clinic import agent stopped. " + ex.Message;
+            Console.Error.WriteLine(text);
+            WindowsEventLog.Write(text);
+            return 1;
+        }
+    }
+
+    private static IHost BuildHost(string[] args)
     {
         var builder = Host.CreateApplicationBuilder(args);
         builder.Services.AddWindowsService(options => options.ServiceName = "SpeakrClinicImportAgent");
@@ -43,6 +67,6 @@ public static class Program
                 services.GetRequiredService<ISecretStore>().GetIntentKey());
         });
         builder.Services.AddHostedService<ImportWorker>();
-        builder.Build().Run();
+        return builder.Build();
     }
 }

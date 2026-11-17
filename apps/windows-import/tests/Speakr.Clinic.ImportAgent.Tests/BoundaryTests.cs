@@ -70,11 +70,8 @@ public class BoundaryTests
     [Fact]
     public void Boundary_file_denials_and_defaults_hold()
     {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Speakr.Clinic.ImportAgent.sln")))
-            dir = dir.Parent;
-        Assert.NotNull(dir);
-        var boundary = Path.Combine(dir.FullName, "..", "..", "clinic-spec", "config", "import-agent-boundary.json");
+        var boundary = Path.Combine(AppContext.BaseDirectory, "Fixtures", "import-agent-boundary.json");
+        Assert.True(File.Exists(boundary));
         using var doc = JsonDocument.Parse(File.ReadAllText(boundary));
         var denied = doc.RootElement.GetProperty("denied_operations").EnumerateArray().Select(e => e.GetString()).ToArray();
         Assert.Contains("arbitrary_file_proxy", denied);
