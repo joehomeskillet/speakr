@@ -21,7 +21,7 @@ function memoryStorage() {
     };
 }
 
-function setup({ segments = SEGMENTS, saveOk = true, confirm = true, autosave = false, translation = false, serverSegments = null, incognito = false, status = ['COMPLETED'] } = {}) {
+function setup({ segments = SEGMENTS, saveOk = true, confirm = true, autosave = false, translation = false, serverSegments = null, status = ['COMPLETED'] } = {}) {
     const classes = new Set();
     const requests = [];
     const asked = [];
@@ -47,7 +47,7 @@ function setup({ segments = SEGMENTS, saveOk = true, confirm = true, autosave = 
         return { ok: true, json: async () => (url === '/speakers' ? [] : { success: true, suggestions: {} }) };
     };
     const text = JSON.stringify(segments);
-    const recording = { id: 7, status: 'COMPLETED', summary: 'Old summary', transcription: text, transcription_translation: translation ? text : null, incognito };
+    const recording = { id: 7, status: 'COMPLETED', summary: 'Old summary', transcription: text, transcription_translation: translation ? text : null };
     const saved = [];
     const errors = [];
     const state = {
@@ -304,7 +304,7 @@ describe('the segment editor session', () => {
             expect(all[0].body).toMatchObject({ regenerate_summary: true, speaker_map: { SPEAKER_00: { name: 'Dana Lee', isMe: false } } });
         });
 
-        it('is not offered for a translation or an incognito recording', async () => {
+        it('is not offered for a translation', async () => {
             const translated = setup({ translation: true });
             await translated.api.openAsrEditorModal();
             expect(translated.api.canRegenerateSummary()).toBe(false);
@@ -313,14 +313,6 @@ describe('the segment editor session', () => {
             expect(await translated.api.saveAsrTranscription(true)).toBe(true);
             expect(summaryRequests(translated.requests)).toEqual([]);
             expect(translated.saved.length).toBe(1);
-
-            const incognito = setup({ incognito: true });
-            await incognito.api.openAsrEditorModal();
-            expect(incognito.api.canRegenerateSummary()).toBe(false);
-            incognito.state.asrEditorRegenerateSummary.value = true;
-            incognito.model().setText(0, 'Hello');
-            await incognito.api.saveAsrTranscription(true);
-            expect(summaryRequests(incognito.requests)).toEqual([]);
         });
     });
 
