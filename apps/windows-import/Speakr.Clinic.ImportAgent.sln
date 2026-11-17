@@ -1,0 +1,28 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Speakr.Clinic.ImportAgent", "src\Speakr.Clinic.ImportAgent\Speakr.Clinic.ImportAgent.csproj", "{8B3A1E2C-5F41-4C0A-9D2E-7A1B6C4D8E90}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Speakr.Clinic.ImportAgent.Worker", "src\Speakr.Clinic.ImportAgent.Worker\Speakr.Clinic.ImportAgent.Worker.csproj", "{C2D4E6F8-1A3B-4C5D-8E7F-9012345678AB}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Speakr.Clinic.ImportAgent.Tests", "tests\Speakr.Clinic.ImportAgent.Tests\Speakr.Clinic.ImportAgent.Tests.csproj", "{D4E5F607-1829-4A3B-9C8D-7E6F50413210}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{8B3A1E2C-5F41-4C0A-9D2E-7A1B6C4D8E90}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8B3A1E2C-5F41-4C0A-9D2E-7A1B6C4D8E90}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8B3A1E2C-5F41-4C0A-9D2E-7A1B6C4D8E90}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8B3A1E2C-5F41-4C0A-9D2E-7A1B6C4D8E90}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C2D4E6F8-1A3B-4C5D-8E7F-9012345678AB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C2D4E6F8-1A3B-4C5D-8E7F-9012345678AB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C2D4E6F8-1A3B-4C5D-8E7F-9012345678AB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C2D4E6F8-1A3B-4C5D-8E7F-9012345678AB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D4E5F607-1829-4A3B-9C8D-7E6F50413210}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D4E5F607-1829-4A3B-9C8D-7E6F50413210}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D4E5F607-1829-4A3B-9C8D-7E6F50413210}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D4E5F607-1829-4A3B-9C8D-7E6F50413210}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
