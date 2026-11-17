@@ -31,9 +31,8 @@ wget https://raw.githubusercontent.com/murtaza-nasir/speakr/master/config/env.tr
 
 The unified configuration auto-detects your transcription provider based on your settings:
 
-- **OpenAI with diarization**: Set `TRANSCRIPTION_MODEL=gpt-4o-transcribe-diarize`
 - **Self-hosted ASR/WhisperX**: Set `ASR_BASE_URL=http://your-asr:9000`
-- **Legacy Whisper**: Set `TRANSCRIPTION_MODEL=whisper-1`
+- **OpenAI-compatible Whisper**: Set `TRANSCRIPTION_BASE_URL=http://speaches:8000/v1`
 
 > **Note:** For self-hosted ASR with speaker diarization, you'll need an additional Docker container. See [Running ASR Service for Speaker Diarization](getting-started/installation.md#running-asr-service-for-speaker-diarization) for complete setup instructions.
 
@@ -67,14 +66,14 @@ For OpenAI's latest GPT-5 models (`gpt-5`, `gpt-5-mini`, `gpt-5-nano`), you must
 
 Choose ONE of the following options:
 
-**Option A: OpenAI with Speaker Diarization (Recommended)**
+**Option A: Local OpenAI-compatible Whisper (e.g. Speaches)**
 ```bash
-TRANSCRIPTION_API_KEY=sk-your_openai_api_key
-TRANSCRIPTION_MODEL=gpt-4o-transcribe-diarize
+TRANSCRIPTION_CONNECTOR=openai_whisper
+TRANSCRIPTION_BASE_URL=http://speaches:8000/v1
+TRANSCRIPTION_MODEL=Systran/faster-whisper-large-v3
 ```
-This provides high-quality transcription with automatic speaker identification - no GPU or self-hosted service required. Note: For longer files (over ~23 minutes), speaker tracking across chunks supports up to 4 speakers.
 
-**Option B: Self-hosted ASR/WhisperX (Best for privacy)**
+**Option B: Self-hosted ASR/WhisperX (Best for privacy and diarization)**
 ```bash
 ASR_BASE_URL=http://whisper-asr:9000
 ASR_DIARIZE=true

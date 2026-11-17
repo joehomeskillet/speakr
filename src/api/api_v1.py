@@ -629,7 +629,7 @@ OPENAPI_SPEC = {
                                 "schema": {
                                     "type": "object",
                                     "properties": {
-                                        "connector": {"type": "string", "nullable": True, "description": "Active connector name (e.g. asr_endpoint, openai_transcribe, mistral, vibevoice)"},
+                                        "connector": {"type": "string", "nullable": True, "description": "Active connector name (e.g. openai_whisper, asr_endpoint)"},
                                         "capabilities": {
                                             "type": "object",
                                             "description": "Boolean flags indicating which optional fields the connector accepts",
@@ -3012,7 +3012,7 @@ def get_transcription_info():
 
     Response shape:
       {
-        "connector": "openai_transcribe",
+        "connector": "openai_whisper",
         "capabilities": {
           "diarization": true,
           "speaker_count_control": false,
@@ -3023,10 +3023,10 @@ def get_transcription_info():
           "chunking": false
         },
         "models": [
-          {"value": "gpt-4o-transcribe-diarize", "label": "GPT-4o Diarize"},
+          {"value": "whisper-1", "label": "Whisper 1"},
           ...
         ],
-        "default_model": "gpt-4o-transcribe-diarize"
+        "default_model": "whisper-1"
       }
     """
     from src.models import SystemSetting

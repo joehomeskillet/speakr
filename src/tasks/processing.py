@@ -1582,11 +1582,11 @@ def transcribe_chunks_with_connector(connector, filepath, filename, mime_type, l
     This is used when the connector doesn't handle chunking internally (e.g., OpenAI Whisper)
     and the file exceeds the configured chunk limit.
 
-    For diarization-enabled connectors (gpt-4o-transcribe-diarize), this function:
+    For diarization-enabled connectors, this function:
     1. Processes the first chunk with diarization enabled
     2. Extracts speaker audio samples from the diarized response
     3. Passes those samples as known_speaker_references to subsequent chunks
-    This maintains consistent speaker labels (A, B, C, D) across all chunks.
+    This maintains consistent speaker labels across all chunks.
 
     Args:
         connector: The transcription connector to use
@@ -1837,9 +1837,7 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
     Transcribe audio using the new connector-based architecture.
 
     This function uses the transcription connector system which supports:
-    - OpenAI Whisper (whisper-1)
-    - OpenAI GPT-4o Transcribe (gpt-4o-transcribe, gpt-4o-mini-transcribe)
-    - OpenAI GPT-4o Transcribe Diarize (gpt-4o-transcribe-diarize) - with speaker labels
+    - OpenAI-compatible Whisper (whisper-1, Speaches, etc.)
     - Custom ASR endpoints (whisper-asr-webservice, WhisperX, etc.)
 
     Returns the error message when the recording ended FAILED for a cause a
@@ -2183,28 +2181,12 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
                             current_app.logger.info(f"Chunked transcription completed: {len(transcription_text)} characters")
                     else:
                         # Build the transcription request for single file
-                        funasr_active = bool(
-                            recording
-                            and get_registry().get_active_connector_name() == 'funasr'
-                        )
-                        if funasr_active:
-                            from src.services.transcription.connectors.alibaba_funasr import (
-                                cleanup_funasr_staging,
-                                prepare_funasr_file_url,
-                            )
                         provider_task = save_provider_task = task_key = report_progress = None
                         if getattr(connector, 'SUPPORTS_TASK_RESUME', False) is True and recording:
                             from src.services.transcription.provider_tasks import provider_task_context
                             provider_task, save_provider_task, task_key, report_progress = provider_task_context(
                                 recording.id, connector.PROVIDER_NAME, actual_filepath)
                         with open(actual_filepath, 'rb') as audio_file:
-                            # FunASR requires an externally reachable object URL.
-                            extra_options = {}
-                            if funasr_active:
-                                success, urls = prepare_funasr_file_url(recording)
-                                if success and urls:
-                                    extra_options['funasr_file_urls'] = urls
-
                             request = TranscriptionRequest(
                                 audio_file=audio_file,
                                 filename=actual_filename,
@@ -2216,7 +2198,7 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
                                 prompt=initial_prompt,
                                 hotwords=hotwords,
                                 model=transcription_model,
-                                extra_options=extra_options,
+                                extra_options={},
                                 provider_task=provider_task,
                                 save_provider_task=save_provider_task,
                                 task_key=task_key,
@@ -2231,14 +2213,7 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
                                 language,
                             )
                             _end_transaction_before_external_call(recording)
-                            try:
-                                response = connector.transcribe(request)
-                            finally:
-                                # FunASR staging objects are only needed while
-                                # the async task can reach them; delete them as
-                                # soon as the run finishes, success or failure.
-                                if funasr_active:
-                                    cleanup_funasr_staging(recording)
+                            response = connector.transcribe(request)
 
                         # A safe point: the result is dropped, nothing of it is stored.
                         job.check_cancel()
@@ -2627,9 +2602,7 @@ def transcribe_audio_task(app_context, recording_id, filepath, filename_for_asr,
     """Runs the transcription and summarization in a background thread.
 
     Uses the connector-based architecture which supports:
-    - OpenAI Whisper (whisper-1)
-    - OpenAI GPT-4o Transcribe (gpt-4o-transcribe, gpt-4o-mini-transcribe)
-    - OpenAI GPT-4o Transcribe Diarize (gpt-4o-transcribe-diarize)
+    - OpenAI-compatible Whisper (whisper-1, Speaches, etc.)
     - Custom ASR endpoints (whisper-asr-webservice, WhisperX, etc.)
 
     Args:

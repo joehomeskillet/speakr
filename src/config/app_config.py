@@ -23,8 +23,8 @@ if transcription_base_url:
     transcription_base_url = transcription_base_url.split('#')[0].strip()
 
 # New transcription connector configuration
-# TRANSCRIPTION_CONNECTOR: explicit connector name (openai_whisper, openai_transcribe, asr_endpoint)
-# TRANSCRIPTION_MODEL: model to use (e.g., gpt-4o-transcribe-diarize for diarization)
+# TRANSCRIPTION_CONNECTOR: explicit connector name (openai_whisper, asr_endpoint, clinic_stub)
+# TRANSCRIPTION_MODEL: model to use (e.g., whisper-1)
 TRANSCRIPTION_CONNECTOR = os.environ.get('TRANSCRIPTION_CONNECTOR', '').lower().strip()
 TRANSCRIPTION_MODEL = os.environ.get('TRANSCRIPTION_MODEL', '')
 if TRANSCRIPTION_MODEL:
@@ -33,8 +33,8 @@ if TRANSCRIPTION_MODEL:
 # Optional comma-separated list of transcription models the user can pick from
 # at upload/reprocess time, or set as a default on a tag/folder. When empty,
 # the model dropdown is hidden and TRANSCRIPTION_MODEL above is the only model.
-# Example: TRANSCRIPTION_MODELS_AVAILABLE=whisper-1,gpt-4o-transcribe,gpt-4o-transcribe-diarize
-# Optional parallel labels: TRANSCRIPTION_MODEL_LABELS=Whisper,GPT-4o,GPT-4o Diarize
+# Example: TRANSCRIPTION_MODELS_AVAILABLE=whisper-1,whisper-large-v3
+# Optional parallel labels: TRANSCRIPTION_MODEL_LABELS=Whisper-1,Whisper Large v3
 def _parse_models_csv(raw):
     return [m.strip() for m in raw.split(',') if m.strip()]
 

@@ -147,7 +147,7 @@ def test_locator_labels():
     assert loggable_locator(f"local://{key}") == "<stored file local://recordings/2026/11/42/20261115101500.mp3>"
     assert loggable_locator(f"s3://bucket/{key}") == "<stored file s3://bucket/recordings/2026/11/42/20261115101500.mp3>"
     # A name of no known scheme: its digest, where the label was "*.flac" before.
-    assert loggable_locator("funasr/42/Jane_Doe.flac") == f"<stored file funasr/42/{_digest('Jane_Doe.flac')}.flac>"
+    assert loggable_locator("staging/42/Jane_Doe.flac") == f"<stored file staging/42/{_digest('Jane_Doe.flac')}.flac>"
     assert loggable_locator("Jane Doe") == f"<stored file {_digest('Jane Doe')}>"
     assert loggable_locator(None) == "<no file>"
 
@@ -176,7 +176,7 @@ def test_no_helper_returns_a_label_without_an_identifier(path):
 
 
 def test_the_ghost_pattern_of_these_tests_matches_the_old_labels():
-    for old in ("<file .mp3>", "<file>", "<file >", "<stored file *.m4a>", "<stored file funasr/42/*.flac>",
+    for old in ("<file .mp3>", "<file>", "<file >", "<stored file *.m4a>", "<stored file staging/42/*.flac>",
                 "<stored file *>", "<stored file /data/uploads/*.m4a>"):
         assert GHOST.search(old), old
     for new in ("<file 4f3a1c9b2d.mp3>", "<stored file 20261115101500.mp3>", "<s3 copy ab12cd34.mp3>",

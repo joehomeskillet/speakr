@@ -1089,7 +1089,7 @@ def index(recording_id=None, label_name=None):
     # Defaults to USE_ASR_ENDPOINT for backwards compatibility
     connector_supports_diarization = USE_ASR_ENDPOINT
     connector_supports_speaker_count = USE_ASR_ENDPOINT  # ASR endpoint supports min/max speakers
-    connector_supports_exact_speaker_count = False  # Exact-N connectors (openasr) declare it (#362)
+    connector_supports_exact_speaker_count = False  # Exact-N connectors declare it (#362)
     connector_supports_hotwords = USE_ASR_ENDPOINT
     connector_supports_initial_prompt = USE_ASR_ENDPOINT
     if USE_NEW_TRANSCRIPTION_ARCHITECTURE:

@@ -1,6 +1,6 @@
 # Creating Custom Transcription Connectors
 
-This guide explains how to create custom transcription connectors for Speakr. Connectors allow you to integrate new transcription providers like Deepgram, Google Cloud Speech-to-Text, or your own custom services. (AssemblyAI is already built in; see the [installation guide](../getting-started/installation.md#for-assemblyai-cloud-based-diarization). Its connector is a good reference example for an async upload-and-poll provider.)
+This guide explains how to create custom transcription connectors for Speakr. Connectors allow you to integrate new transcription providers like Deepgram, Google Cloud Speech-to-Text, or your own custom services.
 
 ## Architecture Overview
 
@@ -13,8 +13,7 @@ src/services/transcription/
 ├── exceptions.py        # Custom exceptions
 └── connectors/
     ├── __init__.py
-    ├── openai_whisper.py    # OpenAI Whisper connector
-    ├── openai_transcribe.py # OpenAI GPT-4o transcribe connector
+    ├── openai_whisper.py    # OpenAI-compatible Whisper connector
     └── asr_endpoint.py      # Self-hosted ASR connector
 ```
 
@@ -339,12 +338,10 @@ Add your connector to the registry in `src/services/transcription/registry.py`:
 def _register_builtin_connectors(self):
     """Register all built-in connectors."""
     from .connectors.openai_whisper import OpenAIWhisperConnector
-    from .connectors.openai_transcribe import OpenAITranscribeConnector
     from .connectors.asr_endpoint import ASREndpointConnector
     from .connectors.deepgram import DeepgramConnector  # Add this
 
     self.register('openai_whisper', OpenAIWhisperConnector)
-    self.register('openai_transcribe', OpenAITranscribeConnector)
     self.register('asr_endpoint', ASREndpointConnector)
     self.register('deepgram', DeepgramConnector)  # Add this
 ```
@@ -543,8 +540,4 @@ Popular providers we'd love to see connectors for:
 - Deepgram
 - Google Cloud Speech-to-Text
 - Amazon Transcribe
-- ~~Azure Speech Services~~ → **Azure OpenAI connector now available (experimental, v0.8.6+)**
-- ~~Mistral Voxtral~~ → **Mistral connector now available**
-- ~~VibeVoice ASR~~ → **VibeVoice connector now available (self-hosted via vLLM)**
-- ~~AssemblyAI~~ → **AssemblyAI connector now available**
-- ~~Tencent Cloud ASR~~ → **Tencent Cloud connector now available ([setup](tencent-asr.md))**
+

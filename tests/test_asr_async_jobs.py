@@ -699,7 +699,7 @@ def test_cancel_remote_tasks_cancels_only_saved_asr_jobs(audio, monkeypatch):
         job = _job(recording)
         provider_task_context(recording.id, 'asr_endpoint', audio).save({'job_id': 'job0007', 'base_url': BASE})
         other = _job(recording, status='failed', job_type='reprocess_transcription')
-        other.provider_task = json.dumps({'provider': 'assemblyai', 'task': {'transcript_id': 'x'}})
+        other.provider_task = json.dumps({'provider': 'other_provider', 'task': {'transcript_id': 'x'}})
         broken = _job(recording, status='failed', job_type='reprocess_transcription')
         broken.provider_task = '{not json'
         db.session.commit()
@@ -1066,7 +1066,7 @@ def test_release_leaves_the_task_of_another_provider(audio, remote):
     with app.app_context():
         recording = _recording()
         job = _job(recording)
-        job.provider_task = json.dumps({'provider': 'assemblyai', 'task': {'transcript_id': 'x'}})
+        job.provider_task = json.dumps({'provider': 'other_provider', 'task': {'transcript_id': 'x'}})
         db.session.commit()
         assert release_remote_task(job) is False
         assert job.provider_task is not None

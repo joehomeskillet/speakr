@@ -13,7 +13,7 @@ class TranscriptionUsage(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     date = db.Column(db.Date, nullable=False, default=date.today)
-    connector_type = db.Column(db.String(50), nullable=False)  # 'openai_whisper', 'openai_transcribe', 'asr_endpoint'
+    connector_type = db.Column(db.String(50), nullable=False)  # 'openai_whisper', 'asr_endpoint'
 
     # Audio duration tracking (in seconds for precision)
     audio_duration_seconds = db.Column(db.Integer, default=0)
@@ -24,7 +24,7 @@ class TranscriptionUsage(db.Model):
     # Request count for this day/connector
     request_count = db.Column(db.Integer, default=0)
 
-    # Model info (e.g., 'whisper-1', 'gpt-4o-transcribe', 'asr-endpoint')
+    # Model info (e.g., 'whisper-1', 'large-v3', 'asr-endpoint')
     model_name = db.Column(db.String(100), nullable=True)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

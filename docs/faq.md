@@ -91,10 +91,6 @@ Transcription accuracy depends on several factors - audio quality, speaker clari
 
 Whisper API provides basic transcription - converting speech to text without speaker identification. The [recommended ASR container](getting-started.md#option-b-custom-asr-endpoint-configuration) (`onerahmet/openai-whisper-asr-webservice`) offers advanced features like [speaker diarization](features.md#speaker-diarization), which identifies and labels different speakers in the conversation. Learn to [manage speakers](user-guide/transcripts.md#speaker-identification) after transcription. Diarization is essential for meetings with multiple participants, while Whisper API works fine for single-speaker recordings like dictations or podcasts.
 
-OpenAI's `gpt-4o-transcribe-diarize` model also offers cloud-based diarization. For longer files (over ~23 minutes), speaker tracking supports up to 4 speakers - recordings with more speakers may have inconsistent labels across sections.
-
-Mistral's Voxtral model is another cloud option with built-in diarization and language detection. If you prefer self-hosted, VibeVoice ASR runs on your own GPU(s) via vLLM and provides diarization with timestamps for 50+ languages.
-
 **Note on ASR engines**: For speaker diarization to work properly with the ASR webservice, you must use `ASR_ENGINE=whisperx`, not `faster_whisper`. While faster_whisper provides transcription, it doesn't support speaker identification.
 
 ### Can Speakr transcribe languages other than English?

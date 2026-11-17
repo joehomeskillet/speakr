@@ -9,10 +9,7 @@ Before diving into installation, it's helpful to understand how Speakr works. Th
 Speakr uses a **connector-based architecture** for transcription services, providing a unified interface regardless of which provider you choose. The following connectors are currently available:
 
 1. **ASR Endpoint** (Recommended for best quality) - For self-hosted solutions like WhisperX that offer GPU-accelerated transcription with superior accuracy, voice profiles, and speaker diarization
-2. **OpenAI Transcribe** - Uses `gpt-4o-transcribe-diarize` for cloud-based speaker diarization without requiring additional containers
-3. **Mistral Voxtral** - Cloud-based transcription with built-in diarization and language detection via the Mistral API
-4. **VibeVoice ASR** - Microsoft's self-hosted multimodal ASR model with diarization, timestamps, and 50+ language support, served via vLLM
-5. **OpenAI Whisper** - Legacy whisper-1 model for basic transcription using any legacy OpenAI compatible whisper API
+2. **OpenAI Whisper** - Standard OpenAI-compatible Whisper connector for local transcription (e.g. Speaches) or compatible endpoints
 
 The connector can be specified or inferred based on your configuration. For text generation, Speakr uses the OpenAI Chat Completions API format with the `/chat/completions` endpoint, which is widely supported across different AI providers.
 
@@ -77,9 +74,9 @@ The restart policy `unless-stopped` ensures Speakr automatically starts after sy
 
 The environment configuration is where you tell Speakr which AI services to use and how to connect to them. Download the appropriate environment template based on your transcription service choice. This template contains all the configuration variables with helpful comments explaining each setting.
 
-#### For OpenAI with Speaker Diarization (Cloud-Based)
+#### For OpenAI-Compatible Whisper
 
-If you don't want to self-host a transcription service, the easiest way to get speaker diarization is using OpenAI's `gpt-4o-transcribe-diarize` model. This requires only an OpenAI API key—no additional containers needed.
+To use an OpenAI-compatible Whisper service (such as Speaches or a local server):
 
 Download the unified transcription configuration template:
 
@@ -87,22 +84,15 @@ Download the unified transcription configuration template:
 wget https://raw.githubusercontent.com/murtaza-nasir/speakr/master/config/env.transcription.example -O .env
 ```
 
-Configure your transcription service with two key settings:
+Configure your transcription service:
 
 ```bash
-TRANSCRIPTION_API_KEY=sk-your-openai-key-here
-TRANSCRIPTION_MODEL=gpt-4o-transcribe-diarize
+TRANSCRIPTION_CONNECTOR=openai_whisper
+TRANSCRIPTION_BASE_URL=http://speaches:8000/v1
+TRANSCRIPTION_MODEL=Systran/faster-whisper-large-v3
 ```
 
-The connector automatically detects that you want the OpenAI Transcribe connector based on the model name. Other available models:
-
-- `gpt-4o-transcribe` - High quality without diarization
-- `gpt-4o-mini-transcribe` - Cost-effective option
-- `whisper-1` - Legacy model (uses Whisper connector)
-
-> **Note:** For longer files (over ~23 minutes) using `gpt-4o-transcribe-diarize`, speaker tracking across chunks supports up to 4 speakers. Recordings with more speakers may have inconsistent labels across sections.
-
-Now configure the text generation model that powers summaries, titles, and chat features. OpenRouter is recommended here because it provides access to multiple AI models at competitive prices, but you can use any OpenAI-compatible service:
+Now configure the text generation model that powers summaries, titles, and chat features:
 
 ```bash
 TEXT_MODEL_BASE_URL=https://openrouter.ai/api/v1
@@ -159,12 +149,6 @@ For the best transcription and diarization quality, self-hosting an ASR service 
     - **Environment file:** `config/env.asr.example`
     - **Note:** Do not set `ASR_RETURN_SPEAKER_EMBEDDINGS=true` with this service as it will cause errors
 
-3. **OpenASR** - Local server with diarization and, from openasr#379 onward, speaker embeddings
-    - Website: [openasr.org](https://openasr.org)
-    - **Supports:** Speaker diarization with an exact speaker count, voice profiles when embeddings are enabled
-    - **Environment file:** `config/env.transcription.example` (OpenASR section)
-    - **Setting:** `ASR_RETURN_SPEAKER_EMBEDDINGS=true` to enable voice profile features on a server that supports it
-
 > **Important:** Before proceeding with this configuration, you'll need to set up one of the ASR service containers. See [Running ASR Service for Speaker Diarization](#running-asr-service-for-speaker-diarization) for complete instructions on deploying both containers together or separately.
 
 Download the appropriate ASR configuration template:
@@ -205,53 +189,6 @@ ASR_RETURN_SPEAKER_EMBEDDINGS=true
 ```
 
 This setting is disabled by default because it's only supported by WhisperX. If you're using the basic OpenAI Whisper ASR Webservice, leave this setting disabled or omit it entirely to avoid errors.
-
-#### For Mistral Voxtral (Cloud-Based Diarization)
-
-Mistral's Voxtral model provides cloud-based transcription with built-in speaker diarization and automatic language detection. It requires a Mistral API key and no additional infrastructure. Voxtral handles chunking internally, so large files work without any extra configuration.
-
-```bash
-TRANSCRIPTION_CONNECTOR=mistral
-TRANSCRIPTION_API_KEY=your-mistral-api-key
-TRANSCRIPTION_MODEL=voxtral-mini-latest
-```
-
-Configure the text generation model as described above for summaries and chat features.
-
-#### For VibeVoice ASR (Self-Hosted via vLLM)
-
-Microsoft's VibeVoice ASR model provides transcription with speaker diarization, timestamps, and language detection for 50+ languages. It runs entirely on your own hardware via vLLM, so there's no cloud dependency. The model handles up to 60 minutes of audio per request, and longer files are automatically chunked by the app.
-
-You'll need a vLLM server with the VibeVoice model loaded. The bf16 model requires roughly 18GB of VRAM, which fits on two consumer GPUs (like 2x RTX 3090) using tensor parallelism. See the [VibeVoice model page](https://huggingface.co/microsoft/VibeVoice-ASR) for vLLM setup instructions.
-
-```bash
-TRANSCRIPTION_CONNECTOR=vibevoice
-TRANSCRIPTION_BASE_URL=http://your-vllm-server:8000
-TRANSCRIPTION_MODEL=vibevoice
-```
-
-If your vLLM server requires authentication, also set `TRANSCRIPTION_API_KEY`. Configure the text generation model as described above for summaries and chat features.
-
-#### For Tencent Cloud ASR (Chinese and English Meetings)
-
-Use `TRANSCRIPTION_CONNECTOR=tencent_asr` with `TENCENT_SECRET_ID` and
-`TENCENT_SECRET_KEY`. This native connector supports Tencent recording-file
-recognition, timestamps, speaker labels and hotwords, without an ASR bridge
-container or local GPU. See the [Tencent ASR setup guide](../advanced/tencent-asr.md)
-for engines, large files, resource packages and how failed jobs are retried.
-
-#### For AssemblyAI (Cloud-Based Diarization)
-
-AssemblyAI is a cloud transcription provider with strong speaker diarization on long, multi-speaker recordings. It is not OpenAI-compatible (it uses its own asynchronous upload-and-poll API), so it has a dedicated connector. It ingests files up to 10 hours in a single job, so the app does not chunk for it. New accounts get free credits and no credit card is required to create an API key.
-
-```bash
-TRANSCRIPTION_CONNECTOR=assemblyai
-TRANSCRIPTION_API_KEY=your-assemblyai-api-key
-```
-
-The AssemblyAI endpoint is fixed, so the shared `TRANSCRIPTION_BASE_URL` and `TRANSCRIPTION_MODEL` are intentionally ignored for this connector (a leftover value from another connector will not misroute requests). To pin a speech model, set `ASSEMBLYAI_SPEECH_MODEL` (for example `universal-3-pro`); omit it to use your account default. Speaker diarization and hotwords come from each user's settings (hotwords map to AssemblyAI's word boost). Configure the text generation model as described above for summaries and chat features.
-
-If polling times out or Speakr restarts while AssemblyAI is working on a recording, the job is retried automatically and the same transcript is polled again; the audio is not uploaded and billed a second time. Reprocessing a recording submits it again.
 
 ### Step 4: Configure System Settings
 
