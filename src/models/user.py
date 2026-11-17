@@ -23,7 +23,10 @@ class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(20), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
-    password = db.Column(db.String(60), nullable=True)
+    # TEXT: a scrypt hash (scrypt:131072:8:1) is longer than 60 characters.
+    # Existing bcrypt hashes stay valid. Databases created with VARCHAR(60)
+    # are widened in src/init_db.py.
+    password = db.Column(db.Text, nullable=True)
     sso_provider = db.Column(db.String(100), nullable=True)
     sso_subject = db.Column(db.String(255), unique=True, nullable=True)
     is_admin = db.Column(db.Boolean, default=False)

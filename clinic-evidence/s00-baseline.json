@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "task": "S00",
+  "title": "Upstream baseline evidence",
+  "recorded_date": "2026-11-17",
+  "environment": {
+    "python_version": "3.11.15",
+    "installed_packages_count": 88,
+    "installation_method": "uv pip install --python venv/bin/python --require-hashes --no-deps -r requirements.lock -r requirements-dev.lock",
+    "css_build": {
+      "command": "scripts/build_css.sh",
+      "status": "succeeded"
+    },
+    "lock_files_parity": {
+      "comparison": "both lock files identical between the pin and upstream master af4040c0",
+      "requirements_lock_identical": true,
+      "requirements_dev_lock_identical": true
+    }
+  },
+  "test_runs": {
+    "run_a_upstream_master": {
+      "target": "upstream master af4040c0 (v0.11.1-7)",
+      "commit": "af4040c0",
+      "command": "pytest tests/ -q -n 4 --dist loadfile -p no:cacheprovider --timeout=120",
+      "summary": "6628 passed, 244 skipped, 67 warnings, 10 subtests passed in 108.60s",
+      "exit_code": 0
+    },
+    "run_b_pin": {
+      "target": "pin 48d3018fb7d80b77f897bedd86bcc89b5034d1f5 (v0.11.1)",
+      "commit": "48d3018fb7d80b77f897bedd86bcc89b5034d1f5",
+      "command": "pytest tests/ -q -n 4 --dist loadfile -p no:cacheprovider --timeout=120",
+      "summary": "1 failed, 6627 passed, 240 skipped, 67 warnings, 10 subtests passed in 95.89s",
+      "exit_code": 1,
+      "failing_test": "tests/test_audit_log_coverage.py::test_no_marker_reaches_a_row_or_a_fallback_line"
+    },
+    "single_file_pin_isolation": {
+      "target": "tests/test_audit_log_coverage.py alone on pin 48d3018f",
+      "command": "pytest tests/test_audit_log_coverage.py -q",
+      "summary": "10 passed in 2.91s",
+      "exit_code": 0
+    }
+  },
+  "failure_classification": {
+    "classification": "order/parallelism dependent, NOT root-caused",
+    "unverified_candidate": "upstream commit 54c47207 (conftest.py, webhook dispatcher thread asleep in tests)",
+    "notes": "Fails in parallel test execution with -n 4 --dist loadfile; passes when run alone in isolation. Not modified or weakened in clinic fork."
+  },
+  "not_run_gates": [
+    "npm test (vitest)",
+    "browser smoke (Playwright)",
+    "contract/e2e with WhisperX",
+    "container image build",
+    "pip-audit",
+    "coverage threshold"
+  ]
+}

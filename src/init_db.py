@@ -17,6 +17,9 @@ from sqlalchemy import text, inspect
 
 from src.database import db
 from src.models import Recording, TranscriptChunk, SystemSetting, User
+# Registers clinic tables on db.metadata before create_all(). No src/clinic/__init__.py:
+# src.clinic is a namespace package until the config worker adds one.
+import src.clinic.models  # noqa: F401
 from src.services.embeddings import process_recording_chunks
 from src.utils import (
     add_column_if_not_exists,
@@ -203,6 +206,33 @@ def _add_folder_group_name_index(engine, app):
             'ON folder (name, group_id) WHERE group_id IS NOT NULL'))
 
 
+def _password_type_is_unbounded(type_sql: str) -> bool:
+    """True when the declared password type can already hold a scrypt hash."""
+    normalized = "".join(str(type_sql).upper().split())
+    if "VARCHAR" in normalized or "CHAR(" in normalized:
+        return False
+    return "TEXT" in normalized or "CLOB" in normalized
+
+
+def widen_user_password_column(engine) -> bool:
+    """Widen user.password from VARCHAR(60) to TEXT. Idempotent.
+
+    Copies existing values unchanged, including bcrypt hashes. Returns True
+    only when the column was rewritten.
+    """
+    inspector = inspect(engine)
+    if "user" not in inspector.get_table_names():
+        return False
+    columns = {col["name"]: col for col in inspector.get_columns("user")}
+    column = columns.get("password")
+    if column is None:
+        return False
+    declared = column["type"].compile(dialect=engine.dialect)
+    if _password_type_is_unbounded(declared):
+        return False
+    return bool(migrate_column_type(engine, "user", "password", "TEXT"))
+
+
 def initialize_database(app):
     """
     Initialize database schema and run migrations.
@@ -300,6 +330,11 @@ def _run_migrations(app, engine):
     """Apply every schema migration. Assumes the migration lock is held."""
     failures = []
 
+    with _migration_section(app, failures, "clinic integrity"):
+        # Tables come from create_all() via src.clinic.models. Triggers are
+        # not part of the model metadata, so they are installed here.
+        src.clinic.models.install_clinic_guards(engine)
+
     with _migration_section(app, failures, "core recording and user columns"):
         # Add is_inbox column with default value of 1 (True)
         if add_column_if_not_exists(engine, 'recording', 'is_inbox', 'BOOLEAN DEFAULT 1'):
@@ -358,6 +393,10 @@ def _run_migrations(app, engine):
                 app.logger.info("Made password column nullable for SSO support")
         except Exception as e:
             app.logger.warning(f"Could not migrate password column to nullable (may cause issues with SSO): {e}")
+
+        # scrypt hashes do not fit in VARCHAR(60). bcrypt hashes are copied as-is.
+        if widen_user_password_column(engine):
+            app.logger.info("Widened user.password from VARCHAR(60) to TEXT")
 
         _remove_orphaned_user_new(engine, app)
 
