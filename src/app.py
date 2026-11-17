@@ -734,6 +734,13 @@ csrf = CSRFProtect(app)
 app.config['WTF_CSRF_CHECK_DEFAULT'] = False
 
 
+# Clinic mode (CLINIC_MODE): central route policy. Registered first so that a
+# refused request does nothing else, not even a last-active write. Inert when
+# clinic mode is off.
+from src.clinic.guard import install_clinic_guard
+install_clinic_guard(app)
+
+
 @app.before_request
 def record_last_active():
     """Note the time of this use of the signed-in account (admin user list).

@@ -8,6 +8,7 @@ dynamic system configuration in the database.
 from datetime import datetime
 from flask import g, has_app_context
 from src.database import db
+from src.clinic.config import setting_ceiling
 
 # Global generation counter for SystemSetting read cache invalidation.
 _SYSTEM_SETTING_CACHE_GENERATION = 0
@@ -43,6 +44,10 @@ class SystemSetting(db.Model):
     @staticmethod
     def get_setting(key, default_value=None):
         """Get a system setting value by key, with optional default."""
+        # Clinic mode: the clinic policy is the upper bound of a stored setting.
+        locked, forced = setting_ceiling(key)
+        if locked:
+            return forced
         # Per-request cache keyed by (global generation, value) so hot-applied
         # changes invalidate stale entries even when the app context is reused
         # (e.g. in tests or nested contexts).
