@@ -1515,7 +1515,7 @@ POST /api/v1/recordings/{id}/transcribe
   "max_speakers": 5,
   "hotwords": "Speakr, WhisperX, diarization",
   "initial_prompt": "Technical discussion about audio transcription.",
-  "transcription_model": "gpt-4o-transcribe-diarize"
+  "transcription_model": "whisper-1"
 }
 ```
 
@@ -1526,7 +1526,7 @@ All parameters are optional.
 | `language` | string | Language hint (ISO 639-1). Empty string forces auto-detect. |
 | `min_speakers` | integer | Minimum speaker count for diarization. |
 | `max_speakers` | integer | Maximum speaker count for diarization. |
-| `hotwords` | string | Word-biasing hint. Connectors that accept biasing route this to their native parameter (WhisperX hotwords, Mistral context bias, OpenAI prompt). Connectors that ignore it drop it silently. |
+| `hotwords` | string | Word-biasing hint. Connectors that accept biasing route this to their native parameter (WhisperX hotwords, OpenAI prompt). Connectors that ignore it drop it silently. |
 | `initial_prompt` | string | Free-text context hint. Same per-connector behavior as `hotwords`. |
 | `transcription_model` | string | Per-request model override. Validated against the admin-curated visible-models list; falls back to the configured default if absent or invalid. Use [`GET /api/v1/transcription`](#transcription-connector) to discover valid values. |
 
@@ -1902,7 +1902,7 @@ POST /api/v1/folders
   "default_max_speakers": 5,
   "default_hotwords": "Acme, Speakr",
   "default_initial_prompt": "Sales call.",
-  "default_transcription_model": "gpt-4o-transcribe-diarize",
+  "default_transcription_model": "whisper-1",
   "retention_days": null
 }
 ```
@@ -1957,20 +1957,20 @@ Returns the active transcription connector, the optional fields it accepts, the 
 
 ```json
 {
-  "connector": "openai_transcribe",
+  "connector": "openai_whisper",
   "capabilities": {
-    "diarization": true,
+    "diarization": false,
     "speaker_count_control": false,
     "hotwords": true,
     "initial_prompt": true,
     "timestamps": true,
     "language_detection": true,
-    "chunking": false
+    "chunking": true
   },
   "models": [
-    {"value": "gpt-4o-transcribe-diarize", "label": "GPT-4o Diarize"}
+    {"value": "whisper-1", "label": "Whisper 1"}
   ],
-  "default_model": "gpt-4o-transcribe-diarize"
+  "default_model": "whisper-1"
 }
 ```
 

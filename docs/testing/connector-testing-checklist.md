@@ -17,20 +17,7 @@ This checklist covers manual testing scenarios for the transcription connector a
 
 ## 1. Connector Auto-Detection
 
-### Test 1.1: OpenAI Transcribe Auto-Detection
-**Config:**
-```bash
-TRANSCRIPTION_API_KEY=sk-xxx
-TRANSCRIPTION_MODEL=gpt-4o-transcribe-diarize
-```
-
-**Expected:**
-
-- [ ] Logs show "Auto-detected OpenAI Transcribe"
-- [ ] `/api/system/info` shows `connector: "openai_transcribe"`
-- [ ] Transcription works with speaker labels (SPEAKER_00, SPEAKER_01...)
-
-### Test 1.2: ASR Endpoint Auto-Detection
+### Test 1.1: ASR Endpoint Auto-Detection
 **Config:**
 ```bash
 ASR_BASE_URL=http://whisperx-asr:9000
@@ -42,7 +29,7 @@ ASR_BASE_URL=http://whisperx-asr:9000
 - [ ] `/api/system/info` shows `connector: "asr_endpoint"`
 - [ ] No deprecation warning (USE_ASR_ENDPOINT not set)
 
-### Test 1.3: Legacy USE_ASR_ENDPOINT Backwards Compatibility
+### Test 1.2: Legacy USE_ASR_ENDPOINT Backwards Compatibility
 **Config:**
 ```bash
 USE_ASR_ENDPOINT=true
@@ -55,7 +42,7 @@ ASR_BASE_URL=http://whisperx-asr:9000
 - [ ] Connector still works correctly
 - [ ] `/api/system/info` shows `connector: "asr_endpoint"`
 
-### Test 1.4: Explicit Connector Selection
+### Test 1.3: Explicit Connector Selection
 **Config:**
 ```bash
 TRANSCRIPTION_CONNECTOR=openai_whisper
@@ -72,22 +59,7 @@ ASR_BASE_URL=http://whisperx-asr:9000  # Should be ignored
 
 ## 2. Speaker Diarization
 
-### Test 2.1: OpenAI Transcribe Diarization
-**Config:** Use `TRANSCRIPTION_MODEL=gpt-4o-transcribe-diarize`
-
-**Steps:**
-
-1. Upload audio with 2+ speakers
-2. Wait for transcription to complete
-
-**Expected:**
-
-- [ ] Transcription shows speaker labels (SPEAKER_00, SPEAKER_01...)
-- [ ] Speaker identification button appears in UI
-- [ ] Bubble view toggle available
-- [ ] Can rename speakers
-
-### Test 2.2: ASR Endpoint Diarization
+### Test 2.1: ASR Endpoint Diarization
 **Config:** Use ASR endpoint with `ASR_DIARIZE=true`
 
 **Steps:**
@@ -102,7 +74,7 @@ ASR_BASE_URL=http://whisperx-asr:9000  # Should be ignored
 - [ ] Min/max speakers options visible in upload form
 - [ ] Min/max speakers options visible in reprocess modal
 
-### Test 2.3: OpenAI Whisper (No Diarization)
+### Test 2.2: OpenAI Whisper (No Diarization)
 **Config:** Use `TRANSCRIPTION_MODEL=whisper-1`
 
 **Steps:**
@@ -115,47 +87,6 @@ ASR_BASE_URL=http://whisperx-asr:9000  # Should be ignored
 - [ ] Transcription is plain text (no speaker labels)
 - [ ] Speaker identification button NOT visible
 - [ ] Bubble view toggle NOT available
-
-### Test 2.4: Mistral Voxtral Diarization
-**Config:**
-```bash
-TRANSCRIPTION_CONNECTOR=mistral
-TRANSCRIPTION_API_KEY=your-key
-TRANSCRIPTION_MODEL=voxtral-mini-latest
-```
-
-**Steps:**
-
-1. Upload audio with 2+ speakers
-2. Wait for transcription to complete
-
-**Expected:**
-
-- [ ] Transcription shows speaker labels (SPEAKER_00, SPEAKER_01...)
-- [ ] Speaker identification button appears in UI
-- [ ] Bubble view toggle available
-- [ ] Can rename speakers
-
-### Test 2.5: VibeVoice ASR Diarization
-**Config:**
-```bash
-TRANSCRIPTION_CONNECTOR=vibevoice
-TRANSCRIPTION_BASE_URL=http://your-vllm-server:8000
-TRANSCRIPTION_MODEL=vibevoice
-```
-
-**Steps:**
-
-1. Upload audio with 2+ speakers
-2. Wait for transcription to complete
-
-**Expected:**
-
-- [ ] Transcription shows speaker labels (SPEAKER_00, SPEAKER_01...)
-- [ ] Speaker identification button appears in UI
-- [ ] Bubble view toggle available
-- [ ] Non-speech segments ([Silence], [Human Sounds]) are attributed to the previous speaker
-- [ ] Can rename speakers
 
 ---
 
@@ -220,41 +151,7 @@ CHUNK_LIMIT=10MB
 - [ ] Logs show chunk processing
 - [ ] Transcription merges correctly
 
-### Test 4.3: Mistral (Internal Chunking)
-**Config:**
-```bash
-TRANSCRIPTION_CONNECTOR=mistral
-TRANSCRIPTION_API_KEY=your-key
-```
-
-**Steps:**
-
-1. Upload file >10 minutes
-
-**Expected:**
-
-- [ ] File uploads without app-level chunking
-- [ ] Mistral handles chunking internally
-- [ ] Transcription completes successfully
-
-### Test 4.4: VibeVoice (App Chunking for Long Files)
-**Config:**
-```bash
-TRANSCRIPTION_CONNECTOR=vibevoice
-TRANSCRIPTION_BASE_URL=http://your-vllm-server:8000
-```
-
-**Steps:**
-
-1. Upload file >60 minutes
-
-**Expected:**
-
-- [ ] App splits into ~50 minute chunks
-- [ ] Each chunk transcribes successfully
-- [ ] Segments merge correctly across chunk boundaries
-
-### Test 4.5: Chunking Disabled
+### Test 4.3: Chunking Disabled
 **Config:**
 ```bash
 TRANSCRIPTION_MODEL=whisper-1

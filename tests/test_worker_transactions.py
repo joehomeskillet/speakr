@@ -23,7 +23,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.app import app, db
 from src.models import Recording, User
 import src.tasks.processing as proc
-from src.services.transcription.connectors.mossland import MosslandTranscriptionConnector as MosslandConnector
 from src.services.transcription.exceptions import TranscriptionError
 
 _created = []
@@ -184,24 +183,6 @@ def test_a_real_transcript_still_completes_the_pipeline(ctx):
 ])
 def test_has_transcript_content(value, expected):
     assert proc._has_transcript_content(value) is expected
-
-
-def test_mossland_task_that_finishes_empty_is_an_error():
-    connector = MosslandConnector.__new__(MosslandConnector)
-    connector.poll_timeout = 5
-    connector.poll_interval = 0
-    client = MagicMock()
-    response = MagicMock()
-    response.status_code = 200
-    response.json.return_value = {"status": "SUCCESS", "text": "", "segments": []}
-    client.get.return_value = response
-    with pytest.raises(TranscriptionError, match="without any transcript"):
-        connector._poll_task(client, "task-1", "model")
-
-    response.json.return_value = {"status": "COMPLETED", "text": "",
-                                  "segments": [{"text": "Hello", "start": 0, "end": 1}]}
-    result = connector._poll_task(client, "task-2", "model")
-    assert result.text == "Hello"
 
 
 # ------------------------------------------------------------ over budget

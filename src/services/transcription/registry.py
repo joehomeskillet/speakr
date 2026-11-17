@@ -42,29 +42,11 @@ class ConnectorRegistry:
     def _register_builtin_connectors(self):
         """Register all built-in connectors."""
         from .connectors.openai_whisper import OpenAIWhisperConnector
-        from .connectors.openai_transcribe import OpenAITranscribeConnector
         from .connectors.asr_endpoint import ASREndpointConnector
-        from .connectors.azure_openai_transcribe import AzureOpenAITranscribeConnector
-        from .connectors.mistral import MistralTranscriptionConnector
-        from .connectors.vibevoice import VibeVoiceTranscriptionConnector
-        from .connectors.alibaba_funasr import AlibabaFunASRConnector
-        from .connectors.mossland import MosslandTranscriptionConnector
-        from .connectors.assemblyai import AssemblyAITranscriptionConnector
-        from .connectors.tencent_asr import TencentASRConnector
-        from .connectors.openasr import OpenASRTranscriptionConnector
         from .connectors.clinic_stub import ClinicStubTranscriptionConnector
 
         self.register('openai_whisper', OpenAIWhisperConnector)
-        self.register('openai_transcribe', OpenAITranscribeConnector)
         self.register('asr_endpoint', ASREndpointConnector)
-        self.register('azure_openai_transcribe', AzureOpenAITranscribeConnector)
-        self.register('mistral', MistralTranscriptionConnector)
-        self.register('vibevoice', VibeVoiceTranscriptionConnector)
-        self.register('funasr', AlibabaFunASRConnector)
-        self.register('mossland', MosslandTranscriptionConnector)
-        self.register('assemblyai', AssemblyAITranscriptionConnector)
-        self.register('tencent_asr', TencentASRConnector)
-        self.register('openasr', OpenASRTranscriptionConnector)
         self.register('clinic_stub', ClinicStubTranscriptionConnector)
 
     def register(self, name: str, connector_class: Type[BaseTranscriptionConnector]):
@@ -133,13 +115,10 @@ class ConnectorRegistry:
         Initialize the active connector from environment variables.
 
         Auto-detection priority:
-        1. TRANSCRIPTION_CONNECTOR - explicit connector name
-        2. ASR_BASE_URL contains dashscope - use FunASR connector
-        3. ASR_BASE_URL is set - use ASR endpoint (smarter detection)
+        1. TRANSCRIPTION_CONNECTOR - explicit connector name (openai_whisper, asr_endpoint, clinic_stub)
+        2. ASR_BASE_URL is set - use ASR endpoint (smarter detection)
            - USE_ASR_ENDPOINT=true also works (backwards compat, with deprecation warning)
-        4. TRANSCRIPTION_MODEL contains 'gpt-4o' - use OpenAI Transcribe
-        5. TRANSCRIPTION_MODEL is set - use OpenAI Whisper with that model
-        6. Default to OpenAI Whisper (whisper-1)
+        3. Default to OpenAI Whisper (whisper-1 or TRANSCRIPTION_MODEL)
 
         Returns:
             The initialized connector
@@ -147,7 +126,6 @@ class ConnectorRegistry:
         connector_name = os.environ.get('TRANSCRIPTION_CONNECTOR', '').lower().strip()
 
         if not connector_name:
-            # Auto-detect based on existing config for backwards compatibility
             asr_base_url = os.environ.get('ASR_BASE_URL', '').strip()
             use_asr_flag = os.environ.get('USE_ASR_ENDPOINT', 'false').lower() == 'true'
             transcription_model = os.environ.get('TRANSCRIPTION_MODEL', '').lower()
@@ -160,24 +138,12 @@ class ConnectorRegistry:
                     "Set ASR_BASE_URL instead for auto-detection, or use TRANSCRIPTION_CONNECTOR=asr_endpoint"
                 )
 
-            # Priority 2: FunASR - auto-detect from ASR_BASE_URL containing dashscope
-            if asr_base_url and 'dashscope.aliyuncs.com' in asr_base_url:
-                connector_name = 'funasr'
-                logger.info("Auto-detected FunASR from ASR_BASE_URL")
-            # Priority 3: Other ASR endpoint - check ASR_BASE_URL or legacy flag
-            elif asr_base_url or use_asr_flag:
+            # Priority 2: ASR endpoint - check ASR_BASE_URL or legacy flag
+            if asr_base_url or use_asr_flag:
                 connector_name = 'asr_endpoint'
                 if asr_base_url:
                     logger.info("Auto-detected ASR endpoint from ASR_BASE_URL")
-            # Priority 3.5: Azure OpenAI - check for Azure endpoint URL
-            elif self._is_azure_endpoint():
-                connector_name = 'azure_openai_transcribe'
-                logger.info("Auto-detected Azure OpenAI from TRANSCRIPTION_BASE_URL")
-            # Priority 4: Model-based detection
-            elif transcription_model and 'gpt-4o' in transcription_model:
-                connector_name = 'openai_transcribe'
-                logger.info(f"Auto-detected OpenAI Transcribe from TRANSCRIPTION_MODEL={transcription_model}")
-            # Priority 5 & 6: OpenAI Whisper (with custom or default model)
+            # Priority 3: OpenAI Whisper (with custom or default model)
             else:
                 connector_name = 'openai_whisper'
                 model = transcription_model or whisper_model or 'whisper-1'
@@ -226,11 +192,6 @@ class ConnectorRegistry:
         # Default: 30 minutes
         return 1800
 
-    def _is_azure_endpoint(self) -> bool:
-        """Check if the TRANSCRIPTION_BASE_URL points to an Azure OpenAI endpoint."""
-        base_url = os.environ.get('TRANSCRIPTION_BASE_URL', '').lower()
-        return '.openai.azure.com' in base_url or '.cognitiveservices.azure.com' in base_url
-
     def _build_config_from_env(self, connector_name: str) -> Dict[str, Any]:
         """
         Build connector config from environment variables.
@@ -254,155 +215,9 @@ class ConnectorRegistry:
                 'return_speaker_embeddings': os.environ.get('ASR_RETURN_SPEAKER_EMBEDDINGS', 'false').lower() == 'true'
             }
 
-        elif connector_name == 'openai_transcribe':
-            base_url = os.environ.get('TRANSCRIPTION_BASE_URL', 'https://api.openai.com/v1')
-            if base_url:
-                base_url = base_url.split('#')[0].strip()
-
+        elif connector_name == 'clinic_stub':
             return {
-                'api_key': os.environ.get('TRANSCRIPTION_API_KEY', ''),
-                'base_url': base_url,
-                'model': os.environ.get('TRANSCRIPTION_MODEL', 'gpt-4o-transcribe')
-            }
-
-        elif connector_name == 'azure_openai_transcribe':
-            # Azure OpenAI requires endpoint and deployment_name
-            # TRANSCRIPTION_BASE_URL should be the Azure endpoint (e.g., https://your-resource.openai.azure.com)
-            endpoint = os.environ.get('TRANSCRIPTION_BASE_URL', '')
-            if endpoint:
-                endpoint = endpoint.split('#')[0].strip()
-                # Remove any trailing /openai or /v1 paths - we build the full URL ourselves
-                endpoint = endpoint.rstrip('/')
-                for suffix in ['/openai/v1', '/openai', '/v1']:
-                    if endpoint.lower().endswith(suffix):
-                        endpoint = endpoint[:-len(suffix)]
-
-            return {
-                'api_key': os.environ.get('TRANSCRIPTION_API_KEY', ''),
-                'endpoint': endpoint,
-                'deployment_name': os.environ.get('AZURE_DEPLOYMENT_NAME', os.environ.get('TRANSCRIPTION_MODEL', 'gpt-4o-transcribe')),
-                'api_version': os.environ.get('AZURE_API_VERSION', '2025-04-01-preview'),
-                'model': os.environ.get('TRANSCRIPTION_MODEL', '')  # For capability detection
-            }
-
-        elif connector_name == 'mistral':
-            base_url = os.environ.get('TRANSCRIPTION_BASE_URL', '')
-            if base_url:
-                base_url = base_url.split('#')[0].strip()
-
-            return {
-                'api_key': os.environ.get('TRANSCRIPTION_API_KEY', ''),
-                'base_url': base_url or 'https://api.mistral.ai',
-                'model': os.environ.get('TRANSCRIPTION_MODEL', 'voxtral-mini-latest'),
-            }
-
-        elif connector_name == 'vibevoice':
-            base_url = os.environ.get('TRANSCRIPTION_BASE_URL', '')
-            if base_url:
-                base_url = base_url.split('#')[0].strip()
-
-            return {
-                'base_url': base_url,
-                'model': os.environ.get('TRANSCRIPTION_MODEL', 'microsoft/VibeVoice-ASR'),
-                'api_key': os.environ.get('TRANSCRIPTION_API_KEY', ''),
-            }
-
-        elif connector_name == 'funasr':
-            base_url = os.environ.get('ASR_BASE_URL', '')
-            if base_url:
-                base_url = base_url.split('#')[0].strip()
-            api_key = os.environ.get('ASR_API_KEY', '')
-            model = os.environ.get('ASR_MODEL', 'fun-asr') or 'fun-asr'
-
-            timeout = int(os.environ.get('ASR_TIMEOUT') or '1800')
-            diarize = (os.environ.get('ASR_DIARIZE') or 'false').lower() == 'true'
-            lang_str = os.environ.get('ASR_LANGUAGE_HINTS') or 'zh,en'
-            language_hints = [l.strip() for l in lang_str.split(',') if l.strip()]
-
-            # FunASR-specific params (only FUNASR_* prefix)
-            poll_interval = float(os.environ.get('FUNASR_POLL_INTERVAL', '10'))
-            disfluency = os.environ.get('FUNASR_DISFLUENCY_REMOVAL', 'false').lower() == 'true'
-            timestamp_align = os.environ.get('FUNASR_TIMESTAMP_ALIGNMENT', 'false').lower() == 'true'
-            speaker_count = os.environ.get('FUNASR_SPEAKER_COUNT', '').strip() or None
-            vocabulary_id = os.environ.get('FUNASR_VOCABULARY_ID', '').strip() or None
-
-            # channel_id: comma-separated integers
-            channel_str = os.environ.get('FUNASR_CHANNEL_ID', '')
-            channel_id = [int(c.strip()) for c in channel_str.split(',') if c.strip()] or None
-
-            return {
-                'base_url': base_url,
-                'api_key': api_key,
-                'model': model,
-                'timeout': timeout,
-                'poll_interval': poll_interval,
-                'diarize': diarize,
-                'disfluency_removal_enabled': disfluency,
-                'timestamp_alignment_enabled': timestamp_align,
-                'speaker_count': int(speaker_count) if speaker_count else None,
-                'vocabulary_id': vocabulary_id,
-                'language_hints': language_hints,
-                'channel_id': channel_id,
-            }
-
-        elif connector_name == 'mossland':
-            base_url = os.environ.get('TRANSCRIPTION_BASE_URL', '')
-            if base_url:
-                base_url = base_url.split('#')[0].strip()
-
-            return {
-                'api_key': os.environ.get('TRANSCRIPTION_API_KEY', ''),
-                'base_url': base_url or 'https://api.mosi.cn',
-                'model': os.environ.get('TRANSCRIPTION_MODEL', 'moss-transcribe-diarize'),
-            }
-
-        elif connector_name == 'tencent_asr':
-            return {
-                'secret_id': os.environ.get('TENCENT_SECRET_ID', ''),
-                'secret_key': os.environ.get('TENCENT_SECRET_KEY', ''),
-                'model': os.environ.get('TENCENT_ASR_MODEL', '16k_zh_en_meeting'),
-                'timeout': os.environ.get('TENCENT_ASR_TIMEOUT', '1800'),
-                'poll_interval': os.environ.get('TENCENT_ASR_POLL_INTERVAL', '5'),
-                'hotword_id': os.environ.get('TENCENT_ASR_HOTWORD_ID', ''),
-                'staging_prefix': os.environ.get('TENCENT_ASR_STAGING_PREFIX', 'tencent-asr'),
-                'diarize': os.environ.get('ASR_DIARIZE', 'true').lower() == 'true',
-            }
-
-        elif connector_name == 'assemblyai':
-            # AssemblyAI's endpoint is fixed (api.assemblyai.com), so we do NOT
-            # read the shared TRANSCRIPTION_BASE_URL here: a stale value left
-            # over from another connector would otherwise send uploads to the
-            # wrong host. Use the dedicated ASSEMBLYAI_BASE_URL only for proxies.
-            base_url = os.environ.get('ASSEMBLYAI_BASE_URL', '').split('#')[0].strip()
-
-            return {
-                'api_key': os.environ.get('TRANSCRIPTION_API_KEY', ''),
-                'base_url': base_url or 'https://api.assemblyai.com',
-                # Dedicated model var (NOT the shared TRANSCRIPTION_MODEL, which
-                # is often a leftover model name from another connector that
-                # AssemblyAI would reject). Account default when blank; a
-                # comma-separated list becomes an ordered speech_models fallback.
-                'model': os.environ.get('ASSEMBLYAI_SPEECH_MODEL', ''),
-            }
-
-        elif connector_name == 'openasr':
-            base_url = os.environ.get('TRANSCRIPTION_BASE_URL', 'http://127.0.0.1:8080')
-            if base_url:
-                base_url = base_url.split('#')[0].strip()
-            api_key = os.environ.get('TRANSCRIPTION_API_KEY', '')
-            model = os.environ.get('TRANSCRIPTION_MODEL', '')
-            diarize = (os.environ.get('ASR_DIARIZE') or 'false').lower() == 'true'
-            timeout = int(os.environ.get('ASR_TIMEOUT') or '1800')
-
-            return {
-                'base_url': base_url,
-                'api_key': api_key,
-                'model': model,
-                'diarize': diarize,
-                'timeout': timeout,
-                # Same flag as the WhisperX connector: OpenASR >= openasr#379
-                # returns per-speaker embeddings on request (#380).
-                'return_speaker_embeddings': (os.environ.get('ASR_RETURN_SPEAKER_EMBEDDINGS') or 'false').lower() == 'true',
+                'profile': os.environ.get('CLINIC_STUB_PROFILE', 'default'),
             }
 
         else:  # openai_whisper (default)

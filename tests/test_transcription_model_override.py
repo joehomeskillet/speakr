@@ -67,18 +67,18 @@ def test_models_csv_parses_with_labels():
     """TRANSCRIPTION_MODELS_AVAILABLE + TRANSCRIPTION_MODEL_LABELS pair correctly."""
     # Reload the config module with env vars set.
     import importlib
-    os.environ["TRANSCRIPTION_MODELS_AVAILABLE"] = "whisper-1, gpt-4o-transcribe ,vibevoice"
-    os.environ["TRANSCRIPTION_MODEL_LABELS"] = "Whisper,GPT-4o,VibeVoice"
+    os.environ["TRANSCRIPTION_MODELS_AVAILABLE"] = "whisper-1, whisper-large ,whisper-base"
+    os.environ["TRANSCRIPTION_MODEL_LABELS"] = "Whisper,Whisper Large,Whisper Base"
     try:
         import src.config.app_config as cfg
         importlib.reload(cfg)
         assert cfg.TRANSCRIPTION_MODELS_AVAILABLE == [
-            "whisper-1", "gpt-4o-transcribe", "vibevoice"
+            "whisper-1", "whisper-large", "whisper-base"
         ], cfg.TRANSCRIPTION_MODELS_AVAILABLE
         assert cfg.TRANSCRIPTION_MODEL_OPTIONS == [
             {"value": "whisper-1", "label": "Whisper"},
-            {"value": "gpt-4o-transcribe", "label": "GPT-4o"},
-            {"value": "vibevoice", "label": "VibeVoice"},
+            {"value": "whisper-large", "label": "Whisper Large"},
+            {"value": "whisper-base", "label": "Whisper Base"},
         ], cfg.TRANSCRIPTION_MODEL_OPTIONS
     finally:
         os.environ.pop("TRANSCRIPTION_MODELS_AVAILABLE", None)
@@ -207,26 +207,26 @@ def login_client(client, user):
 
 def test_user_input_wins_over_defaults():
     with app.app_context():
-        user, rec = setup_recording(tag_model="vibevoice", folder_model="whisper-1")
+        user, rec = setup_recording(tag_model="whisper-base", folder_model="whisper-1")
         client = app.test_client()
         login_client(client, user)
         resp, params = call_reprocess(client, rec.id,
-                                       {"transcription_model": "gpt-4o-transcribe"},
-                                       available_models=["gpt-4o-transcribe", "vibevoice", "whisper-1"])
+                                       {"transcription_model": "whisper-large"},
+                                       available_models=["whisper-large", "whisper-base", "whisper-1"])
         assert resp.status_code in (200, 202), f"unexpected status {resp.status_code}: {resp.data!r}"
-        assert params.get("transcription_model") == "gpt-4o-transcribe", f"got {params!r}"
+        assert params.get("transcription_model") == "whisper-large", f"got {params!r}"
 
 
 def test_tag_default_applied_when_no_user_input():
     with app.app_context():
-        user, rec = setup_recording(tag_model="vibevoice", folder_model="whisper-1")
+        user, rec = setup_recording(tag_model="whisper-base", folder_model="whisper-1")
         client = app.test_client()
         login_client(client, user)
         resp, params = call_reprocess(client, rec.id, {},
-                                       available_models=["whisper-1", "vibevoice"])
+                                       available_models=["whisper-1", "whisper-base"])
         assert resp.status_code in (200, 202), f"unexpected status {resp.status_code}: {resp.data!r}"
         # Tag wins over folder.
-        assert params.get("transcription_model") == "vibevoice", f"got {params!r}"
+        assert params.get("transcription_model") == "whisper-base", f"got {params!r}"
 
 
 def test_folder_default_applied_when_no_tag():
@@ -235,7 +235,7 @@ def test_folder_default_applied_when_no_tag():
         client = app.test_client()
         login_client(client, user)
         resp, params = call_reprocess(client, rec.id, {},
-                                       available_models=["whisper-1", "vibevoice"])
+                                       available_models=["whisper-1", "whisper-base"])
         assert resp.status_code in (200, 202)
         assert params.get("transcription_model") == "whisper-1", f"got {params!r}"
 
@@ -243,12 +243,12 @@ def test_folder_default_applied_when_no_tag():
 def test_user_supplied_model_outside_allowlist_dropped():
     """An explicit override that isn't in the allowlist gets stripped."""
     with app.app_context():
-        user, rec = setup_recording(tag_model="vibevoice")
+        user, rec = setup_recording(tag_model="whisper-base")
         client = app.test_client()
         login_client(client, user)
         resp, params = call_reprocess(client, rec.id,
                                        {"transcription_model": "secret-internal-model"},
-                                       available_models=["whisper-1", "vibevoice"])
+                                       available_models=["whisper-1", "whisper-base"])
         assert resp.status_code in (200, 202)
         # Falls back to the tag default since user value was rejected.
         # Note: the endpoint validates AFTER applying the precedence chain. The
