@@ -1,0 +1,276 @@
+{
+  "version": "4.0-web",
+  "authority": "development_defaults_not_clinical_approval",
+  "decisions": [
+    {
+      "id": "D01",
+      "topic": "base",
+      "decision": "Controlled Speakr fork v0.11.1 at verified commit; no new standalone clinical web product",
+      "ask_user": false
+    },
+    {
+      "id": "D02",
+      "topic": "backend",
+      "decision": "Reuse Flask/SQLAlchemy; no FastAPI rewrite",
+      "ask_user": false
+    },
+    {
+      "id": "D03",
+      "topic": "frontend",
+      "decision": "Reuse Vue/Tailwind and existing components; compact German UI",
+      "ask_user": false
+    },
+    {
+      "id": "D04",
+      "topic": "db",
+      "decision": "PostgreSQL in integration and production; retain isolated upstream SQLite tests",
+      "ask_user": false
+    },
+    {
+      "id": "D05",
+      "topic": "queue",
+      "decision": "Reuse ProcessingJob/JobQueue; clinical outbox only for durable domain intents",
+      "ask_user": false
+    },
+    {
+      "id": "D06",
+      "topic": "storage",
+      "decision": "Existing local persistent storage adapter; no new S3 cluster",
+      "ask_user": false
+    },
+    {
+      "id": "D07",
+      "topic": "codec",
+      "decision": "dss-codec in server worker; never build codec on each workstation",
+      "ask_user": false
+    },
+    {
+      "id": "D08",
+      "topic": "asr",
+      "decision": "Reuse local Speaches for batch and evaluate its existing transcription-only realtime API; training/lexicon/profile capabilities must be proven separately, never silently removed.",
+      "ask_user": false
+    },
+    {
+      "id": "D09",
+      "topic": "identity",
+      "decision": "Local Speakr user management is initial runtime default; implement but disable tenant-bound Entra OIDC. Hybrid later; no mandatory Keycloak/LDAP/SMTP for local operation.",
+      "ask_user": false
+    },
+    {
+      "id": "D10",
+      "topic": "account-linking",
+      "decision": "Stable existing user.id for domain ownership; explicit issuer+subject identity linking with approved tenant/object mapping; no email linking; account policies enforced.",
+      "ask_user": false
+    },
+    {
+      "id": "D11",
+      "topic": "agent",
+      "decision": ".NET10 Import-Agent nur für Datei-/Geräteabholung. Sämtliche Diktatbedienung ausschliesslich Browser, kein Windows-Companion.",
+      "ask_user": false
+    },
+    {
+      "id": "D12",
+      "topic": "kis",
+      "decision": "Edge WebView goal; Mock/Disabled adapters until documented manufacturer contract",
+      "ask_user": false
+    },
+    {
+      "id": "D13",
+      "topic": "release",
+      "decision": "Human correction confirmation mandatory for final clinical delivery; optional additional acceptance as PAR-WF-009; explicit working-transfer distinct from final KIS delivery.",
+      "ask_user": false
+    },
+    {
+      "id": "D14",
+      "topic": "byod",
+      "decision": "Internal foreground recorder; no intentional persistent audio/text; no downloads",
+      "ask_user": false
+    },
+    {
+      "id": "D15",
+      "topic": "pool",
+      "decision": "Separate author resource pools and staff pools; explicit author scopes, deny exceptions and action grants; own is secure default, not a permanent scope limitation.",
+      "ask_user": false
+    },
+    {
+      "id": "D16",
+      "topic": "mode",
+      "decision": "Dedicated CLINIC_MODE with default-deny classified endpoints; no mixed personal instance",
+      "ask_user": false
+    },
+    {
+      "id": "D17",
+      "topic": "originals",
+      "decision": "Immutable accepted originals; configurable safe source deletion implemented and tested; default/pilot off.",
+      "ask_user": false
+    },
+    {
+      "id": "D18",
+      "topic": "completion",
+      "decision": "Stable copy is not EOL. EOL filter explicit and default on; intentionally disabled filter uses authorized stable-snapshot path with correct provenance.",
+      "ask_user": false
+    },
+    {
+      "id": "D19",
+      "topic": "context",
+      "decision": "No patient inference from audio/name/last KIS window/Windows login",
+      "ask_user": false
+    },
+    {
+      "id": "D20",
+      "topic": "export",
+      "decision": "Frozen revision per selected delivery target; distinguish working transfer/final output; UNKNOWN disallows uncontrolled retry or opportunistic second send.",
+      "ask_user": false
+    },
+    {
+      "id": "D21",
+      "topic": "features",
+      "decision": "No LLM rewrite/chat/summaries/voiceprints/RAG/public share/personal webhooks",
+      "ask_user": false
+    },
+    {
+      "id": "D22",
+      "topic": "dev",
+      "decision": "Synthetic local password accounts first; OIDC fixture tests isolated from runtime. Missing provider credentials never block local implementation.",
+      "ask_user": false
+    },
+    {
+      "id": "D23",
+      "topic": "license",
+      "decision": "Preserve AGPL notices; provide corresponding fork source to users; review dependency/model licenses",
+      "ask_user": false
+    },
+    {
+      "id": "D24",
+      "topic": "hardware",
+      "decision": "CPU smoke; GPU optional and measured; private homelab is not clinic inventory",
+      "ask_user": false
+    },
+    {
+      "id": "D25",
+      "topic": "questions",
+      "decision": "No routine clarifications or per-slice approval; record bounded defaults and continue",
+      "ask_user": false
+    },
+    {
+      "id": "D26",
+      "topic": "production",
+      "decision": "No live data/deploy/destructive/admin action without explicit gated approval",
+      "ask_user": false
+    },
+    {
+      "id": "D27",
+      "topic": "upgrades",
+      "decision": "Pinned upstream; separately reviewed upgrades with endpoint regression",
+      "ask_user": false
+    },
+    {
+      "id": "D28",
+      "topic": "security",
+      "decision": "Clinic constraints override mutable upstream SystemSettings/env; unexpected policy mismatch fails closed",
+      "ask_user": false
+    },
+    {
+      "id": "D29",
+      "topic": "network",
+      "decision": "No public publishing and no VPN scope expansion; trusted ingress channel cannot be client-selected",
+      "ask_user": false
+    },
+    {
+      "id": "D30",
+      "topic": "tests",
+      "decision": "Mock results are not hardware/browser/manufacturer or clinical certification",
+      "ask_user": false
+    },
+    {
+      "id": "D31",
+      "topic": "local-account-admin",
+      "decision": "Reuse local user management; removal means disable/unassign when domain references exist, no destructive cascade.",
+      "ask_user": false
+    },
+    {
+      "id": "D32",
+      "topic": "credential-security",
+      "decision": "Existing Werkzeug scrypt service, widened password column, one-time hashed recovery codes, shared throttling and revocable server sessions.",
+      "ask_user": false
+    },
+    {
+      "id": "D33",
+      "topic": "provider-switch",
+      "decision": "Linking preserves user.id and domain history; default linked account entra_only; dual login requires explicit audited exception.",
+      "ask_user": false
+    },
+    {
+      "id": "D34",
+      "topic": "authorization",
+      "decision": "Application-owned roles/pools by default for all providers; no automatic Entra claim privilege assignment.",
+      "ask_user": false
+    },
+    {
+      "id": "D35",
+      "topic": "identity-gates",
+      "decision": "Local identity acceptance independent from later G-ENTRA/G-LDAP. Account lifecycle and CA limits explicit.",
+      "ask_user": false
+    },
+    {
+      "id": "D36",
+      "topic": "historical-supplement",
+      "decision": "Retain complete Grok supplement. New local-first directive overrides only superseded identity choices.",
+      "ask_user": false
+    },
+    {
+      "id": "D37",
+      "topic": "parity",
+      "decision": "101 source functions are mandatory; no automatic N/A or removal due to engine limitations.",
+      "ask_user": false
+    },
+    {
+      "id": "D38",
+      "topic": "desktop",
+      "decision": "Webclient ist alleiniger Diktatclient; keine nativen Wrapper, Plugins, Erweiterungen oder Hintergrunddienste als Funktionsumgehung.",
+      "ask_user": false
+    },
+    {
+      "id": "D39",
+      "topic": "source-precedence",
+      "decision": "Source catalog behavior retained; source no-KIS/no-BYOD/new-stack instructions superseded by current user project.",
+      "ask_user": false
+    },
+    {
+      "id": "D40",
+      "topic": "offline",
+      "decision": "BYOD ohne Persistenz. Optionales genehmigtes Managed-Web-Offlineprofil mit verschlüsselter Browserablage; keine native Aufnahme.",
+      "ask_user": false
+    },
+    {
+      "id": "D41",
+      "topic": "native-transfer",
+      "decision": "Web-/Clipboard-/Dateiausgabe oder freigegebene serverseitige Integration; keine Fremdfenstersteuerung. Original-Konflikte bleiben im WG-Register.",
+      "ask_user": false
+    },
+    {
+      "id": "D42",
+      "topic": "reference-lab",
+      "decision": "Manual/static evidence is not runtime parity; original BT clauses retained and real dual-run evidence required.",
+      "ask_user": false
+    },
+    {
+      "id": "D43",
+      "topic": "archive",
+      "decision": "Originals kept byte-exact outside build; no proprietary code/resources/DB copied into fork.",
+      "ask_user": false
+    },
+    {
+      "id": "D44",
+      "topic": "training",
+      "decision": "Real validated acoustic/language adaptation required where catalog demands it; prompt biasing is not profile learning.",
+      "ask_user": false
+    },
+    {
+      "id": "D45",
+      "topic": "migration",
+      "decision": "No automatic historical DB migration; controlled cutover and existing archive responsibilities retained.",
+      "ask_user": false
+    }
+  ]
+}

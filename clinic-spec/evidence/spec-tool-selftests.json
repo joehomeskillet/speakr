@@ -1,0 +1,108 @@
+{
+  "scope": "Executed specification-validator and JSON-schema tests only; no app/Windows/browser/clinical tests",
+  "baseline_semantic_validation": {
+    "scope": "Specification/integrity only; not application, hardware, medical, KIS or parity validation.",
+    "status": "passed",
+    "passed_check_count": 1831,
+    "errors": [],
+    "counts": {
+      "requirements": 177,
+      "tests": 252,
+      "original_parity_functions": 101,
+      "original_behavior_tests": 101,
+      "tasks": 27,
+      "open_web_clause_conflicts": 13,
+      "test_states": {
+        "not_run": 252
+      }
+    },
+    "product_tests_executed": false,
+    "full_parity_validated": false,
+    "production_approved": false
+  },
+  "negative_validator_tests": [
+    {
+      "test": "drop_original_function",
+      "result": "passed",
+      "detected_errors": [
+        "Exact 101-feature parity coverage",
+        "Expected V4 requirement/test counts",
+        "KeyError: 'PAR-REC-001'"
+      ]
+    },
+    {
+      "test": "weaken_priority",
+      "result": "passed",
+      "detected_errors": [
+        "MUST priority PAR-ADM-001"
+      ]
+    },
+    {
+      "test": "rewrite_original_test",
+      "result": "passed",
+      "detected_errors": [
+        "Original then retained BT-REC-003"
+      ]
+    },
+    {
+      "test": "enable_native_client",
+      "result": "passed",
+      "detected_errors": [
+        "Web-only client boundary"
+      ]
+    },
+    {
+      "test": "add_capture_to_agent",
+      "result": "passed",
+      "detected_errors": [
+        "Import-only agent boundary"
+      ]
+    },
+    {
+      "test": "claim_pass_without_evidence",
+      "result": "passed",
+      "detected_errors": [
+        "Evidence for passed test BT-REC-003"
+      ]
+    },
+    {
+      "test": "create_dependency_cycle",
+      "result": "passed",
+      "detected_errors": [
+        "ValueError: Dependency cycle at S00"
+      ]
+    },
+    {
+      "test": "claim_full_parity",
+      "result": "passed",
+      "detected_errors": [
+        "No unsupported full-parity claim"
+      ]
+    }
+  ],
+  "schema_tests": [
+    {
+      "test": "valid_typed_command",
+      "result": "passed"
+    },
+    {
+      "test": "unknown_native_command",
+      "result": "passed"
+    },
+    {
+      "test": "negative_revision",
+      "result": "passed"
+    },
+    {
+      "test": "unexpected_shell_payload",
+      "result": "passed"
+    },
+    {
+      "test": "missing_object_binding",
+      "result": "passed"
+    }
+  ],
+  "application_tests_executed": false,
+  "original_reference_executed": false,
+  "full_parity_validated": false
+}

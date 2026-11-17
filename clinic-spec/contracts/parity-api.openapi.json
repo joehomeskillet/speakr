@@ -1,0 +1,1819 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Suedhang Speakr-owned web parity API",
+    "version": "4.0-web",
+    "description": "Proposed own-platform extension. Not an existing Speakr or inesKIS API; implementation/contract tests required."
+  },
+  "servers": [
+    {
+      "url": "/api/clinic/v1"
+    }
+  ],
+  "security": [
+    {
+      "ClinicSession": []
+    }
+  ],
+  "paths": {
+    "/parity/commands": {
+      "post": {
+        "operationId": "executeParityCommand",
+        "summary": "Execute one typed, authorized web parity command",
+        "parameters": [
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommandRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Login required",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission/CSRF denied",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Version/idempotency conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Capability unavailable, no side effect",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Local dependency unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Committed/queued result; never proof of external delivery",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ClinicSession": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "clinic_session"
+      }
+    },
+    "schemas": {
+      "SaveAuthorPool": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "command",
+          "request_id",
+          "expected_revision",
+          "payload"
+        ],
+        "properties": {
+          "command": {
+            "const": "save_author_pool"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "member_user_ids": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "maxItems": 10000,
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "name",
+              "member_user_ids"
+            ]
+          }
+        }
+      },
+      "SetAuthorScope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "command",
+          "request_id",
+          "expected_revision",
+          "payload"
+        ],
+        "properties": {
+          "command": {
+            "const": "set_author_scope"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "user_id": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "scope": {
+                "enum": [
+                  "own",
+                  "author_pool",
+                  "all",
+                  "explicit_users"
+                ]
+              },
+              "deny_user_ids": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "uniqueItems": true
+              },
+              "allowed_user_ids": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "user_id",
+              "scope",
+              "deny_user_ids",
+              "allowed_user_ids"
+            ]
+          }
+        }
+      },
+      "ConfigureRouting": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "command",
+          "request_id",
+          "expected_revision",
+          "payload"
+        ],
+        "properties": {
+          "command": {
+            "const": "configure_routing"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "author_user_id": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "mode": {
+                "enum": [
+                  "all_eligible",
+                  "person",
+                  "staff_pool",
+                  "self_correction"
+                ]
+              },
+              "target_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "maxItems": 1000
+              }
+            },
+            "required": [
+              "author_user_id",
+              "mode",
+              "target_ids"
+            ]
+          }
+        }
+      },
+      "EditAudio": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "command",
+          "request_id",
+          "expected_revision",
+          "payload"
+        ],
+        "properties": {
+          "command": {
+            "const": "edit_audio"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "dictation_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "audio_revision_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "operation": {
+                "enum": [
+                  "insert",
+                  "overwrite",
+                  "trim"
+                ]
+              },
+              "cursor_sample": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "source_segment_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              }
+            },
+            "required": [
+              "dictation_id",
+              "audio_revision_id",
+              "operation",
+              "cursor_sample"
+            ]
+          }
+        }
+      },
+      "UndoAudio": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "command",
+          "request_id",
+          "expected_revision",
+          "payload"
+        ],
+        "properties": {
+          "command": {
+            "const": "undo_audio"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "dictation_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "audio_revision_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "direction": {
+                "enum": [
+                  "undo",
+                  "redo"
+                ]
+              }
+            },
+            "required": [
+              "dictation_id",
+              "audio_revision_id",
+              "direction"
+            ]
+          }
+        }
+      },
+      "StartLiveSession": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "command",
+          "request_id",
+          "expected_revision",
+          "payload"
+        ],
+        "properties": {
+          "command": {
+            "const": "start_live_session"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "dictation_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "profile_revision_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "capture_mime": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              }
+            },
+            "required": [
+              "dictation_id",
+              "profile_revision_id",
+              "capture_mime"
+            ]
+          }
+        }
+      },
+      "StopLiveSession": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "command",
+          "request_id",
+          "expected_revision",
+          "payload"
+        ],
+        "properties": {
+          "command": {
+            "const": "stop_live_session"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "session_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "generation": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "last_sequence": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "session_id",
+              "generation",
+              "last_sequence"
+            ]
+          }
+        }
+      },
+      "SaveIndex": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "command",
+          "request_id",
+          "expected_revision",
+          "payload"
+        ],
+        "properties": {
+          "command": {
+            "const": "save_index"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "dictation_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "audio_revision_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "position_sample": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              }
+            },
+            "required": [
+              "dictation_id",
+              "audio_revision_id",
+              "position_sample",
+              "label"
+            ]
+          }
+        }
+      },
+      "ProposeVocabularyChange": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "command",
+          "request_id",
+          "expected_revision",
+          "payload"
+        ],
+        "properties": {
+          "command": {
+            "const": "propose_vocabulary_change"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "scope_type": {
+                "enum": [
+                  "user",
+                  "author_pool"
+                ]
+              },
+              "scope_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "operation": {
+                "enum": [
+                  "add",
+                  "negative",
+                  "reactivate"
+                ]
+              },
+              "written": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "spoken": {
+                "type": "string",
+                "maxLength": 256
+              }
+            },
+            "required": [
+              "scope_type",
+              "scope_id",
+              "operation",
+              "written"
+            ]
+          }
+        }
+      },
+      "ReviewResourceChange": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "command",
+          "request_id",
+          "expected_revision",
+          "payload"
+        ],
+        "properties": {
+          "command": {
+            "const": "review_resource_change"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "proposal_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "decision": {
+                "enum": [
+                  "user",
+                  "pool",
+                  "reject",
+                  "defer"
+                ]
+              }
+            },
+            "required": [
+              "proposal_id",
+              "decision"
+            ]
+          }
+        }
+      },
+      "SaveCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "command",
+          "request_id",
+          "expected_revision",
+          "payload"
+        ],
+        "properties": {
+          "command": {
+            "const": "save_command"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "scope_type": {
+                "enum": [
+                  "user",
+                  "author_pool"
+                ]
+              },
+              "scope_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "phrase": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "action_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "minItems": 1,
+                "maxItems": 16
+              }
+            },
+            "required": [
+              "scope_type",
+              "scope_id",
+              "phrase",
+              "action_ids"
+            ]
+          }
+        }
+      },
+      "RequestAdaptation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "command",
+          "request_id",
+          "expected_revision",
+          "payload"
+        ],
+        "properties": {
+          "command": {
+            "const": "request_adaptation"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "profile_revision_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "corpus_manifest_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "capability": {
+                "enum": [
+                  "pronunciation_training",
+                  "language_adaptation",
+                  "acoustic_adaptation"
+                ]
+              }
+            },
+            "required": [
+              "profile_revision_id",
+              "corpus_manifest_id",
+              "capability"
+            ]
+          }
+        }
+      },
+      "SaveProfile": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "command",
+          "request_id",
+          "expected_revision",
+          "payload"
+        ],
+        "properties": {
+          "command": {
+            "const": "save_profile"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "profile_revision_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "scope_type": {
+                "enum": [
+                  "user",
+                  "author_pool"
+                ]
+              },
+              "scope_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "save_policy": {
+                "enum": [
+                  "never",
+                  "ask",
+                  "always"
+                ]
+              }
+            },
+            "required": [
+              "profile_revision_id",
+              "scope_type",
+              "scope_id",
+              "save_policy"
+            ]
+          }
+        }
+      },
+      "RequestAcceptance": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "command",
+          "request_id",
+          "expected_revision",
+          "payload"
+        ],
+        "properties": {
+          "command": {
+            "const": "request_acceptance"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "dictation_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "text_revision_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "context_revision_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "acceptance_rule_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "required": [
+              "dictation_id",
+              "text_revision_id",
+              "context_revision_id",
+              "acceptance_rule_id"
+            ]
+          }
+        }
+      },
+      "DecideAcceptance": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "command",
+          "request_id",
+          "expected_revision",
+          "payload"
+        ],
+        "properties": {
+          "command": {
+            "const": "decide_acceptance"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "dictation_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "text_revision_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "decision": {
+                "enum": [
+                  "accept",
+                  "return"
+                ]
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 2000
+              }
+            },
+            "required": [
+              "dictation_id",
+              "text_revision_id",
+              "decision"
+            ]
+          }
+        }
+      },
+      "ReopenDictation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "command",
+          "request_id",
+          "expected_revision",
+          "payload"
+        ],
+        "properties": {
+          "command": {
+            "const": "reopen_dictation"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "dictation_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              }
+            },
+            "required": [
+              "dictation_id",
+              "reason"
+            ]
+          }
+        }
+      },
+      "RenderOutput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "command",
+          "request_id",
+          "expected_revision",
+          "payload"
+        ],
+        "properties": {
+          "command": {
+            "const": "render_output"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "dictation_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "text_revision_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "audio_revision_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "format": {
+                "enum": [
+                  "docx",
+                  "odt",
+                  "rtf",
+                  "txt",
+                  "sdict",
+                  "original_audio",
+                  "eml"
+                ]
+              },
+              "mode": {
+                "enum": [
+                  "working_copy",
+                  "corrected",
+                  "accepted"
+                ]
+              },
+              "template_revision_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "target_alias": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 128
+              }
+            },
+            "required": [
+              "dictation_id",
+              "text_revision_id",
+              "audio_revision_id",
+              "format",
+              "mode"
+            ]
+          }
+        }
+      },
+      "QueueImport": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "command",
+          "request_id",
+          "expected_revision",
+          "payload"
+        ],
+        "properties": {
+          "command": {
+            "const": "queue_import"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "agent_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "source_snapshot_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "minItems": 1,
+                "maxItems": 1000
+              },
+              "author_user_id": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "required": [
+              "agent_id",
+              "source_snapshot_ids",
+              "author_user_id"
+            ]
+          }
+        }
+      },
+      "RequestSourceCleanup": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "command",
+          "request_id",
+          "expected_revision",
+          "payload"
+        ],
+        "properties": {
+          "command": {
+            "const": "request_source_cleanup"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "agent_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "source_snapshot_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "receipt_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "confirmation": {
+                "const": true
+              }
+            },
+            "required": [
+              "agent_id",
+              "source_snapshot_id",
+              "receipt_id",
+              "confirmation"
+            ]
+          }
+        }
+      },
+      "SaveFilter": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "command",
+          "request_id",
+          "expected_revision",
+          "payload"
+        ],
+        "properties": {
+          "command": {
+            "const": "save_filter"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "criteria": {
+                "type": "object",
+                "properties": {
+                  "author_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  },
+                  "statuses": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    }
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "name",
+              "criteria"
+            ]
+          }
+        }
+      },
+      "RenderReport": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "command",
+          "request_id",
+          "expected_revision",
+          "payload"
+        ],
+        "properties": {
+          "command": {
+            "const": "render_report"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "report_kind": {
+                "enum": [
+                  "dictations",
+                  "deadlines",
+                  "processing_times",
+                  "usage",
+                  "deleted"
+                ]
+              },
+              "from_utc": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "to_utc": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "author_ids": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "format": {
+                "enum": [
+                  "json",
+                  "csv"
+                ]
+              }
+            },
+            "required": [
+              "report_kind",
+              "from_utc",
+              "to_utc",
+              "author_ids",
+              "format"
+            ]
+          }
+        }
+      },
+      "CommandRequest": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SaveAuthorPool"
+          },
+          {
+            "$ref": "#/components/schemas/SetAuthorScope"
+          },
+          {
+            "$ref": "#/components/schemas/ConfigureRouting"
+          },
+          {
+            "$ref": "#/components/schemas/EditAudio"
+          },
+          {
+            "$ref": "#/components/schemas/UndoAudio"
+          },
+          {
+            "$ref": "#/components/schemas/StartLiveSession"
+          },
+          {
+            "$ref": "#/components/schemas/StopLiveSession"
+          },
+          {
+            "$ref": "#/components/schemas/SaveIndex"
+          },
+          {
+            "$ref": "#/components/schemas/ProposeVocabularyChange"
+          },
+          {
+            "$ref": "#/components/schemas/ReviewResourceChange"
+          },
+          {
+            "$ref": "#/components/schemas/SaveCommand"
+          },
+          {
+            "$ref": "#/components/schemas/RequestAdaptation"
+          },
+          {
+            "$ref": "#/components/schemas/SaveProfile"
+          },
+          {
+            "$ref": "#/components/schemas/RequestAcceptance"
+          },
+          {
+            "$ref": "#/components/schemas/DecideAcceptance"
+          },
+          {
+            "$ref": "#/components/schemas/ReopenDictation"
+          },
+          {
+            "$ref": "#/components/schemas/RenderOutput"
+          },
+          {
+            "$ref": "#/components/schemas/QueueImport"
+          },
+          {
+            "$ref": "#/components/schemas/RequestSourceCleanup"
+          },
+          {
+            "$ref": "#/components/schemas/SaveFilter"
+          },
+          {
+            "$ref": "#/components/schemas/RenderReport"
+          }
+        ]
+      },
+      "CommandResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "request_id",
+          "command_id",
+          "status",
+          "revision"
+        ],
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "command_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "enum": [
+              "committed",
+              "queued"
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "artifact_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "Problem": {
+        "type": "object",
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code"
+        ],
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "code": {
+            "enum": [
+              "UNAUTHORIZED",
+              "FORBIDDEN",
+              "REVISION_CONFLICT",
+              "INVALID_PAYLOAD",
+              "IDEMPOTENCY_CONFLICT",
+              "CAPABILITY_UNAVAILABLE",
+              "POLICY_DENIED",
+              "RATE_LIMITED",
+              "DEPENDENCY_UNAVAILABLE"
+            ]
+          },
+          "correlation_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "x-command-authorization": [
+    {
+      "command": "save_author_pool",
+      "permission": "clinic.author_pool.manage",
+      "request_schema": "SaveAuthorPool",
+      "requirements": [
+        "PAR-ADM-002"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "set_author_scope",
+      "permission": "clinic.permissions.manage",
+      "request_schema": "SetAuthorScope",
+      "requirements": [
+        "PAR-ADM-004",
+        "PAR-ADM-006"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "configure_routing",
+      "permission": "clinic.routing.manage",
+      "request_schema": "ConfigureRouting",
+      "requirements": [
+        "PAR-ADM-007"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "edit_audio",
+      "permission": "clinic.audio.edit",
+      "request_schema": "EditAudio",
+      "requirements": [
+        "PAR-REC-003"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "undo_audio",
+      "permission": "clinic.audio.edit",
+      "request_schema": "UndoAudio",
+      "requirements": [
+        "PAR-REC-003"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "start_live_session",
+      "permission": "clinic.dictate",
+      "request_schema": "StartLiveSession",
+      "requirements": [
+        "PAR-LIVE-001"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "stop_live_session",
+      "permission": "clinic.dictate",
+      "request_schema": "StopLiveSession",
+      "requirements": [
+        "PAR-LIVE-001",
+        "PAR-LIVE-003"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "save_index",
+      "permission": "clinic.review",
+      "request_schema": "SaveIndex",
+      "requirements": [
+        "PAR-COR-007"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "propose_vocabulary_change",
+      "permission": "clinic.vocabulary.propose",
+      "request_schema": "ProposeVocabularyChange",
+      "requirements": [
+        "PAR-VOC-001",
+        "PAR-VOC-003",
+        "PAR-VOC-004"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "review_resource_change",
+      "permission": "clinic.vocabulary.review",
+      "request_schema": "ReviewResourceChange",
+      "requirements": [
+        "PAR-VOC-004",
+        "PAR-VOC-005"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "save_command",
+      "permission": "clinic.commands.manage",
+      "request_schema": "SaveCommand",
+      "requirements": [
+        "PAR-VOC-008"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "request_adaptation",
+      "permission": "clinic.asr.adapt",
+      "request_schema": "RequestAdaptation",
+      "requirements": [
+        "PAR-VOC-007",
+        "PAR-ASR-004",
+        "PAR-ASR-005"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "save_profile",
+      "permission": "clinic.profile.manage",
+      "request_schema": "SaveProfile",
+      "requirements": [
+        "PAR-ASR-002",
+        "PAR-ASR-006"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "request_acceptance",
+      "permission": "clinic.review",
+      "request_schema": "RequestAcceptance",
+      "requirements": [
+        "PAR-WF-009"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "decide_acceptance",
+      "permission": "clinic.accept",
+      "request_schema": "DecideAcceptance",
+      "requirements": [
+        "PAR-WF-010"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "reopen_dictation",
+      "permission": "clinic.reopen",
+      "request_schema": "ReopenDictation",
+      "requirements": [
+        "PAR-WF-012"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "render_output",
+      "permission": "clinic.export",
+      "request_schema": "RenderOutput",
+      "requirements": [
+        "PAR-EXP-001",
+        "PAR-EXP-003",
+        "PAR-EXP-004",
+        "PAR-EXP-005",
+        "PAR-EXP-006",
+        "PAR-EXP-009"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "queue_import",
+      "permission": "clinic.import",
+      "request_schema": "QueueImport",
+      "requirements": [
+        "PAR-IMP-003"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "request_source_cleanup",
+      "permission": "clinic.import.cleanup",
+      "request_schema": "RequestSourceCleanup",
+      "requirements": [
+        "PAR-IMP-005"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "save_filter",
+      "permission": "clinic.preferences",
+      "request_schema": "SaveFilter",
+      "requirements": [
+        "PAR-WF-003"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "render_report",
+      "permission": "clinic.statistics",
+      "request_schema": "RenderReport",
+      "requirements": [
+        "PAR-OPS-006",
+        "PAR-OPS-007"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    }
+  ],
+  "x-unknown-command-policy": "deny; no generic plugin execution",
+  "x-semantic-guards": [
+    "expected_revision=0 only for object creation; existing aggregates require current version",
+    "insert/overwrite require a source segment; trim forbids it",
+    "routing person requires one user; staff_pool requires pool; self requires matching author",
+    "request/source IDs scoped to principal and permitted agent; machine auth cannot call this user command endpoint",
+    "save_filter enforces max 20 per user; report end greater than start with bounded period",
+    "acceptance/release/export verify matching audio/text/context revisions and clinical policy",
+    "rendered file != local saved file != delivered KIS document",
+    "all original BT remain normative even when no allowed web action exists"
+  ]
+}

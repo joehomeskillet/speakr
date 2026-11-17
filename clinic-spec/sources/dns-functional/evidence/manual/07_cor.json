@@ -1,0 +1,715 @@
+{
+  "schema_version": 1,
+  "domain": "COR",
+  "title": "Abschrift und synchronisierte Korrektur",
+  "source": {
+    "id": "DNS-MANUAL-2017",
+    "title": "dns.comfort.pro workflow - Handbuch",
+    "publisher": "Sonic Labs GmbH",
+    "date": "03/2017",
+    "page_count": 201,
+    "sha256": "bcff06c6d9acaf57477395441172e937b3686ea99406bf6786b8d3c26276f570",
+    "archive_member": "Diktierlösung/dns.comfort.pro/dns.comfort Handbuch Online Version/dns.comfort Handbuch Online Version.pdf",
+    "page_number_rule": "PDF-Seite entspricht gedruckter Seitenzahl; Inhalt ist Produktdokumentation, kein Nachweis aktivierter Funktionen der überlassenen Installation."
+  },
+  "scope_reminder": "Eigenständiger funktionaler Neubau. Keine Altbestandsübernahme und keine KIS-Spezialintegration. Alle Aussagen sind Handbuchbelege, sofern nicht ausdrücklich neue Verträge.",
+  "feature_ids": [
+    "PAR-COR-001",
+    "PAR-COR-002",
+    "PAR-COR-003",
+    "PAR-COR-004",
+    "PAR-COR-005",
+    "PAR-COR-006",
+    "PAR-COR-007",
+    "PAR-COR-008",
+    "PAR-COR-009",
+    "PAR-COR-010"
+  ],
+  "pages": [
+    80,
+    86,
+    137,
+    138,
+    139,
+    140,
+    141,
+    142,
+    143,
+    144,
+    145,
+    146,
+    147,
+    159,
+    160,
+    161,
+    181
+  ],
+  "features": [
+    {
+      "id": "PAR-COR-001",
+      "area": "COR",
+      "title": "Manuelle Abschrift mit Player und Vorlage",
+      "observable_behavior": "Audio ohne ASR wird mit frei positionierbarem Player abgespielt; Erfassen öffnet eine passende Benutzer-/Poolvorlage oder Dateiauswahl.",
+      "manual_pages": [
+        143,
+        144,
+        145,
+        146,
+        147
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M2",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-COR-001",
+        "feature_ids": [
+          "PAR-COR-001"
+        ],
+        "fixtures": [
+          "F-AUDIO",
+          "F-DOC",
+          "F-ID"
+        ],
+        "given": [
+          "Fall im Zustand Zu schreiben; Vorlagen für Autor und Pool vorhanden."
+        ],
+        "when": [
+          "Fall als Schreibkraft öffnen, Vorlage wählen, Text schreiben und unterbrechen.",
+          "Ohne hinterlegte Vorlagen wiederholen."
+        ],
+        "then": [
+          "Player und Dokument gehören zum gleichen Fall.",
+          "Vorlagen entsprechen dem Autor/Pool.",
+          "Ohne Vorlage ist bewusste Dateiauswahl möglich."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          143,
+          144,
+          145,
+          146,
+          147
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Abschrift und synchronisierte Korrektur",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-COR-002",
+      "area": "COR",
+      "title": "Synchroner Text-Audio-Editor",
+      "observable_behavior": "Korrektur erhält Verbindung zwischen Wort-/Phrasenposition und Audio auch bei Übertippen, Formatieren und Verschieben von Textpassagen.",
+      "manual_pages": [
+        137,
+        138,
+        139,
+        140
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M2",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [
+        "Verhalten von neu eingefügtem, gelöschtem und zusammengezogenem Text im Original messen; Neubau muss unzugeordnete Passagen ausdrücklich modellieren."
+      ],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-COR-002",
+        "feature_ids": [
+          "PAR-COR-002"
+        ],
+        "fixtures": [
+          "F-ASR",
+          "F-AUDIO",
+          "F-DOC"
+        ],
+        "given": [
+          "Erkanntes Diktat mit handprüfbar annotierten drei Audiosegmenten."
+        ],
+        "when": [
+          "Fehler übertippen; zweiten Absatz formatieren und verschieben.",
+          "An Wort/Phrase klicken und Wiedergabe auslösen.",
+          "Sichern, neu öffnen und Zuordnung wiederholen."
+        ],
+        "then": [
+          "Audio verweist weiterhin auf die zugehörigen gesprochenen Passagen.",
+          "Neu rein getippter Text wird nicht mit erfundener Sprachausgabe als Originalaudio versehen.",
+          "Zuordnungen bleiben nach Speichern nachvollziehbar."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          137,
+          138,
+          139,
+          140
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Abschrift und synchronisierte Korrektur",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-COR-003",
+      "area": "COR",
+      "title": "Wellenform, aktuelle Phrase und Erkennungsmarken",
+      "observable_behavior": "Korrektur zeigt skalierbare/ausblendbare Wellenform, aktuelle Phrase und sichtbare Bereiche für Erkennung, Befehle, Unsicherheit oder fehlende Erkennung.",
+      "manual_pages": [
+        139,
+        140
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P1",
+      "milestone": "M2",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [
+        "Engineabhängige Kennzahlen nicht als identische Dragon-Konfidenz ausgeben; Farbbedeutung dokumentieren."
+      ],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-COR-003",
+        "feature_ids": [
+          "PAR-COR-003"
+        ],
+        "fixtures": [
+          "F-ASR",
+          "F-AUDIO"
+        ],
+        "given": [
+          "Testaudio mit Sprache, Pause und bewusst nicht erkennbarer Passage; Engine liefert definierte Metadaten."
+        ],
+        "when": [
+          "Wellenform skalieren und ausblenden.",
+          "Wiedergabeposition über Verlauf versetzen und aktuelle Phrase ansehen."
+        ],
+        "then": [
+          "Visuelle Position entspricht hörbarem Audio.",
+          "Vorhandene Unsicherheitsdaten werden unterscheidbar dargestellt.",
+          "Fehlende Confidence-Werte werden als unbekannt behandelt, nicht automatisch als sicher."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          139,
+          140
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Abschrift und synchronisierte Korrektur",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-COR-004",
+      "area": "COR",
+      "title": "Tempo und Spulen",
+      "observable_behavior": "Wiedergabe lässt sich bis Faktor 0.5/2 verändern; Rechtsklick setzt Normaltempo; Vor-/Rückspulen ist per Tastatur/Fusssteuerung möglich.",
+      "manual_pages": [
+        140,
+        144,
+        147
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M2",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-COR-004",
+        "feature_ids": [
+          "PAR-COR-004"
+        ],
+        "fixtures": [
+          "F-AUDIO",
+          "F-HW"
+        ],
+        "given": [
+          "Aufnahme mit gemessener Dauer und hörbaren Marken."
+        ],
+        "when": [
+          "Bei 0.5x, 1x und 2x wiedergeben, Tempo zurücksetzen und spulen."
+        ],
+        "then": [
+          "Ausgabe bleibt verständlich und Position im Text/Audio konsistent.",
+          "Normalstellung entspricht 1x.",
+          "Zeit-/Positionsanzeige verwendet nachvollziehbare Audiozeit statt vermischter Wandzeit."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          140,
+          144,
+          147
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Abschrift und synchronisierte Korrektur",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-COR-005",
+      "area": "COR",
+      "title": "Zwei Korrekturmodi und automatische Rücksprünge",
+      "observable_behavior": "Wiedergabe kann beim Tippen stoppen oder während Übertippen weiterlaufen; Start kann um konfigurierte Zeit oder unterstützte Wortzahl zurückspringen.",
+      "manual_pages": [
+        86,
+        140,
+        141,
+        142,
+        146,
+        147
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M2",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-COR-005",
+        "feature_ids": [
+          "PAR-COR-005"
+        ],
+        "fixtures": [
+          "F-AUDIO",
+          "F-ASR"
+        ],
+        "given": [
+          "Erkanntes Diktat, Cursor mittig; Rücksprung 2 Sekunden als explizite Testkonfiguration."
+        ],
+        "when": [
+          "Stop-bei-Tastendruck testen; danach weiterlaufenden Modus.",
+          "Pause und Neustart mit/ohne Rücksprung durchführen."
+        ],
+        "then": [
+          "Stopmodus hält bei Tasteneingabe an.",
+          "Weiterlaufender Modus spielt trotz Textkorrektur weiter.",
+          "Rücksprung folgt konfiguriertem Wert und überschreitet nicht den Audioanfang."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          86,
+          140,
+          141,
+          142,
+          146,
+          147
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Abschrift und synchronisierte Korrektur",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-COR-006",
+      "area": "COR",
+      "title": "Zwischenspeichern und an Position fortsetzen",
+      "observable_behavior": "Korrekturen lassen sich während Bearbeitung speichern; Unterbrechung erhält Textstand und Wiedergabeposition.",
+      "manual_pages": [
+        137,
+        138,
+        143,
+        144
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M2",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-COR-006",
+        "feature_ids": [
+          "PAR-COR-006"
+        ],
+        "fixtures": [
+          "F-AUDIO",
+          "F-ASR",
+          "F-FAIL"
+        ],
+        "given": [
+          "Fall in Bearbeitung; sichtbarer Textfehler korrigiert."
+        ],
+        "when": [
+          "Ctrl+S speichern, schliessen und wieder öffnen.",
+          "An anderer Position wiederholen; Prozess nach bestätigter Speicherung beenden."
+        ],
+        "then": [
+          "Bestätigter Textstand und zuletzt gespeicherte Position sind wiederherstellbar.",
+          "Abgebrochene Sitzung erzeugt keinen zweiten konkurrierenden Textstand."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          137,
+          138,
+          143,
+          144
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Abschrift und synchronisierte Korrektur",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-COR-007",
+      "area": "COR",
+      "title": "Audioindizes verwalten",
+      "observable_behavior": "Benutzer können benannte/verwaltete Indizes an Audiopositionen setzen und aus einer Indexliste anspringen.",
+      "manual_pages": [
+        145,
+        146,
+        147
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P1",
+      "milestone": "M2",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-COR-007",
+        "feature_ids": [
+          "PAR-COR-007"
+        ],
+        "fixtures": [
+          "F-AUDIO"
+        ],
+        "given": [
+          "Aufnahme mit drei hörbaren Segmenten."
+        ],
+        "when": [
+          "Vor Segment B und C je einen Index setzen.",
+          "Liste öffnen, Positionen anspringen und Index wieder entfernen.",
+          "Fall neu öffnen."
+        ],
+        "then": [
+          "Indizes springen zu den zugehörigen Positionen.",
+          "Löschen eines Index löscht kein Audio.",
+          "Verbleibende Indexliste wird entsprechend Speichervorgang wiederhergestellt."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          145,
+          146,
+          147
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Abschrift und synchronisierte Korrektur",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-COR-008",
+      "area": "COR",
+      "title": "Automatische Wiedergabelautstärke",
+      "observable_behavior": "AGC kann die Wiedergabelautstärke angleichen, ohne das unveränderte Originaldiktat zu ersetzen.",
+      "manual_pages": [
+        86,
+        145
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P2",
+      "milestone": "M4",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-COR-008",
+        "feature_ids": [
+          "PAR-COR-008"
+        ],
+        "fixtures": [
+          "F-AUDIO-LEVELS"
+        ],
+        "given": [
+          "Synthetische Aufnahme mit leisem und lauterem Sprachabschnitt."
+        ],
+        "when": [
+          "Mit AGC aus und an wiedergeben.",
+          "Originalhash vor/nach vergleichen."
+        ],
+        "then": [
+          "Aktiver Modus ist sichtbar; Lautstärkeunterschied wird hörbar behandelt.",
+          "Originaldatei bleibt unverändert.",
+          "Keine behauptete Verbesserung der ASR-Genauigkeit ohne gesonderten Nachweis."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          86,
+          145
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Abschrift und synchronisierte Korrektur",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-COR-009",
+      "area": "COR",
+      "title": "Editierfunktionen, Auswahl und Phrase vormerken",
+      "observable_behavior": "Editor unterstützt Undo/Redo, Zwischenablage, Groß-/Kleinschreibung, Wort-/Absatzauswahl und Vormerken einer Phrase für spätere Vokabularprüfung.",
+      "manual_pages": [
+        138,
+        139,
+        140,
+        141,
+        142,
+        159,
+        160,
+        161
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P1",
+      "milestone": "M2",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-COR-009",
+        "feature_ids": [
+          "PAR-COR-009"
+        ],
+        "fixtures": [
+          "F-ASR",
+          "F-DOC",
+          "F-VOC"
+        ],
+        "given": [
+          "Erkannter Testtext enthält bewusst falsch geschriebene Phrase."
+        ],
+        "when": [
+          "Phrase markieren, Groß-/Kleinschreibung ändern, rückgängig/wiederholen.",
+          "Phrase vormerken; Korrektur abschliessen und lokales Phrasenfach öffnen."
+        ],
+        "then": [
+          "Textoperationen wirken auf die markierte Stelle.",
+          "Vorgemerkte Phrase erscheint genau einmal zur Prüfung.",
+          "Vormerken allein veröffentlicht sie nicht automatisch im Poolwortschatz."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          138,
+          139,
+          140,
+          141,
+          142,
+          159,
+          160,
+          161
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Abschrift und synchronisierte Korrektur",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-COR-010",
+      "area": "COR",
+      "title": "Korrekturplatz ohne ASR-Installation",
+      "observable_behavior": "Bearbeiten eines bereits erkannten Diktats braucht am Schreibplatz keine lokale Dragon-/ASR-Engine; Text und Audio bleiben verfügbar.",
+      "manual_pages": [
+        80,
+        137,
+        181
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M2",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-COR-010",
+        "feature_ids": [
+          "PAR-COR-010"
+        ],
+        "fixtures": [
+          "F-ASR",
+          "F-AUDIO"
+        ],
+        "given": [
+          "Zweiter Schreibplatz ohne ASR-Paket; erkannter Testfall im gemeinsamen neuen System."
+        ],
+        "when": [
+          "Erkannten Fall öffnen, abspielen, Text ändern und speichern.",
+          "ASR-Server während laufender Korrektur vorübergehend stoppen."
+        ],
+        "then": [
+          "Abspielen und Bearbeiten sind ohne lokale Engine möglich.",
+          "Vorhandene Ergebnisse verschwinden nicht wegen nicht verfügbarer Erkennung.",
+          "Neue Erkennung bleibt gesondert als nicht verfügbar erkennbar."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          80,
+          137,
+          181
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Abschrift und synchronisierte Korrektur",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    }
+  ]
+}

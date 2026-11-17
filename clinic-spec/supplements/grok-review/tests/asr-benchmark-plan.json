@@ -1,0 +1,69 @@
+{
+  "status": "planned_not_run",
+  "coverage_target": {
+    "planned_recordings": 60,
+    "per_source": {
+      "philips_9600": 20,
+      "philips_9620": 20,
+      "mobile": 20
+    },
+    "purpose": "coverage proposal, not a statistical reliability claim"
+  },
+  "sources_actual_verified": [],
+  "required_language_groups": null,
+  "language_groups_proposal": [
+    "Standarddeutsch",
+    "Schweizer Aussprache",
+    "Schweizerdeutsch nur verbindlich, wenn Ist-Prozess dies erfordert"
+  ],
+  "corpus": [],
+  "model_and_decoder_pins": null,
+  "per_case_fields": [
+    "case_id",
+    "source_type",
+    "hardware_profile",
+    "firmware_or_browser_version",
+    "original_sha256",
+    "duration_seconds",
+    "language_group",
+    "content_risk_tags",
+    "reference_source",
+    "local_data_use_approval",
+    "raw_wer",
+    "raw_critical_errors",
+    "corrected_critical_errors",
+    "final_critical_errors",
+    "active_correction_seconds",
+    "baseline_active_seconds",
+    "queue_seconds",
+    "asr_seconds",
+    "reviewer",
+    "adjudicator",
+    "status",
+    "evidence_reference"
+  ],
+  "metrics": [
+    "WER with documented normalization",
+    "critical errors by category and processing stage",
+    "active correction seconds per audio minute",
+    "baseline comparison",
+    "latency median/P95",
+    "loss/omission/addition incidents"
+  ],
+  "development_invariants": [
+    "no_unreviewed_release",
+    "no_context_mismatch",
+    "no_original_loss",
+    "failed_model_does_not_delete_input"
+  ],
+  "real_pilot_thresholds": {
+    "approved_by": null,
+    "approved_at": null,
+    "raw_wer_limits_by_group": null,
+    "raw_critical_error_policy": null,
+    "correction_time_goal": null,
+    "proposed_known_critical_errors_in_released_test_documents_max": 0,
+    "proposal_is_clinically_approved": false
+  },
+  "truthfulness": "Do not mark hardware/model/medical quality as passed based on fixtures or synthetic tests."
+}

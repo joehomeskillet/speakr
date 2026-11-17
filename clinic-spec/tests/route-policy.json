@@ -1,0 +1,60 @@
+{
+  "mode": "deny_unclassified",
+  "note": "Classification template, not a falsely complete listing of upstream Flask routes. S00 exports real url_map; S01 attaches tests to every entry.",
+  "categories": {
+    "public_minimal": [
+      "health_without_details",
+      "static_local",
+      "oidc_start",
+      "oidc_callback",
+      "local_login_csrf_rate_limited",
+      "purpose_bound_activation_reset"
+    ],
+    "managed_clinical": [
+      "own_dictations",
+      "assigned_pool",
+      "authorized_audio",
+      "versioned_review",
+      "release",
+      "approved_export"
+    ],
+    "byod_clinical": [
+      "own_capture_session",
+      "own_neutral_status"
+    ],
+    "agent": [
+      "ingest_own",
+      "heartbeat_own"
+    ],
+    "disabled": [
+      "public_share",
+      "personal_api_token",
+      "user_webhook",
+      "generic_admin_content_access",
+      "stock_unversioned_export",
+      "incognito_processing",
+      "chat",
+      "voiceprint",
+      "cloud_provider_selection",
+      "public_self_registration",
+      "jit_external_user_creation",
+      "implicit_admin_password_fallback",
+      "clinical_user_hard_delete"
+    ],
+    "identity_admin": [
+      "user_lifecycle",
+      "explicit_identity_link",
+      "session_revoke",
+      "audited_login_policy_change"
+    ]
+  },
+  "requirements": [
+    "no_client_selected_channel",
+    "no_owner_admin_shortcut",
+    "authorize_lists_counts_search_streams",
+    "startup_policy_overrides_mutable_settings",
+    "local_and_entra_per_account_policy_on_every_legacy_path",
+    "oidc_routes_inert_when_disabled",
+    "identity_admin_not_clinical_reader"
+  ]
+}

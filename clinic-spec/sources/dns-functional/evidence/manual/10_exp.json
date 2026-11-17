@@ -1,0 +1,702 @@
+{
+  "schema_version": 1,
+  "domain": "EXP",
+  "title": "Dokumente und allgemeine Desktopausgabe",
+  "source": {
+    "id": "DNS-MANUAL-2017",
+    "title": "dns.comfort.pro workflow - Handbuch",
+    "publisher": "Sonic Labs GmbH",
+    "date": "03/2017",
+    "page_count": 201,
+    "sha256": "bcff06c6d9acaf57477395441172e937b3686ea99406bf6786b8d3c26276f570",
+    "archive_member": "Diktierlösung/dns.comfort.pro/dns.comfort Handbuch Online Version/dns.comfort Handbuch Online Version.pdf",
+    "page_number_rule": "PDF-Seite entspricht gedruckter Seitenzahl; Inhalt ist Produktdokumentation, kein Nachweis aktivierter Funktionen der überlassenen Installation."
+  },
+  "scope_reminder": "Eigenständiger funktionaler Neubau. Keine Altbestandsübernahme und keine KIS-Spezialintegration. Alle Aussagen sind Handbuchbelege, sofern nicht ausdrücklich neue Verträge.",
+  "feature_ids": [
+    "PAR-EXP-001",
+    "PAR-EXP-002",
+    "PAR-EXP-003",
+    "PAR-EXP-004",
+    "PAR-EXP-005",
+    "PAR-EXP-006",
+    "PAR-EXP-007",
+    "PAR-EXP-008",
+    "PAR-EXP-009",
+    "PAR-EXP-010"
+  ],
+  "pages": [
+    38,
+    88,
+    149,
+    150,
+    151,
+    152,
+    153,
+    154,
+    155,
+    156,
+    157,
+    158,
+    159,
+    162,
+    180,
+    181
+  ],
+  "features": [
+    {
+      "id": "PAR-EXP-001",
+      "area": "EXP",
+      "title": "Mehrere Exportwege pro Abschluss",
+      "observable_behavior": "Pro Nutzer gespeicherte Weiterverarbeitungsoptionen erlauben mehrere Ausgaben desselben korrigierten Diktats.",
+      "manual_pages": [
+        149,
+        150,
+        151,
+        158
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M4",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-EXP-001",
+        "feature_ids": [
+          "PAR-EXP-001"
+        ],
+        "fixtures": [
+          "F-WORK",
+          "F-EXPORT"
+        ],
+        "given": [
+          "Korrigierter Fall; Clipboard und RTF ausgewählt."
+        ],
+        "when": [
+          "Fertigstellen und beide Ergebnisse prüfen.",
+          "Neu starten, Optionen wieder öffnen; Exportziel eines Adapters unbeschreibbar machen."
+        ],
+        "then": [
+          "Gewählte Wege und nutzerspezifische Einstellungen bleiben erhalten.",
+          "Fehler eines Adapters wird im Neubau separat ausgewiesen; erfolgreicher anderer Export ist nachvollziehbar."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          149,
+          150,
+          151,
+          158
+        ],
+        "explicit_new_contracts": [
+          "Teilerfolge und Fehler verschiedener Exporte getrennt anzeigen."
+        ]
+      },
+      "area_name": "Dokumente und allgemeine Desktopausgabe",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": [
+        "Teilerfolge und Fehler verschiedener Exporte getrennt anzeigen."
+      ]
+    },
+    {
+      "id": "PAR-EXP-002",
+      "area": "EXP",
+      "title": "Zwischenablage formatiert/unformatiert",
+      "observable_behavior": "Korrigierter Text kann mit oder ohne Formatierung in Zwischenablage kopiert werden.",
+      "manual_pages": [
+        149
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M4",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-EXP-002",
+        "feature_ids": [
+          "PAR-EXP-002"
+        ],
+        "fixtures": [
+          "F-DOC",
+          "F-TARGET"
+        ],
+        "given": [
+          "Text enthält Fettformatierung und mehrere Absätze."
+        ],
+        "when": [
+          "Als reinen Text kopieren und in Labortarget einfügen.",
+          "Als formatierten Text wiederholen."
+        ],
+        "then": [
+          "Reiner Text enthält keine Formatierungsartefakte.",
+          "Formatierter Inhalt erhält unterstützte Formatierung und Textinhalt.",
+          "Clipboardinhalt gehört zum bestätigten Fall."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          149
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Dokumente und allgemeine Desktopausgabe",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-EXP-003",
+      "area": "EXP",
+      "title": "RTF-Ausgabe",
+      "observable_behavior": "Korrigierter Text inklusive Formatierung/Grafik kann in RTF geschrieben, im Workflow verwaltet und optional geöffnet werden.",
+      "manual_pages": [
+        150,
+        151,
+        152
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M4",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-EXP-003",
+        "feature_ids": [
+          "PAR-EXP-003"
+        ],
+        "fixtures": [
+          "F-DOC",
+          "F-EXPORT"
+        ],
+        "given": [
+          "Synthetischer Richtext und Grafik; leeres Ausgabeziel."
+        ],
+        "when": [
+          "RTF erzeugen und mit unabhängiger Anwendung öffnen.",
+          "Öffnen-nach-Export aktivieren/deaktivieren."
+        ],
+        "then": [
+          "RTF ist syntaktisch lesbar und enthält richtigen Text, Absätze und unterstützte Grafik.",
+          "Autoöffnen folgt Option und meldet fehlende Zielanwendung."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          150,
+          151,
+          152
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Dokumente und allgemeine Desktopausgabe",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-EXP-004",
+      "area": "EXP",
+      "title": "Word-Ausgabe mit Vorlage und Textmarke",
+      "observable_behavior": "Word-Export kann Vorlagen, Textmarken, ein geöffnetes Dokument oder Dokument im Workflow nutzen; Text oder formatierter Inhalt wählbar.",
+      "manual_pages": [
+        150,
+        153,
+        154,
+        155
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M4",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-EXP-004",
+        "feature_ids": [
+          "PAR-EXP-004"
+        ],
+        "fixtures": [
+          "F-DOC",
+          "F-EXPORT"
+        ],
+        "given": [
+          "Word im Labor; Vorlage mit Kopf-/Fusszeile und Textmarke DIKTAT_TEXT."
+        ],
+        "when": [
+          "In Vorlage an Textmarke exportieren.",
+          "In eines von zwei geöffneten Testdokumenten exportieren.",
+          "Ohne geöffnetes Dokument den dafür vorgesehenen Modus testen."
+        ],
+        "then": [
+          "Text erscheint am gewählten Ziel; Kopf-/Fusszeile bleiben erhalten.",
+          "Mehrdeutige Zielauswahl wird aufgelöst.",
+          "Fehlendes geöffnetes Dokument erzeugt einen nachvollziehbaren Fehler."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          150,
+          153,
+          154,
+          155
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Dokumente und allgemeine Desktopausgabe",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-EXP-005",
+      "area": "EXP",
+      "title": "OpenOffice-Writer-/ODT-Ausgabe",
+      "observable_behavior": "Writer-Ausgabe bietet Vorlage, offenes Dokument, Text/Formatierung und optionale weitere Bearbeitung.",
+      "manual_pages": [
+        150,
+        153,
+        154,
+        155
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P1",
+      "milestone": "M4",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-EXP-005",
+        "feature_ids": [
+          "PAR-EXP-005"
+        ],
+        "fixtures": [
+          "F-DOC",
+          "F-EXPORT"
+        ],
+        "given": [
+          "Dokumentierte unterstützte Writer-Version im Labor; synthetische ODT-Vorlage."
+        ],
+        "when": [
+          "An vorgesehene Textposition exportieren und unabhängig neu öffnen.",
+          "Mehrere offene Writer-Dokumente als Ziel prüfen."
+        ],
+        "then": [
+          "ODT ist mit der vereinbarten Zielanwendung nutzbar.",
+          "Nur ausgewähltes Dokument wird verändert.",
+          "Kompatibilität mit LibreOffice wird erst nach Test behauptet."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          150,
+          153,
+          154,
+          155
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Dokumente und allgemeine Desktopausgabe",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-EXP-006",
+      "area": "EXP",
+      "title": "Dateiname, Ablageort und Kollisionen",
+      "observable_behavior": "Dateinamen können abgefragt oder aus Platzhaltern generiert werden; Ablage im Workflow oder an benanntem Pfad ist wählbar.",
+      "manual_pages": [
+        152,
+        153,
+        154,
+        159
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P1",
+      "milestone": "M4",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [
+        "Handbuchbeispiel %A - %T wirkt semantisch vertauscht; tatsächliche Zuordnung im Labor messen."
+      ],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-EXP-006",
+        "feature_ids": [
+          "PAR-EXP-006"
+        ],
+        "fixtures": [
+          "F-DOC",
+          "F-EXPORT"
+        ],
+        "given": [
+          "Titel/Autor enthalten Umlaute und Zeichen, die nicht in jeden Dateinamen passen."
+        ],
+        "when": [
+          "Manuellen Namen und Namen aus Platzhaltern erzeugen.",
+          "Gleichnamigen zweiten Export sowie nicht beschreibbaren Pfad testen."
+        ],
+        "then": [
+          "Ergebnis ist am angezeigten Ort mit gültigem Namen auffindbar.",
+          "Kollision und Schreibfehler bleiben erkennbar.",
+          "Platzhaltersemantik wird aus Referenz geprüft; fehlerhafte Handbuchbeispiele werden nicht blind übernommen."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          152,
+          153,
+          154,
+          159
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Dokumente und allgemeine Desktopausgabe",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-EXP-007",
+      "area": "EXP",
+      "title": "Allgemeiner Fenstertransfer",
+      "observable_behavior": "Zielanwendung kann über Fensterklasse/-titel gewählt und in Vordergrund gebracht werden; Übertragung erfolgt als Clipboard-Text, Tastensimulation oder formatiert. Keine KIS-Speziallogik.",
+      "manual_pages": [
+        155,
+        156,
+        157
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P1",
+      "milestone": "M4",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-EXP-007",
+        "feature_ids": [
+          "PAR-EXP-007"
+        ],
+        "fixtures": [
+          "F-DOC",
+          "F-TARGET"
+        ],
+        "given": [
+          "Zwei gleichklassige Laborfenster mit unterscheidbaren Titeln."
+        ],
+        "when": [
+          "Ziel per Titel/Klasse wählen; jede unterstützte Übertragungsmethode testen.",
+          "Ziel schliessen oder Titel vor Übergabe ändern; Transfer abbrechen."
+        ],
+        "then": [
+          "Text erreicht nur das bestätigte passende Ziel.",
+          "Fehlendes/mehrdeutiges Ziel und Abbruch erzeugen keinen Erfolgseintrag.",
+          "Tastensimulation wird nicht heimlich in ein anderes Fenster gesendet."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          155,
+          156,
+          157
+        ],
+        "explicit_new_contracts": [
+          "Bei verlorenem/mehrdeutigem Ziel niemals blind an aktuell aktives Fenster senden."
+        ]
+      },
+      "area_name": "Dokumente und allgemeine Desktopausgabe",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": [
+        "Bei verlorenem/mehrdeutigem Ziel niemals blind an aktuell aktives Fenster senden."
+      ]
+    },
+    {
+      "id": "PAR-EXP-008",
+      "area": "EXP",
+      "title": "Geschriebenes Dokument kopieren",
+      "observable_behavior": "Bei manuell geschriebenen Diktaten kann das fertige Dokument an einen ausgewählten oder generierten Dateipfad kopiert werden.",
+      "manual_pages": [
+        158,
+        159
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P1",
+      "milestone": "M4",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-EXP-008",
+        "feature_ids": [
+          "PAR-EXP-008"
+        ],
+        "fixtures": [
+          "F-DOC",
+          "F-EXPORT"
+        ],
+        "given": [
+          "Audiofall mit in eigener Vorlage geschriebenem Testdokument."
+        ],
+        "when": [
+          "Kopie erstellen auswählen, fertigstellen und Kopie öffnen.",
+          "Ohne Kopie fertigstellen; Fehlziel testen."
+        ],
+        "then": [
+          "Kopie entspricht dem bestätigten Dokumentstand.",
+          "Ohne Kopieroption entsteht keine zusätzliche Datei.",
+          "Kopierfehler ist vom fachlichen Abschluss unterscheidbar."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          158,
+          159
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Dokumente und allgemeine Desktopausgabe",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-EXP-009",
+      "area": "EXP",
+      "title": "Originalaudio speichern oder Mailentwurf öffnen",
+      "observable_behavior": "Berechtigte Nutzer können Aufnahme auf Datenträger speichern oder an das lokale Standardmailprogramm übergeben.",
+      "manual_pages": [
+        38,
+        162
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P1",
+      "milestone": "M4",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-EXP-009",
+        "feature_ids": [
+          "PAR-EXP-009"
+        ],
+        "fixtures": [
+          "F-AUDIO",
+          "F-MAIL",
+          "F-ID"
+        ],
+        "given": [
+          "Neuer synthetischer Audiofall; lokales Testmailprogramm ohne externe Zustellung."
+        ],
+        "when": [
+          "Als berechtigter Nutzer Aufnahme speichern und prüfen.",
+          "Mailfunktion öffnen; Entwurf und Anhang kontrollieren, dann verwerfen.",
+          "Ohne Exportrecht wiederholen."
+        ],
+        "then": [
+          "Gespeicherte Aufnahme ist der richtige Inhalt.",
+          "Mailübergabe enthält richtigen Anhang und versendet nicht autonom an reale Personen.",
+          "Ohne Recht wird Export verhindert."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          38,
+          162
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Dokumente und allgemeine Desktopausgabe",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-EXP-010",
+      "area": "EXP",
+      "title": "Word-Add-in: Dokument und Audio übergeben",
+      "observable_behavior": "Word-Integration kann RTF+Audio, RTF+Vorlage+Audio, Text+Audio oder nur Word-Dokument senden; ohne aktive Diktatsitzung nur Dokument.",
+      "manual_pages": [
+        88,
+        180,
+        181
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P1",
+      "milestone": "M5",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [
+        "Add-in-Parität ist Desktopfunktion; bloßer DOCX-Download ersetzt den dokumentierten Word-Einstieg nicht."
+      ],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-EXP-010",
+        "feature_ids": [
+          "PAR-EXP-010"
+        ],
+        "fixtures": [
+          "F-DOC",
+          "F-ASR",
+          "F-AUDIO"
+        ],
+        "given": [
+          "Word mit neuer Testvorlage; einmal mit und einmal ohne aktive Diktatsitzung."
+        ],
+        "when": [
+          "Alle anwendbaren Versandarten anhand desselben Testdokuments durchspielen.",
+          "Kopf-/Fusszeile, Formatierung und Audio am Schreibplatz prüfen."
+        ],
+        "then": [
+          "Versandart bestimmt tatsächlich enthaltene Bestandteile.",
+          "Ohne Audio-/ASR-Sitzung wird kein erfundenes Audio beigefügt.",
+          "Vorlagenvariante kann das Dokument nach Korrektur mit Kopf-/Fusszeile wiederherstellen."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          88,
+          180,
+          181
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Dokumente und allgemeine Desktopausgabe",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    }
+  ]
+}

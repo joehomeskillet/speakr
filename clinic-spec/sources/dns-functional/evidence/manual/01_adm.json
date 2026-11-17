@@ -1,0 +1,779 @@
+{
+  "schema_version": 1,
+  "domain": "ADM",
+  "title": "Identitäten, Pools und Berechtigungen",
+  "source": {
+    "id": "DNS-MANUAL-2017",
+    "title": "dns.comfort.pro workflow - Handbuch",
+    "publisher": "Sonic Labs GmbH",
+    "date": "03/2017",
+    "page_count": 201,
+    "sha256": "bcff06c6d9acaf57477395441172e937b3686ea99406bf6786b8d3c26276f570",
+    "archive_member": "Diktierlösung/dns.comfort.pro/dns.comfort Handbuch Online Version/dns.comfort Handbuch Online Version.pdf",
+    "page_number_rule": "PDF-Seite entspricht gedruckter Seitenzahl; Inhalt ist Produktdokumentation, kein Nachweis aktivierter Funktionen der überlassenen Installation."
+  },
+  "scope_reminder": "Eigenständiger funktionaler Neubau. Keine Altbestandsübernahme und keine KIS-Spezialintegration. Alle Aussagen sind Handbuchbelege, sofern nicht ausdrücklich neue Verträge.",
+  "feature_ids": [
+    "PAR-ADM-001",
+    "PAR-ADM-002",
+    "PAR-ADM-003",
+    "PAR-ADM-004",
+    "PAR-ADM-005",
+    "PAR-ADM-006",
+    "PAR-ADM-007",
+    "PAR-ADM-008",
+    "PAR-ADM-009",
+    "PAR-ADM-010",
+    "PAR-ADM-011"
+  ],
+  "pages": [
+    4,
+    5,
+    6,
+    7,
+    9,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    28,
+    29,
+    34,
+    35,
+    36,
+    37,
+    38,
+    44,
+    45,
+    72,
+    76,
+    77,
+    79,
+    119,
+    120,
+    184
+  ],
+  "features": [
+    {
+      "id": "PAR-ADM-001",
+      "area": "ADM",
+      "title": "Autoren und Schreibkräfte verwalten",
+      "observable_behavior": "Autoren und Schreibkräfte getrennt anlegen, bearbeiten und entfernen; Änderungen mit Übernehmen/OK verbindlich speichern.",
+      "manual_pages": [
+        4,
+        5,
+        6,
+        7,
+        18,
+        19,
+        20
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M1",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen Fall mit frischer synthetischer Konfiguration in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-ADM-001",
+        "feature_ids": [
+          "PAR-ADM-001"
+        ],
+        "fixtures": [
+          "F-ID"
+        ],
+        "given": [
+          "Leere Laborkonfiguration; Administrator angemeldet."
+        ],
+        "when": [
+          "Zwei Autoren und zwei Schreibkräfte über die Oberfläche anlegen.",
+          "Eine Anmerkung ändern; Dialog einmal abbrechen und einmal bestätigen.",
+          "Neu starten und einen nur für diesen Fall angelegten Benutzer entfernen."
+        ],
+        "then": [
+          "Bestätigte Einträge sind wieder vorhanden; abgebrochene Änderung nicht.",
+          "Autoren und Schreibkräfte erscheinen in den passenden Auswahllisten.",
+          "Ein ungültiger oder entfernter Nutzer führt nicht zur stillen Anmeldung als anderer Nutzer."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          4,
+          5,
+          6,
+          7,
+          18,
+          19,
+          20
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Identitäten, Pools und Berechtigungen",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-ADM-002",
+      "area": "ADM",
+      "title": "Autorenpools mit Mehrfachmitgliedschaft",
+      "observable_behavior": "Autoren können einem oder mehreren Autorenpools angehören; gemeinsame Ressourcen stehen Mitgliedern des gewählten Pools zur Verfügung.",
+      "manual_pages": [
+        9,
+        16,
+        17
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M1",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen Fall mit frischer synthetischer Konfiguration in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-ADM-002",
+        "feature_ids": [
+          "PAR-ADM-002"
+        ],
+        "fixtures": [
+          "F-ID",
+          "F-VOC"
+        ],
+        "given": [
+          "Autoren Alpha und Beta sowie Autorenpools A und B vorhanden."
+        ],
+        "when": [
+          "Alpha beiden Pools, Beta nur A zuordnen.",
+          "In A eine Testphrase hinterlegen; jeweils mit Pool A und B starten.",
+          "Alpha aus A entfernen und neu starten."
+        ],
+        "then": [
+          "Mitgliedschaften und Poolauswahl entsprechen der Konfiguration.",
+          "Ressource aus A wird nicht allein wegen Namensgleichheit in B freigegeben.",
+          "Entfernte Mitgliedschaft ist beim nächsten Laden berücksichtigt."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          9,
+          16,
+          17
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Identitäten, Pools und Berechtigungen",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-ADM-003",
+      "area": "ADM",
+      "title": "Schreibkraftpools eigenständig verwalten",
+      "observable_behavior": "Schreibkraftpools gruppieren berechtigte Schreibkräfte; sie bleiben von Autorenpools getrennt.",
+      "manual_pages": [
+        21,
+        22
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M1",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen Fall mit frischer synthetischer Konfiguration in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-ADM-003",
+        "feature_ids": [
+          "PAR-ADM-003"
+        ],
+        "fixtures": [
+          "F-ID"
+        ],
+        "given": [
+          "Autorenpool A und Schreibkräfte Schreib1 und Schreib2 angelegt."
+        ],
+        "when": [
+          "Schreibpool Pool-Nord anlegen und beide Schreibkräfte aufnehmen.",
+          "Eine Schreibkraft entfernen; Autor und Autorenpool unverändert lassen."
+        ],
+        "then": [
+          "Schreibpool-Mitgliedschaft beeinflusst die Empfängerauswahl.",
+          "Autorenpool-Mitgliedschaften werden nicht verändert."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          21,
+          22
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Identitäten, Pools und Berechtigungen",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-ADM-004",
+      "area": "ADM",
+      "title": "Zugriff nach Autor oder Autorenpool mit Ausnahmen",
+      "observable_behavior": "Schreibkraftzugriff kann auf einzelne Autoren, Autorenpools mit Ausnahmen oder alle Autoren begrenzt werden.",
+      "manual_pages": [
+        38
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M1",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen Fall mit frischer synthetischer Konfiguration in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-ADM-004",
+        "feature_ids": [
+          "PAR-ADM-004"
+        ],
+        "fixtures": [
+          "F-ID",
+          "F-WORK"
+        ],
+        "given": [
+          "Alpha und Beta in Autorenpool A, Gamma in B; je ein frisches Testdiktat."
+        ],
+        "when": [
+          "Schreib1 nur A mit Ausnahme Beta berechtigen.",
+          "Liste, Suche und direktes Öffnen aller drei Diktate versuchen.",
+          "Auf Autorenberechtigung Alpha umstellen."
+        ],
+        "then": [
+          "Nur Alpha ist für Schreib1 zugänglich.",
+          "Liste, Suche und Öffnen setzen dieselbe Regel durch.",
+          "Zugriff auf Gamma wird nicht aus einer Schreibpoolmitgliedschaft abgeleitet."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          38
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Identitäten, Pools und Berechtigungen",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-ADM-005",
+      "area": "ADM",
+      "title": "Aktionen unabhängig voneinander berechtigen",
+      "observable_behavior": "Rechte steuern Löschen, Archivieren, Umbenennen, Priorität ändern, Audioexport, Umverteilen und Wiederaufnahme fertiggestellter Diktate getrennt.",
+      "manual_pages": [
+        34,
+        35,
+        36,
+        37,
+        38
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M1",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen Fall mit frischer synthetischer Konfiguration in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-ADM-005",
+        "feature_ids": [
+          "PAR-ADM-005"
+        ],
+        "fixtures": [
+          "F-ID",
+          "F-WORK"
+        ],
+        "given": [
+          "Schreib1 darf lesen und schreiben; Testdiktat besitzt bereits eine Priorität."
+        ],
+        "when": [
+          "Jede zusätzliche Aktion einzeln verweigern und anschliessend einzeln erlauben.",
+          "Aktionen per Menü und Tastenkürzel auslösen."
+        ],
+        "then": [
+          "Verweigerte Aktion verändert weder Diktat noch Exportdateien.",
+          "Nur das jeweils gesetzte Recht wird wirksam.",
+          "Eine ausgeblendete Schaltfläche ist nicht der einzige Zugriffsschutz."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          34,
+          35,
+          36,
+          37,
+          38
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Identitäten, Pools und Berechtigungen",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-ADM-006",
+      "area": "ADM",
+      "title": "Autoren-Sichtbereiche und Schreibkraftauswahl",
+      "observable_behavior": "Autoren können nur eigene, die Diktate ihres Autorenpools oder alle Diktate sehen; die Empfängerauswahl kann auf Schreibpools begrenzt werden.",
+      "manual_pages": [
+        35,
+        36
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M1",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen Fall mit frischer synthetischer Konfiguration in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-ADM-006",
+        "feature_ids": [
+          "PAR-ADM-006"
+        ],
+        "fixtures": [
+          "F-ID",
+          "F-WORK"
+        ],
+        "given": [
+          "Alpha, Beta und Gamma besitzen Diktate; zwei Autorenpools und ein Schreibpool vorhanden."
+        ],
+        "when": [
+          "Sichtbereich nacheinander auf eigen, Pool und alle setzen.",
+          "Recht zur Empfängerwahl deaktivieren und danach auf nur Schreibpools begrenzen."
+        ],
+        "then": [
+          "Sichtbare Diktate folgen dem jeweiligen Bereich.",
+          "Ohne Wahlrecht bleibt die Voreinstellung massgeblich.",
+          "Bei Nur-Pools werden einzelne Schreibkräfte nicht als auswählbare Alternative angeboten."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          35,
+          36
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Identitäten, Pools und Berechtigungen",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-ADM-007",
+      "area": "ADM",
+      "title": "Voreingestellte Empfänger und Selbstkorrektur",
+      "observable_behavior": "Neue Diktate gehen an alle berechtigten Schreibkräfte oder die konfigurierte Person/Gruppe; ein Betrieb ohne Schreibkräfte erlaubt Selbstkorrektur.",
+      "manual_pages": [
+        5,
+        18,
+        28
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M1",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen Fall mit frischer synthetischer Konfiguration in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-ADM-007",
+        "feature_ids": [
+          "PAR-ADM-007"
+        ],
+        "fixtures": [
+          "F-ID",
+          "F-WORK"
+        ],
+        "given": [
+          "Alpha hat zwei berechtigte Schreibkräfte."
+        ],
+        "when": [
+          "Je ein Diktat mit Default alle, Person Schreib1 und Pool-Nord versenden.",
+          "In einer zweiten frischen Konfiguration ohne Schreibkräfte ein Diktat versenden und als Autor korrigieren."
+        ],
+        "then": [
+          "Zuweisung stimmt in jedem Fall mit dem gewählten Default überein.",
+          "Die Konfiguration ohne Schreibkräfte bleibt nutzbar."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          5,
+          18,
+          28
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Identitäten, Pools und Berechtigungen",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-ADM-008",
+      "area": "ADM",
+      "title": "Administrative und Statistik-Accounts",
+      "observable_behavior": "Administration und Statistikzugriff besitzen eigene Berechtigungen, unabhängig von der Autoren-/Schreibkraftfunktion.",
+      "manual_pages": [
+        5,
+        72,
+        184
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P1",
+      "milestone": "M1",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen Fall mit frischer synthetischer Konfiguration in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-ADM-008",
+        "feature_ids": [
+          "PAR-ADM-008"
+        ],
+        "fixtures": [
+          "F-ID",
+          "F-STATS"
+        ],
+        "given": [
+          "Ein Statistiknutzer, ein Administrator und ein gewöhnlicher Autor existieren."
+        ],
+        "when": [
+          "Mit jedem Konto Administration und Statistik öffnen.",
+          "Mit Statistiknutzer einen vorhandenen Bericht ansehen und eine Konfiguration zu ändern versuchen."
+        ],
+        "then": [
+          "Nur berechtigte Konten erhalten die jeweilige Funktion.",
+          "Statistikberechtigung gewährt nicht automatisch administrative Änderungen."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          5,
+          72,
+          184
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Identitäten, Pools und Berechtigungen",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-ADM-009",
+      "area": "ADM",
+      "title": "Windows-/AD-Auswahl und bestätigter AD-Abgleich",
+      "observable_behavior": "Benutzer können aus lokalem Windows oder AD gewählt werden; gruppenbasierter Abgleich zeigt neue/entfernte Benutzer und Mitgliedschaften zur Bestätigung. E-Maildaten können aus AD stammen.",
+      "manual_pages": [
+        7,
+        19,
+        22,
+        23,
+        29
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P1",
+      "milestone": "M4",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [
+        "Verhalten bei gelöschter AD-Gruppe, Namensänderung und vorübergehend nicht erreichbarem AD messen."
+      ],
+      "verification_method": "Gleichen Fall mit frischer synthetischer Konfiguration in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-ADM-009",
+        "feature_ids": [
+          "PAR-ADM-009"
+        ],
+        "fixtures": [
+          "F-ID",
+          "F-AD"
+        ],
+        "given": [
+          "Isolierte Testdomäne mit einer verknüpften Gruppe; keinerlei Produktivverzeichnis."
+        ],
+        "when": [
+          "Testbenutzer in AD hinzufügen, entfernen und zwischen Gruppen verschieben.",
+          "Abgleich anzeigen; einmal abbrechen, dann ausgewählte Änderungen akzeptieren."
+        ],
+        "then": [
+          "Vorschau benennt die tatsächlichen Unterschiede.",
+          "Ohne Bestätigung entstehen keine stillen Änderungen.",
+          "Nur ausgewählte Änderungen werden übernommen; letzte Poolentfernung wird nachvollziehbar behandelt."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          7,
+          19,
+          22,
+          23,
+          29
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Identitäten, Pools und Berechtigungen",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-ADM-010",
+      "area": "ADM",
+      "title": "Windows-SSO mit eindeutigem Kontext",
+      "observable_behavior": "Aktiviertes SSO verwendet den angemeldeten Windows-Nutzer und verhindert die Auswahl fremder Identitäten; Aktivierung für Client und Workflow getrennt.",
+      "manual_pages": [
+        44,
+        45
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P1",
+      "milestone": "M4",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [
+        "Altprodukt verwendet name@domain; Neubau braucht eine stabile eigene Identitätszuordnung, keine Übernahme alter Konten."
+      ],
+      "verification_method": "Gleichen Fall mit frischer synthetischer Konfiguration in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-ADM-010",
+        "feature_ids": [
+          "PAR-ADM-010"
+        ],
+        "fixtures": [
+          "F-ID",
+          "F-AD"
+        ],
+        "given": [
+          "Zwei Windows-Testkonten sind eindeutig an zwei neue App-Konten gebunden."
+        ],
+        "when": [
+          "SSO für Workflow aktivieren, Client zunächst nicht.",
+          "Als beide Windows-Konten starten und fremde Benutzerwahl versuchen.",
+          "Nicht zugeordnetes Windows-Konto testen."
+        ],
+        "then": [
+          "Bei aktiviertem SSO wird nur die gebundene Identität verwendet.",
+          "Unbekannte Identität wird nicht mit einem Defaultautor angemeldet.",
+          "Getrennte SSO-Einstellung wirkt nur auf den dafür vorgesehenen Einstieg."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          44,
+          45
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Identitäten, Pools und Berechtigungen",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-ADM-011",
+      "area": "ADM",
+      "title": "Benutzerstart, letzte Auswahl und Wechsel",
+      "observable_behavior": "Manueller Start merkt sich den letzten Nutzer; Verknüpfungen können Benutzer/Pool wählen; Wechsel beendet den alten Kontext mit behandelbaren ungesicherten Änderungen.",
+      "manual_pages": [
+        76,
+        77,
+        79,
+        119,
+        120
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P1",
+      "milestone": "M4",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen Fall mit frischer synthetischer Konfiguration in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-ADM-011",
+        "feature_ids": [
+          "PAR-ADM-011"
+        ],
+        "fixtures": [
+          "F-ID",
+          "F-WORK"
+        ],
+        "given": [
+          "Zwei neue Benutzer und ein ungesicherter synthetischer Entwurf."
+        ],
+        "when": [
+          "Benutzerwahl öffnen, Beta starten und neu starten.",
+          "Über Verknüpfung Alpha starten; laufenden Wechsel mit Änderungen abbrechen und bestätigen."
+        ],
+        "then": [
+          "Letzte Auswahl wird angeboten, ohne Rechte zu erweitern.",
+          "Abgebrochener Wechsel erhält den alten Kontext.",
+          "Bestätigter Wechsel vermischt keine Entwürfe, Wörter oder Audiozuordnungen."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          76,
+          77,
+          79,
+          119,
+          120
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Identitäten, Pools und Berechtigungen",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    }
+  ]
+}

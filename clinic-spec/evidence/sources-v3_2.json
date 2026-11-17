@@ -1,0 +1,242 @@
+{
+  "reviewed_at": "2026-11-17",
+  "method": "V3 sources retained; V3.2 local identity primary documentation and two pinned source files examined; no application runtime test.",
+  "sources": [
+    {
+      "id": "OSS01",
+      "title": "Speakr Repository",
+      "url": "https://github.com/murtaza-nasir/speakr",
+      "supports": "Flask/SQLAlchemy, Vue/Tailwind, PostgreSQL, AGPL; Kandidat, kein Klinikprodukt."
+    },
+    {
+      "id": "OSS02",
+      "title": "Speakr v0.11.1 Release",
+      "url": "https://github.com/murtaza-nasir/speakr/releases/tag/v0.11.1",
+      "supports": "Am 17.11.2026 sichtbare Release-Baseline; Logging-Korrekturen. Keine eigene Laufzeitprüfung."
+    },
+    {
+      "id": "OSS03",
+      "title": "Speakr konkreter Commit",
+      "url": "https://github.com/murtaza-nasir/speakr/commit/48d3018fb7d80b77f897bedd86bcc89b5034d1f5",
+      "supports": "Commit-Ziel des sichtbaren Release-Links."
+    },
+    {
+      "id": "OSS04",
+      "title": "Speakr Installation / PostgreSQL",
+      "url": "https://murtaza-nasir.github.io/speakr/getting-started/installation/",
+      "supports": "PostgreSQL über SQLALCHEMY_DATABASE_URI dokumentiert."
+    },
+    {
+      "id": "OSS05",
+      "title": "Speakr SSO",
+      "url": "https://murtaza-nasir.github.io/speakr/admin-guide/sso-setup/",
+      "supports": "OIDC/Entra/Keycloak; dokumentiertes E-Mail-Linking ist für Klinikmodus zu ersetzen."
+    },
+    {
+      "id": "OSS06",
+      "title": "Speakr Recording Sessions",
+      "url": "https://murtaza-nasir.github.io/speakr/admin-guide/recording-sessions/",
+      "supports": "Vorhandene serverseitige Aufnahme-/Chunk-Sessions, nicht pauschal BYOD-konform."
+    },
+    {
+      "id": "OSS07",
+      "title": "Speakr Privacy",
+      "url": "https://murtaza-nasir.github.io/speakr/admin-guide/privacy/",
+      "supports": "Browserpersistenz, Audit-/Logging-Grenzen und nicht behauptete Compliance."
+    },
+    {
+      "id": "OSS08",
+      "title": "Speakr Gruppen",
+      "url": "https://murtaza-nasir.github.io/speakr/admin-guide/group-management/",
+      "supports": "Gruppenfreigaben sind keine klinischen Schreibpools."
+    },
+    {
+      "id": "OSS09",
+      "title": "Speakr API",
+      "url": "https://murtaza-nasir.github.io/speakr/user-guide/api-reference/",
+      "supports": "Vorhandene Aufnahmen-/Transkript-API; klinische Kommandos sind Erweiterungen."
+    },
+    {
+      "id": "OSS10",
+      "title": "Speakr Queue",
+      "url": "https://murtaza-nasir.github.io/speakr/advanced/job-queue-system/",
+      "supports": "Persistente Jobbasis vorhanden; Doku und gepinnter Code getrennt bewerten."
+    },
+    {
+      "id": "OSS11",
+      "title": "Speakr App am Tag",
+      "url": "https://raw.githubusercontent.com/murtaza-nasir/speakr/v0.11.1/src/app.py",
+      "supports": "Registrierung von Blueprints, bestehende Owner-/Share-ACL, db, services, init_db."
+    },
+    {
+      "id": "OSS12",
+      "title": "Speakr Queue am Tag",
+      "url": "https://raw.githubusercontent.com/murtaza-nasir/speakr/v0.11.1/src/services/job_queue.py",
+      "supports": "Dauerhafte ProcessingJob-Queue; keine zweite allgemeine Queue entwickeln."
+    },
+    {
+      "id": "OSS13",
+      "title": "Speakr Gruppenmodell am Tag",
+      "url": "https://raw.githubusercontent.com/murtaza-nasir/speakr/v0.11.1/src/models/organization.py",
+      "supports": "Group und GroupMembership wiederverwenden; Klinikrollen separat."
+    },
+    {
+      "id": "OSS14",
+      "title": "Speakr Dockerfile am Tag",
+      "url": "https://raw.githubusercontent.com/murtaza-nasir/speakr/v0.11.1/Dockerfile",
+      "supports": "Python-3.11-Baseline, Lockfiles, Offline-Assets; Bestand erhalten, Securityscan zusätzlich."
+    },
+    {
+      "id": "OSS15",
+      "title": "Speakr Lizenz am Tag",
+      "url": "https://raw.githubusercontent.com/murtaza-nasir/speakr/v0.11.1/LICENSE",
+      "supports": "AGPL-3.0-Lizenztext; Quellcodeangebot und Hinweise erhalten."
+    },
+    {
+      "id": "OSS16",
+      "title": "OpenTranscribe Repository",
+      "url": "https://github.com/attevon-llc/OpenTranscribe",
+      "supports": "Alternative; Organisations-/Teamverwaltung und bestimmte Org-Funktionen als managed-only beschrieben."
+    },
+    {
+      "id": "OSS17",
+      "title": "OpenTranscribe Backend",
+      "url": "https://github.com/attevon-llc/OpenTranscribe/blob/master/backend/app/README.md",
+      "supports": "FastAPI, verschiedene Auth-Verfahren einschliesslich LDAP/OIDC; keine Annahme klinischer Schreibpools."
+    },
+    {
+      "id": "OSS18",
+      "title": "OpenTranscribe FAQ",
+      "url": "https://docs.opentranscribe.app/docs/faq/",
+      "supports": "AGPL, PostgreSQL/Redis/MinIO/OpenSearch; breiterer Betriebsstack."
+    },
+    {
+      "id": "OSS19",
+      "title": "Scriberr",
+      "url": "https://github.com/rishikanthc/Scriberr",
+      "supports": "Offline-Transkriptionsapp, Go und SQLite; kein geprüfter passender Klinikworkflow."
+    },
+    {
+      "id": "OSS20",
+      "title": "OpenScribe",
+      "url": "https://github.com/sammargolis/OpenScribe",
+      "supports": "Medizinischer Scribe; Standard-Mischworkflow sendet Transkript an externes LLM, nicht ungeprüft einsetzen."
+    },
+    {
+      "id": "OSS21",
+      "title": "dss-codec",
+      "url": "https://github.com/hirparak/dss-codec",
+      "supports": "MIT, Rust DSS/DS2->WAV, Passwortunterstützung; keine garantierte EOL-/Philips-Fachsemantik."
+    },
+    {
+      "id": "OSS22",
+      "title": "dss-codec Releases",
+      "url": "https://github.com/hirparak/dss-codec/releases",
+      "supports": "Bei Prüfung keine Releases; Commit beim ersten Bootstrap auflösen und festschreiben."
+    },
+    {
+      "id": "OSS23",
+      "title": "dss-codec README",
+      "url": "https://raw.githubusercontent.com/hirparak/dss-codec/master/README.md",
+      "supports": "CLI und DSS_CODEC_PASSWORD dokumentiert; kein eigener Codec nötig."
+    },
+    {
+      "id": "OSS24",
+      "title": "Speaches",
+      "url": "https://github.com/speaches-ai/speaches",
+      "supports": "MIT, lokale OpenAI-kompatible ASR-API mit faster-whisper, CPU/GPU."
+    },
+    {
+      "id": "OSS25",
+      "title": "Speaches Releases",
+      "url": "https://github.com/speaches-ai/speaches/releases",
+      "supports": "Versionen vorhanden; Lock-Schritt muss tatsächlichen Commit und Image-Digest erfassen."
+    },
+    {
+      "id": "OSS26",
+      "title": "faster-whisper",
+      "url": "https://github.com/SYSTRAN/faster-whisper",
+      "supports": "CPU- und NVIDIA/CUDA-Ausführung dokumentiert; Hardware/Qualität lokal benchmarken."
+    },
+    {
+      "id": "OSS27",
+      "title": "Keycloak Administration",
+      "url": "https://www.keycloak.org/docs/latest/server_admin/index.html",
+      "supports": "OIDC und LDAP/AD-Föderation; kein LDAP-Passwortcode im Fachprodukt."
+    },
+    {
+      "id": "OSS28",
+      "title": ".NET Lifecycle",
+      "url": "https://learn.microsoft.com/en-us/lifecycle/products/microsoft-net-and-net-core",
+      "supports": ".NET 10 unterstützt bis 14.11.2028; .NET 8 seit 10.11.2026 ausser Support."
+    },
+    {
+      "id": "OSS29",
+      "title": "Speakr Auth-Routen am Tag",
+      "url": "https://raw.githubusercontent.com/murtaza-nasir/speakr/v0.11.1/src/api/auth.py",
+      "supports": "Vorhandenes src.auth.sso und Authlib-Integration; Protokollcode weiterverwenden."
+    },
+    {
+      "id": "OSS30",
+      "title": "Speakr Konnektoren",
+      "url": "https://murtaza-nasir.github.io/speakr/advanced/custom-connectors/",
+      "supports": "Vorhandene Transkriptions-Konnektoren; Speaches-Anbindung ist lokal zu testen."
+    },
+    {
+      "id": "OSS31",
+      "title": "Speakr lokale Benutzerverwaltung",
+      "url": "https://murtaza-nasir.github.io/speakr/admin-guide/user-management/",
+      "supports": "Dokumentierte Benutzeranlage und Verwaltung; kein Nachweis aller geforderten klinischen Kontrollen.",
+      "reviewed_at": "2026-11-17"
+    },
+    {
+      "id": "OSS32",
+      "title": "Speakr User-Modell am festgelegten Commit",
+      "url": "https://raw.githubusercontent.com/murtaza-nasir/speakr/48d3018fb7d80b77f897bedd86bcc89b5034d1f5/src/models/user.py",
+      "supports": "Vorhandene Integer-User-ID, Passwort-/SSO-Felder; Passwortspalte deklariert String(60).",
+      "reviewed_at": "2026-11-17"
+    },
+    {
+      "id": "OSS33",
+      "title": "Speakr Auth-Routen am festgelegten Commit",
+      "url": "https://raw.githubusercontent.com/murtaza-nasir/speakr/48d3018fb7d80b77f897bedd86bcc89b5034d1f5/src/api/auth.py",
+      "supports": "Lokale Auth-/Reset-/Änderungspfade und vorhandene Bibliotheken; gezielte Härtung statt zweiter Auth-Engine.",
+      "reviewed_at": "2026-11-17"
+    },
+    {
+      "id": "OSS34",
+      "title": "Werkzeug Security Helpers",
+      "url": "https://werkzeug.palletsprojects.com/en/stable/utils/",
+      "supports": "Hash-/Verify-Funktionen und scrypt-Unterstützung.",
+      "reviewed_at": "2026-11-17"
+    },
+    {
+      "id": "OSS35",
+      "title": "OWASP Authentication Cheat Sheet",
+      "url": "https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html",
+      "supports": "Passwortlänge, Throttling, Reauth und sichere föderierte Verknüpfung.",
+      "reviewed_at": "2026-11-17"
+    },
+    {
+      "id": "OSS36",
+      "title": "OWASP Password Storage Cheat Sheet",
+      "url": "https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html",
+      "supports": "Etablierte Password-Hash-Verfahren und Parametergrundlagen.",
+      "reviewed_at": "2026-11-17"
+    },
+    {
+      "id": "OSS37",
+      "title": "OWASP Forgot Password Cheat Sheet",
+      "url": "https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html",
+      "supports": "Einmaligkeit, Ablauf, sichere Tokens und Sitzungswiderruf.",
+      "reviewed_at": "2026-11-17"
+    },
+    {
+      "id": "OSS38",
+      "title": "Microsoft Entra ID token claims",
+      "url": "https://learn.microsoft.com/en-us/entra/identity-platform/id-token-claims-reference",
+      "supports": "Issuer/Audience/Tenant-Prüfung; E-Mail/UPN sind keine stabilen autoritativen Identitätsschlüssel.",
+      "reviewed_at": "2026-11-17"
+    }
+  ]
+}

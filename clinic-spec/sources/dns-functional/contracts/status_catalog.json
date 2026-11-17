@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "provenance": "Eigene Zusammenfassung der Handbuch-UI-Bezeichnungen; kein rekonstruierter vollständiger Zustandsautomat.",
+  "manual_pages": [
+    125,
+    126,
+    135,
+    136,
+    137,
+    161
+  ],
+  "status_labels": [
+    {
+      "id": "UI-01",
+      "label": "Aufgabe",
+      "runtime_verified": false
+    },
+    {
+      "id": "UI-02",
+      "label": "Neu angelegt",
+      "runtime_verified": false
+    },
+    {
+      "id": "UI-03",
+      "label": "In Vorbereitung",
+      "runtime_verified": false
+    },
+    {
+      "id": "UI-04",
+      "label": "Zu schreiben",
+      "runtime_verified": false
+    },
+    {
+      "id": "UI-05",
+      "label": "Zu korrigieren",
+      "runtime_verified": false
+    },
+    {
+      "id": "UI-06",
+      "label": "In Bearbeitung",
+      "runtime_verified": false
+    },
+    {
+      "id": "UI-07",
+      "label": "Abzunehmen",
+      "runtime_verified": false
+    },
+    {
+      "id": "UI-08",
+      "label": "Abgenommen",
+      "runtime_verified": false
+    },
+    {
+      "id": "UI-09",
+      "label": "Fertiggestellt",
+      "runtime_verified": false
+    },
+    {
+      "id": "UI-10",
+      "label": "Zu archivieren",
+      "runtime_verified": false
+    },
+    {
+      "id": "UI-11",
+      "label": "Zu Löschen",
+      "runtime_verified": false
+    }
+  ],
+  "transitions": [],
+  "transition_template": {
+    "from_context": "",
+    "actor_permissions": [],
+    "action": "",
+    "to_context": "",
+    "side_effects": [],
+    "source_kind": "manual/provisional",
+    "test_id": "",
+    "runtime_evidence": null
+  },
+  "rule": "Keine Zuordnung von COM-Zahlen zu UI-Zuständen ohne separaten Beleg. Übergänge erst mit konkretem Fall spezifizieren."
+}

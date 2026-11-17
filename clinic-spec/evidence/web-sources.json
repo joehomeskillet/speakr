@@ -1,0 +1,78 @@
+{
+  "checked_on": "2026-11-17",
+  "scope": "Primary project/vendor/standards documentation; no runtime test.",
+  "sources": [
+    {
+      "id": "WEB01",
+      "title": "Speakr release and commit",
+      "url": "https://github.com/murtaza-nasir/speakr/releases/tag/v0.11.1",
+      "finding": "Release v0.11.1 refers to commit 48d3018; pinned baseline retained, no build performed."
+    },
+    {
+      "id": "WEB02",
+      "title": "Speakr recording sessions",
+      "url": "https://murtaza-nasir.github.io/speakr/admin-guide/recording-sessions/",
+      "finding": "Existing server recording sessions/chunk transport; reuse, not proof of clinic privacy/completeness."
+    },
+    {
+      "id": "WEB03",
+      "title": "Speakr mobile recording",
+      "url": "https://murtaza-nasir.github.io/speakr/user-guide/recording/",
+      "finding": "Mobile foreground restrictions documented; not a native-background recording guarantee."
+    },
+    {
+      "id": "WEB04",
+      "title": "Speaches realtime",
+      "url": "https://speaches.ai/usage/realtime-api/",
+      "finding": "WebSocket transcription-only mode documented; specific interruption events are limited; local adapter must test its pinned version."
+    },
+    {
+      "id": "WEB05",
+      "title": "Speaches TTS",
+      "url": "https://speaches.ai/usage/text-to-speech/",
+      "finding": "Existing local TTS API; model, voice/language, license and local performance must be verified separately."
+    },
+    {
+      "id": "WEB06",
+      "title": "Keyboard Lock",
+      "url": "https://developer.chrome.com/docs/capabilities/web-apis/keyboard-lock",
+      "finding": "Keyboard Lock applies under browser/fullscreen/OS restrictions; not general native global hotkeys."
+    },
+    {
+      "id": "WEB07",
+      "title": "WebHID",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/API/WebHID_API",
+      "finding": "Limited availability and explicit device access; not universal foot pedal/microphone control."
+    },
+    {
+      "id": "WEB08",
+      "title": "File saving",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/API/Window/showSaveFilePicker",
+      "finding": "Picker requires secure context/user activation and is not universally available; no arbitrary path write."
+    },
+    {
+      "id": "WEB09",
+      "title": "MediaStream Recording",
+      "url": "https://www.w3.org/TR/mediastream-recording/",
+      "finding": "Recording events/containers need finalization; separate chunks are not necessarily independently playable."
+    },
+    {
+      "id": "WEB10",
+      "title": "dss-codec",
+      "url": "https://github.com/hirparak/dss-codec",
+      "finding": "MIT decoder DSS/DS2 to WAV; password-protected input supported according to project, not Philips metadata/firmware proof."
+    },
+    {
+      "id": "WEB11",
+      "title": "wavesurfer.js",
+      "url": "https://wavesurfer.xyz/",
+      "finding": "Existing OSS waveform/regions plugins, BSD-3-Clause per project site; candidate only if existing Speakr UI lacks necessary functionality."
+    },
+    {
+      "id": "WEB12",
+      "title": "Speakr privacy",
+      "url": "https://murtaza-nasir.github.io/speakr/admin-guide/privacy/",
+      "finding": "Existing browser persistence paths need a clinic-specific audit; latest web documentation may differ from pin."
+    }
+  ]
+}

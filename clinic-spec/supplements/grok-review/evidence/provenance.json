@@ -1,0 +1,12 @@
+{
+  "input": {
+    "filename": "Eingefügtes Markdown.md",
+    "sha256": "37a983dd7c2005232c6aecf4201b394ed67aa02a2329685bbe38554e437eb1a2",
+    "bytes": 12134,
+    "reviewed_version_in_input": "2.0"
+  },
+  "prior_context": "All prior project constraints and V3 decisions in this conversation retained; conflicting older technical proposals stay superseded.",
+  "new_artifact_type": "additive supplement, not full reissued V3 baseline",
+  "product_baseline_byte_comparison_performed": false,
+  "new_external_research_performed": false
+}

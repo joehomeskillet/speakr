@@ -1,0 +1,88 @@
+{
+  "algorithm": "SHA-256",
+  "excluded": [
+    "evidence/manifest.json"
+  ],
+  "files": [
+    {
+      "path": "CLAUDE_ADDENDUM.md",
+      "bytes": 3294,
+      "sha256": "4508e81bbff4b877a5705e70a26c86b9720a89138590648fe6763ca81db115b7"
+    },
+    {
+      "path": "GESAMTE_ERGAENZUNG.md",
+      "bytes": 24855,
+      "sha256": "9c7f32b33da4b8bd67e9835004a2117157145193f8378006d4bffb4904335b20"
+    },
+    {
+      "path": "README.md",
+      "bytes": 2849,
+      "sha256": "551db6b4514969e1a0db634b62afce53e7728d054ead745c65bebd09d143dc9d"
+    },
+    {
+      "path": "START_CLAUDE_ERGAENZUNG.md",
+      "bytes": 1385,
+      "sha256": "8e3b74077a6cecd6a1ef72e7b60543306a859b8ff13d9abb9d37c79f35a525b2"
+    },
+    {
+      "path": "docs/10_Grok_Abgleich.md",
+      "bytes": 4519,
+      "sha256": "67aa269a4a986111df1c3071307869997fa1e4b51649aca6be0f621e81387f91"
+    },
+    {
+      "path": "docs/11_ASR_Qualitaetsplan.md",
+      "bytes": 5876,
+      "sha256": "e9c4be18512563f9921e5841fcef0f46a7a223165b923aaae3aba3640b7a97dd"
+    },
+    {
+      "path": "docs/12_Ergonomie_und_Gates.md",
+      "bytes": 3794,
+      "sha256": "1730b5fd3906f44c0445a543870890f669585519957e4d8546d9e0aa8e06bc37"
+    },
+    {
+      "path": "docs/13_Organisation_und_TCO.md",
+      "bytes": 2930,
+      "sha256": "567431214b7aaf474a4bcc8b1ef097692c44d5774a6318fa995a7d37b58247e5"
+    },
+    {
+      "path": "evidence/package-checks.json",
+      "bytes": 1277,
+      "sha256": "c0f9d5ddd6b3090f5695af52f5495440d11ef57ded6a143358015635f20582d3"
+    },
+    {
+      "path": "evidence/provenance.json",
+      "bytes": 537,
+      "sha256": "6ff575bf12d6b47d054ef84f6227df715cedec7e473b077786969d5e3931449e"
+    },
+    {
+      "path": "planning/decision-register.json",
+      "bytes": 3833,
+      "sha256": "ec6367e4619db3d4153d5247731d9fbc9461f506e398726c2f4d70f457f38003"
+    },
+    {
+      "path": "planning/grok-delta.json",
+      "bytes": 6527,
+      "sha256": "6a8fb8b392e3e25227025839a2e37e0e3f121d6ba8dffcf0380fe1ca48a317f7"
+    },
+    {
+      "path": "planning/tco-inputs.json",
+      "bytes": 1744,
+      "sha256": "4e0c6f6313e16607feb8877e8341a18624a8980ff60d724ccac28cad47ad0db2"
+    },
+    {
+      "path": "sources/Grok_Review_v2_original.md",
+      "bytes": 12134,
+      "sha256": "37a983dd7c2005232c6aecf4201b394ed67aa02a2329685bbe38554e437eb1a2"
+    },
+    {
+      "path": "tests/asr-benchmark-plan.json",
+      "bytes": 1931,
+      "sha256": "e3fa7d71f16e4bf27705e0ca255f349d50438cfd4f372b05f04dd880c4b46e24"
+    },
+    {
+      "path": "tests/review-additional-tests.json",
+      "bytes": 6511,
+      "sha256": "0f8e7cb64bb21b0d3c60428660b97cb873681b5b5f2ba5e24e507c002499e723"
+    }
+  ]
+}

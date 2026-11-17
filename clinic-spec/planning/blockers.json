@@ -1,0 +1,177 @@
+{
+  "version": "4.0-web",
+  "gates": [
+    {
+      "id": "G-DEVICE",
+      "missing_evidence": "Philips-Firmware/EOL/Metadaten/Verschlüsselung und Geräteverwaltung",
+      "owner_role": "ICT / Gerätepartner",
+      "safe_continuation": "Synthetische Dateien und Simulator, kein Echtgeräte-Erfolg",
+      "blocks": "Gerätepilot",
+      "status": "open",
+      "evidence": null,
+      "production_gate": true
+    },
+    {
+      "id": "G-KIS",
+      "missing_evidence": "Herstellervertrag für WebView, Kontext/Rechte, Schreiben/Quittung/Lookup/Nachtrag",
+      "owner_role": "ines / ICT",
+      "safe_continuation": "Stateful MockKIS und DisabledAdapter, API-/Sicherheitstests",
+      "blocks": "Echte KIS-Ausgabe",
+      "status": "open",
+      "evidence": null,
+      "production_gate": true
+    },
+    {
+      "id": "G-IDENTITY",
+      "missing_evidence": "Lokale Konten-/Bootstrap-/Passwort-/Sitzungs-/Administrationsabnahme, MFA-/Schutzbedarfsentscheidung und vertrauenswürdige Ingress-Netze",
+      "owner_role": "Identity / Netzwerk / Security",
+      "safe_continuation": "Lokale synthetische Speakr-Konten und Offline-/Sicherheitsfixtures; kein Pflicht-IdP",
+      "blocks": "Lokale Echtdatenanmeldung bis zur Sicherheitsabnahme",
+      "status": "open",
+      "evidence": null,
+      "production_gate": true,
+      "applies_to": [
+        "local",
+        "hybrid"
+      ]
+    },
+    {
+      "id": "G-BYOD",
+      "missing_evidence": "Freigegebene Gerätematrix, internes TLS/DNS und Restrisiko-/Unterbrechungsabnahme",
+      "owner_role": "Security / Fachbereich",
+      "safe_continuation": "Browserautomation, keine reale mobile Zuverlässigkeitsbehauptung",
+      "blocks": "BYOD mit Echtdaten",
+      "status": "open",
+      "evidence": null,
+      "production_gate": true
+    },
+    {
+      "id": "G-CLINICAL",
+      "missing_evidence": "Ist-Funktionen, Fallrechte, Freigabeprozess, Datenschutz, Zweckbestimmung und Retention",
+      "owner_role": "Fachleitung / Datenschutz / Recht",
+      "safe_continuation": "Konservative Devdefaults, Export nur für synthetische Fälle",
+      "blocks": "Echtdatenbetrieb",
+      "status": "open",
+      "evidence": null,
+      "production_gate": true
+    },
+    {
+      "id": "G-OPS",
+      "missing_evidence": "Service Owner/Stellvertretung, Hardwarebudget, RPO/RTO und bestandener Restore/Support",
+      "owner_role": "ICT-Leitung / Service Owner",
+      "safe_continuation": "Lokale Recoverytests und Betriebsvorlagen",
+      "blocks": "Produktionsfreigabe/Gesamtablösung",
+      "status": "open",
+      "evidence": null,
+      "production_gate": true
+    },
+    {
+      "id": "G-ENTRA",
+      "missing_evidence": "Realer Tenant/App-Registrierung, explizite Links, CA/MFA, WebView-SSO und gemessener Lifecycle-/Offboardingweg",
+      "owner_role": "Identity / Security / ICT",
+      "safe_continuation": "Deaktivierter Provideradapter, isolierte Tests und regulärer lokaler Betrieb im freigegebenen Rahmen",
+      "blocks": "Reale Entra-Aktivierung, nicht lokaler Pilot",
+      "status": "open",
+      "evidence": null,
+      "production_gate": true,
+      "applies_to": [
+        "hybrid"
+      ],
+      "activation_gate_not_local_prerequisite": true
+    },
+    {
+      "id": "G-LDAP",
+      "missing_evidence": "Freigegebener IdP/LDAPS-Vertrag, TLS, Mapping und Lifecycleprüfung",
+      "owner_role": "Identity / Directory-Betrieb",
+      "safe_continuation": "Deaktivierter Provideradapter, isolierte Tests und regulärer lokaler Betrieb im freigegebenen Rahmen",
+      "blocks": "Reale LDAP-Föderation, nicht lokaler Pilot",
+      "status": "open",
+      "evidence": null,
+      "production_gate": true,
+      "applies_to": [
+        "ldap"
+      ],
+      "activation_gate_not_local_prerequisite": true
+    },
+    {
+      "id": "G-PARITY",
+      "missing_evidence": "Alle 101 BT-Vergleiche mit echter Referenz, Zielversion und Abweichungsfreigabe; kein automatisches N/A.",
+      "owner_role": "Fachbereich / QA",
+      "safe_continuation": "Implementiere dokumentierten Funktionsvertrag und synthetische Tests; Laboranfrage aus sources/dns-functional/state/open_questions.json referenzieren, unabhängige Aufgaben fortsetzen.",
+      "blocks": "Vollständige 1:1-Ablösung",
+      "status": "open",
+      "evidence": null,
+      "production_gate": true
+    },
+    {
+      "id": "G-ASR-PARITY",
+      "missing_evidence": "Live/Phonetik/Negativliste/Profil-/Akustiktraining tatsächlich nachgewiesen, nicht nur Verwaltungs-UI.",
+      "owner_role": "ASR / Fachbereich",
+      "safe_continuation": "Implementiere dokumentierten Funktionsvertrag und synthetische Tests; Laboranfrage aus sources/dns-functional/state/open_questions.json referenzieren, unabhängige Aufgaben fortsetzen.",
+      "blocks": "Volle Sprachfunktionsparität",
+      "status": "open",
+      "evidence": null,
+      "production_gate": true
+    },
+    {
+      "id": "G-WEB-PARITY",
+      "missing_evidence": "Webfähigkeiten und alle WG-Teilkonflikte gegen Originalreferenz; keine native Umgehung.",
+      "owner_role": "Fachbereich / Web-QA",
+      "safe_continuation": "Implementiere dokumentierten Funktionsvertrag und synthetische Tests; Laboranfrage aus sources/dns-functional/state/open_questions.json referenzieren, unabhängige Aufgaben fortsetzen.",
+      "blocks": "Unbedingte vollständige Paritätsfreigabe",
+      "status": "open",
+      "evidence": null,
+      "production_gate": true
+    },
+    {
+      "id": "G-IWA",
+      "missing_evidence": "Verifizierter Windows-SSO- und bestätigter AD-Abgleich, getrennt von Entra.",
+      "owner_role": "Identity / QA",
+      "safe_continuation": "Implementiere dokumentierten Funktionsvertrag und synthetische Tests; Laboranfrage aus sources/dns-functional/state/open_questions.json referenzieren, unabhängige Aufgaben fortsetzen.",
+      "blocks": "Echte Windows-/AD-Aktivierung und entsprechende Vollparität",
+      "status": "open",
+      "evidence": null,
+      "production_gate": true
+    },
+    {
+      "id": "G-DEVICE-ADMIN",
+      "missing_evidence": "Direkter erlaubter Browser-/Herstellerweg für Konfiguration/Firmware; Import-Agent darf nicht erweitert werden.",
+      "owner_role": "ICT / Gerätepartner",
+      "safe_continuation": "Implementiere dokumentierten Funktionsvertrag und synthetische Tests; Laboranfrage aus sources/dns-functional/state/open_questions.json referenzieren, unabhängige Aufgaben fortsetzen.",
+      "blocks": "Geräteverwaltungs-/Firmwareparität",
+      "status": "open",
+      "evidence": null,
+      "production_gate": true
+    },
+    {
+      "id": "G-REMOTE",
+      "missing_evidence": "Browser-Mikrofon/WebHID und Importzuordnung in echten RDP/ICA-Sitzungen, ohne lokale Diktatbrücke.",
+      "owner_role": "Windows / QA",
+      "safe_continuation": "Implementiere dokumentierten Funktionsvertrag und synthetische Tests; Laboranfrage aus sources/dns-functional/state/open_questions.json referenzieren, unabhängige Aufgaben fortsetzen.",
+      "blocks": "Remoteparität",
+      "status": "open",
+      "evidence": null,
+      "production_gate": true
+    },
+    {
+      "id": "G-SOURCE-RIGHTS",
+      "missing_evidence": "Zulässiger Einsatz der Referenz/SDKs und unabhängiger Buildkontext; Archiv nicht öffentlich verteilen.",
+      "owner_role": "Projektleitung / Lizenzverantwortliche",
+      "safe_continuation": "Implementiere dokumentierten Funktionsvertrag und synthetische Tests; Laboranfrage aus sources/dns-functional/state/open_questions.json referenzieren, unabhängige Aufgaben fortsetzen.",
+      "blocks": "Entsprechende Original-/SDK-Nutzung",
+      "status": "open",
+      "evidence": null,
+      "production_gate": true
+    },
+    {
+      "id": "G-MANAGED-WEB-OFFLINE",
+      "missing_evidence": "Browserpersistenz-/Schlüssel-/Widerrufs-/Quota-/Eviction-/Absturz-/Nutzerwechseltests und Restrisikofreigabe.",
+      "owner_role": "Security / Web-QA",
+      "blocks": "Managed-Web-Offlinebetrieb mit Echtdaten, nicht normale Onlineaufnahme",
+      "status": "open",
+      "evidence": null,
+      "production_gate": true,
+      "safe_continuation": "Synthetischer Offline-Browser-Test, kein nativer Recorder."
+    }
+  ]
+}

@@ -1,0 +1,155 @@
+{
+  "synthetic_only": true,
+  "source_database_used": false,
+  "users": [
+    {
+      "id": "author-a",
+      "display_name": "Alpha",
+      "roles": [
+        "author"
+      ]
+    },
+    {
+      "id": "author-b",
+      "display_name": "Beta",
+      "roles": [
+        "author",
+        "approver"
+      ]
+    },
+    {
+      "id": "author-c",
+      "display_name": "Gamma",
+      "roles": [
+        "author"
+      ]
+    },
+    {
+      "id": "typist-a",
+      "display_name": "Schreib1",
+      "roles": [
+        "typist"
+      ]
+    },
+    {
+      "id": "typist-b",
+      "display_name": "Schreib2",
+      "roles": [
+        "typist"
+      ]
+    },
+    {
+      "id": "admin-a",
+      "display_name": "AdminLab",
+      "roles": [
+        "admin"
+      ]
+    },
+    {
+      "id": "stat-a",
+      "display_name": "StatLab",
+      "roles": [
+        "statistics"
+      ]
+    }
+  ],
+  "author_pools": [
+    {
+      "id": "ap-a",
+      "name": "A",
+      "members": [
+        "author-a",
+        "author-b"
+      ]
+    },
+    {
+      "id": "ap-b",
+      "name": "B",
+      "members": [
+        "author-c"
+      ]
+    }
+  ],
+  "transcription_pools": [
+    {
+      "id": "tp-a",
+      "name": "Nord",
+      "members": [
+        "typist-a",
+        "typist-b"
+      ]
+    },
+    {
+      "id": "tp-b",
+      "name": "Sued",
+      "members": [
+        "typist-b"
+      ]
+    }
+  ],
+  "access_rules": [
+    {
+      "transcription_pool_id": "tp-a",
+      "author_pool_id": "ap-a"
+    },
+    {
+      "transcription_pool_id": "tp-b",
+      "author_pool_id": "ap-b"
+    }
+  ],
+  "devices": [
+    {
+      "id": "synthetic-device-a",
+      "model": "SIMULATED",
+      "author": "author-a"
+    },
+    {
+      "id": "synthetic-shared-device",
+      "model": "SIMULATED",
+      "author": null
+    }
+  ],
+  "audio_fixtures": [
+    {
+      "file": "audio/tone_16k_mono.wav",
+      "sha256": "feff9d395923406c47e43980fa3c41aced4f47d9c44ef52484c799f9e1923eff",
+      "sample_rate": 16000,
+      "channels": 1,
+      "duration_seconds": 4,
+      "contains_speech": false
+    },
+    {
+      "file": "audio/silence_16k_mono.wav",
+      "sha256": "d303811b8c84619667cd0501342f84ec6cbe69f7aa3856dcf52fabda374c92b8",
+      "sample_rate": 16000,
+      "channels": 1,
+      "duration_seconds": 3,
+      "contains_speech": false
+    },
+    {
+      "file": "audio/tone_48k_stereo.wav",
+      "sha256": "3664569deb86d72028bb00e08dfb76ccbbe7a755fa0b6b338ba8e1872963fd9e",
+      "sample_rate": 48000,
+      "channels": 2,
+      "duration_seconds": 4,
+      "contains_speech": false
+    }
+  ],
+  "spoken_test_texts": [
+    "Projekt Sonnenblume. Die Lieferung enthält sieben grüne Ordner. Ende der Testaufnahme.",
+    "Testdiktat Alpha. Heute prüfen wir Aufnahme, Pause und Wiedergabe. Neuer Absatz. Ende des Testdiktats.",
+    "Testdiktat Beta. Die Zahl ist siebenundvierzig. Der Termin ist am dritten Dezember. Ende."
+  ],
+  "missing_hardware_fixtures": [
+    "DPM9600 DSS with known author/EOL/priority",
+    "DPM9600 DS2 with known author/EOL/priority",
+    "DPM9620 DSS with known author/EOL/priority",
+    "DPM9620 DS2 with known author/EOL/priority",
+    "Encrypted recording only with an authorised known test key, if enabled"
+  ],
+  "limitations": [
+    "No real users, patient records or historical recordings.",
+    "No fabricated DSS/DS2 files; renaming a WAV is not codec validation.",
+    "Tone/silence fixtures do not prove speech recognition quality."
+  ]
+}

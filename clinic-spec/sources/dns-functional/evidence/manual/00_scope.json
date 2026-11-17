@@ -1,0 +1,139 @@
+{
+  "purpose": "Funktionaler eigenständiger Nachbau ohne Datenmigration oder KIS-Anbindung",
+  "source": {
+    "id": "DNS-MANUAL-2017",
+    "title": "dns.comfort.pro workflow - Handbuch",
+    "publisher": "Sonic Labs GmbH",
+    "date": "03/2017",
+    "page_count": 201,
+    "sha256": "bcff06c6d9acaf57477395441172e937b3686ea99406bf6786b8d3c26276f570",
+    "archive_member": "Diktierlösung/dns.comfort.pro/dns.comfort Handbuch Online Version/dns.comfort Handbuch Online Version.pdf",
+    "page_number_rule": "PDF-Seite entspricht gedruckter Seitenzahl; Inhalt ist Produktdokumentation, kein Nachweis aktivierter Funktionen der überlassenen Installation."
+  },
+  "scope_rules": [
+    "Funktionsparität ist beobachtbares Verhalten, keine Wiederverwendung alter Daten oder zwingende Byte-/UI-Kompatibilität.",
+    "YAGNI darf unnötige Infrastruktur verhindern, aber keine dokumentierte Kernfunktion ohne Entscheidung aus der Matrix entfernen.",
+    "MVP ist nur ein Zwischenstand. Priorität oder spätes Milestone sind keine Erlaubnis für endgültige Auslassung.",
+    "Eine offene Engine-/Gerätefunktion blockiert die Behauptung vollständiger Parität; sie darf nicht hinter wirkungsloser UI versteckt werden.",
+    "Handbuchbeleg und deklarierter Test sind keine ausgeführte Runtime-Verifikation.",
+    "Neue Zuverlässigkeitsverträge stehen je Funktion ausdrücklich unter explicit_new_contracts."
+  ],
+  "status_definitions": {
+    "Soll": "Dokumentiertes Verhalten ist funktionale Anforderung; Runtime-Grenzfälle noch unbestätigt.",
+    "Offen": "Dokumentierte Funktion bleibt in Scope, technische Realisierung hängt z.B. von Enginefähigkeit ab; konkrete Entscheidung und Nachweis fehlen.",
+    "Runtime-Nachweis": "Vor allem hardwareabhängiges Verhalten muss im Labor nachgewiesen werden; keine abgeschlossene Implementierung.",
+    "not_observed": "Noch kein tatsächlicher Black-box-Lauf belegt.",
+    "not_applicable": "Nur mit konkretem, versions-/optionsbezogenem Beleg zulässig; nicht allein wegen Implementierungsaufwand."
+  },
+  "priorities": {
+    "P0": "Kritischer fachlicher Kern und Integrität; vor nutzbarem vertikalen Ablauf prüfen.",
+    "P1": "Verpflichtende dokumentierte Produktfunktion für vollständige Parität.",
+    "P2": "Dokumentierte Erweiterung/Spezialfunktion; späterer Nachweis, nicht automatisch optional."
+  },
+  "milestones": {
+    "M0": "Referenzlabor, synthetische Fixtures, Black-box-Evidenz und Datenformatfragen",
+    "M1": "Neue Identitäten/Pools, Rechte, Arbeitsliste, Status/Freigabe, eigene Speicherung",
+    "M2": "Recorder, Entwürfe, synchronisierte Korrektur und Fussbedienung",
+    "M3": "Echte Geräteformate, Import, lokale Live-/Hintergrund-ASR, Wiederanlauf",
+    "M4": "Ausgaben, Desktopkomfort, AD/SSO, Statistik, Aufbewahrung",
+    "M5": "Word-Add-in, Engine-/Profil-/Phonetikfunktionen, Spezialhardware und vollständiges Paritätsgate"
+  },
+  "exclusions": [
+    {
+      "id": "EXC-001",
+      "title": "Produktive Daten- und Konfigurationsübernahme",
+      "reason": "Vom Nutzer ausgeschlossen. Keine Autoren-/Pool-/Diktat-/Archiv-/Profilmigration, kein Import des überlassenen dcf.db- oder stats.db-Bestands.",
+      "effect": "Datenbanken dürfen als Strukturbeleg gelesen werden; neue Installation startet mit neu erzeugten Konten und Testdaten."
+    },
+    {
+      "id": "EXC-002",
+      "title": "inesKIS und andere fachanwendungsspezifische Adapter",
+      "manual_pages": [
+        62,
+        82,
+        87,
+        112,
+        125,
+        151
+      ],
+      "reason": "Vom Nutzer ausgeschlossen. Keine KIS/PVS/Kanzlei-API, Patientenkontextabfrage oder EHR-Schreibfunktion.",
+      "effect": "Allgemeiner Dateiexport, Word/Writer und generischer Fenster-/Clipboardtransfer bleiben Parität. KIS-Patientenkontext, kontextbezogener Autoversand und Integrationsaufgaben entfallen."
+    },
+    {
+      "id": "EXC-003",
+      "title": "Historische Lizenz-/Aktivierungsmechanik",
+      "manual_pages": [
+        73,
+        74,
+        118
+      ],
+      "reason": "Eigenständiges Programm benötigt keinen Nachbau von Sitecode, Herstellerfreischaltung, 100-Nutzungen-Test oder 30-Tage-Serverlizenzablauf.",
+      "effect": "Keine Umgehung der Lizenz der Referenzinstallation; fehlende Aktivierung ist ein Laborblocker."
+    },
+    {
+      "id": "EXC-004",
+      "title": "Binärkompatibilität mit alten Job-, SecureDS-, Profil- und DRA-Beständen",
+      "manual_pages": [
+        45,
+        46,
+        80,
+        83,
+        192,
+        194,
+        195
+      ],
+      "reason": "Keine Datenübernahme und kein Drop-in-Ersatz vorhandener Client-Binaries verlangt.",
+      "effect": "Gleiches Benutzerverhalten darf auf eigenen dokumentierten Dateiformaten/Protokollen beruhen. Neue DSS/DS2-Geräteaufnahmen bleiben echte Eingabeanforderung."
+    },
+    {
+      "id": "EXC-005",
+      "title": "Originalbranding und pixelgleiche Oberfläche",
+      "reason": "Funktionaler Neubau; Herstellername, Icons, Dokumentationsgrafiken und Windows-XP-Anmutung sind keine funktionale Paritätsanforderung.",
+      "effect": "Informationsumfang, Bedienmöglichkeiten und Tastatur-/Hardwareabläufe erhalten; visuelles Design eigenständig."
+    }
+  ],
+  "additions": [
+    {
+      "id": "ADD-BYOD",
+      "title": "Interne Smartphone-/Browseraufnahme",
+      "status": "Zusatz gegenüber Handbuchparität; nicht automatisch verpflichtender Web-Hauptclient",
+      "reason": "Früheres Ziel, aber keine dokumentierte Altproduktfunktion.",
+      "implementation_constraint": "Wenn beauftragt: eigener Eingangsadapter zu gleichem Workflow, keine Umformung des gesamten Programms zur Webplattform."
+    },
+    {
+      "id": "ADD-ENTRA",
+      "title": "Entra/OIDC-Anmeldung",
+      "status": "Zusatz gegenüber Windows-SSO/AD-Abgleich",
+      "reason": "Im Handbuch nicht belegt.",
+      "implementation_constraint": "Eigenen Authadapter vorsehen; Windows-/AD-Parität bleibt getrennt."
+    },
+    {
+      "id": "ADD-PDF",
+      "title": "Native PDF-Ausgabe",
+      "status": "Möglicher Zusatz, keine belegte Alt-Exportschnittstelle",
+      "reason": "PDF ist als Import dokumentiert; Grok nennt es ungeprüft als Export.",
+      "implementation_constraint": "Nicht für Altparität voraussetzen; nur mit expliziter Zusatzanforderung einplanen."
+    }
+  ],
+  "counts": {
+    "features": 101,
+    "by_area": {
+      "ADM": 11,
+      "CFG": 5,
+      "REC": 8,
+      "LIVE": 8,
+      "IMP": 10,
+      "WF": 14,
+      "COR": 10,
+      "VOC": 8,
+      "ASR": 7,
+      "EXP": 10,
+      "OPS": 10
+    },
+    "by_status": {
+      "Soll": 93,
+      "Runtime-Nachweis": 2,
+      "Offen": 6
+    }
+  }
+}

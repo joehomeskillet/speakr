@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "contract": "new_clinic_configuration_to_implement_not_stock_speakr",
+  "mode": "hybrid",
+  "local_enabled": true,
+  "entra_enabled": true,
+  "keycloak_required": false,
+  "ldap_enabled": false,
+  "smtp_required": false,
+  "user_key": "existing_user.id",
+  "self_registration": false,
+  "jit_provisioning": false,
+  "email_auto_link": false,
+  "authorization_source": "application",
+  "default_account_policy": "local_only",
+  "default_after_entra_link": "entra_only",
+  "remove_local_hash_after_entra_only_link": true,
+  "allow_implicit_password_fallback": false,
+  "password": {
+    "min_characters": 15,
+    "max_characters": 128,
+    "trim": false,
+    "truncate": false,
+    "hash_method": "scrypt:131072:8:1",
+    "hash_storage": "existing_user.password_migrated_to_text",
+    "legacy_hash_rehash_on_success": true,
+    "local_blocklist_required": true,
+    "external_password_check": false,
+    "concurrent_hash_checks_per_web_process": 2
+  },
+  "recovery": {
+    "mode": "admin_issued_one_time_code",
+    "token_bits": 256,
+    "ttl_minutes": 30,
+    "store_only_hash": true,
+    "auto_login_after_reset": false,
+    "reset_may_enable_local_login": false
+  },
+  "session": {
+    "idle_minutes": 15,
+    "absolute_hours": 8,
+    "fresh_auth_minutes": 5,
+    "remember_me": false,
+    "security_version_required": true,
+    "server_side": true
+  },
+  "rate_limit": {
+    "account_failures": 5,
+    "window_minutes": 15,
+    "temporary_lock_minutes": 15,
+    "ip_attempts_per_window": 120,
+    "multi_instance_shared_state": true
+  },
+  "bootstrap": {
+    "operator_cli_only": true,
+    "default_credentials": false,
+    "keep_one_active_local_identity_admin": true
+  },
+  "entra": {
+    "tenant_id": null,
+    "client_id": null,
+    "secret_file": null,
+    "allowed_issuer": null,
+    "discovery_url": null,
+    "redirect_uri": null,
+    "scopes": [
+      "openid",
+      "profile",
+      "email"
+    ],
+    "pkce": true,
+    "external_identity_key": [
+      "issuer",
+      "subject"
+    ],
+    "preprovisioning_key": [
+      "tenant_id",
+      "object_id"
+    ],
+    "graph_required": false,
+    "init_network_when_disabled": false,
+    "claim_role_sync": false
+  },
+  "activation": {
+    "real_provider_approved": false,
+    "approval_evidence": null,
+    "notes": "Template only: null provider settings fail validation; do not deploy until G-ENTRA is approved."
+  },
+  "notes": "Development defaults; local identity security and all applicable clinical release gates remain mandatory."
+}

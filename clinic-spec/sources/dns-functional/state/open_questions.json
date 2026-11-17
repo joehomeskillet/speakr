@@ -1,0 +1,175 @@
+{
+  "questions": [
+    {
+      "id": "Q01",
+      "milestone": "M0",
+      "title": "Referenz lauffähig?",
+      "question": "Welche Originalmodule starten in einem frischen Windows-Labor mit vorhandenen zulässigen Abhängigkeiten/Lizenz?",
+      "feature_ids": [
+        "PAR-OPS-008"
+      ],
+      "required_evidence": "Installationsprotokoll, Version und Liste der tatsächlich erreichbaren Funktionen",
+      "status": "open",
+      "blocks_full_parity": true
+    },
+    {
+      "id": "Q02",
+      "milestone": "M1",
+      "title": "Zustandskanten",
+      "question": "Welche Aktionen und Rechte führen von jedem sichtbaren Zustand in den nächsten, einschliesslich Rückgabe, Abnahme und Wiederöffnung?",
+      "feature_ids": [
+        "PAR-WF-007",
+        "PAR-WF-008",
+        "PAR-WF-009",
+        "PAR-WF-010",
+        "PAR-WF-012"
+      ],
+      "required_evidence": "Pro BT-Fall Ausgangslage, Aktion, Zielanzeige und Artefaktfolge",
+      "status": "open",
+      "blocks_full_parity": true
+    },
+    {
+      "id": "Q03",
+      "milestone": "M1",
+      "title": "Sperren und Absturz",
+      "question": "Wie werden gleichzeitige Bearbeitung, Netzwerkunterbruch, Abbruch und verwaiste Bearbeitungen sichtbar behandelt?",
+      "feature_ids": [
+        "PAR-WF-007"
+      ],
+      "required_evidence": "Zwei Clients und definierter Abbruch; nur neue Testdiktate",
+      "status": "open",
+      "blocks_full_parity": true
+    },
+    {
+      "id": "Q04",
+      "milestone": "M2",
+      "title": "SpeechLock",
+      "question": "An welches Fenster und welche Eingabestelle bindet SpeechLock; was passiert bei Fokuswechsel, Fensterschluss und erneutem Öffnen?",
+      "feature_ids": [
+        "PAR-LIVE-006",
+        "PAR-LIVE-007"
+      ],
+      "required_evidence": "Fensterfolge mit synthetischem Text und eindeutigen Zielmarkern",
+      "status": "open",
+      "blocks_full_parity": true
+    },
+    {
+      "id": "Q05",
+      "milestone": "M3",
+      "title": "Geräteformate",
+      "question": "Welche tatsächlich vorhandenen 9600/9620-Aufnahmevarianten werden gelesen, wie werden Autor/EOL/Priorität ausgewertet und wann darf die Quelle gelöscht werden?",
+      "feature_ids": [
+        "PAR-IMP-001",
+        "PAR-IMP-002",
+        "PAR-IMP-004",
+        "PAR-IMP-005"
+      ],
+      "required_evidence": "Frische DSS/DS2/WAV-Dateien samt Geräte-/Firmwaremanifest",
+      "status": "open",
+      "blocks_full_parity": true
+    },
+    {
+      "id": "Q06",
+      "milestone": "M3",
+      "title": "ASR-Ersatzfähigkeit",
+      "question": "Welche Live-, Wortzeit-, Befehls-, Fachwort-, Aussprache- und Profilfunktionen kann die ausgewählte Engine nachweislich erfüllen?",
+      "feature_ids": [
+        "PAR-ASR-001",
+        "PAR-ASR-002",
+        "PAR-ASR-004",
+        "PAR-ASR-005",
+        "PAR-ASR-006",
+        "PAR-VOC-003",
+        "PAR-VOC-007"
+      ],
+      "required_evidence": "Capability-Matrix mit realen Sprachfällen; unbekannt bleibt blockiert",
+      "status": "open",
+      "blocks_full_parity": true
+    },
+    {
+      "id": "Q07",
+      "milestone": "M2",
+      "title": "Audio-Text-Bezug",
+      "question": "Welche Zeiteinheit, Textindizes und Korrekturregeln bleiben bei Einfügen, Löschen, Unicode und Tempoänderung synchron?",
+      "feature_ids": [
+        "PAR-COR-002",
+        "PAR-COR-003",
+        "PAR-COR-009"
+      ],
+      "required_evidence": "Sprachfixture mit manuell kontrollierten Wortmarken",
+      "status": "open",
+      "blocks_full_parity": true
+    },
+    {
+      "id": "Q08",
+      "milestone": "M4",
+      "title": "Exporte",
+      "question": "Welche Formatierung, Vorlagen, Textmarken und Zielfensteraktionen sind pro Export wirklich vorgesehen?",
+      "feature_ids": [
+        "PAR-EXP-003",
+        "PAR-EXP-004",
+        "PAR-EXP-005",
+        "PAR-EXP-007",
+        "PAR-EXP-010"
+      ],
+      "required_evidence": "Neue Vergleichsdokumente; Word/Writer-Version genannt",
+      "status": "open",
+      "blocks_full_parity": true
+    },
+    {
+      "id": "Q09",
+      "milestone": "M2",
+      "title": "Autarker Recorder",
+      "question": "Welche Bedienung und Wiederanmeldung erfolgen offline und bei anschliessender Übergabe?",
+      "feature_ids": [
+        "PAR-REC-007"
+      ],
+      "required_evidence": "Aufnahme bei getrenntem Dienst, Neustart des Recorders, späteres Einreichen",
+      "status": "open",
+      "blocks_full_parity": true
+    },
+    {
+      "id": "Q10",
+      "milestone": "M3",
+      "title": "Mehrplatzprofile",
+      "question": "Welche Profil-/Konfigurationsänderung erscheint an einem zweiten Arbeitsplatz und unter welchen Konfliktregeln?",
+      "feature_ids": [
+        "PAR-ASR-006",
+        "PAR-CFG-001"
+      ],
+      "required_evidence": "Zwei Labclients mit frischem Autor und dokumentierter Synchronisationsfolge",
+      "status": "open",
+      "blocks_full_parity": true
+    },
+    {
+      "id": "Q11",
+      "milestone": "M4",
+      "title": "Speicherschutz",
+      "question": "Welche sichtbaren Schutz-/Passwort-/Zugriffsoptionen müssen für neu erzeugte Diktate erhalten bleiben?",
+      "feature_ids": [
+        "PAR-REC-006",
+        "PAR-IMP-009",
+        "PAR-OPS-009"
+      ],
+      "required_evidence": "Fachliche Schutzfälle; keine Entschlüsselung alter Container erforderlich",
+      "status": "open",
+      "blocks_full_parity": true
+    },
+    {
+      "id": "Q12",
+      "milestone": "M4",
+      "title": "Betriebsumfang",
+      "question": "Welche Statistik-, Archiv-, Benachrichtigungs- und Aufbewahrungsabläufe werden in der Referenz sichtbar?",
+      "feature_ids": [
+        "PAR-WF-013",
+        "PAR-WF-014",
+        "PAR-OPS-005",
+        "PAR-OPS-006",
+        "PAR-OPS-007"
+      ],
+      "required_evidence": "Zeitlich kontrollierte synthetische Diktate und neue Statistikexporte",
+      "status": "open",
+      "blocks_full_parity": true
+    }
+  ]
+}

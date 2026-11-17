@@ -1,0 +1,104 @@
+{
+  "default_policy": "Names/approvals are not invented; missing approvals block their real capability, not all synthetic code work",
+  "entries": [
+    {
+      "id": "GRK-DEC-01",
+      "topic": "Klinischer Product Owner und Vertretung",
+      "owner_role": "Klinische Leitung / Auftraggeber",
+      "owner_name": null,
+      "due_milestone": "before_real_pilot_scope_freeze",
+      "required_evidence": "Namentlicher fachlicher Entscheider, Stellvertretung, Entscheidungsweg",
+      "status": "open",
+      "approved_at": null,
+      "evidence_reference": null
+    },
+    {
+      "id": "GRK-DEC-02",
+      "topic": "Ist-Funktionsumfang und zulässiger Wegfall",
+      "owner_role": "Product Owner / Autoren / Schreibpool",
+      "owner_name": null,
+      "due_milestone": "before_real_core_pilot",
+      "required_evidence": "Genehmigte Funktions-/Abweichungsmatrix",
+      "status": "open",
+      "approved_at": null,
+      "evidence_reference": null
+    },
+    {
+      "id": "GRK-DEC-03",
+      "topic": "Sprachgruppen, Referenz und ASR-/Nutzenbarriere",
+      "owner_role": "Product Owner / Schreibpool / medizinische Fachvertretung",
+      "owner_name": null,
+      "due_milestone": "before_real_evaluation_analysis",
+      "required_evidence": "Freigegebener Testsatz und vorab beschlossene Kriterien",
+      "status": "open",
+      "approved_at": null,
+      "evidence_reference": null
+    },
+    {
+      "id": "GRK-DEC-04",
+      "topic": "Fussschalter und Arbeitsplatzeignung",
+      "owner_role": "Schreibpoolvertretung / ICT",
+      "owner_name": null,
+      "due_milestone": "before_real_core_pilot",
+      "required_evidence": "Gerätematrix und Bedienungsabnahme",
+      "status": "open",
+      "approved_at": null,
+      "evidence_reference": null
+    },
+    {
+      "id": "GRK-DEC-05",
+      "topic": "Korrektur, Fachfreigabe, KIS-Signatur",
+      "owner_role": "Medizinische Leitung / Administration",
+      "owner_name": null,
+      "due_milestone": "before_real_document_export",
+      "required_evidence": "Prozess je Dokumentklasse und Rollenfreigabe",
+      "status": "open",
+      "approved_at": null,
+      "evidence_reference": null
+    },
+    {
+      "id": "GRK-DEC-06",
+      "topic": "Datenschutz, Zweck, Aufbewahrung und BYOD",
+      "owner_role": "Datenschutz / Security / Qualitätsmanagement",
+      "owner_name": null,
+      "due_milestone": "before_any_unapproved_real_data_use",
+      "required_evidence": "Zweck-/Risikobewertung und erlaubter Datennutzungsprozess",
+      "status": "open",
+      "approved_at": null,
+      "evidence_reference": null
+    },
+    {
+      "id": "GRK-DEC-07",
+      "topic": "TCO-Eingaben und Betriebsverantwortung",
+      "owner_role": "ICT-Leitung / Finanzverantwortliche / Sponsor",
+      "owner_name": null,
+      "due_milestone": "before_production_budget_commitment",
+      "required_evidence": "Nachvollziehbare Eingaben und benannter Service Owner/Vertretung",
+      "status": "open",
+      "approved_at": null,
+      "evidence_reference": null
+    },
+    {
+      "id": "GRK-DEC-08",
+      "topic": "Hersteller-KIS-Vertrag und Lizenzumfang",
+      "owner_role": "ines / ICT / Auftraggeber",
+      "owner_name": null,
+      "due_milestone": "before_real_kis_adapter_activation",
+      "required_evidence": "Dokumentierter Host-/Kontext-/Schreib-/Lookupvertrag",
+      "status": "open",
+      "approved_at": null,
+      "evidence_reference": null
+    },
+    {
+      "id": "GRK-DEC-09",
+      "topic": "Stop/Go oder explizite Teilablösung",
+      "owner_role": "Product Owner / Sponsor / ICT",
+      "owner_name": null,
+      "due_milestone": "at_S05_before_real_pilot_before_retirement",
+      "required_evidence": "Begründeter Entscheid mit offenem Restumfang",
+      "status": "open",
+      "approved_at": null,
+      "evidence_reference": null
+    }
+  ]
+}

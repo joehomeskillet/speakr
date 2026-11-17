@@ -1,0 +1,24 @@
+flowchart TB
+  W[Speakr Webclient: Aufnahme Live Editor Korrektur Verwaltung]
+  BY[Interne BYOD-Webapp: Vordergrund, keine Persistenz]
+  K[inesKIS Edge WebView: derselbe Webclient]
+  D[Philips 9600 / 9620 und erlaubte Dropfolder]
+  A[Import-Agent: nur Dateien abholen und übertragen]
+  I[Interner HTTPS-Ingress]
+  S[Speakr-Fork: Flask, User, Recording, Clinic-Module]
+  P[(PostgreSQL)]
+  F[(Unveränderte Originale und Revisionen)]
+  J[Bestehende JobQueue / isolierter Medienworker]
+  ASR[Lokale Speaches ASR / TTS]
+  ID[Lokale Benutzer zuerst / Entra später deaktiviert]
+  KI[KIS-Adapter: geprüfter Kontext, Übergabe, Lookup]
+  W-->I
+  BY-->I
+  K-->I
+  D-->A-->I
+  I-->S
+  S-->P
+  S-->F
+  S-->J-->ASR
+  S-->ID
+  S-->KI

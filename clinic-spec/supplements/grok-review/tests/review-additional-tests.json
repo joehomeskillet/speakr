@@ -1,0 +1,161 @@
+{
+  "mode": "append_only",
+  "existing_test_ids_unchanged": true,
+  "tests": [
+    {
+      "id": "GRK-T-01",
+      "related_finding": "GRK-C01",
+      "requirements": [
+        "R-026",
+        "R-027",
+        "R-028",
+        "R-029"
+      ],
+      "title": "KIS-Vertrag nicht durch Mock ersetzen",
+      "preconditions": "Mock speichert mit Antwortverlust; realer Adapter ist deaktiviert",
+      "action": "Mocktest für UNKNOWN/Lookup ausführen und echte Aktivierung ohne Vertrag versuchen",
+      "expected": "Mockfachkette testbar; echte Ausgabe ohne Nachweis gesperrt.",
+      "status": "not_run",
+      "evidence": null,
+      "note": "Some steps require real human/hardware approval; software mocks cannot substitute that evidence."
+    },
+    {
+      "id": "GRK-T-02",
+      "related_finding": "GRK-C02",
+      "requirements": [
+        "R-002",
+        "R-003",
+        "R-004",
+        "R-005",
+        "R-006"
+      ],
+      "title": "Hardware-Evidenz korrekt kennzeichnen",
+      "preconditions": "Simulator- und reale Kompatibilitätsmatrix sind getrennt",
+      "action": "EOL unbekannt, EOL aufgehoben, shared owner und fehlender Schlüssel simulieren",
+      "expected": "Keine automatische fälschliche Einreichung; Hardwaregate bleibt offen ohne reale Prüfung.",
+      "status": "not_run",
+      "evidence": null,
+      "note": "Some steps require real human/hardware approval; software mocks cannot substitute that evidence."
+    },
+    {
+      "id": "GRK-T-03",
+      "related_finding": "GRK-C03",
+      "requirements": [
+        "R-014",
+        "R-015",
+        "R-016",
+        "R-037"
+      ],
+      "title": "ASR-Messung und vorab festgelegte Grenzen",
+      "preconditions": "Synthetischer Testsatz mit bekannten Referenzen; reale Werte noch offen",
+      "action": "Runner mit fehlenden, fehlerhaften und vollständigen Datensätzen ausführen; Kriterium nach Ergebnis ändern versuchen",
+      "expected": "Fehlende Daten nicht als 0/PASS; Messgrössen getrennt; Schwellenänderung versioniert und erneut freigabepflichtig.",
+      "status": "not_run",
+      "evidence": null,
+      "note": "Some steps require real human/hardware approval; software mocks cannot substitute that evidence."
+    },
+    {
+      "id": "GRK-T-04",
+      "related_finding": "GRK-C04",
+      "requirements": [
+        "R-001",
+        "R-019",
+        "R-032",
+        "R-033",
+        "R-034",
+        "R-040"
+      ],
+      "title": "Entscheidungen ohne erfundene Verantwortliche",
+      "preconditions": "Entscheidungsregister ohne namentliche Freigaben",
+      "action": "Synthetischen Workflow ausführen, dann echten Pilot ohne Freigaben anfordern",
+      "expected": "Entwicklung möglich; echte Pilotfreigabe gesperrt; offene Rollen/Namen sichtbar.",
+      "status": "not_run",
+      "evidence": null,
+      "note": "Some steps require real human/hardware approval; software mocks cannot substitute that evidence."
+    },
+    {
+      "id": "GRK-T-05",
+      "related_finding": "GRK-C05",
+      "requirements": [
+        "R-037",
+        "R-040"
+      ],
+      "title": "TCO null ist nicht CHF 0",
+      "preconditions": "TCO-Vorlage mit mindestens einer unbekannten Pflichtposition",
+      "action": "Aggregation und Bericht erzeugen; zweite Variante mit vollständig synthetischen Kosten testen",
+      "expected": "Unvollständiger Kostenstand ergibt keinen fertigen Gesamtbetrag; synthetische Testsumme korrekt und klar markiert.",
+      "status": "not_run",
+      "evidence": null,
+      "note": "Some steps require real human/hardware approval; software mocks cannot substitute that evidence."
+    },
+    {
+      "id": "GRK-T-06",
+      "related_finding": "GRK-C06",
+      "requirements": [
+        "R-001",
+        "R-038",
+        "R-040"
+      ],
+      "title": "Kein stiller Scopewechsel zur Teilablösung",
+      "preconditions": "Kernworkflow funktioniert; BYOD/KIS noch nicht abgenommen",
+      "action": "Gesamtablösung oder Abschaltung ohne restliche Nachweise anfordern",
+      "expected": "Keine vollständige Ablösung behauptet; bewusste Teilentscheidung bzw. Blocker bleibt erforderlich.",
+      "status": "not_run",
+      "evidence": null,
+      "note": "Some steps require real human/hardware approval; software mocks cannot substitute that evidence."
+    },
+    {
+      "id": "GRK-T-07",
+      "related_finding": "GRK-C07",
+      "requirements": [
+        "R-017",
+        "R-018",
+        "R-019",
+        "R-021"
+      ],
+      "title": "Schreibpoolbedienung früh nachweisen",
+      "preconditions": "Vorhandener Player/Editor; Hardwaremodell noch ungeprüft",
+      "action": "Tastatur-, Parallelitäts-, Autosave-/Timeout- und Exportablauf ausführen; danach realen Fussschalter gemäss Matrix testen",
+      "expected": "Softwaretests getrennt von echter Hardware-/Nutzerabnahme; keine pauschale Pedalunterstützung behauptet.",
+      "status": "not_run",
+      "evidence": null,
+      "note": "Some steps require real human/hardware approval; software mocks cannot substitute that evidence."
+    },
+    {
+      "id": "GRK-T-08",
+      "related_finding": "GRK-C08",
+      "requirements": [
+        "R-025",
+        "R-031",
+        "R-033",
+        "R-034"
+      ],
+      "title": "Datenschutzvorlage ist keine Freigabe",
+      "preconditions": "Ausgefüllte Zweck-/Datenflussvorlage ohne zuständige Genehmigung",
+      "action": "Vorlage erstellen, fehlende Rechts-/Securityfreigabe auf Echtdatenlauf prüfen",
+      "expected": "Echtdatenlauf bleibt nicht genehmigt; synthetische Entwicklung bleibt erlaubt.",
+      "status": "not_run",
+      "evidence": null,
+      "note": "Some steps require real human/hardware approval; software mocks cannot substitute that evidence."
+    },
+    {
+      "id": "GRK-T-09",
+      "related_finding": "GRK-C09",
+      "requirements": [
+        "R-020",
+        "R-035",
+        "R-036",
+        "R-041",
+        "R-046",
+        "R-049"
+      ],
+      "title": "Additive Vertrags-/Migrationsintegration",
+      "preconditions": "Bestehender V3-Stand mit Anforderungen/Tests und eigenem API-Vertrag",
+      "action": "Addendum zweimal integrieren; Requirements diff und Upstreammigration/Contracttest prüfen",
+      "expected": "Keine entfernten Altanforderungen, keine doppelten GRK-IDs, kein Architekturreset und keine behaupteten ines-Endpunkte.",
+      "status": "not_run",
+      "evidence": null,
+      "note": "Some steps require real human/hardware approval; software mocks cannot substitute that evidence."
+    }
+  ]
+}

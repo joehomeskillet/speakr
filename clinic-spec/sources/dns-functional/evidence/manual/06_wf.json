@@ -1,0 +1,1026 @@
+{
+  "schema_version": 1,
+  "domain": "WF",
+  "title": "Arbeitsliste, Workflow und Freigabe",
+  "source": {
+    "id": "DNS-MANUAL-2017",
+    "title": "dns.comfort.pro workflow - Handbuch",
+    "publisher": "Sonic Labs GmbH",
+    "date": "03/2017",
+    "page_count": 201,
+    "sha256": "bcff06c6d9acaf57477395441172e937b3686ea99406bf6786b8d3c26276f570",
+    "archive_member": "Diktierlösung/dns.comfort.pro/dns.comfort Handbuch Online Version/dns.comfort Handbuch Online Version.pdf",
+    "page_number_rule": "PDF-Seite entspricht gedruckter Seitenzahl; Inhalt ist Produktdokumentation, kein Nachweis aktivierter Funktionen der überlassenen Installation."
+  },
+  "scope_reminder": "Eigenständiger funktionaler Neubau. Keine Altbestandsübernahme und keine KIS-Spezialintegration. Alle Aussagen sind Handbuchbelege, sofern nicht ausdrücklich neue Verträge.",
+  "feature_ids": [
+    "PAR-WF-001",
+    "PAR-WF-002",
+    "PAR-WF-003",
+    "PAR-WF-004",
+    "PAR-WF-005",
+    "PAR-WF-006",
+    "PAR-WF-007",
+    "PAR-WF-008",
+    "PAR-WF-009",
+    "PAR-WF-010",
+    "PAR-WF-011",
+    "PAR-WF-012",
+    "PAR-WF-013",
+    "PAR-WF-014"
+  ],
+  "pages": [
+    11,
+    12,
+    13,
+    14,
+    28,
+    29,
+    30,
+    31,
+    36,
+    37,
+    38,
+    45,
+    47,
+    52,
+    53,
+    54,
+    119,
+    121,
+    122,
+    123,
+    124,
+    125,
+    126,
+    127,
+    128,
+    131,
+    135,
+    136,
+    137,
+    138,
+    144,
+    147,
+    148,
+    149,
+    158,
+    161,
+    162,
+    164,
+    165,
+    177
+  ],
+  "features": [
+    {
+      "id": "PAR-WF-001",
+      "area": "WF",
+      "title": "Arbeitsliste für Autoren und Schreibkräfte",
+      "observable_behavior": "Workflowzentrale zeigt berechtigte Diktate mit Titel, Status, Autor, Priorität/Frist, Bearbeiter/Zeit, Anmerkung, Erstellzeit, Dauer, ID und Empfänger.",
+      "manual_pages": [
+        119,
+        121,
+        125,
+        126
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M1",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-WF-001",
+        "feature_ids": [
+          "PAR-WF-001"
+        ],
+        "fixtures": [
+          "F-ID",
+          "F-WORK"
+        ],
+        "given": [
+          "Fälle in unterschiedlichen Zuständen und mit unterschiedlichen Autoren."
+        ],
+        "when": [
+          "Als Autor und als Schreibkraft öffnen.",
+          "Einen Audiofall, einen erkannten Fall und einen Dokumentfall auswählen."
+        ],
+        "then": [
+          "Liste zeigt richtigen Sichtbereich und passende Metadaten.",
+          "Doppelklick führt für Autor zum Vorgang, für Schreibkraft zum passenden Player/Korrekturfenster."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          119,
+          121,
+          125,
+          126
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Arbeitsliste, Workflow und Freigabe",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-WF-002",
+      "area": "WF",
+      "title": "Automatische und manuelle Aktualisierung",
+      "observable_behavior": "Arbeitsliste aktualisiert sich automatisch; F5 erzwingt eine Aktualisierung.",
+      "manual_pages": [
+        121,
+        122,
+        123
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M1",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-WF-002",
+        "feature_ids": [
+          "PAR-WF-002"
+        ],
+        "fixtures": [
+          "F-ID",
+          "F-WORK"
+        ],
+        "given": [
+          "Zwei Laborarbeitsplätze zeigen die Arbeitsliste."
+        ],
+        "when": [
+          "Auf Arbeitsplatz A ein Diktat anlegen und Status ändern.",
+          "Auf B automatische Aktualisierung beobachten und getrennt F5 verwenden."
+        ],
+        "then": [
+          "B sieht die bestätigte Änderung ohne vollständigen Neustart.",
+          "F5 liefert denselben aktuellen Bestand.",
+          "Unbestätigte Änderungen werden nicht als abgeschlossen dargestellt."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          121,
+          122,
+          123
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Arbeitsliste, Workflow und Freigabe",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-WF-003",
+      "area": "WF",
+      "title": "Gespeicherte Filter und Metadatensuche",
+      "observable_behavior": "Bis zu 20 benannte Filter kombinieren Autor/Pool und Status; Suche findet Begriffe in Diktatmetadaten und markiert Treffer.",
+      "manual_pages": [
+        123,
+        128
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P1",
+      "milestone": "M1",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-WF-003",
+        "feature_ids": [
+          "PAR-WF-003"
+        ],
+        "fixtures": [
+          "F-ID",
+          "F-WORK"
+        ],
+        "given": [
+          "Mindestens sechs klar unterscheidbare Testfälle."
+        ],
+        "when": [
+          "Filter für Pool A und offen erstellen, speichern und wieder wählen.",
+          "Eindeutigen Begriff aus Titel und Anmerkung suchen.",
+          "20 Filter anlegen und Grenzfall für weitere Filter beobachten."
+        ],
+        "then": [
+          "Ergebnismenge entspricht Filtern und Zugriffsrechten.",
+          "Suche liefert passende Metadatenfelder.",
+          "Grenzverhalten wird sichtbar; es darf keine vorhandenen Filter still überschreiben."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          123,
+          128
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Arbeitsliste, Workflow und Freigabe",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-WF-004",
+      "area": "WF",
+      "title": "Sortieren, Gruppieren und Layout merken",
+      "observable_behavior": "Spalten lassen sich verschieben, sortieren und nach mehreren Merkmalen gruppieren; Fenster-/Listenlayout wird pro Nutzer erinnert.",
+      "manual_pages": [
+        127,
+        128,
+        164,
+        165
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P1",
+      "milestone": "M4",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-WF-004",
+        "feature_ids": [
+          "PAR-WF-004"
+        ],
+        "fixtures": [
+          "F-ID",
+          "F-WORK"
+        ],
+        "given": [
+          "Testfälle mit mehreren Autoren, Prioritäten und Erstellzeiten."
+        ],
+        "when": [
+          "Nach Autor und Priorität gruppieren, Sortierung umkehren und Spalten umordnen.",
+          "Neu starten und zweiten Benutzer öffnen."
+        ],
+        "then": [
+          "Gruppen und Reihenfolge stimmen mit ausgewählten Merkmalen.",
+          "Layout bleibt beim richtigen Nutzer und überschreibt nicht das Layout des anderen."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          127,
+          128,
+          164,
+          165
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Arbeitsliste, Workflow und Freigabe",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-WF-005",
+      "area": "WF",
+      "title": "Diktatmetadaten bearbeiten und neu zuweisen",
+      "observable_behavior": "Berechtigte Nutzer können Titel, Anmerkung, Priorität, Frist und zuständige Schreibkraft ändern.",
+      "manual_pages": [
+        123,
+        126,
+        135,
+        136
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M1",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-WF-005",
+        "feature_ids": [
+          "PAR-WF-005"
+        ],
+        "fixtures": [
+          "F-ID",
+          "F-WORK"
+        ],
+        "given": [
+          "Ein offenes Diktat und zwei berechtigte Schreibkräfte."
+        ],
+        "when": [
+          "Metadaten bearbeiten, Änderung einmal abbrechen und einmal speichern.",
+          "Empfänger von Schreib1 auf Schreib2 ändern."
+        ],
+        "then": [
+          "Nur bestätigte Werte gelten.",
+          "Diktat erscheint beim neuen berechtigten Empfänger.",
+          "Historie und UI unterscheiden Umverteilung von Textkorrektur."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          123,
+          126,
+          135,
+          136
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Arbeitsliste, Workflow und Freigabe",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-WF-006",
+      "area": "WF",
+      "title": "Verlauf eines Diktats anzeigen",
+      "observable_behavior": "Zu einem Diktat können Log-/Verlaufsinformationen aufgerufen werden.",
+      "manual_pages": [
+        47,
+        124
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M1",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [
+        "Welche Felder/Zeiten und Fehlerereignisse das Original tatsächlich protokolliert, im Labor aufnehmen; Neubau-Auditformat separat spezifizieren."
+      ],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-WF-006",
+        "feature_ids": [
+          "PAR-WF-006"
+        ],
+        "fixtures": [
+          "F-ID",
+          "F-WORK"
+        ],
+        "given": [
+          "Synthetischer Fall wurde angelegt, zugewiesen und einmal bearbeitet."
+        ],
+        "when": [
+          "Informationen per Menü und Strg+I öffnen.",
+          "Danach eine weitere Aktion ausführen und erneut öffnen."
+        ],
+        "then": [
+          "Verlauf gehört zum gewählten Diktat und zeigt nachvollziehbare Aktionen.",
+          "Neu hinzugekommene bestätigte Aktion ist nach Aktualisierung sichtbar."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          47,
+          124
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Arbeitsliste, Workflow und Freigabe",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-WF-007",
+      "area": "WF",
+      "title": "Exklusive Bearbeitung und Freigabe",
+      "observable_behavior": "Öffnen des Vorgangs setzt In Bearbeitung und verhindert paralleles Bearbeiten; Schliessen gibt frei.",
+      "manual_pages": [
+        125,
+        135,
+        136,
+        137
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M1",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [
+        "Verwaiste Sperren und Timeout im Original messen. Lease/Versionskontrolle sind neue Implementierungsverträge, keine behaupteten Altmechanismen."
+      ],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-WF-007",
+        "feature_ids": [
+          "PAR-WF-007"
+        ],
+        "fixtures": [
+          "F-ID",
+          "F-WORK",
+          "F-FAIL"
+        ],
+        "given": [
+          "Zwei berechtigte Bearbeiter auf getrennten Prozessen."
+        ],
+        "when": [
+          "A öffnet einen Fall; B versucht denselben Fall.",
+          "A schliesst normal; B öffnet erneut.",
+          "Separat A-Prozess während Bearbeitung abbrechen und Wiederaufnahme testen."
+        ],
+        "then": [
+          "Im Normalfall kann nur ein Bearbeiter gleichzeitig ändern.",
+          "Nach normalem Schliessen kann B übernehmen.",
+          "Abbruchbehandlung ist dokumentiert; Neubau verwendet eine explizite erneuerbare Sperre und verliert keine bestätigte Textversion."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          125,
+          135,
+          136,
+          137
+        ],
+        "explicit_new_contracts": [
+          "Erneuerbare Bearbeitungssperre/Versionsprüfung für abgebrochene Sitzung; Altmechanik unbekannt."
+        ]
+      },
+      "area_name": "Arbeitsliste, Workflow und Freigabe",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": [
+        "Erneuerbare Bearbeitungssperre/Versionsprüfung für abgebrochene Sitzung; Altmechanik unbekannt."
+      ]
+    },
+    {
+      "id": "PAR-WF-008",
+      "area": "WF",
+      "title": "Vorbereitung, Abschrift und Korrektur unterscheiden",
+      "observable_behavior": "Neu angelegt/In Vorbereitung unterscheiden sich von Zu schreiben und Zu korrigieren; erfolgreiche Spracherkennung führt zur Korrektur, Audio ohne Erkennung zur Abschrift.",
+      "manual_pages": [
+        125,
+        126,
+        131,
+        137,
+        177
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M1",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-WF-008",
+        "feature_ids": [
+          "PAR-WF-008"
+        ],
+        "fixtures": [
+          "F-WORK",
+          "F-ASR"
+        ],
+        "given": [
+          "Zwei gleiche Audiofälle, einer mit ASR, einer ohne; ASR-Antwort kontrollierbar."
+        ],
+        "when": [
+          "Beide übergeben und Zustandsfolge beobachten.",
+          "ASR-Erfolg sowie Fehler getrennt auslösen."
+        ],
+        "then": [
+          "Audio ohne ASR ist zur Abschrift nutzbar.",
+          "Erkanntes Diktat öffnet die Korrektur mit Text und Audio.",
+          "Fehlende oder fehlerhafte Erkennung wird nicht als fertiges korrigiertes Dokument ausgegeben."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          125,
+          126,
+          131,
+          137,
+          177
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Arbeitsliste, Workflow und Freigabe",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-WF-009",
+      "area": "WF",
+      "title": "Abnahme aktivieren und Berechtigte festlegen",
+      "observable_behavior": "Mit Abnahme führt nach Korrektur zur Freigabe durch Autor oder regelbasiert berechtigte Autoren/Autorenpools mit Ausnahmen.",
+      "manual_pages": [
+        12,
+        13,
+        14,
+        28,
+        29,
+        30,
+        31,
+        161
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M1",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-WF-009",
+        "feature_ids": [
+          "PAR-WF-009"
+        ],
+        "fixtures": [
+          "F-ID",
+          "F-WORK"
+        ],
+        "given": [
+          "Alpha erstellt; Beta ist für Testkategorie zur Abnahme berechtigt; Gamma ausgenommen."
+        ],
+        "when": [
+          "Fall mit Abnahme korrigieren und abschliessen.",
+          "Als Alpha, Beta und Gamma Freigabe versuchen.",
+          "Zweiten Fall ohne zusätzliche Abnahmepunkte prüfen."
+        ],
+        "then": [
+          "Nur berechtigte Person kann abnehmen.",
+          "Ohne weitere Regel kann der Autor selbst freigeben.",
+          "Korrigiert, abzunehmen und abgenommen bleiben unterschiedliche Zustände."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          12,
+          13,
+          14,
+          28,
+          29,
+          30,
+          31,
+          161
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Arbeitsliste, Workflow und Freigabe",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-WF-010",
+      "area": "WF",
+      "title": "Rückweisung und erneute Abnahme",
+      "observable_behavior": "Abnahmeberechtigter kann bestätigen oder zur Schreibkraft zurückverweisen; Bestätigung ermöglicht anschliessende Fertigstellung.",
+      "manual_pages": [
+        161
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M1",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-WF-010",
+        "feature_ids": [
+          "PAR-WF-010"
+        ],
+        "fixtures": [
+          "F-ID",
+          "F-WORK"
+        ],
+        "given": [
+          "Korrigierter synthetischer Fall wartet auf Abnahme."
+        ],
+        "when": [
+          "Zurückweisen, Schreibkraft korrigiert eine markierte Stelle, erneut vorlegen.",
+          "Danach abnehmen und fertigstellen."
+        ],
+        "then": [
+          "Rückgewiesener Fall ist wieder bearbeitbar und nicht fertig.",
+          "Neuer Korrekturstand liegt vor Freigabe sichtbar vor.",
+          "Nur bestätigte Freigabe führt zur anschliessend zulässigen Fertigstellung."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          161
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Arbeitsliste, Workflow und Freigabe",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-WF-011",
+      "area": "WF",
+      "title": "Fertigstellen und Weiterverarbeitung",
+      "observable_behavior": "F5/Fertigstellen öffnet Weiterverarbeitungsoptionen; bestätigte Optionen werden ausgeführt, Vorgang wird fertig gemeldet und Editor geschlossen. Ohne Export bleibt der fertige Fall im Workflow.",
+      "manual_pages": [
+        147,
+        148,
+        149,
+        158
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M1",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-WF-011",
+        "feature_ids": [
+          "PAR-WF-011"
+        ],
+        "fixtures": [
+          "F-WORK",
+          "F-EXPORT"
+        ],
+        "given": [
+          "Korrigierter Fall ohne ausstehende Abnahme."
+        ],
+        "when": [
+          "Fertigstellen einmal abbrechen.",
+          "Danach ohne Export bestätigen; weiteren Fall mit zwei Exporten bestätigen."
+        ],
+        "then": [
+          "Abbruch stellt nicht fertig.",
+          "Ohne Export bleibt Fertiggestellt sichtbar.",
+          "Ausgewählte Exportergebnisse sind einzeln nachvollziehbar; Neubau meldet fehlgeschlagenen Export nicht als erfolgreich."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          147,
+          148,
+          149,
+          158
+        ],
+        "explicit_new_contracts": [
+          "Exportergebnis pro Ziel separat protokollieren; kein erfundener Gesamt-Erfolg nach Teilausfall."
+        ]
+      },
+      "area_name": "Arbeitsliste, Workflow und Freigabe",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": [
+        "Exportergebnis pro Ziel separat protokollieren; kein erfundener Gesamt-Erfolg nach Teilausfall."
+      ]
+    },
+    {
+      "id": "PAR-WF-012",
+      "area": "WF",
+      "title": "Fertiges Diktat wieder zur Korrektur öffnen",
+      "observable_behavior": "Autor oder entsprechend berechtigte Schreibkraft kann einen fertigen Fall entriegeln, korrigieren oder erneut delegieren.",
+      "manual_pages": [
+        38,
+        138,
+        144,
+        162
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M1",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-WF-012",
+        "feature_ids": [
+          "PAR-WF-012"
+        ],
+        "fixtures": [
+          "F-ID",
+          "F-WORK"
+        ],
+        "given": [
+          "Fertiger Fall; Schreib1 mit und Schreib2 ohne Wiederaufnahmerecht."
+        ],
+        "when": [
+          "Als beide Konten Wiederaufnahme versuchen.",
+          "Berechtigt korrigieren, schliessen und neu öffnen."
+        ],
+        "then": [
+          "Ohne Recht bleibt der fertige Stand geschützt.",
+          "Mit Recht wird der Fall wieder bearbeitbar.",
+          "Frühere Fertigstellung und neuer Stand sind in der Geschichte unterscheidbar."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          38,
+          138,
+          144,
+          162
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Arbeitsliste, Workflow und Freigabe",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-WF-013",
+      "area": "WF",
+      "title": "Archivieren, Löschen und Aufbewahrungsfrist",
+      "observable_behavior": "Berechtigte Nutzer melden Fälle zum Archivieren/Löschen; automatische Behandlung fertiger Diktate nach Tagen ist konfigurierbar. Archiv ist nach Nutzer-ID/Monat organisiert und nicht mehr aktive Arbeitsliste.",
+      "manual_pages": [
+        36,
+        37,
+        45,
+        52,
+        53,
+        54,
+        124,
+        125,
+        126
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P1",
+      "milestone": "M4",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [
+        "Wiederherstellung archivierter Originalfälle wird nicht zur Datenmigration ausgeweitet. Eigene neue Archive benötigen einen separat dokumentierten Restorepfad."
+      ],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-WF-013",
+        "feature_ids": [
+          "PAR-WF-013"
+        ],
+        "fixtures": [
+          "F-WORK",
+          "F-CLOCK",
+          "F-EXPORT"
+        ],
+        "given": [
+          "Nur synthetische fertige und offene Fälle; separater Archivpfad."
+        ],
+        "when": [
+          "Archivieren/Löschen zunächst abbrechen, dann für je einen Fall bestätigen.",
+          "Aufbewahrungsfrist mit kontrollierter Laborzeit prüfen.",
+          "Archivinhalt und aktive Liste vergleichen."
+        ],
+        "then": [
+          "Offene und nicht ausgewählte Fälle bleiben unberührt.",
+          "Archivierte Fälle verschwinden aus aktiver Liste und sind am Archivziel auffindbar.",
+          "Löschen und Archivieren sind ausdrücklich unterscheidbar."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          36,
+          37,
+          45,
+          52,
+          53,
+          54,
+          124,
+          125,
+          126
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Arbeitsliste, Workflow und Freigabe",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-WF-014",
+      "area": "WF",
+      "title": "Benachrichtigungen bei Abnahme und Fertigstellung",
+      "observable_behavior": "Autoren können Benachrichtigungen für zur Abnahme bereite oder fertiggestellte Diktate erhalten; lokale Hinweise sind konfigurierbar.",
+      "manual_pages": [
+        11,
+        12,
+        29,
+        128,
+        164,
+        165
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P1",
+      "milestone": "M4",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-WF-014",
+        "feature_ids": [
+          "PAR-WF-014"
+        ],
+        "fixtures": [
+          "F-ID",
+          "F-WORK",
+          "F-MAIL"
+        ],
+        "given": [
+          "Lokaler Mail-Catcher statt externer Empfänger; Autor hat synthetische Adresse."
+        ],
+        "when": [
+          "Benachrichtigung je Ereignis ein-/ausschalten und Ereignisse auslösen.",
+          "Mail-Zustellung im Test unterbrechen."
+        ],
+        "then": [
+          "Nur aktivierte Ereignisse erzeugen passende Nachrichten.",
+          "Nachricht verweist auf richtigen synthetischen Vorgang.",
+          "Fehler bleibt sichtbar; er ändert nicht still den fachlichen Status."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          11,
+          12,
+          29,
+          128,
+          164,
+          165
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Arbeitsliste, Workflow und Freigabe",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    }
+  ]
+}

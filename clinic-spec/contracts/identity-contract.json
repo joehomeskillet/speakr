@@ -1,0 +1,307 @@
+{
+  "version": "3.2",
+  "status": "implementation_contract_not_running_application",
+  "authority": "docs/10_Local_Entra.md",
+  "route_policy": "Reuse existing routes and libraries; map concrete endpoints in evidence/upstream-map.json; no duplicate unguarded implementation.",
+  "internal_user_key": "existing User.id (integer), retained in all domain relations",
+  "modes": [
+    "local",
+    "hybrid"
+  ],
+  "default_mode": "local",
+  "account_statuses": [
+    "pending_activation",
+    "active",
+    "disabled"
+  ],
+  "account_policies": [
+    "local_only",
+    "entra_only",
+    "local_and_entra",
+    "device_only"
+  ],
+  "models": {
+    "User": {
+      "retain": [
+        "id",
+        "username",
+        "email"
+      ],
+      "migrate": [
+        "password from String(60) to Text before new hash writes"
+      ],
+      "rule": "No new shadow User table or user-ID renumbering."
+    },
+    "clinic_account_policy": {
+      "key": "user_id PK/FK -> User.id",
+      "fields": [
+        "status",
+        "login_policy",
+        "security_version",
+        "version",
+        "created_at",
+        "updated_at"
+      ],
+      "default": "local_only for newly provisioned local accounts; migrate existing accounts explicitly, never grant local rights to pre-existing SSO-only users"
+    },
+    "clinic_external_identity": {
+      "fields": [
+        "id",
+        "user_id",
+        "issuer",
+        "subject",
+        "tenant_id",
+        "object_id",
+        "verified_at",
+        "verified_by",
+        "status",
+        "version"
+      ],
+      "unique": [
+        [
+          "issuer",
+          "subject"
+        ],
+        [
+          "tenant_id",
+          "object_id"
+        ]
+      ],
+      "nullable_unique_rule": "Tenant/Object partial uniqueness for Entra records only; both null for non-Entra identities. Identity consistency checked on every login."
+    },
+    "clinic_identity_link_request": {
+      "fields": [
+        "id",
+        "user_id",
+        "expected_tenant_id",
+        "expected_object_id",
+        "requested_by",
+        "expires_at",
+        "purpose",
+        "state_hash",
+        "consumed_at",
+        "version"
+      ],
+      "rule": "Explicit approved target; no account merge or email matching; consume and bind in one transaction."
+    },
+    "clinic_local_recovery": {
+      "fields": [
+        "id",
+        "user_id",
+        "purpose",
+        "token_hash",
+        "expires_at",
+        "consumed_at",
+        "issued_by",
+        "version"
+      ],
+      "rule": "Hash only; single-use; default TTL 30 minutes; cannot alter account policy/status."
+    },
+    "session": {
+      "reuse": "existing session model/service if sufficient; otherwise established compatible server-side library",
+      "required": [
+        "user_id",
+        "provider",
+        "security_version",
+        "issued_at",
+        "absolute_expires_at",
+        "last_user_activity_at",
+        "last_reauth_at"
+      ],
+      "rule": "Only opaque session reference in browser."
+    },
+    "clinic_external_actor_mapping": {
+      "fields": [
+        "source_system",
+        "tenant_scope",
+        "external_actor_id",
+        "user_id",
+        "verified_by",
+        "verified_at",
+        "status"
+      ],
+      "unique": [
+        [
+          "source_system",
+          "tenant_scope",
+          "external_actor_id"
+        ]
+      ],
+      "rule": "KIS actor mapping independent of login provider. Local users do not require fake OIDC identities."
+    }
+  },
+  "invariants": [
+    "Account active, globally enabled provider and permitted account policy are all required for login.",
+    "Local-disabled or Entra-only remains disabled through reset, IdP outage, hidden admin URL and legacy route.",
+    "Linking does not change User.id, recordings, pool routing, device ownership or past approvals.",
+    "No email/UPN/name-based linking, JIT role provisioning or clinical grants from SSO claims.",
+    "Provider identity and policy mutation, version increment, audit and session invalidation are atomic.",
+    "A conflicting or replayed external identity binding is rejected, never reassigned.",
+    "Last active locally accessible identity administrator is protected against accidental removal.",
+    "External provider disabled means no discovery/JWKS/network dependency during startup/login."
+  ],
+  "commands": [
+    {
+      "name": "CreateLocalUser",
+      "authorization": "user_admin",
+      "request": "username, email, name, approved roles/pools",
+      "effect": "pending_activation; local_only; existing User.id; no password in response",
+      "response": "201; 409 duplicate; 403 unauthorized",
+      "audit_required": true,
+      "secret_redaction": true
+    },
+    {
+      "name": "BootstrapIdentityAdmin",
+      "authorization": "operator_console",
+      "request": "hidden input or protected one-time activation",
+      "effect": "one-time first identity admin; no web bootstrap; no clinical read privilege",
+      "response": "success or conflict; no secret logging",
+      "audit_required": true,
+      "secret_redaction": true
+    },
+    {
+      "name": "IssueLocalActivation",
+      "authorization": "user_admin + recent_reauth",
+      "request": "user_id, expected_version",
+      "effect": "one-time code returned once; persisted hash; pending user unchanged until activation",
+      "response": "201; 409 wrong state/version; 403 unauthorized",
+      "audit_required": true,
+      "secret_redaction": true
+    },
+    {
+      "name": "CompleteLocalActivation",
+      "authorization": "single_use_activation_code",
+      "request": "code, new_password, confirmation",
+      "effect": "set hash; active; consume token; no full auto-login",
+      "response": "204; generic 400 invalid/expired/used; 429 throttled",
+      "audit_required": true,
+      "secret_redaction": true
+    },
+    {
+      "name": "AuthenticateLocal",
+      "authorization": "public_minimal + CSRF",
+      "request": "login_id, password",
+      "effect": "provider/account/status/rate/hash checks; rotate session; no access before activation",
+      "response": "normal session or generic rejection; 429 throttled",
+      "audit_required": true,
+      "secret_redaction": true
+    },
+    {
+      "name": "ChangeLocalPassword",
+      "authorization": "self + recent current password",
+      "request": "current_password, new_password, confirmation",
+      "effect": "replace hash; revoke recovery tokens and other sessions; rotate current session",
+      "response": "204; 403 policy; 400 invalid password",
+      "audit_required": true,
+      "secret_redaction": true
+    },
+    {
+      "name": "IssueLocalRecovery",
+      "authorization": "user_admin + recent_reauth",
+      "request": "user_id, expected_version, reason",
+      "effect": "only currently local-eligible active user; revoke sessions; no policy change",
+      "response": "201 single-use code; 403 policy; 409 version",
+      "audit_required": true,
+      "secret_redaction": true
+    },
+    {
+      "name": "CompleteLocalRecovery",
+      "authorization": "single_use_reset_code",
+      "request": "code, new_password, confirmation",
+      "effect": "consume reset atomically; set hash; no auto-login/re-enablement",
+      "response": "204; generic 400; 429 throttled",
+      "audit_required": true,
+      "secret_redaction": true
+    },
+    {
+      "name": "SetUserStatus",
+      "authorization": "user_admin + recent_reauth",
+      "request": "user_id, active|disabled, expected_version, reason",
+      "effect": "version++ and revoke sessions; refuse last local identity admin removal",
+      "response": "204; 409 last-admin/version; 403 unauthorized",
+      "audit_required": true,
+      "secret_redaction": true
+    },
+    {
+      "name": "SetUserRolesAndPools",
+      "authorization": "role_admin + recent_reauth",
+      "request": "user_id, explicit roles/scopes/pools, expected_version, reason",
+      "effect": "deny unapproved self-elevation; version++ and audit; no content read implied",
+      "response": "204; 403; 409",
+      "audit_required": true,
+      "secret_redaction": true
+    },
+    {
+      "name": "RevokeUserSessions",
+      "authorization": "user_admin or self",
+      "request": "user_id, expected_version",
+      "effect": "security_version++; no deletion of dictations",
+      "response": "204; 403; 409",
+      "audit_required": true,
+      "secret_redaction": true
+    },
+    {
+      "name": "CreateEntraLinkRequest",
+      "authorization": "identity_admin + recent_reauth",
+      "request": "user_id, expected_tenant_id, expected_object_id, expected_version",
+      "effect": "pending approved link; no active identity until callback verified",
+      "response": "201; 409 already bound; 403 provider disabled",
+      "audit_required": true,
+      "secret_redaction": true
+    },
+    {
+      "name": "StartEntraLink",
+      "authorization": "target user + fresh local auth + approved link",
+      "request": "link_request_id",
+      "effect": "bind OAuth state to user/session/purpose; no browser-selected target identity",
+      "response": "redirect; 403 policy/disabled; 409 conflict",
+      "audit_required": true,
+      "secret_redaction": true
+    },
+    {
+      "name": "CompleteEntraLink",
+      "authorization": "validated OIDC callback",
+      "request": "code,state; validated claims",
+      "effect": "atomic issuer/sub and tid/oid matching; same user.id; default entra_only and remove local hash; revoke sessions",
+      "response": "normal signed-in result or generic rejection; no unapproved linking",
+      "audit_required": true,
+      "secret_redaction": true
+    },
+    {
+      "name": "AuthenticateEntra",
+      "authorization": "public_minimal only when provider enabled",
+      "request": "OIDC authorization code callback",
+      "effect": "validate claims; lookup explicit identity; check account status/policy; no roles from claims",
+      "response": "normal session or denied/pending provisioning; disabled route no side effect",
+      "audit_required": true,
+      "secret_redaction": true
+    },
+    {
+      "name": "SetLoginPolicy",
+      "authorization": "identity_admin + recent_reauth",
+      "request": "user_id, target_policy, expected_version, reason",
+      "effect": "only valid active credentials/verified identity; no implicit local reactivation; dual requires audited exception",
+      "response": "204; 409 last-admin/preconditions; 403",
+      "audit_required": true,
+      "secret_redaction": true
+    },
+    {
+      "name": "UnlinkExternalIdentity",
+      "authorization": "identity_admin + recent_reauth",
+      "request": "identity_id, user_id, expected_version, reason",
+      "effect": "revoke sessions; keep history; no password auto-enable; maintain recoverable permitted access or explicitly disable user",
+      "response": "204; 409 unsafe transition; 403",
+      "audit_required": true,
+      "secret_redaction": true
+    },
+    {
+      "name": "Logout",
+      "authorization": "authenticated + CSRF",
+      "request": "current session",
+      "effect": "server invalidates session; no global change to other providers",
+      "response": "204 or login redirect",
+      "audit_required": true,
+      "secret_redaction": true
+    }
+  ]
+}

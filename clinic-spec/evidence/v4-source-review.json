@@ -1,0 +1,14 @@
+{
+  "version": "4.0-web",
+  "date": "2026-11-17",
+  "inputs": "All 24 available conversation artifacts, archived byte-exact.",
+  "dns_function_count": 101,
+  "dns_test_count": 101,
+  "source_kind": "manual-derived functional specifications and synthetic fixtures",
+  "runtime_reference_observed": false,
+  "native_plan_superseded_by_user": true,
+  "web_sources_checked": true,
+  "hardware_or_browser_test_performed": false,
+  "application_implemented": false,
+  "full_parity_validated": false
+}

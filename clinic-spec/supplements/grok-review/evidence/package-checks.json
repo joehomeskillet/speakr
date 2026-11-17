@@ -1,0 +1,56 @@
+{
+  "checked_at": "2026-11-17T16:44:20.820312+00:00",
+  "scope": "addendum package integrity only",
+  "checks": [
+    {
+      "check": "json_parse",
+      "file": "planning/grok-delta.json",
+      "result": "passed"
+    },
+    {
+      "check": "json_parse",
+      "file": "planning/tco-inputs.json",
+      "result": "passed"
+    },
+    {
+      "check": "json_parse",
+      "file": "planning/decision-register.json",
+      "result": "passed"
+    },
+    {
+      "check": "json_parse",
+      "file": "tests/review-additional-tests.json",
+      "result": "passed"
+    },
+    {
+      "check": "json_parse",
+      "file": "tests/asr-benchmark-plan.json",
+      "result": "passed"
+    },
+    {
+      "check": "all_C01_C09_findings_mapped_once",
+      "result": "passed"
+    },
+    {
+      "check": "test_finding_cross_references",
+      "result": "passed"
+    },
+    {
+      "check": "all_9_product_tests_still_not_run",
+      "result": "passed"
+    },
+    {
+      "check": "original_upload_byte_identical",
+      "result": "passed"
+    }
+  ],
+  "not_tested": [
+    "V3 application/build",
+    "real hardware",
+    "real ASR quality",
+    "real KIS",
+    "clinical approvals",
+    "TCO with actual inputs"
+  ],
+  "baseline_handling": "existing V3 files not replaced or re-packaged"
+}

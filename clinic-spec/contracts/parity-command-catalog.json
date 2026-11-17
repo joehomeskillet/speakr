@@ -1,0 +1,377 @@
+{
+  "version": "4.0-web",
+  "commands": [
+    {
+      "command": "save_author_pool",
+      "permission": "clinic.author_pool.manage",
+      "request_schema": "SaveAuthorPool",
+      "requirements": [
+        "PAR-ADM-002"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "set_author_scope",
+      "permission": "clinic.permissions.manage",
+      "request_schema": "SetAuthorScope",
+      "requirements": [
+        "PAR-ADM-004",
+        "PAR-ADM-006"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "configure_routing",
+      "permission": "clinic.routing.manage",
+      "request_schema": "ConfigureRouting",
+      "requirements": [
+        "PAR-ADM-007"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "edit_audio",
+      "permission": "clinic.audio.edit",
+      "request_schema": "EditAudio",
+      "requirements": [
+        "PAR-REC-003"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "undo_audio",
+      "permission": "clinic.audio.edit",
+      "request_schema": "UndoAudio",
+      "requirements": [
+        "PAR-REC-003"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "start_live_session",
+      "permission": "clinic.dictate",
+      "request_schema": "StartLiveSession",
+      "requirements": [
+        "PAR-LIVE-001"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "stop_live_session",
+      "permission": "clinic.dictate",
+      "request_schema": "StopLiveSession",
+      "requirements": [
+        "PAR-LIVE-001",
+        "PAR-LIVE-003"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "save_index",
+      "permission": "clinic.review",
+      "request_schema": "SaveIndex",
+      "requirements": [
+        "PAR-COR-007"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "propose_vocabulary_change",
+      "permission": "clinic.vocabulary.propose",
+      "request_schema": "ProposeVocabularyChange",
+      "requirements": [
+        "PAR-VOC-001",
+        "PAR-VOC-003",
+        "PAR-VOC-004"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "review_resource_change",
+      "permission": "clinic.vocabulary.review",
+      "request_schema": "ReviewResourceChange",
+      "requirements": [
+        "PAR-VOC-004",
+        "PAR-VOC-005"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "save_command",
+      "permission": "clinic.commands.manage",
+      "request_schema": "SaveCommand",
+      "requirements": [
+        "PAR-VOC-008"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "request_adaptation",
+      "permission": "clinic.asr.adapt",
+      "request_schema": "RequestAdaptation",
+      "requirements": [
+        "PAR-VOC-007",
+        "PAR-ASR-004",
+        "PAR-ASR-005"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "save_profile",
+      "permission": "clinic.profile.manage",
+      "request_schema": "SaveProfile",
+      "requirements": [
+        "PAR-ASR-002",
+        "PAR-ASR-006"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "request_acceptance",
+      "permission": "clinic.review",
+      "request_schema": "RequestAcceptance",
+      "requirements": [
+        "PAR-WF-009"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "decide_acceptance",
+      "permission": "clinic.accept",
+      "request_schema": "DecideAcceptance",
+      "requirements": [
+        "PAR-WF-010"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "reopen_dictation",
+      "permission": "clinic.reopen",
+      "request_schema": "ReopenDictation",
+      "requirements": [
+        "PAR-WF-012"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "render_output",
+      "permission": "clinic.export",
+      "request_schema": "RenderOutput",
+      "requirements": [
+        "PAR-EXP-001",
+        "PAR-EXP-003",
+        "PAR-EXP-004",
+        "PAR-EXP-005",
+        "PAR-EXP-006",
+        "PAR-EXP-009"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "queue_import",
+      "permission": "clinic.import",
+      "request_schema": "QueueImport",
+      "requirements": [
+        "PAR-IMP-003"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "request_source_cleanup",
+      "permission": "clinic.import.cleanup",
+      "request_schema": "RequestSourceCleanup",
+      "requirements": [
+        "PAR-IMP-005"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "save_filter",
+      "permission": "clinic.preferences",
+      "request_schema": "SaveFilter",
+      "requirements": [
+        "PAR-WF-003"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    },
+    {
+      "command": "render_report",
+      "permission": "clinic.statistics",
+      "request_schema": "RenderReport",
+      "requirements": [
+        "PAR-OPS-006",
+        "PAR-OPS-007"
+      ],
+      "guards": [
+        "authenticated_user",
+        "csrf",
+        "current_object_and_scope_permissions",
+        "matching_revision",
+        "payload_semantics",
+        "idempotency_actor_scope"
+      ],
+      "success": "Committed state/job intent with immutable audit; return command/result id, not fabricated external success."
+    }
+  ],
+  "status": "specified_not_implemented"
+}

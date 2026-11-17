@@ -1,0 +1,578 @@
+{
+  "schema_version": 1,
+  "domain": "REC",
+  "title": "Audiorecorder und Sitzungen",
+  "source": {
+    "id": "DNS-MANUAL-2017",
+    "title": "dns.comfort.pro workflow - Handbuch",
+    "publisher": "Sonic Labs GmbH",
+    "date": "03/2017",
+    "page_count": 201,
+    "sha256": "bcff06c6d9acaf57477395441172e937b3686ea99406bf6786b8d3c26276f570",
+    "archive_member": "Diktierlösung/dns.comfort.pro/dns.comfort Handbuch Online Version/dns.comfort Handbuch Online Version.pdf",
+    "page_number_rule": "PDF-Seite entspricht gedruckter Seitenzahl; Inhalt ist Produktdokumentation, kein Nachweis aktivierter Funktionen der überlassenen Installation."
+  },
+  "scope_reminder": "Eigenständiger funktionaler Neubau. Keine Altbestandsübernahme und keine KIS-Spezialintegration. Alle Aussagen sind Handbuchbelege, sofern nicht ausdrücklich neue Verträge.",
+  "feature_ids": [
+    "PAR-REC-001",
+    "PAR-REC-002",
+    "PAR-REC-003",
+    "PAR-REC-004",
+    "PAR-REC-005",
+    "PAR-REC-006",
+    "PAR-REC-007",
+    "PAR-REC-008"
+  ],
+  "pages": [
+    80,
+    81,
+    82,
+    83,
+    85,
+    87,
+    112,
+    118,
+    128,
+    129,
+    130,
+    131,
+    132,
+    133,
+    167,
+    177,
+    178
+  ],
+  "features": [
+    {
+      "id": "PAR-REC-001",
+      "area": "REC",
+      "title": "Recorder mit Titel-, Aufnahme- und Versandphase",
+      "observable_behavior": "Autor kann ein Diktat benennen, Audio aufnehmen und vor Versand Metadaten ändern; Titel dient der Identifikation in der Diktatliste.",
+      "manual_pages": [
+        128,
+        129,
+        130,
+        131
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M2",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen Fall mit frischer synthetischer Konfiguration in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-REC-001",
+        "feature_ids": [
+          "PAR-REC-001"
+        ],
+        "fixtures": [
+          "F-ID",
+          "F-AUDIO"
+        ],
+        "given": [
+          "Autor Alpha; ausgewähltes Testmikrofon."
+        ],
+        "when": [
+          "Neues Diktat starten, Titel Labor-Recorder vergeben und bekannten Text aufnehmen.",
+          "Zur Versandseite wechseln, Titel ändern und absenden."
+        ],
+        "then": [
+          "Aufnahme bleibt beim Seitenwechsel erhalten.",
+          "Diktat erscheint mit bestätigtem Titel, Autor und spielbarem Audio im Workflow."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          128,
+          129,
+          130,
+          131
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Audiorecorder und Sitzungen",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-REC-002",
+      "area": "REC",
+      "title": "Aufnahme- und Wiedergabesteuerung",
+      "observable_behavior": "Aufnahme, Stop, Wiedergabe, Anfang/Ende und Vor-/Rückspulen sind per UI und dokumentierten Hotkeys bedienbar.",
+      "manual_pages": [
+        130,
+        131,
+        133
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M2",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen Fall mit frischer synthetischer Konfiguration in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-REC-002",
+        "feature_ids": [
+          "PAR-REC-002"
+        ],
+        "fixtures": [
+          "F-AUDIO"
+        ],
+        "given": [
+          "Recorder enthält den Testtext mit drei eindeutig hörbaren Abschnitten."
+        ],
+        "when": [
+          "Aufnehmen und stoppen; erste/letzte Position anspringen.",
+          "Per UI und Tastatur spulen; Wiedergabe mehrfach starten/stoppen."
+        ],
+        "then": [
+          "Position und hörbarer Abschnitt stimmen überein.",
+          "Stop beendet Audioerfassung; ein reiner Wiedergabebefehl zeichnet nicht auf."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          130,
+          131,
+          133
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Audiorecorder und Sitzungen",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-REC-003",
+      "area": "REC",
+      "title": "Audio einfügen, überschreiben, kürzen und rückgängig",
+      "observable_behavior": "Recorder unterscheidet Einfügen/Überschreiben, kann ab Cursor abschneiden und letzte Aufnahmeoperationen mit dokumentiertem 16-stufigem Undo zurücknehmen.",
+      "manual_pages": [
+        130,
+        131,
+        133
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M2",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [
+        "Exakte Undo-Grenzen bei gemischten Editieroperationen und einem Neustart messen."
+      ],
+      "verification_method": "Gleichen Fall mit frischer synthetischer Konfiguration in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-REC-003",
+        "feature_ids": [
+          "PAR-REC-003"
+        ],
+        "fixtures": [
+          "F-AUDIO"
+        ],
+        "given": [
+          "Aufnahme besteht aus Abschnitten A, B und C; Sicherheitskopie nur der synthetischen Datei."
+        ],
+        "when": [
+          "Vor B neuen Abschnitt X einfügen, Ergebnis abhören.",
+          "Auf gleicher Position im Überschreibmodus Y aufnehmen.",
+          "Ab Cursor kürzen; mehrere Operationen bis zur Undo-Grenze zurücknehmen."
+        ],
+        "then": [
+          "Einfügen ergibt A-X-B-C ohne Verlust von B/C.",
+          "Überschreiben ersetzt den zeitlich betroffenen Bereich.",
+          "Kürzen und Undo erzeugen die jeweils erwarteten hörbaren Abschnitte."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          130,
+          131,
+          133
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Audiorecorder und Sitzungen",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-REC-004",
+      "area": "REC",
+      "title": "Stimmgesteuerte Aufnahme",
+      "observable_behavior": "Bei aktivierter Stimmsteuerung wird nur während erkannter Sprache aufgezeichnet; aktivierter Modus ist sichtbar.",
+      "manual_pages": [
+        130,
+        133
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P1",
+      "milestone": "M3",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [
+        "Schwellwerte, Vor-/Nachlauf und Umgang mit kurzen Pausen sind Runtime-Nachweise, keine erratenen Konstanten."
+      ],
+      "verification_method": "Gleichen Fall mit frischer synthetischer Konfiguration in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-REC-004",
+        "feature_ids": [
+          "PAR-REC-004"
+        ],
+        "fixtures": [
+          "F-AUDIO",
+          "F-SILENCE"
+        ],
+        "given": [
+          "Mikrofon mit definierten Sprach- und Ruheabschnitten; ruhige Laborsituation."
+        ],
+        "when": [
+          "Gleichen Test einmal mit und einmal ohne Stimmsteuerung aufnehmen.",
+          "Modus während einer pausierten Sitzung umschalten."
+        ],
+        "then": [
+          "Aktiver Modus ist sichtbar und wirkt auf folgende Aufnahme.",
+          "Sprachabschnitte bleiben vollständig; Ruhephasen werden entsprechend Referenzverhalten behandelt."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          130,
+          133
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Audiorecorder und Sitzungen",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-REC-005",
+      "area": "REC",
+      "title": "Audio-Geräte und Aufnahme-/Wiedergabepegel",
+      "observable_behavior": "Aufnahme- und Wiedergabegerät sowie unterstützte Pegel lassen sich wählen; Steuergerät und Audiogerät sind unterscheidbar.",
+      "manual_pages": [
+        131,
+        132,
+        167
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M2",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen Fall mit frischer synthetischer Konfiguration in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-REC-005",
+        "feature_ids": [
+          "PAR-REC-005"
+        ],
+        "fixtures": [
+          "F-AUDIO",
+          "F-HW"
+        ],
+        "given": [
+          "Zwei eindeutig benannte Audiogeräte; nur eines erhält Testsignal."
+        ],
+        "when": [
+          "Eingang und Ausgang wechseln und kurze Probe aufnehmen/abspielen.",
+          "Gewähltes Gerät abziehen; mit erneut angeschlossenem Gerät fortsetzen."
+        ],
+        "then": [
+          "Verwendetes Gerät entspricht der Auswahl.",
+          "Fehlendes Gerät ist sichtbar; es wird keine leere Aufnahme als Erfolg gemeldet.",
+          "Pegeländerung wirkt nur dort, wo Hardware sie unterstützt."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          131,
+          132,
+          167
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Audiorecorder und Sitzungen",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-REC-006",
+      "area": "REC",
+      "title": "Versandparameter und optionaler Diktatschutz",
+      "observable_behavior": "Versand fragt Titel, Anmerkung, Priorität/Frist, ASR, Empfänger, Abnahme und optionalen Diktatpasswortschutz ab.",
+      "manual_pages": [
+        81,
+        82,
+        85,
+        131,
+        177,
+        178
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M1",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [
+        "Passwortschutz und Rollenrechte im Original gemeinsam prüfen; keine Schlüsselableitung oder alte Passwortdaten übernehmen."
+      ],
+      "verification_method": "Gleichen Fall mit frischer synthetischer Konfiguration in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-REC-006",
+        "feature_ids": [
+          "PAR-REC-006"
+        ],
+        "fixtures": [
+          "F-ID",
+          "F-AUDIO",
+          "F-SECRETS"
+        ],
+        "given": [
+          "Diktat mit bekanntem Audio; zwei berechtigte Schreibkräfte."
+        ],
+        "when": [
+          "Mit Dringlichkeit, Anmerkung und Abnahme versenden.",
+          "Separates Testdiktat mit nur lokal erzeugtem Passwort schützen und mit falschem/richtigem Passwort öffnen."
+        ],
+        "then": [
+          "Bestätigte Metadaten stehen im Workflow.",
+          "Falsches Passwort liefert keinen Audio-/Textzugriff.",
+          "Richtiges Passwort erlaubt Zugriff im zusätzlich geltenden Rollenrahmen."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          81,
+          82,
+          85,
+          131,
+          177,
+          178
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Audiorecorder und Sitzungen",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-REC-007",
+      "area": "REC",
+      "title": "Autarker Recorder und lokales Speichern",
+      "observable_behavior": "Recorder kann Audio laden, lokal speichern und im autarken Betrieb an einem konfigurierten Ziel ablegen; Serverausfall darf nicht als erfolgreicher Workflowversand erscheinen.",
+      "manual_pages": [
+        118,
+        131,
+        132
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P1",
+      "milestone": "M3",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [
+        "Autarkmodus im Altprodukt ist teilweise lizenzgebunden; Ablaufbeschränkung gehört nicht zum Nachbau."
+      ],
+      "verification_method": "Gleichen Fall mit frischer synthetischer Konfiguration in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-REC-007",
+        "feature_ids": [
+          "PAR-REC-007"
+        ],
+        "fixtures": [
+          "F-AUDIO",
+          "F-EXPORT"
+        ],
+        "given": [
+          "Neues lokales Diktat; Serververbindung im Labor getrennt."
+        ],
+        "when": [
+          "Im autarken Modus aufnehmen, speichern, schliessen und neu laden.",
+          "Workflowversand ohne Verbindung versuchen; Verbindung wiederherstellen."
+        ],
+        "then": [
+          "Lokale Aufnahme ist wieder spielbar.",
+          "Fehlender Versand bleibt erkennbar und wiederholbar.",
+          "Neubau hängt nicht von der historischen 30-Tage-Lizenzfrist ab."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          118,
+          131,
+          132
+        ],
+        "explicit_new_contracts": [
+          "Offlineaufnahme unabhängig von historischer 30-Tage-Lizenzbeschränkung im eigenständigen Neubau."
+        ]
+      },
+      "area_name": "Audiorecorder und Sitzungen",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": [
+        "Offlineaufnahme unabhängig von historischer 30-Tage-Lizenzbeschränkung im eigenständigen Neubau."
+      ]
+    },
+    {
+      "id": "PAR-REC-008",
+      "area": "REC",
+      "title": "Audio-Text-Sitzungen und Textdateien speichern/laden",
+      "observable_behavior": "Eigene Sitzungen enthalten Audio und bearbeitbaren Text; RTF und TXT können geöffnet/gespeichert werden. Neue Sitzungen müssen verlustfrei wieder geöffnet werden.",
+      "manual_pages": [
+        80,
+        83,
+        87,
+        112
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P1",
+      "milestone": "M2",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [
+        "DRA wird im Altprodukt dokumentiert. Ohne Datenübernahme ist Bytekompatibilität mit alten DRA-Dateien kein Default; eigenes dokumentiertes Sitzungsformat zulässig."
+      ],
+      "verification_method": "Gleichen Fall mit frischer synthetischer Konfiguration in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-REC-008",
+        "feature_ids": [
+          "PAR-REC-008"
+        ],
+        "fixtures": [
+          "F-AUDIO",
+          "F-DOC"
+        ],
+        "given": [
+          "Neue eigene Sitzung mit Textformatierung und Audio-Zeitbezug."
+        ],
+        "when": [
+          "Als eigenes Sitzungsformat speichern und neu öffnen.",
+          "Als RTF und TXT exportieren und wieder öffnen."
+        ],
+        "then": [
+          "Sitzungsformat erhält Audio, Text und Zeitbezug.",
+          "RTF erhält unterstützte Formatierung; TXT ist bewusst unformatiert.",
+          "Textdatei ohne Audio wird nicht als synchronisierte Sitzung ausgegeben."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          80,
+          83,
+          87,
+          112
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Audiorecorder und Sitzungen",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    }
+  ]
+}

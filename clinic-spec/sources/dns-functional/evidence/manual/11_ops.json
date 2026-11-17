@@ -1,0 +1,783 @@
+{
+  "schema_version": 1,
+  "domain": "OPS",
+  "title": "Hardwarebedienung, Dienste und Statistik",
+  "source": {
+    "id": "DNS-MANUAL-2017",
+    "title": "dns.comfort.pro workflow - Handbuch",
+    "publisher": "Sonic Labs GmbH",
+    "date": "03/2017",
+    "page_count": 201,
+    "sha256": "bcff06c6d9acaf57477395441172e937b3686ea99406bf6786b8d3c26276f570",
+    "archive_member": "Diktierlösung/dns.comfort.pro/dns.comfort Handbuch Online Version/dns.comfort Handbuch Online Version.pdf",
+    "page_number_rule": "PDF-Seite entspricht gedruckter Seitenzahl; Inhalt ist Produktdokumentation, kein Nachweis aktivierter Funktionen der überlassenen Installation."
+  },
+  "scope_reminder": "Eigenständiger funktionaler Neubau. Keine Altbestandsübernahme und keine KIS-Spezialintegration. Alle Aussagen sind Handbuchbelege, sofern nicht ausdrücklich neue Verträge.",
+  "feature_ids": [
+    "PAR-OPS-001",
+    "PAR-OPS-002",
+    "PAR-OPS-003",
+    "PAR-OPS-004",
+    "PAR-OPS-005",
+    "PAR-OPS-006",
+    "PAR-OPS-007",
+    "PAR-OPS-008",
+    "PAR-OPS-009",
+    "PAR-OPS-010"
+  ],
+  "pages": [
+    45,
+    46,
+    54,
+    55,
+    72,
+    73,
+    103,
+    104,
+    105,
+    106,
+    107,
+    108,
+    109,
+    110,
+    111,
+    117,
+    118,
+    119,
+    120,
+    121,
+    129,
+    132,
+    133,
+    142,
+    147,
+    164,
+    165,
+    166,
+    167,
+    168,
+    170,
+    171,
+    172,
+    179,
+    184,
+    185,
+    186,
+    187,
+    188,
+    192,
+    193,
+    194,
+    195,
+    196,
+    197,
+    198,
+    199,
+    200
+  ],
+  "features": [
+    {
+      "id": "PAR-OPS-001",
+      "area": "OPS",
+      "title": "Fusssteuerung und Tastenzuordnung",
+      "observable_behavior": "Unterstützte Fussschalter steuern Wiedergabe/Spulen/Aufnahme; Haltemodus und Zuordnung sind konfigurierbar, Gerätestatus wird angezeigt.",
+      "manual_pages": [
+        103,
+        104,
+        105,
+        167,
+        168,
+        200
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M2",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-OPS-001",
+        "feature_ids": [
+          "PAR-OPS-001"
+        ],
+        "fixtures": [
+          "F-HW",
+          "F-AUDIO"
+        ],
+        "given": [
+          "Ein realer dokumentierter Fussschalter; Datei mit hörbaren Marken."
+        ],
+        "when": [
+          "Tasten im Toggle- und Haltemodus betätigen.",
+          "Zuordnung ändern und Anwendung neu starten; Gerät abziehen."
+        ],
+        "then": [
+          "Funktion, Halten/Loslassen und Status stimmen mit Konfiguration.",
+          "Geräteverlust führt nicht zu unkontrolliert laufender Aufnahme.",
+          "Aufnahme-/Korrekturkontext darf unterschiedliche dokumentierte Aktionen besitzen."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          103,
+          104,
+          105,
+          167,
+          168,
+          200
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Hardwarebedienung, Dienste und Statistik",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-OPS-002",
+      "area": "OPS",
+      "title": "Mikrofon-/Diktiergerätsteuerung und Rückmeldung",
+      "observable_behavior": "Handmikrofon-/DPM-Tasten und Schiebeschalter steuern Aufnahme, Standby, Wiedergabe, Korrektur und Navigation; unterstützte LEDs zeigen Zustand.",
+      "manual_pages": [
+        105,
+        106,
+        107,
+        108,
+        129,
+        200
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M3",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-OPS-002",
+        "feature_ids": [
+          "PAR-OPS-002"
+        ],
+        "fixtures": [
+          "F-HW",
+          "F-AUDIO",
+          "F-ASR"
+        ],
+        "given": [
+          "Je vereinbartem Gerätemodell ein realer Labornachweis."
+        ],
+        "when": [
+          "Aufnahme/Standby/Stop mit Hardware auslösen, LED/UI vergleichen.",
+          "EOL und Navigation im Recorder sowie Livekontext prüfen.",
+          "Benutzerzuordnung ändern und erneut starten."
+        ],
+        "then": [
+          "UI- und Gerätezustand stimmen überein.",
+          "Kontextspezifische EOL-Funktion ist nachvollziehbar.",
+          "Nicht vorhandene LED/Funktion wird nicht simuliert als tatsächliche Gerätefähigkeit ausgegeben."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          105,
+          106,
+          107,
+          108,
+          129,
+          200
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Hardwarebedienung, Dienste und Statistik",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-OPS-003",
+      "area": "OPS",
+      "title": "Hotkeys frei setzen und zurücksetzen",
+      "observable_behavior": "Kommandos können über einstellbare lokale/globale Hotkeys ausgelöst und auf Standard zurückgesetzt werden.",
+      "manual_pages": [
+        109,
+        110,
+        111,
+        132,
+        133,
+        142,
+        147,
+        166
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P1",
+      "milestone": "M4",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-OPS-003",
+        "feature_ids": [
+          "PAR-OPS-003"
+        ],
+        "fixtures": [
+          "F-AUDIO",
+          "F-TARGET"
+        ],
+        "given": [
+          "Labor mit bekannten freien Tastenkombinationen."
+        ],
+        "when": [
+          "Wiedergabe, Fertigstellen und Fokusbindung neu belegen.",
+          "Editor fokussieren und danach anderes Fenster fokussieren.",
+          "Nur ein Kommando auf Standard zurücksetzen."
+        ],
+        "then": [
+          "Hotkeys wirken in ihrem vorgesehenen Geltungsbereich.",
+          "Zurücksetzen verändert nur die gewählte Belegung.",
+          "Konflikt oder fehlgeschlagene globale Registrierung wird sichtbar."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          109,
+          110,
+          111,
+          132,
+          133,
+          142,
+          147,
+          166
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Hardwarebedienung, Dienste und Statistik",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-OPS-004",
+      "area": "OPS",
+      "title": "Autostart, Tray und programmatischer Start",
+      "observable_behavior": "Client/Workflow/Pass besitzen Hintergrund-/Traybetrieb und Startoptionen für Benutzer/Pool; Schliessen einer Liste kann minimieren, Beenden ist separat.",
+      "manual_pages": [
+        117,
+        118,
+        119,
+        120,
+        121,
+        164,
+        165,
+        168,
+        170,
+        171,
+        172,
+        179
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P1",
+      "milestone": "M4",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-OPS-004",
+        "feature_ids": [
+          "PAR-OPS-004"
+        ],
+        "fixtures": [
+          "F-ID"
+        ],
+        "given": [
+          "Frische Laborkonfiguration mit dokumentiertem Autostart."
+        ],
+        "when": [
+          "Mit Benutzer-/Poolparametern starten; Tray-/Listenmodus vergleichen.",
+          "Listenfenster schliessen und Prozessstatus prüfen.",
+          "Explizit Beenden; danach Autostart bei neuer Testanmeldung prüfen."
+        ],
+        "then": [
+          "Hintergrundmodus und wirkliches Beenden sind unterscheidbar.",
+          "Ungültiger Benutzerparameter umgeht keine Anmeldung.",
+          "Startoptionen sind im Neubau dokumentiert; historische EXE-Namen müssen nicht übernommen werden."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          117,
+          118,
+          119,
+          120,
+          121,
+          164,
+          165,
+          168,
+          170,
+          171,
+          172,
+          179
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Hardwarebedienung, Dienste und Statistik",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-OPS-005",
+      "area": "OPS",
+      "title": "Statistikerfassung und Aufbewahrung",
+      "observable_behavior": "Anwendungsnutzung und Diktatverlauf werden separat aktivierbar und mit zeitlicher Begrenzung erfasst.",
+      "manual_pages": [
+        72,
+        73,
+        184
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P1",
+      "milestone": "M4",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-OPS-005",
+        "feature_ids": [
+          "PAR-OPS-005"
+        ],
+        "fixtures": [
+          "F-STATS",
+          "F-CLOCK",
+          "F-ID"
+        ],
+        "given": [
+          "Frische Statistikdatenbank des jeweiligen Labors."
+        ],
+        "when": [
+          "Erfassung deaktiviert: zwei Aktionen ausführen.",
+          "Dann Nutzung/Verlauf getrennt aktivieren und weitere Aktionen ausführen.",
+          "Aufbewahrungsfrist prüfen."
+        ],
+        "then": [
+          "Nur aktivierte Datentypen werden entsprechend Regel erfasst.",
+          "Historische Nichterfassung wird nicht als Nullnutzung behauptet.",
+          "Abgelaufene Statistikdaten werden getrennt von aktiven Diktaten behandelt."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          72,
+          73,
+          184
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Hardwarebedienung, Dienste und Statistik",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-OPS-006",
+      "area": "OPS",
+      "title": "Diktat-, Frist- und Bearbeitungsstatistiken",
+      "observable_behavior": "Berichte umfassen Mengen/Dauer nach Autor/Status, verpasste Fristen, Löschungen, Bearbeitungs-/Abnahme-/Fertigstellungszeiten und Anwendungsnutzung.",
+      "manual_pages": [
+        184,
+        185,
+        186,
+        187
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P1",
+      "milestone": "M4",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-OPS-006",
+        "feature_ids": [
+          "PAR-OPS-006"
+        ],
+        "fixtures": [
+          "F-STATS",
+          "F-ID"
+        ],
+        "given": [
+          "Drei Fälle mit bekannten kontrollierten Zeitpunkten, Rollen und Statusfolgen."
+        ],
+        "when": [
+          "Bericht je Fallgruppe und Zeitraum öffnen.",
+          "Nach Autor/Bearbeiter sowie Erstell- und Bearbeitungsdatum filtern."
+        ],
+        "then": [
+          "Anzahl und Dauer lassen sich auf die drei Testfälle zurückführen.",
+          "Zeitfilterbasis und Rollen bleiben unterscheidbar.",
+          "Unvollständige Daten werden nicht als vollständige Leistungsbewertung ausgegeben."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          184,
+          185,
+          186,
+          187
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Hardwarebedienung, Dienste und Statistik",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-OPS-007",
+      "area": "OPS",
+      "title": "Statistik als CSV und ohne UI",
+      "observable_behavior": "Statistiken können per UI oder CLI nach Zielpfad, Zeitraum und Berichtsauswahl exportiert werden; ohne UI ist vorgesehen.",
+      "manual_pages": [
+        187,
+        188
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P1",
+      "milestone": "M4",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [
+        "Handbuch-CLI-Liste enthält nicht jeden später aufgeführten Bericht; tatsächlich verfügbare IDs messen."
+      ],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-OPS-007",
+        "feature_ids": [
+          "PAR-OPS-007"
+        ],
+        "fixtures": [
+          "F-STATS",
+          "F-EXPORT"
+        ],
+        "given": [
+          "Bekannter Testbestand; leeres Ausgabeziel."
+        ],
+        "when": [
+          "Gleiche Statistik über UI und CLI mit gleichen Parametern exportieren.",
+          "Mehrere Zeiträume/Berichte und ungültigen Parameter testen."
+        ],
+        "then": [
+          "Datensätze stimmen abzüglich dokumentierter Formatdetails überein.",
+          "Ohne-UI-Modus öffnet keinen interaktiven Pflichtdialog.",
+          "Ungültiger Parameter/Schreibfehler liefert Fehler statt leeren Erfolg."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          187,
+          188
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Hardwarebedienung, Dienste und Statistik",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-OPS-008",
+      "area": "OPS",
+      "title": "Dienstbetrieb, Jobs und beobachtbare Fehler",
+      "observable_behavior": "Zentrale Verarbeitung läuft unabhängig von sichtbarer Clientoberfläche; Aufträge, fehlende Ablage, fehlender Autor/Pool und ausgefallene Engine müssen nachvollziehbar behandelt werden.",
+      "manual_pages": [
+        192,
+        193,
+        194,
+        196,
+        197,
+        198,
+        199
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M1",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-OPS-008",
+        "feature_ids": [
+          "PAR-OPS-008"
+        ],
+        "fixtures": [
+          "F-WORK",
+          "F-FAIL",
+          "F-ID"
+        ],
+        "given": [
+          "Frische Labordienste und nur eigener Labor-Arbeitsordner."
+        ],
+        "when": [
+          "Client schliessen, Hintergrundauftrag weiter beobachten.",
+          "Arbeitsordner kurz unerreichbar machen; Auftrag erneut versuchen.",
+          "Nicht existierenden Autoren-/Poolkontext verwenden."
+        ],
+        "then": [
+          "Dienstverarbeitung braucht keine offene Arbeitsliste.",
+          "Fehler benennen Ursache und verhindern stilles Fehlrouting.",
+          "Neubau benötigt keinen identischen proprietären Datei-Jobvertrag, muss aber dieselben fachlichen Erfolge/Fehler abbilden."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          192,
+          193,
+          194,
+          196,
+          197,
+          198,
+          199
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Hardwarebedienung, Dienste und Statistik",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-OPS-009",
+      "area": "OPS",
+      "title": "Original und Arbeitskopie getrennt aufbewahren",
+      "observable_behavior": "Unveränderte Eingangsdatei wird getrennt von Wiedergabe-/Erkennungsarbeitskopie gehalten; Arbeitskopie kann komprimiert und geschützt sein.",
+      "manual_pages": [
+        45,
+        46,
+        194,
+        195
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P0",
+      "milestone": "M1",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [
+        "Handbuch beschreibt Opus/AES-256; neues Format/Kryptokonzept ist frei zu spezifizieren, alte Schlüssel und SecureDS-Archive werden nicht übernommen."
+      ],
+      "verification_method": "Gleichen synthetischen Fall in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-OPS-009",
+        "feature_ids": [
+          "PAR-OPS-009"
+        ],
+        "fixtures": [
+          "F-AUDIO",
+          "F-DSS",
+          "F-WORK"
+        ],
+        "given": [
+          "Frisch übergebenes synthetisches Original mit bekanntem Hash."
+        ],
+        "when": [
+          "Erkennen, Text korrigieren, abspielen und exportieren.",
+          "Original erneut hashen; Arbeitskopie ohne erteilten Zugriff zu öffnen versuchen."
+        ],
+        "then": [
+          "Originalinhalt bleibt bis bewusster Aufbewahrungsaktion unverändert.",
+          "Korrektur verändert Textversion/Arbeitsdarstellung, nicht das historische Audio.",
+          "Schutz des neuen Speicherformats wird separat getestet; keine Behauptung eigener SecureDS-Kompatibilität."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          45,
+          46,
+          194,
+          195
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Hardwarebedienung, Dienste und Statistik",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-OPS-010",
+      "area": "OPS",
+      "area_name": "Hardwarebedienung, Dienste und Statistik",
+      "title": "Gerätesteuerung in RDP-/ICA-Sitzungen",
+      "observable_behavior": "Zentrale Workflow-Pass-Vorgaben unterscheiden lokale sowie RDP-/ICA-Gerätewege. Nachbau muss den vereinbarten Remote-Gerätepfad eigenständig nachweisen; lokaler Import belegt keine Remote-Unterstützung.",
+      "manual_pages": [
+        54,
+        55
+      ],
+      "source_id": "DNS-MANUAL-2017",
+      "evidence": "Handbuch 03/2017 nennt Modi; Transport- und Treiberdetails nicht dokumentiert oder live geprüft.",
+      "scope": "parity",
+      "requirement_status": "Runtime-Nachweis",
+      "priority": "P1",
+      "milestone": "M5",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [
+        "Welche Hardware-/Umleitungsarten das Referenzprodukt je Modus tatsächlich unterstützt, mit verfügbarem Labortreiber erheben. Kein selbst erfundenes ICA-Protokoll nachbauen."
+      ],
+      "verification_method": "Gleiche echte Geräteaktionen lokal und in isolierter RDP-/ICA-Testsitzung durchführen; Client-/Sitzungszuordnung und Datenweg beobachten.",
+      "parity_gate": "Dokumentierter Modus bleibt sichtbar; fehlende Laborumgebung ergibt blocked, kein bestanden.",
+      "explicit_new_contracts": [],
+      "acceptance_test": {
+        "id": "BT-OPS-010",
+        "feature_ids": [
+          "PAR-OPS-010"
+        ],
+        "fixtures": [
+          "F-HW",
+          "F-DSS",
+          "F-REMOTE"
+        ],
+        "given": [
+          "Isolierter Remotesitzungshost und zwei Laborsitzungen; Gerät nur an Laborclient A angeschlossen."
+        ],
+        "when": [
+          "Lokal erfolgreichen Gerätefall als Kontrolllauf ausführen.",
+          "Geräteweg in RDP, danach falls vorhanden ICA konfigurieren und Aufnahme auflisten/übergeben.",
+          "Sitzung trennen/wiederverbinden; parallele Sitzung B auf ungewollten Zugriff prüfen."
+        ],
+        "then": [
+          "Gerät und Diktat sind nur dem dafür berechtigten Sitzungs-/Autorenkontext zugeordnet.",
+          "Wiederverbindung erzeugt keine ungeklärten Doppelimporte.",
+          "Nicht verfügbare Treiber/Umleitung werden als blocked dokumentiert; sie werden nicht mit lokalem Erfolg gleichgesetzt."
+        ],
+        "capture": [
+          "Client- und Host-UI",
+          "Prozess-/Gerätedatenweg",
+          "Zuordnung zur Laborsitzung"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "manual_pages": [
+          54,
+          55
+        ],
+        "expected_artifacts": [
+          "Runmanifest mit Transportmodus und Treiber",
+          "UI- und Importbeleg pro Modus"
+        ],
+        "explicit_new_contracts": []
+      }
+    }
+  ]
+}

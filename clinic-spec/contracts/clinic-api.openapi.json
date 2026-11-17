@@ -1,0 +1,3529 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Südhang Clinic Extension – own implementation contract",
+    "version": "3.2",
+    "description": "New Speakr clinic extension to implement, not existing Speakr or ines endpoints. Reuse upstream session/storage/queue handlers behind these policy envelopes, do not build a second generic media engine. Development values; synthetic data only until production gates. All replies Cache-Control: no-store. All objects require object-level policy and trusted ingress channel. No patient content in logs or URLs. Unsuitable vendor APIs must be adapted behind internal interfaces, not assumed."
+  },
+  "servers": [
+    {
+      "url": "https://clinic-dev.example.invalid",
+      "description": "Placeholder only; replace locally. Not a reachable service."
+    }
+  ],
+  "security": [
+    {
+      "browserSession": []
+    }
+  ],
+  "paths": {
+    "/api/clinic/v1/ingests": {
+      "post": {
+        "operationId": "beginIngest",
+        "summary": "Create or replay an ingest session",
+        "description": "source_kind=simulator only in dev. Agent cannot assign arbitrary owner; source observations untrusted. Browser owner comes from OIDC. If source identity unresolved, persist ingest without a falsely owned Recording. Request_id and Idempotency-Key must match.",
+        "x-trusted-channel": "managed|byod|agent",
+        "x-required-role-policy": "object-specific clinic policy",
+        "security": [
+          {
+            "browserSession": []
+          },
+          {
+            "machineMTLS": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success; not proof of backup protection or clinical/vendor acceptance unless explicitly stated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "412": {
+            "$ref": "#/components/responses/412"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "423": {
+            "$ref": "#/components/responses/423"
+          },
+          "428": {
+            "$ref": "#/components/responses/428"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Idempotency"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BeginIngest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/clinic/v1/ingests/{ingest_id}": {
+      "get": {
+        "operationId": "getIngest",
+        "summary": "Read own ingest receipt and chunk map",
+        "description": "Only creating principal or authorized resolution staff. Do not expose unknown-source audio to everyone.",
+        "x-trusted-channel": "managed|byod|agent",
+        "x-required-role-policy": "object-specific clinic policy",
+        "security": [
+          {
+            "browserSession": []
+          },
+          {
+            "machineMTLS": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success; not proof of backup protection or clinical/vendor acceptance unless explicitly stated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "412": {
+            "$ref": "#/components/responses/412"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "423": {
+            "$ref": "#/components/responses/423"
+          },
+          "428": {
+            "$ref": "#/components/responses/428"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "parameters": [
+          {
+            "name": "ingest_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/api/clinic/v1/ingests/{ingest_id}/chunks/{sequence}": {
+      "put": {
+        "operationId": "putChunk",
+        "summary": "Append or idempotently replay one original byte segment",
+        "description": "Max body 4 MiB in this file-upload contract. Larger browser MediaRecorder blobs are split at transport level without transcoding. Replaying same sequence+hash succeeds; different bytes conflicts. Hash is SHA-256 of exact body. Do not decode in web process. Reuse storage/session service.",
+        "x-trusted-channel": "managed|byod|agent",
+        "x-required-role-policy": "object-specific clinic policy",
+        "security": [
+          {
+            "browserSession": []
+          },
+          {
+            "machineMTLS": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success; not proof of backup protection or clinical/vendor acceptance unless explicitly stated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "412": {
+            "$ref": "#/components/responses/412"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "423": {
+            "$ref": "#/components/responses/423"
+          },
+          "428": {
+            "$ref": "#/components/responses/428"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "parameters": [
+          {
+            "name": "ingest_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "sequence",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          },
+          {
+            "name": "X-Chunk-SHA256",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/clinic/v1/ingests/{ingest_id}/finalize": {
+      "post": {
+        "operationId": "finalizeIngest",
+        "summary": "Finalize ordered bytes and record durable receipt",
+        "description": "Sequence must be contiguous from zero and hashes, total bytes and complete hash must match. STORED requires durable original plus committed DB, audit and job intent. Decoding may still be pending; STORED is not automatically SUBMITTED or PROTECTED. Timeout => query existing ingest, not create fresh. source_finished_reading does not prove EOL. For browser source require media_segments and segment_index/blob_index/blob_part_index per chunk. Validate non-overlapping contiguous segment/chunk maps and closed recorder instances. A new recorder instance is not blindly byte-concatenated with another container: decode each complete segment and combine only validated audio in sequence. Interrupted or missing segments require an explicit incomplete-state review, never silently claim completeness.",
+        "x-trusted-channel": "managed|byod|agent",
+        "x-required-role-policy": "object-specific clinic policy",
+        "security": [
+          {
+            "browserSession": []
+          },
+          {
+            "machineMTLS": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Success; not proof of backup protection or clinical/vendor acceptance unless explicitly stated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "412": {
+            "$ref": "#/components/responses/412"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "423": {
+            "$ref": "#/components/responses/423"
+          },
+          "428": {
+            "$ref": "#/components/responses/428"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "parameters": [
+          {
+            "name": "ingest_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Idempotency"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FinalizeIngest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/clinic/v1/ingests/{ingest_id}/resolve-author": {
+      "post": {
+        "operationId": "resolveIngestAuthor",
+        "summary": "Resolve quarantined owner without changing original evidence",
+        "description": "Only resolution staff. Record evidence and assignment history; no default Windows-user attribution. Safe creation of upstream Recording after resolution. An agent certificate cannot call this method.",
+        "x-trusted-channel": "managed",
+        "x-required-role-policy": "pool_lead with explicit source-resolution scope",
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success; not proof of backup protection or clinical/vendor acceptance unless explicitly stated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "412": {
+            "$ref": "#/components/responses/412"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "423": {
+            "$ref": "#/components/responses/423"
+          },
+          "428": {
+            "$ref": "#/components/responses/428"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "parameters": [
+          {
+            "name": "ingest_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Idempotency"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveAuthor"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/clinic/v1/dictations": {
+      "get": {
+        "operationId": "listDictations",
+        "summary": "Policy-filtered list",
+        "description": "Author sees own; writer sees authorized staff-pool work subject to case restrictions. Filters may only narrow. Cursor does not contain patient identifiers.",
+        "x-trusted-channel": "managed|byod",
+        "x-required-role-policy": "object-specific clinic policy",
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success; not proof of backup protection or clinical/vendor acceptance unless explicitly stated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DictationList"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "412": {
+            "$ref": "#/components/responses/412"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "423": {
+            "$ref": "#/components/responses/423"
+          },
+          "428": {
+            "$ref": "#/components/responses/428"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            }
+          },
+          {
+            "name": "pool_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/api/clinic/v1/dictations/{dictation_id}": {
+      "get": {
+        "operationId": "getDictation",
+        "summary": "Read minimal authorized dictation state",
+        "description": "BYOD response excludes transcript/content/context details and exposes only own minimal status. Use separate managed context/editor endpoints for content.",
+        "x-trusted-channel": "managed|byod",
+        "x-required-role-policy": "object-specific clinic policy",
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success; not proof of backup protection or clinical/vendor acceptance unless explicitly stated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Dictation"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "412": {
+            "$ref": "#/components/responses/412"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "423": {
+            "$ref": "#/components/responses/423"
+          },
+          "428": {
+            "$ref": "#/components/responses/428"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "parameters": [
+          {
+            "name": "dictation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/api/clinic/v1/dictations/{dictation_id}/submit": {
+      "post": {
+        "operationId": "submitDictation",
+        "summary": "Submit a completed owned dictation",
+        "description": "Verify native EOL evidence or explicit authorized human confirmation. Agent-provided completed flag cannot suffice. Unresolved context may enter restricted clarification but no export.",
+        "x-trusted-channel": "managed|byod",
+        "x-required-role-policy": "author of dictation or explicitly delegated submitter",
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success; not proof of backup protection or clinical/vendor acceptance unless explicitly stated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Dictation"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "412": {
+            "$ref": "#/components/responses/412"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "423": {
+            "$ref": "#/components/responses/423"
+          },
+          "428": {
+            "$ref": "#/components/responses/428"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "parameters": [
+          {
+            "name": "dictation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Idempotency"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Submit"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/clinic/v1/dictations/{dictation_id}/context": {
+      "post": {
+        "operationId": "bindContext",
+        "summary": "Bind a newly verified context revision",
+        "description": "Consume opaque grant once, validate actor, source, case-patient relationship and case rights. Changing context invalidates active release. An open KIS patient change never automatically calls this on old work.",
+        "x-trusted-channel": "managed",
+        "x-required-role-policy": "authorized author or assigned writer; context binding permission",
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success; not proof of backup protection or clinical/vendor acceptance unless explicitly stated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContextView"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "412": {
+            "$ref": "#/components/responses/412"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "423": {
+            "$ref": "#/components/responses/423"
+          },
+          "428": {
+            "$ref": "#/components/responses/428"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "parameters": [
+          {
+            "name": "dictation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Idempotency"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContextBind"
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "readContext",
+        "summary": "Read verified context for managed editor",
+        "description": "Case policy applies on every read; unauthorized context returns no identifiers.",
+        "x-trusted-channel": "managed",
+        "x-required-role-policy": "object-specific clinic policy",
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success; not proof of backup protection or clinical/vendor acceptance unless explicitly stated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContextView"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "412": {
+            "$ref": "#/components/responses/412"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "423": {
+            "$ref": "#/components/responses/423"
+          },
+          "428": {
+            "$ref": "#/components/responses/428"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "parameters": [
+          {
+            "name": "dictation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/api/clinic/v1/dictations/{dictation_id}/leases": {
+      "post": {
+        "operationId": "acquireLease",
+        "summary": "Acquire bounded review lease",
+        "description": "300 second development lease; concurrent holder => 423. Epoch/generation increases on takeover. Authors require explicit review capability.",
+        "x-trusted-channel": "managed",
+        "x-required-role-policy": "assigned writer, author-reviewer or pool lead",
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success; not proof of backup protection or clinical/vendor acceptance unless explicitly stated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Lease"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "412": {
+            "$ref": "#/components/responses/412"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "423": {
+            "$ref": "#/components/responses/423"
+          },
+          "428": {
+            "$ref": "#/components/responses/428"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "parameters": [
+          {
+            "name": "dictation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Idempotency"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          }
+        ]
+      }
+    },
+    "/api/clinic/v1/dictations/{dictation_id}/leases/renew": {
+      "post": {
+        "operationId": "renewLease",
+        "summary": "Renew same actor and generation lease",
+        "description": "Expired lease requires reacquisition and reconciliation. Never resurrect fenced generation.",
+        "x-trusted-channel": "managed",
+        "x-required-role-policy": "object-specific clinic policy",
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success; not proof of backup protection or clinical/vendor acceptance unless explicitly stated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Lease"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "412": {
+            "$ref": "#/components/responses/412"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "423": {
+            "$ref": "#/components/responses/423"
+          },
+          "428": {
+            "$ref": "#/components/responses/428"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "parameters": [
+          {
+            "name": "dictation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Idempotency"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeaseProof"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/clinic/v1/dictations/{dictation_id}/leases/release": {
+      "post": {
+        "operationId": "releaseLease",
+        "summary": "Release own active lease",
+        "description": "No side effects on another holder or newer generation.",
+        "x-trusted-channel": "managed",
+        "x-required-role-policy": "object-specific clinic policy",
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success; not proof of backup protection or clinical/vendor acceptance unless explicitly stated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Dictation"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "412": {
+            "$ref": "#/components/responses/412"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "423": {
+            "$ref": "#/components/responses/423"
+          },
+          "428": {
+            "$ref": "#/components/responses/428"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "parameters": [
+          {
+            "name": "dictation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Idempotency"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeaseProof"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/clinic/v1/dictations/{dictation_id}/revisions": {
+      "post": {
+        "operationId": "saveRevision",
+        "summary": "Append immutable human text revision",
+        "description": "Requires lease, current ETag, original within same dictation. Existing editor serializer may be reused behind this command; stale stock saves are blocked. Save invalidates active release. mark_corrected does not imply clinical release.",
+        "x-trusted-channel": "managed",
+        "x-required-role-policy": "object-specific clinic policy",
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success; not proof of backup protection or clinical/vendor acceptance unless explicitly stated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Revision"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "412": {
+            "$ref": "#/components/responses/412"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "423": {
+            "$ref": "#/components/responses/423"
+          },
+          "428": {
+            "$ref": "#/components/responses/428"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "parameters": [
+          {
+            "name": "dictation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Idempotency"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveRevision"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/clinic/v1/dictations/{dictation_id}/releases": {
+      "post": {
+        "operationId": "releaseVersion",
+        "summary": "Release exact audio, text and context tuple",
+        "description": "Cross-dictation references rejected by DB constraints and policy. Text hash must match canonical UTF-8 normalized text as specified. Requires distinct approval capability; author may approve own only when assigned that role. Release is not an electronic KIS signature.",
+        "x-trusted-channel": "managed",
+        "x-required-role-policy": "approver with case rights and active lease",
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success; not proof of backup protection or clinical/vendor acceptance unless explicitly stated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Release"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "412": {
+            "$ref": "#/components/responses/412"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "423": {
+            "$ref": "#/components/responses/423"
+          },
+          "428": {
+            "$ref": "#/components/responses/428"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "parameters": [
+          {
+            "name": "dictation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Idempotency"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/clinic/v1/dictations/{dictation_id}/deliveries": {
+      "post": {
+        "operationId": "requestDelivery",
+        "summary": "Request export of an active frozen release",
+        "description": "Only managed channel. KIS mode DRAFT. UNKNOWN previous KIS effect blocks automatic retry and automatic DOCX/TEXT fallback. No bypass by changing target. DOCX/TEXT status GENERATED is not KIS CONFIRMED. Queue intent committed with audit. Repeating request uses same delivery.",
+        "x-trusted-channel": "managed",
+        "x-required-role-policy": "authorized export role on same dictation",
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Success; not proof of backup protection or clinical/vendor acceptance unless explicitly stated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Delivery"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "412": {
+            "$ref": "#/components/responses/412"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "423": {
+            "$ref": "#/components/responses/423"
+          },
+          "428": {
+            "$ref": "#/components/responses/428"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "parameters": [
+          {
+            "name": "dictation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Idempotency"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeliveryRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/clinic/v1/deliveries/{delivery_id}": {
+      "get": {
+        "operationId": "getDelivery",
+        "summary": "Read delivery ledger",
+        "description": "Policy is rechecked from underlying dictation/case, not just possession of UUID.",
+        "x-trusted-channel": "managed",
+        "x-required-role-policy": "object-specific clinic policy",
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success; not proof of backup protection or clinical/vendor acceptance unless explicitly stated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Delivery"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "412": {
+            "$ref": "#/components/responses/412"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "423": {
+            "$ref": "#/components/responses/423"
+          },
+          "428": {
+            "$ref": "#/components/responses/428"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "parameters": [
+          {
+            "name": "delivery_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/api/clinic/v1/deliveries/{delivery_id}/reconcile": {
+      "post": {
+        "operationId": "reconcileDelivery",
+        "summary": "Request safe lookup of uncertain external effect",
+        "description": "Lookup only; never blind resend. UNKNOWN remains until documented positive or authoritative absence evidence. Disabled adapter yields 503 without external effect.",
+        "x-trusted-channel": "managed",
+        "x-required-role-policy": "object-specific clinic policy",
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Success; not proof of backup protection or clinical/vendor acceptance unless explicitly stated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Delivery"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "412": {
+            "$ref": "#/components/responses/412"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "423": {
+            "$ref": "#/components/responses/423"
+          },
+          "428": {
+            "$ref": "#/components/responses/428"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "parameters": [
+          {
+            "name": "delivery_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Idempotency"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Reconcile"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/clinic/v1/deliveries/{delivery_id}/manual-evidence": {
+      "post": {
+        "operationId": "recordManualEvidence",
+        "summary": "Record deliberate manual placement verification",
+        "description": "Separate from download success. Must verify exact context/version and provide external document reference. Does not fabricate machine-confirmed KIS acknowledgement.",
+        "x-trusted-channel": "managed",
+        "x-required-role-policy": "pool_lead or explicitly delegated reconciliation role",
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success; not proof of backup protection or clinical/vendor acceptance unless explicitly stated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Delivery"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "412": {
+            "$ref": "#/components/responses/412"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "423": {
+            "$ref": "#/components/responses/423"
+          },
+          "428": {
+            "$ref": "#/components/responses/428"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "parameters": [
+          {
+            "name": "delivery_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Idempotency"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualEvidence"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/clinic/v1/deliveries/{delivery_id}/artifact": {
+      "get": {
+        "operationId": "downloadArtifact",
+        "summary": "Download generated DOCX/text via checked managed route",
+        "description": "No public presigned URL. Recheck original and case policy. File response uses no-store and safe generic filename, and audit. Only target DOCX/TEXT and state GENERATED/MANUAL_RECORDED.",
+        "x-trusted-channel": "managed",
+        "x-required-role-policy": "object-specific clinic policy",
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success; not proof of backup protection or clinical/vendor acceptance unless explicitly stated.",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "412": {
+            "$ref": "#/components/responses/412"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "423": {
+            "$ref": "#/components/responses/423"
+          },
+          "428": {
+            "$ref": "#/components/responses/428"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "parameters": [
+          {
+            "name": "delivery_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/api/clinic/v1/pools": {
+      "get": {
+        "operationId": "listPools",
+        "summary": "List only allowed pool names and capabilities",
+        "description": "ROUTE_OWN is not a staff-read capability. No foreign workload counts leaked.",
+        "x-trusted-channel": "managed|byod",
+        "x-required-role-policy": "object-specific clinic policy",
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success; not proof of backup protection or clinical/vendor acceptance unless explicitly stated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PoolList"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "412": {
+            "$ref": "#/components/responses/412"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "423": {
+            "$ref": "#/components/responses/423"
+          },
+          "428": {
+            "$ref": "#/components/responses/428"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "parameters": []
+      }
+    },
+    "/api/clinic/v1/context-grants": {
+      "post": {
+        "operationId": "createContextGrant",
+        "summary": "Trusted adapter requests opaque one-time grant",
+        "description": "Own application-side contract, not claimed ines API. KIS adapter must validate actual signed/backchannel manufacturer evidence before calling; mTLS KIS-specific service identity only, not agent. Raw payload cannot grant rights. Bind current user mapping and source. One-use <=60 seconds development.",
+        "x-trusted-channel": "kis-service",
+        "x-required-role-policy": "kis:context service scope",
+        "security": [
+          {
+            "machineMTLS": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success; not proof of backup protection or clinical/vendor acceptance unless explicitly stated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContextGrant"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "412": {
+            "$ref": "#/components/responses/412"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "423": {
+            "$ref": "#/components/responses/423"
+          },
+          "428": {
+            "$ref": "#/components/responses/428"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Idempotency"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContextGrantRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/clinic/v1/dictations/{dictation_id}/revisions/{revision_id}": {
+      "get": {
+        "operationId": "getRevisionContent",
+        "summary": "Managed editor only",
+        "description": "Managed editor only. Verify revision belongs to dictation and apply current case/role policy. Editing does not imply precise word alignment.",
+        "x-trusted-channel": "managed",
+        "x-required-role-policy": "current object and case policy",
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "dictation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "revision_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authorized content; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptContent"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        }
+      }
+    },
+    "/api/clinic/v1/dictations/{dictation_id}/audio/{original_version_id}": {
+      "get": {
+        "operationId": "streamAudio",
+        "summary": "Managed authorized player only",
+        "description": "Managed authorized player only. Source version must belong to dictation. Return validated playable derivative rather than raw encrypted DS2. Validate Range bounds and use same policy for 200/206. No public presigned URL. Reuse upstream audio service behind guard; no content serving from unprotected static directories.",
+        "x-trusted-channel": "managed",
+        "x-required-role-policy": "current object and case policy",
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "dictation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "original_version_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Range",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^bytes=[0-9]*-[0-9]*$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authorized playable audio; Cache-Control: no-store",
+            "content": {
+              "audio/wav": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          },
+          "206": {
+            "description": "Single authorized byte range with Content-Range and Accept-Ranges: bytes",
+            "content": {
+              "audio/wav": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "416": {
+            "description": "Unsatisfiable byte range"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "browserSession": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "session",
+        "description": "Clinical browser session after permitted local authentication or enabled, validated OIDC. Existing User.id, per-account login policy, revocable server-side session, CSRF and object policy required. Initial profile is local. This is an implementation requirement, not a claim about stock Speakr."
+      },
+      "machineMTLS": {
+        "type": "mutualTLS",
+        "description": "Verified at trusted ingress; immutable principal/scopes forwarded only by trusted proxy. Agent and KIS service have separate scopes."
+      }
+    },
+    "parameters": {
+      "Idempotency": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "description": "Scope: actor + operation + aggregate. Persist key and request hash atomically. Reuse with different payload => 409. Not a global audio deduplication key."
+      },
+      "IfMatch": {
+        "name": "If-Match",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "description": "Current opaque ETag. Stale => 412; absent => 428. Update state and audit in one transaction."
+      },
+      "Csrf": {
+        "name": "X-CSRFToken",
+        "in": "header",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "description": "Required on unsafe browser-session requests. Native mTLS requests have no browser cookies and are exempt. Missing/invalid browser token => 403."
+      }
+    },
+    "schemas": {
+      "Problem": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "type": "string",
+            "format": "uri-reference"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "status": {
+            "type": "integer",
+            "minimum": 400,
+            "maximum": 599
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "correlation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "detail": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "correlation_id"
+        ]
+      },
+      "SourceObservation": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "device_registry_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "source_namespace": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "source_recording_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 128
+          },
+          "claimed_author_code": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 128
+          },
+          "observed_completion": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "completed",
+              "unknown"
+            ]
+          },
+          "parser_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 128
+          },
+          "evidence_level": {
+            "type": "string",
+            "enum": [
+              "unverified",
+              "fixture",
+              "observed",
+              "validated"
+            ]
+          }
+        },
+        "required": [
+          "source_namespace",
+          "observed_completion",
+          "evidence_level"
+        ]
+      },
+      "BeginIngest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "source_kind": {
+            "type": "string",
+            "enum": [
+              "device",
+              "browser",
+              "manual_file",
+              "simulator"
+            ]
+          },
+          "source": {
+            "$ref": "#/components/schemas/SourceObservation"
+          },
+          "mime_type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "expected_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 134217728
+          },
+          "expected_sha256": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "context_grant": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 2048
+          }
+        },
+        "required": [
+          "request_id",
+          "source_kind",
+          "source",
+          "mime_type"
+        ]
+      },
+      "IngestReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "ingest_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "RECEIVING",
+              "FINALIZING",
+              "STORED",
+              "INVALID",
+              "QUARANTINED"
+            ]
+          },
+          "received_chunks": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "received_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sha256": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "dictation_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "durability": {
+            "type": "string",
+            "enum": [
+              "RECEIVED",
+              "STORED"
+            ]
+          },
+          "decode_state": {
+            "type": "string",
+            "enum": [
+              "NOT_STARTED",
+              "PENDING",
+              "VALID",
+              "INVALID"
+            ]
+          },
+          "completion": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "UNKNOWN",
+              "SUBMITTED"
+            ]
+          },
+          "author_state": {
+            "type": "string",
+            "enum": [
+              "UNRESOLVED",
+              "RESOLVED"
+            ]
+          },
+          "correlation_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "ingest_id",
+          "state",
+          "received_chunks",
+          "received_bytes",
+          "sha256",
+          "dictation_id",
+          "durability",
+          "decode_state",
+          "completion",
+          "author_state",
+          "correlation_id"
+        ]
+      },
+      "ChunkDigest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "sequence": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4194304
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "segment_index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "blob_index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "blob_part_index": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "sequence",
+          "bytes",
+          "sha256"
+        ]
+      },
+      "FinalizeIngest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "chunks": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 10000,
+            "items": {
+              "$ref": "#/components/schemas/ChunkDigest"
+            }
+          },
+          "total_bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 134217728
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "source_finished_reading": {
+            "type": "boolean"
+          },
+          "media_segments": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 128,
+            "items": {
+              "$ref": "#/components/schemas/MediaSegment"
+            }
+          }
+        },
+        "required": [
+          "chunks",
+          "total_bytes",
+          "sha256",
+          "source_finished_reading"
+        ]
+      },
+      "ResolveAuthor": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "author_user_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "device_assignment_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        },
+        "required": [
+          "author_user_id",
+          "reason"
+        ]
+      },
+      "Submit": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "original_version_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "completion_evidence": {
+            "type": "string",
+            "enum": [
+              "validated_device_eol",
+              "explicit_author_confirmation"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        },
+        "required": [
+          "original_version_id",
+          "completion_evidence"
+        ]
+      },
+      "ContextBind": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "grant": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        },
+        "required": [
+          "grant"
+        ]
+      },
+      "ContextView": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "context_revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "patient_display": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "case_display": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "source_system": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "verified_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "restricted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "context_revision_id",
+          "patient_display",
+          "case_display",
+          "source_system",
+          "verified_at",
+          "restricted"
+        ]
+      },
+      "Lease": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "dictation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "lease_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "generation": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "etag": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "dictation_id",
+          "lease_id",
+          "generation",
+          "expires_at",
+          "etag"
+        ]
+      },
+      "LeaseProof": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "lease_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "generation": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "lease_id",
+          "generation"
+        ]
+      },
+      "SaveRevision": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "lease_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "lease_generation": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "base_revision_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "original_version_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 1000000
+          },
+          "mark_corrected": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "lease_id",
+          "lease_generation",
+          "base_revision_id",
+          "original_version_id",
+          "text",
+          "mark_corrected"
+        ]
+      },
+      "Revision": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "dictation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "original_version_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "ASR",
+              "HUMAN"
+            ]
+          },
+          "text_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "etag": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "revision_id",
+          "dictation_id",
+          "original_version_id",
+          "kind",
+          "text_sha256",
+          "created_at",
+          "etag"
+        ]
+      },
+      "ReleaseRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "lease_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "lease_generation": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "original_version_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "transcript_revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "context_revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "document_type": {
+            "type": "string",
+            "enum": [
+              "progress_note",
+              "report",
+              "letter"
+            ]
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "PLATFORM_REVIEWED_KIS_DRAFT"
+            ]
+          },
+          "text_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "confirmed_content": {
+            "type": "boolean",
+            "const": true
+          },
+          "confirmed_context": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "lease_id",
+          "lease_generation",
+          "original_version_id",
+          "transcript_revision_id",
+          "context_revision_id",
+          "document_type",
+          "mode",
+          "text_sha256",
+          "confirmed_content",
+          "confirmed_context"
+        ]
+      },
+      "Release": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "release_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "dictation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "original_version_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "transcript_revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "context_revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "document_type": {
+            "type": "string",
+            "enum": [
+              "progress_note",
+              "report",
+              "letter"
+            ]
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "PLATFORM_REVIEWED_KIS_DRAFT"
+            ]
+          },
+          "payload_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "etag": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "release_id",
+          "dictation_id",
+          "original_version_id",
+          "transcript_revision_id",
+          "context_revision_id",
+          "document_type",
+          "mode",
+          "payload_sha256",
+          "created_at",
+          "etag"
+        ]
+      },
+      "DeliveryRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "release_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "target": {
+            "type": "string",
+            "enum": [
+              "DOCX",
+              "TEXT",
+              "KIS"
+            ]
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "DRAFT"
+            ]
+          }
+        },
+        "required": [
+          "release_id",
+          "target",
+          "mode"
+        ]
+      },
+      "Delivery": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "delivery_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "dictation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "release_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "target": {
+            "type": "string",
+            "enum": [
+              "DOCX",
+              "TEXT",
+              "KIS"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "GENERATED",
+              "CONFIRMED",
+              "UNKNOWN",
+              "FAILED",
+              "MANUAL_RECORDED"
+            ]
+          },
+          "external_document_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 256
+          },
+          "external_revision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 128
+          },
+          "payload_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_checked_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "artifact_available": {
+            "type": "boolean"
+          },
+          "error_code": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 80
+          }
+        },
+        "required": [
+          "delivery_id",
+          "dictation_id",
+          "release_id",
+          "target",
+          "state",
+          "external_document_id",
+          "external_revision",
+          "payload_sha256",
+          "created_at",
+          "last_checked_at",
+          "artifact_available",
+          "error_code"
+        ]
+      },
+      "Reconcile": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        },
+        "required": []
+      },
+      "ManualEvidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "external_document_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "checked_context_revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "confirmed_by_human": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "external_document_id",
+          "checked_context_revision_id",
+          "reason",
+          "confirmed_by_human"
+        ]
+      },
+      "Dictation": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "dictation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "author_user_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "pool_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ingest_state": {
+            "type": "string",
+            "enum": [
+              "STORED",
+              "INVALID",
+              "QUARANTINED"
+            ]
+          },
+          "submission_state": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "COMPLETION_UNKNOWN",
+              "SUBMITTED",
+              "WITHDRAWN"
+            ]
+          },
+          "context_state": {
+            "type": "string",
+            "enum": [
+              "CASE_UNRESOLVED",
+              "VERIFIED"
+            ]
+          },
+          "asr_state": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "RUNNING",
+              "SUCCEEDED",
+              "FAILED",
+              "SKIPPED"
+            ]
+          },
+          "review_state": {
+            "type": "string",
+            "enum": [
+              "QUEUED",
+              "IN_REVIEW",
+              "CORRECTED",
+              "APPROVAL_REQUIRED",
+              "APPROVED"
+            ]
+          },
+          "current_original_version_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "current_transcript_revision_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "current_context_revision_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "active_release_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "etag": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "dictation_id",
+          "author_user_id",
+          "pool_id",
+          "ingest_state",
+          "submission_state",
+          "context_state",
+          "asr_state",
+          "review_state",
+          "current_original_version_id",
+          "current_transcript_revision_id",
+          "current_context_revision_id",
+          "active_release_id",
+          "created_at",
+          "etag"
+        ]
+      },
+      "DictationList": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Dictation"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 1024
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ]
+      },
+      "Pool": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "pool_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "ROUTE_OWN",
+                "REVIEW",
+                "LEAD"
+              ]
+            }
+          }
+        },
+        "required": [
+          "pool_id",
+          "name",
+          "capabilities"
+        ]
+      },
+      "PoolList": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Pool"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "ContextGrantRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "source_system": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "subject_reference": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Trusted KIS actor reference scoped by source_system/tenant_reference. Resolve via explicit actor mapping to existing User.id. Not assumed to be an Entra/OIDC subject; local user sessions are supported."
+          },
+          "patient_reference": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "case_reference": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "tenant_reference": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "purpose": {
+            "type": "string",
+            "enum": [
+              "new_dictation",
+              "bind_existing"
+            ]
+          },
+          "nonce": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "source_system",
+          "subject_reference",
+          "patient_reference",
+          "case_reference",
+          "tenant_reference",
+          "purpose",
+          "nonce",
+          "expires_at"
+        ]
+      },
+      "ContextGrant": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "grant": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "single_use": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "grant",
+          "expires_at",
+          "single_use"
+        ]
+      },
+      "MediaSegment": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "segment_index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "recorder_instance_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "first_chunk_sequence": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "last_chunk_sequence": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "mime_type": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "closed": {
+            "type": "boolean"
+          },
+          "interruption": {
+            "type": "string",
+            "enum": [
+              "none",
+              "visibility",
+              "microphone",
+              "network",
+              "unknown"
+            ]
+          }
+        },
+        "required": [
+          "segment_index",
+          "recorder_instance_id",
+          "first_chunk_sequence",
+          "last_chunk_sequence",
+          "mime_type",
+          "closed",
+          "interruption"
+        ]
+      },
+      "TranscriptContent": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "revision": {
+            "$ref": "#/components/schemas/Revision"
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 1000000
+          },
+          "segments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "start_ms": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "end_ms": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "text": {
+                  "type": "string",
+                  "maxLength": 100000
+                },
+                "alignment_state": {
+                  "type": "string",
+                  "enum": [
+                    "ASR_ANCHOR",
+                    "EDITED_UNALIGNED"
+                  ]
+                }
+              },
+              "required": [
+                "start_ms",
+                "end_ms",
+                "text",
+                "alignment_state"
+              ]
+            }
+          }
+        },
+        "required": [
+          "revision",
+          "text",
+          "segments"
+        ]
+      }
+    },
+    "responses": {
+      "400": {
+        "description": "Malformed request",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Not authenticated",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "403": {
+        "description": "Not authorized or CSRF failure",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "404": {
+        "description": "Not found or concealed unauthorized object",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "409": {
+        "description": "Invariant/idempotency/state conflict",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "412": {
+        "description": "Stale ETag",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "413": {
+        "description": "Size/quota exceeded",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "415": {
+        "description": "Unsupported content type",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "422": {
+        "description": "Failed validation",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "423": {
+        "description": "Lease unavailable or fenced",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "428": {
+        "description": "Required precondition absent",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "429": {
+        "description": "Rate limit",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "503": {
+        "description": "CAPABILITY_UNAVAILABLE or temporary service failure",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      }
+    }
+  },
+  "x-contract-rules": {
+    "error_payload_no_patient_data": true,
+    "browser_csrf_required_on_unsafe_methods": true,
+    "content_access_requires_case_policy": true,
+    "idempotency_default_retention": "Development 7 days, production set by approved policy; delivery/source identity ledger retained independently.",
+    "text_hash_canonicalization": "UTF-8 of editor serialized plain text, LF line endings, Unicode NFC; no trimming or semantic rewriting. Document format version and this normalization version persist with release.",
+    "public_upstream_api": "All unclassified legacy routes denied in CLINIC_MODE.",
+    "development_mocks": "Enabled only in dev-mock profile. Production mock refusal is a required startup test."
+  },
+  "x-identity-contract": "identity-contract.json; existing guarded auth routes reused; not extra clinical login endpoints"
+}

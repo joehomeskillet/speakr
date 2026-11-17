@@ -1,0 +1,917 @@
+{
+  "version": "4.0-web",
+  "policy": "skip_external_blocked_task_continue_independent_work",
+  "tasks": [
+    {
+      "id": "S00",
+      "title": "Upstreambaseline, Build/Tests und Dependency-Lock",
+      "depends_on": [],
+      "requirements": [
+        "R-041",
+        "R-035",
+        "R-047"
+      ],
+      "tests": [
+        "T-035",
+        "T-051",
+        "T-057"
+      ],
+      "implementation_inputs": "Git-/Netzabruf und synthetische Konfiguration; keine Klinikfreigabe nötig.",
+      "deliverable": "Lock, tatsächliche Pfade, Buildresultat, route-map und Reuse-inventar.",
+      "status": "not_started",
+      "needs_production_access": false
+    },
+    {
+      "id": "S01",
+      "title": "Klinikmodus, zentrale ACL und Legacy-Bypass-Sperre",
+      "depends_on": [
+        "S00"
+      ],
+      "requirements": [
+        "R-042",
+        "R-048",
+        "R-050",
+        "R-011"
+      ],
+      "tests": [
+        "T-011",
+        "T-052",
+        "T-058",
+        "T-060",
+        "T-066"
+      ],
+      "implementation_inputs": "Synthetische User/Objekte.",
+      "deliverable": "Deny-by-default Endpointinventar und negative Zugriffschecks.",
+      "status": "not_started",
+      "needs_production_access": false
+    },
+    {
+      "id": "S02",
+      "title": "Original-/Receipt-/Queue-Integration und Recovery",
+      "depends_on": [
+        "S01"
+      ],
+      "requirements": [
+        "R-007",
+        "R-036",
+        "R-044",
+        "R-049"
+      ],
+      "tests": [
+        "T-007",
+        "T-036",
+        "T-054",
+        "T-059",
+        "T-068"
+      ],
+      "implementation_inputs": "Ordnerfixture, keine DS2-/Klinikhardware nötig.",
+      "deliverable": "Originalschutz, atomare Fachintents, bestehende Queue, fehlertoleranter Eingang.",
+      "status": "not_started",
+      "needs_production_access": false
+    },
+    {
+      "id": "S03",
+      "title": "Lokale Benutzerverwaltung, sichere Konten und vorbereitete Entra-Identität",
+      "depends_on": [
+        "S01"
+      ],
+      "requirements": [
+        "R-009",
+        "R-010",
+        "R-011",
+        "R-012",
+        "R-043",
+        "R-051",
+        "R-052",
+        "R-053",
+        "R-054",
+        "R-055",
+        "R-056",
+        "R-057",
+        "R-058",
+        "R-059",
+        "R-060",
+        "R-061",
+        "R-062"
+      ],
+      "tests": [
+        "T-009",
+        "T-011",
+        "T-012",
+        "T-052",
+        "T-053",
+        "T-066",
+        "T-071",
+        "T-072",
+        "T-073",
+        "T-074",
+        "T-075",
+        "T-076",
+        "T-077",
+        "T-078",
+        "T-079",
+        "T-080",
+        "T-081",
+        "T-082",
+        "T-083",
+        "T-084",
+        "T-085",
+        "T-086",
+        "T-087",
+        "T-088",
+        "T-089",
+        "T-090",
+        "T-091",
+        "T-092",
+        "T-093",
+        "T-094",
+        "T-095",
+        "T-096",
+        "T-097",
+        "T-098"
+      ],
+      "implementation_inputs": "Vorhandene Speakr-Auth/Adminfunktionen, lokale synthetische Konten und isolierte OIDC-Fixtures; weder Entra noch Keycloak/LDAP/SMTP benötigt.",
+      "deliverable": "Lokaler Benutzerlebenszyklus und Fachrechte, stabiles User-ID-Modell, deaktivierter vollständiger Entra-Adapter, sichere Link-/Reset-/Sessionregeln und Tests. Zusätzlich P01 getrennte Autoren-/Staff-Pools und Berechtigungsmatrix.",
+      "status": "not_started",
+      "needs_production_access": false
+    },
+    {
+      "id": "S04",
+      "title": "Editor/Lease/Version/Freigabe und DOCX/Text",
+      "depends_on": [
+        "S02",
+        "S03"
+      ],
+      "requirements": [
+        "R-017",
+        "R-018",
+        "R-019",
+        "R-020",
+        "R-021"
+      ],
+      "tests": [
+        "T-017",
+        "T-018",
+        "T-019",
+        "T-020",
+        "T-021",
+        "T-061",
+        "T-062"
+      ],
+      "implementation_inputs": "Synthetische Fälle und Audio.",
+      "deliverable": "Vorhandener Editor/Player/Documentservice plus klinische Guards.",
+      "status": "not_started",
+      "needs_production_access": false
+    },
+    {
+      "id": "S05",
+      "title": "MockKIS/DisabledAdapter, Kontext und Deliveryledger",
+      "depends_on": [
+        "S04"
+      ],
+      "requirements": [
+        "R-013",
+        "R-026",
+        "R-027",
+        "R-028",
+        "R-029",
+        "R-030",
+        "R-046"
+      ],
+      "tests": [
+        "T-013",
+        "T-026",
+        "T-027",
+        "T-028",
+        "T-029",
+        "T-030",
+        "T-056",
+        "T-063",
+        "T-065",
+        "T-069"
+      ],
+      "implementation_inputs": "Kein Herstellervertrag erforderlich für Mock.",
+      "deliverable": "Vollständiger synthetischer End-to-End-Fachablauf mit UNKNOWN-Abgleich.",
+      "status": "not_started",
+      "needs_production_access": false
+    },
+    {
+      "id": "S06",
+      "title": "Serverdecoder und lokale Speaches-ASR",
+      "depends_on": [
+        "S02"
+      ],
+      "requirements": [
+        "R-006",
+        "R-014",
+        "R-015",
+        "R-016",
+        "R-037",
+        "R-039"
+      ],
+      "tests": [
+        "T-006",
+        "T-014",
+        "T-015",
+        "T-016",
+        "T-037",
+        "T-039"
+      ],
+      "implementation_inputs": "WAV/CPU-Smoke; DS2-Realprüfung bleibt Gate.",
+      "deliverable": "Gepinnte lokale Pipeline, Parameter/Modellevidenz, manuelle Alternative. Batchfähigkeit nicht als Nachweis für Live/Training/Profilparität verwenden.",
+      "status": "not_started",
+      "needs_production_access": false
+    },
+    {
+      "id": "S07",
+      "title": "Windows-Agent mit Simulator und sichere Uploads",
+      "depends_on": [
+        "S02",
+        "S03"
+      ],
+      "requirements": [
+        "R-002",
+        "R-003",
+        "R-004",
+        "R-005",
+        "R-008"
+      ],
+      "tests": [
+        "T-002",
+        "T-003",
+        "T-004",
+        "T-005",
+        "T-008",
+        "T-063",
+        "T-067"
+      ],
+      "implementation_inputs": "Ordnersimulator; reale Geräte nach separatem Gate.",
+      "deliverable": ".NET10, Manifest, Spool, Dry-Run, mTLS, idempotenter Upload.",
+      "status": "not_started",
+      "needs_production_access": false
+    },
+    {
+      "id": "S08",
+      "title": "Vorhandenen Recorder für internes BYOD härten",
+      "depends_on": [
+        "S04"
+      ],
+      "requirements": [
+        "R-022",
+        "R-023",
+        "R-024",
+        "R-025",
+        "R-045"
+      ],
+      "tests": [
+        "T-022",
+        "T-023",
+        "T-024",
+        "T-025",
+        "T-055",
+        "T-064"
+      ],
+      "implementation_inputs": "Playwright und simulierte Fehler; echte Mobilgeräte separat.",
+      "deliverable": "Keine App-Persistenz, sichere Segmentfinalisierung und sichtbare Unterbrechungen.",
+      "status": "not_started",
+      "needs_production_access": false
+    },
+    {
+      "id": "S09",
+      "title": "Spätere Entra-/LDAP-Aktivierung und WebView-Profile",
+      "depends_on": [
+        "S03",
+        "S05"
+      ],
+      "requirements": [
+        "R-010",
+        "R-026",
+        "R-027"
+      ],
+      "tests": [
+        "T-010",
+        "T-026",
+        "T-027",
+        "T-069",
+        "T-070"
+      ],
+      "implementation_inputs": "Lokaler Betrieb bleibt unabhängig; echte Providerzugänge nur in separatem G-ENTRA/G-LDAP. Keine Klinik-Secrets im Chat anfordern.",
+      "deliverable": "Konfiguration, Trustgrenzen, Host-/Profiltests; keine erfundenen ines-Endpunkte.",
+      "status": "not_started",
+      "needs_production_access": false
+    },
+    {
+      "id": "S10",
+      "title": "Betrieb, Migrationstests, Lizenz/Source und Restore",
+      "depends_on": [
+        "S04",
+        "S05",
+        "S06",
+        "S07",
+        "S08"
+      ],
+      "requirements": [
+        "R-031",
+        "R-032",
+        "R-033",
+        "R-034",
+        "R-035",
+        "R-040",
+        "R-047"
+      ],
+      "tests": [
+        "T-031",
+        "T-032",
+        "T-033",
+        "T-034",
+        "T-035",
+        "T-040",
+        "T-057"
+      ],
+      "implementation_inputs": "Isolierte lokale Testumgebung.",
+      "deliverable": "Runbooks, Backup-/Restoreevidenz, signierbare Agentenpakete, Sourceangebot.",
+      "status": "not_started",
+      "needs_production_access": false
+    },
+    {
+      "id": "S11",
+      "title": "Reale Hardware/SSO/BYOD/Herstellerabnahme",
+      "depends_on": [
+        "S09",
+        "S10"
+      ],
+      "requirements": [
+        "R-001",
+        "R-002",
+        "R-018",
+        "R-023",
+        "R-028"
+      ],
+      "tests": [
+        "T-001",
+        "T-002",
+        "T-018",
+        "T-023",
+        "T-028"
+      ],
+      "implementation_inputs": "Erfordert die jeweiligen realen Gateinputs; unabhängige Entwicklung nicht stoppen.",
+      "deliverable": "Echte protokollierte Kompatibilität und finaler InesKisAdapter.",
+      "status": "not_started",
+      "needs_production_access": true
+    },
+    {
+      "id": "S12",
+      "title": "Pilotmigration und freigegebene Gesamtablösung",
+      "depends_on": [
+        "P13",
+        "S11"
+      ],
+      "requirements": [
+        "R-038",
+        "R-040"
+      ],
+      "tests": [
+        "T-038",
+        "T-040"
+      ],
+      "implementation_inputs": "Alle für den jeweiligen Freigabeumfang geltenden Gates plus ausdrückliche Ausführungsfreigabe; Entra-/LDAP-Gates nur vor ihrer jeweiligen Aktivierung. LDAP-Gesamtziel nicht gestrichen.",
+      "deliverable": "Vollständige Ablösung erst nach allen 101 PAR-Gates und den bisherigen Klinikgates; keine stille Teilablösung.",
+      "status": "not_started",
+      "needs_production_access": true
+    },
+    {
+      "id": "P00",
+      "title": "Paritätsinventar und frühe Fähigkeitsprüfungen",
+      "depends_on": [
+        "S00"
+      ],
+      "requirements": [
+        "V4-001",
+        "V4-002",
+        "V4-003"
+      ],
+      "tests": [
+        "X4-001",
+        "X4-002",
+        "X4-003",
+        "X4-012",
+        "X4-021",
+        "X4-022"
+      ],
+      "deliverable": "Quellkatalog, lokale-first Identity, Web-only-Grenze, offene WG und 101 MUST mit Tests validieren; keine Rohanalyseartefakte im Fork.",
+      "status": "not_started",
+      "needs_production_access": false,
+      "real_lab_evidence_required": false,
+      "no_routine_clarification": true
+    },
+    {
+      "id": "P01",
+      "title": "Autorenpools, Staff-Pools, Sicht-/Aktionsrechte, AD/SSO-Verträge",
+      "depends_on": [
+        "S03",
+        "P00"
+      ],
+      "requirements": [
+        "PAR-ADM-001",
+        "PAR-ADM-002",
+        "PAR-ADM-003",
+        "PAR-ADM-004",
+        "PAR-ADM-005",
+        "PAR-ADM-006",
+        "PAR-ADM-007",
+        "PAR-ADM-008",
+        "PAR-ADM-009",
+        "PAR-ADM-010",
+        "PAR-ADM-011",
+        "V4-011"
+      ],
+      "tests": [
+        "BT-ADM-001",
+        "BT-ADM-002",
+        "BT-ADM-003",
+        "BT-ADM-004",
+        "BT-ADM-005",
+        "BT-ADM-006",
+        "BT-ADM-007",
+        "BT-ADM-008",
+        "BT-ADM-009",
+        "BT-ADM-010",
+        "BT-ADM-011",
+        "X4-017",
+        "X4-018"
+      ],
+      "deliverable": "Lokale User/Mehrfachrollen; getrennte Pools, ACL-Ausnahmen, empfängerbasierte Verteilung; externe Authadapter vorbereitet, nicht erforderlich für lokalen Start.",
+      "status": "not_started",
+      "needs_production_access": false,
+      "real_lab_evidence_required": false,
+      "no_routine_clarification": true
+    },
+    {
+      "id": "P02",
+      "title": "Referenznaher Workflow und Arbeitslisten",
+      "depends_on": [
+        "S04",
+        "P01"
+      ],
+      "requirements": [
+        "PAR-WF-001",
+        "PAR-WF-002",
+        "PAR-WF-003",
+        "PAR-WF-004",
+        "PAR-WF-005",
+        "PAR-WF-006",
+        "PAR-WF-007",
+        "PAR-WF-008",
+        "PAR-WF-009",
+        "PAR-WF-010",
+        "PAR-WF-011",
+        "PAR-WF-012",
+        "PAR-WF-013",
+        "PAR-WF-014"
+      ],
+      "tests": [
+        "BT-WF-001",
+        "BT-WF-002",
+        "BT-WF-003",
+        "BT-WF-004",
+        "BT-WF-005",
+        "BT-WF-006",
+        "BT-WF-007",
+        "BT-WF-008",
+        "BT-WF-009",
+        "BT-WF-010",
+        "BT-WF-011",
+        "BT-WF-012",
+        "BT-WF-013",
+        "BT-WF-014"
+      ],
+      "deliverable": "11 UI-Zustandsbezeichnungen als Projektion, Freigabe/Rückgabe/Reopen, Filter/Layout/Mehrfachausgabe und konkurrierende Bearbeitung.",
+      "status": "not_started",
+      "needs_production_access": false,
+      "real_lab_evidence_required": false,
+      "no_routine_clarification": true
+    },
+    {
+      "id": "P03",
+      "title": "Webfähigkeiten und Clientgrenze früh nachweisen",
+      "depends_on": [
+        "S00",
+        "P00"
+      ],
+      "requirements": [
+        "V4-004",
+        "V4-005",
+        "V4-013",
+        "V4-014"
+      ],
+      "tests": [
+        "WB-001",
+        "WB-002",
+        "WB-003",
+        "WB-004",
+        "WB-005",
+        "WB-006",
+        "WB-007",
+        "WB-008",
+        "WB-009",
+        "WB-010",
+        "WB-011",
+        "WB-012",
+        "WB-013",
+        "WB-014",
+        "WB-015",
+        "WB-016",
+        "WB-017",
+        "WB-018",
+        "WB-019",
+        "WB-020",
+        "X4-005",
+        "X4-006",
+        "X4-009",
+        "X4-010",
+        "X4-011",
+        "X4-020"
+      ],
+      "deliverable": "Browserprofil-Slice mit MediaRecorder, Persistenz, Keyboard/WebHID, Export und vollständiger Agent-Verbotsliste; alle WG als offene Teilverträge. Kein nativer Companion.",
+      "status": "not_started",
+      "needs_production_access": false,
+      "real_lab_evidence_required": false,
+      "no_routine_clarification": true
+    },
+    {
+      "id": "P04",
+      "title": "Zentrale Vorgaben, Vorlagen, Metadaten und Regex",
+      "depends_on": [
+        "P01"
+      ],
+      "requirements": [
+        "PAR-CFG-001",
+        "PAR-CFG-002",
+        "PAR-CFG-003",
+        "PAR-CFG-004",
+        "PAR-CFG-005"
+      ],
+      "tests": [
+        "BT-CFG-001",
+        "BT-CFG-002",
+        "BT-CFG-003",
+        "BT-CFG-004",
+        "BT-CFG-005"
+      ],
+      "deliverable": "Serverkopien, gesperrte zentrale Werte, Kategorien, Vorschau und Anzeige; keine klinische Kontextableitung aus Regex.",
+      "status": "not_started",
+      "needs_production_access": false,
+      "real_lab_evidence_required": false,
+      "no_routine_clarification": true
+    },
+    {
+      "id": "P05",
+      "title": "Webrecorder, Offlineprofil und Audiorevisionen",
+      "depends_on": [
+        "P03",
+        "S04"
+      ],
+      "requirements": [
+        "PAR-REC-001",
+        "PAR-REC-002",
+        "PAR-REC-003",
+        "PAR-REC-004",
+        "PAR-REC-005",
+        "PAR-REC-006",
+        "PAR-REC-007",
+        "PAR-REC-008",
+        "V4-006"
+      ],
+      "tests": [
+        "BT-REC-001",
+        "BT-REC-002",
+        "BT-REC-003",
+        "BT-REC-004",
+        "BT-REC-005",
+        "BT-REC-006",
+        "BT-REC-007",
+        "BT-REC-008",
+        "X4-007",
+        "X4-024"
+      ],
+      "deliverable": "Speakr-Webrecorder erweitern: Insert/Overwrite/Trim/16 Undo, Bundle-Roundtrip, optional genehmigtes Managed-Web-Offlineprofil. BYOD bleibt ohne Persistenz.",
+      "status": "not_started",
+      "needs_production_access": false,
+      "real_lab_evidence_required": false,
+      "no_routine_clarification": true
+    },
+    {
+      "id": "P06",
+      "title": "Live-Diktat im Webeditor und lokales TTS",
+      "depends_on": [
+        "P03",
+        "P05",
+        "S06"
+      ],
+      "requirements": [
+        "PAR-LIVE-001",
+        "PAR-LIVE-002",
+        "PAR-LIVE-003",
+        "PAR-LIVE-004",
+        "PAR-LIVE-005",
+        "PAR-LIVE-006",
+        "PAR-LIVE-007",
+        "PAR-LIVE-008",
+        "V4-007"
+      ],
+      "tests": [
+        "BT-LIVE-001",
+        "BT-LIVE-002",
+        "BT-LIVE-003",
+        "BT-LIVE-004",
+        "BT-LIVE-005",
+        "BT-LIVE-006",
+        "BT-LIVE-007",
+        "BT-LIVE-008",
+        "X4-008"
+      ],
+      "deliverable": "Speaches-Realtime transcription-only; eigene Draft-/Phrase-/Textbindung, Richtext, TTS und Wiederanlauf. Native Fokus-/Fremdfensterteile als WG blockiert.",
+      "status": "not_started",
+      "needs_production_access": false,
+      "real_lab_evidence_required": false,
+      "no_routine_clarification": true
+    },
+    {
+      "id": "P07",
+      "title": "Import-Agent und Web-Importzentrale",
+      "depends_on": [
+        "S07",
+        "P01",
+        "S06"
+      ],
+      "requirements": [
+        "PAR-IMP-001",
+        "PAR-IMP-002",
+        "PAR-IMP-003",
+        "PAR-IMP-004",
+        "PAR-IMP-005",
+        "PAR-IMP-006",
+        "PAR-IMP-007",
+        "PAR-IMP-008",
+        "PAR-IMP-009",
+        "PAR-IMP-010",
+        "V4-010"
+      ],
+      "tests": [
+        "BT-IMP-001",
+        "BT-IMP-002",
+        "BT-IMP-003",
+        "BT-IMP-004",
+        "BT-IMP-005",
+        "BT-IMP-006",
+        "BT-IMP-007",
+        "BT-IMP-008",
+        "BT-IMP-009",
+        "BT-IMP-010",
+        "X4-004"
+      ],
+      "deliverable": "Agent auf Abholung begrenzen: Geräte/Ordner, Metadaten, Spool, Quittungen, eng begrenzte Quellenpflege. Bedienung/Zuordnung im Web. Konfiguration/Firmware nicht im Agent.",
+      "status": "not_started",
+      "needs_production_access": false,
+      "real_lab_evidence_required": false,
+      "no_routine_clarification": true
+    },
+    {
+      "id": "P08",
+      "title": "Korrekturparität und Audio/Text-Zuordnung",
+      "depends_on": [
+        "S04",
+        "P05"
+      ],
+      "requirements": [
+        "PAR-COR-001",
+        "PAR-COR-002",
+        "PAR-COR-003",
+        "PAR-COR-004",
+        "PAR-COR-005",
+        "PAR-COR-006",
+        "PAR-COR-007",
+        "PAR-COR-008",
+        "PAR-COR-009",
+        "PAR-COR-010"
+      ],
+      "tests": [
+        "BT-COR-001",
+        "BT-COR-002",
+        "BT-COR-003",
+        "BT-COR-004",
+        "BT-COR-005",
+        "BT-COR-006",
+        "BT-COR-007",
+        "BT-COR-008",
+        "BT-COR-009",
+        "BT-COR-010"
+      ],
+      "deliverable": "Satz-/Wortanker, Wellenform, Tempo, Tastatur-/Pedalmodi, Indizes, AGC, Wiederaufnahme ohne ASR am Schreibplatz.",
+      "status": "not_started",
+      "needs_production_access": false,
+      "real_lab_evidence_required": false,
+      "no_routine_clarification": true
+    },
+    {
+      "id": "P09",
+      "title": "Wortschatz, Befehle und Aussprachefälle",
+      "depends_on": [
+        "P01",
+        "P04",
+        "P06"
+      ],
+      "requirements": [
+        "PAR-VOC-001",
+        "PAR-VOC-002",
+        "PAR-VOC-003",
+        "PAR-VOC-004",
+        "PAR-VOC-005",
+        "PAR-VOC-006",
+        "PAR-VOC-007",
+        "PAR-VOC-008"
+      ],
+      "tests": [
+        "BT-VOC-001",
+        "BT-VOC-002",
+        "BT-VOC-003",
+        "BT-VOC-004",
+        "BT-VOC-005",
+        "BT-VOC-006",
+        "BT-VOC-007",
+        "BT-VOC-008"
+      ],
+      "deliverable": "Persönliche/Pool-/Negativ-/Vorbehaltslisten; Befehlsreihenfolge; realer Trainings-/Lexikonwirksamkeitsnachweis.",
+      "status": "not_started",
+      "needs_production_access": false,
+      "real_lab_evidence_required": false,
+      "no_routine_clarification": true
+    },
+    {
+      "id": "P10",
+      "title": "Profil- und Optimierungsparität",
+      "depends_on": [
+        "S06",
+        "P00"
+      ],
+      "requirements": [
+        "PAR-ASR-001",
+        "PAR-ASR-002",
+        "PAR-ASR-003",
+        "PAR-ASR-004",
+        "PAR-ASR-005",
+        "PAR-ASR-006",
+        "PAR-ASR-007",
+        "V4-008"
+      ],
+      "tests": [
+        "BT-ASR-001",
+        "BT-ASR-002",
+        "BT-ASR-003",
+        "BT-ASR-004",
+        "BT-ASR-005",
+        "BT-ASR-006",
+        "BT-ASR-007",
+        "X4-013",
+        "X4-014"
+      ],
+      "deliverable": "Frühen Capabilityspike sofort nach Abhängigkeiten ausführen; Quellen-/Live-/Batchprofile, Timeout und echte Optimierungsjobs. Lücke sichtbar bis gelöst.",
+      "status": "not_started",
+      "needs_production_access": false,
+      "real_lab_evidence_required": false,
+      "no_routine_clarification": true
+    },
+    {
+      "id": "P11",
+      "title": "Web-/Dateiausgabe und dokumentierte Schnittstellen",
+      "depends_on": [
+        "P03",
+        "P04",
+        "P08"
+      ],
+      "requirements": [
+        "PAR-EXP-001",
+        "PAR-EXP-002",
+        "PAR-EXP-003",
+        "PAR-EXP-004",
+        "PAR-EXP-005",
+        "PAR-EXP-006",
+        "PAR-EXP-007",
+        "PAR-EXP-008",
+        "PAR-EXP-009",
+        "PAR-EXP-010",
+        "V4-009"
+      ],
+      "tests": [
+        "BT-EXP-001",
+        "BT-EXP-002",
+        "BT-EXP-003",
+        "BT-EXP-004",
+        "BT-EXP-005",
+        "BT-EXP-006",
+        "BT-EXP-007",
+        "BT-EXP-008",
+        "BT-EXP-009",
+        "BT-EXP-010",
+        "X4-015",
+        "X4-016",
+        "X4-023"
+      ],
+      "deliverable": "DOCX/ODT/RTF/TXT/Clipboard/Audio-/Webbundle sowie KIS-Adapter. Keine COM/UNO-Clientsteuerung, Fensterautomation oder natives Word-Add-in. Unterschied zum Original BT dokumentieren.",
+      "status": "not_started",
+      "needs_production_access": false,
+      "real_lab_evidence_required": false,
+      "no_routine_clarification": true
+    },
+    {
+      "id": "P12",
+      "title": "Webhardware, Remoteabnahme und Statistik",
+      "depends_on": [
+        "P03",
+        "P02"
+      ],
+      "requirements": [
+        "PAR-OPS-001",
+        "PAR-OPS-002",
+        "PAR-OPS-003",
+        "PAR-OPS-004",
+        "PAR-OPS-005",
+        "PAR-OPS-006",
+        "PAR-OPS-007",
+        "PAR-OPS-008",
+        "PAR-OPS-009",
+        "PAR-OPS-010"
+      ],
+      "tests": [
+        "BT-OPS-001",
+        "BT-OPS-002",
+        "BT-OPS-003",
+        "BT-OPS-004",
+        "BT-OPS-005",
+        "BT-OPS-006",
+        "BT-OPS-007",
+        "BT-OPS-008",
+        "BT-OPS-009",
+        "BT-OPS-010"
+      ],
+      "deliverable": "Fokussierte Tastatureingaben und direktes WebHID pro Gerät prüfen; echte Browser-/RDP-/ICA-Matrix. Statistik UI+serverseitige CLI; kein lokaler Hotkey-/Traydienst.",
+      "status": "not_started",
+      "needs_production_access": false,
+      "real_lab_evidence_required": false,
+      "no_routine_clarification": true
+    },
+    {
+      "id": "P13",
+      "title": "101-facher Paritätsvergleich mit Webkonflikten",
+      "depends_on": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12",
+        "S11"
+      ],
+      "requirements": [
+        "V4-012",
+        "V4-013",
+        "V4-014"
+      ],
+      "tests": [
+        "WB-001",
+        "WB-002",
+        "WB-003",
+        "WB-004",
+        "WB-005",
+        "WB-006",
+        "WB-007",
+        "WB-008",
+        "WB-009",
+        "WB-010",
+        "WB-011",
+        "WB-012",
+        "WB-013",
+        "WB-014",
+        "WB-015",
+        "WB-016",
+        "WB-017",
+        "WB-018",
+        "WB-019",
+        "WB-020",
+        "X4-019"
+      ],
+      "deliverable": "Alle 101 Original-BT, 98 V3.2, 9 Grok und 44 V4/Webtests ausführen. Keine 1:1-Freigabe bei offenen WG; kein automatischer Scopeverzicht.",
+      "status": "not_started",
+      "needs_production_access": false,
+      "real_lab_evidence_required": true,
+      "no_routine_clarification": true
+    }
+  ],
+  "execution_policy": "S00 -> P00 + P03 early; independent tasks continue. Web-only and local-first fixed. Open WG blocks full parity, not allowed implementation."
+}

@@ -1,0 +1,56 @@
+{
+  "schema_version": 4,
+  "profile": "production",
+  "enabled": false,
+  "synthetic_only": false,
+  "clinical_mode": true,
+  "identity": {
+    "provider": "local",
+    "mode": "local",
+    "local_enabled": true,
+    "entra_enabled": false,
+    "configuration": "config/auth.local.example.json",
+    "tenant_id": null,
+    "client_id": null,
+    "secret_file": null,
+    "allowed_issuer": null,
+    "identity_security_signoff": null,
+    "local_admin_bootstrap_verified": false
+  },
+  "network": {
+    "managed_ingress": null,
+    "byod_ingress": null,
+    "agent_ingress": null,
+    "trusted_proxy_networks": [],
+    "certificate_trust_approved": false
+  },
+  "kis": {
+    "adapter": "disabled",
+    "manufacturer_contract_reference": null,
+    "runtime_profile_verified": false
+  },
+  "retention": {
+    "policy_reference": null,
+    "audio_days": null,
+    "transcript_days": null,
+    "audit_days": null,
+    "backup_days": null
+  },
+  "recovery": {
+    "rpo_by_failure_domain": null,
+    "rto_by_data_class": null,
+    "restore_evidence": null
+  },
+  "release": {
+    "document_workflow_signoff": null,
+    "privacy_security_signoff": null,
+    "service_owner": null,
+    "deputy": null
+  },
+  "approved_gates": [],
+  "instruction": "Local identity is the initial profile. Entra fields may remain null while disabled. Required local identity and clinical production gates still need evidence. Never request secrets in chat.",
+  "web_only": true,
+  "import_agent_only": true,
+  "full_parity_claim_allowed": false,
+  "approved_web_gap_changes": []
+}

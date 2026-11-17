@@ -1,0 +1,120 @@
+{
+  "version": "4.0-web",
+  "status": "implementation_contract_not_existing_upstream_api",
+  "architecture": "web_only",
+  "agent": "import_only",
+  "audio_edit": {
+    "source_immutable": true,
+    "interval": "half_open_samples",
+    "operations": [
+      "insert",
+      "overwrite",
+      "trim",
+      "undo",
+      "redo"
+    ],
+    "minimum_undo_steps": 16,
+    "revision_invalidation": [
+      "text_alignment",
+      "active_release"
+    ],
+    "deterministic_render_required": true
+  },
+  "live_events": {
+    "required": [
+      "session_id",
+      "generation",
+      "sequence",
+      "event_id",
+      "audio_revision_id",
+      "kind"
+    ],
+    "kinds": [
+      "partial",
+      "phrase_committed",
+      "audio_stored",
+      "interrupted",
+      "finalized",
+      "failed"
+    ],
+    "deduplicate": [
+      "session_id",
+      "generation",
+      "event_id"
+    ],
+    "server_saved_requires": [
+      "durable_audio",
+      "committed_text_metadata"
+    ],
+    "late_event_policy": "reject_old_generation_never_overwrite_human_revision"
+  },
+  "identity": {
+    "initial": "local",
+    "external": "disabled_prepared",
+    "reference": "existing_user.id",
+    "email_linking": false
+  },
+  "pool_types": [
+    "author_resource",
+    "staff_recipient"
+  ],
+  "scope_rule": {
+    "default": "own",
+    "explicit": [
+      "author_pool",
+      "all",
+      "explicit_users"
+    ],
+    "deny_precedence": true,
+    "clinical_case_acl_additional": true
+  },
+  "output": {
+    "modes": [
+      "working_copy",
+      "corrected",
+      "accepted",
+      "kis_draft"
+    ],
+    "binds": [
+      "dictation_id",
+      "audio_revision_id",
+      "text_revision_id",
+      "context_revision_id",
+      "content_hash",
+      "document_class"
+    ],
+    "status": [
+      "pending",
+      "confirmed",
+      "unknown",
+      "failed"
+    ],
+    "retry_unknown": false,
+    "download_is_kis_ack": false
+  },
+  "original_parity": {
+    "count": 101,
+    "must": true,
+    "auto_waiver": false,
+    "reference_status": "specified_not_observed"
+  },
+  "forbidden_agent_modules": [
+    "microphone_capture",
+    "audio_playback",
+    "transcription",
+    "text_editing",
+    "review_or_release",
+    "global_hotkeys",
+    "hid_control",
+    "foreign_window_lookup",
+    "send_input",
+    "clipboard",
+    "office_automation",
+    "firmware_flash",
+    "device_configuration_write",
+    "local_user_enumeration",
+    "credential_passthrough",
+    "generic_shell",
+    "arbitrary_file_proxy"
+  ]
+}

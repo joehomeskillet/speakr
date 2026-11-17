@@ -1,0 +1,190 @@
+{
+  "source_archive": "02_Originalartefakte/DnsComfort_Claude_Gesamtpaket(1).zip",
+  "source_archive_sha256": "83a006b0d278f3c3185e4372cb9242a4dd7756e54e43f3158e99413e7f8d3163",
+  "selected_files": [
+    {
+      "archive_member": "04_Claude_Build_Workspace/specs/feature_parity.json",
+      "path": "sources/dns-functional/specs/feature_parity.json",
+      "bytes": 268167,
+      "sha256": "5e7a3aca55a6f376fb3355fe248c1a9e5f97475c3fd4214b11b4dd3766522cfc",
+      "kind": "functional_spec_or_synthetic_fixture"
+    },
+    {
+      "archive_member": "04_Claude_Build_Workspace/specs/behavior_tests.json",
+      "path": "sources/dns-functional/specs/behavior_tests.json",
+      "bytes": 140225,
+      "sha256": "7f43470d6a5211b218a861cc00887548ca502f1f19246bdff591f4f3004c12c8",
+      "kind": "functional_spec_or_synthetic_fixture"
+    },
+    {
+      "archive_member": "04_Claude_Build_Workspace/specs/feature_parity.csv",
+      "path": "sources/dns-functional/specs/feature_parity.csv",
+      "bytes": 50376,
+      "sha256": "a514909b40e8cde4e5c5e37373f9567699edfcdade80d77c506c6a75f508cf9c",
+      "kind": "functional_spec_or_synthetic_fixture"
+    },
+    {
+      "archive_member": "04_Claude_Build_Workspace/contracts/status_catalog.json",
+      "path": "sources/dns-functional/contracts/status_catalog.json",
+      "bytes": 1716,
+      "sha256": "dd1191feaeb1d4a918b772ddd7bac139b55a5ce3cbbc5a946ca42ca51fdb95e1",
+      "kind": "functional_spec_or_synthetic_fixture"
+    },
+    {
+      "archive_member": "04_Claude_Build_Workspace/fixtures/README.md",
+      "path": "sources/dns-functional/fixtures/README.md",
+      "bytes": 1526,
+      "sha256": "927aa45897c5cab3fd92000f316ee9d43c9178a4e838e42a9e8db58311a09705",
+      "kind": "functional_spec_or_synthetic_fixture"
+    },
+    {
+      "archive_member": "04_Claude_Build_Workspace/state/open_questions.json",
+      "path": "sources/dns-functional/state/open_questions.json",
+      "bytes": 5910,
+      "sha256": "4cd524218a6517ba2e80ed19e54f6b6d81cef4d979e7736c793106d57126817b",
+      "kind": "functional_spec_or_synthetic_fixture"
+    },
+    {
+      "archive_member": "04_Claude_Build_Workspace/fixtures/generated/synthetic_state.json",
+      "path": "sources/dns-functional/fixtures/generated/synthetic_state.json",
+      "bytes": 3437,
+      "sha256": "5e39dd31e45b58da9a0774ce795998a5e35266814eeef900e72b197f0527201f",
+      "kind": "functional_spec_or_synthetic_fixture"
+    },
+    {
+      "archive_member": "04_Claude_Build_Workspace/fixtures/generated/audio/empty.bin",
+      "path": "sources/dns-functional/fixtures/generated/audio/empty.bin",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "kind": "functional_spec_or_synthetic_fixture"
+    },
+    {
+      "archive_member": "04_Claude_Build_Workspace/fixtures/generated/audio/tone_16k_mono.wav",
+      "path": "sources/dns-functional/fixtures/generated/audio/tone_16k_mono.wav",
+      "bytes": 128044,
+      "sha256": "feff9d395923406c47e43980fa3c41aced4f47d9c44ef52484c799f9e1923eff",
+      "kind": "functional_spec_or_synthetic_fixture"
+    },
+    {
+      "archive_member": "04_Claude_Build_Workspace/fixtures/generated/audio/truncated_wav.bin",
+      "path": "sources/dns-functional/fixtures/generated/audio/truncated_wav.bin",
+      "bytes": 28,
+      "sha256": "d02b1e3ebba40e65b299e948f2d7f508de856ddf9ccd9c7efa73d2387569f3c3",
+      "kind": "functional_spec_or_synthetic_fixture"
+    },
+    {
+      "archive_member": "04_Claude_Build_Workspace/fixtures/generated/audio/tone_48k_stereo.wav",
+      "path": "sources/dns-functional/fixtures/generated/audio/tone_48k_stereo.wav",
+      "bytes": 768044,
+      "sha256": "3664569deb86d72028bb00e08dfb76ccbbe7a755fa0b6b338ba8e1872963fd9e",
+      "kind": "functional_spec_or_synthetic_fixture"
+    },
+    {
+      "archive_member": "04_Claude_Build_Workspace/fixtures/generated/audio/silence_16k_mono.wav",
+      "path": "sources/dns-functional/fixtures/generated/audio/silence_16k_mono.wav",
+      "bytes": 96044,
+      "sha256": "d303811b8c84619667cd0501342f84ec6cbe69f7aa3856dcf52fabda374c92b8",
+      "kind": "functional_spec_or_synthetic_fixture"
+    },
+    {
+      "archive_member": "04_Claude_Build_Workspace/evidence/manual/04_live.json",
+      "path": "sources/dns-functional/evidence/manual/04_live.json",
+      "bytes": 21726,
+      "sha256": "d9785295e4eced91d2b824c4f2e42573f64aaeaf4d2c044b0144bd75f4000b6f",
+      "kind": "functional_spec_or_synthetic_fixture"
+    },
+    {
+      "archive_member": "04_Claude_Build_Workspace/evidence/manual/05_imp.json",
+      "path": "sources/dns-functional/evidence/manual/05_imp.json",
+      "bytes": 28615,
+      "sha256": "818801940ecaef1ed249a26b011ecfb659810a2f05e55e9f13281036c029a42b",
+      "kind": "functional_spec_or_synthetic_fixture"
+    },
+    {
+      "archive_member": "04_Claude_Build_Workspace/evidence/manual/01_adm.json",
+      "path": "sources/dns-functional/evidence/manual/01_adm.json",
+      "bytes": 29253,
+      "sha256": "326dd46ce7b636b7ae8c460d07b2281d937fa44fcf7a14c63be33b3e1e0aac46",
+      "kind": "functional_spec_or_synthetic_fixture"
+    },
+    {
+      "archive_member": "04_Claude_Build_Workspace/evidence/manual/index.json",
+      "path": "sources/dns-functional/evidence/manual/index.json",
+      "bytes": 8877,
+      "sha256": "0b1d746eff8ea19474ae60ee79b2e3fa342d8acbdc7c43543c990175c1f4b26b",
+      "kind": "functional_spec_or_synthetic_fixture"
+    },
+    {
+      "archive_member": "04_Claude_Build_Workspace/evidence/manual/02_cfg.json",
+      "path": "sources/dns-functional/evidence/manual/02_cfg.json",
+      "bytes": 14127,
+      "sha256": "84ddc7fc4caeda29946ab2528a381ddbc54ff398ff359001d0f96ab79df592ce",
+      "kind": "functional_spec_or_synthetic_fixture"
+    },
+    {
+      "archive_member": "04_Claude_Build_Workspace/evidence/manual/03_rec.json",
+      "path": "sources/dns-functional/evidence/manual/03_rec.json",
+      "bytes": 21862,
+      "sha256": "1ab1c7d29df339d3259b0b60cf4307524bb21f9d5ae1770f959e949493e340ee",
+      "kind": "functional_spec_or_synthetic_fixture"
+    },
+    {
+      "archive_member": "04_Claude_Build_Workspace/evidence/manual/10_exp.json",
+      "path": "sources/dns-functional/evidence/manual/10_exp.json",
+      "bytes": 26206,
+      "sha256": "6fd7b3371a21b264477059ab1a6faaa3e125d33d63ded532b5d25e468c143eca",
+      "kind": "functional_spec_or_synthetic_fixture"
+    },
+    {
+      "archive_member": "04_Claude_Build_Workspace/evidence/manual/08_voc.json",
+      "path": "sources/dns-functional/evidence/manual/08_voc.json",
+      "bytes": 22372,
+      "sha256": "3bdf6a76bc4f5d21e78492ed5e9d8302faceaea4eeb12a678dfc05c66ec5f435",
+      "kind": "functional_spec_or_synthetic_fixture"
+    },
+    {
+      "archive_member": "04_Claude_Build_Workspace/evidence/manual/11_ops.json",
+      "path": "sources/dns-functional/evidence/manual/11_ops.json",
+      "bytes": 27973,
+      "sha256": "5d9421137ed5759335186bba82a4eac1983a0796ff9466d3b8dbb58f2f80aa1e",
+      "kind": "functional_spec_or_synthetic_fixture"
+    },
+    {
+      "archive_member": "04_Claude_Build_Workspace/evidence/manual/09_asr.json",
+      "path": "sources/dns-functional/evidence/manual/09_asr.json",
+      "bytes": 20444,
+      "sha256": "53057573e2268e83fcf9183b32d287cc4e29a0302df221702e75de03e61a5f39",
+      "kind": "functional_spec_or_synthetic_fixture"
+    },
+    {
+      "archive_member": "04_Claude_Build_Workspace/evidence/manual/00_scope.json",
+      "path": "sources/dns-functional/evidence/manual/00_scope.json",
+      "bytes": 6672,
+      "sha256": "7367661a57c2db7bc78fe3052ec4396c02e7bc8c64dbd76a371b4d728a684777",
+      "kind": "functional_spec_or_synthetic_fixture"
+    },
+    {
+      "archive_member": "04_Claude_Build_Workspace/evidence/manual/06_wf.json",
+      "path": "sources/dns-functional/evidence/manual/06_wf.json",
+      "bytes": 37065,
+      "sha256": "f36e0daaf5b62c05578c1a65066b678dba8e0d8e64fcd3b77c4de917875cc0b4",
+      "kind": "functional_spec_or_synthetic_fixture"
+    },
+    {
+      "archive_member": "04_Claude_Build_Workspace/evidence/manual/07_cor.json",
+      "path": "sources/dns-functional/evidence/manual/07_cor.json",
+      "bytes": 26207,
+      "sha256": "93392a2a0d8e61b7733934001bfe53ec3cfd9a0533d3f08b48b75bdfac700688",
+      "kind": "functional_spec_or_synthetic_fixture"
+    }
+  ],
+  "excluded_from_build": [
+    "vendor binaries",
+    "vendor database",
+    "decompiled source",
+    "Ghidra projects",
+    "raw resource dumps",
+    "original manual PDF"
+  ],
+  "note": "Technical separation; no claim of legal certification. Existing source drafts retain original wording and source evidence grade."
+}

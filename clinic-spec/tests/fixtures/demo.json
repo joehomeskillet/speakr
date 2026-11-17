@@ -1,0 +1,147 @@
+{
+  "synthetic_only": true,
+  "tenant": "SYNTHETIC-SUEDHANG-DEV",
+  "users": [
+    {
+      "id": "author-a",
+      "email": "author-a@example.invalid",
+      "roles": [
+        "author",
+        "approver"
+      ],
+      "default_pool": "pool-1",
+      "staff_pools": [],
+      "account_status": "active",
+      "login_policy": "local_only",
+      "credentials": "generated_locally_not_in_fixture"
+    },
+    {
+      "id": "author-b",
+      "email": "author-b@example.invalid",
+      "roles": [
+        "author"
+      ],
+      "default_pool": "pool-1",
+      "staff_pools": [],
+      "account_status": "active",
+      "login_policy": "local_only",
+      "credentials": "generated_locally_not_in_fixture"
+    },
+    {
+      "id": "writer-a",
+      "email": "writer-a@example.invalid",
+      "roles": [
+        "writer"
+      ],
+      "staff_pools": [
+        "pool-1"
+      ],
+      "account_status": "active",
+      "login_policy": "local_only",
+      "credentials": "generated_locally_not_in_fixture"
+    },
+    {
+      "id": "writer-b",
+      "email": "writer-b@example.invalid",
+      "roles": [
+        "writer"
+      ],
+      "staff_pools": [
+        "pool-2"
+      ],
+      "account_status": "active",
+      "login_policy": "local_only",
+      "credentials": "generated_locally_not_in_fixture"
+    },
+    {
+      "id": "lead-a",
+      "email": "lead-a@example.invalid",
+      "roles": [
+        "pool_lead"
+      ],
+      "staff_pools": [
+        "pool-1"
+      ],
+      "account_status": "active",
+      "login_policy": "local_only",
+      "credentials": "generated_locally_not_in_fixture"
+    },
+    {
+      "id": "tech-admin",
+      "email": "admin@example.invalid",
+      "roles": [
+        "technical_admin",
+        "user_admin",
+        "identity_admin",
+        "role_admin"
+      ],
+      "staff_pools": [],
+      "account_status": "active",
+      "login_policy": "local_only",
+      "credentials": "generated_locally_not_in_fixture"
+    }
+  ],
+  "pools": [
+    {
+      "id": "pool-1",
+      "name": "Demo-Schreibpool 1"
+    },
+    {
+      "id": "pool-2",
+      "name": "Demo-Schreibpool 2"
+    }
+  ],
+  "cases": [
+    {
+      "patient_id": "DEMO-PAT-001",
+      "case_id": "DEMO-CASE-001",
+      "restricted": false
+    },
+    {
+      "patient_id": "DEMO-PAT-002",
+      "case_id": "DEMO-CASE-002",
+      "restricted": true
+    }
+  ],
+  "source_scenarios": [
+    "draft",
+    "complete",
+    "completion_unknown",
+    "shared_author_unknown",
+    "reopened",
+    "duplicate",
+    "changed_bytes",
+    "malformed",
+    "encrypted_key_missing"
+  ],
+  "kis_scenarios": [
+    "success",
+    "reject_before_write",
+    "write_then_timeout",
+    "lookup_absent",
+    "lookup_unknown",
+    "context_replay",
+    "context_expired"
+  ],
+  "secret_policy": "Generate random local dev secrets into ignored files; never commit fixed operational passwords.",
+  "identifier_policy": {
+    "id_fields_are": "human-readable fixture aliases, not literal UUID wire values",
+    "public_uuid_namespace": "78a61727-658a-4df2-b44f-d3ef75d26f98",
+    "public_uuid_rule": "UUIDv5(namespace, alias); existing upstream user IDs remain ORM-native strings/integers",
+    "role_codes": [
+      "author",
+      "writer",
+      "pool_lead",
+      "approver",
+      "technical_admin",
+      "user_admin",
+      "identity_admin",
+      "role_admin"
+    ]
+  },
+  "auth_profiles": {
+    "default": "local",
+    "entra_enabled": false,
+    "separate_oidc_fixture_profile": "hybrid-test-only"
+  }
+}

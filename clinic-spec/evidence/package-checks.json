@@ -1,0 +1,24 @@
+{
+  "scope": "Specification/integrity only; not application, hardware, medical, KIS or parity validation.",
+  "status": "passed",
+  "passed_check_count": 1979,
+  "errors": [],
+  "counts": {
+    "original_artifacts": 24,
+    "dns_archive_entries": 1467,
+    "requirements": 177,
+    "tests": 252,
+    "original_parity_functions": 101,
+    "original_behavior_tests": 101,
+    "tasks": 27,
+    "open_web_clause_conflicts": 13,
+    "test_states": {
+      "not_run": 252
+    }
+  },
+  "product_tests_executed": false,
+  "full_parity_validated": false,
+  "production_approved": false,
+  "executed_on": "2026-11-17",
+  "source_archive_crc_and_original_hashes_checked": true
+}

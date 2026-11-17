@@ -1,0 +1,2774 @@
+{
+  "version": "4.0-web",
+  "status": "specified_not_implemented",
+  "phases": {
+    "A": "Kernworkflow-Pilot",
+    "B": "BYOD-Freigabe",
+    "C": "inesKIS-Integration",
+    "D": "Gesamtablösung"
+  },
+  "requirements": [
+    {
+      "id": "R-001",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Ist-Funktionsumfang",
+      "requirement": "101 unverändert übernommene PAR-Funktionsverträge zusätzlich zu den bisherigen Anforderungen vollständig als MUST nachbilden; keine stille Streichung oder automatische N/A-Freigabe.",
+      "acceptance": "101 PAR→BT→Implementierungs-/Referenzevidenz-Verknüpfungen vorhanden; vollständige Ablösung erst mit bestandenem Paritätsgate.",
+      "tests": [
+        "T-001"
+      ],
+      "v1_references": "FR-001..030",
+      "status": "specified_not_validated",
+      "revised_in": "4.0",
+      "mandatory": true
+    },
+    {
+      "id": "R-002",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Gerätekompatibilität",
+      "requirement": "LFH/DPM9600 und 9620 werden pro eingesetzter Firmware, Dock und Konfiguration geprüft.",
+      "acceptance": "Je produktiv erlaubter Kombination liegt ein Hardwareprotokoll vor; gesperrter Massenspeicher bleibt sichtbarer Blocker.",
+      "tests": [
+        "T-002"
+      ],
+      "v1_references": "FR-001",
+      "status": "specified_not_validated",
+      "mandatory": true
+    },
+    {
+      "id": "R-003",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Abschluss getrennt von Stabilität",
+      "requirement": "Technische Stabilität und fachlicher Abschluss getrennt. Autosend besitzt expliziten EOL-Filter, default an; bewusst autorisiertes Abschalten gemäss PAR-IMP-004, nie EOL aus Dateizeit ableiten.",
+      "acceptance": "EOL an/off/Autosend off und unbekannter Autor getestet; technische Stabilität nie als Abschlussnachweis ausgegeben.",
+      "tests": [
+        "T-003",
+        "T-063"
+      ],
+      "v1_references": "FR-003",
+      "status": "specified_not_validated",
+      "revised_in": "4.0",
+      "mandatory": true
+    },
+    {
+      "id": "R-004",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Quellen- und Versionsidentität",
+      "requirement": "Retries sind idempotent; nachträgliche Aufnahmeänderungen überschreiben keine vorhandene Version.",
+      "acceptance": "Wiederholtes Docking liefert denselben Auftrag; geänderte Quelle erzeugt einen verknüpften Revisionsfall.",
+      "tests": [
+        "T-004",
+        "T-067"
+      ],
+      "v1_references": "FR-004",
+      "status": "specified_not_validated",
+      "mandatory": true
+    },
+    {
+      "id": "R-005",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Autorbezug",
+      "requirement": "Gerätebindung, Header-Autor und geteilte Nutzung werden getrennt bewertet.",
+      "acceptance": "Widersprüchliche oder fehlende Zuordnung bleibt gesperrt; Windows-Login und Stimme sind kein stiller Ersatz.",
+      "tests": [
+        "T-005"
+      ],
+      "v1_references": "FR-006",
+      "status": "specified_not_validated",
+      "mandatory": true
+    },
+    {
+      "id": "R-006",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Original und Metadaten",
+      "requirement": "Originalbytes, Hash, Quellmetadaten und Importversion bleiben nachvollziehbar erhalten.",
+      "acceptance": "Instruktions-/Hauptaudio, Priorität, EOL und Verschlüsselung werden getrennt nachgewiesen oder als nicht unterstützt markiert.",
+      "tests": [
+        "T-006"
+      ],
+      "v1_references": "FR-007",
+      "status": "specified_not_validated",
+      "mandatory": true
+    },
+    {
+      "id": "R-007",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Quittierung und Quelllöschung",
+      "requirement": "Serverquittung erfordert dauerhaftes Objekt und committed Metadaten. Konfigurierbare Gerätequelllöschung implementieren, im Pilot standardmässig aus; getrennte Freigabe und Quellversionscheck vor Löschung.",
+      "acceptance": "PAR-IMP-005 mit on/off/Netzabbruch/Quellwechsel; unbestätigte oder veränderte Quelle bleibt erhalten.",
+      "tests": [
+        "T-007",
+        "T-054"
+      ],
+      "v1_references": "FR-005",
+      "status": "specified_not_validated",
+      "revised_in": "4.0",
+      "mandatory": true
+    },
+    {
+      "id": "R-008",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Agentensicherheit",
+      "requirement": "Signierter Agent mit .NET 10 LTS, minimalen Rechten, verschlüsseltem begrenztem Spool und widerrufbarer Maschinenidentität.",
+      "acceptance": "Installation/Update über genehmigten Verteilweg; Standardnutzerbetrieb; Widerruf und Zertifikatswechsel getestet.",
+      "tests": [
+        "T-008"
+      ],
+      "v1_references": "FR-002,FR-030",
+      "status": "specified_not_validated",
+      "mandatory": true
+    },
+    {
+      "id": "R-009",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Lokale Anmeldung zuerst, SSO vorbereitet",
+      "requirement": "Erster Betriebsmodus verwendet lokale Speakr-Konten ohne Entra/Keycloak/LDAP/SMTP. Entra-OIDC wird vollständig vorbereitet, deaktiviert ausgeliefert und isoliert getestet; spätere hybride Anmeldung nutzt dieselbe interne user.id.",
+      "acceptance": "Lokaler Start und Fachablauf ohne IdP; keine Provider-Netzaufrufe bei deaktiviertem Entra; geschützte Sessions und spätere explizite Verknüpfung nachgewiesen.",
+      "tests": [
+        "T-009",
+        "T-053",
+        "T-071",
+        "T-082"
+      ],
+      "v1_references": "FR-010",
+      "status": "specified_not_validated",
+      "mandatory": true
+    },
+    {
+      "id": "R-010",
+      "phase": "D",
+      "priority": "P0",
+      "title": "LDAP-Fähigkeit",
+      "requirement": "LDAP/AD kann über eine unterstützte IdP-Föderation angebunden werden; klinische App speichert keine AD-Passwörter.",
+      "acceptance": "Geforderte Betriebsvariante ist getestet; optionale zweite Variante wird nicht ohne Test als unterstützt bezeichnet.",
+      "tests": [
+        "T-010",
+        "T-070"
+      ],
+      "v1_references": "FR-010",
+      "status": "specified_not_validated",
+      "mandatory": true
+    },
+    {
+      "id": "R-011",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Objektberechtigungen",
+      "requirement": "Default Autor nur eigene Aufträge. Explizite Autor-Sichtbereiche own/author_pool/all, Staff-Zugriff nach Autor/Autorenpool/all mit deny-Ausnahmen und Aktionsrechten; klinische Fallrestriktionen zusätzlich.",
+      "acceptance": "Listen/Suche/Direktzugriff/Medien/Export nutzen dieselbe zentrale Policy; weder Staff-Pool noch Autorenpool allein verleihen ungeprüfte Rechte.",
+      "tests": [
+        "T-011",
+        "T-052",
+        "T-066"
+      ],
+      "v1_references": "FR-011,FR-029",
+      "status": "specified_not_validated",
+      "revised_in": "4.0",
+      "mandatory": true
+    },
+    {
+      "id": "R-012",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Routing",
+      "requirement": "Autorenpools und Schreibkraftpools getrennt; versionierte Routingregeln zu all_eligible/person/staff_pool, erlaubte Overrides und Selbstkorrektur ohne Schreibkräfte.",
+      "acceptance": "PAR-ADM-002..007, Mehrfachmitgliedschaften/Ausnahmen/Defaults und historische Routingstände geprüft.",
+      "tests": [
+        "T-012",
+        "T-066"
+      ],
+      "v1_references": "FR-012",
+      "status": "specified_not_validated",
+      "revised_in": "4.0",
+      "mandatory": true
+    },
+    {
+      "id": "R-013",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Patient/Fall",
+      "requirement": "Aufnahme, Autor, Schreibpool, Patient und Fall sind eigenständige Zuordnungen mit Herkunftsnachweis.",
+      "acceptance": "Unbekannter Fall führt zu Klärung, nicht zu KI-Zuordnung; Export ohne verifizierte Bindung ist blockiert.",
+      "tests": [
+        "T-013"
+      ],
+      "v1_references": "FR-017",
+      "status": "specified_not_validated",
+      "mandatory": true
+    },
+    {
+      "id": "R-014",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Lokale ASR",
+      "requirement": "Audio-/Textinhalte und ASR-Verarbeitung verbleiben in freigegebener Klinik-Infrastruktur.",
+      "acceptance": "Worker läuft mit bereits bereitgestellten Modellen ohne Internet-Egress; keine Patientendaten in externen Logs.",
+      "tests": [
+        "T-014"
+      ],
+      "v1_references": "FR-013",
+      "status": "specified_not_validated",
+      "mandatory": true
+    },
+    {
+      "id": "R-015",
+      "phase": "A",
+      "priority": "P0",
+      "title": "ASR-Nachweis",
+      "requirement": "Modell, Decoder, Parameter, Sprache und Derivatversion werden pro Lauf versioniert.",
+      "acceptance": "Qualität und Korrekturzeit werden am freigegebenen Testsatz gemessen; Reprozessierung überschreibt keinen korrigierten Text.",
+      "tests": [
+        "T-015"
+      ],
+      "v1_references": "FR-013,FR-026",
+      "status": "specified_not_validated",
+      "mandatory": true
+    },
+    {
+      "id": "R-016",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Manueller Arbeitsweg",
+      "requirement": "Bei ASR-Ausfall bleiben Originalaudio und manuelle Abschrift verfügbar, sofern das Audio selbst validiert ist.",
+      "acceptance": "GPU-/Worker-Ausfall blockiert nicht die manuelle Bearbeitung; defektes Audio bleibt Fehlerfall.",
+      "tests": [
+        "T-016"
+      ],
+      "v1_references": "FR-015",
+      "status": "specified_not_validated",
+      "mandatory": true
+    },
+    {
+      "id": "R-017",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Editor und Konflikte",
+      "requirement": "Editor bietet Audio, Zeitposition, Geschwindigkeit, Autosave, Versionskontrolle und zeitlich begrenzte Bearbeitungsübernahme.",
+      "acceptance": "Zwei Schreibkräfte können sich nicht still überschreiben; Lease-Verlust verhindert veraltete Schreibzugriffe.",
+      "tests": [
+        "T-017",
+        "T-062"
+      ],
+      "v1_references": "FR-015,FR-016",
+      "status": "specified_not_validated",
+      "mandatory": true
+    },
+    {
+      "id": "R-018",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Arbeitsplatzergonomie im Browser",
+      "requirement": "Originale Pedal-/Mikrofon-/Hotkey-Forderungen erhalten. Webbedienung über Browser-Tastatur/WebHID nach Nachweis; fehlende globale/nativ erforderliche Funktion bleibt offener Paritätskonflikt.",
+      "acceptance": "V4-Webgrenzen und zugeordnete Tests nachgewiesen; offene Browser-/Hersteller-/Paritätskonflikte nicht als bestanden darstellen.",
+      "tests": [
+        "T-018"
+      ],
+      "v1_references": "FR-027",
+      "status": "specified_not_validated",
+      "revised_in": "4.0",
+      "mandatory": true
+    },
+    {
+      "id": "R-019",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Freigabeverantwortung",
+      "requirement": "Arbeitsstandtransfer, Korrekturbestätigung, optionale Zusatzabnahme und finale KIS-Signatur getrennt. Keine KI-Autofreigabe; Live-/Office-Arbeitsstand darf nicht als final abgenommen bezeichnet werden.",
+      "acceptance": "PAR-WF-009..012 und PAR-LIVE/EXP im autorisierten Modus, fachliche finale Ausgaben nur nach gültiger Policy.",
+      "tests": [
+        "T-019"
+      ],
+      "v1_references": "FR-014,FR-016",
+      "status": "specified_not_validated",
+      "revised_in": "4.0",
+      "mandatory": true
+    },
+    {
+      "id": "R-020",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Freigabebindung",
+      "requirement": "Freigabe bindet Diktat, Audio-/Textversion, Text-Hash, Kontextrevision, Dokumenttyp und freigebende Person.",
+      "acceptance": "Text-/Kontextänderung invalidiert Freigabe; eine fremde Diktatversion wird auch auf DB-Ebene abgewiesen.",
+      "tests": [
+        "T-020",
+        "T-061",
+        "T-062"
+      ],
+      "v1_references": "FR-014,FR-019",
+      "status": "specified_not_validated",
+      "mandatory": true
+    },
+    {
+      "id": "R-021",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Manueller Export",
+      "requirement": "Alle PAR-EXP-Ausgabewege auf verwalteten Arbeitsplätzen implementieren: DOCX/RTF/ODT/Text, Clipboard, Word/Writer, allgemeine Fenster, Audio, Mailentwurf und Word-Add-in; BYOD bleibt eingeschränkt.",
+      "acceptance": "Je Ziel eigene Quittung und Format-/Interaktionsnachweise; Dokument-only/Mehrfachausgabe/Abbruch/Fehler/UNKNOWN getrennt.",
+      "tests": [
+        "T-021"
+      ],
+      "v1_references": "FR-020",
+      "status": "specified_not_validated",
+      "revised_in": "4.0",
+      "mandatory": true
+    },
+    {
+      "id": "R-022",
+      "phase": "B",
+      "priority": "P0",
+      "title": "Interner BYOD-Zugang",
+      "requirement": "Private Smartphones erreichen nur freigegebenen HTTPS-Ingress im internen BYOD-Netz.",
+      "acceptance": "Kein direkter Zugang zu AD, DB, Dateispeicher oder KI; kein öffentliches Publishing und kein implizit hinzugefügtes VPN.",
+      "tests": [
+        "T-022"
+      ],
+      "v1_references": "FR-008",
+      "status": "specified_not_validated",
+      "mandatory": true
+    },
+    {
+      "id": "R-023",
+      "phase": "B",
+      "priority": "P0",
+      "title": "Mobile Aufnahme",
+      "requirement": "Aufnahme wird nur auf validierten iOS-/Android-Browserkombinationen im Vordergrund angeboten.",
+      "acceptance": "Anruf, Sperren, App-Wechsel, Roaming und Mikrofonverlust sind getestet; Unterbrechungen bleiben sichtbar.",
+      "tests": [
+        "T-023"
+      ],
+      "v1_references": "FR-008",
+      "status": "specified_not_validated",
+      "mandatory": true
+    },
+    {
+      "id": "R-024",
+      "phase": "B",
+      "priority": "P0",
+      "title": "Browser-Aufnahme-/Wiederherstellungsvertrag",
+      "requirement": "Chunks und Containerabschluss geordnet prüfen. BYOD ohne persistente Ablage; freigegebenes Managed-Web-Offlineprofil separat, kein nativer Recorder und kein erfolgreicher Versand ohne Serverquittung.",
+      "acceptance": "V4-Webgrenzen und zugeordnete Tests nachgewiesen; offene Browser-/Hersteller-/Paritätskonflikte nicht als bestanden darstellen.",
+      "tests": [
+        "T-024",
+        "T-064",
+        "WB-010"
+      ],
+      "v1_references": "FR-009",
+      "status": "specified_not_validated",
+      "mandatory": true
+    },
+    {
+      "id": "R-025",
+      "phase": "B",
+      "priority": "P0",
+      "title": "BYOD-Datenminimierung",
+      "requirement": "Keine absichtliche persistente Audio-/Textablage in Service Worker, IndexedDB oder localStorage; keine Dokumentdownloads im BYOD-MVP.",
+      "acceptance": "App-Speicher wird geprüft, Restrisiken des Betriebssystems werden genehmigt; keine Behauptung forensisch garantierter Datenfreiheit.",
+      "tests": [
+        "T-025",
+        "T-055",
+        "WB-007"
+      ],
+      "v1_references": "FR-009,FR-024",
+      "status": "specified_not_validated",
+      "mandatory": true
+    },
+    {
+      "id": "R-026",
+      "phase": "C",
+      "priority": "P0",
+      "title": "Edge-WebView-Vertrag",
+      "requirement": "inesKIS-Einbettung, Runtime, SSO, Profilisolation, Audio und erlaubte Hostnachrichten werden mit Hersteller abgenommen.",
+      "acceptance": "Testclient zeigt die Plattform im vereinbarten Host und besteht Benutzerwechsel-/Navigationstests.",
+      "tests": [
+        "T-026"
+      ],
+      "v1_references": "FR-018",
+      "status": "specified_not_validated",
+      "mandatory": true
+    },
+    {
+      "id": "R-027",
+      "phase": "C",
+      "priority": "P0",
+      "title": "KIS-Kontext",
+      "requirement": "Patient/Fall, Benutzer, Mandant, Zweck, Ablauf und Kontextrevision kommen über einen vertrauenswürdigen Vertrag.",
+      "acceptance": "Falscher Benutzer/Fall, Replay, falsche Audience und fehlende Rechte sind blockiert; kein Patient im URL-/Accesslog.",
+      "tests": [
+        "T-027",
+        "T-069"
+      ],
+      "v1_references": "FR-017",
+      "status": "specified_not_validated",
+      "mandatory": true
+    },
+    {
+      "id": "R-028",
+      "phase": "C",
+      "priority": "P0",
+      "title": "KIS-Ausgabe",
+      "requirement": "Dokumenttyp, Entwurf/final, Inhalt, Autor, Freigabe und Statusabfrage folgen einer freigegebenen Herstellerschnittstelle.",
+      "acceptance": "Dokument ist im richtigen Fall sichtbar und über externe Dokument-ID sowie Version/Inhalt nachvollziehbar.",
+      "tests": [
+        "T-028"
+      ],
+      "v1_references": "FR-019",
+      "status": "specified_not_validated",
+      "mandatory": true
+    },
+    {
+      "id": "R-029",
+      "phase": "C",
+      "priority": "P0",
+      "title": "Unklarer KIS-Ausgang",
+      "requirement": "Timeout nach Versand ergibt UNKNOWN und Abgleich statt blindem Retry oder automatischem Export über Zweitkanal.",
+      "acceptance": "Simulierter Timeout nach KIS-Speicherung erzeugt kein zweites Dokument.",
+      "tests": [
+        "T-029",
+        "T-065"
+      ],
+      "v1_references": "FR-019",
+      "status": "specified_not_validated",
+      "mandatory": true
+    },
+    {
+      "id": "R-030",
+      "phase": "C",
+      "priority": "P0",
+      "title": "KIS-Kontextwechsel und Nachträge",
+      "requirement": "Kontext an Diktat binden, Patientwechsel nie still umhängen; nur dokumentierte KIS-Übergabe. Allgemeiner Fenstertransfer ist unter Web-only kein erlaubter KIS-Rückfall.",
+      "acceptance": "V4-Webgrenzen und zugeordnete Tests nachgewiesen; offene Browser-/Hersteller-/Paritätskonflikte nicht als bestanden darstellen.",
+      "tests": [
+        "T-030",
+        "T-069"
+      ],
+      "v1_references": "FR-017,FR-019",
+      "status": "specified_not_validated",
+      "mandatory": true
+    },
+    {
+      "id": "R-031",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Audit",
+      "requirement": "Relevante Zugriffe, Zuordnungen, Freigaben, Exporte und administrative Aktionen sind getrennt von technischen Logs protokolliert.",
+      "acceptance": "App kann eigene Auditereignisse nicht ändern/löschen; privilegierte Eingriffe und Restrisiko sind dokumentiert.",
+      "tests": [
+        "T-031"
+      ],
+      "v1_references": "FR-022",
+      "status": "specified_not_validated",
+      "mandatory": true
+    },
+    {
+      "id": "R-032",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Betriebsfreigabe",
+      "requirement": "Monitoring, Runbooks, Patch-/Zertifikatsmanagement, Service Owner und Stellvertretung sind vorhanden.",
+      "acceptance": "Störung wird erkannt und ohne Entwicklerwissen anhand Runbook behandelt; Updates/Rollback getestet.",
+      "tests": [
+        "T-032"
+      ],
+      "v1_references": "FR-025",
+      "status": "specified_not_validated",
+      "mandatory": true
+    },
+    {
+      "id": "R-033",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Backup/Restore",
+      "requirement": "RPO/RTO pro Datenklasse und Ausfallszenario sind fachlich genehmigt und durch Restore belegt.",
+      "acceptance": "Audio, DB, Freigaben, Audit und Exportledger werden konsistent wiederhergestellt; KIS-Abgleich nach Restore.",
+      "tests": [
+        "T-033"
+      ],
+      "v1_references": "FR-023",
+      "status": "specified_not_validated",
+      "mandatory": true
+    },
+    {
+      "id": "R-034",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Datenschutz und Zweck",
+      "requirement": "Schutzbedarf, Rechtsgrundlage, DSFA-Screening, Aufbewahrung, Löschung und regulatorische Zweckbestimmung sind freigegeben.",
+      "acceptance": "Keine produktiven Echtdaten vor erforderlicher Freigabe; Fristen und Legal-Hold-Verfahren dokumentiert.",
+      "tests": [
+        "T-034"
+      ],
+      "v1_references": "FR-024",
+      "status": "specified_not_validated",
+      "mandatory": true
+    },
+    {
+      "id": "R-035",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Softwarelieferkette",
+      "requirement": "Abhängigkeiten, Modelle, Lizenzen, Images und Builds sind nachvollziehbar gepinnt und geprüft.",
+      "acceptance": "Keine latest-Tags oder unkontrollierten Modell-Downloads im Betrieb; Secrets/Patientendaten fehlen in CI.",
+      "tests": [
+        "T-035",
+        "T-057"
+      ],
+      "v1_references": "FR-007,FR-013",
+      "status": "specified_not_validated",
+      "mandatory": true
+    },
+    {
+      "id": "R-036",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Zustandskonsistenz",
+      "requirement": "Jobs, Idempotenz, Objektablage und fachliche Übergänge haben transaktionale Regeln und Abgleichprozesse.",
+      "acceptance": "Crash an jeder kritischen Persistenzgrenze führt weder zu still verlorenen Aufträgen noch zu unzulässigen Doppelaktionen.",
+      "tests": [
+        "T-036",
+        "T-068"
+      ],
+      "v1_references": "FR-004,FR-016",
+      "status": "specified_not_validated",
+      "mandatory": true
+    },
+    {
+      "id": "R-037",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Leistung und Nutzen",
+      "requirement": "Lastgrenzen und Bearbeitungszeiten werden aus erhobenen Volumen und gemessenen Pilotdaten abgeleitet.",
+      "acceptance": "Vereinbarte Spitzenlast und SLO bestehen; Korrekturaufwand wird mit dem bisherigen Prozess verglichen.",
+      "tests": [
+        "T-037"
+      ],
+      "v1_references": "FR-021",
+      "status": "specified_not_validated",
+      "mandatory": true
+    },
+    {
+      "id": "R-038",
+      "phase": "D",
+      "priority": "P0",
+      "title": "Migration und Ablösung",
+      "requirement": "Aktive Ablösung mit eindeutig führendem System pro Auftrag, Rollback und Altarchivzugriff planen. Keine automatische historische Datenübernahme aus dem Analysearchiv; neuer Bestand und neue Testdaten.",
+      "acceptance": "Alle 101 Paritätsfälle plus Projektgates erfüllt, offene Aufträge kontrolliert abgeschlossen/gesondert behandelt; Alt-DB nie automatisch importiert.",
+      "tests": [
+        "T-038"
+      ],
+      "v1_references": "FR-028",
+      "status": "specified_not_validated",
+      "revised_in": "4.0",
+      "mandatory": true
+    },
+    {
+      "id": "R-039",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Sicherheitsgrenzen",
+      "requirement": "Dateiparser laufen isoliert mit Limits; jegliche Objekt- und Dienstschnittstelle hat minimale Rechte.",
+      "acceptance": "Manipulierte Dateien, Header-Spoofing, Traversal, Ressourcenerschöpfung und unzulässiger Egress werden abgefangen.",
+      "tests": [
+        "T-039"
+      ],
+      "v1_references": "FR-011,FR-022",
+      "status": "specified_not_validated",
+      "mandatory": true
+    },
+    {
+      "id": "R-040",
+      "phase": "D",
+      "priority": "P0",
+      "title": "Betriebs-/Kostenentscheidung",
+      "requirement": "Wartung, Support, Herstellerintegration, Geräteprovisionierung und Weiterentwicklung sind budgetiert.",
+      "acceptance": "Benannte Zuständigkeit und genehmigter Gesamtbetriebsvergleich liegen vor; kostenlose Lizenzen gelten nicht als Kostenfreiheit.",
+      "tests": [
+        "T-040"
+      ],
+      "v1_references": "FR-001..030",
+      "status": "specified_not_validated",
+      "mandatory": true
+    },
+    {
+      "id": "R-041",
+      "phase": "A",
+      "priority": "P0",
+      "title": "OSS-Fork statt Neuaufbau",
+      "requirement": "Speakr-Basis mit nachgewiesenem Pin und erhaltener Upstreamstruktur verwenden.",
+      "acceptance": "Checkout SHA entspricht Lock; bestehende UI/ORM/Queue nachweislich weiterverwendet.",
+      "tests": [
+        "T-051"
+      ],
+      "status": "specified_not_validated",
+      "v1_references": null,
+      "mandatory": true
+    },
+    {
+      "id": "R-042",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Klinikmodus/Legacy-Bypass",
+      "requirement": "Sämtliche Datenrouten im dedizierten Klinikmodus unterliegen klinischer Policy oder sind gesperrt.",
+      "acceptance": "Routeinventar vollständig; neue unbekannte Route deny; Stock-Exports/Admin/Search können ACL nicht umgehen.",
+      "tests": [
+        "T-052"
+      ],
+      "status": "specified_not_validated",
+      "v1_references": null,
+      "mandatory": true
+    },
+    {
+      "id": "R-043",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Klinische Identitätszuordnung",
+      "requirement": "E-Mail-Autolinking, JIT-Fachkonten und impliziter Passwortfallback bleiben verboten. Reguläre lokale Anmeldung wird ausdrücklich per Kontopolicy erlaubt; Entra-only und device-only umgehen diese Policy nicht.",
+      "acceptance": "Gleiche Mail mit anderem iss/sub wird nicht verknüpft; vorprovisionierter Geräteautor wird korrekt aufgelöst.",
+      "tests": [
+        "T-053"
+      ],
+      "status": "specified_not_validated",
+      "v1_references": null,
+      "mandatory": true
+    },
+    {
+      "id": "R-044",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Webpersistenzprofile",
+      "requirement": "BYOD bleibt ohne absichtliche persistente Audio-/Textablage. Explizites managed_web_offline ist erst nach Policy/Key-/Browser-/Eviction-Nachweis zulässig. Keine Patientendaten durch clientseitigen Profilwechsel freischalten.",
+      "acceptance": "V4-Webgrenzen und zugeordnete Tests nachgewiesen; offene Browser-/Hersteller-/Paritätskonflikte nicht als bestanden darstellen.",
+      "tests": [
+        "T-054"
+      ],
+      "status": "specified_not_validated",
+      "v1_references": null,
+      "mandatory": true
+    },
+    {
+      "id": "R-045",
+      "phase": "B",
+      "priority": "P0",
+      "title": "Upstream-Browserpersistenz beschränken",
+      "requirement": "Recorder-, FailedUpload-, Incognito-, Serviceworker- und Sitzungspfad speichern keine Klinik-Audio-/Textdaten absichtlich persistent.",
+      "acceptance": "Browserstorage-Sentineltest über normale und Fehlerpfade; Logout/Timeout/Refresh/Crash-Reload abgedeckt.",
+      "tests": [
+        "T-055"
+      ],
+      "status": "specified_not_validated",
+      "v1_references": null,
+      "mandatory": true
+    },
+    {
+      "id": "R-046",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Unabhängige Mockentwicklung",
+      "requirement": "Fehlende klinische Zugänge blockieren nur zugehörige Realabnahme, nicht synthetische Implementierung.",
+      "acceptance": "Dev-End-to-End ohne Klinikcredentials; produktiver Start mit Mock zwingend abgewiesen.",
+      "tests": [
+        "T-056",
+        "T-063"
+      ],
+      "status": "specified_not_validated",
+      "v1_references": null,
+      "mandatory": true
+    },
+    {
+      "id": "R-047",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Lieferkette und Source-Angebot",
+      "requirement": "Pins, vorhandene Lockmechanik, Lizenzen, Source-Angebot und Upgradetests dokumentieren.",
+      "acceptance": "Release-/Commitverifikation, Image-/Modellpins, SBOM und source-link passend zur laufenden Forkversion.",
+      "tests": [
+        "T-057"
+      ],
+      "status": "specified_not_validated",
+      "v1_references": null,
+      "mandatory": true
+    },
+    {
+      "id": "R-048",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Zugriffskanal absichern",
+      "requirement": "BYOD/Managed/Agentrollen stammen aus vertrauenswürdiger Server-/Ingressentscheidung.",
+      "acceptance": "Gefälschter Kanalheader/User-Agent/Host führt nicht zu Export-/Poolrechten.",
+      "tests": [
+        "T-058"
+      ],
+      "status": "specified_not_validated",
+      "v1_references": null,
+      "mandatory": true
+    },
+    {
+      "id": "R-049",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Keine zweite generische Infrastruktur",
+      "requirement": "Vorhandene Aufnahme-/Export-/Job-/Storagebausteine verwenden; neue klinische Fachlogik gezielt abgrenzen.",
+      "acceptance": "Reuse-map pro Slice; kein FastAPI-Neuprojekt, keine zweite Jobqueue, kein unfundierter Infrastrukturcluster.",
+      "tests": [
+        "T-059"
+      ],
+      "status": "specified_not_validated",
+      "v1_references": null,
+      "mandatory": true
+    },
+    {
+      "id": "R-050",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Policy ist unveränderliche Obergrenze",
+      "requirement": "Upstream SystemSettings dürfen verbotene Sharing-/Cloud-/Persistenz-/Exportfunktionen nicht reaktivieren.",
+      "acceptance": "API-/Settingsänderung wird abgewiesen oder effektiv gesperrt; Startup-Check erkennt Konflikte.",
+      "tests": [
+        "T-060"
+      ],
+      "status": "specified_not_validated",
+      "v1_references": null,
+      "mandatory": true
+    },
+    {
+      "id": "R-051",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Lokale Benutzerverwaltung",
+      "requirement": "Vorhandene Speakr-Adminfunktionen für Anlegen, Bearbeiten, Deaktivieren, Rollen und Schreibpools erweitern; keine zweite Benutzerverwaltung.",
+      "acceptance": "Verwaltung und Fachablauf funktionieren ohne externen IdP/SMTP; Rollen geben keine impliziten Inhaltsrechte.",
+      "tests": [
+        "T-071",
+        "T-072",
+        "T-092",
+        "WB-006"
+      ],
+      "status": "specified_not_validated",
+      "v1_references": null,
+      "source": "explicit_user_local_first_2026-11-17",
+      "mandatory": true
+    },
+    {
+      "id": "R-052",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Sicherer lokaler Bootstrap",
+      "requirement": "Ersten Identitätsadministrator ausschliesslich über geschützten Operatorweg initialisieren; keine Defaultpasswörter/öffentliche Erstregistrierung.",
+      "acceptance": "Parallel-/Wiederholungsversuche legen keinen unerlaubten Admin an; letzter lokaler Identitätsadmin geschützt.",
+      "tests": [
+        "T-073",
+        "T-074"
+      ],
+      "status": "specified_not_validated",
+      "v1_references": null,
+      "source": "explicit_user_local_first_2026-11-17",
+      "mandatory": true
+    },
+    {
+      "id": "R-053",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Lokale Aktivierung und Reset",
+      "requirement": "Zweckgebundene, gehashte, ablaufende Einmalcodes; kein SMTP-Zwang, kein Auto-Login und keine Policyänderung durch Reset.",
+      "acceptance": "Replay/Parallelität/Ablauf/Disabled-/Entra-only-Fälle abgewiesen; keine Geheimnisse in Logs.",
+      "tests": [
+        "T-075",
+        "T-076",
+        "T-077",
+        "T-093"
+      ],
+      "status": "specified_not_validated",
+      "v1_references": null,
+      "source": "explicit_user_local_first_2026-11-17",
+      "mandatory": true
+    },
+    {
+      "id": "R-054",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Passwortschutz und Schema",
+      "requirement": "Etablierte Bibliotheken für Hash/Verify; ausreichend breite Passwortspalte; Blockliste, keine Kürzung und rate-limited Ressourcen.",
+      "acceptance": "Hashspeicherung und Legacy-Rehash gegen PostgreSQL getestet; Passphrase-/Last-/Unbekanntkonto-Fälle geprüft.",
+      "tests": [
+        "T-078",
+        "T-079",
+        "T-080"
+      ],
+      "status": "specified_not_validated",
+      "v1_references": null,
+      "source": "explicit_user_local_first_2026-11-17",
+      "mandatory": true
+    },
+    {
+      "id": "R-055",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Widerrufbare providerunabhängige Sitzung",
+      "requirement": "Kontostatus und Sicherheitsversion bei jedem geschützten Zugriff, Rotation, CSRF und definierter Ablauf.",
+      "acceptance": "Deaktivierung/Reset/Linkwechsel beendet alte Sitzungen; Benutzer-/WebViewwechsel isoliert.",
+      "tests": [
+        "T-081",
+        "T-094"
+      ],
+      "status": "specified_not_validated",
+      "v1_references": null,
+      "source": "explicit_user_local_first_2026-11-17",
+      "mandatory": true
+    },
+    {
+      "id": "R-056",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Entra implementiert, initial aus",
+      "requirement": "Bibliotheksgestützter OIDC-Code, Profile und Fixturetests schon im Erstauftrag; keine IdP-Netz-/Secretpflicht im lokalen Modus.",
+      "acceptance": "Deaktivierte Endpunkte ohne Effekt; falscher Tenant/Issuer/Audience/Nonce abgewiesen; kein Graphpflichtpfad.",
+      "tests": [
+        "T-082",
+        "T-083",
+        "T-084"
+      ],
+      "status": "specified_not_validated",
+      "v1_references": null,
+      "source": "explicit_user_local_first_2026-11-17",
+      "mandatory": true
+    },
+    {
+      "id": "R-057",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Explizite Identitätsverknüpfung",
+      "requirement": "Gleiche interne user.id behalten; Entra-Link nur über autorisierten benutzer-/tenantgebundenen Auftrag und geprüfte externe Identität.",
+      "acceptance": "Keine Emailübernahme, kein Duplicate User, keine Umhängung klinischer Historie; konkurrierendes Linking abgefangen.",
+      "tests": [
+        "T-085",
+        "T-086",
+        "T-087"
+      ],
+      "status": "specified_not_validated",
+      "v1_references": null,
+      "source": "explicit_user_local_first_2026-11-17",
+      "mandatory": true
+    },
+    {
+      "id": "R-058",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Per-Konto-Loginpolicy",
+      "requirement": "local_only, entra_only, local_and_entra, device_only unterscheiden; kein SSO-Ausfallbypass oder Reset zu unerlaubtem lokalen Zugang.",
+      "acceptance": "Direkte Upstream-/Adminpfade befolgen dieselbe Policy; dualer Zugang nur ausdrücklich auditiert.",
+      "tests": [
+        "T-077",
+        "T-088",
+        "T-089",
+        "T-097"
+      ],
+      "status": "specified_not_validated",
+      "v1_references": null,
+      "source": "explicit_user_local_first_2026-11-17",
+      "mandatory": true
+    },
+    {
+      "id": "R-059",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Lokale Fachrechte auch bei SSO",
+      "requirement": "Anwendung ist initial führend für Rollen/Pools; Loginverfahren und Rechtezuweisung getrennt.",
+      "acceptance": "Claims/Email verleihen keine Fachrechte; nur eigene Diktate bzw. autorisierter Staffpool.",
+      "tests": [
+        "T-090",
+        "T-092"
+      ],
+      "status": "specified_not_validated",
+      "v1_references": null,
+      "source": "explicit_user_local_first_2026-11-17",
+      "mandatory": true
+    },
+    {
+      "id": "R-060",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Nichtdestruktive Identity-Migration",
+      "requirement": "Additive Daten-/Policyänderungen, stabile vorhandene User-IDs, kein Harddelete klinisch referenzierter Benutzer.",
+      "acceptance": "Upgrade/Restore/Providerwechsel bewahrt Autoren, Pools, Geräte, Freigaben und Audit.",
+      "tests": [
+        "T-086",
+        "T-091"
+      ],
+      "status": "specified_not_validated",
+      "v1_references": null,
+      "source": "explicit_user_local_first_2026-11-17",
+      "mandatory": true
+    },
+    {
+      "id": "R-061",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Provider-Aktivierung und Lifecycle",
+      "requirement": "G-ENTRA/G-LDAP separat; lokale Abnahme bleibt möglich. Lifecycle-/CA-Grenzen und expliziter Rückfall dokumentiert.",
+      "acceptance": "Fehlerhafte Hybridkonfiguration/Entra-Ausfall öffnen keinen lokalen Zugang; Entra-only-Rückfall erfordert neue explizite lokale Aktivierung.",
+      "tests": [
+        "T-088",
+        "T-095",
+        "T-096"
+      ],
+      "status": "specified_not_validated",
+      "v1_references": null,
+      "source": "explicit_user_local_first_2026-11-17",
+      "mandatory": true
+    },
+    {
+      "id": "R-062",
+      "phase": "A",
+      "priority": "P0",
+      "title": "Konsolidierter Claude-Auftrag",
+      "requirement": "OIDC-only-/Entra-first-Defaults in Dokumenten, Katalogen, Fixtures und Profilen ersetzen; Grok-Ergänzung erhalten.",
+      "acceptance": "Lokales End-to-End mit Userverwaltung und deaktiviertem vorbereitetem Entra-Code; keine Rückfrage nach Tenantsecrets.",
+      "tests": [
+        "T-071",
+        "T-098"
+      ],
+      "status": "specified_not_validated",
+      "v1_references": null,
+      "source": "explicit_user_local_first_2026-11-17",
+      "mandatory": true
+    },
+    {
+      "id": "PAR-ADM-001",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Autoren und Schreibkräfte verwalten",
+      "requirement": "Autoren und Schreibkräfte getrennt anlegen, bearbeiten und entfernen; Änderungen mit Übernehmen/OK verbindlich speichern.",
+      "acceptance": "Unveränderter BT-ADM-001 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-ADM-001"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/0",
+      "status": "specified_not_validated",
+      "implementation_rule": "Lokale User-ID bleibt zentral. Mehrere Fachrollen zulässig. Entfernen aus aktiver Auswahl ist nicht unkontrolliertes Löschen referenzierter Diktate/Audits.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-ADM-002",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Autorenpools mit Mehrfachmitgliedschaft",
+      "requirement": "Autoren können einem oder mehreren Autorenpools angehören; gemeinsame Ressourcen stehen Mitgliedern des gewählten Pools zur Verfügung.",
+      "acceptance": "Unveränderter BT-ADM-002 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-ADM-002"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/1",
+      "status": "specified_not_validated",
+      "implementation_rule": "Eigene author_pool-Entität mit Mehrfachmitgliedschaften und aktivem Ressourcenpool. Keine Vermischung mit Empfänger-/Schreibpools.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-ADM-003",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Schreibkraftpools eigenständig verwalten",
+      "requirement": "Schreibkraftpools gruppieren berechtigte Schreibkräfte; sie bleiben von Autorenpools getrennt.",
+      "acceptance": "Unveränderter BT-ADM-003 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-ADM-003"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/2",
+      "status": "specified_not_validated",
+      "implementation_rule": "Staff-Pools bleiben eigenständig. Bestehende Speakr-Gruppen nur mit explizitem Typ und zentraler Klinikpolicy weiterverwenden.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-ADM-004",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Zugriff nach Autor oder Autorenpool mit Ausnahmen",
+      "requirement": "Schreibkraftzugriff kann auf einzelne Autoren, Autorenpools mit Ausnahmen oder alle Autoren begrenzt werden.",
+      "acceptance": "Unveränderter BT-ADM-004 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-ADM-004"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/3",
+      "status": "specified_not_validated",
+      "implementation_rule": "author_scope = explicit_users | author_pools | all; deny-Ausnahmen haben Vorrang. Gleiche Predicate für Listen, Suchtreffer, Direktzugriff, Medien und Exporte.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-ADM-005",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Aktionen unabhängig voneinander berechtigen",
+      "requirement": "Rechte steuern Löschen, Archivieren, Umbenennen, Priorität ändern, Audioexport, Umverteilen und Wiederaufnahme fertiggestellter Diktate getrennt.",
+      "acceptance": "Unveränderter BT-ADM-005 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-ADM-005"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/4",
+      "status": "specified_not_validated",
+      "implementation_rule": "Separate Aktionsrechte, unter anderem delete, archive, rename, priority, audio_export, reassign, reopen. UI/Hotkey/API prüfen denselben Guard.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-ADM-006",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Autoren-Sichtbereiche und Schreibkraftauswahl",
+      "requirement": "Autoren können nur eigene, die Diktate ihres Autorenpools oder alle Diktate sehen; die Empfängerauswahl kann auf Schreibpools begrenzt werden.",
+      "acceptance": "Unveränderter BT-ADM-006 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-ADM-006"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/5",
+      "status": "specified_not_validated",
+      "implementation_rule": "Default own; pool/all nur explizit administrativ gewährt und unter Fall-/Mandantenrestriktionen. Empfängerwahlrecht separat, ggf. nur Staff-Pools.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-ADM-007",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Voreingestellte Empfänger und Selbstkorrektur",
+      "requirement": "Neue Diktate gehen an alle berechtigten Schreibkräfte oder die konfigurierte Person/Gruppe; ein Betrieb ohne Schreibkräfte erlaubt Selbstkorrektur.",
+      "acceptance": "Unveränderter BT-ADM-007 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-ADM-007"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/6",
+      "status": "specified_not_validated",
+      "implementation_rule": "Explizite Routingziele all_eligible, person, staff_pool; self-correction ohne Schreibkräfte. Keine künstliche Pflicht zu genau einem Pool für jeden Vorgang.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-ADM-008",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Administrative und Statistik-Accounts",
+      "requirement": "Administration und Statistikzugriff besitzen eigene Berechtigungen, unabhängig von der Autoren-/Schreibkraftfunktion.",
+      "acceptance": "Unveränderter BT-ADM-008 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-ADM-008"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/7",
+      "status": "specified_not_validated",
+      "implementation_rule": "Identity-/System-/Statistikverwaltung getrennt von Audio-/Textleserecht. Statistiker sieht ausschliesslich freigegebene Aggregation/Datensätze.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-ADM-009",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Windows-/AD-Auswahl und bestätigter AD-Abgleich",
+      "requirement": "Benutzer können aus lokalem Windows oder AD gewählt werden; gruppenbasierter Abgleich zeigt neue/entfernte Benutzer und Mitgliedschaften zur Bestätigung. E-Maildaten können aus AD stammen.",
+      "acceptance": "Unveränderter BT-ADM-009 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-ADM-009"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/8",
+      "status": "specified_not_validated",
+      "implementation_rule": "Appkonten lokal, AD-Abgleich später serverseitig read-only mit bestätigtem Diff. Lokale Windows-SAM des Endgeräts wird nicht vom Import-Agenten ausgelesen; Webkonflikt explizit offen.",
+      "web_feasibility": "strict_web_conflict"
+    },
+    {
+      "id": "PAR-ADM-010",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Windows-SSO mit eindeutigem Kontext",
+      "requirement": "Aktiviertes SSO verwendet den angemeldeten Windows-Nutzer und verhindert die Auswahl fremder Identitäten; Aktivierung für Client und Workflow getrennt.",
+      "acceptance": "Unveränderter BT-ADM-010 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-ADM-010"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/9",
+      "status": "specified_not_validated",
+      "implementation_rule": "Windows-SSO nur über freigegebenen serverseitigen IWA-/Negotiate-Vertrag und verifiziertes SID-Mapping; keine Client-SSPI-Bibliothek. Initial local; kein Windowsname aus JS als Identität.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "PAR-ADM-011",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Benutzerstart, letzte Auswahl und Wechsel",
+      "requirement": "Manueller Start merkt sich den letzten Nutzer; Verknüpfungen können Benutzer/Pool wählen; Wechsel beendet den alten Kontext mit behandelbaren ungesicherten Änderungen.",
+      "acceptance": "Unveränderter BT-ADM-011 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-ADM-011"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/10",
+      "status": "specified_not_validated",
+      "implementation_rule": "Letzte Auswahl/Startargumente sind UI-Hinweise, keine Authentisierung. Wechsel mit Draft-Abbruch/Speichern und Sessiontrennung.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-CFG-001",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Zentrale Vorgaben und lokale Änderungen",
+      "requirement": "Zentral gesetzte Profil-/Workflowvorgaben gelten beim Neustart erneut; nicht zentral fixierte Werte dürfen lokal eingestellt werden.",
+      "acceptance": "Unveränderter BT-CFG-001 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-CFG-001"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/11",
+      "status": "specified_not_validated",
+      "implementation_rule": "Auflösung: Systempflicht > zentraler Nutzer-/Poolwert > erlaubter lokaler Wert. Abbrechen verwirft nur neue Änderungen; Herkunft jedes Werts anzeigen.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-CFG-002",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Vorlagen zentral speichern und zuordnen",
+      "requirement": "Benutzer- und Poolvorlagen besitzen Anzeigename, Anmerkung und Einfügemarke; eine Serverkopie bleibt nutzbar, wenn die Ursprungsdatei fehlt.",
+      "acceptance": "Unveränderter BT-CFG-002 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-CFG-002"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/12",
+      "status": "specified_not_validated",
+      "implementation_rule": "Versionierte Serverkopie, Anzeige/Anmerkung/Einfügemarke, Zuordnung User/Autorenpool. Externe Originaldatei wird nach Import nicht vorausgesetzt.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-CFG-003",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Versandkategorien und Pflichtangaben",
+      "requirement": "Versandkategorien lassen sich als Sets definieren und beim Client bzw. Recorder verpflichtend abfragen; sie wirken auf Diktatanmerkungen.",
+      "acceptance": "Unveränderter BT-CFG-003 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-CFG-003"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/13",
+      "status": "specified_not_validated",
+      "implementation_rule": "Kategorieset mit required je Recorder/Client, Version im Auftrag fixieren. Keine klinische ID aus Kategorie ableiten.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-CFG-004",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "RegEx-basierte Metadatenzuweisung mit Vorschau",
+      "requirement": "RegEx-Regeln können Titel, Anmerkung, Dringlichkeit und Frist aus erkanntem Text ableiten; maximale Textmenge und Testvorschau sind konfigurierbar. Integrations-ID-Ziele sind ausgeschlossen.",
+      "acceptance": "Unveränderter BT-CFG-004 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-CFG-004"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/14",
+      "status": "specified_not_validated",
+      "implementation_rule": "Timeout und Eingabegrenze für Regex; Vorschau benutzt denselben Code wie Anwendung. Ziele nur Titel/Anmerkung/Dringlichkeit/Frist, niemals User-/Patient-/Fall-ID.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-CFG-005",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Konfigurierbare Metadatenspalten",
+      "requirement": "Diktatliste kann zusätzliche Spalten aus XML-Metadaten sowie Zeit-/Namensformat verwenden.",
+      "acceptance": "Unveränderter BT-CFG-005 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-CFG-005"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/15",
+      "status": "specified_not_validated",
+      "implementation_rule": "XML ohne externe Entitäten/Netzwerk lesen; konfigurierte Felder/Anzeigeformat. Identitäten und UTC-Werte nicht durch Anzeigeformat ändern.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-REC-001",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Recorder mit Titel-, Aufnahme- und Versandphase",
+      "requirement": "Autor kann ein Diktat benennen, Audio aufnehmen und vor Versand Metadaten ändern; Titel dient der Identifikation in der Diktatliste.",
+      "acceptance": "Unveränderter BT-REC-001 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-REC-001"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/16",
+      "status": "specified_not_validated",
+      "implementation_rule": "Titel, Aufnahme und Versand vollständig im Speakr-Webclient. Kein Audio-Capture im Import-Agent.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-REC-002",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Aufnahme- und Wiedergabesteuerung",
+      "requirement": "Aufnahme, Stop, Wiedergabe, Anfang/Ende und Vor-/Rückspulen sind per UI und dokumentierten Hotkeys bedienbar.",
+      "acceptance": "Unveränderter BT-REC-002 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-REC-002"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/17",
+      "status": "specified_not_validated",
+      "implementation_rule": "Vorhandenen Webrecorder/Player mit eindeutiger Aufnahme-/Pause-/Stopp- und Cursorsteuerung erweitern; Tastenkürzel sind auf den berechtigten Browserkontext begrenzt.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-REC-003",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Audio einfügen, überschreiben, kürzen und rückgängig",
+      "requirement": "Recorder unterscheidet Einfügen/Überschreiben, kann ab Cursor abschneiden und letzte Aufnahmeoperationen mit dokumentiertem 16-stufigem Undo zurücknehmen.",
+      "acceptance": "Unveränderter BT-REC-003 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-REC-003"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/18",
+      "status": "specified_not_validated",
+      "implementation_rule": "Nichtdestruktive Edit Decision List im Web, mindestens 16 Undo-Schritte, Insert/Overwrite/Trim auf Audiosegmentreferenzen. Rendering serverseitig; Originale bleiben unverändert.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-REC-004",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Stimmgesteuerte Aufnahme",
+      "requirement": "Bei aktivierter Stimmsteuerung wird nur während erkannter Sprache aufgezeichnet; aktivierter Modus ist sichtbar.",
+      "acceptance": "Unveränderter BT-REC-004 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-REC-004"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/19",
+      "status": "specified_not_validated",
+      "implementation_rule": "Web-Audio/VAD lokal im Browser oder Klinikserver, sichtbarer Zustand, Pre-/Postroll und Referenztest; Rohaufnahme nicht ohne bewussten Modus verlieren.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "PAR-REC-005",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Audio-Geräte und Aufnahme-/Wiedergabepegel",
+      "requirement": "Aufnahme- und Wiedergabegerät sowie unterstützte Pegel lassen sich wählen; Steuergerät und Audiogerät sind unterscheidbar.",
+      "acceptance": "Unveränderter BT-REC-005 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-REC-005"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/20",
+      "status": "specified_not_validated",
+      "implementation_rule": "getUserMedia/Audioauswahl und soweit unterstützt setSinkId; App-Gain getrennt von hardwareseitigem Windows-Mixerpegel. Capabilitycheck und Gerätetest, kein OS-Mixeragent.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "PAR-REC-006",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Versandparameter und optionaler Diktatschutz",
+      "requirement": "Versand fragt Titel, Anmerkung, Priorität/Frist, ASR, Empfänger, Abnahme und optionalen Diktatpasswortschutz ab.",
+      "acceptance": "Unveränderter BT-REC-006 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-REC-006"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/21",
+      "status": "specified_not_validated",
+      "implementation_rule": "Formular vollständig: Metadaten, Empfänger, ASR, Abnahme, Passwortschutz. Passwort zusätzlich zur ACL, kein Zugriff nur durch Passwortbesitz; vorhandene Kryptobibliotheken.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-REC-007",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Autarker Recorder und lokales Speichern",
+      "requirement": "Recorder kann Audio laden, lokal speichern und im autarken Betrieb an einem konfigurierten Ziel ablegen; Serverausfall darf nicht als erfolgreicher Workflowversand erscheinen.",
+      "acceptance": "Unveränderter BT-REC-007 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-REC-007"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/22",
+      "status": "specified_not_validated",
+      "implementation_rule": "Web-PWA, Datei öffnen/speichern via explizitem Nutzerzugriff; optional verschlüsselter Managed-Browser-Offlineentwurf nach eigenem Gate. BYOD ohne persistentes Audio. Keine Garantie bei geschlossenem Browser/OS-Eviction; kein nativer Recorder.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "PAR-REC-008",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Audio-Text-Sitzungen und Textdateien speichern/laden",
+      "requirement": "Eigene Sitzungen enthalten Audio und bearbeitbaren Text; RTF und TXT können geöffnet/gespeichert werden. Neue Sitzungen müssen verlustfrei wieder geöffnet werden.",
+      "acceptance": "Unveränderter BT-REC-008 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-REC-008",
+        "WB-016"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/23",
+      "status": "specified_not_validated",
+      "implementation_rule": "Versioniertes .sdict-Webbundle mit Manifest, Audio, Richtext und Ankern; TXT/RTF über geprüfte Parser/Konverter. Reopen-Gleichheit und ZIP-/Parserlimits. Kein Binärformat des Altprogramms nachbauen.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "PAR-LIVE-001",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Live-Erkennung im eigenen Diktierfenster",
+      "requirement": "Gesprochener Text erscheint während der Sitzung im eigenen Diktierfenster; Autor kann direkt korrigieren und Audio plus Text zur delegierten Korrektur senden.",
+      "acceptance": "Unveränderter BT-LIVE-001 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-LIVE-001",
+        "WB-015"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/24",
+      "status": "specified_not_validated",
+      "implementation_rule": "Mikrofon im Browser, Audiotransport an eigene Speakr-Sitzung; Speakr delegiert an lokale Speaches-Realtime-Transkription. Kein externes Browser-SpeechRecognition-Backend.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "PAR-LIVE-002",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Diktieren in allgemeine Windows-Textfenster",
+      "requirement": "Erkannter Text kann an der ausgewählten Position einer unterstützten allgemeinen Desktopanwendung erscheinen; keine KIS-spezifische Datenverbindung.",
+      "acceptance": "Unveränderter BT-LIVE-002 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-LIVE-002"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/25",
+      "status": "specified_not_validated",
+      "implementation_rule": "Eigener Webeditor und bewusster Transfer implementieren; direkte Texteingabe in beliebige native Fremdfenster bleibt unter Web-only ungeklärt. Nicht über Import-Agent umgehen.",
+      "web_feasibility": "strict_web_conflict"
+    },
+    {
+      "id": "PAR-LIVE-003",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Sofortige Entwurfssicherung pro Phrase",
+      "requirement": "SonicPad sichert jede gesprochene Phrase im Entwurf; nach Neustart ist die Entwurfsliste verfügbar, aufbewahrtes Audio bleibt trotz Textkorrektur erhalten.",
+      "acceptance": "Unveränderter BT-LIVE-003 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-LIVE-003"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/26",
+      "status": "specified_not_validated",
+      "implementation_rule": "Jede finalisierte Phrase serverseitig mit Originalaudio und Revision bestätigen. Bei Offlineprofil nur verschlüsselte lokale Webpersistenz ausdrücklich quittieren, nicht als Serverversand; bestätigte Bytes nicht mit lesbarer kompletter Datei verwechseln.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "PAR-LIVE-004",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Mehrere Entwürfe und bewusstes Verwerfen",
+      "requirement": "Mehrere Diktierfenster/Entwürfe können parallel bestehen; Laden, Wechseln, Speichern und Löschen sind getrennt. Beim Schliessen ungesicherter Änderungen wird gefragt.",
+      "acceptance": "Unveränderter BT-LIVE-004 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-LIVE-004"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/27",
+      "status": "specified_not_validated",
+      "implementation_rule": "Mehrere draft_id-Namespaces; explizit speichern/verwerfen/abbrechen. Ein Neustart darf nicht Texte zweier Autoren vermischen.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-LIVE-005",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Rich-Text-Bearbeitung und Versandformat",
+      "requirement": "Diktierfenster unterstützt Schrift, Ausrichtung, Zeilenabstand und Grafiken; Versand kann Formatierung behalten oder bewusst auf reinen Text reduzieren. Leeren/Schliessen erfolgt nur nach erfolgreicher Übergabe.",
+      "acceptance": "Unveränderter BT-LIVE-005 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-LIVE-005"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/28",
+      "status": "specified_not_validated",
+      "implementation_rule": "Kanonisches Rich-Text-Dokument mit kontrollierten lokalen Grafiken; plain-text Export bewusst. Clear/Close nur nach dem richtigen erfolgreichen Empfang, nicht HTTP-Requeststart.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-LIVE-006",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Diktierfokus an Fenster binden",
+      "requirement": "SpeechLock bindet Diktat und Befehle an ein unterstütztes Fenster trotz Arbeit in anderem Fenster; Zustand und Umschaltung sind sichtbar.",
+      "acceptance": "Unveränderter BT-LIVE-006 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-LIVE-006"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/29",
+      "status": "specified_not_validated",
+      "implementation_rule": "Nur Sitzungs-/Draftbindung im eigenen Webclient; native SpeechLock-Teilforderung bleibt blockiert.",
+      "web_feasibility": "strict_web_conflict"
+    },
+    {
+      "id": "PAR-LIVE-007",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Automatische Fokusbindung und immer oben",
+      "requirement": "Bestimmte Fenster können beim Fokus automatisch gebunden und optional oben gehalten werden; globale Deaktivierung schaltet diese Funktion aus.",
+      "acceptance": "Unveränderter BT-LIVE-007 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-LIVE-007"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/30",
+      "status": "specified_not_validated",
+      "implementation_rule": "Webinterne Bindung/Layout zulässig. Keine automatische Fensterklassenerkennung oder Always-on-top-Steuerung fremder Programme.",
+      "web_feasibility": "strict_web_conflict"
+    },
+    {
+      "id": "PAR-LIVE-008",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Text und Aussprache vorlesen",
+      "requirement": "Markierter Text oder Text ab Cursor kann vorgelesen werden; Stimme und Geschwindigkeit sind konfigurierbar, fehlende Stimmen werden gemeldet.",
+      "acceptance": "Unveränderter BT-LIVE-008 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-LIVE-008"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/31",
+      "status": "specified_not_validated",
+      "implementation_rule": "Lokales TTS über vorhandene Speaches-TTS-Schnittstelle, nur vorab geprüfte Modelldateien ohne Egress; Browserstimme ausschliesslich nach geprüftem lokalen Betrieb. Fehlende deutsche Stimme als Fehler.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "PAR-IMP-001",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Geräte erkennen und Diktate auflisten",
+      "requirement": "Workflow Pass erkennt angeschlossene Geräte/Wechseldatenträger und zeigt deren Diktate, Geräteanzahl und Status; beobachtete Gerätetypen sind wählbar.",
+      "acceptance": "Unveränderter BT-IMP-001 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-IMP-001"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/32",
+      "status": "specified_not_validated",
+      "implementation_rule": "Registry und aktuelle Geräteansicht getrennt; Geräte-/Treiberstatus, Typfilter, Wiederanschluss dedupliziert. Reales 9600/9620-Labor bleibt Pflicht.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "PAR-IMP-002",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Autor aus Geräte-ID oder Aufnahme-Autor auflösen",
+      "requirement": "Exklusive Geräte können über Geräte-ID, geteilte Geräte über das Autor-Feld im DSS/DSSPro-Diktat zugeordnet werden; unbekannte Zuordnung erfordert bewusste Auswahl.",
+      "acceptance": "Unveränderter BT-IMP-002 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-IMP-002"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/33",
+      "status": "specified_not_validated",
+      "implementation_rule": "Exklusive Gerätebindung oder validiertes Header-Autorfeld; unbekannt/manuell eindeutig auflösen. Kein Fallback auf Desktoplogin.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "PAR-IMP-003",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Manueller und gemeinsamer Geräteversand",
+      "requirement": "Mehrere Gerätediktate können selektiert, mit Metadaten versehen und gemeinsam versandt werden; Original-/Automatisch-Werte bleiben unterscheidbar.",
+      "acceptance": "Unveränderter BT-IMP-003 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-IMP-003"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/34",
+      "status": "specified_not_validated",
+      "implementation_rule": "Mehrfachauswahl mit tri-state keep/enable/disable für ASR und keep/set für Metadaten; Ergebnisse pro Datei, keine atomare Erfolgsbehauptung des ganzen Stapels.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-IMP-004",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Automatischer Versand und EOL-Grenze",
+      "requirement": "Automatischer Versand verarbeitet nur zugeordnete Autoren; optional nur als beendet/EOL markierte Diktate.",
+      "acceptance": "Unveränderter BT-IMP-004 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-IMP-004"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/35",
+      "status": "specified_not_validated",
+      "implementation_rule": "Autosend separat on/off, EOL-Filter separat on/off. Default nur EOL; ausgeschalteter Filter erlaubt stabile bekannte Aufnahmen gemäss bewusst aktivierter Policy, nennt sie aber nicht EOL.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-IMP-005",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Quelllöschung nach bestätigter Übernahme",
+      "requirement": "Nach erfolgreichem Versand kann ein Diktat automatisch vom Gerät gelöscht werden; manuelles Löschen fragt nach. Neubau löscht erst nach dauerhaft bestätigter Übernahme.",
+      "acceptance": "Unveränderter BT-IMP-005 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-IMP-005"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/36",
+      "status": "specified_not_validated",
+      "implementation_rule": "Funktion implementieren, initial off. Löschrecht, unveränderte Quellversion, durable receipt, Sicherungs-/Retentionfreigabe prüfen; USB-Wechsel vor Löschung blockiert.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-IMP-006",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Backupkopie und Aufbewahrungsfrist",
+      "requirement": "Vor Versand kann Originalaudio in einen konfigurierten Backupordner kopiert werden; Dateiname aus Platzhaltern und optionale Löschfrist sind einstellbar.",
+      "acceptance": "Unveränderter BT-IMP-006 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-IMP-006"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/37",
+      "status": "specified_not_validated",
+      "implementation_rule": "Backup vor Versand, Hashgleichheit und kollisionsfreier Name. Retentionjob nur für eigene Backupobjekte mit genehmigter Frist, niemals beliebige Ordner leeren.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "PAR-IMP-007",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Datei- und Mehrfachimport von Audio und Dokumenten",
+      "requirement": "Autoren und Schreibkräfte können Audio WAV/DSS/DS2/AMR sowie dokumentierte Office-/RTF-/TXT-/PDF-/Bilddateien importieren; Mehrfachimport bewahrt einzelne Dateinamen.",
+      "acceptance": "Unveränderter BT-IMP-007 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-IMP-007"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/38",
+      "status": "specified_not_validated",
+      "implementation_rule": "Audiocodecs und Dokumentanhänge getrennt validieren: WAV/DSS/DS2/AMR und dokumentierte Office/RTF/TXT/PDF/Bilder. Importsupport nicht aus Extension ableiten; keine Makroausführung.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "PAR-IMP-008",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Dropfolder-Autoversand",
+      "requirement": "Mehrere Eingangspfade mit Autor, Pool, Endungsmuster, Priorität, Sprache und ASR-Wahl werden überwacht; dokumentierter Altumfang umfasst keine rekursiven Unterordner.",
+      "acceptance": "Unveränderter BT-IMP-008 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-IMP-008"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/39",
+      "status": "specified_not_validated",
+      "implementation_rule": "Mehrere benannte Dropfolder, Autor/Autorenpool/Pattern/Priorität/Sprache/ASR; non-recursive Default als Referenzvertrag, stabile Snapshots und Retryledger.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-IMP-009",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Geräteverwaltung, Autorenlisten und Schutzoptionen",
+      "requirement": "Geräte können inventarisiert und mit Autoren-/Listenwerten, Aufnahmeverschlüsselung, PIN/Sperrregeln und Energiesparwerten konfiguriert werden, soweit Gerät unterstützt.",
+      "acceptance": "Unveränderter BT-IMP-009 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-IMP-009",
+        "WB-012"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/40",
+      "status": "specified_not_validated",
+      "implementation_rule": "Import-Agent darf Inventar und vorhandene Metadaten lesen, nicht PIN/Authorlisten/Recording-Settings schreiben. Webdirekter Herstellerweg nur nach realem Nachweis; Funktionslücke offen lassen.",
+      "web_feasibility": "strict_web_conflict"
+    },
+    {
+      "id": "PAR-IMP-010",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Firmwarebestand und Versionsvergleich",
+      "requirement": "Geräteverwaltung hinterlegt Firmware pro Typ; Workflow Pass vergleicht bei Anschluss Versionen und kann ein älteres Gerät aktualisieren.",
+      "acceptance": "Unveränderter BT-IMP-010 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-IMP-010"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/41",
+      "status": "specified_not_validated",
+      "implementation_rule": "Webinventar mit Firmwarebestand und Vergleich. Flashen nicht im Import-Agent; bis zu freigegebenem direktem Webweg ein Paritätsblocker.",
+      "web_feasibility": "strict_web_conflict"
+    },
+    {
+      "id": "PAR-WF-001",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Arbeitsliste für Autoren und Schreibkräfte",
+      "requirement": "Workflowzentrale zeigt berechtigte Diktate mit Titel, Status, Autor, Priorität/Frist, Bearbeiter/Zeit, Anmerkung, Erstellzeit, Dauer, ID und Empfänger.",
+      "acceptance": "Unveränderter BT-WF-001 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-WF-001"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/42",
+      "status": "specified_not_validated",
+      "implementation_rule": "Alle Pflichtspalten und Dokument-only-Fälle; Autor/Schreibkraft haben passenden Öffnungsmodus, gemeinsame Policy.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-WF-002",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Automatische und manuelle Aktualisierung",
+      "requirement": "Arbeitsliste aktualisiert sich automatisch; F5 erzwingt eine Aktualisierung.",
+      "acceptance": "Unveränderter BT-WF-002 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-WF-002"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/43",
+      "status": "specified_not_validated",
+      "implementation_rule": "UI-Push/Poll plus F5 in Liste; F5 im Editor hat anderen gebundenen Befehl. Kontextdispatcher verhindert Browserreload.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-WF-003",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Gespeicherte Filter und Metadatensuche",
+      "requirement": "Bis zu 20 benannte Filter kombinieren Autor/Pool und Status; Suche findet Begriffe in Diktatmetadaten und markiert Treffer.",
+      "acceptance": "Unveränderter BT-WF-003 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-WF-003"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/44",
+      "status": "specified_not_validated",
+      "implementation_rule": "20 benannte Filter mindestens referenztreu, geplanter Grenzwert 20 mit verständlicher Ablehnung des 21. Filters; Suchhighlight nach ACL.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-WF-004",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Sortieren, Gruppieren und Layout merken",
+      "requirement": "Spalten lassen sich verschieben, sortieren und nach mehreren Merkmalen gruppieren; Fenster-/Listenlayout wird pro Nutzer erinnert.",
+      "acceptance": "Unveränderter BT-WF-004 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-WF-004"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/45",
+      "status": "specified_not_validated",
+      "implementation_rule": "Nutzergebundenes Spalten-/Gruppier-/Sortierprofil; keine vom anderen Konto übernommenen Layouts auf Shared Workstations.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-WF-005",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Diktatmetadaten bearbeiten und neu zuweisen",
+      "requirement": "Berechtigte Nutzer können Titel, Anmerkung, Priorität, Frist und zuständige Schreibkraft ändern.",
+      "acceptance": "Unveränderter BT-WF-005 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-WF-005"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/46",
+      "status": "specified_not_validated",
+      "implementation_rule": "Metadatenversion und Zuweisung getrennt vom Text; If-Match/Lease und Audit. Umverteilen widerruft laufenden Altzugriff.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-WF-006",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Verlauf eines Diktats anzeigen",
+      "requirement": "Zu einem Diktat können Log-/Verlaufsinformationen aufgerufen werden.",
+      "acceptance": "Unveränderter BT-WF-006 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-WF-006"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/47",
+      "status": "specified_not_validated",
+      "implementation_rule": "Objektgebundener Verlauf inkl. Quittungen/Fehler, nicht technische Logs mit Patiententext. Ctrl+I gleiche Berechtigung wie Menü.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-WF-007",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Exklusive Bearbeitung und Freigabe",
+      "requirement": "Öffnen des Vorgangs setzt In Bearbeitung und verhindert paralleles Bearbeiten; Schliessen gibt frei.",
+      "acceptance": "Unveränderter BT-WF-007 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-WF-007"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/48",
+      "status": "specified_not_validated",
+      "implementation_rule": "Renewable Lease + fencing + Version. Crash-Recovery gibt keine bestätigten Texte auf; normal close release und getesteter Timeout.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-WF-008",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Vorbereitung, Abschrift und Korrektur unterscheiden",
+      "requirement": "Neu angelegt/In Vorbereitung unterscheiden sich von Zu schreiben und Zu korrigieren; erfolgreiche Spracherkennung führt zur Korrektur, Audio ohne Erkennung zur Abschrift.",
+      "acceptance": "Unveränderter BT-WF-008 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-WF-008"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/49",
+      "status": "specified_not_validated",
+      "implementation_rule": "Mehrdimensionale Zustände in referenznahe UI projizieren. Textloser ASR-Fehler ist nicht korrektur- oder freigabefertig.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-WF-009",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Abnahme aktivieren und Berechtigte festlegen",
+      "requirement": "Mit Abnahme führt nach Korrektur zur Freigabe durch Autor oder regelbasiert berechtigte Autoren/Autorenpools mit Ausnahmen.",
+      "acceptance": "Unveränderter BT-WF-009 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-WF-009"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/50",
+      "status": "specified_not_validated",
+      "implementation_rule": "approval_required pro Auftrag/Policy; Abnahme durch explizite Autoren-/Poolregeln mit Ausnahmen. Optionaler Zusatzschritt ersetzt nicht die menschliche Korrekturbestätigung.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-WF-010",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Rückweisung und erneute Abnahme",
+      "requirement": "Abnahmeberechtigter kann bestätigen oder zur Schreibkraft zurückverweisen; Bestätigung ermöglicht anschliessende Fertigstellung.",
+      "acceptance": "Unveränderter BT-WF-010 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-WF-010"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/51",
+      "status": "specified_not_validated",
+      "implementation_rule": "Zurückweisung mit Grund an Bearbeitung, Freigabe an exakte aktuelle Revision; neue Korrektur erfordert erneute ggf. Pflichtabnahme.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-WF-011",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Fertigstellen und Weiterverarbeitung",
+      "requirement": "F5/Fertigstellen öffnet Weiterverarbeitungsoptionen; bestätigte Optionen werden ausgeführt, Vorgang wird fertig gemeldet und Editor geschlossen. Ohne Export bleibt der fertige Fall im Workflow.",
+      "acceptance": "Unveränderter BT-WF-011 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-WF-011"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/52",
+      "status": "specified_not_validated",
+      "implementation_rule": "Abschlussdialog separat von Exporterfolg. Ohne Export gültiger Abschluss, mit mehreren Zielen je Ziel eigenes Ledger. Abbruch verändert keinen Fachstatus.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-WF-012",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Fertiges Diktat wieder zur Korrektur öffnen",
+      "requirement": "Autor oder entsprechend berechtigte Schreibkraft kann einen fertigen Fall entriegeln, korrigieren oder erneut delegieren.",
+      "acceptance": "Unveränderter BT-WF-012 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-WF-012"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/53",
+      "status": "specified_not_validated",
+      "implementation_rule": "Reopen ist explizites Recht und neue Arbeitsrevision, nie Mutieren eines historisch finalen Dokuments; KIS braucht Nachtragsprozess.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-WF-013",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Archivieren, Löschen und Aufbewahrungsfrist",
+      "requirement": "Berechtigte Nutzer melden Fälle zum Archivieren/Löschen; automatische Behandlung fertiger Diktate nach Tagen ist konfigurierbar. Archiv ist nach Nutzer-ID/Monat organisiert und nicht mehr aktive Arbeitsliste.",
+      "acceptance": "Unveränderter BT-WF-013 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-WF-013"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/54",
+      "status": "specified_not_validated",
+      "implementation_rule": "Archivprojektion User-ID/Monat und Rechtsprüfung; Delete/Archive unterscheidbar. Retention parametrisiert, Default keine automatische Löschung.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-WF-014",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Benachrichtigungen bei Abnahme und Fertigstellung",
+      "requirement": "Autoren können Benachrichtigungen für zur Abnahme bereite oder fertiggestellte Diktate erhalten; lokale Hinweise sind konfigurierbar.",
+      "acceptance": "Unveränderter BT-WF-014 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-WF-014"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/55",
+      "status": "specified_not_validated",
+      "implementation_rule": "In-App-/Desktop-Hinweise; konfigurierter interner Mailadapter optional. SMTP-Ausfall verhindert nicht lokalen Start oder fachlichen Abschluss.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-COR-001",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Manuelle Abschrift mit Player und Vorlage",
+      "requirement": "Audio ohne ASR wird mit frei positionierbarem Player abgespielt; Erfassen öffnet eine passende Benutzer-/Poolvorlage oder Dateiauswahl.",
+      "acceptance": "Unveränderter BT-COR-001 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-COR-001"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/56",
+      "status": "specified_not_validated",
+      "implementation_rule": "Frei platzierbarer Player innerhalb der Weboberfläche, vorhandenen Browserplayer verwenden; Benutzer-/Poolvorlage und Dateiupload anbieten. Kein zusätzliches natives Playerfenster.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-COR-002",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Synchroner Text-Audio-Editor",
+      "requirement": "Korrektur erhält Verbindung zwischen Wort-/Phrasenposition und Audio auch bei Übertippen, Formatieren und Verschieben von Textpassagen.",
+      "acceptance": "Unveränderter BT-COR-002 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-COR-002"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/57",
+      "status": "specified_not_validated",
+      "implementation_rule": "Stabile Textsegment-IDs mit immutable audio spans; edit/format/move transformiert Anker. Rein getippter Text ohne erfundene Audiozuordnung.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "PAR-COR-003",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Wellenform, aktuelle Phrase und Erkennungsmarken",
+      "requirement": "Korrektur zeigt skalierbare/ausblendbare Wellenform, aktuelle Phrase und sichtbare Bereiche für Erkennung, Befehle, Unsicherheit oder fehlende Erkennung.",
+      "acceptance": "Unveränderter BT-COR-003 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-COR-003"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/58",
+      "status": "specified_not_validated",
+      "implementation_rule": "Vorhandene Wellenform soweit vorhanden erweitern; Skalierung, Phrase, Command-/Unknown-/Unrecognizedmarkierungen mit nachvollziehbarer Herkunft.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "PAR-COR-004",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Tempo und Spulen",
+      "requirement": "Wiedergabe lässt sich bis Faktor 0.5/2 verändern; Rechtsklick setzt Normaltempo; Vor-/Rückspulen ist per Tastatur/Fusssteuerung möglich.",
+      "acceptance": "Unveränderter BT-COR-004 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-COR-004"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/59",
+      "status": "specified_not_validated",
+      "implementation_rule": "0.5x bis 2x und Normaltempo per Rechtsklick im Browserplayer; Audiozeit statt Wandzeit, getestetes Web-Audio-/Playback-Stretching, fokussierte Tastatur-/WebHID-Bedienung.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "PAR-COR-005",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Zwei Korrekturmodi und automatische Rücksprünge",
+      "requirement": "Wiedergabe kann beim Tippen stoppen oder während Übertippen weiterlaufen; Start kann um konfigurierte Zeit oder unterstützte Wortzahl zurückspringen.",
+      "acceptance": "Unveränderter BT-COR-005 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-COR-005"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/60",
+      "status": "specified_not_validated",
+      "implementation_rule": "Zwei explicit modes stop_on_type / continue_on_type; backstep ms oder Wörter nur bei belegten Wortankern, nicht geschätzte Wörter.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "PAR-COR-006",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Zwischenspeichern und an Position fortsetzen",
+      "requirement": "Korrekturen lassen sich während Bearbeitung speichern; Unterbrechung erhält Textstand und Wiedergabeposition.",
+      "acceptance": "Unveränderter BT-COR-006 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-COR-006"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/61",
+      "status": "specified_not_validated",
+      "implementation_rule": "Autosave und Ctrl+S speichern Textrevision plus Abspielposition atomar nachvollziehbar; Konflikt nicht still überschreiben.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-COR-007",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Audioindizes verwalten",
+      "requirement": "Benutzer können benannte/verwaltete Indizes an Audiopositionen setzen und aus einer Indexliste anspringen.",
+      "acceptance": "Unveränderter BT-COR-007 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-COR-007"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/62",
+      "status": "specified_not_validated",
+      "implementation_rule": "Index ist eigener Name + audio_revision + Position; Editliste transformiert Position oder meldet ungültig, löscht kein Audio.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-COR-008",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Automatische Wiedergabelautstärke",
+      "requirement": "AGC kann die Wiedergabelautstärke angleichen, ohne das unveränderte Originaldiktat zu ersetzen.",
+      "acceptance": "Unveränderter BT-COR-008 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-COR-008"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/63",
+      "status": "specified_not_validated",
+      "implementation_rule": "AGC nur Wiedergabederivat, Originalhash bleibt gleich. Kein Gleichsetzen mit besserer Erkennungsqualität.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "PAR-COR-009",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Editierfunktionen, Auswahl und Phrase vormerken",
+      "requirement": "Editor unterstützt Undo/Redo, Zwischenablage, Groß-/Kleinschreibung, Wort-/Absatzauswahl und Vormerken einer Phrase für spätere Vokabularprüfung.",
+      "acceptance": "Unveränderter BT-COR-009 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-COR-009"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/64",
+      "status": "specified_not_validated",
+      "implementation_rule": "Editoperationen, Case/Selection und Vokabular-Vormerkliste; Vorschlag != veröffentlichter Wortschatz.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-COR-010",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Korrekturplatz ohne ASR-Installation",
+      "requirement": "Bearbeiten eines bereits erkannten Diktats braucht am Schreibplatz keine lokale Dragon-/ASR-Engine; Text und Audio bleiben verfügbar.",
+      "acceptance": "Unveränderter BT-COR-010 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-COR-010"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/65",
+      "status": "specified_not_validated",
+      "implementation_rule": "Schreibplatz benötigt keine lokale ASR-/Dragon-Installation. Vorhandene Transkripte/Audio auch bei Worker-Ausfall bearbeiten.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-VOC-001",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Benutzer- und Poolwortschatz",
+      "requirement": "Wörter/Phrasen besitzen geschriebene und optional gesprochene Form; persönliche und gemeinsame Poolwortlisten sind getrennt pflegbar.",
+      "acceptance": "Unveränderter BT-VOC-001 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-VOC-001"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/66",
+      "status": "specified_not_validated",
+      "implementation_rule": "Persönliche und Autorenpool-Lexika mit written/spoken form, Version und Vorschlags-/Freigabestatus; getrennt von Staff-Pools.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-VOC-002",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Textwortlisten importieren und exportieren",
+      "requirement": "Wortlisten können aus Text importiert und als vollständige Textliste exportiert werden. Es werden neu erstellte Testlisten verwendet, keine Altbestandsmigration.",
+      "acceptance": "Unveränderter BT-VOC-002 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-VOC-002"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/67",
+      "status": "specified_not_validated",
+      "implementation_rule": "UTF-8/definierte Legacyencodingoptionen, Preview, deterministische Duplikatregel und Roundtrip; nur neue Testlisten.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-VOC-003",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Negativwortliste und Reaktivierung",
+      "requirement": "Gelöschte Wörter werden für Nutzer oder Pool unterdrückt; spätere Reaktivierung ist möglich. Unterdrückung bleibt unabhängig von einem neu geladenen Profil wirksam.",
+      "acceptance": "Unveränderter BT-VOC-003 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-VOC-003"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/68",
+      "status": "specified_not_validated",
+      "implementation_rule": "Persistente Negativliste und Reaktivierung müssen Enginewirkung nachweisen; Prompt oder Ergebnis-nachträglich-löschen ist kein harter Lexikonausschluss.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "PAR-VOC-004",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Vorbehaltswortliste prüfen",
+      "requirement": "Änderungen eingeschränkt berechtigter Nutzer werden vorgemerkt; Prüfer entscheidet Pool, nur Nutzer oder verwerfen, jeweils für Hinzufügen und Löschen.",
+      "acceptance": "Unveränderter BT-VOC-004 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-VOC-004"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/69",
+      "status": "specified_not_validated",
+      "implementation_rule": "Reviewliste mit add/remove und Entscheidung personal/pool/reject; offene Änderungen haben keine globale ASR-Wirkung.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-VOC-005",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Sitzungsänderungen prüfen oder zurückstellen",
+      "requirement": "Neue/gelöschte Wörter und neue/geänderte Befehle werden beim Sitzungsende geprüft, Nutzer/Pool zugeordnet oder verworfen; Abbruch merkt sie für später.",
+      "acceptance": "Unveränderter BT-VOC-005 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-VOC-005"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/70",
+      "status": "specified_not_validated",
+      "implementation_rule": "Sitzungsende stellt Wort-/Befehlsänderungen zur Prüfung. Abbrechen bewahrt pending; explizite Freigabe erzeugt neue Ressourcenversion.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-VOC-006",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Vokabular durchsuchen und aus Markierung ergänzen",
+      "requirement": "Vokabularsuche bietet Anfang/Ende/Vorkommen, geschriebene/gesprochene Form und passende Filter; markierter Text kann direkt als Phrase übernommen werden.",
+      "acceptance": "Unveränderter BT-VOC-006 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-VOC-006"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/71",
+      "status": "specified_not_validated",
+      "implementation_rule": "Search prefix/suffix/contains über written/spoken; Markierung als editierbarer Vorschlag und bestätigte Mehrfachlöschung.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-VOC-007",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Aussprache trainieren und Phonetik bearbeiten",
+      "requirement": "Je nach Erkennerversion kann Aussprache trainiert, vorgelesen und als phonetische Formen bearbeitet werden; das Handbuch schränkt Bearbeitung bereits für Dragon 11 ein.",
+      "acceptance": "Unveränderter BT-VOC-007 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-VOC-007"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/72",
+      "status": "specified_not_validated",
+      "implementation_rule": "Phonetik-/Trainingsfähigkeit der Referenzversion und der neuen Engine getrennt prüfen. Keine leeren Schaltflächen, keine Behauptung dass Vorlesen Training sei.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "PAR-VOC-008",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Befehle, Makros und Textbausteine verwalten",
+      "requirement": "Persönliche/Poolbefehle sind verwaltbar und exportierbar; Benutzerbefehle können vor/nach einem eingebauten Kommando Aktionen ausführen und in Menüs erscheinen. Globale Text-/Grafikbausteine sind beim Diktieren nutzbar.",
+      "acceptance": "Unveränderter BT-VOC-008 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-VOC-008"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/73",
+      "status": "specified_not_validated",
+      "implementation_rule": "Versionierte persönliche/Pool-Befehle mit before/after-Hooks auf erlaubte Webaktionen/Text-/Grafikbausteine, ohne eval/Shell/OS-Input. Native Makroaktionen nicht vortäuschen.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "PAR-ASR-001",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Lokale Hintergrundtranskription",
+      "requirement": "Zur Hintergrund-Erkennung markierte Audioaufträge werden in Text plus Korrekturinformationen umgesetzt; Korrektur ist ein nachgelagerter menschlicher Schritt.",
+      "acceptance": "Unveränderter BT-ASR-001 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-ASR-001"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/74",
+      "status": "specified_not_validated",
+      "implementation_rule": "Gepinnte lokale Batch-ASR, Text und Zeitbezug, defekte Eingaben isolieren. Unabhängiger menschlicher Reviewstatus.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-ASR-002",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Getrennte Online-/Offlineprofile und Quellen",
+      "requirement": "Autoren können für Live- und Hintergrund-Erkennung getrennte Profile für unterschiedliche Aufnahmequellen führen; ohne Trennung kann ein Profil beide Aufgaben bedienen.",
+      "acceptance": "Unveränderter BT-ASR-002 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-ASR-002"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/75",
+      "status": "specified_not_validated",
+      "implementation_rule": "Author+source+mode-basierte Profilreferenzen, shared/separate explizit. Model-/Adapterversionen, Lexika und tatsächliche trainierbare Komponenten getrennt.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "PAR-ASR-003",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "ASR-Wartezeit mit manueller Ersatzbearbeitung",
+      "requirement": "Nach konfigurierbarer maximaler Wartezeit kann Hintergrund-Erkennung übersprungen und manuelle Abschrift angeboten werden.",
+      "acceptance": "Unveränderter BT-ASR-003 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-ASR-003"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/76",
+      "status": "specified_not_validated",
+      "implementation_rule": "Konfigurierbarer Timeout/Fallback, deaktivierbar. Verspätete ASR darf manuell korrigierte Revision niemals überschreiben.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-ASR-004",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Optimierung aus geprüfter Korrektur",
+      "requirement": "Fertigstellung kann geprüften Text oder Text+Audio zur Verbesserung von Wortschatz/Sprach-/Akustikmodell verwenden; Text+Audio verlangt vollständige Übereinstimmung.",
+      "acceptance": "Unveränderter BT-ASR-004 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-ASR-004"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/77",
+      "status": "specified_not_validated",
+      "implementation_rule": "Korrekturtraining ist ein echter lokaler Trainings-/Adaptionsjob mit evaluiertem Modellartefakt. Text-only vs acoustic-data trennen; LLM-Nachbearbeitung/Hotwordprompt kein Ersatz.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "PAR-ASR-005",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Optimierungsfenster und Mindestdatenmenge",
+      "requirement": "Zeitfenster können aufwendige Modelloptimierungen begrenzen; akustische Daten können gesammelt werden, bis genügend Material vorliegt.",
+      "acceptance": "Unveränderter BT-ASR-005 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-ASR-005"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/78",
+      "status": "specified_not_validated",
+      "implementation_rule": "Optimierungsfenster und Mindestmenge versionierte Policy; zu wenig Daten => waiting_data, nicht succeeded. Erkennungsjobs separat priorisieren.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "PAR-ASR-006",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Profil-Speicherung und Arbeitsstationswechsel",
+      "requirement": "Profiländerungen lassen sich nie/nach Rückfrage/immer speichern und optional zentral hinterlegen; ein neuer Arbeitsplatz kann den gespeicherten Stand laden.",
+      "acceptance": "Unveränderter BT-ASR-006 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-ASR-006"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/79",
+      "status": "specified_not_validated",
+      "implementation_rule": "Never/ask/always speichern, zentral versionieren, Konflikte am zweiten Arbeitsplatz, keine biometrische Sprecheridentifikation.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "PAR-ASR-007",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Diktierquelle und Versand-Audioformat",
+      "requirement": "Quelle kann während Sitzung gewechselt oder beim Start vorgegeben werden; für Versand ist Standardaudio oder unterstützte Kompression wählbar.",
+      "acceptance": "Unveränderter BT-ASR-007 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-ASR-007"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/80",
+      "status": "specified_not_validated",
+      "implementation_rule": "Quelle während Sitzung nur mit bestätigter neuer Segmentgrenze; Exportcodec wirklich vorhanden, keine Extension-Umetikettierung.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "PAR-EXP-001",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Mehrere Exportwege pro Abschluss",
+      "requirement": "Pro Nutzer gespeicherte Weiterverarbeitungsoptionen erlauben mehrere Ausgaben desselben korrigierten Diktats.",
+      "acceptance": "Unveränderter BT-EXP-001 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-EXP-001"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/81",
+      "status": "specified_not_validated",
+      "implementation_rule": "Mehrere benannte DeliveryTargets pro Abschluss, unabhängig committed/failed/unknown. UNKNOWN sperrt unkontrollierte Wiederholung, nicht belegte andere Ergebnisse.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-EXP-002",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Zwischenablage formatiert/unformatiert",
+      "requirement": "Korrigierter Text kann mit oder ohne Formatierung in Zwischenablage kopiert werden.",
+      "acceptance": "Unveränderter BT-EXP-002 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-EXP-002"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/82",
+      "status": "specified_not_validated",
+      "implementation_rule": "Clipboard plain/RichText explizite Benutzeraktion im verwalteten Desktop; kein BYOD-Export. Kopieren ist nicht klinische Finalfreigabe oder KIS-Ack.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "PAR-EXP-003",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "RTF-Ausgabe",
+      "requirement": "Korrigierter Text inklusive Formatierung/Grafik kann in RTF geschrieben, im Workflow verwaltet und optional geöffnet werden.",
+      "acceptance": "Unveränderter BT-EXP-003 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-EXP-003"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/83",
+      "status": "specified_not_validated",
+      "implementation_rule": "RTF mit Format-/Bildroundtrip; geprüfter Serializer/Writerpfad statt handgestricktem Escapeformat. Lesbarkeit unabhängig testen.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "PAR-EXP-004",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Word-Ausgabe mit Vorlage und Textmarke",
+      "requirement": "Word-Export kann Vorlagen, Textmarken, ein geöffnetes Dokument oder Dokument im Workflow nutzen; Text oder formatierter Inhalt wählbar.",
+      "acceptance": "Unveränderter BT-EXP-004 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-EXP-004",
+        "WB-013"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/84",
+      "status": "specified_not_validated",
+      "implementation_rule": "DOCX serverseitig aus Vorlage/Bookmarks erzeugen und im Workflow speichern. Upload einer bestehenden Datei ist möglich, aber keine Steuerung eines am Client geöffneten Word-Dokuments.",
+      "web_feasibility": "strict_web_conflict"
+    },
+    {
+      "id": "PAR-EXP-005",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "OpenOffice-Writer-/ODT-Ausgabe",
+      "requirement": "Writer-Ausgabe bietet Vorlage, offenes Dokument, Text/Formatierung und optionale weitere Bearbeitung.",
+      "acceptance": "Unveränderter BT-EXP-005 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-EXP-005"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/85",
+      "status": "specified_not_validated",
+      "implementation_rule": "ODT serverseitig über isolierten geprüften Konverter, Vorlagen und Formatvergleich. Keine Steuerung eines geöffneten Writer-Prozesses.",
+      "web_feasibility": "strict_web_conflict"
+    },
+    {
+      "id": "PAR-EXP-006",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Dateiname, Ablageort und Kollisionen",
+      "requirement": "Dateinamen können abgefragt oder aus Platzhaltern generiert werden; Ablage im Workflow oder an benanntem Pfad ist wählbar.",
+      "acceptance": "Unveränderter BT-EXP-006 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-EXP-006",
+        "WB-014"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/86",
+      "status": "specified_not_validated",
+      "implementation_rule": "Vorlagenname, Kollisionsregel, Workflowablage und Serverzielalias; lokale Pfade nur vom Nutzer ausdrücklich über Browser-Picker autorisiert. Downloadstart nicht als auf Datenträger gespeichert quittieren.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "PAR-EXP-007",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Allgemeiner Fenstertransfer",
+      "requirement": "Zielanwendung kann über Fensterklasse/-titel gewählt und in Vordergrund gebracht werden; Übertragung erfolgt als Clipboard-Text, Tastensimulation oder formatiert. Keine KIS-Speziallogik.",
+      "acceptance": "Unveränderter BT-EXP-007 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-EXP-007"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/87",
+      "status": "specified_not_validated",
+      "implementation_rule": "Text/HTML-Clipboard oder Datei mit Nutzeraktion; keine Enumeration von OS-Fenstern und keine simulierten Tasten. Native Teilforderung bleibt blocker.",
+      "web_feasibility": "strict_web_conflict"
+    },
+    {
+      "id": "PAR-EXP-008",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Geschriebenes Dokument kopieren",
+      "requirement": "Bei manuell geschriebenen Diktaten kann das fertige Dokument an einen ausgewählten oder generierten Dateipfad kopiert werden.",
+      "acceptance": "Unveränderter BT-EXP-008 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-EXP-008"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/88",
+      "status": "specified_not_validated",
+      "implementation_rule": "Datei serverseitig an erlaubten Zielalias kopieren oder Browser-Speicherdialog; keine Schreibberechtigung auf beliebige lokale Pfade durch manipuliertes Requestfeld.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "PAR-EXP-009",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Originalaudio speichern oder Mailentwurf öffnen",
+      "requirement": "Berechtigte Nutzer können Aufnahme auf Datenträger speichern oder an das lokale Standardmailprogramm übergeben.",
+      "acceptance": "Unveränderter BT-EXP-009 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-EXP-009"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/89",
+      "status": "specified_not_validated",
+      "implementation_rule": "Audio-Download separat berechtigen; optional .eml-Erzeugung mit Anhang als ausdrücklich anderer Webweg. mailto garantiert keine Audioanlage, kein behaupteter erfolgreicher Mailversand.",
+      "web_feasibility": "strict_web_conflict"
+    },
+    {
+      "id": "PAR-EXP-010",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Word-Add-in: Dokument und Audio übergeben",
+      "requirement": "Word-Integration kann RTF+Audio, RTF+Vorlage+Audio, Text+Audio oder nur Word-Dokument senden; ohne aktive Diktatsitzung nur Dokument.",
+      "acceptance": "Unveränderter BT-EXP-010 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-EXP-010"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/90",
+      "status": "specified_not_validated",
+      "implementation_rule": "Web-Dokumentupload plus gebundene vorhandene Audiofassung; dokument-only ist eigenständig. Kein natives Add-in, keine zweite Clientanwendung. Ursprünglicher Add-in-Ablauf bleibt blockierter Teilumfang.",
+      "web_feasibility": "strict_web_conflict"
+    },
+    {
+      "id": "PAR-OPS-001",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Fusssteuerung und Tastenzuordnung",
+      "requirement": "Unterstützte Fussschalter steuern Wiedergabe/Spulen/Aufnahme; Haltemodus und Zuordnung sind konfigurierbar, Gerätestatus wird angezeigt.",
+      "acceptance": "Unveränderter BT-OPS-001 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-OPS-001",
+        "WB-011"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/91",
+      "status": "specified_not_validated",
+      "implementation_rule": "Pedal als fokussierte Tastatureingabe oder gerätespezifisch per WebHID mit Nutzerberechtigung; echte Geräte-/Browsermatrix. Keine generelle HID- oder Hintergrundgarantie.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "PAR-OPS-002",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Mikrofon-/Diktiergerätsteuerung und Rückmeldung",
+      "requirement": "Handmikrofon-/DPM-Tasten und Schiebeschalter steuern Aufnahme, Standby, Wiedergabe, Korrektur und Navigation; unterstützte LEDs zeigen Zustand.",
+      "acceptance": "Unveränderter BT-OPS-002 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-OPS-002"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/92",
+      "status": "specified_not_validated",
+      "implementation_rule": "Audiomikrofon per Browser; Steuerknöpfe/LEDs nur über getesteten direkten WebHID-Vertrag. Kein Hersteller-SDK im Import-Agent für Diktatbedienung.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "PAR-OPS-003",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Hotkeys frei setzen und zurücksetzen",
+      "requirement": "Kommandos können über einstellbare lokale/globale Hotkeys ausgelöst und auf Standard zurückgesetzt werden.",
+      "acceptance": "Unveränderter BT-OPS-003 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-OPS-003"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/93",
+      "status": "specified_not_validated",
+      "implementation_rule": "Tastenkürzel im Webkontext, Konflikte/Browserreservierungen anzeigen. Systemweite Hotkeys bei fremdem Vordergrundfenster sind kein zugesagtes Webfeature.",
+      "web_feasibility": "strict_web_conflict"
+    },
+    {
+      "id": "PAR-OPS-004",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Autostart, Tray und programmatischer Start",
+      "requirement": "Client/Workflow/Pass besitzen Hintergrund-/Traybetrieb und Startoptionen für Benutzer/Pool; Schliessen einer Liste kann minimieren, Beenden ist separat.",
+      "acceptance": "Unveränderter BT-OPS-004 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-OPS-004"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/94",
+      "status": "specified_not_validated",
+      "implementation_rule": "Installierbare reine PWA optional; kein Electron/Tauri/WPF/WebView-Wrapper. Jobs laufen serverseitig nach Tab-Schliessen weiter; nativer Tray-Autostart nicht als PWA-Erfolg ausgeben.",
+      "web_feasibility": "strict_web_conflict"
+    },
+    {
+      "id": "PAR-OPS-005",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Statistikerfassung und Aufbewahrung",
+      "requirement": "Anwendungsnutzung und Diktatverlauf werden separat aktivierbar und mit zeitlicher Begrenzung erfasst.",
+      "acceptance": "Unveränderter BT-OPS-005 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-OPS-005"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/95",
+      "status": "specified_not_validated",
+      "implementation_rule": "Optionale Nutzungs-/Verlaufsstatistik getrennt vom unverzichtbaren Sicherheitsaudit. Statistik aus => nicht erhoben, nicht Nullnutzung.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-OPS-006",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Diktat-, Frist- und Bearbeitungsstatistiken",
+      "requirement": "Berichte umfassen Mengen/Dauer nach Autor/Status, verpasste Fristen, Löschungen, Bearbeitungs-/Abnahme-/Fertigstellungszeiten und Anwendungsnutzung.",
+      "acceptance": "Unveränderter BT-OPS-006 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-OPS-006"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/96",
+      "status": "specified_not_validated",
+      "implementation_rule": "Rollen-/Zeitraum-/Autorfilter, unterschiedliche Zeitskalen, vollständige Provenienz bei Aggregation, keine unberechtigte Personenleistungsansicht.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-OPS-007",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Statistik als CSV und ohne UI",
+      "requirement": "Statistiken können per UI oder CLI nach Zielpfad, Zeitraum und Berichtsauswahl exportiert werden; ohne UI ist vorgesehen.",
+      "acceptance": "Unveränderter BT-OPS-007 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-OPS-007"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/97",
+      "status": "specified_not_validated",
+      "implementation_rule": "Gemeinsamer Reportservice für UI und autorisierte CLI, gleiche Parameternormalisierung; Fehlerexitcode statt leerem Erfolgs-CSV. Kein pauschaler Direkt-DB-Lesezugriff.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-OPS-008",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Dienstbetrieb, Jobs und beobachtbare Fehler",
+      "requirement": "Zentrale Verarbeitung läuft unabhängig von sichtbarer Clientoberfläche; Aufträge, fehlende Ablage, fehlender Autor/Pool und ausgefallene Engine müssen nachvollziehbar behandelt werden.",
+      "acceptance": "Unveränderter BT-OPS-008 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-OPS-008"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/98",
+      "status": "specified_not_validated",
+      "implementation_rule": "Speakr-Worker unabhängig von offener UI; durable Jobs, verständliche Fehler und kontextbezogener Retry. Kein proprietäres Jobdateiprotokoll nachbauen.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-OPS-009",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Original und Arbeitskopie getrennt aufbewahren",
+      "requirement": "Unveränderte Eingangsdatei wird getrennt von Wiedergabe-/Erkennungsarbeitskopie gehalten; Arbeitskopie kann komprimiert und geschützt sein.",
+      "acceptance": "Unveränderter BT-OPS-009 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-OPS-009"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/99",
+      "status": "specified_not_validated",
+      "implementation_rule": "Original unverändert, Edit-/Playback-/ASRderivate getrennt ACL/Keys. Kein Export der Herstellerdatenbank oder SecureDS-Bypass.",
+      "web_feasibility": "web_design"
+    },
+    {
+      "id": "PAR-OPS-010",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Gerätesteuerung in RDP-/ICA-Sitzungen",
+      "requirement": "Zentrale Workflow-Pass-Vorgaben unterscheiden lokale sowie RDP-/ICA-Gerätewege. Nachbau muss den vereinbarten Remote-Gerätepfad eigenständig nachweisen; lokaler Import belegt keine Remote-Unterstützung.",
+      "acceptance": "Unveränderter BT-OPS-010 gegen Referenz und Fork plus V4-Sicherheitsguards; keine stillen Ausnahmen.",
+      "tests": [
+        "BT-OPS-010"
+      ],
+      "source": "sources/dns-functional/specs/feature_parity.json#/features/100",
+      "status": "specified_not_validated",
+      "implementation_rule": "Import lokal am physischen PC, Status/Zuordnung in autorisiertem Webclient auch über RDP/ICA. Mikrofon-/HID-Umleitung als direkte Browser/Host-Fähigkeit testen; Agent wird kein Remote-Control-Bridge.",
+      "web_feasibility": "dependency_validation"
+    },
+    {
+      "id": "V4-001",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Speakr-Fork als einziges Fachsystem",
+      "requirement": "Vorhandene Speakr-Domäne/DB/Auth/Queue/Frontend erweitern; kein paralleler WPF-/FastAPI-Workflowserver.",
+      "acceptance": "Zugeordnete V4-Negativtests und Laufzeitnachweise bestehen.",
+      "tests": [
+        "X4-022"
+      ],
+      "status": "specified_not_validated"
+    },
+    {
+      "id": "V4-002",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "101-fache Pflichtparität",
+      "requirement": "Jede PAR-Anforderung bleibt zwingend bis explizit versionierter Änderung durch den Auftraggeber; fehlende Enginefunktion ist blocker, kein Erfolg.",
+      "acceptance": "Zugeordnete V4-Negativtests und Laufzeitnachweise bestehen.",
+      "tests": [
+        "X4-001",
+        "X4-002",
+        "X4-003",
+        "X4-012"
+      ],
+      "status": "specified_not_validated"
+    },
+    {
+      "id": "V4-003",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Getrennter Buildkontext",
+      "requirement": "Analyseoriginale/Pseudocode/Alt-DB ausserhalb des Buildkontexts und des Fork-Repositories; nur freigegebene Verhaltensverträge verwenden.",
+      "acceptance": "Zugeordnete V4-Negativtests und Laufzeitnachweise bestehen.",
+      "tests": [
+        "X4-021"
+      ],
+      "status": "specified_not_validated"
+    },
+    {
+      "id": "V4-004",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Vertrauenswürdige Browserprofile",
+      "requirement": "Webclient für alle Fachaktionen. BYOD ohne Persistenz; managed_web_offline nur nach explizitem Profil-/Securitygate. Clientseitige Flags begründen keine zusätzlichen Rechte.",
+      "acceptance": "V4-Webgrenzen und zugeordnete Tests nachgewiesen; offene Browser-/Hersteller-/Paritätskonflikte nicht als bestanden darstellen.",
+      "tests": [
+        "WB-008",
+        "WB-009",
+        "X4-005",
+        "X4-006"
+      ],
+      "status": "specified_not_validated"
+    },
+    {
+      "id": "V4-005",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Import-Agent ohne Diktatfunktionen",
+      "requirement": "Agent darf nur erlaubte Geräte/Ordner inventarisieren, Dateien sichern, Metadaten/Quittungen transportieren und eng begrenzte Importnachbearbeitung ausführen. Keine Aufnahme, Wiedergabe, HID-Steuerung, Hotkeys, Office-, Fenster- oder Clipboardsteuerung; kein lokaler API-Tunnel.",
+      "acceptance": "V4-Webgrenzen und zugeordnete Tests nachgewiesen; offene Browser-/Hersteller-/Paritätskonflikte nicht als bestanden darstellen.",
+      "tests": [
+        "WB-002",
+        "WB-004",
+        "X4-009",
+        "X4-010",
+        "X4-011",
+        "X4-020"
+      ],
+      "status": "specified_not_validated"
+    },
+    {
+      "id": "V4-006",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Nichtdestruktive Audiooperationen",
+      "requirement": "Audiofassung, Editliste, Undo und Textanker konsistent und unveränderliche Originale; mindestens 16 Undo-Schritte.",
+      "acceptance": "Zugeordnete V4-Negativtests und Laufzeitnachweise bestehen.",
+      "tests": [
+        "X4-007",
+        "X4-024"
+      ],
+      "status": "specified_not_validated"
+    },
+    {
+      "id": "V4-007",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Live-Web-Ereignisvertrag",
+      "requirement": "Audio-/Text-/Phrasengenerationen binden; durable serverseitiger Commit vor server_saved. Browser-RAM oder optionaler lokaler Cache ist keine Serverquittung.",
+      "acceptance": "V4-Webgrenzen und zugeordnete Tests nachgewiesen; offene Browser-/Hersteller-/Paritätskonflikte nicht als bestanden darstellen.",
+      "tests": [
+        "X4-008"
+      ],
+      "status": "specified_not_validated"
+    },
+    {
+      "id": "V4-008",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Echte ASR-Fähigkeiten",
+      "requirement": "Capabilities aus realen Prüfungen, explizite Profil-/Lexikon-/Trainingssemantik; kein Hotwordprompt als Ersatz für akustische Optimierung.",
+      "acceptance": "Zugeordnete V4-Negativtests und Laufzeitnachweise bestehen.",
+      "tests": [
+        "WB-018",
+        "X4-013",
+        "X4-014"
+      ],
+      "status": "specified_not_validated"
+    },
+    {
+      "id": "V4-009",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Mehrkanal-Delivery",
+      "requirement": "Unabhängige gebundene Exportversuche und idempotente oder manuell geklärte Seiteneffekte; UNKNOWN niemals blind erneut ausführen.",
+      "acceptance": "Zugeordnete V4-Negativtests und Laufzeitnachweise bestehen.",
+      "tests": [
+        "X4-015",
+        "X4-016",
+        "X4-023"
+      ],
+      "status": "specified_not_validated"
+    },
+    {
+      "id": "V4-010",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Geräteadministration unter Webgrenze",
+      "requirement": "Inventar/Firmwarevergleich im Web; Gerätkonfiguration/Firmware bleiben Originalpflichten, sind aber weder Import-Agent-Aufgaben noch ohne belegten direkten Webweg als umgesetzt zu markieren.",
+      "acceptance": "V4-Webgrenzen und zugeordnete Tests nachgewiesen; offene Browser-/Hersteller-/Paritätskonflikte nicht als bestanden darstellen.",
+      "tests": [
+        "X4-004"
+      ],
+      "status": "specified_not_validated"
+    },
+    {
+      "id": "V4-011",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Windows-/AD-Identität serverseitig",
+      "requirement": "Initial lokale Appkonten. Später serverseitige Directory-Diffs/Windows-IWA nur über geprüfte Infrastruktur; weder Import-Agent noch Browsername begründen eine Benutzeridentität.",
+      "acceptance": "V4-Webgrenzen und zugeordnete Tests nachgewiesen; offene Browser-/Hersteller-/Paritätskonflikte nicht als bestanden darstellen.",
+      "tests": [
+        "X4-017",
+        "X4-018"
+      ],
+      "status": "specified_not_validated"
+    },
+    {
+      "id": "V4-012",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Nachweisbasierte finale Abnahme",
+      "requirement": "Referenz-, Ziel-, Vergleichs- und Projektgate-Evidenz pro Anforderung; Paketprüfungen getrennt von Software-/Laborabnahme.",
+      "acceptance": "Zugeordnete V4-Negativtests und Laufzeitnachweise bestehen.",
+      "tests": [
+        "X4-019"
+      ],
+      "status": "specified_not_validated"
+    },
+    {
+      "id": "V4-013",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Ausschliesslicher Webclient",
+      "requirement": "Diktieren, Editieren, Abspielen, Live-ASR, Korrektur, Freigabe, Benutzerverwaltung und Export werden ausschliesslich im Speakr-Webclient bedient. Kein installierter nativer Diktatclient, kein Wrapper oder Plugin als Umgehung.",
+      "acceptance": "WB-001 bis WB-005 und Paket-/Quellcodegrenze bestehen.",
+      "tests": [
+        "WB-001",
+        "WB-002",
+        "WB-003",
+        "WB-004",
+        "WB-005"
+      ],
+      "status": "specified_not_validated"
+    },
+    {
+      "id": "V4-014",
+      "phase": "PARITY",
+      "priority": "MUST",
+      "mandatory": true,
+      "title": "Konflikte nicht verschweigen",
+      "requirement": "Webgrenzen niemals als automatische N/A-Freigabe oder stillen Ersatz der 101 Originalfunktionen behandeln. WG-Register, Original-BT und Webalternative getrennt; offene Konflikte verhindern 1:1-Zusage.",
+      "acceptance": "WB-019/WB-020 und alle Original-BT erhalten; keine automatisch genehmigte Ausnahme.",
+      "tests": [
+        "WB-017",
+        "WB-019",
+        "WB-020"
+      ],
+      "status": "specified_not_validated"
+    }
+  ],
+  "authority": "V4+current user; latest PAR source behavior and explicit conflict register"
+}

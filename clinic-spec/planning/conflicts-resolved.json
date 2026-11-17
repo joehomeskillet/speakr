@@ -1,0 +1,147 @@
+{
+  "version": "4.0-web",
+  "decisions": [
+    {
+      "id": "C4-01",
+      "conflict": "Eigenständiger WPF/SQLite-Neubau im Analysepaket",
+      "binding_resolution": "Speakr-Flask/Vue/Tailwind/PostgreSQL bleibt die einzige Fachanwendung. Kein nativer Diktatclient. Nur apps/windows-import für Dateiabholung; keine lokale Fach-/Benutzerdatenbank.",
+      "area": "Architektur",
+      "authority": "latest_user_request_plus_retained_safety_constraints",
+      "status": "design_decided_reference_validation_pending"
+    },
+    {
+      "id": "C4-02",
+      "conflict": "Analysepaket schliesst inesKIS/BYOD/Entra aus",
+      "binding_resolution": "Nur Funktions- und Nachweiskatalog übernehmen; interne BYOD-App, inesKIS via Edge WebView und vorbereitete Entra/LDAP-Anbindung aus diesem Projekt bleiben Pflicht.",
+      "area": "Zusatzumfang",
+      "authority": "latest_user_request_plus_retained_safety_constraints",
+      "status": "design_decided_reference_validation_pending"
+    },
+    {
+      "id": "C4-03",
+      "conflict": "Frühere Planung betrachtete Live-Diktat/Befehle/Profiltraining als nicht erhobenen Umfang",
+      "binding_resolution": "Alle 101 PAR-Anforderungen sind jetzt MUST für vollständige Parität; spätes Milestone oder Enginegrenze ist keine Streichung.",
+      "area": "Priorität",
+      "authority": "latest_user_request_plus_retained_safety_constraints",
+      "status": "design_decided_reference_validation_pending"
+    },
+    {
+      "id": "C4-04",
+      "conflict": "Früher nur eigene Autoraufträge und genau ein Schreibpool",
+      "binding_resolution": "Sicherer Default bleibt own. Explizite erweiterte Sichtbereiche/Autorenpools/Ausnahmen/Mehrfachempfänger und Selbstkorrektur werden umgesetzt; Fallrechte bleiben zusätzliche Schranke.",
+      "area": "ACL/Routing",
+      "authority": "latest_user_request_plus_retained_safety_constraints",
+      "status": "design_decided_reference_validation_pending"
+    },
+    {
+      "id": "C4-05",
+      "conflict": "Früher pauschal nur EOL automatisch einreichen",
+      "binding_resolution": "EOL-Filter konfigurierbar wie PAR-IMP-004; Default on. Off benötigt bewusste Adminpolicy und stabile gültige bekannte Quelle; Dateistabilität wird nie als EOL-Nachweis ausgegeben.",
+      "area": "Import",
+      "authority": "latest_user_request_plus_retained_safety_constraints",
+      "status": "design_decided_reference_validation_pending"
+    },
+    {
+      "id": "C4-06",
+      "conflict": "Früher keine Gerätequelllöschung",
+      "binding_resolution": "Feature implementieren, Standard/Pilot off. Aktivierung nach Quittungs-, Backup-/Retention- und Hardwaregate; kein Automatismus allein wegen vorhandener Option.",
+      "area": "Löschung",
+      "authority": "latest_user_request_plus_retained_safety_constraints",
+      "status": "design_decided_reference_validation_pending"
+    },
+    {
+      "id": "C4-07",
+      "conflict": "Früher keine lokalen Browseraudiodaten vs. autarker Recorder",
+      "binding_resolution": "BYOD bleibt ohne Audio-/Textpersistenz. Managed-Web-Offlinefunktion optional nach separatem Gate mit Browser-Kryptografie und sichtbaren Verlustgrenzen; kein Windows-Recorder.",
+      "area": "Clientprofile",
+      "authority": "latest_user_request_plus_retained_safety_constraints",
+      "status": "design_decided_reference_validation_pending"
+    },
+    {
+      "id": "C4-08",
+      "conflict": "Früher keine UI-Automation vs. allgemeiner Fenstertransfer/SpeechLock",
+      "binding_resolution": "Kein allgemeiner nativer Fenstertransfer, keine OS-Automation und keine Import-Agent-Brücke. Webalternativen stehen in WG; KIS nur dokumentierter Herstellervertrag.",
+      "area": "Desktop/KIS",
+      "authority": "latest_user_request_plus_retained_safety_constraints",
+      "status": "design_decided_reference_validation_pending"
+    },
+    {
+      "id": "C4-09",
+      "conflict": "Ausschliesslich freigegebene Exporte vs. Live-Feldeingabe und optionale Abnahme",
+      "binding_resolution": "Arbeitsstandtransfer ist eigene Aktion ohne Finalitätsbehauptung. Menschliche Korrekturbestätigung, optionale Zusatzabnahme und KIS-Signatur getrennt; finale Übergaben folgen Freigabepolicy.",
+      "area": "Freigabe",
+      "authority": "latest_user_request_plus_retained_safety_constraints",
+      "status": "design_decided_reference_validation_pending"
+    },
+    {
+      "id": "C4-10",
+      "conflict": "Früher generelles Verbot von Mail/Mehrfachausgabe",
+      "binding_resolution": "Webdownload/Clipboard und explizite serverseitige Datei-/Mailartefakte möglich. Kein Zugriff auf lokalen Mailprozess; Original-Mailentwurf bleibt separater offener Nachweis.",
+      "area": "Ausgabe",
+      "authority": "latest_user_request_plus_retained_safety_constraints",
+      "status": "design_decided_reference_validation_pending"
+    },
+    {
+      "id": "C4-11",
+      "conflict": "Lokaler Erstbetrieb vs. AD/Windows-SSO-Parität",
+      "binding_resolution": "Lokale Benutzer zuerst. AD-Diff/Windows-SSO, LDAP und Entra werden vorbereitet und eigenständig getestet; externe Gates blockieren Aktivierung, nicht lokalen Entwicklungsstart.",
+      "area": "Identity",
+      "authority": "latest_user_request_plus_retained_safety_constraints",
+      "status": "design_decided_reference_validation_pending"
+    },
+    {
+      "id": "C4-12",
+      "conflict": "Altpaket ohne Migration vs. bisherige Ablösungsplanung",
+      "binding_resolution": "Kein automatischer Import der mitgelieferten Alt-DB oder Schlüssel. Kontrollierter Cutover, Zuständigkeit offener Aufträge und Altarchivzugriff bleiben; historische Datenübernahme nur nach separatem ausdrücklichem Auftrag.",
+      "area": "Bestand",
+      "authority": "latest_user_request_plus_retained_safety_constraints",
+      "status": "design_decided_reference_validation_pending"
+    },
+    {
+      "id": "C4-13",
+      "conflict": "Originalmatrix nennt Soll und erlaubt begründet nicht anwendbar",
+      "binding_resolution": "Neuester Nutzerauftrag setzt alle 101 in MUST. Claude darf keine N/A-Ausnahme selbst freigeben. Versionsbedingt nicht verfügbare Altbedienung als begründeter Prüfpunkt, volle Freigabe nur mit ausdrücklicher Umfangsentscheidung.",
+      "area": "Paritätsgate",
+      "authority": "latest_user_request_plus_retained_safety_constraints",
+      "status": "design_decided_reference_validation_pending"
+    },
+    {
+      "id": "C4-14",
+      "conflict": "Originale/Ghidra und Build in einem ZIP",
+      "binding_resolution": "Archiv darf alles enthalten; Buildkontext nur 01_Claude_Bauauftrag. Alte CLAUDE-Dateien in Original-ZIPs sind historische Daten, keine aktiven Anweisungen.",
+      "area": "Kontexttrennung",
+      "authority": "latest_user_request_plus_retained_safety_constraints",
+      "status": "design_decided_reference_validation_pending"
+    },
+    {
+      "id": "C4-15",
+      "conflict": "KIS-Fallbindung in jeder Aktion vs. allgemeiner Standalone-Testfall",
+      "binding_resolution": "Synthetische Nichtpatientenfälle laufen im parity_lab ohne echten Fall. Produktive klinische Dokumentausgabe verlangt bestätigten Kontext; Laborflags niemals auf Echtdaten anwenden.",
+      "area": "Laborprofil",
+      "authority": "latest_user_request_plus_retained_safety_constraints",
+      "status": "design_decided_reference_validation_pending"
+    },
+    {
+      "id": "C4-16",
+      "conflict": "Statistikerfassung abschaltbar vs. Auditpflicht",
+      "binding_resolution": "Optionale Nutzungsstatistik kann abgeschaltet sein. Sicherheits-/Freigabe-/Exportaudit bleibt aktiv, mit separaten Rechten und Fristen.",
+      "area": "Betrieb",
+      "authority": "latest_user_request_plus_retained_safety_constraints",
+      "status": "design_decided_reference_validation_pending"
+    },
+    {
+      "id": "C4-17",
+      "conflict": "Zwischenentwurf sah Windows-Companion vor; Nutzer verbietet lokalen Diktatclient.",
+      "binding_resolution": "Vollständig Webclient. Nur Import-Agent für Dateiannahme/-upload. Kein WPF/Electron/Tauri, kein nativer Host, keine Erweiterung als Umgehung.",
+      "status": "binding_user_decision",
+      "area": "Clientarchitektur"
+    },
+    {
+      "id": "C4-18",
+      "conflict": "101-fache Originalparität enthält native Windows-Funktionen.",
+      "binding_resolution": "Originalfunktionen nicht löschen/abwerten. Webalternativen getrennt; offene WG sperren vollständige Paritätsbehauptung, ohne die unabhängige Entwicklung zu stoppen. Kein automatischer Verzicht.",
+      "status": "open_behavior_conflicts_design_boundary_decided",
+      "area": "Paritätsabnahme"
+    }
+  ]
+}

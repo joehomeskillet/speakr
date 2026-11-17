@@ -1,0 +1,6 @@
+flowchart LR
+  UI[Webclient] -->|Fachaktionen| API[Speakr Backend]
+  AG[Import-Agent] -->|Inventar, Snapshot, Upload, Receipt| API
+  API -->|Gebundene Importpolicy, keine generische RPC| AG
+  API -->|Eigene interne Dienste| MEDIA[Audio / ASR / Rendering]
+  UI -. kein lokaler Host, keine native Steuerung .-> NO[OS-Fenster / Hotkeys / Office / Firmware]

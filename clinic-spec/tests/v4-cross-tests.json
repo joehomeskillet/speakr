@@ -1,0 +1,520 @@
+{
+  "version": "4.0-web",
+  "tests": [
+    {
+      "id": "X4-001",
+      "title": "Poolverwechslung",
+      "requirements": [
+        "V4-002",
+        "PAR-ADM-002",
+        "PAR-ADM-003",
+        "PAR-ADM-004"
+      ],
+      "given": [
+        "Autorenpool und Schreibpool haben denselben Namen, aber verschiedene Mitglieder."
+      ],
+      "when": [
+        "Mitgliedschaften und ACL/Routing/Vokabular abfragen."
+      ],
+      "then": [
+        "Keine Namensgleichheit überträgt Rechte oder Ressourcen."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4 design cross-tests",
+      "requires_real_environment": false
+    },
+    {
+      "id": "X4-002",
+      "title": "Erweiterte Autorensicht",
+      "requirements": [
+        "V4-002",
+        "PAR-ADM-006"
+      ],
+      "given": [
+        "Autor own, dann explizites pool/all-Recht."
+      ],
+      "when": [
+        "Fremde Aufträge mit/ohne Fallrestriktion öffnen."
+      ],
+      "then": [
+        "Default verweigert, explizites Recht wirkt nur unter zusätzlichen klinischen Grenzen."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4 design cross-tests",
+      "requires_real_environment": false
+    },
+    {
+      "id": "X4-003",
+      "title": "EOL-Konfigurationsgrenze",
+      "requirements": [
+        "V4-002",
+        "PAR-IMP-004"
+      ],
+      "given": [
+        "Bekannter Autor, stabile nicht-EOL-Datei."
+      ],
+      "when": [
+        "EOL on/off, dann unbekannte Identität testen."
+      ],
+      "then": [
+        "Nur erlaubte Policy verarbeitet nicht-EOL; unbekannt bleibt blockiert, EOL nicht erfunden."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4 design cross-tests",
+      "requires_real_environment": false
+    },
+    {
+      "id": "X4-004",
+      "title": "Löschung falscher Quelle",
+      "requirements": [
+        "V4-010",
+        "PAR-IMP-005"
+      ],
+      "given": [
+        "Quittierter Upload, Löschoption aktiviert."
+      ],
+      "when": [
+        "Vor Löschaktion Datei/SD-Karte oder Quellhash wechseln."
+      ],
+      "then": [
+        "Kein Löschen abweichender Quelle; Fehler/Quittung nachvollziehbar."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4 design cross-tests",
+      "requires_real_environment": false
+    },
+    {
+      "id": "X4-005",
+      "title": "Gefälschtes Managed-Web-Profil",
+      "requirements": [
+        "V4-004",
+        "PAR-REC-007"
+      ],
+      "given": [
+        "BYOD-Sitzung ohne freigegebenes Managed-Profil."
+      ],
+      "when": [
+        "managed=true, Header und UIprofil manipulieren."
+      ],
+      "then": [
+        "Keine Offline-/Exportrechte; Backendvalidierung für neue Datenzugriffe. Browserrestrisiko bleibt dokumentiert."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4 design cross-tests",
+      "requires_real_environment": false
+    },
+    {
+      "id": "X4-006",
+      "title": "Web-Offlinecache und Neustart",
+      "requirements": [
+        "V4-004",
+        "PAR-LIVE-003",
+        "PAR-REC-007"
+      ],
+      "given": [
+        "Explizit freigegebenes verschlüsseltes Managed-Web-Testprofil."
+      ],
+      "when": [
+        "Browserabsturz, Konto-/OSwechsel und Speicherräumung testen."
+      ],
+      "then": [
+        "Cache nicht als Serverquittung ausgeben; ohne Schlüssel kein Zugriff; verlorene lokale Daten nie als vorhanden markieren."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4 design cross-tests",
+      "requires_real_environment": true
+    },
+    {
+      "id": "X4-007",
+      "title": "Undo und Freigabe",
+      "requirements": [
+        "V4-006",
+        "PAR-REC-003",
+        "PAR-COR-002"
+      ],
+      "given": [
+        "Mehrere Audio-/Textrevisionen, erteilte Freigabe."
+      ],
+      "when": [
+        "16 Audioänderungen und Undo, danach Export mit alter Freigabe."
+      ],
+      "then": [
+        "Original unverändert; aktive Audio/Textbindung korrekt; alte Freigabe nicht für neue Fassung gültig."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4 design cross-tests",
+      "requires_real_environment": false
+    },
+    {
+      "id": "X4-008",
+      "title": "Späte Live-Events",
+      "requirements": [
+        "V4-007",
+        "PAR-LIVE-001",
+        "PAR-LIVE-004"
+      ],
+      "given": [
+        "Zwei Drafts und zwei Streamgenerationen."
+      ],
+      "when": [
+        "Doppelte, verspätete, ausser Reihenfolge liegende Events injizieren."
+      ],
+      "then": [
+        "Kein Duplikat/Fremddraft; alte Generation darf neue Textrevision nicht überschreiben."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4 design cross-tests",
+      "requires_real_environment": false
+    },
+    {
+      "id": "X4-009",
+      "title": "Keine fremde Fensterbindung",
+      "requirements": [
+        "V4-005",
+        "PAR-LIVE-006",
+        "PAR-EXP-007"
+      ],
+      "given": [
+        "Webentwurf A; fremdes Desktopprogramm im Vordergrund."
+      ],
+      "when": [
+        "Diktat starten und native Fensterausgabe anfordern."
+      ],
+      "then": [
+        "Keine OS-Tastensimulation; Funktion mit WG-Bezug als nicht verfügbar ausgeben."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4 design cross-tests",
+      "requires_real_environment": true
+    },
+    {
+      "id": "X4-010",
+      "title": "Keine lokale Brücke",
+      "requirements": [
+        "V4-005",
+        "PAR-OPS-004"
+      ],
+      "given": [
+        "Webclient und Import-Agent installiert."
+      ],
+      "when": [
+        "localhost-, Protokollhandler- oder Agentkommando für Aufnahme/Clipboard/Office anfordern."
+      ],
+      "then": [
+        "Keine solche Schnittstelle vorhanden; keine generische Command-RPC."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4 design cross-tests",
+      "requires_real_environment": false
+    },
+    {
+      "id": "X4-011",
+      "title": "Keine KIS-Automation",
+      "requirements": [
+        "V4-005",
+        "PAR-EXP-007"
+      ],
+      "given": [
+        "KIS-WebView mit unverifiziertem Kontext."
+      ],
+      "when": [
+        "Titel/DOM/Clipboard zur Fallbindung oder zum ungeprüften Schreibtransfer verwenden."
+      ],
+      "then": [
+        "Keine automatische Zuordnung/Übergabe; dokumentierten Kontextvertrag verlangen."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4 design cross-tests",
+      "requires_real_environment": false
+    },
+    {
+      "id": "X4-012",
+      "title": "Schutz-Diktat",
+      "requirements": [
+        "V4-002",
+        "PAR-REC-006"
+      ],
+      "given": [
+        "Geschütztes Diktat, korrekter Passwortnachweis aber kein ACL-Recht."
+      ],
+      "when": [
+        "Audio/Text/Export/Training/Statistikdetails direkt abfragen."
+      ],
+      "then": [
+        "Kein Zugriff allein durch Passwort; keine Secrets in Logs/Cache."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4 design cross-tests",
+      "requires_real_environment": false
+    },
+    {
+      "id": "X4-013",
+      "title": "Modelltraining nur echt",
+      "requirements": [
+        "V4-008",
+        "PAR-ASR-004",
+        "PAR-ASR-005",
+        "PAR-VOC-007"
+      ],
+      "given": [
+        "Adapter ohne train_capability."
+      ],
+      "when": [
+        "Trainingsjob und Aussprachetraining starten."
+      ],
+      "then": [
+        "CAPABILITY_UNAVAILABLE / Gate offen; niemals Dummy-success oder Prompt als Trainingsbeleg."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4 design cross-tests",
+      "requires_real_environment": true
+    },
+    {
+      "id": "X4-014",
+      "title": "Negativlexikon",
+      "requirements": [
+        "V4-008",
+        "PAR-VOC-003"
+      ],
+      "given": [
+        "Neustart und neu geladenes Profil, gelöschtes Wort."
+      ],
+      "when": [
+        "Realaufnahme testen und scoped Reaktivierung anwenden."
+      ],
+      "then": [
+        "Geltungsbereich/Enginewirkung gemessen; UI-Speicherung allein kein passed."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4 design cross-tests",
+      "requires_real_environment": true
+    },
+    {
+      "id": "X4-015",
+      "title": "Mehrkanal-Timeout",
+      "requirements": [
+        "V4-009",
+        "PAR-EXP-001"
+      ],
+      "given": [
+        "Zwei ausgewählte Ziele, eines speichert vor Timeout."
+      ],
+      "when": [
+        "Retry und neuen Kanal ohne Klärung anfordern."
+      ],
+      "then": [
+        "Unknown-Ziel abgeglichen, kein Dubletteneffekt; bekannte andere Erfolge bleiben protokolliert."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4 design cross-tests",
+      "requires_real_environment": false
+    },
+    {
+      "id": "X4-016",
+      "title": "Arbeitsstand vs. final",
+      "requirements": [
+        "V4-009",
+        "PAR-LIVE-002",
+        "PAR-WF-009",
+        "PAR-EXP-004"
+      ],
+      "given": [
+        "Web-Liveentwurf mit ungeprüftem Text."
+      ],
+      "when": [
+        "Bewusst einen Arbeitsstand kopieren; finale KIS-Übergabe versuchen."
+      ],
+      "then": [
+        "Arbeitsstand bleibt als solcher sichtbar; keine finale Ausgabe ohne Freigabevertrag."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4 design cross-tests",
+      "requires_real_environment": false
+    },
+    {
+      "id": "X4-017",
+      "title": "AD-Diff ohne Seiteneffekt",
+      "requirements": [
+        "V4-011",
+        "PAR-ADM-009"
+      ],
+      "given": [
+        "Neuer Benutzer und entfernte Gruppenmitgliedschaft in Testdirectory."
+      ],
+      "when": [
+        "Preview, Cancel, dann einzelne Änderungen bestätigen."
+      ],
+      "then": [
+        "Nur bestätigte Änderungen, stabile User-IDs und unveränderte Diktathistorie."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4 design cross-tests",
+      "requires_real_environment": false
+    },
+    {
+      "id": "X4-018",
+      "title": "Windows-SSO unbekannt",
+      "requirements": [
+        "V4-011",
+        "PAR-ADM-010"
+      ],
+      "given": [
+        "Unbekannte oder manipulierte lokale Windows-Benutzernamen."
+      ],
+      "when": [
+        "Loginhint/Startargument ohne vertrauenswürdige Assertion senden."
+      ],
+      "then": [
+        "Kein Login/Fachzugriff; verifiziertes SID-Mapping erforderlich."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4 design cross-tests",
+      "requires_real_environment": false
+    },
+    {
+      "id": "X4-019",
+      "title": "Statistik aus, Audit an",
+      "requirements": [
+        "V4-012",
+        "PAR-OPS-005",
+        "PAR-OPS-007"
+      ],
+      "given": [
+        "Optionale Statistik deaktiviert."
+      ],
+      "when": [
+        "Kritische Freigabe/Export und danach Report ausführen."
+      ],
+      "then": [
+        "Securityaudit vorhanden, Statistik als nicht erhoben markiert, UI/CLI gleiche Rechte."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4 design cross-tests",
+      "requires_real_environment": false
+    },
+    {
+      "id": "X4-020",
+      "title": "Remote-Sitzung und Browserhardware",
+      "requirements": [
+        "V4-005",
+        "PAR-OPS-010"
+      ],
+      "given": [
+        "Zwei RDP/ICA-Websitzungen, ein Import-Agent am physischen PC."
+      ],
+      "when": [
+        "Reconnect/Benutzerwechsel sowie HID-/Mikrofonumleitung testen."
+      ],
+      "then": [
+        "Kein fremder Objektzugriff; Umleitung getrennt vom Importbeleg prüfen; keine Agent-Fernsteuerbrücke."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4 design cross-tests",
+      "requires_real_environment": true
+    },
+    {
+      "id": "X4-021",
+      "title": "Kein Altcode im Fork",
+      "requirements": [
+        "V4-003"
+      ],
+      "given": [
+        "Build-Arbeitsverzeichnis bereit."
+      ],
+      "when": [
+        "Artefakte auf Herstellerbinärdateien, Alt-DB, Pseudocode und Ghidra-Abbilder prüfen."
+      ],
+      "then": [
+        "Keine übernommenen proprietären Implementierungsartefakte; Originalarchiv bleibt ausserhalb."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4 design cross-tests",
+      "requires_real_environment": false
+    },
+    {
+      "id": "X4-022",
+      "title": "Vollständige Pflichtmenge",
+      "requirements": [
+        "V4-001"
+      ],
+      "given": [
+        "Paritätsmatrix und Referenzkatalog geladen."
+      ],
+      "when": [
+        "PAR-Funktion entfernen/downgraden oder ohne Evidenz passed markieren."
+      ],
+      "then": [
+        "Validator lehnt ab; Quellen- und Aktivreferenzmenge bleiben 101."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4 design cross-tests",
+      "requires_real_environment": false
+    },
+    {
+      "id": "X4-023",
+      "title": "Web-Dokument und Audio-Paketbindung",
+      "requirements": [
+        "V4-009",
+        "PAR-EXP-010"
+      ],
+      "given": [
+        "Dokument A und Audio B unterschiedlicher Diktate."
+      ],
+      "when": [
+        "Im Web ein kombiniertes Bundle anlegen."
+      ],
+      "then": [
+        "Fremde Bindung abgewiesen; Dokument-only erzeugt keine Audioquelle. Dieser Test ersetzt nicht den nativen Word-Add-in-BT."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4 design cross-tests",
+      "requires_real_environment": true
+    },
+    {
+      "id": "X4-024",
+      "title": "Änderungen invalidieren Asranker",
+      "requirements": [
+        "V4-006",
+        "PAR-COR-002",
+        "PAR-REC-008"
+      ],
+      "given": [
+        "Rich-Text mit Unicode/Emoji, Ausschnitt und Wortankern."
+      ],
+      "when": [
+        "Text verschieben, Audioeinfügen, Bundle speichern/laden."
+      ],
+      "then": [
+        "Anker zur korrekten Audiofassung; nichtzugeordneter Text sichtbar, keine UTF-16/Codepoint-Verwechslung."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4 design cross-tests",
+      "requires_real_environment": false
+    }
+  ],
+  "status": "not_run"
+}

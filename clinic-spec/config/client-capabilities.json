@@ -1,0 +1,50 @@
+{
+  "version": "4.0-web",
+  "trust_rule": "Servervalidated principal/ingress/policy; not user agent, query flag or editable header. Unmanaged browser is never made trustworthy by naming it managed.",
+  "profiles": {
+    "byod_internal": {
+      "audio_capture": "browser_foreground",
+      "persistent_audio": false,
+      "document_export": false,
+      "native_bridge": false
+    },
+    "managed_web_online": {
+      "audio_capture": "browser",
+      "persistent_audio": false,
+      "document_export": "permission_controlled",
+      "native_bridge": false
+    },
+    "managed_web_offline": {
+      "audio_capture": "browser",
+      "persistent_audio": "encrypted_opt_in_after_gate",
+      "document_export": "permission_controlled",
+      "native_bridge": false,
+      "enabled_by_default": false,
+      "requires": "G-MANAGED-WEB-OFFLINE"
+    },
+    "kis_webview": {
+      "audio_capture": "browser_if_host_permits",
+      "persistent_audio": false,
+      "document_export": "manufacturer_contract_and_policy",
+      "native_bridge": false,
+      "context": "verified_kis_grant"
+    },
+    "import_agent": {
+      "audio_capture": false,
+      "play_audio": false,
+      "persistent_audio": "bounded_encrypted_ingest_spool_only",
+      "workflow_editor": false,
+      "native_bridge": false
+    }
+  },
+  "forbidden_components": [
+    "windows_dictation_client",
+    "windows_companion",
+    "electron_wrapper",
+    "tauri_wrapper",
+    "native_messaging_host",
+    "browser_extension_as_bridge",
+    "client_office_automation",
+    "global_hotkey_service"
+  ]
+}

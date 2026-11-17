@@ -1,0 +1,4391 @@
+{
+  "schema_version": 1,
+  "purpose": "Ausführbare manuelle/automatisierbare Black-box-Verträge mit synthetischen Daten",
+  "execution_status": "not_run",
+  "rules": [
+    "Given/When/Then beschreiben Sollverhalten, nicht ein bereits erfolgreiches Testergebnis.",
+    "Referenz und Neubau verwenden unabhängige frisch erzeugte Daten.",
+    "Hardware-/ASR-Mocks sind für Fehlerfälle erlaubt, aber ersetzen keine physischen Geräte-/Decoder-/Erkennungsnachweise.",
+    "Fehlende Lizenz, Hardware oder enginegebundene Funktion ergibt blocked bzw. offene Funktionslücke; niemals künstlich passed.",
+    "Vergleiche sichtbare Inhalte/Metadaten, nicht zufällige IDs, Pfade, Fensterkoordinaten oder Audio-/ASR-Binärgleichheit.",
+    "Neue Zuverlässigkeitsgarantien sind ausdrücklich getrennt vom Altbeleg."
+  ],
+  "source": {
+    "id": "DNS-MANUAL-2017",
+    "title": "dns.comfort.pro workflow - Handbuch",
+    "publisher": "Sonic Labs GmbH",
+    "date": "03/2017",
+    "page_count": 201,
+    "sha256": "bcff06c6d9acaf57477395441172e937b3686ea99406bf6786b8d3c26276f570",
+    "archive_member": "Diktierlösung/dns.comfort.pro/dns.comfort Handbuch Online Version/dns.comfort Handbuch Online Version.pdf",
+    "page_number_rule": "PDF-Seite entspricht gedruckter Seitenzahl; Inhalt ist Produktdokumentation, kein Nachweis aktivierter Funktionen der überlassenen Installation."
+  },
+  "fixtures": [
+    {
+      "id": "F-ID",
+      "description": "Frisch erzeugte Identitäten Alpha, Beta, Gamma, Schreib1, Schreib2, AdminLab, StatLab. Autorenpool A: Alpha/Beta; B: Gamma. Schreibpool Nord: Schreib1/Schreib2. Rollen/Zuordnungen pro Test explizit setzen.",
+      "creation": "In Referenz über Administrationsoberfläche neu anlegen; im Neubau über eigene UI/API anlegen. Keine vorhandene dcf.db importieren.",
+      "expected_data": "Neutrale Namen und Adressen unter example.test; keine Produktivkonten."
+    },
+    {
+      "id": "F-AUDIO",
+      "description": "Eigene Aufnahme von drei Testabschnitten: Projekt Sonnenblume. Die Lieferung enthält sieben grüne Ordner. Ende der Testaufnahme. Zwischen Abschnitten etwa eine Sekunde Pause.",
+      "creation": "Im Labor einsprechen; als WAV PCM mono speichern und tatsächliche Dauer, Samplerate, SHA-256 sowie manuell kontrollierte Segmentzeiten im Fixturemanifest erfassen.",
+      "expected_data": "Eigener Wortlaut, annotierte hörbare Marken; keine Patienten-/Mitarbeiterdaten. Reiner Sinuston ist nur Transportfixture, kein Ersatz für Sprachprüfung."
+    },
+    {
+      "id": "F-AUDIO-LEVELS",
+      "description": "Eigene Sprachaufnahme mit deutlich leiserem und lauterem Abschnitt, ohne Übersteuerung.",
+      "creation": "Aus eigener Laboraufnahme mit nachvollziehbaren Pegeln herstellen; Originalhash aufzeichnen.",
+      "expected_data": "AGC-Vergleich von Wiedergabepegel und unverändertem Original."
+    },
+    {
+      "id": "F-SILENCE",
+      "description": "Aufnahme mit Ruhe, Sprache, kurzer Pause, Sprache und längerer Ruhe.",
+      "creation": "Selbst aufnehmen; Sprachgrenzen und Ruhephasen manuell annotieren.",
+      "expected_data": "VAD darf Wortanfänge/-enden nicht unbemerkt verlieren; genaue Toleranz wird gemessen."
+    },
+    {
+      "id": "F-DSS",
+      "description": "Frische Aufnahmen auf Philips 9600 und 9620 je vorhandener Firmware: DSS/DS2, EOL an/aus, bekanntes/unbekanntes Autor-Feld, normal/dringend. Verschlüsselte Variante nur mit lokal bekanntem Testpasswort.",
+      "creation": "Auf eigenen Laborgeräten neu aufnehmen, Metadaten im Gerät setzen und Variantenmanifest mit Dateihashes/Firmware erstellen. Keine alten Diktate verwenden.",
+      "expected_data": "Wortlaut entspricht F-AUDIO; Codec, EOL, Autor und Dauer werden aus Gerät und Decoder gegengeprüft. Nicht tatsächlich vorhandenes Format wird als blocked markiert."
+    },
+    {
+      "id": "F-DOC",
+      "description": "Neu erstellte TXT-, RTF-, DOCX-, ODT-, PDF- und Bilddateien; DOCX/ODT mit Kopf-/Fusszeile, Absätzen, Fettdruck, Tabelle und Textmarke DIKTAT_TEXT. Kleine synthetische Testgrafik.",
+      "creation": "Neue Dokumente im Lab erzeugen; je Format öffnen und Mindestinhalt erfassen. Nur unterstützte Altimporte müssen tatsächlich importierbar sein.",
+      "expected_data": "Keine vertraulichen Inhalte; native PDF-Ausgabe ist keine belegte Alt-Exportfunktion."
+    },
+    {
+      "id": "F-VOC",
+      "description": "Kunstwörter Sonnenblumenlabor und Testordner, mit geschriebenen/gesprochenen Formen, ein persönlicher und ein Pooleintrag; harmlose Kommandos zum Öffnen/Einfügen/Markierungssprung.",
+      "creation": "Nur neu angelegte Listen/Befehle; Format über Referenzexport im Labor dokumentieren.",
+      "expected_data": "Nutzer-/Poolunterschiede, Negativlisten und Freigabeentscheidungen nachvollziehbar."
+    },
+    {
+      "id": "F-ASR",
+      "description": "Lokaler echter Erkenner für Ende-zu-Ende-Nachweise plus deterministischer Testadapter mit bekannten Segmenten/Fehlern/Verspätung für Workflowtests.",
+      "creation": "Engine, Modell, Version, Hardware und lokale Netzgrenze protokollieren; Testadapter separat kennzeichnen.",
+      "expected_data": "Mock/Replay besteht keine echte Erkennungs-, Codec- oder Trainingsparität. Prüfer vergleicht bekannte Aussage und Audiozuordnung, nicht zufällige Bytegleichheit des Transkripts."
+    },
+    {
+      "id": "F-WORK",
+      "description": "Frische Diktate in den benötigten fachlichen Zuständen, durch echte UI-Aktionen erzeugt.",
+      "creation": "Referenz: neu aufzeichnen/importieren und durch UI versenden, korrigieren, abnehmen; Neubau: eigene APIs/UI mit gleichen Synthetikdaten. Keine produktiven Statuszeilen kopieren.",
+      "expected_data": "IDs werden lokal pro Lauf gemappt; numerische Legacy-Statuskonstanten nicht blind gleichsetzen."
+    },
+    {
+      "id": "F-TARGET",
+      "description": "Zwei lokale Testanwendungen/-fenster A und B mit eindeutigem Titel und einfachem Textfeld; zusätzlich ein nicht unterstütztes Testfeld.",
+      "creation": "Nur ungefährliche allgemeine Editoren oder eigens dafür gebautes Labortarget; keine KIS-Seite, kein Patientenfall.",
+      "expected_data": "Fokus-/Fenstertransfer lässt sich sichtbar und per Inhalt verifizieren."
+    },
+    {
+      "id": "F-EXPORT",
+      "description": "Eigene leere Ausgabe-, Backup- und Archivordner sowie absichtlich unbeschreibbares Testziel und gleichnamige Testdateien.",
+      "creation": "Unter run-spezifischem Laborpfad anlegen; nie produktive Freigaben verwenden.",
+      "expected_data": "Hashes, Existenz, geöffnetes Ergebnis und gezielte Fehler; Aufräumen nur dieses Testlaufs."
+    },
+    {
+      "id": "F-FAIL",
+      "description": "Kontrollierte Fehler: Clientprozessabbruch, gestoppter ASR-Testworker, unterbrochene Laborverbindung, voller/unbeschreibbarer Testdatenträger.",
+      "creation": "Je Lauf nur eine Störung aktivieren und Ausgangszustand per VM-Snapshot oder Laborkonfiguration wiederherstellen.",
+      "expected_data": "Keine nicht betroffenen Prozesse beenden; nur isolierte neue Testdaten."
+    },
+    {
+      "id": "F-AD",
+      "description": "Separates Test-AD mit Laborgruppen und Windows-Testanmeldungen.",
+      "creation": "Neue Labordomäne oder bestehende isolierte Testdomäne verwenden, ohne Kopieren produktiver DNs/SIDs.",
+      "expected_data": "Gruppen-Diff, SSO und Namensänderung nachvollziehbar; fehlende Domäne ist blocked, kein simuliert bestandener AD-Test."
+    },
+    {
+      "id": "F-CLOCK",
+      "description": "Kontrollierbare Zeit für Fristen, Statistik und Löschregeln.",
+      "creation": "Neubau injizierbare Testuhr; Referenz getrennte VM/Testlaufzeiten. Keine Uhr einer Produktivdomäne verändern.",
+      "expected_data": "Zeitzone, Referenzzeit und tatsächlich abgelaufene Zeiten im Manifest."
+    },
+    {
+      "id": "F-HW",
+      "description": "Inventar der tatsächlich verfügbaren Laborgeräte: DPM9600/9620, Fusssteuerung, Mikrofon, Audioausgänge; Treiber, Firmware, Anschlussmodus festhalten.",
+      "creation": "Nur Laborgeräte oder ausdrücklich zugeordnetes leeres Testgerät.",
+      "expected_data": "Reale Tasten-/LED-/Hotplug-Beobachtung; Emulatorprüfung ersetzt physischen Gerätezweig nicht."
+    },
+    {
+      "id": "F-FIRMWARE",
+      "description": "Gültiges Hersteller-Firmwarepaket genau für Laborgerät; Hash, Modell und Wiederherstellungsverfahren nachgewiesen.",
+      "creation": "Ohne diese Voraussetzungen nur Versionsvergleich und UI/Dateiverhalten prüfen; keinen Flash ausführen.",
+      "expected_data": "Schreibender Test gesondert gated; nicht ausgeführt bleibt blocked."
+    },
+    {
+      "id": "F-STATS",
+      "description": "Drei frische Fälle: einer ohne ASR manuell fertig, einer mit Abnahme zurückgewiesen und danach fertig, einer mit abgelaufener Frist. Zwei Bearbeiter, protokollierte Zeitpunkte.",
+      "creation": "Aktionen und erwartete Ereignisse während des Laufs protokollieren; keine alte stats.db einlesen.",
+      "expected_data": "Zählungen/Zeiträume lassen sich auf konkrete neue Fälle zurückführen."
+    },
+    {
+      "id": "F-REGEX",
+      "description": "Eigener Text: Projekt 4711; Titel Sonnenblume; dringend; Testtermin 2030-02-03. Zusätzlich Text ohne Treffer, zwei Treffer und Treffer hinter Textlimit.",
+      "creation": "Direkt als synthetischer Transkripttext in Testadapter oder durch eigene Aufnahme erzeugen.",
+      "expected_data": "Keine Patientennummer; Regeln betreffen generische Diktatmetadaten, keine KIS-Integration."
+    },
+    {
+      "id": "F-XML",
+      "description": "Eigene Metadaten mit Feld Station=Lab-A und Variante ohne Feld; vereinbarte Escaping-/Namensraumfälle.",
+      "creation": "Referenzfähigen XML-Vertrag erst durch neuen Laborfall/zulässige Schnittstelle bestimmen; eigenes Neubauformat separat dokumentieren.",
+      "expected_data": "Keine produktiven XML-Dumps. Verknüpfung zwischen Feld und Spalte ist nachvollziehbar."
+    },
+    {
+      "id": "F-MAIL",
+      "description": "Lokaler Mail-Catcher bzw. isoliertes Standardmailprogramm; nur synthetische example.test-Adressen.",
+      "creation": "Externe Zustellung technisch blockieren; Entwürfe ansehen und verwerfen.",
+      "expected_data": "Tests senden keine Nachrichten an andere Personen."
+    },
+    {
+      "id": "F-SECRETS",
+      "description": "Zufällig generiertes lokales Testpasswort/PIN, nur für diesen Lauf.",
+      "creation": "Testwert ausserhalb geteilter Evidenz halten; Logs/Screenshots dürfen nur Status und Maskierung zeigen.",
+      "expected_data": "Falsches/richtiges Passwort lassen sich prüfen, ohne produktive Schlüssel oder Passwörter zu übernehmen."
+    },
+    {
+      "id": "F-TTS",
+      "description": "Lokal installierte und dokumentierte TTS-Stimme sowie Test ohne Stimme.",
+      "creation": "Eigener Testtext; keine Sprachaufnahmen Dritter.",
+      "expected_data": "Wiedergabebereich/Stimme sichtbar; fehlende Fähigkeit wird ausgewiesen."
+    },
+    {
+      "id": "F-BAD",
+      "description": "Leere Datei, abgeschnittene Audiodatei und Datei mit falscher Endung, jeweils aus eigener synthetischer Kopie.",
+      "creation": "Neue kaputte Testvarianten erzeugen; Originalfixture bleibt unberührt.",
+      "expected_data": "Formaterkennung und verständliche Fehler statt falscher Erfolg."
+    },
+    {
+      "id": "F-REMOTE",
+      "description": "Isolierter Windows-Remotesitzungshost mit zwei synthetischen Sitzungen; RDP und bei vorhandener Infrastruktur ICA, passende dokumentierte Geräteumleitung.",
+      "creation": "Neue Laborkonten/-sitzungen; keine produktive RDS-/Citrix-Farm und keine alten Benutzerprofile übernehmen.",
+      "expected_data": "Transport, Client/Host, Sitzung, Treiber und Gerätekontext erfassen; fehlende Umgebung bleibt blocked."
+    }
+  ],
+  "test_cases": [
+    {
+      "id": "BT-ADM-001",
+      "feature_ids": [
+        "PAR-ADM-001"
+      ],
+      "fixtures": [
+        "F-ID"
+      ],
+      "given": [
+        "Leere Laborkonfiguration; Administrator angemeldet."
+      ],
+      "when": [
+        "Zwei Autoren und zwei Schreibkräfte über die Oberfläche anlegen.",
+        "Eine Anmerkung ändern; Dialog einmal abbrechen und einmal bestätigen.",
+        "Neu starten und einen nur für diesen Fall angelegten Benutzer entfernen."
+      ],
+      "then": [
+        "Bestätigte Einträge sind wieder vorhanden; abgebrochene Änderung nicht.",
+        "Autoren und Schreibkräfte erscheinen in den passenden Auswahllisten.",
+        "Ein ungültiger oder entfernter Nutzer führt nicht zur stillen Anmeldung als anderer Nutzer."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        4,
+        5,
+        6,
+        7,
+        18,
+        19,
+        20
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-ADM-002",
+      "feature_ids": [
+        "PAR-ADM-002"
+      ],
+      "fixtures": [
+        "F-ID",
+        "F-VOC"
+      ],
+      "given": [
+        "Autoren Alpha und Beta sowie Autorenpools A und B vorhanden."
+      ],
+      "when": [
+        "Alpha beiden Pools, Beta nur A zuordnen.",
+        "In A eine Testphrase hinterlegen; jeweils mit Pool A und B starten.",
+        "Alpha aus A entfernen und neu starten."
+      ],
+      "then": [
+        "Mitgliedschaften und Poolauswahl entsprechen der Konfiguration.",
+        "Ressource aus A wird nicht allein wegen Namensgleichheit in B freigegeben.",
+        "Entfernte Mitgliedschaft ist beim nächsten Laden berücksichtigt."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        9,
+        16,
+        17
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-ADM-003",
+      "feature_ids": [
+        "PAR-ADM-003"
+      ],
+      "fixtures": [
+        "F-ID"
+      ],
+      "given": [
+        "Autorenpool A und Schreibkräfte Schreib1 und Schreib2 angelegt."
+      ],
+      "when": [
+        "Schreibpool Pool-Nord anlegen und beide Schreibkräfte aufnehmen.",
+        "Eine Schreibkraft entfernen; Autor und Autorenpool unverändert lassen."
+      ],
+      "then": [
+        "Schreibpool-Mitgliedschaft beeinflusst die Empfängerauswahl.",
+        "Autorenpool-Mitgliedschaften werden nicht verändert."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        21,
+        22
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-ADM-004",
+      "feature_ids": [
+        "PAR-ADM-004"
+      ],
+      "fixtures": [
+        "F-ID",
+        "F-WORK"
+      ],
+      "given": [
+        "Alpha und Beta in Autorenpool A, Gamma in B; je ein frisches Testdiktat."
+      ],
+      "when": [
+        "Schreib1 nur A mit Ausnahme Beta berechtigen.",
+        "Liste, Suche und direktes Öffnen aller drei Diktate versuchen.",
+        "Auf Autorenberechtigung Alpha umstellen."
+      ],
+      "then": [
+        "Nur Alpha ist für Schreib1 zugänglich.",
+        "Liste, Suche und Öffnen setzen dieselbe Regel durch.",
+        "Zugriff auf Gamma wird nicht aus einer Schreibpoolmitgliedschaft abgeleitet."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        38
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-ADM-005",
+      "feature_ids": [
+        "PAR-ADM-005"
+      ],
+      "fixtures": [
+        "F-ID",
+        "F-WORK"
+      ],
+      "given": [
+        "Schreib1 darf lesen und schreiben; Testdiktat besitzt bereits eine Priorität."
+      ],
+      "when": [
+        "Jede zusätzliche Aktion einzeln verweigern und anschliessend einzeln erlauben.",
+        "Aktionen per Menü und Tastenkürzel auslösen."
+      ],
+      "then": [
+        "Verweigerte Aktion verändert weder Diktat noch Exportdateien.",
+        "Nur das jeweils gesetzte Recht wird wirksam.",
+        "Eine ausgeblendete Schaltfläche ist nicht der einzige Zugriffsschutz."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        34,
+        35,
+        36,
+        37,
+        38
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-ADM-006",
+      "feature_ids": [
+        "PAR-ADM-006"
+      ],
+      "fixtures": [
+        "F-ID",
+        "F-WORK"
+      ],
+      "given": [
+        "Alpha, Beta und Gamma besitzen Diktate; zwei Autorenpools und ein Schreibpool vorhanden."
+      ],
+      "when": [
+        "Sichtbereich nacheinander auf eigen, Pool und alle setzen.",
+        "Recht zur Empfängerwahl deaktivieren und danach auf nur Schreibpools begrenzen."
+      ],
+      "then": [
+        "Sichtbare Diktate folgen dem jeweiligen Bereich.",
+        "Ohne Wahlrecht bleibt die Voreinstellung massgeblich.",
+        "Bei Nur-Pools werden einzelne Schreibkräfte nicht als auswählbare Alternative angeboten."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        35,
+        36
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-ADM-007",
+      "feature_ids": [
+        "PAR-ADM-007"
+      ],
+      "fixtures": [
+        "F-ID",
+        "F-WORK"
+      ],
+      "given": [
+        "Alpha hat zwei berechtigte Schreibkräfte."
+      ],
+      "when": [
+        "Je ein Diktat mit Default alle, Person Schreib1 und Pool-Nord versenden.",
+        "In einer zweiten frischen Konfiguration ohne Schreibkräfte ein Diktat versenden und als Autor korrigieren."
+      ],
+      "then": [
+        "Zuweisung stimmt in jedem Fall mit dem gewählten Default überein.",
+        "Die Konfiguration ohne Schreibkräfte bleibt nutzbar."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        5,
+        18,
+        28
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-ADM-008",
+      "feature_ids": [
+        "PAR-ADM-008"
+      ],
+      "fixtures": [
+        "F-ID",
+        "F-STATS"
+      ],
+      "given": [
+        "Ein Statistiknutzer, ein Administrator und ein gewöhnlicher Autor existieren."
+      ],
+      "when": [
+        "Mit jedem Konto Administration und Statistik öffnen.",
+        "Mit Statistiknutzer einen vorhandenen Bericht ansehen und eine Konfiguration zu ändern versuchen."
+      ],
+      "then": [
+        "Nur berechtigte Konten erhalten die jeweilige Funktion.",
+        "Statistikberechtigung gewährt nicht automatisch administrative Änderungen."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        5,
+        72,
+        184
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-ADM-009",
+      "feature_ids": [
+        "PAR-ADM-009"
+      ],
+      "fixtures": [
+        "F-ID",
+        "F-AD"
+      ],
+      "given": [
+        "Isolierte Testdomäne mit einer verknüpften Gruppe; keinerlei Produktivverzeichnis."
+      ],
+      "when": [
+        "Testbenutzer in AD hinzufügen, entfernen und zwischen Gruppen verschieben.",
+        "Abgleich anzeigen; einmal abbrechen, dann ausgewählte Änderungen akzeptieren."
+      ],
+      "then": [
+        "Vorschau benennt die tatsächlichen Unterschiede.",
+        "Ohne Bestätigung entstehen keine stillen Änderungen.",
+        "Nur ausgewählte Änderungen werden übernommen; letzte Poolentfernung wird nachvollziehbar behandelt."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        7,
+        19,
+        22,
+        23,
+        29
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-ADM-010",
+      "feature_ids": [
+        "PAR-ADM-010"
+      ],
+      "fixtures": [
+        "F-ID",
+        "F-AD"
+      ],
+      "given": [
+        "Zwei Windows-Testkonten sind eindeutig an zwei neue App-Konten gebunden."
+      ],
+      "when": [
+        "SSO für Workflow aktivieren, Client zunächst nicht.",
+        "Als beide Windows-Konten starten und fremde Benutzerwahl versuchen.",
+        "Nicht zugeordnetes Windows-Konto testen."
+      ],
+      "then": [
+        "Bei aktiviertem SSO wird nur die gebundene Identität verwendet.",
+        "Unbekannte Identität wird nicht mit einem Defaultautor angemeldet.",
+        "Getrennte SSO-Einstellung wirkt nur auf den dafür vorgesehenen Einstieg."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        44,
+        45
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-ADM-011",
+      "feature_ids": [
+        "PAR-ADM-011"
+      ],
+      "fixtures": [
+        "F-ID",
+        "F-WORK"
+      ],
+      "given": [
+        "Zwei neue Benutzer und ein ungesicherter synthetischer Entwurf."
+      ],
+      "when": [
+        "Benutzerwahl öffnen, Beta starten und neu starten.",
+        "Über Verknüpfung Alpha starten; laufenden Wechsel mit Änderungen abbrechen und bestätigen."
+      ],
+      "then": [
+        "Letzte Auswahl wird angeboten, ohne Rechte zu erweitern.",
+        "Abgebrochener Wechsel erhält den alten Kontext.",
+        "Bestätigter Wechsel vermischt keine Entwürfe, Wörter oder Audiozuordnungen."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        76,
+        77,
+        79,
+        119,
+        120
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-CFG-001",
+      "feature_ids": [
+        "PAR-CFG-001"
+      ],
+      "fixtures": [
+        "F-ID"
+      ],
+      "given": [
+        "Administrator gibt ein sichtbares Format und eine Profil-Speicherregel vor."
+      ],
+      "when": [
+        "Am Arbeitsplatz abweichende Werte setzen, Anwendung neu starten.",
+        "Zentrale Vorgabe entfernen und lokalen Wert erneut speichern."
+      ],
+      "then": [
+        "Fixierte Vorgabe wird nach Neustart erneut angewendet.",
+        "Nicht zentral fixierter Wert bleibt entsprechend lokaler Speicherung erhalten.",
+        "Übernehmen und Abbrechen haben unterschiedliche, nachvollziehbare Wirkung."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        32,
+        33,
+        54,
+        55,
+        56,
+        97,
+        102
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-CFG-002",
+      "feature_ids": [
+        "PAR-CFG-002"
+      ],
+      "fixtures": [
+        "F-ID",
+        "F-DOC"
+      ],
+      "given": [
+        "Synthetische DOCX- und ODT-Vorlagen mit markierter Einfügestelle."
+      ],
+      "when": [
+        "Vorlage nur Alpha, zweite Vorlage Pool A zuordnen.",
+        "Ursprungsdateien im Testordner umbenennen.",
+        "Als Alpha und Beta Vorlage auswählen; eine Vorlage entfernen."
+      ],
+      "then": [
+        "Zuordnung und Anzeigename stimmen.",
+        "Gespeicherte Kopie ist weiter verwendbar.",
+        "Text landet an der definierten Marke beziehungsweise dokumentierten Ersatzposition."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        42,
+        43,
+        44,
+        145,
+        155
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-CFG-003",
+      "feature_ids": [
+        "PAR-CFG-003"
+      ],
+      "fixtures": [
+        "F-ID",
+        "F-WORK"
+      ],
+      "given": [
+        "Kategorieset Testbereich mit Werten Rot/Blau und Pflichtmarkierung."
+      ],
+      "when": [
+        "Neues Diktat ohne Auswahl zu versenden versuchen.",
+        "Kategorie wählen, versenden und Listeneintrag prüfen.",
+        "Pflicht abschalten und leere Eingabe testen."
+      ],
+      "then": [
+        "Pflichtkategorie wird vor Versand eingefordert.",
+        "Gewählter Wert wird im Workflow nachvollziehbar gespeichert.",
+        "Ohne Pflicht ist der bewusst leere Wert zulässig."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        57,
+        58
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-CFG-004",
+      "feature_ids": [
+        "PAR-CFG-004"
+      ],
+      "fixtures": [
+        "F-REGEX",
+        "F-ASR"
+      ],
+      "given": [
+        "Testtext enthält Projekt-ID 4711, Titel und einen ausdrücklich synthetischen Termin."
+      ],
+      "when": [
+        "Regel mit benannten Testfällen anlegen, Vorschau prüfen.",
+        "Maximale Textmenge ändern; Treffer hinter der Grenze platzieren.",
+        "Ungültige RegEx und Text ohne Treffer testen."
+      ],
+      "then": [
+        "Vorschau und spätere Zuweisung stimmen überein.",
+        "Textgrenze wird eingehalten.",
+        "Ungültige Regel wird erkennbar abgelehnt; kein stilles Überschreiben mit Leerwerten."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        47,
+        48,
+        49,
+        50,
+        51,
+        52
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-CFG-005",
+      "feature_ids": [
+        "PAR-CFG-005"
+      ],
+      "fixtures": [
+        "F-WORK",
+        "F-XML"
+      ],
+      "given": [
+        "Ein neues synthetisches Diktat besitzt XML-Feld Station=Lab-A, eines besitzt kein Feld."
+      ],
+      "when": [
+        "Spalte Station konfigurieren und beide Diktate anzeigen.",
+        "Zeit-/Namensformat ändern und Konfiguration zurücksetzen."
+      ],
+      "then": [
+        "Zusatzwert erscheint in eigener Spalte, fehlender Wert bleibt verständlich leer.",
+        "Formatänderungen betreffen Anzeige, nicht gespeicherte Identität oder Zeit.",
+        "Zurücksetzen stellt nachvollziehbare Standardspalten her."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        55,
+        56,
+        57
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-REC-001",
+      "feature_ids": [
+        "PAR-REC-001"
+      ],
+      "fixtures": [
+        "F-ID",
+        "F-AUDIO"
+      ],
+      "given": [
+        "Autor Alpha; ausgewähltes Testmikrofon."
+      ],
+      "when": [
+        "Neues Diktat starten, Titel Labor-Recorder vergeben und bekannten Text aufnehmen.",
+        "Zur Versandseite wechseln, Titel ändern und absenden."
+      ],
+      "then": [
+        "Aufnahme bleibt beim Seitenwechsel erhalten.",
+        "Diktat erscheint mit bestätigtem Titel, Autor und spielbarem Audio im Workflow."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        128,
+        129,
+        130,
+        131
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-REC-002",
+      "feature_ids": [
+        "PAR-REC-002"
+      ],
+      "fixtures": [
+        "F-AUDIO"
+      ],
+      "given": [
+        "Recorder enthält den Testtext mit drei eindeutig hörbaren Abschnitten."
+      ],
+      "when": [
+        "Aufnehmen und stoppen; erste/letzte Position anspringen.",
+        "Per UI und Tastatur spulen; Wiedergabe mehrfach starten/stoppen."
+      ],
+      "then": [
+        "Position und hörbarer Abschnitt stimmen überein.",
+        "Stop beendet Audioerfassung; ein reiner Wiedergabebefehl zeichnet nicht auf."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        130,
+        131,
+        133
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-REC-003",
+      "feature_ids": [
+        "PAR-REC-003"
+      ],
+      "fixtures": [
+        "F-AUDIO"
+      ],
+      "given": [
+        "Aufnahme besteht aus Abschnitten A, B und C; Sicherheitskopie nur der synthetischen Datei."
+      ],
+      "when": [
+        "Vor B neuen Abschnitt X einfügen, Ergebnis abhören.",
+        "Auf gleicher Position im Überschreibmodus Y aufnehmen.",
+        "Ab Cursor kürzen; mehrere Operationen bis zur Undo-Grenze zurücknehmen."
+      ],
+      "then": [
+        "Einfügen ergibt A-X-B-C ohne Verlust von B/C.",
+        "Überschreiben ersetzt den zeitlich betroffenen Bereich.",
+        "Kürzen und Undo erzeugen die jeweils erwarteten hörbaren Abschnitte."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        130,
+        131,
+        133
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-REC-004",
+      "feature_ids": [
+        "PAR-REC-004"
+      ],
+      "fixtures": [
+        "F-AUDIO",
+        "F-SILENCE"
+      ],
+      "given": [
+        "Mikrofon mit definierten Sprach- und Ruheabschnitten; ruhige Laborsituation."
+      ],
+      "when": [
+        "Gleichen Test einmal mit und einmal ohne Stimmsteuerung aufnehmen.",
+        "Modus während einer pausierten Sitzung umschalten."
+      ],
+      "then": [
+        "Aktiver Modus ist sichtbar und wirkt auf folgende Aufnahme.",
+        "Sprachabschnitte bleiben vollständig; Ruhephasen werden entsprechend Referenzverhalten behandelt."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        130,
+        133
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-REC-005",
+      "feature_ids": [
+        "PAR-REC-005"
+      ],
+      "fixtures": [
+        "F-AUDIO",
+        "F-HW"
+      ],
+      "given": [
+        "Zwei eindeutig benannte Audiogeräte; nur eines erhält Testsignal."
+      ],
+      "when": [
+        "Eingang und Ausgang wechseln und kurze Probe aufnehmen/abspielen.",
+        "Gewähltes Gerät abziehen; mit erneut angeschlossenem Gerät fortsetzen."
+      ],
+      "then": [
+        "Verwendetes Gerät entspricht der Auswahl.",
+        "Fehlendes Gerät ist sichtbar; es wird keine leere Aufnahme als Erfolg gemeldet.",
+        "Pegeländerung wirkt nur dort, wo Hardware sie unterstützt."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        131,
+        132,
+        167
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-REC-006",
+      "feature_ids": [
+        "PAR-REC-006"
+      ],
+      "fixtures": [
+        "F-ID",
+        "F-AUDIO",
+        "F-SECRETS"
+      ],
+      "given": [
+        "Diktat mit bekanntem Audio; zwei berechtigte Schreibkräfte."
+      ],
+      "when": [
+        "Mit Dringlichkeit, Anmerkung und Abnahme versenden.",
+        "Separates Testdiktat mit nur lokal erzeugtem Passwort schützen und mit falschem/richtigem Passwort öffnen."
+      ],
+      "then": [
+        "Bestätigte Metadaten stehen im Workflow.",
+        "Falsches Passwort liefert keinen Audio-/Textzugriff.",
+        "Richtiges Passwort erlaubt Zugriff im zusätzlich geltenden Rollenrahmen."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        81,
+        82,
+        85,
+        131,
+        177,
+        178
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-REC-007",
+      "feature_ids": [
+        "PAR-REC-007"
+      ],
+      "fixtures": [
+        "F-AUDIO",
+        "F-EXPORT"
+      ],
+      "given": [
+        "Neues lokales Diktat; Serververbindung im Labor getrennt."
+      ],
+      "when": [
+        "Im autarken Modus aufnehmen, speichern, schliessen und neu laden.",
+        "Workflowversand ohne Verbindung versuchen; Verbindung wiederherstellen."
+      ],
+      "then": [
+        "Lokale Aufnahme ist wieder spielbar.",
+        "Fehlender Versand bleibt erkennbar und wiederholbar.",
+        "Neubau hängt nicht von der historischen 30-Tage-Lizenzfrist ab."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        118,
+        131,
+        132
+      ],
+      "explicit_new_contracts": [
+        "Offlineaufnahme unabhängig von historischer 30-Tage-Lizenzbeschränkung im eigenständigen Neubau."
+      ]
+    },
+    {
+      "id": "BT-REC-008",
+      "feature_ids": [
+        "PAR-REC-008"
+      ],
+      "fixtures": [
+        "F-AUDIO",
+        "F-DOC"
+      ],
+      "given": [
+        "Neue eigene Sitzung mit Textformatierung und Audio-Zeitbezug."
+      ],
+      "when": [
+        "Als eigenes Sitzungsformat speichern und neu öffnen.",
+        "Als RTF und TXT exportieren und wieder öffnen."
+      ],
+      "then": [
+        "Sitzungsformat erhält Audio, Text und Zeitbezug.",
+        "RTF erhält unterstützte Formatierung; TXT ist bewusst unformatiert.",
+        "Textdatei ohne Audio wird nicht als synchronisierte Sitzung ausgegeben."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        80,
+        83,
+        87,
+        112
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-LIVE-001",
+      "feature_ids": [
+        "PAR-LIVE-001"
+      ],
+      "fixtures": [
+        "F-ID",
+        "F-AUDIO",
+        "F-ASR"
+      ],
+      "given": [
+        "Lokale ASR-Engine bereit; frische Sitzung für Alpha."
+      ],
+      "when": [
+        "Bekannten Testtext diktieren und sichtbare Zwischen-/Endergebnisse beobachten.",
+        "Eine Stelle ändern und Diktat versenden.",
+        "Am getrennten Schreibplatz öffnen."
+      ],
+      "then": [
+        "Text erscheint innerhalb der laufenden Sitzung.",
+        "Bestätigte Korrektur und zugehöriges Audio stehen am Schreibplatz zur Verfügung.",
+        "Ein reiner Upload nach Aufnahmeende erfüllt Live-Erkennung nicht."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        75,
+        79,
+        80,
+        84
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-LIVE-002",
+      "feature_ids": [
+        "PAR-LIVE-002"
+      ],
+      "fixtures": [
+        "F-AUDIO",
+        "F-ASR",
+        "F-TARGET"
+      ],
+      "given": [
+        "Zwei isolierte Testfenster A und B mit eindeutigem Inhalt."
+      ],
+      "when": [
+        "Cursor in A setzen und Testphrase diktieren.",
+        "Cursor in B setzen und zweite Phrase diktieren.",
+        "Ein nicht unterstütztes Fenster verwenden."
+      ],
+      "then": [
+        "Unterstützte Ziele erhalten nur den für sie bestimmten Text.",
+        "Nicht unterstütztes Ziel führt zu klar erkennbarem Verhalten, nicht zu Text an unbekannter Stelle."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        75,
+        79
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-LIVE-003",
+      "feature_ids": [
+        "PAR-LIVE-003"
+      ],
+      "fixtures": [
+        "F-AUDIO",
+        "F-ASR"
+      ],
+      "given": [
+        "Leerer eigener Entwurf und sichtbare Speicheraktivität."
+      ],
+      "when": [
+        "Drei deutlich getrennte Phrasen diktieren.",
+        "Nach bestätigter Phrase nur den Laborclient beenden/abstürzen lassen.",
+        "Neu starten und Entwurf öffnen."
+      ],
+      "then": [
+        "Bereits dauerhaft bestätigte Phrasen und Audio sind wiederherstellbar.",
+        "Keine Phantomsicherung: Wiederherstellung wird über Dateiinhalt und Wiedergabe belegt.",
+        "Aktuell unbestätigter Audiopuffer wird im Ergebnis als eigene Messgrenze ausgewiesen."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        82,
+        83,
+        86,
+        87
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-LIVE-004",
+      "feature_ids": [
+        "PAR-LIVE-004"
+      ],
+      "fixtures": [
+        "F-AUDIO",
+        "F-DOC"
+      ],
+      "given": [
+        "Zwei neue Entwürfe mit deutlich verschiedenen Texten und Audioabschnitten."
+      ],
+      "when": [
+        "Zwischen Entwürfen wechseln und beide ändern.",
+        "Einen schliessen und Abbrechen wählen, dann Speichern.",
+        "Den anderen nach Rückfrage verwerfen und neu starten."
+      ],
+      "then": [
+        "Audio und Text bleiben dem richtigen Entwurf zugeordnet.",
+        "Abbrechen erhält den Entwurf; Speichern persistiert; Verwerfen löscht nur die bestätigte Auswahl."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        82,
+        83,
+        84
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-LIVE-005",
+      "feature_ids": [
+        "PAR-LIVE-005"
+      ],
+      "fixtures": [
+        "F-DOC",
+        "F-AUDIO",
+        "F-EXPORT"
+      ],
+      "given": [
+        "Testtext mit Überschrift, Fettdruck, Absatz und synthetischer Grafik."
+      ],
+      "when": [
+        "Einmal formatiert und einmal unformatiert versenden.",
+        "Versand absichtlich fehlschlagen lassen; Leeren/Schliessen aktivieren."
+      ],
+      "then": [
+        "Formatierte und reine Ausgabe unterscheiden sich genau nach Wahl.",
+        "Fehlgeschlagene Übergabe lässt den Entwurf zur Wiederholung verfügbar.",
+        "Erfolgreiche Übergabe beachtet die ausgewählten Leeren-/Schliessenoptionen."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        79,
+        80,
+        85,
+        86,
+        87,
+        111,
+        112
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-LIVE-006",
+      "feature_ids": [
+        "PAR-LIVE-006"
+      ],
+      "fixtures": [
+        "F-ASR",
+        "F-TARGET"
+      ],
+      "given": [
+        "Testfenster A und B geöffnet; keine fremden Anwendungen mit Produktivdaten."
+      ],
+      "when": [
+        "Fokusbindung für A aktivieren, B fokussieren und Phrase diktieren.",
+        "Bindung per Hotkey lösen; danach B binden.",
+        "Gebundenes Fenster schliessen."
+      ],
+      "then": [
+        "Während Bindung erhält A den Text und B nicht.",
+        "Statuswechsel ist sichtbar.",
+        "Schliessen oder Neubindung hebt die alte Bindung auf."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        98,
+        99,
+        110
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-LIVE-007",
+      "feature_ids": [
+        "PAR-LIVE-007"
+      ],
+      "fixtures": [
+        "F-TARGET",
+        "F-ASR"
+      ],
+      "given": [
+        "Testfenster A als automatisch gebunden konfiguriert."
+      ],
+      "when": [
+        "A fokussieren, nach B wechseln und diktieren.",
+        "Immer-oben umschalten; globale Funktion deaktivieren.",
+        "A schliessen und neu öffnen."
+      ],
+      "then": [
+        "Automatische Bindung und sichtbarer Zustand entsprechen der Konfiguration.",
+        "Globale Deaktivierung unterbindet alte Bindungen.",
+        "Neu geöffnete Fenster werden nur nach der gemessenen Zielregel wiedergebunden."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        99,
+        111,
+        112
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-LIVE-008",
+      "feature_ids": [
+        "PAR-LIVE-008"
+      ],
+      "fixtures": [
+        "F-DOC",
+        "F-TTS"
+      ],
+      "given": [
+        "Synthetischer Text mit drei Absätzen; lokale TTS-Stimme."
+      ],
+      "when": [
+        "Zweiten Absatz markieren und vorlesen.",
+        "Markierung aufheben, Cursor versetzen und erneut vorlesen.",
+        "Stimme deaktivieren oder nicht vorhandene Stimme wählen."
+      ],
+      "then": [
+        "Nur der ausgewählte Bereich beziehungsweise Text ab Cursor wird gesprochen.",
+        "Fehlende Stimme ist sichtbar.",
+        "SAPI4-Binärkompatibilität ist kein Zwang; das beobachtbare Vorlesen bleibt erhalten."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        81,
+        84,
+        108,
+        109
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-IMP-001",
+      "feature_ids": [
+        "PAR-IMP-001"
+      ],
+      "fixtures": [
+        "F-DSS",
+        "F-HW"
+      ],
+      "given": [
+        "Philips 9600 oder 9620 mit nur synthetischen Dateien; Treiber installiert."
+      ],
+      "when": [
+        "Gerät anstecken, abziehen und erneut anstecken.",
+        "Überwachung dieses Gerätetyps ausschalten/einschalten.",
+        "Gerät ohne nutzbaren Treiber gesondert beobachten."
+      ],
+      "then": [
+        "Liste reagiert auf Anschluss und Auswahl.",
+        "Keine doppelten Einträge nach Wiederanschluss.",
+        "Fehlender Treiber und nicht gefundenes Gerät werden unterscheidbar angezeigt."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        169,
+        170,
+        171,
+        173,
+        174,
+        199,
+        200
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-IMP-002",
+      "feature_ids": [
+        "PAR-IMP-002"
+      ],
+      "fixtures": [
+        "F-ID",
+        "F-DSS"
+      ],
+      "given": [
+        "Zwei synthetische Autoren und Gerätedateien mit unterschiedlichen Autorenkennungen."
+      ],
+      "when": [
+        "Geräte-ID-Mapping testen; danach auf Autor-Feld umstellen.",
+        "Eine Datei mit unbekannter Kennung und eine ohne Kennung laden."
+      ],
+      "then": [
+        "Bekannte Kennungen führen zum richtigen Autor.",
+        "Unbekannte Kennung wird nicht dem am PC angemeldeten Konto zugeschlagen.",
+        "Manuelle Korrektur ist vor Übergabe sichtbar."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        26,
+        27,
+        28,
+        176
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-IMP-003",
+      "feature_ids": [
+        "PAR-IMP-003"
+      ],
+      "fixtures": [
+        "F-DSS",
+        "F-ID"
+      ],
+      "given": [
+        "Drei synthetische Gerätediktate mit unterschiedlichen Titeln und Prioritäten."
+      ],
+      "when": [
+        "Zwei auswählen, gemeinsamen Empfänger setzen und Titel unverändert lassen.",
+        "ASR-Wahl auf benutzen, nicht benutzen und nicht verändern prüfen.",
+        "Nur markierte Dateien versenden."
+      ],
+      "then": [
+        "Nicht ausgewähltes Diktat verbleibt unverändert.",
+        "Nicht verändern erhält den jeweiligen ursprünglichen Wert.",
+        "Automatische Poolwahl ist bei eindeutiger Mitgliedschaft reproduzierbar."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        171,
+        176,
+        177,
+        178
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-IMP-004",
+      "feature_ids": [
+        "PAR-IMP-004"
+      ],
+      "fixtures": [
+        "F-DSS",
+        "F-ID"
+      ],
+      "given": [
+        "Gleiche Testaufnahme als EOL und nicht EOL, dazu unbekannter Autor."
+      ],
+      "when": [
+        "Autosenden mit EOL-Filter aktivieren und Gerät anschliessen.",
+        "Filter ausschalten und erneut prüfen.",
+        "Autosenden deaktivieren."
+      ],
+      "then": [
+        "Mit EOL-Filter wird nur bekannte beendete Aufnahme versandt.",
+        "Unbekannter Autor bleibt zur Klärung.",
+        "Deaktiviertes Autosenden übergibt keine neue Datei ohne Aktion."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        170,
+        173,
+        175
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-IMP-005",
+      "feature_ids": [
+        "PAR-IMP-005"
+      ],
+      "fixtures": [
+        "F-DSS",
+        "F-FAIL"
+      ],
+      "given": [
+        "Ausschliesslich wegwerfbare synthetische Gerätedateien; Löschoption einmal an und aus."
+      ],
+      "when": [
+        "Erfolgreich versenden und Bestand prüfen.",
+        "Übertragung in separatem Lauf vor Bestätigung unterbrechen.",
+        "Manuelles Löschen zunächst abbrechen, danach bestätigen."
+      ],
+      "then": [
+        "Bei deaktivierter Option bleibt Quelle erhalten.",
+        "Unbestätigter Transfer löscht die Quelle nicht.",
+        "Manueller Abbruch löscht nichts; bestätigtes Löschen nur die Auswahl."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        173,
+        178
+      ],
+      "explicit_new_contracts": [
+        "Quelllöschung ausschliesslich nach dauerhaft bestätigter Übernahme; das Handbuch beschreibt nur erfolgreichen Versand."
+      ]
+    },
+    {
+      "id": "BT-IMP-006",
+      "feature_ids": [
+        "PAR-IMP-006"
+      ],
+      "fixtures": [
+        "F-DSS",
+        "F-EXPORT",
+        "F-CLOCK"
+      ],
+      "given": [
+        "Backupziel ist eigener leerer Laborordner."
+      ],
+      "when": [
+        "Mit Backup versenden und Quell-/Kopiehash vergleichen.",
+        "Namensvorlage ändern und gleichnamige zweite Aufnahme versenden.",
+        "Frist im isolierten Testzeitmodell überschreiten."
+      ],
+      "then": [
+        "Kopie entspricht dem Originalinhalt.",
+        "Namenskollision erzeugt keine stille Überschreibung.",
+        "Nur abgelaufene Backupkopien werden nach gemessener Regel entfernt."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        174,
+        175
+      ],
+      "explicit_new_contracts": [
+        "Keine stille Überschreibung bei Namenskollision; konkrete Altreaktion noch messen."
+      ]
+    },
+    {
+      "id": "BT-IMP-007",
+      "feature_ids": [
+        "PAR-IMP-007"
+      ],
+      "fixtures": [
+        "F-AUDIO",
+        "F-DSS",
+        "F-DOC",
+        "F-BAD"
+      ],
+      "given": [
+        "Synthetische Testdateien pro angekündigtem Format; zusätzlich absichtlich defekte Datei."
+      ],
+      "when": [
+        "Eine Datei und mehrere gemischte Dateien auswählen.",
+        "Gemeinsame Metadaten setzen und Ergebnis je Datei prüfen.",
+        "Defekte und nicht unterstützte Datei testen."
+      ],
+      "then": [
+        "Titel und Typ der einzelnen importierten Dateien bleiben nachvollziehbar.",
+        "Unterstützung wird nur für tatsächlich verarbeitete Formate behauptet.",
+        "Defekte Datei führt zu benanntem Fehler; andere erfolgreiche Dateien bleiben eindeutig zuordenbar."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        119,
+        134,
+        135,
+        182,
+        183
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-IMP-008",
+      "feature_ids": [
+        "PAR-IMP-008"
+      ],
+      "fixtures": [
+        "F-AUDIO",
+        "F-DSS",
+        "F-EXPORT",
+        "F-FAIL"
+      ],
+      "given": [
+        "Zwei neue Labor-Dropfolder mit verschiedenen Parametern."
+      ],
+      "when": [
+        "Passende und nicht passende Dateien direkt und im Unterordner ablegen.",
+        "Eine Datei langsam schreiben; danach fertigstellen.",
+        "Dienst neu starten und dieselbe fertige Datei erneut beobachten."
+      ],
+      "then": [
+        "Nur passende direkte Eingänge werden gemäss Konfiguration verarbeitet.",
+        "Unvollständiger Eingang wird nicht als erfolgreicher Audiotransfer gemeldet.",
+        "Wiederanlauf erzeugt nach neuem Idempotenzvertrag keinen doppelten Auftrag."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        61,
+        62,
+        194
+      ],
+      "explicit_new_contracts": [
+        "Dateiabschlussprüfung und Idempotenz beim Wiederanlauf sind explizite Anforderungen des Neubaus."
+      ]
+    },
+    {
+      "id": "BT-IMP-009",
+      "feature_ids": [
+        "PAR-IMP-009"
+      ],
+      "fixtures": [
+        "F-HW",
+        "F-DSS",
+        "F-SECRETS"
+      ],
+      "given": [
+        "Dediziertes Laborgerät mit dokumentiertem Ausgangszustand und lokalem Rücksetzweg."
+      ],
+      "when": [
+        "Gerät erfassen, Testautor-/Listenwert setzen und am Gerät ablesen.",
+        "Einen unkritischen Energiesparwert ändern und rücksetzen.",
+        "Schutzoptionen zunächst als reine Konfigurationsvorschau und gezielt im gesicherten Gerätelabor testen."
+      ],
+      "then": [
+        "Gerät bestätigt unterstützte Werte; nicht unterstützte Optionen werden nicht als wirksam dargestellt.",
+        "Vorherige Konfiguration kann wiederhergestellt werden.",
+        "Keine produktiven Geräte-IDs oder PINs werden importiert."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        63,
+        64,
+        65,
+        66,
+        67,
+        68,
+        69,
+        70
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-IMP-010",
+      "feature_ids": [
+        "PAR-IMP-010"
+      ],
+      "fixtures": [
+        "F-HW",
+        "F-FIRMWARE"
+      ],
+      "given": [
+        "Nur Laborgerät; passendes Herstellerpaket, Typprüfung und Wiederherstellungsweg nachgewiesen."
+      ],
+      "when": [
+        "Firmwarebestand und Versionsanzeige ohne Schreiben untersuchen.",
+        "Gleiche, ältere und neuere Versionsmetadaten durch Vergleichsfall prüfen.",
+        "Einen tatsächlichen Update-Lauf nur durchführen, wenn Hardware/Testgate erfüllt ist."
+      ],
+      "then": [
+        "Modell und Versionsvergleich werden dokumentiert.",
+        "Ohne zulässiges Paket und Recovery-Nachweis erfolgt kein Firmware-Schreibvorgang.",
+        "Nicht ausgeführter Flash bleibt als Runtime-Nachweis offen, nicht als bestanden."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        71,
+        72
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-WF-001",
+      "feature_ids": [
+        "PAR-WF-001"
+      ],
+      "fixtures": [
+        "F-ID",
+        "F-WORK"
+      ],
+      "given": [
+        "Fälle in unterschiedlichen Zuständen und mit unterschiedlichen Autoren."
+      ],
+      "when": [
+        "Als Autor und als Schreibkraft öffnen.",
+        "Einen Audiofall, einen erkannten Fall und einen Dokumentfall auswählen."
+      ],
+      "then": [
+        "Liste zeigt richtigen Sichtbereich und passende Metadaten.",
+        "Doppelklick führt für Autor zum Vorgang, für Schreibkraft zum passenden Player/Korrekturfenster."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        119,
+        121,
+        125,
+        126
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-WF-002",
+      "feature_ids": [
+        "PAR-WF-002"
+      ],
+      "fixtures": [
+        "F-ID",
+        "F-WORK"
+      ],
+      "given": [
+        "Zwei Laborarbeitsplätze zeigen die Arbeitsliste."
+      ],
+      "when": [
+        "Auf Arbeitsplatz A ein Diktat anlegen und Status ändern.",
+        "Auf B automatische Aktualisierung beobachten und getrennt F5 verwenden."
+      ],
+      "then": [
+        "B sieht die bestätigte Änderung ohne vollständigen Neustart.",
+        "F5 liefert denselben aktuellen Bestand.",
+        "Unbestätigte Änderungen werden nicht als abgeschlossen dargestellt."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        121,
+        122,
+        123
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-WF-003",
+      "feature_ids": [
+        "PAR-WF-003"
+      ],
+      "fixtures": [
+        "F-ID",
+        "F-WORK"
+      ],
+      "given": [
+        "Mindestens sechs klar unterscheidbare Testfälle."
+      ],
+      "when": [
+        "Filter für Pool A und offen erstellen, speichern und wieder wählen.",
+        "Eindeutigen Begriff aus Titel und Anmerkung suchen.",
+        "20 Filter anlegen und Grenzfall für weitere Filter beobachten."
+      ],
+      "then": [
+        "Ergebnismenge entspricht Filtern und Zugriffsrechten.",
+        "Suche liefert passende Metadatenfelder.",
+        "Grenzverhalten wird sichtbar; es darf keine vorhandenen Filter still überschreiben."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        123,
+        128
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-WF-004",
+      "feature_ids": [
+        "PAR-WF-004"
+      ],
+      "fixtures": [
+        "F-ID",
+        "F-WORK"
+      ],
+      "given": [
+        "Testfälle mit mehreren Autoren, Prioritäten und Erstellzeiten."
+      ],
+      "when": [
+        "Nach Autor und Priorität gruppieren, Sortierung umkehren und Spalten umordnen.",
+        "Neu starten und zweiten Benutzer öffnen."
+      ],
+      "then": [
+        "Gruppen und Reihenfolge stimmen mit ausgewählten Merkmalen.",
+        "Layout bleibt beim richtigen Nutzer und überschreibt nicht das Layout des anderen."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        127,
+        128,
+        164,
+        165
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-WF-005",
+      "feature_ids": [
+        "PAR-WF-005"
+      ],
+      "fixtures": [
+        "F-ID",
+        "F-WORK"
+      ],
+      "given": [
+        "Ein offenes Diktat und zwei berechtigte Schreibkräfte."
+      ],
+      "when": [
+        "Metadaten bearbeiten, Änderung einmal abbrechen und einmal speichern.",
+        "Empfänger von Schreib1 auf Schreib2 ändern."
+      ],
+      "then": [
+        "Nur bestätigte Werte gelten.",
+        "Diktat erscheint beim neuen berechtigten Empfänger.",
+        "Historie und UI unterscheiden Umverteilung von Textkorrektur."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        123,
+        126,
+        135,
+        136
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-WF-006",
+      "feature_ids": [
+        "PAR-WF-006"
+      ],
+      "fixtures": [
+        "F-ID",
+        "F-WORK"
+      ],
+      "given": [
+        "Synthetischer Fall wurde angelegt, zugewiesen und einmal bearbeitet."
+      ],
+      "when": [
+        "Informationen per Menü und Strg+I öffnen.",
+        "Danach eine weitere Aktion ausführen und erneut öffnen."
+      ],
+      "then": [
+        "Verlauf gehört zum gewählten Diktat und zeigt nachvollziehbare Aktionen.",
+        "Neu hinzugekommene bestätigte Aktion ist nach Aktualisierung sichtbar."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        47,
+        124
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-WF-007",
+      "feature_ids": [
+        "PAR-WF-007"
+      ],
+      "fixtures": [
+        "F-ID",
+        "F-WORK",
+        "F-FAIL"
+      ],
+      "given": [
+        "Zwei berechtigte Bearbeiter auf getrennten Prozessen."
+      ],
+      "when": [
+        "A öffnet einen Fall; B versucht denselben Fall.",
+        "A schliesst normal; B öffnet erneut.",
+        "Separat A-Prozess während Bearbeitung abbrechen und Wiederaufnahme testen."
+      ],
+      "then": [
+        "Im Normalfall kann nur ein Bearbeiter gleichzeitig ändern.",
+        "Nach normalem Schliessen kann B übernehmen.",
+        "Abbruchbehandlung ist dokumentiert; Neubau verwendet eine explizite erneuerbare Sperre und verliert keine bestätigte Textversion."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        125,
+        135,
+        136,
+        137
+      ],
+      "explicit_new_contracts": [
+        "Erneuerbare Bearbeitungssperre/Versionsprüfung für abgebrochene Sitzung; Altmechanik unbekannt."
+      ]
+    },
+    {
+      "id": "BT-WF-008",
+      "feature_ids": [
+        "PAR-WF-008"
+      ],
+      "fixtures": [
+        "F-WORK",
+        "F-ASR"
+      ],
+      "given": [
+        "Zwei gleiche Audiofälle, einer mit ASR, einer ohne; ASR-Antwort kontrollierbar."
+      ],
+      "when": [
+        "Beide übergeben und Zustandsfolge beobachten.",
+        "ASR-Erfolg sowie Fehler getrennt auslösen."
+      ],
+      "then": [
+        "Audio ohne ASR ist zur Abschrift nutzbar.",
+        "Erkanntes Diktat öffnet die Korrektur mit Text und Audio.",
+        "Fehlende oder fehlerhafte Erkennung wird nicht als fertiges korrigiertes Dokument ausgegeben."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        125,
+        126,
+        131,
+        137,
+        177
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-WF-009",
+      "feature_ids": [
+        "PAR-WF-009"
+      ],
+      "fixtures": [
+        "F-ID",
+        "F-WORK"
+      ],
+      "given": [
+        "Alpha erstellt; Beta ist für Testkategorie zur Abnahme berechtigt; Gamma ausgenommen."
+      ],
+      "when": [
+        "Fall mit Abnahme korrigieren und abschliessen.",
+        "Als Alpha, Beta und Gamma Freigabe versuchen.",
+        "Zweiten Fall ohne zusätzliche Abnahmepunkte prüfen."
+      ],
+      "then": [
+        "Nur berechtigte Person kann abnehmen.",
+        "Ohne weitere Regel kann der Autor selbst freigeben.",
+        "Korrigiert, abzunehmen und abgenommen bleiben unterschiedliche Zustände."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        12,
+        13,
+        14,
+        28,
+        29,
+        30,
+        31,
+        161
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-WF-010",
+      "feature_ids": [
+        "PAR-WF-010"
+      ],
+      "fixtures": [
+        "F-ID",
+        "F-WORK"
+      ],
+      "given": [
+        "Korrigierter synthetischer Fall wartet auf Abnahme."
+      ],
+      "when": [
+        "Zurückweisen, Schreibkraft korrigiert eine markierte Stelle, erneut vorlegen.",
+        "Danach abnehmen und fertigstellen."
+      ],
+      "then": [
+        "Rückgewiesener Fall ist wieder bearbeitbar und nicht fertig.",
+        "Neuer Korrekturstand liegt vor Freigabe sichtbar vor.",
+        "Nur bestätigte Freigabe führt zur anschliessend zulässigen Fertigstellung."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        161
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-WF-011",
+      "feature_ids": [
+        "PAR-WF-011"
+      ],
+      "fixtures": [
+        "F-WORK",
+        "F-EXPORT"
+      ],
+      "given": [
+        "Korrigierter Fall ohne ausstehende Abnahme."
+      ],
+      "when": [
+        "Fertigstellen einmal abbrechen.",
+        "Danach ohne Export bestätigen; weiteren Fall mit zwei Exporten bestätigen."
+      ],
+      "then": [
+        "Abbruch stellt nicht fertig.",
+        "Ohne Export bleibt Fertiggestellt sichtbar.",
+        "Ausgewählte Exportergebnisse sind einzeln nachvollziehbar; Neubau meldet fehlgeschlagenen Export nicht als erfolgreich."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        147,
+        148,
+        149,
+        158
+      ],
+      "explicit_new_contracts": [
+        "Exportergebnis pro Ziel separat protokollieren; kein erfundener Gesamt-Erfolg nach Teilausfall."
+      ]
+    },
+    {
+      "id": "BT-WF-012",
+      "feature_ids": [
+        "PAR-WF-012"
+      ],
+      "fixtures": [
+        "F-ID",
+        "F-WORK"
+      ],
+      "given": [
+        "Fertiger Fall; Schreib1 mit und Schreib2 ohne Wiederaufnahmerecht."
+      ],
+      "when": [
+        "Als beide Konten Wiederaufnahme versuchen.",
+        "Berechtigt korrigieren, schliessen und neu öffnen."
+      ],
+      "then": [
+        "Ohne Recht bleibt der fertige Stand geschützt.",
+        "Mit Recht wird der Fall wieder bearbeitbar.",
+        "Frühere Fertigstellung und neuer Stand sind in der Geschichte unterscheidbar."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        38,
+        138,
+        144,
+        162
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-WF-013",
+      "feature_ids": [
+        "PAR-WF-013"
+      ],
+      "fixtures": [
+        "F-WORK",
+        "F-CLOCK",
+        "F-EXPORT"
+      ],
+      "given": [
+        "Nur synthetische fertige und offene Fälle; separater Archivpfad."
+      ],
+      "when": [
+        "Archivieren/Löschen zunächst abbrechen, dann für je einen Fall bestätigen.",
+        "Aufbewahrungsfrist mit kontrollierter Laborzeit prüfen.",
+        "Archivinhalt und aktive Liste vergleichen."
+      ],
+      "then": [
+        "Offene und nicht ausgewählte Fälle bleiben unberührt.",
+        "Archivierte Fälle verschwinden aus aktiver Liste und sind am Archivziel auffindbar.",
+        "Löschen und Archivieren sind ausdrücklich unterscheidbar."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        36,
+        37,
+        45,
+        52,
+        53,
+        54,
+        124,
+        125,
+        126
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-WF-014",
+      "feature_ids": [
+        "PAR-WF-014"
+      ],
+      "fixtures": [
+        "F-ID",
+        "F-WORK",
+        "F-MAIL"
+      ],
+      "given": [
+        "Lokaler Mail-Catcher statt externer Empfänger; Autor hat synthetische Adresse."
+      ],
+      "when": [
+        "Benachrichtigung je Ereignis ein-/ausschalten und Ereignisse auslösen.",
+        "Mail-Zustellung im Test unterbrechen."
+      ],
+      "then": [
+        "Nur aktivierte Ereignisse erzeugen passende Nachrichten.",
+        "Nachricht verweist auf richtigen synthetischen Vorgang.",
+        "Fehler bleibt sichtbar; er ändert nicht still den fachlichen Status."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        11,
+        12,
+        29,
+        128,
+        164,
+        165
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-COR-001",
+      "feature_ids": [
+        "PAR-COR-001"
+      ],
+      "fixtures": [
+        "F-AUDIO",
+        "F-DOC",
+        "F-ID"
+      ],
+      "given": [
+        "Fall im Zustand Zu schreiben; Vorlagen für Autor und Pool vorhanden."
+      ],
+      "when": [
+        "Fall als Schreibkraft öffnen, Vorlage wählen, Text schreiben und unterbrechen.",
+        "Ohne hinterlegte Vorlagen wiederholen."
+      ],
+      "then": [
+        "Player und Dokument gehören zum gleichen Fall.",
+        "Vorlagen entsprechen dem Autor/Pool.",
+        "Ohne Vorlage ist bewusste Dateiauswahl möglich."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        143,
+        144,
+        145,
+        146,
+        147
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-COR-002",
+      "feature_ids": [
+        "PAR-COR-002"
+      ],
+      "fixtures": [
+        "F-ASR",
+        "F-AUDIO",
+        "F-DOC"
+      ],
+      "given": [
+        "Erkanntes Diktat mit handprüfbar annotierten drei Audiosegmenten."
+      ],
+      "when": [
+        "Fehler übertippen; zweiten Absatz formatieren und verschieben.",
+        "An Wort/Phrase klicken und Wiedergabe auslösen.",
+        "Sichern, neu öffnen und Zuordnung wiederholen."
+      ],
+      "then": [
+        "Audio verweist weiterhin auf die zugehörigen gesprochenen Passagen.",
+        "Neu rein getippter Text wird nicht mit erfundener Sprachausgabe als Originalaudio versehen.",
+        "Zuordnungen bleiben nach Speichern nachvollziehbar."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        137,
+        138,
+        139,
+        140
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-COR-003",
+      "feature_ids": [
+        "PAR-COR-003"
+      ],
+      "fixtures": [
+        "F-ASR",
+        "F-AUDIO"
+      ],
+      "given": [
+        "Testaudio mit Sprache, Pause und bewusst nicht erkennbarer Passage; Engine liefert definierte Metadaten."
+      ],
+      "when": [
+        "Wellenform skalieren und ausblenden.",
+        "Wiedergabeposition über Verlauf versetzen und aktuelle Phrase ansehen."
+      ],
+      "then": [
+        "Visuelle Position entspricht hörbarem Audio.",
+        "Vorhandene Unsicherheitsdaten werden unterscheidbar dargestellt.",
+        "Fehlende Confidence-Werte werden als unbekannt behandelt, nicht automatisch als sicher."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        139,
+        140
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-COR-004",
+      "feature_ids": [
+        "PAR-COR-004"
+      ],
+      "fixtures": [
+        "F-AUDIO",
+        "F-HW"
+      ],
+      "given": [
+        "Aufnahme mit gemessener Dauer und hörbaren Marken."
+      ],
+      "when": [
+        "Bei 0.5x, 1x und 2x wiedergeben, Tempo zurücksetzen und spulen."
+      ],
+      "then": [
+        "Ausgabe bleibt verständlich und Position im Text/Audio konsistent.",
+        "Normalstellung entspricht 1x.",
+        "Zeit-/Positionsanzeige verwendet nachvollziehbare Audiozeit statt vermischter Wandzeit."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        140,
+        144,
+        147
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-COR-005",
+      "feature_ids": [
+        "PAR-COR-005"
+      ],
+      "fixtures": [
+        "F-AUDIO",
+        "F-ASR"
+      ],
+      "given": [
+        "Erkanntes Diktat, Cursor mittig; Rücksprung 2 Sekunden als explizite Testkonfiguration."
+      ],
+      "when": [
+        "Stop-bei-Tastendruck testen; danach weiterlaufenden Modus.",
+        "Pause und Neustart mit/ohne Rücksprung durchführen."
+      ],
+      "then": [
+        "Stopmodus hält bei Tasteneingabe an.",
+        "Weiterlaufender Modus spielt trotz Textkorrektur weiter.",
+        "Rücksprung folgt konfiguriertem Wert und überschreitet nicht den Audioanfang."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        86,
+        140,
+        141,
+        142,
+        146,
+        147
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-COR-006",
+      "feature_ids": [
+        "PAR-COR-006"
+      ],
+      "fixtures": [
+        "F-AUDIO",
+        "F-ASR",
+        "F-FAIL"
+      ],
+      "given": [
+        "Fall in Bearbeitung; sichtbarer Textfehler korrigiert."
+      ],
+      "when": [
+        "Ctrl+S speichern, schliessen und wieder öffnen.",
+        "An anderer Position wiederholen; Prozess nach bestätigter Speicherung beenden."
+      ],
+      "then": [
+        "Bestätigter Textstand und zuletzt gespeicherte Position sind wiederherstellbar.",
+        "Abgebrochene Sitzung erzeugt keinen zweiten konkurrierenden Textstand."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        137,
+        138,
+        143,
+        144
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-COR-007",
+      "feature_ids": [
+        "PAR-COR-007"
+      ],
+      "fixtures": [
+        "F-AUDIO"
+      ],
+      "given": [
+        "Aufnahme mit drei hörbaren Segmenten."
+      ],
+      "when": [
+        "Vor Segment B und C je einen Index setzen.",
+        "Liste öffnen, Positionen anspringen und Index wieder entfernen.",
+        "Fall neu öffnen."
+      ],
+      "then": [
+        "Indizes springen zu den zugehörigen Positionen.",
+        "Löschen eines Index löscht kein Audio.",
+        "Verbleibende Indexliste wird entsprechend Speichervorgang wiederhergestellt."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        145,
+        146,
+        147
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-COR-008",
+      "feature_ids": [
+        "PAR-COR-008"
+      ],
+      "fixtures": [
+        "F-AUDIO-LEVELS"
+      ],
+      "given": [
+        "Synthetische Aufnahme mit leisem und lauterem Sprachabschnitt."
+      ],
+      "when": [
+        "Mit AGC aus und an wiedergeben.",
+        "Originalhash vor/nach vergleichen."
+      ],
+      "then": [
+        "Aktiver Modus ist sichtbar; Lautstärkeunterschied wird hörbar behandelt.",
+        "Originaldatei bleibt unverändert.",
+        "Keine behauptete Verbesserung der ASR-Genauigkeit ohne gesonderten Nachweis."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        86,
+        145
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-COR-009",
+      "feature_ids": [
+        "PAR-COR-009"
+      ],
+      "fixtures": [
+        "F-ASR",
+        "F-DOC",
+        "F-VOC"
+      ],
+      "given": [
+        "Erkannter Testtext enthält bewusst falsch geschriebene Phrase."
+      ],
+      "when": [
+        "Phrase markieren, Groß-/Kleinschreibung ändern, rückgängig/wiederholen.",
+        "Phrase vormerken; Korrektur abschliessen und lokales Phrasenfach öffnen."
+      ],
+      "then": [
+        "Textoperationen wirken auf die markierte Stelle.",
+        "Vorgemerkte Phrase erscheint genau einmal zur Prüfung.",
+        "Vormerken allein veröffentlicht sie nicht automatisch im Poolwortschatz."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        138,
+        139,
+        140,
+        141,
+        142,
+        159,
+        160,
+        161
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-COR-010",
+      "feature_ids": [
+        "PAR-COR-010"
+      ],
+      "fixtures": [
+        "F-ASR",
+        "F-AUDIO"
+      ],
+      "given": [
+        "Zweiter Schreibplatz ohne ASR-Paket; erkannter Testfall im gemeinsamen neuen System."
+      ],
+      "when": [
+        "Erkannten Fall öffnen, abspielen, Text ändern und speichern.",
+        "ASR-Server während laufender Korrektur vorübergehend stoppen."
+      ],
+      "then": [
+        "Abspielen und Bearbeiten sind ohne lokale Engine möglich.",
+        "Vorhandene Ergebnisse verschwinden nicht wegen nicht verfügbarer Erkennung.",
+        "Neue Erkennung bleibt gesondert als nicht verfügbar erkennbar."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        80,
+        137,
+        181
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-VOC-001",
+      "feature_ids": [
+        "PAR-VOC-001"
+      ],
+      "fixtures": [
+        "F-ID",
+        "F-VOC"
+      ],
+      "given": [
+        "Alpha/Beta in Pool A, Gamma in B; leere neu angelegte Testwortlisten."
+      ],
+      "when": [
+        "Ein Kunstwort nur Alpha und ein weiteres Pool A zuordnen.",
+        "Schreib-/Sprechform ändern, Dialog einmal abbrechen und einmal speichern."
+      ],
+      "then": [
+        "Persönliche Phrase ist Alpha zugeordnet, Poolphrase den Mitgliedern von A.",
+        "Bestätigte Form bleibt gespeichert; abgebrochene Änderung nicht."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        16,
+        34,
+        35,
+        39,
+        40
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-VOC-002",
+      "feature_ids": [
+        "PAR-VOC-002"
+      ],
+      "fixtures": [
+        "F-VOC"
+      ],
+      "given": [
+        "Neue UTF-Testwortliste mit Umlauten, Phrasen, gesprochenen Formen und Duplikat."
+      ],
+      "when": [
+        "Import ausführen und Einträge prüfen.",
+        "Liste exportieren und in eine zweite leere Testliste einlesen."
+      ],
+      "then": [
+        "Unterstützte Eintragsformen bleiben im dokumentierten Format erhalten.",
+        "Duplikatbehandlung ist deterministisch und sichtbar.",
+        "Zeichenkodierung und ungültige Zeilen werden im Testbericht festgehalten."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        40
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-VOC-003",
+      "feature_ids": [
+        "PAR-VOC-003"
+      ],
+      "fixtures": [
+        "F-VOC",
+        "F-ASR"
+      ],
+      "given": [
+        "Testwort in Nutzer- und Poolwortschatz."
+      ],
+      "when": [
+        "Wort nur für Alpha löschen und in neuer Sitzung prüfen.",
+        "Poollöschung testen; danach für Alpha und Pool gezielt reaktivieren."
+      ],
+      "then": [
+        "Löschbereich ist klar und wird beim Neustart berücksichtigt.",
+        "Reaktivierung hebt nur den entsprechenden Bereich auf.",
+        "Bei einer ASR-Engine ohne harte Lexikonsperre wird fehlende Funktion nicht mit einem leeren UI-Schalter verdeckt."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        39,
+        40,
+        90,
+        91,
+        95
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-VOC-004",
+      "feature_ids": [
+        "PAR-VOC-004"
+      ],
+      "fixtures": [
+        "F-ID",
+        "F-VOC"
+      ],
+      "given": [
+        "Alpha darf Poolwortschatz nicht direkt ändern; Prüfer besitzt Freigaberecht."
+      ],
+      "when": [
+        "Neue und gelöschte Phrase einreichen.",
+        "Je Fall Pool, Nutzer oder Verwerfen wählen und bestätigen."
+      ],
+      "then": [
+        "Ungeprüfte Änderung beeinflusst den aktiven Pool nicht.",
+        "Freigegebene Entscheidung wirkt exakt auf den gewählten Bereich.",
+        "Abgebrochener Prüfdialog bleibt offen zur späteren Bearbeitung."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        34,
+        35,
+        40,
+        41
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-VOC-005",
+      "feature_ids": [
+        "PAR-VOC-005"
+      ],
+      "fixtures": [
+        "F-ID",
+        "F-VOC",
+        "F-ASR"
+      ],
+      "given": [
+        "Testsession erzeugt eine neue Phrase und ändert einen synthetischen Befehl."
+      ],
+      "when": [
+        "Sitzung beenden, Prüfung abbrechen und erneut starten.",
+        "Danach Phrase dem Nutzer, Befehl dem Pool zuordnen."
+      ],
+      "then": [
+        "Offene Änderungen werden erneut angeboten.",
+        "Bestätigte Zuordnung erscheint im richtigen Geltungsbereich.",
+        "Keine anderen Nutzer erhalten persönliche Änderungen."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        93,
+        94,
+        95,
+        96,
+        97,
+        159,
+        160,
+        161
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-VOC-006",
+      "feature_ids": [
+        "PAR-VOC-006"
+      ],
+      "fixtures": [
+        "F-VOC",
+        "F-TARGET"
+      ],
+      "given": [
+        "Neue Testeinträge mit ähnlichem Anfang und Ende sowie unterschiedlichen Sprechformen."
+      ],
+      "when": [
+        "Suchmodi nacheinander anwenden.",
+        "Testtext markieren und Phrase-hinzufügen-Dialog per Hotkey öffnen.",
+        "Einzel- und Mehrfachlöschung prüfen."
+      ],
+      "then": [
+        "Treffermengen entsprechen dem Suchmodus.",
+        "Markierter Text wird als Vorschlag übernommen, bleibt vor Speicherung änderbar.",
+        "Mehrfachlöschung verlangt die dokumentierte Bestätigung."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        88,
+        89,
+        90,
+        91
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-VOC-007",
+      "feature_ids": [
+        "PAR-VOC-007"
+      ],
+      "fixtures": [
+        "F-ASR",
+        "F-VOC",
+        "F-TTS"
+      ],
+      "given": [
+        "Referenzengine und tatsächliche Versionsfähigkeit dokumentiert; nur synthetische Phrase."
+      ],
+      "when": [
+        "Verfügbarkeit von Trainieren, Aussprache bearbeiten und Vorlesen aufnehmen.",
+        "Wenn unterstützt eine Trainingsaufnahme durchführen und Form ändern."
+      ],
+      "then": [
+        "Tatsächlich vorhandene Fähigkeit ist versionsgebunden dokumentiert.",
+        "Neubau stellt keine funktionslosen Trainings-/Phonetikschaltflächen dar.",
+        "Fehlende Fähigkeit bleibt explizite Paritätslücke oder belegbar nicht anwendbar."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        91,
+        92,
+        93,
+        108,
+        109
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-VOC-008",
+      "feature_ids": [
+        "PAR-VOC-008"
+      ],
+      "fixtures": [
+        "F-VOC",
+        "F-TARGET",
+        "F-DOC"
+      ],
+      "given": [
+        "Unkritische Testkommandos: Diktierfeld öffnen, Testphrase einfügen, zur Markierung springen."
+      ],
+      "when": [
+        "Befehl anlegen, ändern und per Sprache sowie Menü auslösen.",
+        "Reihenfolge vor/eingebaut/nach prüfen; Menügruppe ändern.",
+        "Eine neue Testbefehlsdatei importieren/exportieren und Namenskollision bestätigen/ablehnen."
+      ],
+      "then": [
+        "Sichtbare Aktionen laufen in konfigurierter Reihenfolge.",
+        "Importkollision wird nicht still überschrieben.",
+        "Benutzer-/Poolgeltung und deaktivierte Befehle werden eingehalten."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        41,
+        42,
+        96,
+        113,
+        114,
+        115,
+        116,
+        117,
+        130
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-ASR-001",
+      "feature_ids": [
+        "PAR-ASR-001"
+      ],
+      "fixtures": [
+        "F-AUDIO",
+        "F-DSS",
+        "F-ASR"
+      ],
+      "given": [
+        "Zwei neue Testaufträge; lokale Engine und Ausgabeformat dokumentiert."
+      ],
+      "when": [
+        "Aufträge einreichen und Erkennungsfortschritt sowie Ergebnisse prüfen.",
+        "Einen Job mit defektem Audio einreihen."
+      ],
+      "then": [
+        "Gültige Aufträge erhalten lesbaren Text und passenden Audio-Zeitbezug.",
+        "Fehlerauftrag wird sichtbar getrennt, andere Aufträge bleiben bearbeitbar.",
+        "Erkennung allein markiert kein Diktat als fachlich abgenommen."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        26,
+        28,
+        59,
+        60,
+        61,
+        137,
+        177,
+        194
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-ASR-002",
+      "feature_ids": [
+        "PAR-ASR-002"
+      ],
+      "fixtures": [
+        "F-ID",
+        "F-ASR"
+      ],
+      "given": [
+        "Neue Testprofile für Mikrofon und Diktiergerät; keine historischen Profilkopien."
+      ],
+      "when": [
+        "Livequelle und Gerätequelle getrennt zuordnen, dann gemeinsame Zuordnung prüfen.",
+        "Profil über Administrationsfunktion neu bereitstellen und Arbeitsplatz erneut starten."
+      ],
+      "then": [
+        "Der gewählte Autoren-/Quellkontext wird an den richtigen Engineadapter übergeben.",
+        "Gemeinsamer Modus verwendet bewusst dieselbe Konfiguration.",
+        "Eine ASR-Engine ohne Sprecherprofile wird als solche ausgewiesen."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        9,
+        24,
+        25,
+        26
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-ASR-003",
+      "feature_ids": [
+        "PAR-ASR-003"
+      ],
+      "fixtures": [
+        "F-ASR",
+        "F-CLOCK",
+        "F-AUDIO"
+      ],
+      "given": [
+        "ASR-Worker absichtlich blockiert; Testwartezeit explizit konfiguriert."
+      ],
+      "when": [
+        "Audio einreichen, Grenze überschreiten und Schreibplatz öffnen.",
+        "Separat verspätete ASR-Antwort nach Beginn manueller Korrektur zustellen."
+      ],
+      "then": [
+        "Nach Frist ist manuelle Bearbeitung möglich.",
+        "Bereits manuell bearbeiteter Text wird im Neubau nicht durch späte Antwort überschrieben.",
+        "Wartezeitoption ist deaktivierbar und wird dann anders behandelt."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        47,
+        52
+      ],
+      "explicit_new_contracts": [
+        "Verspätete Erkennung darf bestätigte manuelle Textversion nicht überschreiben."
+      ]
+    },
+    {
+      "id": "BT-ASR-004",
+      "feature_ids": [
+        "PAR-ASR-004"
+      ],
+      "fixtures": [
+        "F-ASR",
+        "F-VOC",
+        "F-AUDIO"
+      ],
+      "given": [
+        "Frische Testengine mit belegter Adaptionsfunktion; korrekte und absichtlich abweichende Text-Audio-Paare."
+      ],
+      "when": [
+        "Nur Text versus Text+Audio wählen und daraus entstehende Jobs/Modelldaten beobachten.",
+        "Optimierung abwählen; abweichendes Paar nicht zum akustischen Training freigeben."
+      ],
+      "then": [
+        "Nur ausdrücklich ausgewählte, geprüfte Daten gelangen in Anpassung.",
+        "Text- und akustische Anpassung werden getrennt ausgewiesen.",
+        "Nicht verfügbare Anpassungsfähigkeit bleibt offene Lücke, kein behauptetes Lernen."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        60,
+        61,
+        149
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-ASR-005",
+      "feature_ids": [
+        "PAR-ASR-005"
+      ],
+      "fixtures": [
+        "F-ASR",
+        "F-CLOCK"
+      ],
+      "given": [
+        "Testengine mit Optimierungsfunktion, definiertes Zeitfenster und zwei Datenmengen."
+      ],
+      "when": [
+        "Optimierung ausserhalb/innerhalb des Fensters anstossen.",
+        "Unzureichende und ausreichende Menge prüfen; normale Erkennungsjobs parallel beobachten."
+      ],
+      "then": [
+        "Optimierung respektiert das konfigurierte Zeitfenster.",
+        "Zu wenig Material erzeugt keinen falschen Optimierungserfolg.",
+        "Erkennung und Optimierung bleiben unterschiedliche Jobarten."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        59,
+        60,
+        61
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-ASR-006",
+      "feature_ids": [
+        "PAR-ASR-006"
+      ],
+      "fixtures": [
+        "F-ASR",
+        "F-ID"
+      ],
+      "given": [
+        "Zwei Laborarbeitsplätze und frisches Testprofil einer adaptierbaren Engine."
+      ],
+      "when": [
+        "Jede Speicherregel bei geänderter Sitzung testen.",
+        "Gespeicherten zentralen Stand am zweiten Arbeitsplatz laden.",
+        "Lokale Erneuerung mit bewusstem Bestätigungsdialog prüfen."
+      ],
+      "then": [
+        "Speicherregel ist sichtbar wirksam.",
+        "Zentrale und lokale Stände sind nicht still verwechselt.",
+        "Erneuerung verwirft lokalen Stand nur nach eindeutigem Ablauf."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        24,
+        25,
+        32,
+        33,
+        97,
+        99,
+        100,
+        102
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-ASR-007",
+      "feature_ids": [
+        "PAR-ASR-007"
+      ],
+      "fixtures": [
+        "F-HW",
+        "F-ASR",
+        "F-AUDIO"
+      ],
+      "given": [
+        "Zwei Quellen und mindestens ein tatsächlich unterstütztes komprimiertes Ausgabeformat."
+      ],
+      "when": [
+        "Quelle wechseln und sichtbare Bestätigung prüfen.",
+        "Denselben Test als Standard und komprimiert versenden.",
+        "Nicht unterstütztes Format wählen."
+      ],
+      "then": [
+        "Folgeaufnahme stammt aus gewählter Quelle.",
+        "Ausgabedatei hat tatsächlich angekündigten Codec und ist abspielbar.",
+        "Nicht unterstütztes Format wird abgelehnt, nicht als umbenannte WAV-Datei ausgegeben."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        87,
+        100,
+        112,
+        113,
+        117,
+        118
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-EXP-001",
+      "feature_ids": [
+        "PAR-EXP-001"
+      ],
+      "fixtures": [
+        "F-WORK",
+        "F-EXPORT"
+      ],
+      "given": [
+        "Korrigierter Fall; Clipboard und RTF ausgewählt."
+      ],
+      "when": [
+        "Fertigstellen und beide Ergebnisse prüfen.",
+        "Neu starten, Optionen wieder öffnen; Exportziel eines Adapters unbeschreibbar machen."
+      ],
+      "then": [
+        "Gewählte Wege und nutzerspezifische Einstellungen bleiben erhalten.",
+        "Fehler eines Adapters wird im Neubau separat ausgewiesen; erfolgreicher anderer Export ist nachvollziehbar."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        149,
+        150,
+        151,
+        158
+      ],
+      "explicit_new_contracts": [
+        "Teilerfolge und Fehler verschiedener Exporte getrennt anzeigen."
+      ]
+    },
+    {
+      "id": "BT-EXP-002",
+      "feature_ids": [
+        "PAR-EXP-002"
+      ],
+      "fixtures": [
+        "F-DOC",
+        "F-TARGET"
+      ],
+      "given": [
+        "Text enthält Fettformatierung und mehrere Absätze."
+      ],
+      "when": [
+        "Als reinen Text kopieren und in Labortarget einfügen.",
+        "Als formatierten Text wiederholen."
+      ],
+      "then": [
+        "Reiner Text enthält keine Formatierungsartefakte.",
+        "Formatierter Inhalt erhält unterstützte Formatierung und Textinhalt.",
+        "Clipboardinhalt gehört zum bestätigten Fall."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        149
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-EXP-003",
+      "feature_ids": [
+        "PAR-EXP-003"
+      ],
+      "fixtures": [
+        "F-DOC",
+        "F-EXPORT"
+      ],
+      "given": [
+        "Synthetischer Richtext und Grafik; leeres Ausgabeziel."
+      ],
+      "when": [
+        "RTF erzeugen und mit unabhängiger Anwendung öffnen.",
+        "Öffnen-nach-Export aktivieren/deaktivieren."
+      ],
+      "then": [
+        "RTF ist syntaktisch lesbar und enthält richtigen Text, Absätze und unterstützte Grafik.",
+        "Autoöffnen folgt Option und meldet fehlende Zielanwendung."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        150,
+        151,
+        152
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-EXP-004",
+      "feature_ids": [
+        "PAR-EXP-004"
+      ],
+      "fixtures": [
+        "F-DOC",
+        "F-EXPORT"
+      ],
+      "given": [
+        "Word im Labor; Vorlage mit Kopf-/Fusszeile und Textmarke DIKTAT_TEXT."
+      ],
+      "when": [
+        "In Vorlage an Textmarke exportieren.",
+        "In eines von zwei geöffneten Testdokumenten exportieren.",
+        "Ohne geöffnetes Dokument den dafür vorgesehenen Modus testen."
+      ],
+      "then": [
+        "Text erscheint am gewählten Ziel; Kopf-/Fusszeile bleiben erhalten.",
+        "Mehrdeutige Zielauswahl wird aufgelöst.",
+        "Fehlendes geöffnetes Dokument erzeugt einen nachvollziehbaren Fehler."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        150,
+        153,
+        154,
+        155
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-EXP-005",
+      "feature_ids": [
+        "PAR-EXP-005"
+      ],
+      "fixtures": [
+        "F-DOC",
+        "F-EXPORT"
+      ],
+      "given": [
+        "Dokumentierte unterstützte Writer-Version im Labor; synthetische ODT-Vorlage."
+      ],
+      "when": [
+        "An vorgesehene Textposition exportieren und unabhängig neu öffnen.",
+        "Mehrere offene Writer-Dokumente als Ziel prüfen."
+      ],
+      "then": [
+        "ODT ist mit der vereinbarten Zielanwendung nutzbar.",
+        "Nur ausgewähltes Dokument wird verändert.",
+        "Kompatibilität mit LibreOffice wird erst nach Test behauptet."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        150,
+        153,
+        154,
+        155
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-EXP-006",
+      "feature_ids": [
+        "PAR-EXP-006"
+      ],
+      "fixtures": [
+        "F-DOC",
+        "F-EXPORT"
+      ],
+      "given": [
+        "Titel/Autor enthalten Umlaute und Zeichen, die nicht in jeden Dateinamen passen."
+      ],
+      "when": [
+        "Manuellen Namen und Namen aus Platzhaltern erzeugen.",
+        "Gleichnamigen zweiten Export sowie nicht beschreibbaren Pfad testen."
+      ],
+      "then": [
+        "Ergebnis ist am angezeigten Ort mit gültigem Namen auffindbar.",
+        "Kollision und Schreibfehler bleiben erkennbar.",
+        "Platzhaltersemantik wird aus Referenz geprüft; fehlerhafte Handbuchbeispiele werden nicht blind übernommen."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        152,
+        153,
+        154,
+        159
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-EXP-007",
+      "feature_ids": [
+        "PAR-EXP-007"
+      ],
+      "fixtures": [
+        "F-DOC",
+        "F-TARGET"
+      ],
+      "given": [
+        "Zwei gleichklassige Laborfenster mit unterscheidbaren Titeln."
+      ],
+      "when": [
+        "Ziel per Titel/Klasse wählen; jede unterstützte Übertragungsmethode testen.",
+        "Ziel schliessen oder Titel vor Übergabe ändern; Transfer abbrechen."
+      ],
+      "then": [
+        "Text erreicht nur das bestätigte passende Ziel.",
+        "Fehlendes/mehrdeutiges Ziel und Abbruch erzeugen keinen Erfolgseintrag.",
+        "Tastensimulation wird nicht heimlich in ein anderes Fenster gesendet."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        155,
+        156,
+        157
+      ],
+      "explicit_new_contracts": [
+        "Bei verlorenem/mehrdeutigem Ziel niemals blind an aktuell aktives Fenster senden."
+      ]
+    },
+    {
+      "id": "BT-EXP-008",
+      "feature_ids": [
+        "PAR-EXP-008"
+      ],
+      "fixtures": [
+        "F-DOC",
+        "F-EXPORT"
+      ],
+      "given": [
+        "Audiofall mit in eigener Vorlage geschriebenem Testdokument."
+      ],
+      "when": [
+        "Kopie erstellen auswählen, fertigstellen und Kopie öffnen.",
+        "Ohne Kopie fertigstellen; Fehlziel testen."
+      ],
+      "then": [
+        "Kopie entspricht dem bestätigten Dokumentstand.",
+        "Ohne Kopieroption entsteht keine zusätzliche Datei.",
+        "Kopierfehler ist vom fachlichen Abschluss unterscheidbar."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        158,
+        159
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-EXP-009",
+      "feature_ids": [
+        "PAR-EXP-009"
+      ],
+      "fixtures": [
+        "F-AUDIO",
+        "F-MAIL",
+        "F-ID"
+      ],
+      "given": [
+        "Neuer synthetischer Audiofall; lokales Testmailprogramm ohne externe Zustellung."
+      ],
+      "when": [
+        "Als berechtigter Nutzer Aufnahme speichern und prüfen.",
+        "Mailfunktion öffnen; Entwurf und Anhang kontrollieren, dann verwerfen.",
+        "Ohne Exportrecht wiederholen."
+      ],
+      "then": [
+        "Gespeicherte Aufnahme ist der richtige Inhalt.",
+        "Mailübergabe enthält richtigen Anhang und versendet nicht autonom an reale Personen.",
+        "Ohne Recht wird Export verhindert."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        38,
+        162
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-EXP-010",
+      "feature_ids": [
+        "PAR-EXP-010"
+      ],
+      "fixtures": [
+        "F-DOC",
+        "F-ASR",
+        "F-AUDIO"
+      ],
+      "given": [
+        "Word mit neuer Testvorlage; einmal mit und einmal ohne aktive Diktatsitzung."
+      ],
+      "when": [
+        "Alle anwendbaren Versandarten anhand desselben Testdokuments durchspielen.",
+        "Kopf-/Fusszeile, Formatierung und Audio am Schreibplatz prüfen."
+      ],
+      "then": [
+        "Versandart bestimmt tatsächlich enthaltene Bestandteile.",
+        "Ohne Audio-/ASR-Sitzung wird kein erfundenes Audio beigefügt.",
+        "Vorlagenvariante kann das Dokument nach Korrektur mit Kopf-/Fusszeile wiederherstellen."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        88,
+        180,
+        181
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-OPS-001",
+      "feature_ids": [
+        "PAR-OPS-001"
+      ],
+      "fixtures": [
+        "F-HW",
+        "F-AUDIO"
+      ],
+      "given": [
+        "Ein realer dokumentierter Fussschalter; Datei mit hörbaren Marken."
+      ],
+      "when": [
+        "Tasten im Toggle- und Haltemodus betätigen.",
+        "Zuordnung ändern und Anwendung neu starten; Gerät abziehen."
+      ],
+      "then": [
+        "Funktion, Halten/Loslassen und Status stimmen mit Konfiguration.",
+        "Geräteverlust führt nicht zu unkontrolliert laufender Aufnahme.",
+        "Aufnahme-/Korrekturkontext darf unterschiedliche dokumentierte Aktionen besitzen."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        103,
+        104,
+        105,
+        167,
+        168,
+        200
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-OPS-002",
+      "feature_ids": [
+        "PAR-OPS-002"
+      ],
+      "fixtures": [
+        "F-HW",
+        "F-AUDIO",
+        "F-ASR"
+      ],
+      "given": [
+        "Je vereinbartem Gerätemodell ein realer Labornachweis."
+      ],
+      "when": [
+        "Aufnahme/Standby/Stop mit Hardware auslösen, LED/UI vergleichen.",
+        "EOL und Navigation im Recorder sowie Livekontext prüfen.",
+        "Benutzerzuordnung ändern und erneut starten."
+      ],
+      "then": [
+        "UI- und Gerätezustand stimmen überein.",
+        "Kontextspezifische EOL-Funktion ist nachvollziehbar.",
+        "Nicht vorhandene LED/Funktion wird nicht simuliert als tatsächliche Gerätefähigkeit ausgegeben."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        105,
+        106,
+        107,
+        108,
+        129,
+        200
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-OPS-003",
+      "feature_ids": [
+        "PAR-OPS-003"
+      ],
+      "fixtures": [
+        "F-AUDIO",
+        "F-TARGET"
+      ],
+      "given": [
+        "Labor mit bekannten freien Tastenkombinationen."
+      ],
+      "when": [
+        "Wiedergabe, Fertigstellen und Fokusbindung neu belegen.",
+        "Editor fokussieren und danach anderes Fenster fokussieren.",
+        "Nur ein Kommando auf Standard zurücksetzen."
+      ],
+      "then": [
+        "Hotkeys wirken in ihrem vorgesehenen Geltungsbereich.",
+        "Zurücksetzen verändert nur die gewählte Belegung.",
+        "Konflikt oder fehlgeschlagene globale Registrierung wird sichtbar."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        109,
+        110,
+        111,
+        132,
+        133,
+        142,
+        147,
+        166
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-OPS-004",
+      "feature_ids": [
+        "PAR-OPS-004"
+      ],
+      "fixtures": [
+        "F-ID"
+      ],
+      "given": [
+        "Frische Laborkonfiguration mit dokumentiertem Autostart."
+      ],
+      "when": [
+        "Mit Benutzer-/Poolparametern starten; Tray-/Listenmodus vergleichen.",
+        "Listenfenster schliessen und Prozessstatus prüfen.",
+        "Explizit Beenden; danach Autostart bei neuer Testanmeldung prüfen."
+      ],
+      "then": [
+        "Hintergrundmodus und wirkliches Beenden sind unterscheidbar.",
+        "Ungültiger Benutzerparameter umgeht keine Anmeldung.",
+        "Startoptionen sind im Neubau dokumentiert; historische EXE-Namen müssen nicht übernommen werden."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        117,
+        118,
+        119,
+        120,
+        121,
+        164,
+        165,
+        168,
+        170,
+        171,
+        172,
+        179
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-OPS-005",
+      "feature_ids": [
+        "PAR-OPS-005"
+      ],
+      "fixtures": [
+        "F-STATS",
+        "F-CLOCK",
+        "F-ID"
+      ],
+      "given": [
+        "Frische Statistikdatenbank des jeweiligen Labors."
+      ],
+      "when": [
+        "Erfassung deaktiviert: zwei Aktionen ausführen.",
+        "Dann Nutzung/Verlauf getrennt aktivieren und weitere Aktionen ausführen.",
+        "Aufbewahrungsfrist prüfen."
+      ],
+      "then": [
+        "Nur aktivierte Datentypen werden entsprechend Regel erfasst.",
+        "Historische Nichterfassung wird nicht als Nullnutzung behauptet.",
+        "Abgelaufene Statistikdaten werden getrennt von aktiven Diktaten behandelt."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        72,
+        73,
+        184
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-OPS-006",
+      "feature_ids": [
+        "PAR-OPS-006"
+      ],
+      "fixtures": [
+        "F-STATS",
+        "F-ID"
+      ],
+      "given": [
+        "Drei Fälle mit bekannten kontrollierten Zeitpunkten, Rollen und Statusfolgen."
+      ],
+      "when": [
+        "Bericht je Fallgruppe und Zeitraum öffnen.",
+        "Nach Autor/Bearbeiter sowie Erstell- und Bearbeitungsdatum filtern."
+      ],
+      "then": [
+        "Anzahl und Dauer lassen sich auf die drei Testfälle zurückführen.",
+        "Zeitfilterbasis und Rollen bleiben unterscheidbar.",
+        "Unvollständige Daten werden nicht als vollständige Leistungsbewertung ausgegeben."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        184,
+        185,
+        186,
+        187
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-OPS-007",
+      "feature_ids": [
+        "PAR-OPS-007"
+      ],
+      "fixtures": [
+        "F-STATS",
+        "F-EXPORT"
+      ],
+      "given": [
+        "Bekannter Testbestand; leeres Ausgabeziel."
+      ],
+      "when": [
+        "Gleiche Statistik über UI und CLI mit gleichen Parametern exportieren.",
+        "Mehrere Zeiträume/Berichte und ungültigen Parameter testen."
+      ],
+      "then": [
+        "Datensätze stimmen abzüglich dokumentierter Formatdetails überein.",
+        "Ohne-UI-Modus öffnet keinen interaktiven Pflichtdialog.",
+        "Ungültiger Parameter/Schreibfehler liefert Fehler statt leeren Erfolg."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        187,
+        188
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-OPS-008",
+      "feature_ids": [
+        "PAR-OPS-008"
+      ],
+      "fixtures": [
+        "F-WORK",
+        "F-FAIL",
+        "F-ID"
+      ],
+      "given": [
+        "Frische Labordienste und nur eigener Labor-Arbeitsordner."
+      ],
+      "when": [
+        "Client schliessen, Hintergrundauftrag weiter beobachten.",
+        "Arbeitsordner kurz unerreichbar machen; Auftrag erneut versuchen.",
+        "Nicht existierenden Autoren-/Poolkontext verwenden."
+      ],
+      "then": [
+        "Dienstverarbeitung braucht keine offene Arbeitsliste.",
+        "Fehler benennen Ursache und verhindern stilles Fehlrouting.",
+        "Neubau benötigt keinen identischen proprietären Datei-Jobvertrag, muss aber dieselben fachlichen Erfolge/Fehler abbilden."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        192,
+        193,
+        194,
+        196,
+        197,
+        198,
+        199
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-OPS-009",
+      "feature_ids": [
+        "PAR-OPS-009"
+      ],
+      "fixtures": [
+        "F-AUDIO",
+        "F-DSS",
+        "F-WORK"
+      ],
+      "given": [
+        "Frisch übergebenes synthetisches Original mit bekanntem Hash."
+      ],
+      "when": [
+        "Erkennen, Text korrigieren, abspielen und exportieren.",
+        "Original erneut hashen; Arbeitskopie ohne erteilten Zugriff zu öffnen versuchen."
+      ],
+      "then": [
+        "Originalinhalt bleibt bis bewusster Aufbewahrungsaktion unverändert.",
+        "Korrektur verändert Textversion/Arbeitsdarstellung, nicht das historische Audio.",
+        "Schutz des neuen Speicherformats wird separat getestet; keine Behauptung eigener SecureDS-Kompatibilität."
+      ],
+      "capture": [
+        "UI vor/nach Aktion",
+        "relevante Datei-/Ereignisdifferenz",
+        "sichtbarer Fehler oder Erfolg"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "expected_artifacts": [
+        "Laufmanifest mit Quelle/Version/Fixturehashes",
+        "UI-/Inhaltsbeleg passend zu Then",
+        "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+      ],
+      "manual_pages": [
+        45,
+        46,
+        194,
+        195
+      ],
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "BT-OPS-010",
+      "feature_ids": [
+        "PAR-OPS-010"
+      ],
+      "fixtures": [
+        "F-HW",
+        "F-DSS",
+        "F-REMOTE"
+      ],
+      "given": [
+        "Isolierter Remotesitzungshost und zwei Laborsitzungen; Gerät nur an Laborclient A angeschlossen."
+      ],
+      "when": [
+        "Lokal erfolgreichen Gerätefall als Kontrolllauf ausführen.",
+        "Geräteweg in RDP, danach falls vorhanden ICA konfigurieren und Aufnahme auflisten/übergeben.",
+        "Sitzung trennen/wiederverbinden; parallele Sitzung B auf ungewollten Zugriff prüfen."
+      ],
+      "then": [
+        "Gerät und Diktat sind nur dem dafür berechtigten Sitzungs-/Autorenkontext zugeordnet.",
+        "Wiederverbindung erzeugt keine ungeklärten Doppelimporte.",
+        "Nicht verfügbare Treiber/Umleitung werden als blocked dokumentiert; sie werden nicht mit lokalem Erfolg gleichgesetzt."
+      ],
+      "capture": [
+        "Client- und Host-UI",
+        "Prozess-/Gerätedatenweg",
+        "Zuordnung zur Laborsitzung"
+      ],
+      "status": "not_run",
+      "oracle_status": "specified_not_observed",
+      "manual_pages": [
+        54,
+        55
+      ],
+      "expected_artifacts": [
+        "Runmanifest mit Transportmodus und Treiber",
+        "UI- und Importbeleg pro Modus"
+      ],
+      "explicit_new_contracts": []
+    }
+  ]
+}

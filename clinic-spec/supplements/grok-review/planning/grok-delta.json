@@ -1,0 +1,207 @@
+{
+  "addendum_version": "3.1",
+  "mode": "append_only",
+  "baseline": "V3 decisions in previous conversation; earlier requirements retained unless explicitly superseded",
+  "source_review_version": "2.0",
+  "items": [
+    {
+      "id": "GRK-C01",
+      "source_finding": "C01",
+      "title": "KIS-Verträge",
+      "disposition": "beibehalten_und_praezisieren",
+      "related_requirements": [
+        "R-026",
+        "R-027",
+        "R-028",
+        "R-029"
+      ],
+      "attach_to_slices": [
+        "S05",
+        "S09",
+        "S11"
+      ],
+      "action": "Realer Ines-Adapter nur gegen Herstellervertrag; interne Adaptergrenzen, DisabledAdapter und stateful Mocks dürfen davor implementiert werden. Keine angenommenen ines-Endpunkte.",
+      "related_gate": "G-KIS",
+      "test_id": "GRK-T-01",
+      "status": "not_started",
+      "requires_new_user_framework_decision": false
+    },
+    {
+      "id": "GRK-C02",
+      "source_finding": "C02",
+      "title": "Philips-Geräteverhalten",
+      "disposition": "bereits_enthalten_nachweis_konkretisieren",
+      "related_requirements": [
+        "R-002",
+        "R-003",
+        "R-004",
+        "R-005",
+        "R-006"
+      ],
+      "attach_to_slices": [
+        "S07",
+        "S11"
+      ],
+      "action": "Hardware-/Firmware-/Dockmatrix einschliesslich EOL zurücknehmen, Audio ergänzen, Verschlüsselung und geteilter Autor. Simulator bleibt als solcher gekennzeichnet.",
+      "related_gate": "G-DEVICE",
+      "test_id": "GRK-T-02",
+      "status": "not_started",
+      "requires_new_user_framework_decision": false
+    },
+    {
+      "id": "GRK-C03",
+      "source_finding": "C03",
+      "title": "ASR-Qualität",
+      "disposition": "ergaenzen",
+      "related_requirements": [
+        "R-014",
+        "R-015",
+        "R-016",
+        "R-037"
+      ],
+      "attach_to_slices": [
+        "S06",
+        "S10",
+        "S11"
+      ],
+      "action": "Korpusmanifest, getrennte Roh-/Endtextfehler, kritische Fehlerkategorien, Korrekturzeitvergleich und vorab festgelegte fachliche Schwellen ergänzen.",
+      "related_gate": "G-CLINICAL",
+      "test_id": "GRK-T-03",
+      "status": "not_started",
+      "requires_new_user_framework_decision": false
+    },
+    {
+      "id": "GRK-C04",
+      "source_finding": "C04",
+      "title": "Product Owner und Entscheidungen",
+      "disposition": "ergaenzen",
+      "related_requirements": [
+        "R-001",
+        "R-019",
+        "R-032",
+        "R-033",
+        "R-034",
+        "R-040"
+      ],
+      "attach_to_slices": [
+        "S00",
+        "S10",
+        "S11"
+      ],
+      "action": "Rollenbasierter Entscheidungsplan mit namentlich noch offenen Eigentümern und Fälligkeit vor konkreten Gates. Kein fehlender Name blockiert sämtliche synthetische Entwicklung.",
+      "related_gate": "G-CLINICAL",
+      "test_id": "GRK-T-04",
+      "status": "not_started",
+      "requires_new_user_framework_decision": false
+    },
+    {
+      "id": "GRK-C05",
+      "source_finding": "C05",
+      "title": "TCO/Make-or-buy",
+      "disposition": "ergaenzen_ohne_architekturreset",
+      "related_requirements": [
+        "R-037",
+        "R-040"
+      ],
+      "attach_to_slices": [
+        "S00",
+        "S10"
+      ],
+      "action": "Gleicher Betrachtungszeitraum und Leistungsumfang für Bestand und gewählten Speakr-Fork; Beträge/Volumen unbekannt bleiben null. Keine Neuauflage des OSS-Auswahlprozesses ohne neue wesentliche Evidenz.",
+      "related_gate": "G-OPS",
+      "test_id": "GRK-T-05",
+      "status": "not_started",
+      "requires_new_user_framework_decision": false
+    },
+    {
+      "id": "GRK-C06",
+      "source_finding": "C06",
+      "title": "Begrenzter Pilot/Stop-Go",
+      "disposition": "ergaenzen",
+      "related_requirements": [
+        "R-001",
+        "R-038",
+        "R-040"
+      ],
+      "attach_to_slices": [
+        "S05",
+        "S10",
+        "S11",
+        "S12"
+      ],
+      "action": "An drei definierten Meilensteinen Scope und verbleibende Realisierbarkeit bewerten. Teilablösung nur bewusste Entscheidung. Fehlende KIS-Nachweise blockieren echte KIS-Ausgabe, nicht jedes unabhängige Arbeitspaket.",
+      "related_gate": "G-OPS",
+      "test_id": "GRK-T-06",
+      "status": "not_started",
+      "requires_new_user_framework_decision": false
+    },
+    {
+      "id": "GRK-C07",
+      "source_finding": "C07",
+      "title": "Schreibpoolergonomie",
+      "disposition": "ergaenzen_vorziehen",
+      "related_requirements": [
+        "R-017",
+        "R-018",
+        "R-019",
+        "R-021"
+      ],
+      "attach_to_slices": [
+        "S01",
+        "S04",
+        "S11"
+      ],
+      "action": "Früher Prototyp auf vorhandener Speakr-Oberfläche, Tastatur/Fussschalter/Audio/Text/Parallelität testen. Kein Nachbau des Editors und keine erfundene Fussschalterunterstützung.",
+      "related_gate": "G-CLINICAL",
+      "test_id": "GRK-T-07",
+      "status": "not_started",
+      "requires_new_user_framework_decision": false
+    },
+    {
+      "id": "GRK-C08",
+      "source_finding": "C08",
+      "title": "Datenschutz/Zweckbestimmung",
+      "disposition": "arbeitsvorbereitung_ergaenzen",
+      "related_requirements": [
+        "R-025",
+        "R-031",
+        "R-033",
+        "R-034"
+      ],
+      "attach_to_slices": [
+        "S00",
+        "S10",
+        "S11"
+      ],
+      "action": "Zweck, Datenflüsse, Speicherorte, Empfänger, Aufbewahrung, Freigaberollen und Restrisiken als konkrete Entscheidungsunterlage vorbereiten; keine automatische Rechts-/Medizinprodukte-Einstufung.",
+      "related_gate": "G-CLINICAL",
+      "test_id": "GRK-T-08",
+      "status": "not_started",
+      "requires_new_user_framework_decision": false
+    },
+    {
+      "id": "GRK-C09",
+      "source_finding": "C09",
+      "title": "Verträge und Migrationen",
+      "disposition": "auf_v3_beziehen_nicht_zuruecksetzen",
+      "related_requirements": [
+        "R-020",
+        "R-035",
+        "R-036",
+        "R-041",
+        "R-046",
+        "R-049"
+      ],
+      "attach_to_slices": [
+        "S00",
+        "S02",
+        "S04"
+      ],
+      "action": "V3 hat eigene API-Verträge und einen konkreten OSS-Unterbau. Diese im Checkout prüfen und pro Slice Migrationen/Contracttests erstellen. Kein globaler Freeze aller Entwicklung bis sämtliche externen Gates abgeschlossen sind.",
+      "related_gate": "G-KIS",
+      "test_id": "GRK-T-09",
+      "status": "not_started",
+      "requires_new_user_framework_decision": false
+    }
+  ]
+}

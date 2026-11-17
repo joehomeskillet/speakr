@@ -1,0 +1,66 @@
+{
+  "currency": "CHF",
+  "comparison_months": 36,
+  "default_is_approved_budget": false,
+  "calculation_status": "blocked_missing_inputs",
+  "unknown_is_zero": false,
+  "scope": "same clinical functions and support/availability targets",
+  "scenarios": [
+    {
+      "id": "current_workflow",
+      "one_time_chf": {
+        "introduction": null,
+        "development_and_tests": null,
+        "manufacturer_integration": null,
+        "hardware": null,
+        "training": null,
+        "migration_exit": null
+      },
+      "monthly_chf": {
+        "licenses": null,
+        "operations": null,
+        "hosting_storage_backup": null
+      },
+      "annual_additional_chf": {
+        "maintenance_security_model_updates": null,
+        "supplier_support": null,
+        "device_administration": null
+      },
+      "labor_input": {
+        "hours": null,
+        "approved_rate_chf": null,
+        "included_in_cost_items": []
+      },
+      "source_evidence": [],
+      "total_chf": null
+    },
+    {
+      "id": "speakr_fork_v3",
+      "one_time_chf": {
+        "introduction": null,
+        "development_and_tests": null,
+        "manufacturer_integration": null,
+        "hardware": null,
+        "training": null,
+        "migration_exit": null
+      },
+      "monthly_chf": {
+        "licenses": null,
+        "operations": null,
+        "hosting_storage_backup": null
+      },
+      "annual_additional_chf": {
+        "maintenance_security_model_updates": null,
+        "supplier_support": null,
+        "device_administration": null
+      },
+      "labor_input": {
+        "hours": null,
+        "approved_rate_chf": null,
+        "included_in_cost_items": []
+      },
+      "source_evidence": [],
+      "total_chf": null
+    }
+  ]
+}

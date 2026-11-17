@@ -1,0 +1,389 @@
+{
+  "schema_version": 1,
+  "domain": "CFG",
+  "title": "Zentrale Vorgaben und Metadaten",
+  "source": {
+    "id": "DNS-MANUAL-2017",
+    "title": "dns.comfort.pro workflow - Handbuch",
+    "publisher": "Sonic Labs GmbH",
+    "date": "03/2017",
+    "page_count": 201,
+    "sha256": "bcff06c6d9acaf57477395441172e937b3686ea99406bf6786b8d3c26276f570",
+    "archive_member": "Diktierlösung/dns.comfort.pro/dns.comfort Handbuch Online Version/dns.comfort Handbuch Online Version.pdf",
+    "page_number_rule": "PDF-Seite entspricht gedruckter Seitenzahl; Inhalt ist Produktdokumentation, kein Nachweis aktivierter Funktionen der überlassenen Installation."
+  },
+  "scope_reminder": "Eigenständiger funktionaler Neubau. Keine Altbestandsübernahme und keine KIS-Spezialintegration. Alle Aussagen sind Handbuchbelege, sofern nicht ausdrücklich neue Verträge.",
+  "feature_ids": [
+    "PAR-CFG-001",
+    "PAR-CFG-002",
+    "PAR-CFG-003",
+    "PAR-CFG-004",
+    "PAR-CFG-005"
+  ],
+  "pages": [
+    32,
+    33,
+    42,
+    43,
+    44,
+    47,
+    48,
+    49,
+    50,
+    51,
+    52,
+    54,
+    55,
+    56,
+    57,
+    58,
+    97,
+    102,
+    145,
+    155
+  ],
+  "features": [
+    {
+      "id": "PAR-CFG-001",
+      "area": "CFG",
+      "title": "Zentrale Vorgaben und lokale Änderungen",
+      "observable_behavior": "Zentral gesetzte Profil-/Workflowvorgaben gelten beim Neustart erneut; nicht zentral fixierte Werte dürfen lokal eingestellt werden.",
+      "manual_pages": [
+        32,
+        33,
+        54,
+        55,
+        56,
+        97,
+        102
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P1",
+      "milestone": "M4",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen Fall mit frischer synthetischer Konfiguration in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-CFG-001",
+        "feature_ids": [
+          "PAR-CFG-001"
+        ],
+        "fixtures": [
+          "F-ID"
+        ],
+        "given": [
+          "Administrator gibt ein sichtbares Format und eine Profil-Speicherregel vor."
+        ],
+        "when": [
+          "Am Arbeitsplatz abweichende Werte setzen, Anwendung neu starten.",
+          "Zentrale Vorgabe entfernen und lokalen Wert erneut speichern."
+        ],
+        "then": [
+          "Fixierte Vorgabe wird nach Neustart erneut angewendet.",
+          "Nicht zentral fixierter Wert bleibt entsprechend lokaler Speicherung erhalten.",
+          "Übernehmen und Abbrechen haben unterschiedliche, nachvollziehbare Wirkung."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          32,
+          33,
+          54,
+          55,
+          56,
+          97,
+          102
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Zentrale Vorgaben und Metadaten",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-CFG-002",
+      "area": "CFG",
+      "title": "Vorlagen zentral speichern und zuordnen",
+      "observable_behavior": "Benutzer- und Poolvorlagen besitzen Anzeigename, Anmerkung und Einfügemarke; eine Serverkopie bleibt nutzbar, wenn die Ursprungsdatei fehlt.",
+      "manual_pages": [
+        42,
+        43,
+        44,
+        145,
+        155
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P1",
+      "milestone": "M4",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen Fall mit frischer synthetischer Konfiguration in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-CFG-002",
+        "feature_ids": [
+          "PAR-CFG-002"
+        ],
+        "fixtures": [
+          "F-ID",
+          "F-DOC"
+        ],
+        "given": [
+          "Synthetische DOCX- und ODT-Vorlagen mit markierter Einfügestelle."
+        ],
+        "when": [
+          "Vorlage nur Alpha, zweite Vorlage Pool A zuordnen.",
+          "Ursprungsdateien im Testordner umbenennen.",
+          "Als Alpha und Beta Vorlage auswählen; eine Vorlage entfernen."
+        ],
+        "then": [
+          "Zuordnung und Anzeigename stimmen.",
+          "Gespeicherte Kopie ist weiter verwendbar.",
+          "Text landet an der definierten Marke beziehungsweise dokumentierten Ersatzposition."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          42,
+          43,
+          44,
+          145,
+          155
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Zentrale Vorgaben und Metadaten",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-CFG-003",
+      "area": "CFG",
+      "title": "Versandkategorien und Pflichtangaben",
+      "observable_behavior": "Versandkategorien lassen sich als Sets definieren und beim Client bzw. Recorder verpflichtend abfragen; sie wirken auf Diktatanmerkungen.",
+      "manual_pages": [
+        57,
+        58
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P1",
+      "milestone": "M1",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [],
+      "verification_method": "Gleichen Fall mit frischer synthetischer Konfiguration in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-CFG-003",
+        "feature_ids": [
+          "PAR-CFG-003"
+        ],
+        "fixtures": [
+          "F-ID",
+          "F-WORK"
+        ],
+        "given": [
+          "Kategorieset Testbereich mit Werten Rot/Blau und Pflichtmarkierung."
+        ],
+        "when": [
+          "Neues Diktat ohne Auswahl zu versenden versuchen.",
+          "Kategorie wählen, versenden und Listeneintrag prüfen.",
+          "Pflicht abschalten und leere Eingabe testen."
+        ],
+        "then": [
+          "Pflichtkategorie wird vor Versand eingefordert.",
+          "Gewählter Wert wird im Workflow nachvollziehbar gespeichert.",
+          "Ohne Pflicht ist der bewusst leere Wert zulässig."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          57,
+          58
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Zentrale Vorgaben und Metadaten",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-CFG-004",
+      "area": "CFG",
+      "title": "RegEx-basierte Metadatenzuweisung mit Vorschau",
+      "observable_behavior": "RegEx-Regeln können Titel, Anmerkung, Dringlichkeit und Frist aus erkanntem Text ableiten; maximale Textmenge und Testvorschau sind konfigurierbar. Integrations-ID-Ziele sind ausgeschlossen.",
+      "manual_pages": [
+        47,
+        48,
+        49,
+        50,
+        51,
+        52
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P1",
+      "milestone": "M4",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [
+        "Reihenfolge mehrerer Regeln und Verhalten mehrerer Treffer zur gleichen Eigenschaft durch Referenzlauf präzisieren."
+      ],
+      "verification_method": "Gleichen Fall mit frischer synthetischer Konfiguration in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-CFG-004",
+        "feature_ids": [
+          "PAR-CFG-004"
+        ],
+        "fixtures": [
+          "F-REGEX",
+          "F-ASR"
+        ],
+        "given": [
+          "Testtext enthält Projekt-ID 4711, Titel und einen ausdrücklich synthetischen Termin."
+        ],
+        "when": [
+          "Regel mit benannten Testfällen anlegen, Vorschau prüfen.",
+          "Maximale Textmenge ändern; Treffer hinter der Grenze platzieren.",
+          "Ungültige RegEx und Text ohne Treffer testen."
+        ],
+        "then": [
+          "Vorschau und spätere Zuweisung stimmen überein.",
+          "Textgrenze wird eingehalten.",
+          "Ungültige Regel wird erkennbar abgelehnt; kein stilles Überschreiben mit Leerwerten."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          47,
+          48,
+          49,
+          50,
+          51,
+          52
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Zentrale Vorgaben und Metadaten",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    },
+    {
+      "id": "PAR-CFG-005",
+      "area": "CFG",
+      "title": "Konfigurierbare Metadatenspalten",
+      "observable_behavior": "Diktatliste kann zusätzliche Spalten aus XML-Metadaten sowie Zeit-/Namensformat verwenden.",
+      "manual_pages": [
+        55,
+        56,
+        57
+      ],
+      "evidence": "Handbuch 03/2017; keine Laufzeitbeobachtung",
+      "scope": "parity",
+      "requirement_status": "Soll",
+      "priority": "P1",
+      "milestone": "M4",
+      "implementation_status": "not_started",
+      "runtime_evidence_status": "not_observed",
+      "open_questions": [
+        "XML-Abfrage-/Namensraumvertrag im Labor erheben; Neubau verwendet dokumentiertes eigenes Schema."
+      ],
+      "verification_method": "Gleichen Fall mit frischer synthetischer Konfiguration in Referenz und Neubau ausführen; sichtbare Ergebnisse und Artefakte vergleichen.",
+      "acceptance_test": {
+        "id": "BT-CFG-005",
+        "feature_ids": [
+          "PAR-CFG-005"
+        ],
+        "fixtures": [
+          "F-WORK",
+          "F-XML"
+        ],
+        "given": [
+          "Ein neues synthetisches Diktat besitzt XML-Feld Station=Lab-A, eines besitzt kein Feld."
+        ],
+        "when": [
+          "Spalte Station konfigurieren und beide Diktate anzeigen.",
+          "Zeit-/Namensformat ändern und Konfiguration zurücksetzen."
+        ],
+        "then": [
+          "Zusatzwert erscheint in eigener Spalte, fehlender Wert bleibt verständlich leer.",
+          "Formatänderungen betreffen Anzeige, nicht gespeicherte Identität oder Zeit.",
+          "Zurücksetzen stellt nachvollziehbare Standardspalten her."
+        ],
+        "capture": [
+          "UI vor/nach Aktion",
+          "relevante Datei-/Ereignisdifferenz",
+          "sichtbarer Fehler oder Erfolg"
+        ],
+        "status": "not_run",
+        "oracle_status": "specified_not_observed",
+        "expected_artifacts": [
+          "Laufmanifest mit Quelle/Version/Fixturehashes",
+          "UI-/Inhaltsbeleg passend zu Then",
+          "relevante neue Ausgabe- oder Ereignisdatei, falls die Aktion eine erzeugt"
+        ],
+        "manual_pages": [
+          55,
+          56,
+          57
+        ],
+        "explicit_new_contracts": []
+      },
+      "area_name": "Zentrale Vorgaben und Metadaten",
+      "source_id": "DNS-MANUAL-2017",
+      "parity_gate": "Alle in-scope-Funktionen müssen implementiert und getestet oder ausdrücklich als belegbar nicht anwendbar eingeordnet sein; spätes Milestone bedeutet keine Streichung.",
+      "explicit_new_contracts": []
+    }
+  ]
+}

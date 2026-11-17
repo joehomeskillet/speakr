@@ -1,0 +1,152 @@
+{
+  "schema_version": 4,
+  "profile": "local-web-parity-lab",
+  "synthetic_only": true,
+  "clinical_mode": true,
+  "locale": "de-CH",
+  "timezone": "Europe/Zurich",
+  "identity": {
+    "provider": "local",
+    "mode": "local",
+    "local_enabled": true,
+    "entra_enabled": false,
+    "configuration": "config/auth.local.example.json",
+    "identity_key": [
+      "existing_user.id"
+    ],
+    "external_identity_key": [
+      "issuer",
+      "subject"
+    ],
+    "email_auto_link": false,
+    "self_registration": false,
+    "session_idle_minutes": 15,
+    "session_absolute_hours": 8,
+    "authorization_source": "application",
+    "keycloak_required": false,
+    "smtp_required": false
+  },
+  "recording": {
+    "max_minutes": 30,
+    "max_original_bytes": 134217728,
+    "file_chunk_bytes": 4194304,
+    "recorder_timeslice_ms": 2000,
+    "max_browser_ram_bytes": 67108864,
+    "max_upload_concurrency_per_user": 2,
+    "persistent_audio_in_browser": false,
+    "audio_download_byod": false,
+    "document_download_byod": false
+  },
+  "review": {
+    "lease_seconds": 300,
+    "heartbeat_seconds": 30,
+    "autosave_debounce_seconds": 5,
+    "release_mode": "platform_release_then_kis_draft",
+    "additional_acceptance_default": true,
+    "additional_acceptance_configurable": true,
+    "working_transfer_distinct_from_final": true
+  },
+  "agent": {
+    "file_stability_samples": 3,
+    "file_stability_interval_seconds": 2,
+    "poll_seconds": 15,
+    "spool_max_bytes": 2147483648,
+    "delete_device_originals": false,
+    "dry_run_default": true,
+    "retry_seconds": [
+      5,
+      15,
+      60,
+      300
+    ],
+    "retry_jitter_fraction": 0.2,
+    "eol_filter_enabled": true,
+    "configured_non_eol_auto_send": false,
+    "device_configuration_writes_enabled": false,
+    "firmware_flash_enabled": false,
+    "purpose": "import_only",
+    "capture_audio": false,
+    "play_audio": false,
+    "hid_control": false,
+    "global_hotkeys": false,
+    "office_automation": false,
+    "local_rpc_listener": false
+  },
+  "jobs": {
+    "queue": "upstream_processing_job",
+    "web_processes": 1,
+    "queue_owners": 1,
+    "asr_workers": 1,
+    "max_attempts": 3,
+    "retry_seconds": [
+      5,
+      30,
+      120
+    ],
+    "decoder_timeout_seconds": 300,
+    "asr_timeout_seconds": 3600,
+    "delete_accepted_original_on_failure": false
+  },
+  "asr": {
+    "mode": "stub",
+    "integration_provider": "speaches",
+    "cloud_fallback": false,
+    "language": "de",
+    "task": "transcribe",
+    "temperature": 0,
+    "vad_enabled": false,
+    "cpu_smoke_model": "small",
+    "quality_candidate_model": "large-v3",
+    "model_revision": null,
+    "diarization": false,
+    "llm_postprocessing": false,
+    "realtime_mode": "transcription_only",
+    "realtime_cloud_fallback": false,
+    "training_mode": "capability_gated",
+    "unverified_capability_success": false
+  },
+  "kis": {
+    "adapter": "mock",
+    "context_ttl_seconds": 60,
+    "delivery_mode": "draft",
+    "timeout_seconds": 30,
+    "automatic_retry_unknown": false
+  },
+  "features": {
+    "public_sharing": false,
+    "personal_api_tokens": false,
+    "token_query_parameters": false,
+    "user_webhooks": false,
+    "auto_deletion": false,
+    "email_exports": false,
+    "chat": false,
+    "inquire": false,
+    "speaker_identification": false,
+    "generative_summary": false,
+    "mail_draft_runtime_enabled": false,
+    "device_delete_runtime_enabled": false,
+    "training_ui_without_capability_forbidden": true,
+    "mail_artifact_implementation_required": true,
+    "device_delete_implementation_required": true,
+    "native_mail_draft_enabled": false
+  },
+  "privacy": {
+    "retention_policy_approved": false,
+    "production_approved": false,
+    "allow_real_data": false
+  },
+  "source_note": "All numbers are reversible development defaults, not measured clinic load or approved retention/SLO.",
+  "parity_catalog_required": true,
+  "web_client": {
+    "required": true,
+    "native_dictation_client": false,
+    "native_wrapper": false,
+    "native_host": false,
+    "browser_extension_required": false,
+    "global_os_hotkeys": false,
+    "foreign_window_automation": false,
+    "default_profile": "managed_web_online",
+    "managed_offline_enabled": false,
+    "byod_persistence_enabled": false
+  }
+}

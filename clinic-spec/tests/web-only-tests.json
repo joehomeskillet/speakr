@@ -1,0 +1,406 @@
+{
+  "version": "4.0-web",
+  "tests": [
+    {
+      "id": "WB-001",
+      "title": "Web ohne Installation",
+      "requirements": [
+        "V4-013"
+      ],
+      "given": [
+        "Neu gestarteter verwalteter Browser ohne Diktatprogramm."
+      ],
+      "when": [
+        "Aufnehmen, bearbeiten, korrigieren, freigeben, Download ausführen."
+      ],
+      "then": [
+        "Alle Fachaktionen im Web; nur Serverdienste und optional Import-Agent für USB nötig."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4-web architecture tests",
+      "replaces_original_BT": false
+    },
+    {
+      "id": "WB-002",
+      "title": "Agent hat keine Capture-API",
+      "requirements": [
+        "V4-005"
+      ],
+      "given": [
+        "Installierter Import-Agent."
+      ],
+      "when": [
+        "Binaries/Endpoints/Command-Allowlist auf Mikrofon, Player, ASR und Editor prüfen."
+      ],
+      "then": [
+        "Keine Aufnahme-/Bearbeitungsfunktionen und keine entsprechende öffentliche RPC."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4-web architecture tests",
+      "replaces_original_BT": false
+    },
+    {
+      "id": "WB-003",
+      "title": "Kein Native-Host-Umweg",
+      "requirements": [
+        "V4-013"
+      ],
+      "given": [
+        "Webclient samt Buildmanifest."
+      ],
+      "when": [
+        "Installer, Browserextension, Electron/Tauri/WPF, native messaging und localhost-Brücke suchen."
+      ],
+      "then": [
+        "Kein solcher Bestandteil für Diktatfunktionen."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4-web architecture tests",
+      "replaces_original_BT": false
+    },
+    {
+      "id": "WB-004",
+      "title": "Agent-Credentials eng",
+      "requirements": [
+        "V4-005"
+      ],
+      "given": [
+        "Gültiges Maschinenzertifikat."
+      ],
+      "when": [
+        "Text lesen, Workflow ändern, Audio abspielen, Officeaktion und globalen Hotkey versuchen."
+      ],
+      "then": [
+        "Verweigert; Zertifikat besitzt nur geprüfte Import-/Statusrechte."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4-web architecture tests",
+      "replaces_original_BT": false
+    },
+    {
+      "id": "WB-005",
+      "title": "Browserfokus verlieren",
+      "requirements": [
+        "V4-013"
+      ],
+      "given": [
+        "Aufnahme im Web, Ziel ist ein fremdes Windowsprogramm."
+      ],
+      "when": [
+        "Tab wechseln/minimieren und Tastenkombination auslösen."
+      ],
+      "then": [
+        "Kein globaler Hook; Aufnahmestatus und Browserunterbrechung wahrheitsgemäss."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4-web architecture tests",
+      "replaces_original_BT": false
+    },
+    {
+      "id": "WB-006",
+      "title": "Lokaler Start ohne IdP",
+      "requirements": [
+        "R-051"
+      ],
+      "given": [
+        "Internet/IdP blockiert; lokale Benutzer vorhanden."
+      ],
+      "when": [
+        "Bootstrap, lokale Anmeldung, Poolauftrag und Logout ausführen."
+      ],
+      "then": [
+        "Keine Entra-/Keycloak-/Graph-/SMTP-Startabhängigkeit."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4-web architecture tests",
+      "replaces_original_BT": false
+    },
+    {
+      "id": "WB-007",
+      "title": "BYOD-Datenminimierung",
+      "requirements": [
+        "R-025"
+      ],
+      "given": [
+        "Interner BYOD-Webzugang."
+      ],
+      "when": [
+        "Aufnahme, Logout, IndexedDB/Cache/Downloads prüfen."
+      ],
+      "then": [
+        "Kein absichtlicher Audio-/Textcache oder Dokumentdownload; OS-Spuren nicht pauschal ausgeschlossen."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4-web architecture tests",
+      "replaces_original_BT": false
+    },
+    {
+      "id": "WB-008",
+      "title": "Offline-Keys",
+      "requirements": [
+        "V4-004"
+      ],
+      "given": [
+        "Managed-Offlineprofil ausdrücklich freigegeben."
+      ],
+      "when": [
+        "Cache/Storage ohne Entsperrgeheimnis kopieren; Neustart/Schlüsselwechsel testen."
+      ],
+      "then": [
+        "Kein Klartext, keine gespeicherten ungeschützten Contentkeys; fremde Person kann nicht entschlüsseln."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4-web architecture tests",
+      "replaces_original_BT": false
+    },
+    {
+      "id": "WB-009",
+      "title": "Kein Offline-Rechtebypass",
+      "requirements": [
+        "V4-004"
+      ],
+      "given": [
+        "Berechtigung serverseitig widerrufen, Browser offline."
+      ],
+      "when": [
+        "Offlineentwurf erstellen und beim Reconnect hochladen."
+      ],
+      "then": [
+        "Offlineentwurf erlaubt keine fremden Serverdaten; erneute Autorisierung vor Upload, kein Quarantäne-Autorwechsel."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4-web architecture tests",
+      "replaces_original_BT": false
+    },
+    {
+      "id": "WB-010",
+      "title": "MIME-/Containerfinalisierung",
+      "requirements": [
+        "R-024"
+      ],
+      "given": [
+        "Zwei Browser mit unterschiedlichen unterstützten Aufnahmecontainern."
+      ],
+      "when": [
+        "Chunk verlieren/verdoppeln/Ende weglassen."
+      ],
+      "then": [
+        "Kein false STORED; Fehlergrenze und Wiederanlauf sichtbar."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4-web architecture tests",
+      "replaces_original_BT": false
+    },
+    {
+      "id": "WB-011",
+      "title": "Geprüfter Pedalweg",
+      "requirements": [
+        "PAR-OPS-001"
+      ],
+      "given": [
+        "Bekanntes Pedal, Browser-/Geräteprofil."
+      ],
+      "when": [
+        "Tastaturmodus/WebHID, Berechtigungsentzug, Reconnect testen."
+      ],
+      "then": [
+        "Nur tatsächlich erfolgreicher Modus unterstützt; kein Clienthelper als stiller Fallback."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4-web architecture tests",
+      "replaces_original_BT": false
+    },
+    {
+      "id": "WB-012",
+      "title": "Keine Hardwarekonfiguration im Agent",
+      "requirements": [
+        "PAR-IMP-009"
+      ],
+      "given": [
+        "Zugeordnetes Philips-Gerät."
+      ],
+      "when": [
+        "PIN-/Authorlisten-/Firmware-Schreibaktion über Agentauftrag anfordern."
+      ],
+      "then": [
+        "Strikt verweigert; Inventar/Import bleibt möglich; WG bleibt offen."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4-web architecture tests",
+      "replaces_original_BT": false
+    },
+    {
+      "id": "WB-013",
+      "title": "Keine automatische Office-Parität",
+      "requirements": [
+        "PAR-EXP-004"
+      ],
+      "given": [
+        "DOCX-Export erfolgreich."
+      ],
+      "when": [
+        "Abnahme für offenes natives Word-Dokument ohne entsprechenden Nachweis anfordern."
+      ],
+      "then": [
+        "Exportbeleg erfüllt nur Exportteil; WG nicht geschlossen."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4-web architecture tests",
+      "replaces_original_BT": false
+    },
+    {
+      "id": "WB-014",
+      "title": "Picker-Kollision",
+      "requirements": [
+        "PAR-EXP-006"
+      ],
+      "given": [
+        "Erlaubter Speicherdialog mit bestehender Datei."
+      ],
+      "when": [
+        "Dialog abbrechen/Name kollidiert/Permission entzogen."
+      ],
+      "then": [
+        "Kein Speichererfolg erfunden; serverseitige Ausgabe und lokales Speichern getrennt."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4-web architecture tests",
+      "replaces_original_BT": false
+    },
+    {
+      "id": "WB-015",
+      "title": "Eigene Live-Sitzung",
+      "requirements": [
+        "PAR-LIVE-001"
+      ],
+      "given": [
+        "Lokale Speaches-Instanz und zwei Drafts."
+      ],
+      "when": [
+        "Phrasen out-of-order und alte Generation zustellen; Egress sperren."
+      ],
+      "then": [
+        "Korrekte Draft-/Generationsbindung, keine Cloudantwort."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4-web architecture tests",
+      "replaces_original_BT": false
+    },
+    {
+      "id": "WB-016",
+      "title": "RTF/ODT/Richtext-Roundtrip",
+      "requirements": [
+        "PAR-REC-008"
+      ],
+      "given": [
+        "Synthetisches Dokument mit Umlauten, Tabelle, Grafik und Audioankern."
+      ],
+      "when": [
+        "Webbundle/RTF/ODT/DOCX exportieren und erneut laden."
+      ],
+      "then": [
+        "Dokumentierte Formattreue/Ankerprüfung; Verluste sichtbar, kein Makroimport."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4-web architecture tests",
+      "replaces_original_BT": false
+    },
+    {
+      "id": "WB-017",
+      "title": "Original-BT unverändert",
+      "requirements": [
+        "V4-014"
+      ],
+      "given": [
+        "Quellkatalog und aktive Tests geladen."
+      ],
+      "when": [
+        "given/when/then oder Soll-Kriterium eines BT abschwächen."
+      ],
+      "then": [
+        "Validator schlägt fehl; Webalternative separat erfassen."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4-web architecture tests",
+      "replaces_original_BT": false
+    },
+    {
+      "id": "WB-018",
+      "title": "ASR-Training keine Attrappe",
+      "requirements": [
+        "V4-008"
+      ],
+      "given": [
+        "ASR-Adapter ohne Akustiktraining."
+      ],
+      "when": [
+        "Trainieren klicken, später Profil neu laden."
+      ],
+      "then": [
+        "CAPABILITY_UNAVAILABLE und offenes Gate statt Dummy-success."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4-web architecture tests",
+      "replaces_original_BT": false
+    },
+    {
+      "id": "WB-019",
+      "title": "Webkonflikt bleibt Pflicht",
+      "requirements": [
+        "V4-014"
+      ],
+      "given": [
+        "WG enthält offenen globalen Hotkey-Konflikt."
+      ],
+      "when": [
+        "MUST in optional/N_A ändern oder Vollparität ausgeben."
+      ],
+      "then": [
+        "Validierung/Gate verweigert; nur explizite neue Nutzerentscheidung kann Scope verändern."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4-web architecture tests",
+      "replaces_original_BT": false
+    },
+    {
+      "id": "WB-020",
+      "title": "Referenz und Zielnachweis",
+      "requirements": [
+        "V4-014"
+      ],
+      "given": [
+        "101 BT nur spezifiziert, keine Dualruns."
+      ],
+      "when": [
+        "Paketprüfung bestanden; Paritätsfreigabe anfordern."
+      ],
+      "then": [
+        "Paketstatus passed, Produktstatus not_run/blocked; keine 1:1-Freigabe."
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "source_catalog": "V4-web architecture tests",
+      "replaces_original_BT": false
+    }
+  ],
+  "all_statuses_initial": true
+}
