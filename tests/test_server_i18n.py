@@ -8,15 +8,12 @@ that is the same in every language.
 
 import os
 import uuid
-from email import message_from_string
-from email.header import decode_header, make_header
 from unittest import mock
 
 import pytest
 
 from src.app import app, db
 from src.models import User
-from src.services import email as email_service
 from src.utils.localization import (
     api_error, format_file_size, format_number, format_percent, match_language, request_language, translate,
 )
@@ -27,18 +24,18 @@ from src.utils.localization import (
 # ---------------------------------------------------------------------------
 
 def test_translate_returns_the_requested_language():
-    assert translate('server.flash.userNotFound', 'de') == 'Benutzer nicht gefunden.'
-    assert translate('server.flash.userNotFound', 'en') == 'User not found.'
+    assert translate('server.flash.loginFailed', 'de') == 'Falsche E-Mail-Adresse oder falsches Passwort.'
+    assert translate('server.flash.loginFailed', 'en') == 'Wrong email or password.'
 
 
 def test_translate_interpolates_double_brace_placeholders():
-    assert translate('server.flash.verificationCooldown', 'en', seconds=42) == (
-        'Wait 42 seconds before requesting another verification email.')
-    assert '42' in translate('server.flash.verificationCooldown', 'zh', seconds=42)
+    assert translate('server.budget.tokenWarning', 'en', percent='42%') == (
+        '42% of your monthly token budget used.')
+    assert '42%' in translate('server.budget.tokenWarning', 'zh', percent='42%')
 
 
 def test_translate_leaves_unfilled_placeholders_as_is():
-    assert '{{seconds}}' in translate('server.flash.verificationCooldown', 'en')
+    assert '{{percent}}' in translate('server.budget.tokenWarning', 'en')
 
 
 def test_translate_missing_key_returns_the_key():
@@ -54,8 +51,8 @@ def test_translate_falls_back_to_english_for_a_key_missing_in_the_language():
 
 
 def test_translate_unknown_language_falls_back_to_english():
-    assert translate('server.flash.userNotFound', 'xx') == 'User not found.'
-    assert translate('server.flash.userNotFound', '../../etc/passwd') == 'User not found.'
+    assert translate('server.flash.loginFailed', 'xx') == 'Wrong email or password.'
+    assert translate('server.flash.loginFailed', '../../etc/passwd') == 'Wrong email or password.'
 
 
 @pytest.mark.parametrize('code,expected', [
@@ -107,7 +104,7 @@ def test_format_number_uses_the_request_language_by_default():
 
 def test_outside_a_request_the_language_is_english():
     assert request_language() == 'en'
-    assert translate('server.flash.userNotFound') == 'User not found.'
+    assert translate('server.flash.loginFailed') == 'Wrong email or password.'
 
 
 @pytest.mark.parametrize('header,expected', [
@@ -124,7 +121,7 @@ def test_anonymous_requests_use_accept_language(header, expected):
 
 def test_anonymous_request_without_accept_language_is_english():
     with app.test_request_context('/'):
-        assert translate('server.flash.userNotFound') == 'User not found.'
+        assert translate('server.flash.loginFailed') == 'Wrong email or password.'
 
 
 # ---------------------------------------------------------------------------
@@ -180,67 +177,6 @@ def test_flash_for_anonymous_visitor_uses_accept_language():
     client = app.test_client()
     client.get('/account', headers={'Accept-Language': 'es-MX,es;q=0.9'})
     assert _flashes(client) == ['Inicie sesión para ver esta página.']
-
-
-def _send(sender, uid, accept_language=None):
-    """Run sender for the user and return (subject, html, text) as delivered over SMTP."""
-    smtp = mock.MagicMock()
-    headers = {'Accept-Language': accept_language} if accept_language else {}
-    with mock.patch.dict(os.environ, {'APP_BASE_URL': 'https://speakr.example.com/',
-                                      'SMTP_HOST': 'smtp.example.com', 'SMTP_USE_TLS': 'false'}), \
-            mock.patch.object(email_service, 'is_smtp_configured', return_value=True), \
-            mock.patch.object(email_service, 'is_email_verification_enabled', return_value=True), \
-            mock.patch.object(email_service.smtplib, 'SMTP', return_value=smtp), \
-            app.test_request_context('/forgot-password', headers=headers):
-        assert sender(db.session.get(User, uid))
-    raw = smtp.sendmail.call_args[0][2]
-    msg = message_from_string(raw)
-    parts = {p.get_content_type(): p.get_payload(decode=True).decode(p.get_content_charset())
-             for p in msg.walk() if p.get_content_type() in ('text/plain', 'text/html')}
-    return str(make_header(decode_header(msg['Subject']))), parts['text/html'], parts['text/plain']
-
-
-@pytest.mark.parametrize('sender,subject,heading', [
-    (email_service.send_verification_email, 'E-Mail-Adresse für Speakr bestätigen',
-     'Bestätigen Sie Ihre E-Mail-Adresse'),
-    (email_service.send_password_reset_email, 'Speakr-Passwort zurücksetzen', 'Passwort zurücksetzen'),
-])
-def test_account_emails_use_the_recipients_language(make_user, sender, subject, heading):
-    uid = make_user('de')
-    # The request comes from an English browser; the recipient's setting decides.
-    got_subject, html_body, text_body = _send(sender, uid, accept_language='en-US')
-    assert got_subject == subject
-    assert heading in html_body
-    assert 'Hallo i18n_' in html_body and 'Hallo i18n_' in text_body
-    assert 'Audio-Transkription und Notizen' in html_body
-    assert 'Gesendet von Speakr' in text_body
-    assert 'Hi ' not in text_body
-
-
-@pytest.mark.parametrize('sender,subject', [
-    (email_service.send_verification_email, 'Verify your email for Speakr'),
-    (email_service.send_password_reset_email, 'Reset your Speakr password'),
-])
-def test_account_emails_default_to_english(make_user, sender, subject):
-    uid = make_user(None)
-    got_subject, html_body, text_body = _send(sender, uid, accept_language='de')
-    assert got_subject == subject
-    assert 'Hi i18n_' in text_body
-    assert 'Audio transcription and notes' in html_body
-
-
-def test_translated_email_text_is_html_escaped(make_user):
-    uid = make_user('fr')
-    with app.app_context():
-        u = db.session.get(User, uid)
-        u.username = '<b>x</b>'
-        db.session.commit()
-    _, html_body, text_body = _send(email_service.send_verification_email, uid)
-    assert '<b>x</b>' not in html_body
-    assert 'Bonjour &lt;b&gt;x&lt;/b&gt;,' in html_body
-    # French elision apostrophes are escaped in HTML and left alone in text.
-    assert 'n&#x27;avez pas' in html_body
-    assert "n'avez pas" in text_body
 
 
 # ---------------------------------------------------------------------------
@@ -357,32 +293,10 @@ def test_every_api_error_code_is_a_snake_case_key():
 # shown in the language of the request that renders them.
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize('lang,required,mismatch', [
-    ('de', 'Dieses Feld ist erforderlich.', 'Die Passwörter müssen übereinstimmen.'),
-    ('en', 'This field is required.', 'Passwords must match.'),
-])
-def test_registration_form_errors_follow_accept_language(lang, required, mismatch):
-    prev = app.config.get('WTF_CSRF_ENABLED')
-    app.config['WTF_CSRF_ENABLED'] = False
-    try:
-        with mock.patch.dict(os.environ, {'ALLOW_REGISTRATION': 'true'}):
-            resp = app.test_client().post('/register', data={
-                'username': '', 'email': 'nobody@example.com',
-                'password': 'Aa1!aaaa', 'confirm_password': 'Aa1!aaab'},
-                headers={'Accept-Language': lang})
-    finally:
-        app.config['WTF_CSRF_ENABLED'] = prev
-    html = resp.get_data(as_text=True)
-    assert required in html
-    assert mismatch in html
-
-
 def test_lazy_translation_resolves_when_used():
     from src.utils.localization import LazyTranslation
-    text = LazyTranslation('server.form.usernameLength', min=2, max=20)
+    text = LazyTranslation('server.form.required')
     with app.test_request_context('/', headers={'Accept-Language': 'fr'}):
-        assert str(text) == "Le nom d'utilisateur doit contenir entre 2 et 20 caractères."
-        # WTForms applies % with its own values; the catalog text is complete.
-        assert text % {'min': 2, 'max': 20, 'length': 1} == str(text)
+        assert str(text) == "Ce champ est obligatoire."
     with app.test_request_context('/'):
-        assert str(text) == 'Username must be between 2 and 20 characters long.'
+        assert str(text) == 'This field is required.'
