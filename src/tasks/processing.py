@@ -1190,34 +1190,55 @@ def merge_diarized_chunks(chunk_results):
 
         for seg in chunk_segments:
             # Handle both TranscriptionSegment objects and dicts
+            words = None
             if hasattr(seg, 'speaker'):
                 speaker = seg.speaker
                 text = seg.text
                 start_time = seg.start_time
                 end_time = seg.end_time
+                words = getattr(seg, 'words', None)
             else:
-                speaker = seg.get('speaker', 'Unknown')
+                speaker = seg.get('speaker')
                 text = seg.get('text', '')
                 start_time = seg.get('start_time') or seg.get('start')
                 end_time = seg.get('end_time') or seg.get('end')
+                words = seg.get('words')
 
             # Skip empty segments
             if not text or not text.strip():
                 continue
 
-            # Remap speaker label
-            remapped_speaker = speaker_remap.get(speaker, speaker)
-            all_speakers.add(remapped_speaker)
+            # Remap speaker label if speaker exists
+            remapped_speaker = speaker_remap.get(speaker, speaker) if speaker else None
+            if remapped_speaker:
+                all_speakers.add(remapped_speaker)
 
             # Adjust timestamps by chunk offset
             adjusted_start = (start_time or 0) + chunk_start_offset
             adjusted_end = (end_time or 0) + chunk_start_offset
 
+            adjusted_words = None
+            if isinstance(words, list):
+                adjusted_words = []
+                for w in words:
+                    if isinstance(w, dict):
+                        w_copy = dict(w)
+                        w_start = w_copy.get('start')
+                        w_end = w_copy.get('end')
+                        if w_start is not None:
+                            w_copy['start'] = w_start + chunk_start_offset
+                        if w_end is not None:
+                            w_copy['end'] = w_end + chunk_start_offset
+                        adjusted_words.append(w_copy)
+                    else:
+                        adjusted_words.append(w)
+
             merged_segments.append(TranscriptionSegment(
                 text=text,
                 speaker=remapped_speaker,
                 start_time=adjusted_start,
-                end_time=adjusted_end
+                end_time=adjusted_end,
+                words=adjusted_words,
             ))
 
     merged_text = '\n'.join(merged_parts)
@@ -1818,11 +1839,14 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
                         recording.transcription_language = normalize_language_code(
                             getattr(chunk_result, 'language', None))
 
-                        # Handle result based on type (TranscriptionResponse for diarized, string for plain)
-                        if hasattr(chunk_result, 'segments') and chunk_result.segments and chunk_result.has_diarization():
-                            # Diarized response - store with segments for click-to-seek and speaker identification
+                        # Handle result based on type (TranscriptionResponse for segmented, string for plain)
+                        if hasattr(chunk_result, 'segments') and chunk_result.segments:
+                            # Store with segments for click-to-seek and editor
                             recording.transcription = chunk_result.to_storage_format()
-                            current_app.logger.info(f"Chunked diarized transcription completed: {len(chunk_result.text)} characters, {len(chunk_result.segments)} segments")
+                            if chunk_result.has_diarization():
+                                current_app.logger.info(f"Chunked diarized transcription completed: {len(chunk_result.text)} characters, {len(chunk_result.segments)} segments")
+                            else:
+                                current_app.logger.info(f"Chunked transcription completed: {len(chunk_result.text)} characters, {len(chunk_result.segments)} segments")
                         else:
                             # Plain text response
                             transcription_text = chunk_result.text if hasattr(chunk_result, 'text') else chunk_result
@@ -1876,10 +1900,10 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
                             getattr(response, 'language', None))
 
                         # Store the result
-                        if response.segments and response.has_diarization():
-                            # Store as JSON with segments (diarized format).
+                        if response.segments:
+                            # Store as JSON with segments (diarized format or segments without diarization).
                             # The labels are normalized to SPEAKER_NN in the
-                            # response itself, so the embeddings stored below
+                            # response itself if diarized, so the embeddings stored below
                             # carry the same keys as the segments.
                             recording.transcription = response.to_storage_format()
                             current_app.logger.info(f"Transcription completed with {len(response.segments)} segments and {len(response.speakers or [])} speakers")
@@ -2525,7 +2549,7 @@ def transcribe_incognito(filepath, original_filename, language=None, min_speaker
                 task_scope=incognito_scope,
             )
 
-            if hasattr(chunk_result, 'segments') and chunk_result.segments and chunk_result.has_diarization():
+            if hasattr(chunk_result, 'segments') and chunk_result.segments:
                 result['transcription'] = chunk_result.to_storage_format()
             else:
                 result['transcription'] = chunk_result.text if hasattr(chunk_result, 'text') else chunk_result
@@ -2548,7 +2572,7 @@ def transcribe_incognito(filepath, original_filename, language=None, min_speaker
 
                 response = connector.transcribe(request)
 
-            if response.segments and response.has_diarization():
+            if response.segments:
                 result['transcription'] = response.to_storage_format()
             else:
                 result['transcription'] = response.text
