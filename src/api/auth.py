@@ -193,6 +193,10 @@ def registration_enabled() -> bool:
     the page never advertises a route that refuses (#479). Read per request:
     the environment can change under the test suite.
     """
+    from src.clinic.config import setting_ceiling
+    locked, forced = setting_ceiling('allow_registration')  # clinic ceiling (R-050)
+    if locked:
+        return bool(forced)
     try:
         from src.models import SystemSetting
         row = SystemSetting.query.filter_by(key='allow_registration').first()
