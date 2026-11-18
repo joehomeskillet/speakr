@@ -1913,7 +1913,11 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
                         # the new response has none prevents a prior connector's
                         # embeddings from driving voice matches after reprocessing
                         # with an embedding-less connector.
-                        recording.speaker_embeddings = response.speaker_embeddings or None
+                        # Clinic mode: no voice embedding of any speaker (patients
+                        # included) is stored; diarization labels stay anonymous.
+                        from src.clinic.voice_embedding_guard import diarized_embeddings_to_store
+                        recording.speaker_embeddings = diarized_embeddings_to_store(
+                            response.speaker_embeddings)
                         if recording.speaker_embeddings:
                             current_app.logger.info(f"Stored speaker embeddings for speakers: {list(response.speaker_embeddings.keys())}")
                         # The new labels are a new diarization: voice samples and
