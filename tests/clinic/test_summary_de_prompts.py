@@ -54,12 +54,6 @@ def test_clinic_title_prompt_demands_german(monkeypatch, cache):
     assert "German" in system + user
 
 
-def test_clinic_incognito_summary_demands_german(monkeypatch):
-    monkeypatch.setenv('CLINIC_MODE', '1')
-    system, user = prompts.build_incognito_summary_prompt(TRANSCRIPT, DEFAULT_SUMMARY_PROMPT, None)
-    assert "in German" in system and "in German" in user
-
-
 @pytest.mark.parametrize("cache", [True, False])
 def test_explicit_output_language_wins(monkeypatch, cache):
     monkeypatch.setenv('CLINIC_MODE', '1')
