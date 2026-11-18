@@ -81,7 +81,12 @@ FROM rust:1.88-slim-bookworm@sha256:38bc5a86d998772d4aec2348656ed21438d20fcdce27
 
 ARG DSS_CODEC_REPO=https://github.com/hirparak/dss-codec.git
 ARG DSS_CODEC_COMMIT=c38d3192239005b0570c5987cbde62e69dd7dbbe
-ARG DSS_CODEC_BINARY_SHA256=f1bfd338125e35a1462dfe20a0da5228be5110ada9fa24254de0d80d08d8b0cf
+# Binary hash of the build from the digest-pinned rust image above. It differs
+# from the first local S06 build (f1bfd338…, different toolchain); functional
+# equivalence was proven on the real DS2 fixture: both binaries decode it to a
+# WAV with sha256 27c84c90… (= clinic-evidence/s06-ds2-decoding.json
+# decoded_output.output_sha256). See the docker_build section of that file.
+ARG DSS_CODEC_BINARY_SHA256=e8f84918dfed24b4f0ec3bd8653f431e1a90f0b14176a9280bd3f56d3317570f
 
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
@@ -89,7 +94,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends git ca-certific
     && git -C /src/dss-codec fetch --depth 1 "${DSS_CODEC_REPO}" "${DSS_CODEC_COMMIT}" \
     && git -C /src/dss-codec checkout --detach FETCH_HEAD \
     && test "$(git -C /src/dss-codec rev-parse HEAD)" = "${DSS_CODEC_COMMIT}" \
-    && cd /src/dss-codec \
+    && cd /src/dss-codec/dss-codec \
     && if [ -f Cargo.lock ]; then cargo build --release --locked --bin dss-decode; \
        else cargo build --release --bin dss-decode; fi \
     && echo "${DSS_CODEC_BINARY_SHA256}  target/release/dss-decode" | sha256sum -c - \
