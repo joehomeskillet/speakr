@@ -87,16 +87,9 @@ def open_content(
 
     Non-admin callers keep the existing action-specific clinic policy unchanged.
     """
-    _require_clinic()
-    if part not in _CONTENT_ACTIONS:
-        raise AdminDictationAccessError("unknown_part")
-    action, event, details = _CONTENT_ACTIONS[part]
-
-    recording = session.get(Recording, recording_id)
-    if recording is None:
-        return policy.Decision(False, "not_found"), None
-
-    if _is_active_site_admin(session, user):
+    decision, recording = _decide_content(session, user, recording_id, part)
+    if decision.allowed and decision.reason == "admin_full":
+        _, event, details = _CONTENT_ACTIONS[part]
         audit.record(
             event,
             recording=recording,
@@ -104,6 +97,23 @@ def open_content(
             actor_kind="session",
             actor_user_id=user.id,
         )
+    return decision, recording
+
+
+def _decide_content(
+    session: Session, user: User, recording_id: int, part: str
+) -> tuple[policy.Decision, Recording | None]:
+    """Shared decision logic for ``open_content`` and ``can_open_content``; writes no audit row."""
+    _require_clinic()
+    if part not in _CONTENT_ACTIONS:
+        raise AdminDictationAccessError("unknown_part")
+    action = _CONTENT_ACTIONS[part][0]
+
+    recording = session.get(Recording, recording_id)
+    if recording is None:
+        return policy.Decision(False, "not_found"), None
+
+    if _is_active_site_admin(session, user):
         return policy.Decision(True, "admin_full"), recording
 
     subject = policy.build_subject(user.id, bool(user.is_admin))
@@ -113,5 +123,5 @@ def open_content(
 
 def can_open_content(session: Session, user: User, recording_id: int, part: str) -> policy.Decision:
     """Decision-only variant of ``open_content``; no audit row is written."""
-    decision, _ = open_content(session, user, recording_id, part)
+    decision, _ = _decide_content(session, user, recording_id, part)
     return decision
