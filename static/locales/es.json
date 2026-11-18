@@ -1530,6 +1530,8 @@
     "serviceUnavailableGuidance": "Suele ser temporal. Inténtelo de nuevo en unos minutos.",
     "serviceUnavailableMessage": "El servicio de transcripción no está disponible temporalmente.",
     "sessionExpiredReload": "Su sesión ha caducado. Recargue la página e inténtelo de nuevo.",
+    "sessionHintMessage": "Sesión caducada. Recargue la página. Los datos sin guardar siguen visibles hasta entonces.",
+    "sessionHintReload": "Recargar la página",
     "shareTargetGeneric": "No se pudo procesar el audio compartido. Súbalo desde Speakr.",
     "shareTarget_missing_file": "No se adjuntó ningún archivo de audio al compartir. Seleccione el archivo antes de compartir.",
     "shareTarget_queue_failed": "El audio compartido se guardó, pero no se pudo iniciar la transcripción.",

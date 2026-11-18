@@ -1530,6 +1530,8 @@
     "serviceUnavailableGuidance": "Meist nur vorübergehend. Versuchen Sie es in ein paar Minuten erneut.",
     "serviceUnavailableMessage": "Der Transkriptionsdienst ist vorübergehend nicht verfügbar.",
     "sessionExpiredReload": "Ihre Sitzung ist abgelaufen. Laden Sie die Seite neu und versuchen Sie es erneut.",
+    "sessionHintMessage": "Sitzung abgelaufen. Bitte laden Sie die Seite neu. Ungespeicherte Eingaben bleiben bis dahin sichtbar.",
+    "sessionHintReload": "Seite neu laden",
     "shareTargetGeneric": "Das geteilte Audio konnte nicht verarbeitet werden. Laden Sie es stattdessen in Speakr hoch.",
     "shareTarget_missing_file": "Keine Audiodatei beim Teilen angehängt. Bitte vor dem Teilen eine Datei auswählen.",
     "shareTarget_queue_failed": "Das geteilte Audio wurde gespeichert, aber die Transkription konnte nicht gestartet werden.",

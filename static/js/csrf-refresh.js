@@ -155,6 +155,11 @@ class CSRFManager {
                 }
             }
 
+            // Expired session: one reload hint (session-hint.js), never an auto reload.
+            if (window.sessionHint && typeof url === 'string') {
+                try { window.sessionHint.inspect(url, response); } catch (hintError) { /* never break a request */ }
+            }
+
             return response;
         };
     }
