@@ -36,6 +36,7 @@ MODEL_MODULES = (
     "live_phrases",
     "import_source_config",
     "context_grants",
+    "audio_invalidation",
 )
 
 
