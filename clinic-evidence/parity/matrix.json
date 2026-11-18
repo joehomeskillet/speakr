@@ -103,9 +103,12 @@
  {
   "id": "PAR-ADM-011",
   "title": "Benutzerstart, letzte Auswahl und Wechsel",
-  "status": "missing",
-  "evidence": [],
-  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+  "status": "partial",
+  "evidence": [
+   "src/clinic/last_selection.py",
+   "tests/clinic/test_last_selection.py"
+  ],
+  "note": "Zuletzt-Auswahl-Gedächtnis als Service getestet. Routen-/UI-Wiring fehlt (Wiring-Welle)."
  },
  {
   "id": "PAR-CFG-001",
@@ -190,9 +193,12 @@
  {
   "id": "PAR-REC-005",
   "title": "Audio-Geräte und Aufnahme-/Wiedergabepegel",
-  "status": "missing",
-  "evidence": [],
-  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+  "status": "partial",
+  "evidence": [
+   "src/clinic/level_meter.py",
+   "tests/clinic/test_level_meter.py"
+  ],
+  "note": "Pegelanzeige-Berechnung als Service getestet; Recorder-UI-Anbindung fehlt. Routen-/UI-Wiring fehlt (Wiring-Welle)."
  },
  {
   "id": "PAR-REC-006",
@@ -296,9 +302,11 @@
    "src/clinic/ingest.py",
    "tests/clinic/test_ingest.py::test_missing_author_keeps_the_file_until_an_author_is_known",
    "src/clinic/import_centre.py",
-   "tests/clinic/test_import_centre.py"
+   "tests/clinic/test_import_centre.py",
+   "src/clinic/author_resolution.py",
+   "tests/clinic/test_author_resolution.py"
   ],
-  "note": "Datei bleibt bis zur Autorzuordnung erhalten; Import-Zentrale: Intent-Match und Autor-Nachlieferung getestet. Auflösung aus Geräte-ID/Aufnahme-Autor fehlt."
+  "note": "Autor-Auflösung aus Geräte-ID/Aufnahme-Autor als Service getestet; zusammen mit Import-Zentrale (Intent-Match, Nachlieferung). Verdrahtung in den Agent-Kanal fehlt."
  },
  {
   "id": "PAR-IMP-003",
@@ -334,9 +342,11 @@
   "title": "Backupkopie und Aufbewahrungsfrist",
   "status": "partial",
   "evidence": [
-   "apps/windows-import/src/Speakr.Clinic.ImportAgent/PostImport.cs:43"
+   "apps/windows-import/src/Speakr.Clinic.ImportAgent/PostImport.cs:43",
+   "src/clinic/backup_retention_plan.py",
+   "tests/clinic/test_backup_retention_plan.py"
   ],
-  "note": "move_backup im Agenten vorhanden; Aufbewahrungsfrist/Bereinigung fehlt; kein Test unter tests/clinic."
+  "note": "Backup-Aufbewahrungsplanung als Service getestet; Agent-seitige Bereinigung fehlt. Routen-/UI-Wiring fehlt (Wiring-Welle)."
  },
  {
   "id": "PAR-IMP-007",
@@ -344,9 +354,11 @@
   "status": "partial",
   "evidence": [
    "src/clinic/ingest.py",
-   "tests/clinic/test_ingest.py::test_stored_bytes_match_the_stream_and_are_not_replaced"
+   "tests/clinic/test_ingest.py::test_stored_bytes_match_the_stream_and_are_not_replaced",
+   "src/clinic/dictation_upload.py",
+   "tests/clinic/test_ds2_upload.py"
   ],
-  "note": "Einzel-Audioingest getestet; Mehrfachimport und Dokumente fehlen."
+  "note": "Einzel-Audioingest getestet; .ds2/.dss-Upload mit Magic-Byte-Prüfung, unverändertem Original und Decode-vor-ASR getestet (echte DS2-Abnahme lokal). Mehrfachimport und Dokumente fehlen."
  },
  {
   "id": "PAR-IMP-008",
@@ -418,7 +430,8 @@
   "evidence": [
    "src/clinic/revisions.py:110",
    "tests/clinic/test_revisions.py::test_parent_chain_and_history_order",
-   "tests/clinic/test_pools.py::test_history_rows_are_written_and_append_only"
+   "tests/clinic/test_pools.py::test_history_rows_are_written_and_append_only",
+   "tests/clinic/test_par_wf_006_history_order.py"
   ],
   "note": "Revisions- und Pool-Verlauf serverseitig; Verlaufsanzeige (UI) fehlt."
  },
@@ -525,9 +538,12 @@
  {
   "id": "PAR-COR-004",
   "title": "Tempo und Spulen",
-  "status": "missing",
-  "evidence": [],
-  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+  "status": "partial",
+  "evidence": [
+   "src/clinic/playback_tempo.py",
+   "tests/clinic/test_playback_tempo.py"
+  ],
+  "note": "Tempo-/Spul-Logik als Service getestet; Player-Anbindung fehlt. Routen-/UI-Wiring fehlt (Wiring-Welle)."
  },
  {
   "id": "PAR-COR-005",
@@ -656,7 +672,8 @@
   "status": "partial",
   "evidence": [
    "tests/clinic/test_asr_local_only.py::TestOpenAIWhisperConnectorClinicGuard",
-   "tests/clinic/test_whisper_segments.py::test_processing_persists_segments_without_diarization"
+   "tests/clinic/test_whisper_segments.py::test_processing_persists_segments_without_diarization",
+   "tests/clinic/test_par_asr_001_local_url_edges.py"
   ],
   "note": "Nur lokale ASR-Endpunkte erlaubt, Segmente/Zeitstempel persistiert; kein Test mit echter lokaler Engine (nur Stub/Mock)."
  },
@@ -677,9 +694,11 @@
   "title": "ASR-Wartezeit mit manueller Ersatzbearbeitung",
   "status": "partial",
   "evidence": [
-   "tests/clinic/test_revisions.py::test_late_asr_does_not_replace_a_human_correction"
+   "tests/clinic/test_revisions.py::test_late_asr_does_not_replace_a_human_correction",
+   "src/clinic/asr_wait_policy.py",
+   "tests/clinic/test_asr_wait_policy.py"
   ],
-  "note": "Späte ASR überschreibt keine manuelle Korrektur; Wartezeit-UI mit manuellem Ersatz fehlt."
+  "note": "Wartezeit-Policy mit manueller Ersatzbearbeitung als Service getestet. Routen-/UI-Wiring fehlt (Wiring-Welle)."
  },
  {
   "id": "PAR-ASR-004",
@@ -708,9 +727,12 @@
  {
   "id": "PAR-ASR-007",
   "title": "Diktierquelle und Versand-Audioformat",
-  "status": "missing",
-  "evidence": [],
-  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+  "status": "partial",
+  "evidence": [
+   "src/clinic/audio_format_choice.py",
+   "tests/clinic/test_audio_format_choice.py"
+  ],
+  "note": "Diktierquelle/Versand-Audioformat-Wahl als Service getestet. Routen-/UI-Wiring fehlt (Wiring-Welle)."
  },
  {
   "id": "PAR-EXP-001",
