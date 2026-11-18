@@ -10,6 +10,7 @@ import uuid
 from dataclasses import dataclass
 
 import pytest
+from sqlalchemy import func, select
 
 from src.app import app, db
 from src.clinic.admin_dictation_access import (
@@ -43,6 +44,13 @@ def _audit_state():
     yield
     audit.flush()
     audit.reset_memory()
+
+
+@pytest.fixture
+def audit_baseline(_audit_state) -> int:
+    """Exclude earlier audit rows that may refer to reused IDs."""
+    with app.app_context():
+        return db.session.execute(select(func.max(AuditEvent.id))).scalar_one() or 0
 
 
 def _suffix() -> str:
@@ -152,7 +160,7 @@ def test_metadata_list_rejects_anonymous_caller():
         assert caught.value.code == "admin_only"
 
 
-def test_admin_direct_audio_access_on_foreign_recording():
+def test_admin_direct_audio_access_on_foreign_recording(audit_baseline: int):
     with app.app_context():
         admin = _user("admin", is_admin=True)
         _policy(admin)
@@ -172,6 +180,7 @@ def test_admin_direct_audio_access_on_foreign_recording():
                 actor_user_id=admin.id,
                 recording_id=foreign.id,
             )
+            .filter(AuditEvent.id > audit_baseline)
             .order_by(AuditEvent.id)
             .all()
         )
@@ -182,7 +191,7 @@ def test_admin_direct_audio_access_on_foreign_recording():
         assert rows[0].details is None
 
 
-def test_admin_direct_transcript_access_on_foreign_recording():
+def test_admin_direct_transcript_access_on_foreign_recording(audit_baseline: int):
     with app.app_context():
         admin = _user("admin", is_admin=True)
         _policy(admin)
@@ -200,14 +209,14 @@ def test_admin_direct_transcript_access_on_foreign_recording():
             event="recording.content.read",
             actor_user_id=admin.id,
             recording_id=foreign.id,
-        ).one()
+        ).filter(AuditEvent.id > audit_baseline).one()
         assert row.recording_owner_id == author.id
         assert row.outcome == "success"
         assert row.dedup_key is None
         assert row.details == {"part": "transcript"}
 
 
-def test_admin_openings_are_not_deduplicated():
+def test_admin_openings_are_not_deduplicated(audit_baseline: int):
     with app.app_context():
         admin = _user("admin", is_admin=True)
         _policy(admin)
@@ -222,11 +231,11 @@ def test_admin_openings_are_not_deduplicated():
             event="recording.media.played",
             actor_user_id=admin.id,
             recording_id=foreign.id,
-        ).all()
+        ).filter(AuditEvent.id > audit_baseline).all()
         assert len(rows) == 2
 
 
-def test_audit_row_for_admin_opening_excludes_clinical_text_and_filenames():
+def test_audit_row_for_admin_opening_excludes_clinical_text_and_filenames(audit_baseline: int):
     with app.app_context():
         admin = _user("admin", is_admin=True)
         _policy(admin)
@@ -240,14 +249,14 @@ def test_audit_row_for_admin_opening_excludes_clinical_text_and_filenames():
             event="recording.content.read",
             actor_user_id=admin.id,
             recording_id=foreign.id,
-        ).one()
+        ).filter(AuditEvent.id > audit_baseline).one()
         payload = row.to_dict()
         assert "Clinical title" not in str(payload)
         assert "secret-filename.wav" not in str(payload)
         assert "SECRET-TRANSCRIPT-TEXT" not in str(payload)
 
 
-def test_non_admin_audio_keeps_existing_policy():
+def test_non_admin_audio_keeps_existing_policy(audit_baseline: int):
     with app.app_context():
         author = _user("author")
         _policy(author)
@@ -268,6 +277,7 @@ def test_non_admin_audio_keeps_existing_policy():
         audit.flush()
         assert (
             AuditEvent.query.filter(
+                AuditEvent.id > audit_baseline,
                 AuditEvent.actor_user_id == author.id,
                 AuditEvent.recording_id.in_([own.id, foreign.id]),
             ).count()
@@ -275,7 +285,7 @@ def test_non_admin_audio_keeps_existing_policy():
         )
 
 
-def test_revoked_admin_content_opening_uses_existing_policy():
+def test_revoked_admin_content_opening_uses_existing_policy(audit_baseline: int):
     with app.app_context():
         revoked = _user("revoked", is_admin=True)
         _policy(revoked, status="disabled")
@@ -287,7 +297,12 @@ def test_revoked_admin_content_opening_uses_existing_policy():
         assert decision.allowed is False
 
         audit.flush()
-        assert AuditEvent.query.filter_by(actor_user_id=revoked.id).count() == 0
+        assert (
+            AuditEvent.query.filter_by(actor_user_id=revoked.id)
+            .filter(AuditEvent.id > audit_baseline)
+            .count()
+            == 0
+        )
 
 
 def test_current_role_recheck_after_revocation():
@@ -328,7 +343,7 @@ def test_open_content_missing_recording_returns_not_found():
         assert recording is None
 
 
-def test_can_open_content_does_not_write_audit_row():
+def test_can_open_content_does_not_write_audit_row(audit_baseline: int):
     with app.app_context():
         admin = _user("admin", is_admin=True)
         _policy(admin)
@@ -342,7 +357,9 @@ def test_can_open_content_does_not_write_audit_row():
         assert (
             AuditEvent.query.filter_by(
                 actor_user_id=admin.id, recording_id=foreign.id
-            ).count()
+            )
+            .filter(AuditEvent.id > audit_baseline)
+            .count()
             == 0
         )
 
