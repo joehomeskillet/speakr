@@ -131,7 +131,10 @@
         </div>
 
         <!-- No transcription state (only show if not processing and no transcription) -->
-        <div v-if="selectedRecording.status !== 'PROCESSING' && !selectedRecording.transcription" class="text-center py-8">
+        <div v-if="selectedRecording.status === 'FAILED' && !selectedRecording.transcription" class="p-2">
+            {% include 'components/detail/_transcription-failed.html' %}
+        </div>
+        <div v-else-if="selectedRecording.status !== 'PROCESSING' && !selectedRecording.transcription" class="text-center py-8">
             <i class="fas fa-file-text text-3xl text-[var(--text-muted)] mb-3"></i>
             <p class="text-[var(--text-muted)]" v-text="t('transcription.noTranscription')" data-i18n="transcription.noTranscription"></p>
         </div>

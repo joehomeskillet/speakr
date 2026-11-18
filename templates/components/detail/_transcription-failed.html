@@ -1,0 +1,18 @@
+{# A recording whose transcription ended FAILED without a transcript (for
+   example the service returned no text). Shown in place of the "no
+   transcript yet" state, with the existing reprocess action. The text is a
+   locale key; the recording JSON carries no error message (pinned by the
+   ingestion characterization tests). #}
+<div class="notice notice--danger" data-notice-level="danger" data-transcription-failed>
+    <div class="notice__icon"><i class="fas fa-exclamation-circle"></i></div>
+    <div class="notice__body">
+        <h3 class="notice__title" v-text="t('transcription.failedTitle')" data-i18n="transcription.failedTitle"></h3>
+        <p class="notice__message" v-text="t('transcription.failedMessage')" data-i18n="transcription.failedMessage"></p>
+        <div v-if="selectedRecording.can_edit !== false" class="notice__actions">
+            <button class="btn btn--primary" @click="reprocessTranscription(selectedRecording.id)">
+                <i class="fas fa-redo-alt"></i>
+                <span v-text="t('buttons.reprocessTranscription')"></span>
+            </button>
+        </div>
+    </div>
+</div>

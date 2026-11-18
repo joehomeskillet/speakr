@@ -2945,6 +2945,8 @@
     "editTranscription": "Редактировать транскрипт",
     "highlightSearchResults": "Подсветить результаты поиска",
     "noTranscription": "Транскрипта пока нет",
+    "failedTitle": "Не удалось выполнить транскрибацию",
+    "failedMessage": "Сервис транскрибации не вернул текст. Возможно, в записи нет речи. Вы можете запустить обработку снова.",
     "regenerateTranscription": "Создать транскрипт заново",
     "saveTranscription": "Сохранить транскрипт",
     "searchInTranscript": "Поиск в транскрипте…",

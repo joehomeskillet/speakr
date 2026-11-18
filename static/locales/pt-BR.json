@@ -2945,6 +2945,8 @@
     "editTranscription": "Editar transcrição",
     "highlightSearchResults": "Realçar resultados da pesquisa",
     "noTranscription": "Ainda não há transcrição",
+    "failedTitle": "A transcrição falhou",
+    "failedMessage": "O serviço de transcrição não retornou texto. A gravação pode não conter fala. Você pode iniciar o processamento novamente.",
     "regenerateTranscription": "Regenerar transcrição",
     "saveTranscription": "Salvar transcrição",
     "searchInTranscript": "Pesquisar na transcrição…",
