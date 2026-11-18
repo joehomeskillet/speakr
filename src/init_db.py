@@ -14,6 +14,7 @@ import tempfile
 from contextlib import contextmanager
 
 from sqlalchemy import text, inspect
+from sqlalchemy.exc import OperationalError
 
 from src.database import db
 from src.models import Recording, TranscriptChunk, SystemSetting, User
@@ -244,7 +245,13 @@ def initialize_database(app):
 
     This function should be called within an app context.
     """
-    db.create_all()
+    try:
+        db.create_all()
+    except OperationalError as exc:
+        # Several processes starting together can both see a table as missing.
+        if 'already exists' not in str(exc):
+            raise
+        db.create_all()
 
     # Check and add new columns if they don't exist
     engine = db.engine
