@@ -543,7 +543,8 @@ def _run_migrations(app, engine):
         # puts back (the processing queue redesign).
         for column, column_type in (('progress_kind', 'VARCHAR(20)'), ('stage', 'VARCHAR(30)'),
                                     ('stage_detail', 'VARCHAR(30)'),
-                                    ('cancel_requested_at', 'DATETIME'), ('restore_state', 'TEXT')):
+                                    ('cancel_requested_at', 'DATETIME'), ('restore_state', 'TEXT'),
+                                    ('claimed_by', 'VARCHAR(80)'), ('heartbeat_at', 'DATETIME')):
             if add_column_if_not_exists(engine, 'processing_job', column, column_type):
                 app.logger.info(f"Added {column} column to processing_job table")
 
