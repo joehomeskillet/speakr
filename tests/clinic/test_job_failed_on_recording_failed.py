@@ -22,9 +22,15 @@ OVER_BUDGET = "Monthly transcription budget exceeded (120 of 100 minutes used)."
 
 @pytest.fixture
 def queue():
+    # A worker thread leaked by an earlier test polls the shared test DB and
+    # can claim this test's job: make sure nothing is running, before and after.
+    job_queue.stop()
+    job_queue._is_owner = False
     job_queue.init_app(app)
     with app.app_context():
         yield job_queue
+        job_queue.stop()
+        job_queue._is_owner = False
         db.session.rollback()
         ProcessingJob.query.delete()
         db.session.commit()

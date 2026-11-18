@@ -22,8 +22,11 @@ from src.services.job_queue import job_queue
 
 @pytest.fixture
 def queue(monkeypatch):
+    job_queue.stop()  # a worker thread leaked by an earlier test must not claim our jobs
     monkeypatch.setattr(job_queue, '_is_owner', False)  # enqueue only; no workers in the test
     job_queue.init_app(app)
+    yield job_queue
+    job_queue.stop()
 
 
 def _connector():

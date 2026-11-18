@@ -31,8 +31,11 @@ def fresh_queue(monkeypatch):
     # Workers would poll the shared test DB; the thread objects are what is counted.
     monkeypatch.setattr(job_queue, '_worker_loop', lambda *args: None)
     monkeypatch.setattr(job_lease, 'start_lease_keeper', lambda queue: None)
+    job_queue.stop()  # nothing from an earlier test may keep polling the shared DB
     job_queue.init_app(app)
-    return job_queue
+    yield job_queue
+    job_queue.stop()
+    job_queue._is_owner = False
 
 
 def _worker_count(queue):
