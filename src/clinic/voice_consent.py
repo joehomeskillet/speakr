@@ -9,8 +9,8 @@ may exist only while that user's own consent is active.
 * Revocation deletes every embedding of the user in all embedding spaces in the
   same transaction as the revocation row and writes an audit row with the number
   of deleted vectors. The consent history stays.
-* ``enrol`` stores one embedding and refuses without active consent. The API takes
-  only ``user_id``: there is no way to name a patient or any other identity.
+* ``enrol`` stores one embedding and refuses without active consent. Its subject
+  must be an internal user, never a patient or a speaker identity.
 * Only embeddings are stored, no audio. Reads of the vectors belong to admin and
   service code; this module exposes no read of vector bytes.
 
@@ -18,12 +18,17 @@ Scope of the deletion: the vectors enrolled here, in every embedding space.
 Address-book ``Speaker`` profiles and ``SpeakerVoiceSample`` rows describe other
 people and are not touched.
 
-No Flask routes live here. Callers supply the signed-in user id.
+No Flask routes live here. Callers supply the signed-in user id. For operations
+bound to a prior consent read, pass its latest history id as ``expected_consent_id``
+(0 for no history). An omitted version applies the operation to the current state.
 """
 
 import hashlib
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from enum import Enum, auto
 from typing import Optional
 
 from sqlalchemy import CheckConstraint, ForeignKey, event
@@ -38,6 +43,10 @@ AUDIT_ACTIONS = ("enrolled", "embeddings_deleted")
 _FLOAT32 = 4
 _MAX_DIM = 8192
 _MAX_STATEMENT = 20000
+
+
+class _LegacyActor(Enum):
+    FROM_USER_ID = auto()
 
 
 class VoiceConsentError(ValueError):
@@ -130,9 +139,13 @@ class ConsentState:
     revoked_at: Optional[datetime]
 
 
-def _check_user_id(user_id) -> None:
+def _validate_user_id(user_id: int) -> None:
     if isinstance(user_id, bool) or not isinstance(user_id, int) or user_id <= 0:
         raise VoiceConsentError("invalid_user_id", "user_id must be a positive int")
+
+
+def _check_user_id(user_id: int) -> None:
+    _validate_user_id(user_id)
     if db.session.get(User, user_id) is None:
         raise VoiceConsentError("unknown_user", "no such user")
 
@@ -143,6 +156,39 @@ def _latest(user_id: int) -> Optional[ClinicVoiceConsent]:
         .order_by(ClinicVoiceConsent.id.desc())
         .first()
     )
+
+
+@contextmanager
+def _consent_write(user_id: int, expected_consent_id: int | None) -> Iterator[ClinicVoiceConsent | None]:
+    """Reserve the writer before reading consent, and hold it through commit."""
+    _validate_user_id(user_id)
+    try:
+        conn = db.session.connection()
+        if conn.dialect.name == "sqlite":
+            # SQLite has no row locks. A no-op write reserves its database writer
+            # even when the caller has already started a read transaction. A
+            # stale SQLite snapshot cannot upgrade to a writer and rolls back.
+            users = User.__table__
+            exists = conn.execute(
+                users.update().where(users.c.id == user_id).values(last_seen_at=users.c.last_seen_at)
+            ).rowcount == 1
+        elif conn.dialect.name == "postgresql" and conn.get_isolation_level() == "READ COMMITTED":
+            # The consent query must get a fresh snapshot after waiting on the user row.
+            exists = db.session.query(User.id).filter_by(id=user_id).with_for_update(key_share=True).scalar() is not None
+        else:
+            raise VoiceConsentError("unsupported_consent_transaction")
+        if not exists:
+            raise VoiceConsentError("unknown_user", "no such user")
+        latest = _latest(user_id)
+        if expected_consent_id is not None and (
+            type(expected_consent_id) is not int or expected_consent_id != (latest.id if latest else 0)
+        ):
+            raise VoiceConsentError("stale_consent")
+        yield latest
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
 
 
 def consent_state(user_id: int) -> ConsentState:
@@ -190,44 +236,46 @@ def audit_entries(user_id: int) -> list:
     ]
 
 
-def _own_action(actor_user_id, user_id) -> None:
-    _check_user_id(user_id)
-    if actor_user_id != user_id:
+def _own_action(actor_user_id: int, user_id: int) -> None:
+    _validate_user_id(user_id)
+    if isinstance(actor_user_id, bool) or not isinstance(actor_user_id, int) or actor_user_id != user_id:
         # Consent is the user's own act. Admins and services cannot give it for someone.
-        raise VoiceConsentError("not_self", "consent can only be given or revoked by the user")
+        raise VoiceConsentError("not_self", "voice consent and enrolment are restricted to the user")
 
 
-def grant_consent(*, actor_user_id: int, user_id: int, statement_text: str) -> ClinicVoiceConsent:
+def grant_consent(
+    *, actor_user_id: int, user_id: int, statement_text: str, expected_consent_id: int | None = None
+) -> ClinicVoiceConsent:
     """Record the user's opt-in. ``statement_text`` is the declaration shown; only its hash is kept."""
     _own_action(actor_user_id, user_id)
     if not isinstance(statement_text, str) or not statement_text.strip():
         raise VoiceConsentError("statement_required", "the declaration text is required")
     if len(statement_text) > _MAX_STATEMENT:
         raise VoiceConsentError("statement_too_long")
-    if has_active_consent(user_id):
-        raise VoiceConsentError("already_granted")
-    row = ClinicVoiceConsent(
-        user_id=user_id,
-        actor_user_id=actor_user_id,
-        purpose=PURPOSE,
-        status="granted",
-        statement_hash=hashlib.sha256(statement_text.encode("utf-8")).hexdigest(),
-    )
-    db.session.add(row)
-    db.session.commit()
+    with _consent_write(user_id, expected_consent_id) as latest:
+        if latest is not None and latest.status == "granted":
+            raise VoiceConsentError("already_granted")
+        row = ClinicVoiceConsent(
+            user_id=user_id,
+            actor_user_id=actor_user_id,
+            purpose=PURPOSE,
+            status="granted",
+            statement_hash=hashlib.sha256(statement_text.encode("utf-8")).hexdigest(),
+        )
+        db.session.add(row)
     return row
 
 
-def revoke_consent(*, actor_user_id: int, user_id: int) -> int:
+def revoke_consent(*, actor_user_id: int, user_id: int, expected_consent_id: int | None = None) -> int:
     """Record the revocation and delete all embeddings of the user. Returns the number deleted.
 
     One transaction: the revocation row, the deletion and the audit row commit together
     or not at all.
     """
     _own_action(actor_user_id, user_id)
-    if not has_active_consent(user_id):
-        raise VoiceConsentError("no_active_consent")
-    try:
+    with _consent_write(user_id, expected_consent_id) as latest:
+        if latest is None or latest.status != "granted":
+            raise VoiceConsentError("no_active_consent")
         row = ClinicVoiceConsent(
             user_id=user_id, actor_user_id=actor_user_id, purpose=PURPOSE, status="revoked"
         )
@@ -239,10 +287,6 @@ def revoke_consent(*, actor_user_id: int, user_id: int) -> int:
                 user_id=user_id, action="embeddings_deleted", vector_count=deleted, consent_id=row.id
             )
         )
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
-        raise
     return deleted
 
 
@@ -261,21 +305,25 @@ def _check_ref(ref) -> None:
             raise VoiceConsentError("invalid_space", "unknown embedding space")
 
 
-def enrol(user_id: int, embedding_ref: EmbeddingRef) -> ClinicVoiceEmbedding:
-    """Store one embedding of the user. Refused without that user's active consent."""
-    _check_user_id(user_id)
-    if not has_active_consent(user_id):
-        raise VoiceConsentError("consent_required", "no active voice profile consent")
-    _check_ref(embedding_ref)
-    row = ClinicVoiceEmbedding(
-        user_id=user_id,
-        space_id=embedding_ref.space_id,
-        dimension=embedding_ref.dimension,
-        embedding=bytes(embedding_ref.vector),
-    )
-    db.session.add(row)
-    db.session.add(ClinicVoiceConsentAudit(user_id=user_id, action="enrolled", vector_count=1))
-    db.session.commit()
+def enrol(
+    user_id: int, embedding_ref: EmbeddingRef, *,
+    actor_user_id: int | _LegacyActor = _LegacyActor.FROM_USER_ID,
+    expected_consent_id: int | None = None,
+) -> ClinicVoiceEmbedding:
+    """Store one embedding with active consent. Legacy callers pass the trusted actor as user_id."""
+    _own_action(user_id if actor_user_id is _LegacyActor.FROM_USER_ID else actor_user_id, user_id)
+    with _consent_write(user_id, expected_consent_id) as latest:
+        if latest is None or latest.status != "granted":
+            raise VoiceConsentError("consent_required", "no active voice profile consent")
+        _check_ref(embedding_ref)
+        row = ClinicVoiceEmbedding(
+            user_id=user_id,
+            space_id=embedding_ref.space_id,
+            dimension=embedding_ref.dimension,
+            embedding=bytes(embedding_ref.vector),
+        )
+        db.session.add(row)
+        db.session.add(ClinicVoiceConsentAudit(user_id=user_id, action="enrolled", vector_count=1))
     return row
 
 
