@@ -64,12 +64,6 @@ const toCloneable = (value, fallback) => {
 };
 
 export const storeFailedUpload = async (uploadData) => {
-    // Nothing of an incognito recording is written to browser storage. An
-    // incognito upload is sent directly and never queued, so this refusal is
-    // a guard for a caller added later.
-    if (uploadData && uploadData.incognito) {
-        throw new Error('An incognito upload is not stored for retry.');
-    }
     try {
         const db = await initDB();
 

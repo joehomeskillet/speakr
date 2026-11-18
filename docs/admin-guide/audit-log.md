@@ -13,7 +13,7 @@ The content of a recording is never part of the log. The data that is stored, an
 | `event`, `event_group` | Name of the event (see [Events](#events)) and its group |
 | `actor_kind` | `session` (browser), `api_token`, `sso_token`, `public_link`, `system` (a scheduled job) or `anonymous` (no account, for example a refused sign-in) |
 | `actor_user_id`, `actor_token_id` | Account and API token of the request, by id |
-| `ip`, `user_agent` | Client address, subject to `audit_log_store_ip`, and the first 160 characters of the user agent. Both are empty for `incognito.used`. |
+| `ip`, `user_agent` | Client address, subject to `audit_log_store_ip`, and the first 160 characters of the user agent. |
 | `recording_id`, `recording_owner_id` | Recording and its owner at the time of the event |
 | `target_user_id`, `group_id` | Account or group that the event concerns |
 | `outcome` | `success`, `denied` or `failed` |
@@ -33,10 +33,7 @@ A row has no link to the recording, the account or the group it names. The rows 
 | `auth.login.failed` | A sign-in was refused. One row per minute for each address and account. | `method`, and `reason`: `bad_password`, `unknown_account`, `no_local_password`, `locked`, `password_login_disabled`, `unverified_email` or `sso_error`. The address that was typed is not stored. |
 | `auth.login.locked` | The limit of wrong passwords was reached and sign-in was locked | `minutes` |
 | `auth.logout` | A signed-in user signed out | |
-| `auth.registered` | An account was created through the registration page | |
 | `auth.password.changed` | A user changed the password of the own account | |
-| `auth.password.reset_requested` | A password reset was requested. One row per five minutes for each address and account. | |
-| `auth.password.reset` | A password was set through a reset link | |
 | `auth.sso.linked`, `auth.sso.unlinked` | An account was linked to, or unlinked from, the SSO provider | |
 | `token.created`, `token.changed`, `token.revoked` | An API token was created, renamed or narrowed, or revoked | `token_id`, `scopes`, `expires`, `sso_client_id` |
 | `token.first_used` | An API token was used for the first time | `token_id` |
@@ -103,14 +100,6 @@ Rows with `imported` in the details were copied from the table `share_audit_log`
 | `audit.pruned` | Rows past the retention period were removed | `count`, `cutoff` |
 | `audit.write_failed` | Events could not be stored (see [Failures](#failures)) | `count` |
 
-### Incognito
-
-| Event | Recorded when | Details |
-|---|---|---|
-| `incognito.used` | An incognito upload was requested. The outcome is `success`, `denied` (incognito mode is off, or the transcription budget is used up) or `failed`. | None |
-
-One row is written for each incognito upload, also for one that is refused or fails, with the account, the time and the outcome. The client address, the user agent and the id of an API token are not stored in this row, whatever the value of `audit_log_store_ip`. Nothing about the file, its size, its duration or its content is stored. Incognito chat and summary requests are not recorded.
-
 ## Events that are not recorded
 
 - Lists of recordings, searches, and questions to Ask Ambrose or to the chat of a recording
@@ -133,7 +122,7 @@ The settings are changed under **System settings** or in `.env`. A value in `.en
 | `audit_log_store_ip` | `AUDIT_LOG_STORE_IP` | `full` | `full`: the client address is stored. `truncated`: the `/24` network of an IPv4 address or the `/48` network of an IPv6 address is stored. `off`: no address is stored. |
 | `audit_log_record_views` | `AUDIT_LOG_RECORD_VIEWS` | `true` | `false`: `recording.viewed` and `recording.media.played` are not recorded. Downloads, exports, reads through API v1 and the events of public links are recorded in either case. |
 
-While the log is off, four kinds of events are still recorded, so that turning the log off is itself on record: a change of one of the `audit_log_*` settings, the reading and export of the log, the removal of old rows, and the `audit.write_failed` row. Every other event, including `incognito.used`, is not recorded while the log is off.
+While the log is off, four kinds of events are still recorded, so that turning the log off is itself on record: a change of one of the `audit_log_*` settings, the reading and export of the log, the removal of old rows, and the `audit.write_failed` row. Every other event is not recorded while the log is off.
 
 A change of `audit_log_store_ip` applies to new rows. Addresses in existing rows are not changed.
 

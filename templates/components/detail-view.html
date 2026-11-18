@@ -1,33 +1,6 @@
 {% from 'components/queue/_queue.html' import queue_indicator %}
 <!-- Detail View Container -->
 <div v-if="currentView === 'detail' && selectedRecording" class="flex-1 flex flex-col overflow-hidden">
-    <!-- Incognito Mode Indicator Bar (theme-safe tint via --tint-incognito).
-         On a phone the details block carries the incognito mark and Actions
-         the discard button, so no second bar is drawn under the top bar. -->
-    <div v-if="selectedRecording.incognito && !isMobile"
-         class="border-b px-4 py-2 flex-shrink-0"
-         style="background: var(--tint-incognito); border-color: var(--tint-incognito-border);">
-        <div class="flex items-center justify-between gap-4 max-w-4xl mx-auto">
-            <div class="flex items-center gap-3">
-                <div class="w-7 h-7 rounded-full flex items-center justify-center" style="background: var(--tint-incognito-fg); opacity: 0.85;">
-                    <i class="fas fa-user-secret text-white text-xs"></i>
-                </div>
-                <div class="flex items-center gap-2 flex-wrap">
-                    <span class="text-sm font-medium" style="color: var(--tint-incognito-fg);">${ t('incognito.badge') }</span>
-                    <span class="text-xs" style="color: var(--tint-incognito-fg); opacity: 0.75;">
-                        &bull; ${ t('incognito.sessionOnly') } &bull; ${ t('incognito.notSavedToAccount') }
-                    </span>
-                </div>
-            </div>
-            <button @click="clearIncognitoRecordingWithConfirm"
-                    class="btn btn--icon btn--sm"
-                    style="color: var(--tint-incognito-fg);"
-                    :title="t('tooltips.discardIncognito')">
-                <i class="fas fa-times"></i>
-            </button>
-        </div>
-    </div>
-
     <!-- Phone view (below 768px, isMobile). One scrolling area holds the
          details block and the open tab, so the details scroll away with the
          text and the transcript's pinned bar (position: sticky) stays under

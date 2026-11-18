@@ -150,9 +150,6 @@ html[data-ui-theme="classic"] {
     --tint-pending: var(--surface-container);
     --tint-pending-border: transparent;
     --tint-pending-fg: var(--text-2);
-    --tint-incognito: var(--surface-container);
-    --tint-incognito-border: var(--border);
-    --tint-incognito-fg: var(--text-2);
 }
 
 html[data-ui-theme="classic"].dark {

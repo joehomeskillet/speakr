@@ -99,7 +99,7 @@ class TranscriptionRequest:
     # A stable name for what is transcribed, the same on every retry of it,
     # for services that accept an idempotency key. In a processing job it
     # names the job and the audio bytes (provider_task_context); a request
-    # without a saved task (a chunk, incognito mode, the voice check) gets
+    # without a saved task (a chunk, the voice check) gets
     # one from provider_tasks.audio_task_key.
     task_key: Optional[str] = None
     # Stores (done, total) as the progress of the running processing job.

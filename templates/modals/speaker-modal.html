@@ -202,10 +202,6 @@
                         <i class="fas fa-info-circle"></i>
                         <span v-text="t('help.audioDeletedMessage')"></span>
                     </div>
-                    <div v-else-if="selectedRecording.incognito" class="t-meta flex items-center gap-2">
-                        <i class="fas fa-user-secret"></i>
-                        <span v-text="t('speakerModal.incognitoAudio')"></span>
-                    </div>
                     <div v-else>
                         <component :is="selectedRecording.mime_type && selectedRecording.mime_type.startsWith('video/') ? 'video' : 'audio'"
                                    ref="speakerModalPlayer"

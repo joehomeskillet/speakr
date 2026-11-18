@@ -22,8 +22,7 @@ library_events() turns the retrieval stages (`status`) into steps. The event
 names the Ask page and API v1 already read are kept; `source` is new.
 
 tools_for_surface() is the tool list for each place the assistant answers
-(decision 2): an incognito recording gets none, an open recording the library
-tools, the Ask page all of them.
+(decision 2): an open recording gets the library tools, the Ask page all of them.
 """
 
 import json
@@ -35,7 +34,6 @@ LIBRARY_TOOLS = ('search_transcripts', 'search_text', 'list_recordings', 'find_s
                  'find_people', 'get_transcript', 'get_recording_metadata', 'get_summary', 'get_notes')
 
 _SURFACE_TOOLS = {
-    'incognito': (),
     'recording': LIBRARY_TOOLS,
     'ask': None,   # every tool the agent has
 }
@@ -123,7 +121,7 @@ def sse(payload):
 
 def parse_sse(chunk):
     """The payloads in one SSE string: dicts, or the raw text of a data line
-    that is not JSON (the incognito route's [DONE])."""
+    that is not JSON (such as [DONE])."""
     payloads = []
     for line in (chunk or '').split('\n'):
         if not line.startswith('data: '):

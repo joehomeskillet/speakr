@@ -6,7 +6,7 @@ app has an endpoint that is not listed, so a new route cannot appear unnoticed.
 
 Kinds (names follow clinic-spec/tests/route-policy.json):
 
-PUBLIC     reachable without a session (static files, login, OIDC, password reset)
+PUBLIC     reachable without a session (static files, login, OIDC)
 AUTH       needs a signed-in user; the handler works on that user's own data
 ADMIN      needs a signed-in admin; identity/system administration, no content
 RECORDING  addresses a recording; the central policy decides before the handler
@@ -58,12 +58,12 @@ def _split(text: str) -> tuple[str, ...]:
 
 _PUBLIC = _split("""
     static robots_txt service_worker auth.login auth.sso_login auth.sso_callback
-    auth.forgot_password auth.reset_password api_v1.get_sso_status system.get_csrf_token
+    api_v1.get_sso_status system.get_csrf_token
 """)
 
 _AUTH = _split("""
     auth.account auth.account_storage auth.change_password auth.logout auth.record_timezone
-    auth.sso_link auth.sso_unlink auth.transcript_templates_guide
+    auth.sso_link auth.sso_unlink
     auth.update_auto_speaker_labelling auth.update_auto_summarization
     api_v1.create_folder api_v1.create_tag api_v1.delete_folder api_v1.delete_tag
     api_v1.get_capabilities api_v1.get_current_user api_v1.get_docs api_v1.get_folder
@@ -96,7 +96,7 @@ _AUTH = _split("""
     recordings.get_recordings_paginated recordings.share_target
     recordings.upload_file
     system.check_deletion_permission system.get_config system.get_system_info
-    system.get_user_token_budget system.mark_whats_new_seen system.save_user_preferences
+    system.get_user_token_budget system.save_user_preferences
     tags.create_tag tags.delete_tag tags.get_tags tags.update_tag
     templates.create_default_templates templates.create_transcript_template
     templates.delete_transcript_template templates.get_transcript_templates
@@ -118,8 +118,6 @@ _ADMIN = _split("""
 """)
 
 _DISABLED = {
-    'public_self_registration': """
-        auth.register auth.resend_verification auth.verify_email""",
     'public_sharing': """
         shares.can_share_publicly shares.create_share shares.delete_share
         shares.get_existing_share shares.get_shared_audio shares.update_share
@@ -136,9 +134,6 @@ _DISABLED = {
     'chat': """
         recordings.chat_with_transcription recordings.download_chat_word
         api_v1.chat_with_recording""",
-    'incognito_processing': """
-        recordings.chat_incognito recordings.generate_incognito_summary_endpoint
-        recordings.upload_incognito""",
     'inquire': """
         inquire.create_inquire_session inquire.download_inquire_conversation
         inquire.get_available_filters inquire.get_inquire_sessions inquire.inquire

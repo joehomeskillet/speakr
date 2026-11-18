@@ -4,7 +4,6 @@
  */
 
 import * as RecordingDB from '../db/recording-persistence.js';
-import * as IncognitoStorage from '../db/incognito-storage.js';
 import * as ServerSessions from '../db/server-recording-sessions.js';
 import {
     findExternalAudioInputCandidates,
@@ -60,8 +59,6 @@ export function useAudio(state, utils) {
         canRecordSystemAudio, systemAudioSupported, systemAudioError, globalError,
         selectedTagIds, selectedFolderId, asrLanguage, asrMinSpeakers, asrMaxSpeakers, asrInitialPrompt, asrHotwords, asrTranscriptionModel, uploadQueue,
         progressPopupMinimized,
-        // Incognito mode
-        enableIncognitoMode, incognitoMode, incognitoRecording, incognitoProcessing,
         processingMessage, processingProgress, selectedRecording
     } = state;
 
@@ -560,7 +557,7 @@ export function useAudio(state, utils) {
     };
 
     const startRecordingInternal = async (mode, resumeContext = null) => {
-        if (!resumeContext && !(incognitoMode && incognitoMode.value) && !(await hasStorageRoom())) {
+        if (!resumeContext && !(await hasStorageRoom())) {
             if (pendingDisplayStream) {
                 pendingDisplayStream.getTracks().forEach(track => track.stop());
                 pendingDisplayStream = null;
@@ -579,21 +576,6 @@ export function useAudio(state, utils) {
             serverResumePriorBytes = (resumeContext && resumeContext.priorBytes) || 0;
             estimatedFileSize.value = serverResumePriorBytes;
             fileSizeWarningShown.value = false;
-
-            // A resumed recording already has chunks on the server, so it
-            // cannot become incognito: processing it in incognito would send
-            // only the locally-held new segment (silent partial audio) and
-            // discard the prior one. Force the toggle off — relevant when
-            // INCOGNITO_MODE_DEFAULT is on or the user flipped it earlier.
-            if (resumeContext && resumeContext.sessionId && incognitoMode && incognitoMode.value) {
-                incognitoMode.value = false;
-                showToast(
-                    (utils.t && utils.t('toasts.resumedRecordingNotIncognito'))
-                        || 'Incognito turned off. This resumed recording was already on the server.',
-                    'fa-user-secret',
-                    7000
-                );
-            }
 
             // Initialize IndexedDB session
             currentChunkIndex = 0;
@@ -951,7 +933,6 @@ export function useAudio(state, utils) {
                         transcription_model: asrTranscriptionModel.value || ''
                     },
                     mimeType,
-                    incognito: !!(incognitoMode && incognitoMode.value)
                 });
                 currentRecordingSessionStartTime = savedSession ? savedSession.startTime : null;
             } catch (dbError) {
@@ -963,16 +944,7 @@ export function useAudio(state, utils) {
             // straight to the server. A failure here logs and falls back to
             // local-only recording — the user's audio is never blocked on
             // a network round-trip.
-            //
-            // Incognito recordings never open a session: the whole point of
-            // incognito is that audio does not touch server storage until the
-            // explicit process-without-saving upload, so they stay on the
-            // in-browser path (RAM only, 200 MB cap; RecordingDB writes
-            // nothing for an incognito recording) regardless of the
-            // streaming flag. The resume guard above already cleared the
-            // toggle for resumed server sessions, so this cannot strand a
-            // half-uploaded session.
-            if (_serverRecordingChunksEnabled() && !(incognitoMode && incognitoMode.value)) {
+            if (_serverRecordingChunksEnabled()) {
                 try {
                     let startIndex = 1;
                     if (resumeContext && resumeContext.sessionId) {
@@ -1468,174 +1440,6 @@ export function useAudio(state, utils) {
         return uploadRecordedAudio({ mergeIntent });
     };
 
-    // Upload recorded audio in incognito mode
-    const uploadRecordedAudioIncognito = async () => {
-        if (!audioBlobURL.value) {
-            setGlobalError((utils.t && utils.t('errors.noRecordedAudioToUpload')) || 'No recorded audio to upload.');
-            return;
-        }
-
-        // Check if incognito state is available
-        if (!incognitoProcessing || !incognitoRecording) {
-            console.warn('[Incognito] Incognito state not available, falling back to normal upload');
-            uploadRecordedAudio();
-            return;
-        }
-
-        // The recording may have streamed to a server session before the user
-        // chose incognito in the review pane (incognito recordings never OPEN
-        // a session, but the toggle can be flipped after a normal recording
-        // finishes). Honor the choice: delete the server-side chunks up front,
-        // before processing, rather than only after success via
-        // discardRecording. Refuse outright if part of the audio exists ONLY
-        // on the server (resumed session) — incognito-processing just the
-        // local segment would silently truncate the recording. That state
-        // should be unreachable (the resume path clears the toggle), so this
-        // is defense-in-depth.
-        if (serverSessionId) {
-            if (serverResumePriorBytes > 0) {
-                setGlobalError((utils.t && utils.t('errors.incognitoResumedNotAllowed')) || 'A resumed recording can\'t be processed in incognito mode, because its earlier audio is already on the server. Use the normal upload.');
-                return;
-            }
-            try {
-                await ServerSessions.abortSession(serverSessionId);
-            } catch (e) {
-                console.warn('[Incognito] Could not abort server session before incognito processing:', e);
-            }
-            _resetServerSessionState();
-        }
-
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const recordedMime = (currentRecordingMimeType || 'audio/webm').split(';')[0];
-        const recordedExt = recordedMime === 'video/mp4' ? 'mp4' : 'webm';
-        const _rawRecordedFile = new File(audioChunks.value, `recording-${timestamp}.${recordedExt}`, { type: recordedMime });
-        // Prevent Vue from wrapping the binary File in a reactive proxy. See
-        // upload.js for rationale (issue #280).
-        const recordedFile = (typeof Vue !== 'undefined' && Vue.markRaw)
-            ? Vue.markRaw(_rawRecordedFile)
-            : _rawRecordedFile;
-
-        incognitoProcessing.value = true;
-        processingMessage.value = (utils.t && utils.t('incognito.processingInProgress')) || 'Processing recording in incognito mode...';
-        processingProgress.value = 10;
-        progressPopupMinimized.value = false;
-
-        try {
-            const formData = new FormData();
-            formData.append('file', recordedFile);
-
-            // Add ASR options
-            if (asrLanguage.value) {
-                formData.append('language', asrLanguage.value);
-            }
-            if (asrMinSpeakers.value && asrMinSpeakers.value !== '') {
-                formData.append('min_speakers', asrMinSpeakers.value.toString());
-            }
-            if (asrMaxSpeakers.value && asrMaxSpeakers.value !== '') {
-                formData.append('max_speakers', asrMaxSpeakers.value.toString());
-            }
-            if (asrInitialPrompt.value && asrInitialPrompt.value.trim()) {
-                formData.append('initial_prompt', asrInitialPrompt.value.trim());
-            }
-            if (asrHotwords.value && asrHotwords.value.trim()) {
-                formData.append('hotwords', asrHotwords.value.trim());
-            }
-
-            // Request auto-summarization
-            formData.append('auto_summarize', 'true');
-
-            processingMessage.value = (utils.t && utils.t('incognito.uploadingRecording')) || 'Uploading recording for incognito processing…';
-            processingProgress.value = 20;
-
-            console.log('[Incognito] Uploading recorded audio');
-
-            const response = await fetch('/api/recordings/incognito', {
-                method: 'POST',
-                body: formData
-            });
-
-            processingProgress.value = 50;
-
-            // Parse response
-            const contentType = response.headers.get('content-type') || '';
-            if (!contentType.includes('application/json')) {
-                const text = await response.text();
-                const titleMatch = text.match(/<title>([^<]+)<\/title>/i);
-                throw new Error(titleMatch?.[1] || (utils.t && utils.t('errors.serverErrorStatus', { status: response.status })) || `Server error (${response.status})`);
-            }
-
-            const data = await response.json();
-
-            if (!response.ok || data.error) {
-                throw new Error(data.error || (utils.t && utils.t('errors.processingFailedWithStatus', { status: response.status })) || `Processing failed with status ${response.status}`);
-            }
-
-            processingProgress.value = 80;
-            processingMessage.value = (utils.t && utils.t('incognito.processingComplete')) || 'Processing complete';
-
-            // Store result in sessionStorage
-            const incognitoData = {
-                id: 'incognito',
-                incognito: true,
-                title: data.title || (utils.t && utils.t('incognito.recordingTitle')) || 'Incognito recording',
-                transcription: data.transcription,
-                summary: data.summary,
-                summary_html: data.summary_html,
-                created_at: data.created_at,
-                original_filename: data.original_filename,
-                file_size: data.file_size,
-                audio_duration_seconds: data.audio_duration_seconds,
-                processing_time_seconds: data.processing_time_seconds,
-                status: 'COMPLETED'
-            };
-
-            IncognitoStorage.saveIncognitoRecording(incognitoData);
-            incognitoRecording.value = incognitoData;
-
-            // Clear IndexedDB session
-            try {
-                await RecordingDB.clearRecordingSession();
-            } catch (dbError) {
-                console.warn('[Recording] Failed to clear IndexedDB session:', dbError);
-            }
-
-            // Clear recording state (must await so currentView='upload' completes
-            // before we override it with 'detail', otherwise the deferred
-            // currentView='upload' fires after 'detail' and the view watcher
-            // clears incognito data thinking we navigated away)
-            await discardRecording();
-
-            processingProgress.value = 100;
-            processingMessage.value = (utils.t && utils.t('incognito.recordingReady')) || 'Incognito recording ready';
-
-            // Auto-select the incognito recording and switch to detail view
-            selectedRecording.value = incognitoData;
-            currentView.value = 'detail';
-            // discardRecording() re-opened the upload modal (its normal
-            // return-to-form behaviour); close it here so it doesn't cover the
-            // finished incognito recording. Every other incognito path does this.
-            if (showUploadModal) showUploadModal.value = false;
-
-            // Reset incognito mode toggle
-            incognitoMode.value = false;
-
-            // Show toast
-            showToast((utils.t && utils.t('incognito.recordingProcessed')) || 'Incognito recording processed. It is gone once you close this tab.', 'fa-user-secret');
-
-            console.log('[Incognito] Recording processing complete');
-
-        } catch (error) {
-            console.error('[Incognito] Recording processing failed:', error);
-            setGlobalError((utils.t && utils.t('incognito.processingFailed', { error: error.message })) || `Incognito processing failed: ${error.message}`);
-        } finally {
-            incognitoProcessing.value = false;
-            // Reset the shared processing-progress state so it isn't left
-            // pinned at 100% / "ready" for the next operation.
-            processingProgress.value = 0;
-            processingMessage.value = '';
-        }
-    };
-
     // Discard recording
     const discardRecording = async () => {
         _clearVideoPreview();
@@ -1868,13 +1672,6 @@ export function useAudio(state, utils) {
                 asrTranscriptionModel.value = recovered.metadata.asrOptions.transcription_model || '';
             }
 
-            // Restore the incognito state the recording was left in, so a
-            // crashed incognito recording is offered back as incognito instead
-            // of silently becoming a normal (permanently stored) one.
-            if (incognitoMode && enableIncognitoMode && enableIncognitoMode.value) {
-                incognitoMode.value = !!recovered.metadata.incognito;
-            }
-
             console.log('[Recording] Successfully recovered recording from IndexedDB');
             return recovered.metadata;
         } catch (error) {
@@ -1887,23 +1684,6 @@ export function useAudio(state, utils) {
     const initializeAudio = async () => {
         // Placeholder for future initialization if needed
     };
-
-    // An incognito recording is not written to browser storage. The toggle
-    // can be turned on during a recording or in the review pane after it
-    // stops: from then on nothing more is written, and the copy saved so far
-    // for crash recovery is deleted. With no recording of this page (the
-    // toggle in the upload dialog), there is no session start time and a
-    // copy left by another recording is kept. Turning the toggle off again
-    // does not start writing: the recording stays in memory until it is
-    // uploaded or discarded.
-    if (typeof Vue !== 'undefined' && Vue.watch && incognitoMode) {
-        Vue.watch(incognitoMode, (v) => {
-            if (v && currentRecordingSessionStartTime) {
-                RecordingDB.makeSessionInMemoryOnly(currentRecordingSessionStartTime);
-                currentRecordingSessionStartTime = null;
-            }
-        });
-    }
 
     return {
         startRecording,
@@ -1920,7 +1700,6 @@ export function useAudio(state, utils) {
         uploadRecordedAudio,
         mergeRecordedWithExisting,
         finalizeRecordingMerge,
-        uploadRecordedAudioIncognito,
         acceptRecordingDisclaimer,
         cancelRecordingDisclaimer,
         updateFileSizeEstimate,

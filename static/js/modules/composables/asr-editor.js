@@ -186,7 +186,7 @@ export function useAsrEditor(state, utils, { saveTranscriptionContent }) {
             colorMap: { ...((speakerColorMap && speakerColorMap.value) || {}) },
             voice: shallowRef({}),
             savedSpeakers: shallowRef([]),
-            draft: shallowRef(drafts && !recording.incognito ? drafts.load(recording.id, field, base) : null),
+            draft: shallowRef(drafts ? drafts.load(recording.id, field, base) : null),
             initialIndex: targetIndex,
             initialScrollTop: targetIndex == null ? (scrollMemory.get(`${recording.id}:${field}`) || 0) : 0,
             audio: () => document.querySelector('[data-asr-editor-audio]'),
@@ -209,7 +209,7 @@ export function useAsrEditor(state, utils, { saveTranscriptionContent }) {
             if (event.source === 'save') return;
             // A draft that was not restored is replaced by the first new edit.
             if (session.draft.value && event.type !== 'restore') session.draft.value = null;
-            if (drafts && !recording.incognito) {
+            if (drafts) {
                 clearTimeout(draftTimer);
                 draftTimer = setTimeout(() => writeDraft(session), DRAFT_DELAY);
             }
@@ -230,7 +230,7 @@ export function useAsrEditor(state, utils, { saveTranscriptionContent }) {
         draftTooLargeTold = false;
         document.documentElement.classList.toggle(LONG_CLASS, model.length >= LONG_TRANSCRIPT);
         showAsrEditorModal.value = true;
-        if (!recording.incognito) loadSpeakerData(session);
+        loadSpeakerData(session);
     };
 
     // Open the editor at a segment (double-click on a transcript row). The
@@ -304,11 +304,11 @@ export function useAsrEditor(state, utils, { saveTranscriptionContent }) {
     /**
      * True when the summary can be regenerated after a save from this
      * session: the transcript itself is edited (not a translation) and the
-     * recording is stored on the server (not incognito). The footer shows
+     * recording is stored on the server. The footer shows
      * its checkbox only then.
      */
     const canRegenerateSummary = (session = current()) => !!session && session.field === 'transcription'
-        && !!selectedRecording.value && !selectedRecording.value.incognito;
+        && !!selectedRecording.value;
 
     /**
      * Save the transcript. The whole transcript is sent: the server stores it
@@ -333,7 +333,7 @@ export function useAsrEditor(state, utils, { saveTranscriptionContent }) {
         const revAtSave = model.rev;
         const wasDirty = model.dirty;
         const stored = model.toJSON();
-        const withMatches = session.field === 'transcription' && !selectedRecording.value.incognito
+        const withMatches = session.field === 'transcription'
             ? withAcceptedMatches(stored, model.segments.map((s) => s.id), model.acceptedMatches()) : null;
         const regenerate = !auto && !!(asrEditorRegenerateSummary && asrEditorRegenerateSummary.value)
             && canRegenerateSummary(session) && (wasDirty || session.unsummarized);

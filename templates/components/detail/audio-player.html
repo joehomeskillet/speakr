@@ -11,11 +11,6 @@
         <i class="fas fa-info-circle"></i>
         <span v-text="t('help.audioDeletedMessage')"></span>
     </div>
-    <!-- Show message for incognito recordings (no audio stored) -->
-    <div v-else-if="selectedRecording.incognito" class="ph-player__note">
-        <i class="fas fa-user-secret"></i>
-        <span v-text="t('incognito.audioNotStored')"></span>
-    </div>
     <!-- Custom Audio Player -->
     <div v-else>
         <!-- Video/Audio element wrapped in Teleport for fullscreen -->

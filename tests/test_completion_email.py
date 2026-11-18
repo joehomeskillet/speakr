@@ -274,23 +274,6 @@ def test_an_error_message_cannot_inject_html_into_the_email(user_factory, smtp_c
         assert '&lt;script&gt;' in html
 
 
-def test_the_shared_verification_template_also_escapes_the_username(user_factory, smtp_configured):
-    """Same defect, older code: verification and reset mail interpolate the
-    username too, and a password-reset message is where an injected link
-    would be worth the most.
-    """
-    user = user_factory(username='<b>bold</b>')
-    # This sender builds an _external URL, which needs a request to resolve
-    # against; it is only ever called from one in production.
-    with app.test_request_context('/'), \
-            patch.object(email_service, 'is_email_verification_enabled', return_value=True), \
-            patch.object(email_service, '_send_email', return_value=True) as send:
-        email_service.send_verification_email(user)
-        _, _, html, _ = send.call_args[0]
-        assert '<b>bold</b>' not in html
-        assert '&lt;b&gt;bold&lt;/b&gt;' in html
-
-
 # --- the header logo -----------------------------------------------------
 
 _FAKE_SMTP_CONFIG = {

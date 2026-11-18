@@ -4,7 +4,7 @@ The job queue binds one ``JobControl`` to its worker thread for the length of
 a job (``running``). Code deep inside the job reaches it with ``current()``
 and needs no extra argument: the transcription step, the chunk loop, the
 WhisperX poll and the summary step all report and check through it. Outside
-a job (a web request, incognito mode, a test that calls a task directly)
+a job (a web request, a test that calls a task directly)
 ``current()`` is a control that stores nothing and never cancels, so those
 paths behave as they did.
 

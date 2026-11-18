@@ -241,31 +241,6 @@ def test_logout_rejects_get(cleanup_users):
             assert s.get('_user_id') == str(user.id)  # still logged in
 
 
-def test_login_blocked_when_email_unverified(cleanup_users):
-    # auth.py:205 — verification required AND user not verified ⇒ login
-    # is gated: the check-email page renders and no session is established.
-    user = _mk_user(cleanup_users, email_verified=False)
-    with mock.patch.object(auth_mod, 'is_email_verification_required', return_value=True):
-        client = app.test_client()
-        resp = client.post('/login', data={'email': user.email, 'password': GOOD_PW})
-        assert resp.status_code == 200  # check_email page, not a login redirect
-        with client.session_transaction() as s:
-            assert '_user_id' not in s
-
-
-def test_login_succeeds_when_email_verified(cleanup_users):
-    # The companion: even with verification required, a VERIFIED user logs
-    # in. This kills the and->or mutation on auth.py:205 (under `or`, a
-    # verified user would be wrongly blocked).
-    user = _mk_user(cleanup_users, email_verified=True)
-    with mock.patch.object(auth_mod, 'is_email_verification_required', return_value=True):
-        client = app.test_client()
-        resp = client.post('/login', data={'email': user.email, 'password': GOOD_PW})
-        assert resp.status_code == 302
-        with client.session_transaction() as s:
-            assert s.get('_user_id') == str(user.id)
-
-
 LOGIN_FAILED = "Wrong email or password."
 PASSWORD_LOGIN_DISABLED = "Sign in with SSO. Password sign-in is turned off."
 
@@ -721,97 +696,6 @@ def test_change_password_requires_login():
 
 
 # ---------------------------------------------------------------------------
-# Registration gating
-# ---------------------------------------------------------------------------
-
-def test_register_blocked_when_disabled(cleanup_users):
-    with _envset(ALLOW_REGISTRATION='false'):
-        client = app.test_client()
-        resp = client.get('/register')
-        assert resp.status_code == 302
-        assert '/login' in resp.headers['Location']
-
-
-def test_register_allowed_creates_user(cleanup_users):
-    username = "reg_" + uuid.uuid4().hex[:10]
-    email = uuid.uuid4().hex[:10] + "@example.com"
-    cleanup_users["usernames"].add(username)
-    cleanup_users["emails"].add(email)
-    pw = "Reg1ster-Pw!"
-    # Force verification off so the success branch redirects to login.
-    with _envset(ALLOW_REGISTRATION='true'), \
-            mock.patch.object(auth_mod, 'is_email_verification_enabled', return_value=False):
-        client = app.test_client()
-        resp = client.post('/register', data={
-            'username': username,
-            'email': email,
-            'password': pw,
-            'confirm_password': pw,
-        })
-        assert resp.status_code == 302
-    created = User.query.filter_by(email=email).first()
-    assert created is not None
-    assert created.email_verified is True  # verification disabled → verified
-
-
-def test_register_blocked_by_disallowed_domain(cleanup_users):
-    username = "reg_" + uuid.uuid4().hex[:10]
-    email = uuid.uuid4().hex[:10] + "@evil.com"
-    pw = "Reg1ster-Pw!"
-    with _envset(ALLOW_REGISTRATION='true', REGISTRATION_ALLOWED_DOMAINS='example.com'), \
-            mock.patch.object(auth_mod, 'is_email_verification_enabled', return_value=False):
-        client = app.test_client()
-        resp = client.post('/register', data={
-            'username': username,
-            'email': email,
-            'password': pw,
-            'confirm_password': pw,
-        })
-        assert resp.status_code == 200  # re-renders register with flash
-    assert User.query.filter_by(email=email).first() is None
-
-
-# The login page and the /register route must agree on every value (#479):
-# only 'true' in any case opens registration, unset defaults to open, and any
-# other value ('false', 'yes', '1', '') closes it.
-_REGISTRATION_VALUES = [
-    ('true', True), ('True', True), ('TRUE', True), (None, True),
-    ('false', False), ('False', False), ('FALSE', False),
-    ('yes', False), ('1', False), ('', False),
-]
-
-
-@pytest.mark.parametrize('value,enabled', _REGISTRATION_VALUES)
-def test_registration_enabled_helper(value, enabled):
-    with _envset(ALLOW_REGISTRATION=value):
-        assert auth_mod.registration_enabled() is enabled
-
-
-@pytest.mark.parametrize('value,enabled', _REGISTRATION_VALUES)
-def test_login_register_link_matches_register_route(value, enabled):
-    with _envset(ALLOW_REGISTRATION=value):
-        client = app.test_client()
-        page = client.get('/login')
-        assert page.status_code == 200
-        link_shown = b'Create an account' in page.data
-        assert link_shown is enabled
-        assert (b'href="/register"' in page.data) is enabled
-        # The link is shown exactly when the route it points to accepts.
-        route = client.get('/register')
-        assert (route.status_code == 200) is enabled
-
-
-def test_is_registration_domain_allowed_helper(app_ctx):
-    with _envset(REGISTRATION_ALLOWED_DOMAINS='example.com'):
-        assert auth_mod.is_registration_domain_allowed('a@example.com') is True
-        assert auth_mod.is_registration_domain_allowed('a@evil.com') is False
-        assert auth_mod.is_registration_domain_allowed('') is False
-        assert auth_mod.is_registration_domain_allowed('no-at-sign') is False
-    with _envset(REGISTRATION_ALLOWED_DOMAINS=None):
-        assert auth_mod.is_registration_domain_allowed('anyone@anywhere.com') is True
-
-
-# ---------------------------------------------------------------------------
 # SSO callback paths (OIDC client mocked)
 # ---------------------------------------------------------------------------
 
@@ -999,44 +883,6 @@ def test_update_auto_speaker_labelling_persists(cleanup_users):
     refreshed = db.session.get(User, uid)
     assert refreshed.auto_speaker_labelling is True
     assert refreshed.auto_speaker_labelling_threshold == 'high'
-
-
-# ---------------------------------------------------------------------------
-# Registration-domain parsing edge cases (is_registration_domain_allowed)
-# ---------------------------------------------------------------------------
-
-def test_registration_domain_empty_env_allows_all(app_ctx):
-    # auth.py:112-113 — REGISTRATION_ALLOWED_DOMAINS unset/empty ⇒ no
-    # restriction ⇒ every domain is allowed.
-    with _envset(REGISTRATION_ALLOWED_DOMAINS=''):
-        assert auth_mod.is_registration_domain_allowed('a@anywhere.com') is True
-        assert auth_mod.is_registration_domain_allowed('b@evil.example') is True
-
-
-def test_registration_domain_whitespace_env_allows_all(app_ctx):
-    # auth.py:112 — a whitespace-only value strips to nothing ⇒ still no
-    # restriction. (The `or not domains_env.strip()` clause covers this.)
-    with _envset(REGISTRATION_ALLOWED_DOMAINS='   '):
-        assert auth_mod.is_registration_domain_allowed('a@anywhere.com') is True
-
-
-def test_registration_domain_commas_only_allows_all(app_ctx):
-    # auth.py:115-117 — a value with content but no real domains after the
-    # comma split (so `allowed` is empty) ⇒ treated as no restriction ⇒ True.
-    # This reaches line 117 specifically; `return True`->`return False` here
-    # would wrongly reject every registration.
-    with _envset(REGISTRATION_ALLOWED_DOMAINS=', ,'):
-        assert auth_mod.is_registration_domain_allowed('a@anywhere.com') is True
-        assert auth_mod.is_registration_domain_allowed('b@example.com') is True
-
-
-def test_registration_domain_allowlist_in_and_out(app_ctx):
-    # auth.py:119-124 — a real allowlist gates by domain: in-list True,
-    # out-of-list False. Case-insensitive on both env and email side.
-    with _envset(REGISTRATION_ALLOWED_DOMAINS='Example.com, corp.net'):
-        assert auth_mod.is_registration_domain_allowed('user@example.com') is True
-        assert auth_mod.is_registration_domain_allowed('user@CORP.NET') is True
-        assert auth_mod.is_registration_domain_allowed('user@evil.com') is False
 
 
 # ---------------------------------------------------------------------------

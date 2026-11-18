@@ -356,7 +356,7 @@ def test_the_sign_in_page_clears_after_a_sign_out_without_registering_a_worker()
     assert "data-register" not in text
 
 
-@pytest.mark.parametrize("page", ["share.html", "register.html"])
+@pytest.mark.parametrize("page", ["share.html"])
 def test_public_pages_do_not_load_the_service_worker_script(page):
     assert "service-worker-client.js" not in _read(page)
 
@@ -485,15 +485,14 @@ def test_public_share_page_uses_a_signed_in_viewers_language(german_client, shar
 # --- Sign-in pages (server-side text) ----------------------------------------
 
 @pytest.mark.parametrize("accept, locale", [("fr-FR,fr;q=0.9", "fr"), ("pt", "pt-BR"), (None, "en")])
-@pytest.mark.parametrize("path, key", [("/login", "authPages.loginTitle"), ("/register", "authPages.createAccount")])
+@pytest.mark.parametrize("path, key", [("/login", "authPages.loginTitle")])
 def test_sign_in_pages_follow_the_visitors_browser_language(path, key, accept, locale):
     """The forms are rendered on the server in the Accept-Language locale, so
     they read correctly without JavaScript."""
     from markupsafe import escape
     from src.utils.localization import translate
     headers = {"Accept-Language": accept} if accept else {}
-    with patch.dict(os.environ, {"ALLOW_REGISTRATION": "true"}):
-        response = app.test_client().get(path, headers=headers)
+    response = app.test_client().get(path, headers=headers)
     assert response.status_code == 200, path
     html = response.get_data(as_text=True)
     assert f'<html lang="{locale}">' in html

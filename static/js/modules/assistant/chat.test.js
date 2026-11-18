@@ -22,7 +22,7 @@ describe('readEvents', () => {
         expect(seen).toEqual([{ delta: 'Hello' }, { end_of_stream: true }]);
     });
 
-    it('passes the incognito route\'s [DONE]', async () => {
+    it('passes a stream ending in [DONE]', async () => {
         const seen = [];
         await readEvents(streamOf('data: {"delta": "x"}\n\ndata: [DONE]\n\n'), (d) => { seen.push(d); return d === '[DONE]' ? 'done' : undefined; });
         expect(seen).toEqual([{ delta: 'x' }, '[DONE]']);

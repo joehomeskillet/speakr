@@ -5,7 +5,7 @@ diarization_label_map() in src/utils/speaker_labels.py brings them to one
 form, and TranscriptionResponse.to_storage_format() applies it to every
 result before it is stored. The tests cover the mapping, each connector's
 own labels through the stored result, and the paths that store a result:
-upload and reprocessing (one function), chunked files and incognito mode.
+upload and reprocessing (one function) and chunked files.
 
 SHARED-DB: assertions are scoped to the rows the test made.
 """
@@ -366,38 +366,3 @@ def test_chunk_merge_returns_normalized_text_and_speakers(tmp_path, monkeypatch)
     assert [s['speaker'] for s in json.loads(merged.to_storage_format())] == [
         'SPEAKER_01', 'SPEAKER_02', 'SPEAKER_03']
 
-
-def _incognito(tmp_path, connector, needs_chunking=False, chunker=None):
-    upload = tmp_path / 'visit.mp3'
-    upload.write_bytes(b'\x00' * 2048)
-    registry = SimpleNamespace(get_active_connector=lambda: connector)
-    from src.utils.audio_conversion import ConversionResult
-    same = ConversionResult(output_path=str(upload), mime_type='audio/mpeg', was_converted=False,
-                            was_compressed=False, original_size=1, final_size=1,
-                            original_codec='mp3', final_codec='mp3')
-    with app.app_context(), \
-         patch('src.services.transcription.get_registry', return_value=registry), \
-         patch.object(proc, 'convert_if_needed', return_value=same), \
-         patch.object(proc, 'client', None), \
-         patch.object(proc, 'chunking_service', chunker or MagicMock()) as service:
-        service.needs_chunking.return_value = needs_chunking
-        return proc.transcribe_incognito(str(upload), 'visit.mp3', language='en')
-
-
-def test_incognito_result_carries_normalized_labels(tmp_path):
-    result = _incognito(tmp_path, _FakeConnector(_letters_response(('B', 'A', 'B'))))
-    assert result['error'] is None
-    assert [s['speaker'] for s in json.loads(result['transcription'])] == [
-        'SPEAKER_01', 'SPEAKER_00', 'SPEAKER_01']
-
-
-def test_incognito_chunked_result_carries_normalized_labels(tmp_path, monkeypatch):
-    monkeypatch.setattr(proc.time, 'sleep', lambda seconds: None)
-    chunker = MagicMock()
-    chunker.create_chunks.return_value = _chunks(tmp_path, 2)
-    connector = _FakeConnector(_letters_response(('A', 'B')), _letters_response(('A',)))
-    with patch('src.audio_chunking.extract_speaker_samples', return_value={}):
-        result = _incognito(tmp_path, connector, needs_chunking=True, chunker=chunker)
-    assert result['error'] is None
-    assert [s['speaker'] for s in json.loads(result['transcription'])] == [
-        'SPEAKER_00', 'SPEAKER_01', 'SPEAKER_02']

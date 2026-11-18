@@ -79,9 +79,8 @@ const recA = { id: 1, title: 'Budget sync' };
 const recB = { id: 2, title: 'Hiring plan' };
 
 describe('thread keys and stored messages', () => {
-    it('keys a recording by id, and every incognito recording as one', () => {
+    it('keys a recording by id', () => {
         expect(threadKey(recA)).toBe('1');
-        expect(threadKey({ id: 'incognito', incognito: true })).toBe('incognito');
         expect(threadKey(null)).toBe(null);
     });
 
@@ -181,11 +180,8 @@ describe('hasChat: the chat mark on a recording row', () => {
         expect(threads.hasChat(recA.id)).toBe(false);
     });
 
-    it('is false for incognito threads and for unknown ids', () => {
+    it('is false for unknown ids', () => {
         const threads = createChatThreads({ storage: () => memoryStorage(), userId: 5 });
-        const secret = threads.select({ id: 'incognito', incognito: true, title: 'Secret' });
-        secret.messages.push({ role: 'user', content: 'Hi' });
-        expect(threads.hasChat('incognito')).toBe(false);
         expect(threads.hasChat(null)).toBe(false);
         expect(threads.hasChat(999)).toBe(false);
     });
@@ -257,21 +253,6 @@ describe('sessionStorage', () => {
         expect(back.messages[1].sources).toEqual([{ n: 1 }]);
         expect(back.messages[1].streaming).toBe(false);
         expect(second.select(recB).input).toBe('half a question');
-    });
-
-    it('never stores an incognito thread, and drops it when another recording opens', () => {
-        const storage = memoryStorage();
-        const threads = createChatThreads({ storage: () => storage, userId: 5 });
-        const inc = threads.select({ id: 'incognito', incognito: true });
-        inc.messages.push({ role: 'user', content: 'secret' });
-        threads.save();
-        expect(storage.getItem(STORAGE_PREFIX + '5') || '').not.toContain('secret');
-        threads.select(null);                         // a moment with nothing open keeps it
-        expect(threads.get('incognito')).not.toBe(null);
-        threads.select(recA);
-        expect(threads.get('incognito')).toBe(null);
-        threads.save();
-        expect(storage.getItem(STORAGE_PREFIX + '5') || '').not.toContain('secret');
     });
 
     it('keeps each user apart and removes another user\'s threads', () => {
