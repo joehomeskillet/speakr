@@ -15,7 +15,7 @@
                 <i class="fas fa-file-text" style="font-size: 13px; opacity: 0.7;"></i>
                 <span v-text="t('transcription.title')" data-i18n="transcription.title"></span>
             </button>
-            <button type="button" class="tab" v-if="!(selectedRecording && selectedRecording.incognito)" :class="{ 'is-active': viewingTranslation }" @click="viewingTranslation = true">
+            <button type="button" class="tab" :class="{ 'is-active': viewingTranslation }" @click="viewingTranslation = true">
                 <i class="fas fa-language" style="font-size: 13px; opacity: 0.7;"></i>
                 <span v-text="t('translation.title')" data-i18n="translation.title"></span>
                 <span v-if="selectedRecording && selectedRecording.transcription_translation_language" class="ml-1 text-xs">(${ translationLanguageLabel(selectedRecording.transcription_translation_language) })</span>
@@ -57,9 +57,8 @@
                 <i class="fas fa-copy"></i>
             </button>
 
-            <!-- Download with dropdown. Not for an incognito recording: the
-                 download routes need a stored recording. -->
-            <div v-if="selectedRecording && selectedRecording.transcription && !selectedRecording.incognito" class="relative">
+            <!-- Download with dropdown. -->
+            <div v-if="selectedRecording && selectedRecording.transcription" class="relative">
                 <button @click="showDownloadMenu = !showDownloadMenu"
                         data-download-toggle
                         class="btn btn--icon"
@@ -132,7 +131,10 @@
         </div>
 
         <!-- No transcription state (only show if not processing and no transcription) -->
-        <div v-if="selectedRecording.status !== 'PROCESSING' && !selectedRecording.transcription" class="text-center py-8">
+        <div v-if="selectedRecording.status === 'FAILED' && !selectedRecording.transcription" class="p-2">
+            {% include 'components/detail/_transcription-failed.html' %}
+        </div>
+        <div v-else-if="selectedRecording.status !== 'PROCESSING' && !selectedRecording.transcription" class="text-center py-8">
             <i class="fas fa-file-text text-3xl text-[var(--text-muted)] mb-3"></i>
             <p class="text-[var(--text-muted)]" v-text="t('transcription.noTranscription')" data-i18n="transcription.noTranscription"></p>
         </div>
@@ -155,13 +157,7 @@
         <div v-if="viewingTranslation && !translationJobActive && !(selectedRecording && selectedRecording.transcription_translation)" class="text-center py-8">
             <i class="fas fa-language text-3xl text-[var(--text-muted)] mb-3"></i>
             <p class="text-[var(--text-muted)] mb-4" v-text="t('translation.noTranslation')" data-i18n="translation.noTranslation"></p>
-            <template v-if="selectedRecording && selectedRecording.incognito">
-                <div class="flex items-center justify-center gap-2" :title="t('tooltips.translateTranscriptIncognito')">
-                    <i class="fas fa-user-secret text-[var(--text-muted)]"></i>
-                    <span class="text-sm text-[var(--text-muted)]" v-text="t('translation.incognitoUnavailable')" data-i18n="translation.incognitoUnavailable"></span>
-                </div>
-            </template>
-            <template v-else-if="selectedRecording.can_edit !== false">
+            <template v-if="selectedRecording.can_edit !== false">
                 <div class="flex items-center justify-center gap-2">
                     <button @click="generateTranslation()" :disabled="translationJobActive"
                             class="btn btn--primary" :class="{ 'opacity-50 cursor-not-allowed': translationJobActive }">
@@ -232,8 +228,8 @@
                              :title="t('tooltips.doubleClickToEditSegment')"
                              :data-start-time="unit.segment.startTime"
                              :data-segment-index="unit.first">
-                            <span v-if="showTimestampsSimpleView"
-                                  class="speaker-segment-timestamp speaker-segment-timestamp--inline">
+                            <span class="speaker-segment-timestamp speaker-segment-timestamp--inline"
+                                  data-segment-timestamp>
                                 ${ formatTimestamp(unit.segment.startTime) }
                             </span>${unit.segment.sentence}
                         </div>

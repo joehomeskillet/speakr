@@ -213,6 +213,14 @@ def format_datetime_localized(dt: datetime, language: str) -> str:
 
 
 FALLBACK_LANGUAGE = 'en'
+
+
+def default_language() -> str:
+    """Language used when nothing selects one: German in clinic mode, else English."""
+    from src.clinic.config import clinic_mode_enabled
+    return 'de' if clinic_mode_enabled() else FALLBACK_LANGUAGE
+
+
 # {{name}}, the placeholder syntax interpolate() in static/js/i18n.js fills.
 _PLACEHOLDER_RE = re.compile(r'\{\{(\w+)\}\}')
 
@@ -247,11 +255,12 @@ def request_language() -> str:
     Language for text produced in the current request.
 
     The signed-in user's interface language comes first, then the
-    Accept-Language header. Outside a request, English is used.
+    Accept-Language header. Without a preference the default language is
+    used (German in clinic mode, else English).
     """
     from flask import has_request_context, request
     if not has_request_context():
-        return FALLBACK_LANGUAGE
+        return default_language()
     try:
         from flask_login import current_user
         if current_user and current_user.is_authenticated:
@@ -261,12 +270,12 @@ def request_language() -> str:
     except Exception:  # app without a login manager
         pass
     # best_match also pairs 'de-AT' with 'de' and 'pt' with 'pt-BR'.
-    return request.accept_languages.best_match(available_languages()) or FALLBACK_LANGUAGE
+    return request.accept_languages.best_match(available_languages()) or default_language()
 
 
 def _resolve_language(language: Optional[str]) -> str:
     """A shipped locale for the given code, else for the current request."""
-    return (match_language(language) if language else request_language()) or FALLBACK_LANGUAGE
+    return (match_language(language) if language else request_language()) or default_language()
 
 
 def _lookup(catalog: dict, key: str) -> Optional[str]:

@@ -1,1 +1,0 @@
-rtk git log -1 --format=%H%n%s

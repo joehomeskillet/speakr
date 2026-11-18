@@ -203,33 +203,6 @@
                         </select>
                         <p class="text-xs text-[var(--text-light)] mt-1" data-i18n="editTagModal.groupAssignmentHelp">Assign the tag to a group to set up sharing with its members</p>
                     </div>
-                    <div id="tagGroupSettingsSection" class="hidden">
-                        <h4 class="text-sm font-medium text-[var(--text-secondary)] mb-3">
-                            <i class="fas fa-users mr-2"></i><span data-i18n="folderManagement.groupSharingSettings">Group sharing settings</span>
-                        </h4>
-                        <div class="space-y-3">
-                            <div class="flex items-start space-x-3">
-                                <input type="checkbox" id="tagAutoShareOnApply" name="auto_share_on_apply" checked class="mt-1 h-4 w-4 text-[var(--bg-accent)] border-[var(--border-secondary)] rounded focus:ring-[var(--border-focus)]">
-                                <div class="flex-1">
-                                    <label for="tagAutoShareOnApply" class="block text-sm font-medium text-[var(--text-secondary)] cursor-pointer">
-                                        <i class="fas fa-share-alt mr-1"></i><span data-i18n="folderManagement.autoShareLabel">Auto-share with all group members</span>
-                                    </label>
-                                    <p class="text-xs text-[var(--text-light)] mt-1" data-i18n="editTagModal.autoShareHelp">All group members can open recordings with this tag</p>
-                                </div>
-                            </div>
-                            <div class="flex items-start space-x-3">
-                                <input type="checkbox" id="tagShareWithGroupLead" name="share_with_group_lead" checked class="mt-1 h-4 w-4 text-[var(--bg-accent)] border-[var(--border-secondary)] rounded focus:ring-[var(--border-focus)]">
-                                <div class="flex-1">
-                                    <label for="tagShareWithGroupLead" class="block text-sm font-medium text-[var(--text-secondary)] cursor-pointer">
-                                        <i class="fas fa-user-shield mr-1"></i><span data-i18n="folderManagement.shareWithAdminsLabel">Share with group admins only</span>
-                                    </label>
-                                    <p class="text-xs text-[var(--text-light)] mt-1" data-i18n="folderManagement.shareWithAdminsHelp">Only group admins can open the recordings</p>
-                                </div>
-                            </div>
-                        </div>
-                        <p class="text-xs text-[var(--text-light)] italic mt-3" data-i18n="folderManagement.shareModeNote">With both on, all group members can open the recordings.</p>
-                    </div>
-
                     <!-- Empty state: shown when internal sharing is enabled but the user
                          is not an admin of any group (so they can't associate this tag
                          with a group). Copy varies by site-admin status. -->
@@ -441,33 +414,6 @@
                         </select>
                         <p class="text-xs text-[var(--text-light)] mt-1" data-i18n="folderManagement.groupAssignmentHelp">Assign the folder to a group to set up sharing with its members</p>
                     </div>
-                    <div id="folderGroupSettingsSection" class="hidden">
-                        <h4 class="text-sm font-medium text-[var(--text-secondary)] mb-3">
-                            <i class="fas fa-users mr-2"></i><span data-i18n="folderManagement.groupSharingSettings">Group sharing settings</span>
-                        </h4>
-                        <div class="space-y-3">
-                            <div class="flex items-start space-x-3">
-                                <input type="checkbox" id="folderAutoShareOnApply" name="auto_share_on_apply" checked class="mt-1 h-4 w-4 text-[var(--bg-accent)] border-[var(--border-secondary)] rounded focus:ring-[var(--border-focus)]">
-                                <div class="flex-1">
-                                    <label for="folderAutoShareOnApply" class="block text-sm font-medium text-[var(--text-secondary)] cursor-pointer">
-                                        <i class="fas fa-share-alt mr-1"></i><span data-i18n="folderManagement.autoShareLabel">Auto-share with all group members</span>
-                                    </label>
-                                    <p class="text-xs text-[var(--text-light)] mt-1" data-i18n="folderManagement.autoShareHelp">All group members can open recordings in this folder</p>
-                                </div>
-                            </div>
-                            <div class="flex items-start space-x-3">
-                                <input type="checkbox" id="folderShareWithGroupLead" name="share_with_group_lead" checked class="mt-1 h-4 w-4 text-[var(--bg-accent)] border-[var(--border-secondary)] rounded focus:ring-[var(--border-focus)]">
-                                <div class="flex-1">
-                                    <label for="folderShareWithGroupLead" class="block text-sm font-medium text-[var(--text-secondary)] cursor-pointer">
-                                        <i class="fas fa-user-shield mr-1"></i><span data-i18n="folderManagement.shareWithAdminsLabel">Share with group admins only</span>
-                                    </label>
-                                    <p class="text-xs text-[var(--text-light)] mt-1" data-i18n="folderManagement.shareWithAdminsHelp">Only group admins can open the recordings</p>
-                                </div>
-                            </div>
-                        </div>
-                        <p class="text-xs text-[var(--text-light)] italic mt-3" data-i18n="folderManagement.shareModeNote">With both on, all group members can open the recordings.</p>
-                    </div>
-
                     <!-- Empty state: shown when internal sharing is enabled but the user
                          is not an admin of any group (so they can't associate this folder
                          with a group). Copy varies by site-admin status. -->

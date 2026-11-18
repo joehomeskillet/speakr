@@ -17,8 +17,8 @@ from src.utils.system_settings import ENV_BACKED_SETTINGS
 app.config['WTF_CSRF_ENABLED'] = False
 app.config['TESTING'] = True
 
-KEY = 'enable_public_sharing'
-ENV = 'ENABLE_PUBLIC_SHARING'
+KEY = 'users_can_delete'
+ENV = 'USERS_CAN_DELETE'
 
 
 @pytest.fixture
@@ -41,7 +41,7 @@ def unsaved_setting():
 def _read():
     # A new app context per read, as each request has its own.
     with app.app_context():
-        return app_module.ENABLE_PUBLIC_SHARING
+        return app_module.USERS_CAN_DELETE
 
 
 def test_env_change_applies_while_no_value_is_saved(unsaved_setting, monkeypatch):
@@ -129,7 +129,7 @@ def restore_settings():
     ('1', False), ('yes', False), ('on', False), ('false', False),
 ])
 def test_env_booleans_are_true_only(unsaved_setting, monkeypatch, raw, expected):
-    # Same rule as before #567: ENABLE_PUBLIC_SHARING=1 meant off.
+    # Same rule as before #567: USERS_CAN_DELETE=1 meant off.
     monkeypatch.setenv(ENV, raw)
     assert _read() is expected
 
@@ -149,7 +149,7 @@ def test_scheduled_deletion_reads_settings_at_run_time(restore_settings, monkeyp
 
 
 @pytest.mark.parametrize('key, env, env_value, saved, expected', [
-    ('enable_public_sharing', 'ENABLE_PUBLIC_SHARING', 'false', 'true', 'false'),
+    ('users_can_delete', 'USERS_CAN_DELETE', 'false', 'true', 'false'),
     ('help_center_url', 'HELP_CENTER_URL', 'https://help.example.test', 'https://other.example.test', 'https://help.example.test'),
     ('max_concurrent_uploads', 'MAX_CONCURRENT_UPLOADS', '7', '2', '7'),
 ])

@@ -24,7 +24,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.app import app, db  # noqa: E402
 from src.models import AuditEvent, SystemSetting  # noqa: E402
 from src.services import audit  # noqa: E402
-from src.utils.incognito_logging import incognito_context  # noqa: E402
 from src.utils.system_settings import ENV_BACKED_SETTINGS  # noqa: E402
 
 app.config['WTF_CSRF_ENABLED'] = False
@@ -158,7 +157,6 @@ def test_no_event_allows_a_content_key():
                  'token', 'token_name', 'size', 'duration'}
     for name, (_group, keys) in audit.EVENTS.items():
         assert not (keys & forbidden), name
-    assert audit.EVENTS['incognito.used'][1] == frozenset()
 
 
 # --- The two write paths ------------------------------------------------------
@@ -303,11 +301,11 @@ def test_views_off_drops_views_and_plays_only():
         audit.record('recording.media.downloaded', recording_id=8300001)
         audit.record('recording.downloaded', recording_id=1, details={'part': 'transcript', 'format': 'docx'})
         audit.record('recording.content.read', recording_id=1, details={'part': 'transcript'})
-        audit.record('share.public.opened', recording_id=1, actor_kind='public_link', details={'share_id': 4})
+        audit.record('recording.exported', recording_id=1, details={'count': 1})
         audit.flush()
         assert sorted(r.event for r in _rows_after(start)) == [
-            'recording.content.read', 'recording.downloaded', 'recording.media.downloaded',
-            'share.public.opened']
+            'recording.content.read', 'recording.downloaded', 'recording.exported',
+            'recording.media.downloaded']
 
 
 @pytest.mark.parametrize('mode,expected', [('full', '198.51.100.9'), ('truncated', '198.51.100.0'), ('off', None)])
@@ -319,83 +317,6 @@ def test_ip_modes_apply_to_new_rows(mode, expected):
         audit.record_in_tx('auth.logout')
         db.session.commit()
         assert _rows_after(start)[0].ip == expected
-
-
-# --- Incognito ----------------------------------------------------------------
-
-def test_inside_an_incognito_request_only_incognito_used_is_recorded():
-    with app.app_context():
-        start = _max_id()
-        with incognito_context():
-            assert audit.record('recording.exported', details={'count': 1}) is False
-            assert audit.record_in_tx('recording.edited', recording_id=1, details={'fields': ['title']}) is None
-            assert audit.record('incognito.used', actor_kind='session', actor_user_id=5) is True
-        db.session.commit()
-        audit.flush()
-        rows = _rows_after(start)
-        assert [r.event for r in rows] == ['incognito.used']
-        row = rows[0]
-        assert (row.actor_user_id, row.outcome, row.details, row.recording_id) == (5, 'success', None, None)
-
-
-def test_the_incognito_row_holds_no_address_and_no_user_agent():
-    """Account, time and outcome only, also with addresses stored in full."""
-    with app.app_context():
-        _set('audit_log_store_ip', 'full')
-    with app.test_request_context('/api/recordings/incognito', method='POST',
-                                  environ_base={'REMOTE_ADDR': '198.51.100.9'},
-                                  headers={'User-Agent': 'incognito-test-agent'}):
-        start = _max_id()
-        with incognito_context():
-            audit.record('incognito.used', actor_kind='session', actor_user_id=8100009, outcome='failed')
-            audit.record_in_tx('incognito.used', actor_kind='session', actor_user_id=8100009)
-        db.session.commit()
-        audit.flush()
-        rows = _rows_after(start, 'incognito.used')
-        assert len(rows) == 2
-        for row in rows:
-            data = row.to_dict()
-            assert data.pop('created_at') and data.pop('id')
-            assert {k: v for k, v in data.items() if v is not None} == {
-                'event': 'incognito.used', 'event_group': 'incognito', 'actor_kind': 'session',
-                'actor_user_id': 8100009, 'outcome': row.outcome}
-        # Another event of the same request keeps both.
-        audit.record_in_tx('auth.logout', actor_kind='session', actor_user_id=8100009)
-        db.session.commit()
-        other = _rows_after(start, 'auth.logout')[0]
-        assert other.ip == '198.51.100.9' and other.user_agent == 'incognito-test-agent'
-
-
-def test_the_fallback_line_is_not_withheld_inside_an_incognito_request(monkeypatch, caplog):
-    from src.utils import incognito_logging
-    incognito_logging.install()
-
-    class Full:
-        def put_nowait(self, item):
-            raise audit.queue.Full()
-
-        def qsize(self):
-            return 0
-
-        def empty(self):
-            return True
-
-    with app.app_context():
-        monkeypatch.setattr(audit, '_queue', Full())
-        with caplog.at_level(logging.ERROR, logger='speakr.audit'):
-            with incognito_context():
-                assert audit.record('incognito.used', actor_kind='session', actor_user_id=5,
-                                    outcome='failed') is False
-                logging.getLogger('some.other').error('secret words')
-        lines = [r.getMessage() for r in caplog.records if r.name == 'speakr.audit']
-        assert len(lines) == 1 and lines[0].startswith('AUDIT-FALLBACK ')
-        payload = json.loads(lines[0][len('AUDIT-FALLBACK '):])
-        assert payload['event'] == 'incognito.used' and payload['actor_user_id'] == 5
-        assert payload['outcome'] == 'failed'
-        assert set(payload) <= {'event', 'event_group', 'actor_kind', 'actor_user_id', 'outcome', 'created_at'}
-        assert not any('secret words' in r.getMessage() for r in caplog.records)
-        with audit._lost_lock:
-            audit._lost.clear()
 
 
 # --- Pruning ------------------------------------------------------------------

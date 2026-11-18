@@ -21,7 +21,7 @@ from openai import OpenAI
 
 from src.services.llm_settings import get_temperature
 from src.database import db
-from src.models import Recording, Tag, TranscriptChunk, SystemSetting, GroupMembership, RecordingTag, InternalShare, SharedRecordingState, User, NamingTemplate
+from src.models import Recording, Tag, TranscriptChunk, SystemSetting, GroupMembership, RecordingTag, User, NamingTemplate
 from src.services.llm import is_using_openai_api, call_llm_completion, format_api_error_message, TEXT_MODEL_NAME, client, http_client_no_proxy, TokenBudgetExceeded
 from src.utils import extract_json_object, safe_json_loads
 from src.utils.ffprobe import get_codec_info, is_video_file, is_lossless_audio, FFProbeError, has_audio_stream, probe_rejected_input
@@ -31,7 +31,6 @@ from src.utils.error_formatting import format_error_for_storage, sanitize_error_
 from src.utils.error_text import log_failure, user_error_text
 from src.utils.transcript_render import resolve_timestamp_template_format
 from src.services.titling import user_title_instructions
-from src.utils.incognito_logging import incognito_log, describe_error, short_code
 from src.utils.mime import guess_media_type
 from src.config.app_config import AUDIO_COMPRESS_UPLOADS, AUDIO_CODEC, AUDIO_BITRATE
 import src.config.app_config as _app_config
@@ -39,7 +38,6 @@ from src.audio_chunking import AudioChunkingService, ChunkProcessingError, Chunk
 from src.transcription_prompts import (
     _SHARED_LLM_SYSTEM_MSG as _SHARED_LLM_SYSTEM_MSG,
     _shared_user_prefix as _shared_user_prefix,
-    build_incognito_summary_prompt,
     build_summary_prompt,
     build_title_prompt,
     build_user_content,
@@ -54,8 +52,6 @@ from src.file_exporter import export_recording, ENABLE_AUTO_EXPORT
 from src.services.transcription_tracking import transcription_tracker
 from src.utils.log_filters import loggable_error, loggable_locator, loggable_path
 from src.services import job_control
-
-# Configuration for internal sharing
 
 # Video retention - when enabled, video files keep their video stream for playback
 
@@ -112,46 +108,6 @@ def resolve_hotwords(hotwords, admin_default):
     if hotwords:
         return hotwords
     return admin_default or hotwords
-
-
-def apply_team_tag_auto_shares(recording_id):
-    """
-    Apply auto-shares for all group tags on a recording after processing completes.
-
-    This function should be called after a recording status changes to COMPLETED.
-    It creates InternalShare records for team members based on group tag settings.
-
-    Args:
-        recording_id: ID of the recording to apply auto-shares for
-    """
-    if not _self.ENABLE_INTERNAL_SHARING:
-        return
-
-    recording = db.session.get(Recording, recording_id)
-    if not recording:
-        return
-
-    # Get all group tags on this recording with auto-share enabled
-    group_tags = db.session.query(Tag).join(
-        RecordingTag, RecordingTag.tag_id == Tag.id
-    ).filter(
-        RecordingTag.recording_id == recording_id,
-        Tag.group_id.isnot(None),
-        db.or_(Tag.auto_share_on_apply == True, Tag.share_with_group_lead == True)
-    ).all()
-
-    if not group_tags:
-        return
-
-    from src.services.tag_sharing import apply_tag_shares
-    shares_created = 0
-    for tag in group_tags:
-        shares_created += apply_tag_shares(recording, tag, require_completed=False,
-                                           sharing_enabled=_self.ENABLE_INTERNAL_SHARING)
-
-    if shares_created > 0:
-        db.session.commit()
-        current_app.logger.info(f"Created {shares_created} auto-shares for recording {recording_id} after processing completed")
 
 
 # format_transcription_for_llm and clean_llm_response live in
@@ -329,13 +285,12 @@ def _connector_specs_log(specs):
 def finish_processing(recording_id):
     """The last step of every processing path (#412).
 
-    Marks the recording COMPLETED, then applies team-tag auto-shares, writes
-    the auto-export and builds the Inquire chunks. Every exit of the pipeline
-    calls this (title only, summary, empty or skipped summary, short
-    transcription), so none of them can skip a step. The steps after COMPLETED
-    are best-effort: a failure is logged and the recording stays COMPLETED. The
-    Inquire chunks are built by the index workers, so the worker running this
-    step is free for the next job.
+    Marks the recording COMPLETED, then writes the auto-export and builds the
+    Inquire chunks. Every exit of the pipeline calls this (title only, summary,
+    empty or skipped summary, short transcription), so none of them can skip a
+    step. The steps after COMPLETED are best-effort: a failure is logged and
+    the recording stays COMPLETED. The Inquire chunks are built by the index
+    workers, so the worker running this step is free for the next job.
     """
     recording = db.session.get(Recording, recording_id)
     if not recording:
@@ -343,10 +298,6 @@ def finish_processing(recording_id):
     recording.status = 'COMPLETED'
     recording.completed_at = datetime.utcnow()
     db.session.commit()
-    try:
-        apply_team_tag_auto_shares(recording_id)
-    except Exception as e:
-        current_app.logger.error(f"Auto-shares failed for recording {recording_id} (recording stays COMPLETED): {e}")
     if ENABLE_AUTO_EXPORT:
         try:
             export_recording(recording_id)
@@ -466,11 +417,11 @@ def resolve_summary_prompt_detail(recording, viewer=None):
         return folder.custom_prompt.strip(), 'folder', folder
     if viewer and viewer.summary_prompt and viewer.summary_prompt.strip():
         return viewer.summary_prompt, 'user', viewer
-    admin_default = SystemSetting.get_setting('admin_default_summary_prompt', None)
+    from src.clinic.prompts import admin_summary_prompt, shipped_summary_prompt
+    admin_default = admin_summary_prompt(SystemSetting.get_setting('admin_default_summary_prompt', None))
     if admin_default:
         return admin_default, 'admin', None
-    from src.config.prompts import DEFAULT_SUMMARY_PROMPT
-    return DEFAULT_SUMMARY_PROMPT, 'default', None
+    return shipped_summary_prompt(), 'default', None
 
 
 def resolve_title_instructions(recording, viewer=None):
@@ -844,9 +795,9 @@ def generate_summary_only_task(app_context, recording_id, custom_prompt_override
             db.session.commit()
             current_app.logger.info(f"Summarization completed for recording {recording_id} in {recording.summarization_duration_seconds}s.")
 
-            # Status, auto-shares, export and Inquire chunks (#305, #412).
+            # Status, export and Inquire chunks (#305, #412).
             # The steps after COMPLETED are best-effort inside finish_processing,
-            # so a share/export hiccup cannot reach the except below and
+            # so an export hiccup cannot reach the except below and
             # overwrite a good summary with an error.
             finish_processing(recording_id)
             from src.services.webhook_dispatch import emit_summary_result
@@ -931,8 +882,8 @@ def extract_audio_from_video(video_filepath, output_format='mp3', cleanup_origin
         video_filepath: Path to input video file
         output_format: Audio format ('mp3', 'wav', 'flac', 'copy'), default 'mp3'
         cleanup_original: If True, deletes original video after extraction
-        allow_debug_copy: Passed to the FFmpeg helper; incognito passes False so
-            no PRESERVE_TEMP_AUDIO copy outlives the request
+        allow_debug_copy: Passed to the FFmpeg helper; False keeps the
+            PRESERVE_TEMP_AUDIO debug copy from being written
 
     Returns:
         tuple: (audio_filepath, mime_type)
@@ -1275,7 +1226,7 @@ def transcribe_chunks_with_connector(connector, filepath, filename, mime_type, l
         diarize: Whether diarization was requested (for connectors that support it)
         hotwords: Optional comma-separated hotwords to bias recognition
         initial_prompt: Optional initial prompt to steer transcription
-        task_scope: Names the caller (a recording, an incognito user) in each
+        task_scope: Names the caller (a recording, the voice check) in each
             chunk's TranscriptionRequest.task_key. A scope for this call
             alone is used when it is empty.
 
@@ -1302,9 +1253,7 @@ def transcribe_chunks_with_connector(connector, filepath, filename, mime_type, l
     elif diarize and not supports_diarization:
         current_app.logger.warning("Diarization requested but connector doesn't support it - transcribing without diarization")
 
-    # The chunks of an incognito file stay in the folder of its request.
-    from src.services.incognito_temp import dir_for_temp_files
-    with tempfile.TemporaryDirectory(dir=dir_for_temp_files(filepath)) as temp_dir:
+    with tempfile.TemporaryDirectory() as temp_dir:
         try:
             # Create chunks (passes connector_specs for duration-based chunking if needed)
             current_app.logger.info(f"Creating chunks for large file: {loggable_path(filepath)}")
@@ -1618,9 +1567,32 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
             actual_filename = original_filename
             audio_filepath = None  # Track temp audio extracted from video (for cleanup)
 
+            # Dictation container (.ds2/.dss): the stored original stays as it
+            # is; the ASR gets a 16 kHz mono WAV decoded next to it. A decoder
+            # failure ends the recording FAILED with a German message, no retry.
+            dictation_wav = None
+            from src.clinic import dictation_upload
+            if dictation_upload.sniff_container(filepath):
+                try:
+                    dictation_wav = dictation_upload.decode_for_asr(filepath)
+                except dictation_upload.DictationDecodeError as decode_error:
+                    current_app.logger.warning(
+                        f"Dictation decode failed for recording {recording_id}: status={decode_error.status}")
+                    return _fail_without_retry(recording, str(decode_error))
+                audio_filepath = dictation_wav
+                actual_filepath = dictation_wav
+                actual_content_type = 'audio/wav'
+                actual_filename = os.path.basename(dictation_wav)
+                try:
+                    recording.audio_duration_seconds = float(dictation_upload.wav_seconds(dictation_wav))
+                    db.session.commit()
+                except Exception as duration_err:
+                    db.session.rollback()
+                    current_app.logger.warning(f"Could not cache the decoded duration of recording {recording_id}: {duration_err}")
+
             # Use codec detection to check if file is a video
             try:
-                is_video = is_video_file(filepath, timeout=10)
+                is_video = False if dictation_wav else is_video_file(filepath, timeout=10)
                 if is_video:
                     current_app.logger.info(f"Video detected for recording {recording_id} ({loggable_path(filepath, recording_id)})")
             except FFProbeError as e:
@@ -2043,6 +2015,8 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
             # to storage), so the local copy is always safe to remove after
             # transcription. Previously this was gated on effective_video_retention,
             # leaking the legacy branch's _audio.* into UPLOAD_FOLDER.
+            if dictation_wav:
+                _remove_derived_temp_files(filepath, dictation_wav)
             if is_video and audio_filepath and audio_filepath != filepath:
                 try:
                     if os.path.exists(audio_filepath):
@@ -2174,7 +2148,7 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
 
             if not will_auto_summarize:
                 # generate_title_task has already finished the recording
-                # (finish_processing: status, auto-shares, export, Inquire chunks).
+                # (finish_processing: status, export, Inquire chunks).
                 reason = "admin setting" if admin_disabled else ("user preference" if user_disabled else "no LLM client")
                 current_app.logger.info(f"Auto-summarization disabled ({reason}), skipping summary for recording {recording_id}")
             else:
@@ -2344,453 +2318,6 @@ def transcribe_audio_task(app_context, recording_id, filepath, filename_for_asr,
     return terminal_error
 
 
-def transcribe_incognito(filepath, original_filename, language=None, min_speakers=None, max_speakers=None, hotwords=None, initial_prompt=None, user=None, transcription_model=None):
-    """
-    Perform transcription without any database operations.
-    Used for Incognito Mode where no data is persisted.
-
-    Args:
-        filepath: Path to the audio file
-        original_filename: Original filename for logging/processing
-        language: Optional language code for transcription
-        min_speakers: Optional minimum speakers for diarization
-        max_speakers: Optional maximum speakers for diarization
-        hotwords: Optional comma-separated hotwords to bias recognition
-        initial_prompt: Optional initial prompt to steer transcription
-        user: Optional user object for language/diarization preferences
-        transcription_model: Optional model choice; validated and defaulted the
-            same way as for an upload (the admin default applies when empty)
-
-    Returns:
-        dict with transcription, title, processing_time, etc.
-    """
-    import time
-    from src.services.transcription import get_registry, TranscriptionRequest
-
-    start_time = time.time()
-    result = {
-        'transcription': None,
-        'title': 'Incognito Recording',
-        'processing_time_seconds': 0,
-        'audio_duration_seconds': None,
-        'error': None
-    }
-
-    # Derived temp files this function creates (extracted audio from video,
-    # converted audio). The route only deletes the original upload temp, so
-    # these must be cleaned here — otherwise every incognito request on a
-    # video/convertible file leaves decoded audio in /tmp, which is both a
-    # disk leak and a violation of the incognito no-retention guarantee.
-    _incognito_derived_files = []
-
-    try:
-        # Get the active connector
-        registry = get_registry()
-        connector = registry.get_active_connector()
-
-        if not connector:
-            raise Exception("No transcription connector available")
-
-        connector_specs = connector.specifications
-        connector_name = type(connector).__name__
-        incognito_log.info(f"[Incognito] Using transcription connector: {connector_name}")
-
-        # The monthly transcription budget applies to an incognito request as
-        # to any other. The route checks it before the upload is saved; this
-        # check covers every other caller.
-        if user is not None and getattr(user, 'id', None):
-            can_proceed, _usage_pct, budget_msg = transcription_tracker.check_budget(user.id)
-            if not can_proceed:
-                incognito_log.warning(f"[Incognito] User {user.id} exceeded the transcription budget")
-                result['error'] = budget_msg
-                result['error_code'] = 'transcription_budget_exceeded'
-                return result
-
-        # Determine mime type from the real filename, but use an anonymized
-        # name (extension only) everywhere downstream: the shared conversion
-        # utilities and connectors log the filename they are given, and user
-        # filenames can themselves be sensitive (HIPAA guidance: no PHI in
-        # logs — "jane-doe-session-3.mp3" is PHI even if the audio never is).
-        mime_type = guess_media_type(original_filename) or 'audio/mpeg'
-        _anon_ext = os.path.splitext(original_filename)[1].lower() or '.audio'
-        anon_filename = f"incognito{_anon_ext}"
-
-        # Handle video extraction if needed
-        actual_filepath = filepath
-        actual_filename = anon_filename
-        actual_content_type = mime_type
-
-        # Check if file is video and needs audio extraction
-        # A video without an audio track, and a file ffprobe read and
-        # rejected, go through conversion, which refuses them with
-        # audio_decode_failed (#482). Only a probe that did not finish falls
-        # back to the extension.
-        is_video = False
-        try:
-            _codec_info = get_codec_info(filepath, timeout=10)
-            is_video = bool(_codec_info.get('has_video')) and has_audio_stream(_codec_info)
-        except FFProbeError as e:
-            incognito_log.warning(f"[Incognito] Failed to probe file: {describe_error(e)}")
-            if not probe_rejected_input(e):
-                video_extensions = ['.mp4', '.mov', '.avi', '.mkv', '.webm', '.wmv', '.flv', '.m4v']
-                is_video = any(original_filename.lower().endswith(ext) for ext in video_extensions)
-
-        video_passthrough_active = is_video and _self.VIDEO_PASSTHROUGH_ASR
-
-        if is_video:
-            if _self.VIDEO_PASSTHROUGH_ASR:
-                incognito_log.info(f"[Incognito] Video passthrough: sending original video to ASR (no audio extraction)")
-            else:
-                incognito_log.info(f"[Incognito] Video detected, extracting audio...")
-                try:
-                    # allow_debug_copy=False: the PRESERVE_TEMP_AUDIO debug copy
-                    # is untracked by incognito cleanup and would retain audio.
-                    audio_filepath, audio_mime_type = extract_audio_from_video(
-                        filepath, cleanup_original=False, allow_debug_copy=False)
-                    actual_filepath = audio_filepath
-                    actual_content_type = audio_mime_type
-                    actual_filename = os.path.basename(audio_filepath)
-                    if audio_filepath and audio_filepath != filepath:
-                        _incognito_derived_files.append(audio_filepath)
-                except Exception as e:
-                    incognito_log.error(f"[Incognito] Failed to extract audio from video: {describe_error(e)}")
-                    # The message carries FFmpeg's output (its build and the
-                    # temp path): answer from the FFmpeg error it wraps, or
-                    # with a fixed message (#482).
-                    if isinstance(e, FFmpegError):
-                        raise
-                    if isinstance(e.__cause__, FFmpegError):
-                        raise e.__cause__ from None
-                    raise Exception("Audio extraction failed.") from e
-
-        # Convert audio format if needed
-        if video_passthrough_active:
-            incognito_log.info(f"[Incognito] Video passthrough: skipping codec conversion")
-        else:
-            try:
-                needs_chunking_check = (
-                    chunking_service and
-                    chunking_service.needs_chunking(actual_filepath, False, connector_specs)
-                )
-
-                conversion_result = convert_if_needed(
-                    filepath=actual_filepath,
-                    original_filename=actual_filename,
-                    needs_chunking=needs_chunking_check,
-                    is_asr_endpoint=False,
-                    delete_original=False,
-                    connector_specs=connector_specs
-                )
-
-                if conversion_result.was_converted:
-                    incognito_log.info(f"[Incognito] Audio converted: {conversion_result.original_codec} -> {conversion_result.final_codec}")
-                # Every file the conversion wrote is removed afterwards: a
-                # converted one, and also a remuxed or a compressed one,
-                # which was_converted does not name.
-                out_path = conversion_result.output_path
-                if out_path and out_path not in (filepath, actual_filepath):
-                    _incognito_derived_files.append(out_path)
-                actual_filepath = conversion_result.output_path
-                actual_content_type = conversion_result.mime_type
-                actual_filename = os.path.basename(conversion_result.output_path)
-            except FFmpegError:
-                # A file FFmpeg cannot decode is refused as on upload (#482),
-                # not sent to the transcription service as it is.
-                raise
-            except Exception as e:
-                incognito_log.warning(f"[Incognito] Audio conversion check failed: {describe_error(e)}, proceeding with original")
-
-        # Get audio duration if chunking service is available
-        if chunking_service:
-            try:
-                result['audio_duration_seconds'] = int(chunking_service.get_audio_duration(actual_filepath))
-            except Exception as e:
-                incognito_log.warning(f"[Incognito] Could not get audio duration: {describe_error(e)}")
-
-        # Determine diarization settings (respects ASR_DIARIZE env var)
-        should_diarize = getattr(connector, 'default_diarize', connector.supports_diarization)
-
-        # Same settings chain as an upload (#412 audit P14): request value, then
-        # ASR speaker-count env defaults, the user's defaults and the admin
-        # defaults. Incognito has no tags or folder. An empty language falls
-        # through to the user's language, as on upload ("auto" forces detection).
-        from src.services.transcription_defaults import resolve_transcription_params
-        _resolved = resolve_transcription_params(
-            None,
-            {'language': language, 'min_speakers': min_speakers, 'max_speakers': max_speakers,
-             'hotwords': hotwords, 'initial_prompt': initial_prompt,
-             'transcription_model': transcription_model},
-            tags=[], folder=None, owner=user)
-        language = _resolved['language']
-        min_speakers, max_speakers = _resolved['min_speakers'], _resolved['max_speakers']
-        hotwords, initial_prompt = _resolved['hotwords'], _resolved['initial_prompt']
-        transcription_model = _resolved['transcription_model']
-
-        # Normalize at the boundary — legacy values like "français" must
-        # become "fr" before the connector receives them (issue #256).
-        from src.utils.language import normalize_language_code
-        language = normalize_language_code(language)
-
-        # Check if chunking is needed
-        if video_passthrough_active:
-            should_chunk = False
-            incognito_log.info(f"[Incognito] Video passthrough: chunking skipped (ASR backend handles internally)")
-        else:
-            should_chunk = (chunking_service and
-                           chunking_service.needs_chunking(actual_filepath, False, connector_specs))
-
-        # Same model an upload would get, so a service without its own default
-        # model works in incognito mode too (#409).
-        incognito_log.info(f"[Incognito] Starting transcription: diarize={should_diarize}, language={short_code(language)}, chunking={should_chunk}")
-
-        # Names the user in the task key, so the same audio sent again by the
-        # same user attaches to a job the service still holds.
-        from src.services.transcription.provider_tasks import audio_task_key
-        incognito_scope = f"speakr-incognito-{getattr(user, 'id', None) or 'anon'}"
-
-        if should_chunk:
-            # Use chunking for large files
-            chunk_result = transcribe_chunks_with_connector(
-                connector, actual_filepath, actual_filename, actual_content_type, language,
-                diarize=should_diarize, hotwords=hotwords, initial_prompt=initial_prompt,
-                transcription_model=transcription_model,
-                task_scope=incognito_scope,
-            )
-
-            if hasattr(chunk_result, 'segments') and chunk_result.segments:
-                result['transcription'] = chunk_result.to_storage_format()
-            else:
-                result['transcription'] = chunk_result.text if hasattr(chunk_result, 'text') else chunk_result
-        else:
-            # Single file transcription
-            with open(actual_filepath, 'rb') as audio_file:
-                request = TranscriptionRequest(
-                    audio_file=audio_file,
-                    filename=actual_filename,
-                    mime_type=actual_content_type,
-                    language=language,
-                    diarize=should_diarize,
-                    min_speakers=min_speakers,
-                    max_speakers=max_speakers,
-                    prompt=initial_prompt,
-                    hotwords=hotwords,
-                    model=transcription_model,
-                    task_key=audio_task_key(incognito_scope, actual_filepath),
-                )
-
-                response = connector.transcribe(request)
-
-            if hasattr(response, 'segments') and response.segments:
-                result['transcription'] = response.to_storage_format()
-            else:
-                result['transcription'] = response.text if hasattr(response, 'text') else response
-
-        result['processing_time_seconds'] = int(time.time() - start_time)
-        if not _has_transcript_content(result['transcription']):
-            result['transcription'] = None
-            result['error'] = EMPTY_TRANSCRIPT_MESSAGE
-            return result
-        incognito_log.info(f"[Incognito] Transcription completed in {result['processing_time_seconds']}s")
-        _record_incognito_transcription_usage(user, connector, actual_filepath, result['audio_duration_seconds'])
-
-        # Generate a title if we have transcription
-        if result['transcription'] and len(result['transcription']) > 10:
-            result['title'] = _generate_incognito_title(result['transcription'], user)
-
-        return result
-
-    except Exception as e:
-        incognito_log.error(f"[Incognito] Transcription failed: {describe_error(e)}")
-        # FFmpeg's output names its build and the temp path (#482): the
-        # response gets a fixed message instead.
-        if isinstance(e, FFmpegNotFoundError):
-            result['error'] = 'Audio conversion tool (FFmpeg) not found on server.'
-            result['error_code'] = 'audio_converter_missing'
-        elif isinstance(e, FFmpegTimeoutError):
-            result['error'] = 'Audio conversion timed out.'
-            result['error_code'] = 'audio_conversion_timeout'
-        elif isinstance(e, FFmpegError):
-            result['error'] = AUDIO_DECODE_FAILED_MESSAGE
-            result['error_code'] = 'audio_decode_failed'
-        else:
-            # The service's own text can carry upstream detail. The answer is
-            # the plain explanation a failed job shows for a known kind of
-            # error, and a fixed message otherwise.
-            from src.utils.error_formatting import format_error_for_user
-            formatted = format_error_for_user(str(e))
-            known = formatted['is_known'] or formatted['type'] != 'unknown'
-            result['error'] = formatted['message'] if known else 'The transcription could not be completed.'
-            result['error_type'] = formatted['type']
-        result['processing_time_seconds'] = int(time.time() - start_time)
-        return result
-
-    finally:
-        # Delete the derived temp files (extracted/converted audio) this
-        # function created. The original upload temp is owned and removed by
-        # the route's finally; we must never delete `filepath` here.
-        for _tmp in _incognito_derived_files:
-            if _tmp and _tmp != filepath:
-                try:
-                    if os.path.exists(_tmp):
-                        os.remove(_tmp)
-                        incognito_log.info(f"[Incognito] Derived temp file deleted: {_tmp}")
-                except OSError as _e:
-                    incognito_log.error(f"[Incognito] Failed to delete derived temp file {_tmp}: {describe_error(_e)}")
-
-
-def _record_incognito_transcription_usage(user, connector, audio_path, duration_seconds):
-    """Count an incognito transcription against the user's monthly budget.
-
-    The same daily usage row as an ordinary transcription: user id, date,
-    connector, model, seconds, cost and request count. The row holds no
-    title, no filename, no content and no recording id.
-    """
-    user_id = getattr(user, 'id', None)
-    if not user_id:
-        return
-    try:
-        duration = duration_seconds
-        if (not duration or duration <= 0) and chunking_service and audio_path and os.path.exists(audio_path):
-            duration = chunking_service.get_audio_duration(audio_path)
-        if not duration or duration <= 0:
-            incognito_log.warning("[Incognito] Could not determine audio duration for usage tracking")
-            return
-        connector_type = getattr(connector, 'PROVIDER_NAME', None) or type(connector).__name__
-        transcription_tracker.record_usage(
-            user_id=user_id,
-            connector_type=connector_type,
-            audio_duration_seconds=int(duration),
-            model_name=getattr(connector, 'model', None) or connector_type,
-        )
-        incognito_log.info(f"[Incognito] Recorded transcription usage: {int(duration)}s for user {user_id}")
-    except Exception as e:
-        incognito_log.warning(f"[Incognito] Failed to record transcription usage: {describe_error(e)}")
-
-
-def _generate_incognito_title(transcription_text, user=None):
-    """Generate a title for incognito recording without database storage."""
-    if not client:
-        return "Incognito Recording"
-
-    try:
-        # Get formatted text for LLM
-        formatted_text = format_transcription_for_llm(transcription_text)
-        # Limit text for title generation
-        # Same transcript limit as the stored title (admin setting, #412).
-        _limit = SystemSetting.get_setting('transcript_length_limit', 30000)
-        limited_text = formatted_text if _limit == -1 else formatted_text[:_limit]
-
-        # Get user language preference
-        user_output_language = user.output_language if user else None
-        # Incognito recordings have no tags or folder, so only the user,
-        # admin and shipped levels apply.
-        title_instructions, _ = user_title_instructions(user)
-
-        system_message_content, prompt_text = build_title_prompt(
-            limited_text,
-            title_instructions,
-            user_output_language,
-            False,
-        )
-
-        # Counted against the user's monthly token budget, as for a stored
-        # recording: the usage row holds numbers and the model name only.
-        completion = call_llm_completion(
-            messages=[
-                {"role": "system", "content": system_message_content},
-                {"role": "user", "content": prompt_text}
-            ],
-            temperature=get_temperature('title'),
-            # Match the main title-generation path so reasoning-model users
-            # have a single knob (TITLE_MAX_TOKENS) that covers both flows.
-            max_tokens=int(os.environ.get("TITLE_MAX_TOKENS", "5000")),
-            user_id=getattr(user, 'id', None),
-            operation_type='title_generation'
-        )
-
-        raw_response = completion.choices[0].message.content
-        title = clean_llm_response(raw_response) if raw_response else None
-
-        if title and len(title.strip()) > 0:
-            return title.strip()
-
-    except Exception as e:
-        incognito_log.warning(f"[Incognito] Title generation failed: {describe_error(e)}")
-
-    return "Incognito Recording"
-
-
-def generate_incognito_summary(transcription_text, user=None):
-    """Generate a summary for incognito recording without database storage.
-
-    Raises TokenBudgetExceeded when the user's monthly token budget is used up.
-    """
-    if not client:
-        return None
-
-    try:
-        # Get formatted text for LLM
-        formatted_text = format_transcription_for_llm(transcription_text)
-
-        # Get configurable transcript length limit
-        transcript_limit = SystemSetting.get_setting('transcript_length_limit', 30000)
-        if transcript_limit == -1:
-            transcript_text = formatted_text
-        else:
-            transcript_text = formatted_text[:transcript_limit]
-
-        # Get user preferences
-        user_output_language = user.output_language if user else None
-        user_summary_prompt = user.summary_prompt if user else None
-
-        # Determine summarization instructions
-        if user_summary_prompt:
-            summarization_instructions = user_summary_prompt
-        else:
-            admin_default_prompt = SystemSetting.get_setting('admin_default_summary_prompt', None)
-            if admin_default_prompt:
-                summarization_instructions = admin_default_prompt
-            else:
-                from src.config.prompts import DEFAULT_SUMMARY_PROMPT
-                summarization_instructions = DEFAULT_SUMMARY_PROMPT
-
-        system_message_content, prompt_text = build_incognito_summary_prompt(
-            transcript_text,
-            summarization_instructions,
-            user_output_language,
-        )
-
-        incognito_log.info(f"[Incognito] Generating summary...")
-
-        # Counted against the user's monthly token budget, as for a stored
-        # recording: the usage row holds numbers and the model name only.
-        completion = call_llm_completion(
-            messages=[
-                {"role": "system", "content": system_message_content},
-                {"role": "user", "content": prompt_text}
-            ],
-            temperature=get_temperature('summary'),
-            max_tokens=int(os.environ.get("SUMMARY_MAX_TOKENS", "3000")),
-            user_id=getattr(user, 'id', None),
-            operation_type='summarization'
-        )
-
-        raw_response = completion.choices[0].message.content
-        summary = clean_llm_response(raw_response) if raw_response else None
-
-        if summary:
-            incognito_log.info(f"[Incognito] Summary generated: {len(summary)} characters")
-            return summary
-
-    except TokenBudgetExceeded:
-        incognito_log.warning(f"[Incognito] Token budget exceeded for user {getattr(user, 'id', None)}")
-        raise
-    except Exception as e:
-        incognito_log.warning(f"[Incognito] Summary generation failed: {describe_error(e)}")
-
-    return None
-
-
 def translate_transcription_task(app_context, recording_id, user_id=None, target_language=None, params=None,
                                  progress=None, **kwargs):
     """Translate a recording's transcription (job wrapper entry point)."""
@@ -2830,7 +2357,6 @@ def translate_transcription_task(app_context, recording_id, user_id=None, target
 # Hot-applied System Settings (high priority) with environment fallback.
 from src.utils.system_settings import apply_hot_settings
 _SYSTEM_SETTING_MAP = {
-    "ENABLE_INTERNAL_SHARING": ("enable_internal_sharing", "ENABLE_INTERNAL_SHARING", False),
     "VIDEO_RETENTION": ("video_retention", "VIDEO_RETENTION", False),
     "VIDEO_PASSTHROUGH_ASR": ("video_passthrough_asr", "VIDEO_PASSTHROUGH_ASR", False),
 }

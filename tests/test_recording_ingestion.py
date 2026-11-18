@@ -847,12 +847,10 @@ def test_store_recording_adds_tags_in_order_and_the_folder(tagworld, staged):
         tags = [db.session.get(Tag, w.own_tag2), db.session.get(Tag, w.group_tag)]
         folder = db.session.get(Folder, w.own_folder)
         with patch("src.services.storage_quota.reserve_room"), \
-                patch("src.api.folders.apply_group_folder_shares") as shares, \
                 patch.object(app.logger, "info") as info:
             stored = _store(w.owner, staged, _Storage(), selected_tags=tags, selected_folder=folder,
                             user_title="Board meeting")
         rec_id = stored.recording.id
-        shares.assert_called_once_with(stored.recording, folder)
         # Tags are named by id at INFO, in the order they were selected.
         assert info.call_args_list[1].args == (
             f"Added 2 tags to recording {rec_id}: tag ids {w.own_tag2}, {w.group_tag}",)
@@ -863,14 +861,6 @@ def test_store_recording_adds_tags_in_order_and_the_folder(tagworld, staged):
         assert (rec.title, rec.title_source) == ("Board meeting", "user")
         rows = RecordingTag.query.filter_by(recording_id=rec_id).order_by(RecordingTag.order).all()
         assert [(r.tag_id, r.order) for r in rows] == [(w.own_tag2, 1), (w.group_tag, 2)]
-
-
-def test_store_recording_without_a_folder_shares_nothing(owner, staged):
-    with app.app_context():
-        with patch("src.services.storage_quota.reserve_room"), \
-                patch("src.api.folders.apply_group_folder_shares") as shares:
-            _store(owner, staged, _Storage())
-        shares.assert_not_called()
 
 
 def test_store_recording_recorded_in_app_skips_the_quota(owner, staged):

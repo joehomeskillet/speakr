@@ -18,15 +18,14 @@
              between wrapped rows. -->
         <div class="detail-meta bg-[var(--bg-secondary)] border-b border-[var(--border-primary)] px-5 py-2.5 flex-shrink-0 flex flex-wrap items-center gap-x-2.5 gap-y-2 text-xs text-[var(--text-muted)]">
             <!-- Chip group (folder + tags), tight 4px gap like the sidebar -->
-            <div v-if="(foldersEnabled && selectedRecording.folder_id && !selectedRecording.incognito) || (selectedRecording.tags && selectedRecording.tags.length > 0)"
+            <div v-if="(foldersEnabled && selectedRecording.folder_id) || (selectedRecording.tags && selectedRecording.tags.length > 0)"
                  class="flex flex-wrap items-center gap-1">
-                <span v-if="foldersEnabled && selectedRecording.folder_id && !selectedRecording.incognito"
+                <span v-if="foldersEnabled && selectedRecording.folder_id"
                       class="chip"
                       :style="{ '--tag': getFolderMarkColor(selectedRecording.folder_id) }"
                       :title="t('tooltips.folderLabel', { name: getFolderName(selectedRecording.folder_id) })">
                     <i class="fas fa-folder chip__icon"></i>
                     <span class="chip__label">${ getFolderName(selectedRecording.folder_id) }</span>
-                    <i v-if="selectedRecording.folder && selectedRecording.folder.is_foreign" class="fas fa-share-nodes chip__shared"></i>
                 </span>
                 <span v-for="tag in selectedRecording.tags" :key="tag.id"
                       class="chip"
@@ -34,7 +33,6 @@
                       :title="tag.group_id ? t('tooltips.groupLabel', { name: tag.group_name }) : tag.name">
                     <i v-if="tag.group_id" class="fas fa-users chip__icon"></i>
                     <span class="chip__label">${tag.name}</span>
-                    <i v-if="tag.is_foreign" class="fas fa-share-nodes chip__shared"></i>
                 </span>
             </div>
 

@@ -12,13 +12,6 @@
         <span v-text="t('help.audioDeletedMessage')"></span>
     </div>
 
-    <!-- Show message for incognito recordings (no audio stored) -->
-    <div v-else-if="selectedRecording.incognito"
-         class="text-[var(--text-muted)] text-sm flex items-center gap-2 py-1">
-        <i class="fas fa-user-secret"></i>
-        <span v-text="t('incognito.audioNotStored')"></span>
-    </div>
-
     <!-- Audio Player -->
     <div v-else>
         <!-- Video/Audio element wrapped in Teleport for fullscreen -->

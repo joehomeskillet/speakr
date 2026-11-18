@@ -7,164 +7,68 @@ nav_order: 6
 
 # Group Collaboration
 
-Groups transform how groups work together in Speakr, enabling seamless collaboration without manual sharing overhead. When your organization uses groups, recordings automatically reach the right people at the right time, eliminating the tedious process of individually sharing each conversation with every relevant group member.
+Groups collect users who work together. Group tags and group folders belong to a group and are managed by its admins. Applying a group tag organizes a recording. It does not give other users access to that recording.
 
 ## Understanding Groups
 
-Groups in Speakr are organized groups of users who regularly need access to the same recordings. Unlike individual sharing where you manually grant access user-by-user, groups use smart tags that automatically share content with all group members when applied. This automation makes groups perfect for departments, project groups, or any collection of people who work together regularly.
-
-Your administrator creates and manages groups through the admin dashboard. Your administrator can also allow some or all users to create groups; see [Creating a Group](#creating-a-group). Once you're added to a group, you gain access to group-specific tags and automatically receive recordings when teammates apply group tags. This creates a collaborative space where everyone stays informed without constant manual intervention.
-
-Groups work alongside personal organization tools. Your personal tags remain private and independent, while group tags create shared context. You can combine both - use personal tags for your workflow organization and group tags for automatic collaboration, creating a system that serves both individual and group needs.
+A site administrator creates groups, and can allow other users to create them. Once you are a member, you can use that group's tags and folders on your own recordings. Your personal tags stay yours.
 
 ## Group Tags
 
-Group tags are the engine that powers group collaboration. They look and work like regular tags but carry special automatic sharing capabilities. When anyone applies a group tag to a recording, every group member instantly gains access without additional steps.
-
-### Recognizing Group Tags
-
-Group tags display with a distinctive users icon (👥) throughout the Speakr interface, making them immediately identifiable. Whether you're browsing the tag selector, viewing a recording's tags, or managing tags in settings, the users icon clearly marks group versus personal tags.
-
-In your tag management interface, group tags show the group name and cannot be deleted by regular users. Only group admins can create or remove group tags, ensuring centralized control over group-wide organizational systems. This prevents confusion where different group members create conflicting organizational structures.
+Group tags look like personal tags and show a users icon. Only group admins create or delete them.
 
 ### Applying Group Tags
 
-Applying a group tag works exactly like applying a personal tag - open a recording, click the tags button, and select from your available tags. The difference happens behind the scenes: the moment you apply a group tag, Speakr automatically creates internal shares for every group member.
+Open a recording, click the tags button, and select a group tag you can use. The tag is stored on your recording. Other members of the group do not receive the recording.
 
-This automatic sharing grants group members both view and edit access. They can read transcriptions and summaries, listen to audio, modify notes and metadata, and add their own tags. However, even with edit access, only the recording's original owner can delete it. This balance enables collaboration while protecting content ownership.
+A group admin can move a tag into a group, move it to another group, or make it personal again. Only an admin of the destination group can do that. Every recording that already carries the tag must be one the admin owns.
 
-The automatic sharing is intelligent. If a group member already has access through a previous share, Speakr doesn't create duplicates. If someone is added to the group later, they don't automatically gain access to old recordings - only recordings tagged after they join. This prevents retroactive access leakage while maintaining security.
-
-A group admin can also change the group of a tag that is already on recordings: turn a personal tag into a group tag, move a group tag to another group, or turn it back into a personal tag. The members of the previous group lose the access they had through the tag, and the completed recordings that carry the tag are shared with the new group's members as the tag's sharing settings say. A share made by hand stays, and so does access a member still has through another group tag or a group folder. Making a tag a group tag requires admin rights in the new group, and each recording that carries it must allow the group tag: on another user's recording, you need edit access to it.
-
-The same applies when a group admin changes a tag's sharing settings and the group stays the same. Turning on **Share tagged recordings with all group members** shares the completed recordings that carry the tag with every member. Turning it off, or keeping only **Share tagged recordings with group admins**, ends the access the tag gave to the members it no longer includes, and turning off both settings ends all access the tag gave. Widening the setting from group admins to all members adds the members who had no access. Recordings that are still processing are shared when processing completes. A share made by hand and access through another group tag or group folder stay. With **Share tagged recordings with group admins** only, an admin who becomes a regular member loses the access the tag gave. The same rules hold for group folders, except that the recordings in a folder are shared whatever their processing status, and only the folder's own recordings count: a subfolder has its own group and settings.
-
-API v1 accepts the same changes on `PUT /api/v1/tags/{id}` and `PATCH /api/v1/folders/{id}`, with the same rules. A change that shares recordings requires a token with the `share` scope.
-
-### Using Group Tags Effectively
-
-Apply group tags immediately after important meetings or discussions to ensure group-wide visibility while context is fresh. This creates a shared understanding quickly, letting everyone review content and add notes while details are clear. Prompt tagging turns recordings from individual resources into group knowledge.
-
-Combine group tags with personal tags for powerful organization. Use group tags to identify the audience (which group needs access) and personal tags for workflow status or content type. For example, tag a recording with both the "Engineering" group tag and your personal "Action Required" tag. The group tag shares with colleagues, while your personal tag tracks your follow-ups.
-
-When recordings touch multiple groups, you can apply multiple group tags. Each group tag grants access to its respective group members, creating overlapping access that matches cross-functional work. Be thoughtful with multi-group tagging - ensure all tagged groups actually need access to avoid overcommunicating.
+API v1 accepts the same group change on `PUT /api/v1/tags/{id}` and `PATCH /api/v1/folders/{id}`.
 
 ### Group Tag Features
 
-Some group tags carry special capabilities beyond basic sharing. Your administrator might configure group tags with custom retention policies that override global deletion rules. A "Legal Records" group tag might preserve recordings for seven years, while a "Daily Stand-ups" tag might auto-delete after two weeks. These tag-specific retention policies happen automatically - you just apply the tag and the system enforces the appropriate lifecycle.
-
-Protected group tags prevent automatic deletion entirely, regardless of age. Recordings with protected tags are never auto-deleted, making them perfect for compliance requirements, important decisions, or reference material. The protection is permanent until someone removes the tag, ensuring critical content remains accessible.
-
-Group tags can also include custom AI prompts that generate specialized summaries. When you apply a tag with a custom prompt, reprocessing the summary uses that prompt instead of your default. This lets different types of group content receive appropriate AI treatment - technical reviews get detailed technical summaries, while executive briefings get high-level overviews.
-
-## Working with Group Recordings
-
-Recordings shared via group tags appear in your main interface alongside your own recordings. Clear visual indicators help distinguish content sources and access levels, so you always know what you're looking at and what you can do with it.
-
-### Identifying Group Content
-
-The recording cards show multiple badges that communicate status at a glance. A blue "Group" badge indicates the recording has group tags applied, signaling it's group content. If you don't own the recording, a purple "Shared" badge appears, showing you've received access through sharing. Hovering over shared recordings reveals the owner's username, maintaining clarity about content source.
-
-Group tags themselves appear on recording cards, each marked with the users icon. When you see multiple tags on a recording, the icon helps identify which are group-wide (accessible to all group members) versus personal tags (visible only to the owner).
-
-The **From others** filter in the sidebar isolates recordings others have shared with you, including those shared via group tags. This filtered view helps focus on collaborative content when you need to review group discussions without distraction from your personal recordings.
-
-### Your Permissions on Group Recordings
-
-As a group member, you receive edit permissions on recordings with group tags. This means you can modify the title to add clarity, update the participant list with correct names, adjust the meeting date if needed, edit notes to add context or corrections, and add tags for better organization.
-
-Your edit capabilities come with important limitations. You cannot delete group recordings even with edit access - only the original owner can delete content. This prevents accidental data loss while enabling collaborative enhancement. You also cannot share group recordings with users outside the group without re-share permissions, which are typically reserved for group administrators.
-
-### Personal Notes on Group Recordings
-
-When you access a group recording, you can add personal notes that remain completely private. These personal notes never appear to the recording owner or other group members - they're your private space for observations, follow-ups, questions, or action items.
-
-Personal notes are kept when your access to the recording ends, for example when you leave the group. They cannot be seen while you have no access, and they are shown again if you get access to the recording again.
-
-Use personal notes to track what matters to you without cluttering shared notes. The recording owner's notes should contain universal context, while your personal notes capture your specific perspective, tasks, or concerns. This separation keeps shared notes focused while giving everyone space for individual tracking.
+A group tag can carry a retention period that overrides the global deletion rule, a protection flag that stops automatic deletion, and a custom prompt used when the summary is regenerated.
 
 ## Group Membership
 
-Your group membership determines which group tags you can see and which recordings you automatically receive when teammates tag content. Group administrators can adjust membership as projects and roles evolve.
-
 ### Creating a Group
 
-If your administrator allows you to create groups, **Group Management** appears in your account menu, and the **Create group** button appears on that page. Enter a name and an optional description. Group names are unique across the instance, ignoring case, so a name that is already in use is refused.
-
-You become the group admin of a group you create. You can rename it, add and remove members, change their roles, and manage its tags and folders. You can also delete the group while you are one of its group admins. Other group admins of the group cannot delete it; a site admin can.
+If you are allowed to create groups, **Group Management** appears in your account menu. Enter a name and an optional description. Names are unique across the instance, ignoring case. You become the group admin of a group you create. You can rename it, add and remove members, change roles, and manage its tags and folders. You can delete the group while you remain a group admin of it. Other group admins cannot delete it. A site admin can.
 
 ### Joining a Group
 
-Group membership is managed by site admins and group admins. When you're added to a group, you immediately gain access to that group's tags and can apply them to your recordings. You also begin receiving recordings when teammates use group tags going forward.
-
-New group membership doesn't grant retroactive access. If a group has been using group tags before you joined, you won't automatically see older group-tagged recordings. This prevents information leakage and maintains security. Group admins can manually share historical recordings if needed.
+Site admins and group admins add members. A new member can use the group's tags on their own recordings. Membership does not open other members' recordings.
 
 ### Group Roles
 
-Groups have two roles that determine capabilities within the group structure. Regular members can use group tags on their recordings and access recordings tagged by others. They see group content, contribute their recordings to the group space, and participate in collaborative discussions.
+Members use the group's tags and folders on their own recordings. Group admins also add and remove members, change roles, and create, edit, and delete the group's tags and folders. They use a group management page that shows only their groups.
 
-Group admins have additional responsibilities. They can add or remove group members, promoting collaboration flexibility. They can create new group tags with custom settings, defining the organizational structure for group content. They can modify or delete existing group tags, maintaining the group's tag taxonomy as needs evolve. For administrators, group admins can access a limited version of the admin dashboard focused solely on group management.
+### Leaving a Group
 
-### Leaving Groups
-
-When you leave a group (either voluntarily or through admin action), several things happen automatically. You lose access to group tags, so they disappear from your tag selectors. Your access to group-shared recordings continues if you received them before leaving, but you won't receive new group recordings going forward. Any personal notes you created on group recordings are preserved if you retain access through other sharing mechanisms.
+When you leave a group, its tags disappear from your tag selectors. Recordings you own stay yours.
 
 ## Group Administration for Group Admins
 
-If you're a group admin rather than a regular member, you have access to group management capabilities through a special admin interface. This limited admin dashboard focuses exclusively on group management without exposing system-wide administrative features.
-
 ### Accessing Group Management
 
-Group admins, and users who are allowed to create groups, see a "Group Management" link in their account menu, replacing the regular admin link. Clicking this takes you to a focused interface showing only groups you administer. You cannot see or manage other groups, maintaining security boundaries between different group administrators.
-
-The group management interface lets you view group members with their roles, add new members from your organization, change member roles between admin and regular member, remove members who no longer need access, and manage group tags including retention and protection settings.
+Group admins, and users who may create groups, see **Group Management** in the account menu. The page lists only groups you administer.
 
 ### Managing Group Members
 
-Adding members to your group makes them immediately eligible to receive group-tagged recordings. Enter the exact username or the exact email address of the person, select their initial role, and add them. The page does not list or search other users, so you need to know the username or email address of the person to add. They gain access to group tags right away and will receive future group recordings.
+Enter the exact username or the exact email address of the person, choose Member or Admin, and add them. The page does not list other users. The email address is compared without regard to case.
 
-Changing roles between member and admin adjusts capabilities. Promoting a member to admin grants them group management abilities, useful for distributing administrative workload. Demoting an admin to member removes management capabilities while preserving their group access.
-
-Removing members cuts off their access to future group recordings. They keep access to recordings they've already received, but new group tags won't share with them anymore. If you need to fully revoke access to existing content, you'll need to manually revoke those internal shares.
+Changing a role changes who can manage the group. Removing a member removes them from the group. Their recordings stay theirs.
 
 ### Creating and Managing Group Tags
 
-Group tags are your group's organizational vocabulary. Create tags that match how your group thinks about content - project names, content types, meeting categories, or whatever organizational scheme makes sense for your work.
-
-When creating group tags, you can set custom retention periods that override global settings. This lets your group manage content lifecycle based on group-specific requirements. Legal groups might set long retention, while operations groups might prefer shorter retention for routine recordings.
-
-Protection flags prevent automatic deletion entirely. Use protection for recordings that must be kept permanently - compliance records, critical decisions, reference materials. Protected tags ensure content survives regardless of age or global retention policies.
-
-### Syncing Group Shares
-
-If your group started using group tags before automatic sharing was fully implemented, you might have tagged recordings that didn't automatically share with current group members. The "Sync group shares" feature retroactively applies automatic sharing to existing group-tagged recordings.
-
-This sync operation runs through all recordings with your group's tags and creates internal shares for current group members who don't already have access. It's a one-time operation that brings historical content into alignment with current group membership, useful after enabling new group features or fixing configuration issues.
-
-## Best Practices for Group Collaboration
-
-Start using group tags from the beginning of projects or group formation. This builds a complete record of group discussions from inception, creating valuable historical context. Retroactively organizing recordings is possible but more tedious than tagging promptly.
-
-Establish group conventions for when to use group tags versus individual sharing. Some content naturally belongs to the whole group, while other recordings might be relevant to specific individuals. Clear guidelines prevent over-sharing while ensuring important information reaches everyone who needs it.
-
-Use descriptive group tag names that clearly communicate content type or purpose. Names like "Sprint Planning" or "Customer Feedback" immediately convey content without requiring detective work. Avoid generic tags like "Important" or "Misc" that don't add meaningful organization.
-
-Review group tags periodically with your group admin to ensure they remain relevant. Projects end, organizational structures change, and tag systems that once made sense can become outdated. Regular maintenance keeps group organization clean and useful.
-
-Contribute to shared notes when you add valuable context, but avoid duplicating information. Read existing notes before adding your own to prevent redundant content. Well-maintained shared notes become valuable group resources, while cluttered notes lose utility.
-
-Use personal notes liberally for your individual tracking needs. Don't worry about perfect notes since only you see them. Personal notes are your space for rough thoughts, action items, questions, and observations that might not be polished enough for shared notes.
+Create tags that match how the group organizes content. A tag can set a retention period and a protection flag. Deleting a tag removes it from recordings and does not delete the recordings.
 
 ## Groups on the Ask Ambrose page
 
-When your instance has library search enabled, group tags appear in the filters of the [Ask Ambrose](inquire-mode.md) page (formerly Inquire), so you can limit a question to one group. Search for "budget discussion" and filter to just your project group, finding relevant conversations without noise from other groups.
-
-Recordings shared through group tags are included when you ask Ambrose about your library. This means semantic search spans both your personal recordings and group content, creating a comprehensive knowledge base. The AI understands context across all accessible recordings, providing better answers by drawing on collective group knowledge.
-
-Your personal notes on group recordings remain private on the Ask Ambrose page as well. When semantic search uses a group recording to answer questions, it draws on the transcription and shared notes, but never exposes your personal annotations. This maintains the privacy boundary while enabling powerful group-wide search.
+When library search is enabled, group tags appear in the filters of the [Ask Ambrose](inquire-mode.md) page, so a question can be limited to recordings that carry one group's tag. Ambrose searches the recordings you own.
 
 ---
 
-Ready to start collaborating? If you're not yet part of any groups, contact your administrator about joining relevant groups. If you're a group admin, learn more in the [Group Management](../admin-guide/group-management.md) guide.
+If you are not in a group, ask an administrator. Group admins can read [Group Management](../admin-guide/group-management.md).
 
 Return to [User Guide](index.md) →

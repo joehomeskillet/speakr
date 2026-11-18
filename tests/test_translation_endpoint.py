@@ -73,22 +73,6 @@ def test_view_access_denied(cleanup_users):
     assert resp.status_code == 404
 
 
-def test_edit_denied_for_viewer(cleanup_users, monkeypatch):
-    import src.app as appmod
-    monkeypatch.setattr(appmod, 'ENABLE_INTERNAL_SHARING', True)
-    owner = _mk_user(cleanup_users)
-    viewer = _mk_user(cleanup_users)
-    rec = _mk_recording(owner)
-    from src.models import InternalShare
-    share = InternalShare(recording_id=rec.id, owner_id=owner.id, shared_with_user_id=viewer.id, can_edit=False)
-    db.session.add(share)
-    db.session.commit()
-    client = app.test_client()
-    _login(client, viewer)
-    resp = client.post(f'/recording/{rec.id}/translate_transcription', json={})
-    assert resp.status_code == 403
-
-
 def test_missing_transcript(cleanup_users):
     owner = _mk_user(cleanup_users)
     rec = _mk_recording(owner, transcription="short")

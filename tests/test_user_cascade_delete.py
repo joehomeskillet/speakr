@@ -2,7 +2,7 @@
 """
 Tests for user deletion cascade behavior (Issue #239).
 
-Ensures that deleting a user with related records (processing jobs, shares,
+Ensures that deleting a user with related records (processing jobs,
 usage tracking, etc.) does not fail with IntegrityError due to missing
 cascade configuration on NOT NULL foreign keys.
 
@@ -24,10 +24,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.app import app, db
 from src.models import (
-    User, Recording, ProcessingJob, Share, InternalShare, SharedRecordingState,
+    User, Recording, ProcessingJob,
     TokenUsage, TranscriptionUsage, GroupMembership, Group, Tag, Folder,
     Speaker, APIToken, InquireSession, ExportTemplate, TranscriptTemplate,
-    NamingTemplate, TranscriptChunk, PushSubscription, ShareAuditLog,
+    NamingTemplate, TranscriptChunk, PushSubscription,
 )
 
 
@@ -193,44 +193,6 @@ class TestUserDeletionIntegration(unittest.TestCase):
         db.session.delete(group)
         db.session.commit()
 
-    def test_delete_user_with_internal_shares(self):
-        """InternalShare has two NOT NULL User FKs (owner + shared_with)."""
-        # Create a second user to be the share recipient
-        other = User(
-            username="cascade_other_user",
-            email="cascade_other@local.test",
-            password="fakehash",
-        )
-        db.session.add(other)
-        db.session.flush()
-
-        rec = Recording(user_id=self.user.id, title="shared rec", status="COMPLETED")
-        db.session.add(rec)
-        db.session.flush()
-
-        share = InternalShare(
-            recording_id=rec.id,
-            owner_id=self.user.id,
-            shared_with_user_id=other.id,
-        )
-        db.session.add(share)
-        db.session.commit()
-        share_id = share.id
-
-        # Delete owner user — share should be removed
-        InternalShare.query.filter(
-            (InternalShare.owner_id == self.user.id) |
-            (InternalShare.shared_with_user_id == self.user.id)
-        ).delete()
-        db.session.delete(self.user)
-        db.session.commit()
-
-        self.assertIsNone(db.session.get(InternalShare, share_id))
-
-        # Cleanup
-        db.session.delete(other)
-        db.session.commit()
-
     def test_delete_user_with_push_subscriptions(self):
         """PushSubscription.user_id NOT NULL must cascade."""
         sub = PushSubscription(
@@ -310,9 +272,6 @@ class TestUserDeletionIntegration(unittest.TestCase):
         kept = Recording(user_id=other.id, title="keep", status="COMPLETED", transcription="keep me")
         db.session.add(kept)
         db.session.commit()
-        db.session.add(InternalShare(recording_id=rec.id, owner_id=user_id, shared_with_user_id=other.id))
-        db.session.add(SharedRecordingState(recording_id=rec.id, user_id=other.id))
-        db.session.commit()
         rec_id, kept_id = rec.id, kept.id
 
         with app.test_client() as client:
@@ -326,11 +285,9 @@ class TestUserDeletionIntegration(unittest.TestCase):
         db.session.expire_all()
         self.assertIsNone(db.session.get(User, user_id))
         self.assertIsNone(db.session.get(Recording, rec_id))
-        self.assertEqual(InternalShare.query.filter_by(recording_id=rec_id).count(), 0)
         kept = db.session.get(Recording, kept_id)
         self.assertIsNotNone(kept)
         self.assertEqual((kept.user_id, kept.transcription), (other.id, "keep me"))
-        SharedRecordingState.query.filter_by(recording_id=rec_id).delete()
         db.session.delete(kept)
         db.session.commit()
 
@@ -343,10 +300,6 @@ class TestUserDeletionIntegration(unittest.TestCase):
             leftover = User.query.filter_by(username="cascade_test_user").first()
         if leftover:
             ProcessingJob.query.filter_by(user_id=leftover.id).delete()
-            InternalShare.query.filter(
-                (InternalShare.owner_id == leftover.id) |
-                (InternalShare.shared_with_user_id == leftover.id)
-            ).delete()
             db.session.delete(leftover)
             db.session.commit()
         # Also clean up helper users if they exist

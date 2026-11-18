@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ user_language or 'en' }}">
 <head>
     <meta charset="UTF-8">
     {% include 'includes/theme_account.html' %}
@@ -315,60 +315,8 @@
                     </div>
                 </div>
 
-                <div class="modal-footer modal-footer--between">
-                    <button @click="syncTeamShares" class="btn btn--primary">
-                        <i class="fas fa-sync-alt"></i> ${ t('groups.syncTeamShares') }
-                    </button>
+                <div class="modal-footer">
                     <button @click="closeManageTeamModal" class="btn btn--ghost">${ t('common.done') }</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Sync Group Shares Confirmation Modal -->
-        <div v-if="showSyncSharesModal" @click.self="showSyncSharesModal = false" class="modal-overlay">
-            <div class="modal-panel modal-panel--sm">
-                <div class="modal-header">
-                    <h3 class="modal-title">${ t('groups.syncTeamShares') }</h3>
-                    <button @click="showSyncSharesModal = false" class="modal-close" :title="t('buttons.close')"><i class="fas fa-times"></i></button>
-                </div>
-                <div class="modal-body">
-                    <p class="mb-4 text-[var(--text-secondary)]">
-                        ${ t('groups.syncSharesExplain') }
-                    </p>
-                    <p class="text-[var(--text-muted)] text-sm">
-                        <i class="fas fa-info-circle mr-1"></i>
-                        ${ t('groups.syncSharesOnlyMissing') }
-                    </p>
-                </div>
-                <div class="modal-footer">
-                    <button @click="showSyncSharesModal = false" class="btn btn--ghost">${ t('buttons.cancel') }</button>
-                    <button @click="confirmSyncShares" class="btn btn--primary"><i class="fas fa-sync-alt"></i> ${ t('groups.syncNow') }</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Sync Results Modal -->
-        <div v-if="showSyncResultsModal" @click.self="showSyncResultsModal = false" class="modal-overlay">
-            <div class="modal-panel modal-panel--sm">
-                <div class="modal-header">
-                    <i class="fas fa-check-circle text-green-500"></i>
-                    <h3 class="modal-title">${ t('groups.syncCompleteTitle') }</h3>
-                    <button @click="showSyncResultsModal = false" class="modal-close" :title="t('buttons.close')"><i class="fas fa-times"></i></button>
-                </div>
-                <div class="modal-body">
-                    <div class="space-y-2">
-                        <div class="flex justify-between text-[var(--text-secondary)]">
-                            <span>${ t('groups.sharesCreated') }:</span>
-                            <span class="font-semibold">${ syncResults.shares_created }</span>
-                        </div>
-                        <div class="flex justify-between text-[var(--text-secondary)]">
-                            <span>${ t('groups.recordingsProcessed') }:</span>
-                            <span class="font-semibold">${ syncResults.recordings_processed }</span>
-                        </div>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button @click="showSyncResultsModal = false" class="btn btn--primary">${ t('common.done') }</button>
                 </div>
             </div>
         </div>
@@ -494,25 +442,6 @@
                             <label for="protectFromDeletion" class="text-xs text-[var(--text-secondary)]">
                                 <i class="fas fa-shield-alt mr-1"></i> ${ t('groups.protectTagHelp') }
                             </label>
-                        </div>
-                        <div class="space-y-2">
-                            <div class="flex items-center">
-                                <input v-model="newTeamTag.auto_share_on_apply" type="checkbox" id="autoShareOnApply"
-                                       class="mr-2 h-4 w-4 text-[var(--text-accent)] border-[var(--border-secondary)] rounded focus:ring-[var(--border-focus)]">
-                                <label for="autoShareOnApply" class="text-xs text-[var(--text-secondary)]">
-                                    <i class="fas fa-user-friends mr-1"></i> ${ t('groups.autoShareTagHelp') }
-                                </label>
-                            </div>
-                            <div class="flex items-center">
-                                <input v-model="newTeamTag.share_with_group_lead" type="checkbox" id="shareWithGroupLead"
-                                       class="mr-2 h-4 w-4 text-[var(--text-accent)] border-[var(--border-secondary)] rounded focus:ring-[var(--border-focus)]">
-                                <label for="shareWithGroupLead" class="text-xs text-[var(--text-secondary)]">
-                                    <i class="fas fa-user-tie mr-1"></i> ${ t('groups.shareWithAdminsTagHelp') }
-                                </label>
-                            </div>
-                            <p class="text-xs text-[var(--text-muted)] ml-6">
-                                ${ t('groups.autoShareNote') }
-                            </p>
                         </div>
                         <div v-if="teamTagError" class="text-[var(--text-danger)] text-xs">${ teamTagError }</div>
                         <button type="submit" class="px-4 py-2 bg-[var(--bg-button)] text-[var(--text-button)] rounded-md hover:bg-[var(--bg-button-hover)] text-sm">
@@ -687,25 +616,6 @@
                                 <i class="fas fa-shield-alt mr-1"></i> ${ t('folderManagement.protectFromDeletionHelp') }
                             </label>
                         </div>
-                        <div class="space-y-2">
-                            <div class="flex items-center">
-                                <input v-model="newTeamFolder.auto_share_on_apply" type="checkbox" id="folderAutoShareOnApply"
-                                       class="mr-2 h-4 w-4 text-[var(--text-accent)] border-[var(--border-secondary)] rounded focus:ring-[var(--border-focus)]">
-                                <label for="folderAutoShareOnApply" class="text-xs text-[var(--text-secondary)]">
-                                    <i class="fas fa-user-friends mr-1"></i> ${ t('folderManagement.autoShareOnApplyHelp') }
-                                </label>
-                            </div>
-                            <div class="flex items-center">
-                                <input v-model="newTeamFolder.share_with_group_lead" type="checkbox" id="folderShareWithGroupLead"
-                                       class="mr-2 h-4 w-4 text-[var(--text-accent)] border-[var(--border-secondary)] rounded focus:ring-[var(--border-focus)]">
-                                <label for="folderShareWithGroupLead" class="text-xs text-[var(--text-secondary)]">
-                                    <i class="fas fa-user-tie mr-1"></i> ${ t('folderManagement.shareWithGroupLeadHelp') }
-                                </label>
-                            </div>
-                            <p class="text-xs text-[var(--text-muted)] ml-6">
-                                ${ t('groups.autoShareNote') }
-                            </p>
-                        </div>
                         <div v-if="teamFolderError" class="text-[var(--text-danger)] text-xs">${ teamFolderError }</div>
                         <button type="submit" class="px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 text-sm">
                             <i :class="editingTeamFolderId ? 'fas fa-save' : 'fas fa-plus'" class="mr-1"></i>
@@ -808,8 +718,6 @@
                 const showTeamModal = ref(false);
                 const showManageTeamModal = ref(false);
                 const showDeleteTeamModal = ref(false);
-                const showSyncSharesModal = ref(false);
-                const showSyncResultsModal = ref(false);
                 const showManageTeamTagsModal = ref(false);
                 const editingTeam = ref(null);
                 const teamToDelete = ref(null);
@@ -834,8 +742,6 @@
                     default_max_speakers: null,
                     retention_days: null,
                     protect_from_deletion: false,
-                    auto_share_on_apply: true,
-                    share_with_group_lead: true
                 });
                 const teamTagError = ref('');
 
@@ -854,11 +760,8 @@
                     default_max_speakers: null,
                     retention_days: null,
                     protect_from_deletion: false,
-                    auto_share_on_apply: true,
-                    share_with_group_lead: true
                 });
                 const teamFolderError = ref('');
-                const syncResults = ref({ shares_created: 0, recordings_processed: 0 });
                 const users = ref([]);
                 
                 const loadGroups = async () => {
@@ -1065,41 +968,6 @@
                     }
                 };
 
-                const syncTeamShares = () => {
-                    if (!currentTeam.value) return;
-                    showSyncSharesModal.value = true;
-                };
-
-                const confirmSyncShares = async () => {
-                    showSyncSharesModal.value = false;
-                    teamMemberError.value = '';
-
-                    try {
-                        const csrfToken = document.querySelector('meta[name=csrf-token]')?.getAttribute('content');
-                        const headers = { 'Content-Type': 'application/json' };
-                        if (csrfToken) headers['X-CSRFToken'] = csrfToken;
-
-                        const response = await fetch(`/api/groups/${currentTeam.value.id}/sync-shares`, {
-                            method: 'POST',
-                            headers
-                        });
-
-                        if (!response.ok) {
-                            const error = await response.json();
-                            throw new Error(error.error || t('groups.syncSharesFailed'));
-                        }
-
-                        const result = await response.json();
-                        syncResults.value = {
-                            shares_created: result.shares_created,
-                            recordings_processed: result.recordings_processed
-                        };
-                        showSyncResultsModal.value = true;
-                    } catch (error) {
-                        teamMemberError.value = error.message;
-                    }
-                };
-
                 // Group Tags Management
                 const openManageTeamTagsModal = async (group) => {
                     currentTeam.value = group;
@@ -1123,8 +991,6 @@
                         default_max_speakers: null,
                         retention_days: null,
                         protect_from_deletion: false,
-                        auto_share_on_apply: true,
-                        share_with_group_lead: true
                     };
                     teamTagError.value = '';
                 };
@@ -1152,8 +1018,6 @@
                         default_max_speakers: tag.default_max_speakers,
                         retention_days: tag.retention_days,
                         protect_from_deletion: tag.protect_from_deletion || false,
-                        auto_share_on_apply: tag.auto_share_on_apply !== undefined ? tag.auto_share_on_apply : true,
-                        share_with_group_lead: tag.share_with_group_lead !== undefined ? tag.share_with_group_lead : true
                     };
                     // Scroll to top of modal
                     document.querySelector('.max-h-\\[90vh\\]')?.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1171,8 +1035,6 @@
                         default_max_speakers: null,
                         retention_days: null,
                         protect_from_deletion: false,
-                        auto_share_on_apply: true,
-                        share_with_group_lead: true
                     };
                     teamTagError.value = '';
                 };
@@ -1188,8 +1050,6 @@
                             name: newTeamTag.value.name,
                             color: newTeamTag.value.color,
                             protect_from_deletion: newTeamTag.value.protect_from_deletion,
-                            auto_share_on_apply: newTeamTag.value.auto_share_on_apply,
-                            share_with_group_lead: newTeamTag.value.share_with_group_lead
                         };
 
                         // Add custom prompt if provided
@@ -1251,8 +1111,6 @@
                             default_max_speakers: null,
                             retention_days: null,
                             protect_from_deletion: false,
-                            auto_share_on_apply: true,
-                            share_with_group_lead: true
                         };
                         await loadTeamTags(currentTeam.value.id);
                     } catch (error) {
@@ -1308,8 +1166,6 @@
                         default_max_speakers: null,
                         retention_days: null,
                         protect_from_deletion: false,
-                        auto_share_on_apply: true,
-                        share_with_group_lead: true
                     };
                     teamFolderError.value = '';
                 };
@@ -1337,8 +1193,6 @@
                         default_max_speakers: folder.default_max_speakers,
                         retention_days: folder.retention_days,
                         protect_from_deletion: folder.protect_from_deletion || false,
-                        auto_share_on_apply: folder.auto_share_on_apply !== undefined ? folder.auto_share_on_apply : true,
-                        share_with_group_lead: folder.share_with_group_lead !== undefined ? folder.share_with_group_lead : true
                     };
                     document.querySelector('.max-h-\\[90vh\\]')?.scrollTo({ top: 0, behavior: 'smooth' });
                 };
@@ -1355,8 +1209,6 @@
                         default_max_speakers: null,
                         retention_days: null,
                         protect_from_deletion: false,
-                        auto_share_on_apply: true,
-                        share_with_group_lead: true
                     };
                     teamFolderError.value = '';
                 };
@@ -1372,8 +1224,6 @@
                             name: newTeamFolder.value.name,
                             color: newTeamFolder.value.color,
                             protect_from_deletion: newTeamFolder.value.protect_from_deletion,
-                            auto_share_on_apply: newTeamFolder.value.auto_share_on_apply,
-                            share_with_group_lead: newTeamFolder.value.share_with_group_lead
                         };
 
                         if (newTeamFolder.value.custom_prompt && newTeamFolder.value.custom_prompt.trim()) {
@@ -1427,8 +1277,6 @@
                             default_max_speakers: null,
                             retention_days: null,
                             protect_from_deletion: false,
-                            auto_share_on_apply: true,
-                            share_with_group_lead: true
                         };
                         await loadTeamFolders(currentTeam.value.id);
                     } catch (error) {
@@ -1543,8 +1391,6 @@
                     showTeamModal,
                     showManageTeamModal,
                     showDeleteTeamModal,
-                    showSyncSharesModal,
-                    showSyncResultsModal,
                     showManageTeamTagsModal,
                     editingTeam,
                     teamToDelete,
@@ -1560,7 +1406,6 @@
                     editingTeamTagId,
                     newTeamTag,
                     teamTagError,
-                    syncResults,
                     users,
                     loadGroups,
                     openCreateTeamModal,
@@ -1575,8 +1420,6 @@
                     addTeamMember,
                     updateMemberRole,
                     removeTeamMember,
-                    syncTeamShares,
-                    confirmSyncShares,
                     openManageTeamTagsModal,
                     closeManageTeamTagsModal,
                     loadTeamTags,

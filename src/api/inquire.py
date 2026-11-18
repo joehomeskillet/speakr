@@ -17,7 +17,7 @@ from werkzeug.utils import secure_filename
 from src.database import db
 from src.models import *
 from src.utils import *
-from src.utils.localization import translate, api_error
+from src.utils.localization import translate, api_error, default_language
 from src.utils.error_text import log_failure, user_error_text
 from src.utils.speaker_labels import real_speaker_names
 from src.services.embeddings import get_accessible_recording_ids, semantic_search_chunks, EMBEDDINGS_AVAILABLE
@@ -67,7 +67,7 @@ def inquire():
     # Render the inquire page with user context for theming
     # The interface language, as on the other pages (it was missing here, so
     # Inquire always appeared in the browser language).
-    user_language = current_user.ui_language or 'en'
+    user_language = current_user.ui_language or default_language()
     from src.utils.assistant_name import assistant_name_of
     page_title = translate('inquire.title', user_language, name=assistant_name_of(current_user))
     return render_template('inquire.html',
@@ -582,7 +582,9 @@ Respond with only a JSON array of strings: ["term1", "term2", ...]"""
             yield create_status_response('responding', 'Generating response...')
             
             # Prepare system prompt
-            language_instruction = f"Please provide all your responses in {user_output_language}." if user_output_language else ""
+            from src.clinic.output_language import effective_output_language
+            chat_language = effective_output_language(user_output_language)
+            language_instruction = f"Please provide all your responses in {chat_language}." if chat_language else ""
             
             # Build filter description for context
             filter_description = []
@@ -1081,7 +1083,7 @@ def download_inquire_conversation():
 @inquire_bp.route('/api/inquire/available_filters', methods=['GET'])
 @login_required
 def get_available_filters():
-    """Get available filter options for the user (includes shared recordings)."""
+    """Get available filter options for the user."""
     if not ENABLE_INQUIRE_MODE:
         return jsonify(api_error('inquire_disabled')), 403
     try:
@@ -1098,7 +1100,7 @@ def get_available_filters():
         # Combine all tags
         all_tags = user_tags + group_tags
 
-        # Get all accessible recording IDs (own + shared)
+        # Get all accessible recording IDs
         accessible_recording_ids = get_accessible_recording_ids(current_user.id)
 
         # Get unique speakers from accessible recordings' participants field
@@ -1151,6 +1153,5 @@ from src.utils.system_settings import apply_hot_settings
 _SYSTEM_SETTING_MAP = {
     "ENABLE_AUTO_DELETION": ("enable_auto_deletion", "ENABLE_AUTO_DELETION", False),
     "USERS_CAN_DELETE": ("users_can_delete", "USERS_CAN_DELETE", True),
-    "ENABLE_INTERNAL_SHARING": ("enable_internal_sharing", "ENABLE_INTERNAL_SHARING", False),
 }
 _self, __getattr__ = apply_hot_settings(__name__, _SYSTEM_SETTING_MAP)

@@ -81,7 +81,7 @@ Ambrose can:
 | Summaries | Read the summary of a recording, when summaries are allowed |
 | Notes | Read your own notes on a recording, when notes are allowed |
 
-Under Account → Prompt options → **What Ambrose can read**, you choose whether Ambrose may read summaries and your notes when it searches (see [Settings](settings.md#what-ambrose-can-read)). Transcripts are always available. Only your own notes are used, never the notes of other people on recordings shared with you.
+Under Account → Prompt options → **What Ambrose can read**, you choose whether Ambrose may read summaries and your notes when it searches (see [Settings](settings.md#what-ambrose-can-read)). Transcripts are always available. Only your own notes are used.
 
 Ambrose searches only the recordings you can open. On the Ask page, the filters set the limit: Ambrose can narrow a search within them and cannot go beyond them. In the recording chat, Ambrose uses the other recordings only when a question needs them, for example "Did we discuss this anywhere else?".
 

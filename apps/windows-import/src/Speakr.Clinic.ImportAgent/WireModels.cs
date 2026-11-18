@@ -24,8 +24,10 @@ public sealed class ImportIntent
     [JsonPropertyName("post_step")]
     public string PostStep { get; set; } = "none";
 
-    // Not defined in clinic-api.openapi.json (the agent routes are not there at all). Client-side
-    // binding assumption, see README "Open contract gaps".
+    // UTC, whole seconds, no fraction: 2026-01-02T03:04:05Z. Part of the v2 signature.
+    [JsonPropertyName("expires_at")]
+    public string ExpiresAt { get; set; } = "";
+
     [JsonPropertyName("agent_id")]
     public string AgentId { get; set; } = "";
 
@@ -71,56 +73,38 @@ public sealed class InventoryItemWire
 
 public sealed class InventoryReport
 {
+    // Deprecated by the contract. Omitted when null: identity is the transport credential.
     [JsonPropertyName("agent_id")]
-    public string AgentId { get; set; } = "";
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? AgentId { get; set; }
 
     [JsonPropertyName("items")]
     public List<InventoryItemWire> Items { get; set; } = [];
 }
 
-public sealed class SourceObservation
-{
-    [JsonPropertyName("device_registry_id")]
-    public string? DeviceRegistryId { get; set; }
-
-    [JsonPropertyName("source_namespace")]
-    public string SourceNamespace { get; set; } = "";
-
-    [JsonPropertyName("source_recording_id")]
-    public string? SourceRecordingId { get; set; }
-
-    [JsonPropertyName("claimed_author_code")]
-    public string? ClaimedAuthorCode { get; set; }
-
-    [JsonPropertyName("observed_completion")]
-    public string ObservedCompletion { get; set; } = "unknown";
-
-    [JsonPropertyName("parser_version")]
-    public string? ParserVersion { get; set; }
-
-    [JsonPropertyName("evidence_level")]
-    public string EvidenceLevel { get; set; } = "unverified";
-}
-
 public sealed class WireBeginIngest
 {
-    [JsonPropertyName("request_id")]
-    public string RequestId { get; set; } = "";
+    [JsonPropertyName("intent_id")]
+    public string IntentId { get; set; } = "";
 
-    [JsonPropertyName("source_kind")]
-    public string SourceKind { get; set; } = "";
+    [JsonPropertyName("declared_size")]
+    public long DeclaredSize { get; set; }
 
-    [JsonPropertyName("source")]
-    public SourceObservation Source { get; set; } = new();
+    [JsonPropertyName("declared_sha256")]
+    public string DeclaredSha256 { get; set; } = "";
 
-    [JsonPropertyName("mime_type")]
-    public string MimeType { get; set; } = "application/octet-stream";
+    // Not serialized. The in-process simulator has no inventory lookup of its own.
+    [JsonIgnore]
+    public string SourceId { get; set; } = "";
 
-    [JsonPropertyName("expected_bytes")]
-    public long? ExpectedBytes { get; set; }
+    [JsonIgnore]
+    public string SnapshotVersion { get; set; } = "";
 
-    [JsonPropertyName("expected_sha256")]
-    public string? ExpectedSha256 { get; set; }
+    [JsonIgnore]
+    public string AgentId { get; set; } = "";
+
+    [JsonIgnore]
+    public string PostStep { get; set; } = "none";
 }
 
 public sealed class ChunkDigest
@@ -185,4 +169,43 @@ public sealed class IngestReceipt
 
     [JsonPropertyName("correlation_id")]
     public string CorrelationId { get; set; } = "";
+
+    [JsonPropertyName("agent_id")]
+    public string AgentId { get; set; } = "";
+
+    [JsonPropertyName("intent_id")]
+    public string IntentId { get; set; } = "";
+
+    [JsonPropertyName("source_id")]
+    public string SourceId { get; set; } = "";
+
+    [JsonPropertyName("snapshot_version")]
+    public string SnapshotVersion { get; set; } = "";
+
+    [JsonPropertyName("size")]
+    public long Size { get; set; }
+
+    [JsonPropertyName("original_id")]
+    public string? OriginalId { get; set; }
+
+    [JsonPropertyName("permitted_post_step")]
+    public string PermittedPostStep { get; set; } = "";
+
+    [JsonPropertyName("deletion_permitted")]
+    public bool DeletionPermitted { get; set; }
+}
+
+public sealed class AgentOutcome
+{
+    [JsonPropertyName("intent_id")]
+    public string IntentId { get; set; } = "";
+
+    [JsonPropertyName("ingest_id")]
+    public string? IngestId { get; set; }
+
+    [JsonPropertyName("outcome")]
+    public string Outcome { get; set; } = "";
+
+    [JsonPropertyName("detail")]
+    public string? Detail { get; set; }
 }

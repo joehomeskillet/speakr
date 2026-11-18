@@ -9,7 +9,6 @@ SHARED-DB: assertions are scoped to the recordings each test creates.
 """
 
 import json
-from contextlib import ExitStack
 import os
 import sys
 import uuid
@@ -23,22 +22,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.app import app, db
 from src.models import User, Recording
-from src.models.sharing import InternalShare, SharedRecordingState
 
 app.config["WTF_CSRF_ENABLED"] = False
-
-
-def _internal_sharing_on():
-    """Enable internal sharing for the test, whatever the environment says.
-
-    Each module copies ENABLE_INTERNAL_SHARING at import time; CI has no .env,
-    so sharing is off there unless the tests switch it on in every copy.
-    """
-    stack = ExitStack()
-    for name, module in list(sys.modules.items()):
-        if name.startswith("src") and module is not None and hasattr(module, "ENABLE_INTERNAL_SHARING"):
-            stack.enter_context(patch.object(module, "ENABLE_INTERNAL_SHARING", True))
-    return stack
 
 
 _created = []
@@ -48,12 +33,10 @@ _created = []
 def ctx():
     """App context, and removal of every recording the test created: later
     files (test_cov_admin) assume no eligible completed recordings exist."""
-    with app.app_context(), _internal_sharing_on():
+    with app.app_context():
         yield
         db.session.rollback()
         for rec_id in _created:
-            InternalShare.query.filter_by(recording_id=rec_id).delete()
-            SharedRecordingState.query.filter_by(recording_id=rec_id).delete()
             Recording.query.filter_by(id=rec_id).delete()
         db.session.commit()
         _created.clear()
@@ -102,11 +85,6 @@ def _ids(client, **params):
     return {r['id'] for r in body['recordings']}
 
 
-def _share(rec, owner, other):
-    db.session.add(InternalShare(recording_id=rec.id, owner_id=owner.id, shared_with_user_id=other.id))
-    db.session.commit()
-
-
 # --------------------------------------------------------------------- archive
 
 def test_archived_recordings_leave_the_main_list_and_come_back(ctx):
@@ -139,25 +117,10 @@ def test_rows_with_null_archive_flag_stay_visible(ctx):
     assert rec.id in _ids(_client(user))
 
 
-def test_archiving_a_shared_recording_is_personal(ctx):
-    owner, other = _user(), _user()
-    rec = _rec(owner)
-    _share(rec, owner, other)
-    other_client = _client(other)
-    assert other_client.post(f'/recording/{rec.id}/toggle_archive').get_json()['is_archived'] is True
-    assert rec.id not in _ids(other_client)
-    assert rec.id in _ids(other_client, archived='true')
-    # The owner's list is unaffected.
-    assert rec.id in _ids(_client(owner))
-    db.session.expire_all()
-    assert not db.session.get(Recording, rec.id).is_archived
-
-
 def test_archive_needs_access(ctx):
     owner, stranger = _user(), _user()
     rec = _rec(owner)
     assert _client(stranger).post(f'/recording/{rec.id}/toggle_archive').status_code == 404
-    assert SharedRecordingState.query.filter_by(recording_id=rec.id, user_id=stranger.id).count() == 0
 
 
 def test_bulk_archive_and_save_field(ctx):

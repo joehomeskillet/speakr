@@ -35,12 +35,11 @@ from src.services.transcription_defaults import (
 )
 from src.utils.dates import to_utc_naive
 from src.utils.log_filters import loggable_error, loggable_locator
-from src.utils.transcript_render import BASIC_TEMPLATE_FORMAT, parse_segments, render_segments
+from src.utils.transcript_render import basic_template_format, parse_segments, render_segments
 from src.services.speaker import (
     update_speaker_usage, apply_speaker_map, participants_from_segments, update_voice_profiles,
 )
 
-# Incognito mode - disabled by default, enable via environment variable
 from src.services.document import (
     absolutize_markdown_links, add_document_header, append_conversation_turn,
     docx_attachment_response, link_base_url, markdown_attachment_response,
@@ -58,8 +57,7 @@ from src.services.recording_filters import (
     needs_summary_condition,
     needs_speakers_condition,
 )
-from src.utils.localization import api_error, format_number, translate
-from src.utils.incognito_logging import incognito_route, incognito_log, describe_error, short_code
+from src.utils.localization import api_error, default_language, format_number, translate
 from src.utils.error_text import log_failure, user_error_text
 
 # Create blueprint
@@ -94,7 +92,6 @@ def reindex_recording_chunks_async(recording_id):
 
 # Global helpers (will be injected from app)
 has_recording_access = None
-editable_recording_ids = None
 get_user_recording_status = None
 set_user_recording_status = None
 enrich_recording_dict_with_user_status = None
@@ -105,9 +102,8 @@ chunking_service = None
 
 def init_recordings_helpers(**kwargs):
     """Initialize helper functions and extensions from app."""
-    global has_recording_access, editable_recording_ids, get_user_recording_status, set_user_recording_status, enrich_recording_dict_with_user_status, bcrypt, csrf, limiter, chunking_service
+    global has_recording_access, get_user_recording_status, set_user_recording_status, enrich_recording_dict_with_user_status, bcrypt, csrf, limiter, chunking_service
     has_recording_access = kwargs.get('has_recording_access')
-    editable_recording_ids = kwargs.get('editable_recording_ids')
     get_user_recording_status = kwargs.get('get_user_recording_status')
     set_user_recording_status = kwargs.get('set_user_recording_status')
     enrich_recording_dict_with_user_status = kwargs.get('enrich_recording_dict_with_user_status')
@@ -160,7 +156,7 @@ def download_transcript_with_template(recording_id):
             formatted_transcript = source_transcription
         elif not template:
             # No template found: use a basic format
-            formatted_transcript = render_segments(segments, BASIC_TEMPLATE_FORMAT)
+            formatted_transcript = render_segments(segments, basic_template_format())
         else:
             formatted_transcript = render_segments(segments, template.template, template.header)
 
@@ -1067,7 +1063,7 @@ def index(recording_id=None, label_name=None):
     ).first() is not None
 
     # Pass the ASR config, inquire mode config, and user language preference to the template
-    user_language = current_user.ui_language if current_user.is_authenticated and current_user.ui_language else 'en'
+    user_language = current_user.ui_language if current_user.is_authenticated and current_user.ui_language else default_language()
 
     # Default target language for the translation modal: the account's
     # preferred output language, falling back to the interface language
@@ -1153,7 +1149,6 @@ def index(recording_id=None, label_name=None):
                          connector_supports_initial_prompt=connector_supports_initial_prompt,
                          inquire_mode_enabled=ENABLE_INQUIRE_MODE,
                          enable_audio_removed_filter=enable_audio_removed_filter,
-                         enable_internal_sharing=_self.ENABLE_INTERNAL_SHARING,
                          user_language=user_language,
                          default_translation_language=default_translation_language,
                          is_team_admin=is_team_admin,
@@ -1171,8 +1166,6 @@ def get_accessible_recording_ids(user_id):
 
     Includes:
     - Recordings owned by the user
-    - Recordings shared with the user via InternalShare
-    - Recordings shared via group tags (if team membership exists)
 
     Args:
         user_id (int): User ID to check access for
@@ -1185,13 +1178,6 @@ def get_accessible_recording_ids(user_id):
     # 1. User's own recordings
     own_recordings = db.session.query(Recording.id).filter_by(user_id=user_id).all()
     accessible_ids.update([r.id for r in own_recordings])
-
-    # 2. Internally shared recordings
-    if _self.ENABLE_INTERNAL_SHARING:
-        shared_recordings = db.session.query(InternalShare.recording_id).filter_by(
-            shared_with_user_id=user_id
-        ).all()
-        accessible_ids.update([r.recording_id for r in shared_recordings])
 
     return list(accessible_ids)
 
@@ -1224,7 +1210,7 @@ def get_recordings():
 @recordings_bp.route('/api/recordings', methods=['GET'])
 @login_required
 def get_recordings_paginated():
-    """Get recordings with pagination and server-side filtering (includes shared recordings)."""
+    """Get recordings with pagination and server-side filtering."""
     import re
     try:
         # Parse query parameters
@@ -1235,7 +1221,6 @@ def get_recordings_paginated():
         # state left when the media file was deleted and the transcript kept.
         show_archived = request.args.get('archived', '').lower() == 'true'
         show_audio_removed = request.args.get('audio_removed', '').lower() == 'true'
-        show_shared = request.args.get('shared', '').lower() == 'true'
         show_starred = request.args.get('starred', '').lower() == 'true'
         show_inbox = request.args.get('inbox', '').lower() == 'true'
         needs_transcription = request.args.get('needs_transcription', '').lower() == 'true'
@@ -1245,7 +1230,7 @@ def get_recordings_paginated():
         folder_filter = request.args.get('folder', '').strip()  # folder_id or 'none' for no folder
         status_filter = request.args.get('status', '').strip().upper()  # e.g. 'COMPLETED' (used by the merge picker)
 
-        # Get all accessible recording IDs (own + shared)
+        # Get all accessible recording IDs
         accessible_recording_ids = get_accessible_recording_ids(current_user.id)
 
         if not accessible_recording_ids:
@@ -1282,47 +1267,13 @@ def get_recordings_paginated():
         elif not search_query:
             stmt = stmt.where(db.not_(archived_condition(Recording, current_user.id)))
 
-        # Apply shared filter (AND with other filters)
-        if show_shared:
-            # Only show recordings shared with current user (not owned by them)
-            stmt = stmt.where(Recording.user_id != current_user.id)
-
         # Apply starred filter (AND with other filters)
-        # For starred/inbox we need to consider both owned recordings and shared recordings
         if show_starred:
-            from src.models.sharing import SharedRecordingState
-            # For owned recordings: check Recording.is_highlighted
-            # For shared recordings: check SharedRecordingState.is_highlighted
-            starred_subq = select(SharedRecordingState.recording_id).where(
-                db.and_(
-                    SharedRecordingState.user_id == current_user.id,
-                    SharedRecordingState.is_highlighted == True
-                )
-            ).scalar_subquery()
-            stmt = stmt.where(
-                db.or_(
-                    db.and_(Recording.user_id == current_user.id, Recording.is_highlighted == True),
-                    Recording.id.in_(starred_subq)
-                )
-            )
+            stmt = stmt.where(Recording.user_id == current_user.id, Recording.is_highlighted == True)
 
         # Apply inbox filter (AND with other filters)
         if show_inbox:
-            from src.models.sharing import SharedRecordingState
-            # For owned recordings: check Recording.is_inbox
-            # For shared recordings: check SharedRecordingState.is_inbox
-            inbox_subq = select(SharedRecordingState.recording_id).where(
-                db.and_(
-                    SharedRecordingState.user_id == current_user.id,
-                    SharedRecordingState.is_inbox == True
-                )
-            ).scalar_subquery()
-            stmt = stmt.where(
-                db.or_(
-                    db.and_(Recording.user_id == current_user.id, Recording.is_inbox == True),
-                    Recording.id.in_(inbox_subq)
-                )
-            )
+            stmt = stmt.where(Recording.user_id == current_user.id, Recording.is_inbox == True)
 
         # Apply folder filter (AND with other filters)
         if folder_filter:
@@ -1477,35 +1428,18 @@ def get_recordings_paginated():
 
             # Apply text search
             if text_query:
-                from src.models.sharing import SharedRecordingState
-
-                # Search in user-specific notes:
-                # - For owned recordings: search Recording.notes
-                # - For shared recordings: search SharedRecordingState.personal_notes
-
                 # Every character typed is matched literally (#485)
                 pattern = contains_pattern(text_query)
                 text_conditions = [
                     Recording.title.ilike(pattern, escape=LIKE_ESCAPE),
                     Recording.participants.ilike(pattern, escape=LIKE_ESCAPE),
                     Recording.transcription.ilike(pattern, escape=LIKE_ESCAPE),
-                    # Search owner's notes for owned recordings
+                    # Search the owner's notes
                     db.and_(
                         Recording.user_id == current_user.id,
                         Recording.notes.ilike(pattern, escape=LIKE_ESCAPE)
                     )
                 ]
-
-                # Add search for personal notes in shared recordings
-                # Use a subquery to check if personal_notes match
-                shared_notes_subq = select(SharedRecordingState.recording_id).where(
-                    db.and_(
-                        SharedRecordingState.user_id == current_user.id,
-                        SharedRecordingState.personal_notes.ilike(pattern, escape=LIKE_ESCAPE)
-                    )
-                ).scalar_subquery()
-
-                text_conditions.append(Recording.id.in_(shared_notes_subq))
 
                 stmt = stmt.where(db.or_(*text_conditions))
 
@@ -1537,71 +1471,26 @@ def get_recordings_paginated():
         from src.services.recording_list import RecordingListBatch, list_load_options
         recordings = db.session.execute(stmt.options(*list_load_options())).scalars().all()
 
-        # Batch-load this viewer's shares for the page so serialization can resolve
-        # the #314 share-reason tag/folder without an N+1 query.
-        page_rec_ids = [r.id for r in recordings]
-        share_map = {}
-        if page_rec_ids:
-            for s in InternalShare.query.filter(
-                InternalShare.recording_id.in_(page_rec_ids),
-                InternalShare.shared_with_user_id == current_user.id
-            ).all():
-                share_map[s.recording_id] = s
-
         # What the rows need beyond their own columns, read once for the page
         # rather than per row (D#483)
-        batch = RecordingListBatch(recordings, current_user, share_map)
-        editable_ids = editable_recording_ids(recordings, current_user, share_map)
+        batch = RecordingListBatch(recordings, current_user)
 
-        # Enrich recordings with sharing metadata
         enriched_recordings = []
         for recording in recordings:
-            rec_dict = recording.to_list_dict(viewer_user=current_user, share_map=share_map, batch=batch)
+            rec_dict = recording.to_list_dict(viewer_user=current_user, batch=batch)
 
-            # Add sharing metadata
             is_owner = recording.user_id == current_user.id
             rec_dict['is_owner'] = is_owner
 
-            # Get per-user status (owner uses Recording fields, recipients use SharedRecordingState)
             user_inbox, user_highlighted = batch.user_status(recording)
             rec_dict['is_inbox'] = user_inbox
             rec_dict['is_highlighted'] = user_highlighted
             rec_dict['is_archived'] = batch.user_archived(recording)
 
-            # Add edit permission info (has_recording_access rules, group admins included)
-            rec_dict['can_edit'] = recording.id in editable_ids
+            # Only the owner edits and deletes
+            rec_dict['can_edit'] = is_owner
 
-            # Add delete permission info (only owner can delete)
             rec_dict['can_delete'] = is_owner and (_self.USERS_CAN_DELETE or current_user.is_admin)
-
-            if not is_owner:
-                # This is a shared recording - get owner info and share permissions
-                owner = batch.owners.get(recording.user_id)
-                rec_dict['owner_username'] = _owner_username_for_recipient(owner)
-                rec_dict['is_shared'] = True
-                # Don't show outgoing share count for recordings you don't own
-                rec_dict['shared_with_count'] = 0
-                rec_dict['public_share_count'] = 0
-
-                # Get share permissions (reuse the batched map)
-                share = share_map.get(recording.id)
-
-                if share:
-                    rec_dict['share_info'] = {
-                        'share_id': share.id,
-                        'owner_username': _owner_username_for_recipient(owner),
-                        'can_edit': share.can_edit,
-                        'can_reshare': share.can_reshare,
-                        'shared_at': share.created_at.isoformat()
-                    }
-                else:
-                    # Fallback if share record not found (shouldn't happen)
-                    rec_dict['share_info'] = {
-                        'can_edit': False,
-                        'can_reshare': False
-                    }
-            else:
-                rec_dict['is_shared'] = False
 
             # Check if recording has group tags (among visible tags)
             has_group_tags = any(tag.is_group_tag for tag in batch.visible_tags(recording))
@@ -1648,34 +1537,17 @@ def save_metadata():
         if not recording or not has_recording_access(recording, current_user):
             return jsonify(api_error('recording_not_found')), 404
 
-        # Handle notes separately - no edit permission required (user-specific)
+        # Notes write to the recording itself since the personal-notes branch
+        # was removed with sharing: owner or edit access required.
         if 'notes' in data:
-            if recording.user_id == current_user.id:
-                # Owner saves to Recording.notes
-                # Stored as written: notes and summaries are Markdown, and the
-                # HTML cleaner would turn "> quote" into "&gt; quote". They are
-                # cleaned when converted to HTML (md_to_html), the only form ever
-                # shown as HTML.
-                recording.notes = data['notes']
-            else:
-                # Shared user saves to personal_notes (requires SharedRecordingState)
-                from src.models.sharing import SharedRecordingState
-                state = SharedRecordingState.query.filter_by(
-                    recording_id=recording.id,
-                    user_id=current_user.id
-                ).first()
-
-                if not state:
-                    # Create SharedRecordingState if it doesn't exist
-                    state = SharedRecordingState(
-                        recording_id=recording.id,
-                        user_id=current_user.id,
-                        is_inbox=True,
-                        is_highlighted=False
-                    )
-                    db.session.add(state)
-
-                state.personal_notes = data['notes']
+            if recording.user_id != current_user.id and not has_recording_access(
+                    recording, current_user, require_edit=True):
+                return jsonify(api_error('recording_edit_denied')), 403
+            # Stored as written: notes and summaries are Markdown, and the
+            # HTML cleaner would turn "> quote" into "&gt; quote". They are
+            # cleaned when converted to HTML (md_to_html), the only form ever
+            # shown as HTML.
+            recording.notes = data['notes']
 
         # Determine if any fields requiring edit permission are being updated
         edit_fields = ['title', 'participants', 'summary', 'meeting_date']
@@ -1740,9 +1612,8 @@ def save_metadata():
                 db.session.rollback()
                 return jsonify(api_error('archive_restore_owner_required')), 403
 
-        # The notes of a recipient are personal notes, not an edit of the recording.
         audit.edited(recording, [f for f in edit_fields if requires_edit and f in data]
-                     + (['notes'] if 'notes' in data and recording.user_id == current_user.id else []))
+                     + (['notes'] if 'notes' in data else []))
         db.session.commit()
 
         # Re-export the recording if auto-export is enabled and editable fields were changed
@@ -2235,405 +2106,6 @@ def cancel_upload_route():
     return jsonify({'success': True, **result})
 
 
-@recordings_bp.route('/api/recordings/incognito', methods=['POST'])
-@login_required
-@incognito_route
-def upload_incognito():
-    """The incognito upload, and the one audit row of an incognito request.
-
-    The row (incognito.used) holds the account, the time and the outcome.
-    Nothing about the file or its content is recorded, and incognito chat and
-    summary requests are not recorded at all.
-    """
-    from src.services import audit
-    try:
-        response = current_app.make_response(_upload_incognito_request())
-    except Exception:
-        audit.record('incognito.used', outcome='failed')
-        raise
-    status = response.status_code
-    audit.record('incognito.used',
-                 outcome='success' if status < 400 else 'denied' if status == 403 else 'failed')
-    return response
-
-
-def _upload_incognito_request():
-    """
-    Process audio in incognito mode - no database storage.
-    Returns transcript/summary directly in response.
-
-    This endpoint is designed for HIPAA-friendly transcription where
-    audio data is processed but never persisted to the database.
-    Results are returned directly and only stored client-side in sessionStorage.
-    """
-    # Check if incognito mode is enabled
-    if not _self.ENABLE_INCOGNITO_MODE:
-        return jsonify(api_error('incognito_disabled')), 403
-
-    import tempfile
-    from datetime import datetime
-    from src.tasks.processing import transcribe_incognito, generate_incognito_summary
-
-    temp_filepath = None
-    request_dir = None
-
-    try:
-        if 'file' not in request.files:
-            return jsonify(api_error('no_file_provided')), 400
-
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify(api_error('no_file_selected')), 400
-
-        original_filename = file.filename
-        safe_filename = secure_filename(original_filename)
-
-        # Get file size
-        file.seek(0, os.SEEK_END)
-        file_size = file.tell()
-        file.seek(0)
-
-        if file_size == 0:
-            return jsonify({'incognito': True, **api_error('empty_file')}), 400
-
-        # Mirror the regular /upload route's option-B size policy:
-        # video files (by extension) use the larger video cap because
-        # incognito always extracts audio (it never retains the video
-        # stream), so it's effectively always in audio-only mode.
-        # Audio uploads use the regular cap.
-        _VIDEO_EXTS = {'.mp4', '.mov', '.mkv', '.avi', '.webm', '.m4v', '.wmv', '.flv', '.ts', '.mts'}
-        _is_video = os.path.splitext(original_filename)[1].lower() in _VIDEO_EXTS
-        regular_limit_mb = int(SystemSetting.get_setting('max_file_size_mb', 250))
-        audio_only_limit_mb = int(
-            SystemSetting.get_setting('max_audio_only_video_size_mb', regular_limit_mb * 4)
-        )
-        effective_limit_mb = audio_only_limit_mb if _is_video else regular_limit_mb
-        if file_size > effective_limit_mb * 1024 * 1024:
-            return jsonify({
-                **api_error('file_too_large_max', maxSize=format_number(effective_limit_mb)),
-                'max_size_mb': float(effective_limit_mb),
-            }), 413
-
-        # The monthly transcription budget applies to an incognito request as
-        # to any other. It is checked before the upload is saved, so nothing
-        # of a refused request reaches the disk.
-        from src.services.transcription_tracking import transcription_tracker
-        can_proceed, _usage_pct, budget_msg = transcription_tracker.check_budget(current_user.id)
-        if not can_proceed:
-            incognito_log.warning(f"[Incognito] User {current_user.id} exceeded the transcription budget")
-            return jsonify({'incognito': True, 'error': budget_msg, 'budget_exceeded': True}), 403
-
-        # Save to temp file - use secure temp directory. Suffix carries only
-        # the extension, not the user's filename: the temp path is logged and
-        # filenames can themselves be sensitive (no PHI in logs or paths).
-        _ext = os.path.splitext(safe_filename)[1].lower() or '.audio'
-        # The request has a folder of its own under the incognito temporary
-        # folder: the upload, its converted copies and its chunks are written
-        # there and removed together (src/services/incognito_temp.py).
-        from src.services import incognito_temp
-        request_dir = incognito_temp.new_request_dir()
-        with tempfile.NamedTemporaryFile(delete=False, suffix=_ext, dir=request_dir) as tmp:
-            temp_filepath = tmp.name
-            file.save(temp_filepath)
-            incognito_log.info(f"[Incognito] Temp file saved: {temp_filepath}")
-
-        # Get optional parameters
-        # An empty language falls through to the user's default, as on upload;
-        # "auto" forces auto-detection (resolved in transcribe_incognito, #412).
-        language = request.form.get('language', '')
-        min_speakers = request.form.get('min_speakers')
-        max_speakers = request.form.get('max_speakers')
-        hotwords = request.form.get('hotwords', '').strip() or None
-        initial_prompt = request.form.get('initial_prompt', '').strip() or None
-        transcription_model = request.form.get('transcription_model', '').strip() or None
-        auto_summarize = request.form.get('auto_summarize', 'false').lower() == 'true'
-        # The admin switch that disables automatic summaries applies here too (#412).
-        _admin_off = SystemSetting.get_setting('disable_auto_summarization', False)
-        if (_admin_off if isinstance(_admin_off, bool) else str(_admin_off).lower() == 'true'):
-            auto_summarize = False
-
-        # Convert to int if provided
-        if min_speakers:
-            try:
-                min_speakers = int(min_speakers)
-            except (ValueError, TypeError):
-                min_speakers = None
-        if max_speakers:
-            try:
-                max_speakers = int(max_speakers)
-            except (ValueError, TypeError):
-                max_speakers = None
-
-        # Log only metadata - NEVER log content for HIPAA compliance. The
-        # user's filename is deliberately excluded too (extension only):
-        # filenames routinely contain names/dates and count as PHI.
-        incognito_log.info(f"[Incognito] Processing request from user {current_user.id}: "
-                           f"ext={_ext}, size={file_size/1024/1024:.2f}MB, "
-                           f"language={short_code(language)}, auto_summarize={auto_summarize}")
-
-        # Perform transcription synchronously (no database operations)
-        result = transcribe_incognito(
-            filepath=temp_filepath,
-            original_filename=original_filename,
-            language=language,
-            min_speakers=min_speakers,
-            max_speakers=max_speakers,
-            hotwords=hotwords,
-            initial_prompt=initial_prompt,
-            user=current_user,
-            transcription_model=transcription_model
-        )
-
-        if result.get('error'):
-            incognito_log.error(f"[Incognito] Transcription failed: type={result.get('error_type')}, "
-                                f"code={result.get('error_code')}")
-            if result.get('error_code') == 'transcription_budget_exceeded':
-                return jsonify({'incognito': True, 'error': result['error'], 'budget_exceeded': True}), 403
-            # result['error'] is English; a known kind of failure carries
-            # error_code and is answered in the interface language (#477).
-            if result.get('error_code') == 'audio_decode_failed':
-                return jsonify({
-                    'incognito': True,
-                    **api_error('audio_decode_failed'),
-                }), 400
-            error_text = result['error']
-            if result.get('error_code') in ('audio_converter_missing', 'audio_conversion_timeout'):
-                error_text = translate(f"server.apiError.{result['error_code']}")
-            return jsonify({
-                'incognito': True,
-                'error': error_text,
-                'error_type': result.get('error_type'),
-            }), 500
-
-        # Optionally generate summary
-        summary = None
-        summary_budget_message = None
-        if auto_summarize and result.get('transcription'):
-            incognito_log.info("[Incognito] Auto-summarize requested, generating summary...")
-            try:
-                summary = generate_incognito_summary(result['transcription'], current_user)
-            except TokenBudgetExceeded as budget_error:
-                # The transcript is still answered; the summary is left out.
-                summary_budget_message = str(budget_error)
-
-        # Build response
-        # Render markdown to HTML for summary display
-        summary_html = None
-        if summary:
-            summary_html = md_to_html(summary)
-
-        response_data = {
-            'incognito': True,
-            'transcription': result.get('transcription'),
-            'summary': summary,
-            'summary_html': summary_html,
-            'title': result.get('title', 'Incognito Recording'),
-            'audio_duration_seconds': result.get('audio_duration_seconds'),
-            'processing_time_seconds': result.get('processing_time_seconds'),
-            'created_at': datetime.utcnow().isoformat() + 'Z',
-            'original_filename': original_filename,
-            'file_size': file_size
-        }
-        if summary_budget_message:
-            response_data['summary_error'] = summary_budget_message
-            response_data['summary_budget_exceeded'] = True
-
-        incognito_log.info(f"[Incognito] Request completed successfully for user {current_user.id}")
-
-        return jsonify(response_data), 200
-
-    except RequestEntityTooLarge:
-        max_size_mb = current_app.config['MAX_CONTENT_LENGTH'] / (1024 * 1024)
-        incognito_log.warning(f"[Incognito] Upload failed: File too large (>{max_size_mb}MB)")
-        return jsonify({
-            'incognito': True,
-            **api_error('file_too_large_max', maxSize=format_number(max_size_mb)),
-            'max_size_mb': max_size_mb
-        }), 413
-
-    except Exception as e:
-        incognito_log.error(f"[Incognito] Error during processing: {describe_error(e)}")
-        return jsonify({
-            'incognito': True,
-            **api_error('unexpected_error_processing')
-        }), 500
-
-    finally:
-        # CRITICAL: Always delete temp file for HIPAA compliance
-        if temp_filepath and os.path.exists(temp_filepath):
-            try:
-                os.remove(temp_filepath)
-                incognito_log.info(f"[Incognito] Temp file deleted: {temp_filepath}")
-            except Exception as cleanup_error:
-                incognito_log.error(f"[Incognito] Failed to delete temp file {temp_filepath}: "
-                                    f"{describe_error(cleanup_error)}")
-        if request_dir:
-            from src.services import incognito_temp
-            if incognito_temp.remove_request_dir(request_dir):
-                incognito_log.info("[Incognito] Request temp folder removed")
-            else:
-                incognito_log.error("[Incognito] Request temp folder could not be removed; "
-                                    "the hourly sweep removes it later")
-
-
-@recordings_bp.route('/api/recordings/incognito/chat', methods=['POST'])
-@login_required
-@incognito_route
-def chat_incognito():
-    """
-    Chat with an incognito recording's transcription.
-    Since incognito recordings don't exist in the database, the transcription
-    is passed directly in the request.
-    """
-    # Check if incognito mode is enabled
-    if not _self.ENABLE_INCOGNITO_MODE:
-        return jsonify(api_error('incognito_disabled')), 403
-
-    try:
-        data = request.get_json(silent=True)
-        if not data:
-            return jsonify(api_error('no_data_provided')), 400
-
-        transcription = data.get('transcription')
-        user_message = data.get('message')
-        message_history = data.get('message_history', [])
-        participants = data.get('participants', '')
-        notes = data.get('notes', '')
-
-        if not transcription or not isinstance(transcription, str):
-            return jsonify(api_error('no_transcription_provided')), 400
-        if not user_message or not isinstance(user_message, str):
-            return jsonify(api_error('no_message_provided')), 400
-        if not isinstance(message_history, list):
-            message_history = []
-
-        # Check if chat client is available
-        if chat_client is None:
-            return jsonify(api_error('chat_client_not_configured')), 503
-
-        # Same prompt as API v1 chat (src/services/recording_chat.py). An
-        # incognito recording has no database row: the transcript, participants
-        # and notes come from this request (#527).
-        from src.services.assistant_events import recording_events
-        from src.services.recording_chat import IncognitoTranscript, build_chat_messages
-        transcript = IncognitoTranscript(transcription, participants, notes)
-        messages, segments = build_chat_messages(transcript, current_user, user_message, message_history,
-                                                 with_sources=True)
-
-        user_id = current_user.id
-        app = current_app._get_current_object()
-
-        incognito_log.info(f"[Incognito Chat] User {user_id} sending message "
-                           f"({len(user_message)} characters, transcript {len(transcription)} characters, "
-                           f"{len(message_history)} earlier messages)")
-
-        # Resolved here, in the request context, before the response streams.
-        chat_temperature = get_temperature('chat')
-
-        def generate():
-            """Stream the chat response."""
-            # The budget check and the usage row need the database while the
-            # answer streams, as in the recording panel's /chat.
-            ctx = app.app_context()
-            ctx.push()
-            try:
-                # Counted against the user's monthly token budget: the usage
-                # row holds numbers and the model name only. The same events
-                # as the recording panel's /chat; [DONE] stays last for a tab
-                # loaded before this change.
-                response = call_chat_completion(messages, temperature=chat_temperature, stream=True,
-                                                user_id=user_id, operation_type='chat')
-                stream = process_streaming_with_thinking(response, user_id=user_id, operation_type='chat',
-                                                         app=app)
-                for event in recording_events(stream, segments):
-                    yield event
-
-                yield "data: [DONE]\n\n"
-
-            except TokenBudgetExceeded as e:
-                incognito_log.warning(f"[Incognito Chat] Token budget exceeded for user {user_id}")
-                yield f"data: {json.dumps({'error': str(e), 'budget_exceeded': True})}\n\n"
-            except Exception as e:
-                incognito_log.error(f"[Incognito Chat] Error during streaming: {describe_error(e)}")
-                # Provide more helpful error message for connection issues
-                error_msg = str(e).lower()
-                if 'connection' in error_msg or 'connect' in error_msg or 'refused' in error_msg:
-                    yield f"data: {json.dumps(api_error('llm_connection_failed'))}\n\n"
-                else:
-                    # The provider's text can quote the transcript or the
-                    # message: the answer is a fixed message.
-                    yield f"data: {json.dumps(api_error('chat_error'))}\n\n"
-            finally:
-                ctx.pop()
-
-        return Response(generate(), mimetype='text/event-stream')
-
-    except Exception as e:
-        incognito_log.error(f"[Incognito Chat] Error: {describe_error(e)}")
-        # Provide more helpful error message for connection issues
-        error_msg = str(e).lower()
-        if 'connection' in error_msg or 'connect' in error_msg or 'refused' in error_msg:
-            return jsonify(api_error('llm_connection_failed')), 503
-        return jsonify(api_error('chat_error')), 500
-
-
-@recordings_bp.route('/api/recordings/incognito/summary', methods=['POST'])
-@login_required
-@incognito_route
-def generate_incognito_summary_endpoint():
-    """
-    Generate summary for an incognito recording on demand.
-    Since incognito recordings don't exist in the database, the transcription
-    is passed directly in the request.
-    """
-    # Check if incognito mode is enabled
-    if not _self.ENABLE_INCOGNITO_MODE:
-        return jsonify(api_error('incognito_disabled')), 403
-
-    from src.tasks.processing import generate_incognito_summary
-    from src.utils import md_to_html
-
-    try:
-        data = request.json
-        if not data:
-            return jsonify(api_error('no_data_provided')), 400
-
-        transcription = data.get('transcription')
-        if not transcription:
-            return jsonify(api_error('no_transcription_provided')), 400
-
-        # Check if LLM client is available
-        if client is None:
-            return jsonify(api_error('summary_llm_not_configured')), 503
-
-        incognito_log.info(f"[Incognito Summary] User {current_user.id} requesting summary generation "
-                           f"(transcript {len(transcription)} characters)")
-
-        # Generate summary using existing function
-        summary = generate_incognito_summary(transcription, current_user)
-
-        if summary:
-            summary_html = md_to_html(summary)
-            return jsonify({
-                'summary': summary,
-                'summary_html': summary_html
-            })
-        else:
-            return jsonify(api_error('summary_generation_failed')), 503
-
-    except TokenBudgetExceeded as e:
-        incognito_log.warning(f"[Incognito Summary] Token budget exceeded for user {current_user.id}")
-        return jsonify({'error': str(e), 'budget_exceeded': True}), 403
-    except Exception as e:
-        incognito_log.error(f"[Incognito Summary] Error: {describe_error(e)}")
-        # Provide more helpful error message for connection issues
-        error_msg = str(e).lower()
-        if 'connection' in error_msg or 'connect' in error_msg or 'refused' in error_msg:
-            return jsonify(api_error('llm_connection_failed')), 503
-        # The exception text can quote the transcript: the answer is a fixed message.
-        return jsonify(api_error('summary_generation_failed')), 500
-
-
 # Status Endpoint
 
 
@@ -2725,17 +2197,6 @@ def get_archived_recordings():
         return jsonify({'error': str(e)}), 500
 
 
-def _owner_username_for_recipient(owner):
-    """The owner's username as a person the recording is shared with gets it.
-
-    Follows show_usernames_in_ui, as the shared-with-me list does
-    (src/api/shares.py): None while usernames are hidden.
-    """
-    if not _self.SHOW_USERNAMES_IN_UI:
-        return None
-    return owner.username if owner else "Unknown"
-
-
 # --- Recording Detail and Audio Endpoints ---
 
 @recordings_bp.route('/api/recordings/<int:recording_id>', methods=['GET'])
@@ -2749,65 +2210,21 @@ def get_recording_detail(recording_id):
         if not recording:
             return jsonify(api_error('recording_not_found')), 404
 
-        # Check ownership or shared access
-        has_access = recording.user_id == current_user.id
-
-        # Check if recording has been shared with current user (if internal sharing is enabled)
-        if not has_access and _self.ENABLE_INTERNAL_SHARING:
-            share = InternalShare.query.filter_by(
-                recording_id=recording_id,
-                shared_with_user_id=current_user.id
-            ).first()
-            has_access = share is not None
-
-        if not has_access:
+        # Check ownership
+        if recording.user_id != current_user.id:
             return jsonify(api_error('recording_not_found')), 404
 
         # Return full detail with HTML conversion
         rec_dict = recording.to_dict(include_html=True, viewer_user=current_user)
 
-        # Add sharing metadata
         is_owner = recording.user_id == current_user.id
         rec_dict['is_owner'] = is_owner
 
-        # Add edit permission info (uses has_recording_access which checks group admin status)
+        # Only the owner edits
         rec_dict['can_edit'] = has_recording_access(recording, current_user, require_edit=True)
 
         # Add delete permission info (only owner can delete)
         rec_dict['can_delete'] = is_owner and (_self.USERS_CAN_DELETE or current_user.is_admin)
-
-        # Add sharing-related fields
-        if not is_owner:
-            # This is a shared recording - get owner info and share permissions
-            owner = db.session.get(User, recording.user_id)
-            rec_dict['owner_username'] = _owner_username_for_recipient(owner)
-            rec_dict['is_shared'] = True
-            # Don't show outgoing share count for recordings you don't own
-            rec_dict['shared_with_count'] = 0
-            rec_dict['public_share_count'] = 0
-
-            # Get share permissions
-            share = InternalShare.query.filter_by(
-                recording_id=recording.id,
-                shared_with_user_id=current_user.id
-            ).first()
-
-            if share:
-                rec_dict['share_info'] = {
-                    'share_id': share.id,
-                    'owner_username': _owner_username_for_recipient(owner),
-                    'can_edit': share.can_edit,
-                    'can_reshare': share.can_reshare,
-                    'shared_at': share.created_at.isoformat()
-                }
-            else:
-                # Fallback if share record not found (shouldn't happen)
-                rec_dict['share_info'] = {
-                    'can_edit': False,
-                    'can_reshare': False
-                }
-        else:
-            rec_dict['is_shared'] = False
 
         # Check if recording has group tags (among visible tags)
         visible_tags = recording.get_visible_tags(current_user)
@@ -3197,25 +2614,13 @@ def get_status(recording_id):
 def _playable_recording(recording_id):
     """The recording when the current user may play its audio, else None.
 
-    The one access rule of the audio routes: the owner, or a user the
-    recording is shared with while internal sharing is on.
+    The one access rule of the audio routes: the owner.
     """
     recording = db.session.get(Recording, recording_id)
     if not recording or not recording.audio_path:
         return None
 
-    # Check if the recording belongs to the current user or has been shared with them
-    has_access = recording.user_id == current_user.id
-
-    # Check if recording has been shared with current user (if internal sharing is enabled)
-    if not has_access and _self.ENABLE_INTERNAL_SHARING:
-        share = InternalShare.query.filter_by(
-            recording_id=recording_id,
-            shared_with_user_id=current_user.id
-        ).first()
-        has_access = share is not None
-
-    return recording if has_access else None
+    return recording if recording.user_id == current_user.id else None
 
 
 @recordings_bp.route('/audio/<int:recording_id>/peaks')
@@ -3350,7 +2755,7 @@ def chat_with_transcription():
         if chat_client is None:
             return jsonify(api_error('chat_client_not_configured')), 503
 
-        # One prompt builder for every recording chat (web panel, incognito,
+        # One prompt builder for every recording chat (web panel,
         # API v1): the whole transcript with segment markers when it has
         # segments, the participants, the notes this user can see, the
         # output language and the assistant's name (Ambrose phase 2a). The
@@ -3467,7 +2872,7 @@ def chat_with_transcription():
 @recordings_bp.route('/api/recordings/<int:recording_id>/tags', methods=['POST'])
 @login_required
 def add_tag_to_recording(recording_id):
-    """Add a tag to a recording. Triggers auto-share for group tags."""
+    """Add a tag to a recording."""
     try:
         recording = db.session.get(Recording, recording_id)
         # Check if user has view access to this recording
@@ -3529,13 +2934,6 @@ def add_tag_to_recording(recording_id):
         )
         db.session.add(recording_tag)
 
-        # A group tag with sharing shares the completed recording (same rule
-        # as API v1 and the end of processing: src/services/tag_sharing.py).
-        from src.services.tag_sharing import apply_tag_shares
-        shares_created = apply_tag_shares(recording, tag, sharing_enabled=_self.ENABLE_INTERNAL_SHARING)
-        if shares_created > 0:
-            current_app.logger.info(f"Created {shares_created} auto-shares for recording {recording_id} via group tag {tag.id}")
-
         db.session.commit()
 
         # Return updated recording with per-user status
@@ -3556,7 +2954,7 @@ def add_tag_to_recording(recording_id):
 @recordings_bp.route('/api/recordings/<int:recording_id>/tags/<int:tag_id>', methods=['DELETE'])
 @login_required
 def remove_tag_from_recording(recording_id, tag_id):
-    """Remove a tag from a recording. Cleans up auto-shares for group tags."""
+    """Remove a tag from a recording."""
     try:
         recording = db.session.get(Recording, recording_id)
         # Check if user has view access to this recording
@@ -3599,13 +2997,6 @@ def remove_tag_from_recording(recording_id, tag_id):
 
         # Remove the association
         db.session.delete(recording_tag)
-
-        # Shares this group tag made end, unless another group tag or the
-        # recording's group folder still gives them (#570, #582)
-        from src.services.auto_shares import drop_stale_auto_shares
-        shares_removed = drop_stale_auto_shares(recording_ids=[recording_id])
-        if shares_removed > 0:
-            current_app.logger.info(f"Removed {shares_removed} auto-shares for recording {recording_id} after removing tag {tag_id}")
 
         db.session.commit()
 
@@ -3808,9 +3199,6 @@ def bulk_update_tags():
                             order=max_order + 1
                         )
                         db.session.add(new_tag)
-                        # A group tag shares the same way as on the single-tag route (#591)
-                        from src.services.tag_sharing import apply_tag_shares
-                        apply_tag_shares(recording, tag, sharing_enabled=_self.ENABLE_INTERNAL_SHARING)
                         affected_ids.append(recording_id)
 
                 else:  # remove
@@ -3826,10 +3214,6 @@ def bulk_update_tags():
             except Exception as e:
                 current_app.logger.error(f"Error updating tag for recording {recording_id}: {e}")
 
-        if action == 'remove' and affected_ids:
-            # Shares the tag made end with it (#570, #582)
-            from src.services.auto_shares import drop_stale_auto_shares
-            drop_stale_auto_shares(recording_ids=affected_ids)
         db.session.commit()
 
         return jsonify({
@@ -3948,15 +3332,11 @@ def bulk_toggle():
                     continue
 
                 # Authorization: only act on recordings the user actually has
-                # access to. Without this, set_user_recording_status would
-                # create a per-user status row for ANY recording id (treating
-                # the caller as a "shared recipient"), leaking a cross-user
-                # existence oracle and polluting the table. Mirrors the single
-                # toggle_inbox / toggle_highlight endpoints.
+                # access to. Mirrors the single toggle_inbox / toggle_highlight
+                # endpoints.
                 if not has_recording_access(recording, current_user):
                     continue
 
-                # Use set_user_recording_status which handles both owners and shared users
                 if field == 'inbox':
                     set_user_recording_status(recording, current_user, is_inbox=value)
                 elif field == 'archive':
@@ -4048,8 +3428,5 @@ _SYSTEM_SETTING_MAP = {
     "ENABLE_AUTO_DELETION": ("enable_auto_deletion", "ENABLE_AUTO_DELETION", False),
     "DELETION_MODE": ("deletion_mode", "DELETION_MODE", "full_recording"),
     "USERS_CAN_DELETE": ("users_can_delete", "USERS_CAN_DELETE", True),
-    "ENABLE_INTERNAL_SHARING": ("enable_internal_sharing", "ENABLE_INTERNAL_SHARING", False),
-    "ENABLE_INCOGNITO_MODE": ("enable_incognito_mode", "ENABLE_INCOGNITO_MODE", False),
-    "SHOW_USERNAMES_IN_UI": ("show_usernames_in_ui", "SHOW_USERNAMES_IN_UI", False),
 }
 _self, __getattr__ = apply_hot_settings(__name__, _SYSTEM_SETTING_MAP)

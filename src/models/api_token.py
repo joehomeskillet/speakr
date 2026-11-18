@@ -12,7 +12,7 @@ from src.database import db
 # Scopes a token can carry (mailr spec section 3). A token with scopes NULL is a
 # full token: every route, as before scopes existed. 'account' covers account
 # settings and is separate from 'write' (decision 2026-10-02).
-TOKEN_SCOPES = ('read', 'write', 'upload', 'process', 'share', 'delete', 'webhooks', 'account')
+TOKEN_SCOPES = ('read', 'write', 'upload', 'process', 'delete', 'webhooks', 'account')
 FULL_SCOPE = 'full'
 
 

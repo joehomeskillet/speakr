@@ -123,7 +123,7 @@ S3_PRESIGN_PUBLIC_TTL_SECONDS = int(os.environ.get('S3_PRESIGN_PUBLIC_TTL_SECOND
 _unsupported_codecs_str = os.environ.get('AUDIO_UNSUPPORTED_CODECS', '')
 AUDIO_UNSUPPORTED_CODECS = {c.strip().lower() for c in _unsupported_codecs_str.split(',') if c.strip()}
 
-# Email verification configuration
+# Email (SMTP) configuration for processing notifications
 SMTP_HOST = os.environ.get('SMTP_HOST', '')
 SMTP_PORT = int(os.environ.get('SMTP_PORT', '587'))
 SMTP_USERNAME = os.environ.get('SMTP_USERNAME', '')
@@ -216,7 +216,5 @@ def _validate_legacy_transcription_config(app):
 from src.utils.system_settings import apply_hot_settings
 _SYSTEM_SETTING_MAP = {
     "VIDEO_PASSTHROUGH_ASR": ("video_passthrough_asr", "VIDEO_PASSTHROUGH_ASR", False),
-    "ENABLE_EMAIL_VERIFICATION": ("enable_email_verification", "ENABLE_EMAIL_VERIFICATION", False),
-    "REQUIRE_EMAIL_VERIFICATION": ("require_email_verification", "REQUIRE_EMAIL_VERIFICATION", False),
 }
 _self, __getattr__ = apply_hot_settings(__name__, _SYSTEM_SETTING_MAP)

@@ -1,31 +1,17 @@
-"""Personal archive state (#394) and recording-wide retention archival.
+"""Archive state of a recording (#394) and recording-wide retention archival.
 
-Archive works like inbox and star: the owner's value lives on the recording,
-and each user a recording is shared with keeps their own value on their
-SharedRecordingState row, so archiving a shared recording never hides it for
-anyone else. Retention archival applies to every viewer, and the owner can
-restore it through the same audited transition service.
+The owner's personal flag lives on the recording. Retention archival applies
+to every viewer, and only the owner can restore it through the audited
+transition service.
 """
 
-from sqlalchemy import select
-
 from src.database import db
-from src.models.sharing import SharedRecordingState
-
-
-def _state(recording, user):
-    return SharedRecordingState.query.filter_by(
-        recording_id=recording.id, user_id=user.id,
-    ).populate_existing().first()
 
 
 def get_user_archived(recording, user):
     if recording.retention_archived_at is not None:
         return True
-    if recording.user_id == user.id:
-        return bool(recording.is_archived)
-    state = _state(recording, user)
-    return bool(state and state.is_archived)
+    return bool(recording.is_archived)
 
 
 def set_user_archived(recording, user, value, commit=True):
@@ -44,15 +30,7 @@ def set_user_archived(recording, user, value, commit=True):
     if retained and not value:
         recording.retention_archived_at = None
         scope = 'recording'
-    if recording.user_id == user.id:
-        recording.is_archived = value
-    else:
-        state = _state(recording, user)
-        if not state:
-            state = SharedRecordingState(recording_id=recording.id, user_id=user.id,
-                                         is_inbox=True, is_highlighted=False)
-            db.session.add(state)
-        state.is_archived = value
+    recording.is_archived = value
     record_transition(recording, value, rule='user.archive' if value else 'user.restore',
                       scope=scope, target_user_id=user.id)
     if commit:
@@ -78,30 +56,18 @@ def archived_condition(recording_model, user_id):
     """SQL condition: the recording is archived for this user.
 
     NULL counts as not archived, so rows written before the column existed
-    can never disappear from the list.
+    can never disappear from the list. A retention timestamp archives the
+    recording for its owner even when the personal flag is clear.
     """
-    shared_archived = select(SharedRecordingState.recording_id).where(
-        db.and_(SharedRecordingState.user_id == user_id,
-                db.func.coalesce(SharedRecordingState.is_archived, False) == True)  # noqa: E712
-    ).scalar_subquery()
-    return db.or_(
-        recording_model.retention_archived_at.is_not(None),
-        db.and_(recording_model.user_id == user_id,
-                db.func.coalesce(recording_model.is_archived, False) == True),  # noqa: E712
-        recording_model.id.in_(shared_archived),
+    return db.and_(
+        recording_model.user_id == user_id,
+        db.or_(
+            recording_model.retention_archived_at.is_not(None),
+            db.func.coalesce(recording_model.is_archived, False) == True,  # noqa: E712
+        ),
     )
 
 
 def set_user_notes(recording, user, notes):
-    """The owner writes the recording's notes; anyone else writes their own
-    personal notes and never sees or changes the owner's (mailr spec Q2)."""
-    if recording.user_id == user.id:
-        recording.notes = notes
-        return
-    state = _state(recording, user)
-    if not state:
-        state = SharedRecordingState(recording_id=recording.id, user_id=user.id,
-                                     is_inbox=True, is_highlighted=False)
-        db.session.add(state)
-    state.personal_notes = notes
-
+    """Write the recording's notes. Callers enforce owner or edit access."""
+    recording.notes = notes

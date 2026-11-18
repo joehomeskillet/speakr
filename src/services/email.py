@@ -1,5 +1,5 @@
 """
-Email service for verification and password reset.
+Email service for processing notifications (completion and failure).
 
 This module provides email functionality using Python's built-in smtplib.
 All email features are opt-in via environment variables.
@@ -13,34 +13,19 @@ from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.utils import formatdate, make_msgid
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional
 
-from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
-from flask import current_app, url_for
-
-from src.utils.localization import match_language, translate
+from src.utils.localization import default_language, match_language, translate
 
 logger = logging.getLogger(__name__)
 
-# Token expiry times
-EMAIL_VERIFICATION_EXPIRY = 24 * 60 * 60  # 24 hours in seconds
-PASSWORD_RESET_EXPIRY = 1 * 60 * 60  # 1 hour in seconds
 
 
-
-def _sys_setting_bool(key, env, default):
-    try:
-        from src.models import SystemSetting
-        return bool(SystemSetting.get_setting(key, os.environ.get(env, str(default).lower()).lower() == 'true'))
-    except Exception:
-        return os.environ.get(env, str(default).lower()).lower() == 'true'
 
 def get_email_config():
     """Get email configuration from environment variables."""
     return {
-        'enabled': _sys_setting_bool('enable_email_verification', 'ENABLE_EMAIL_VERIFICATION', False),
-        'required': _sys_setting_bool('require_email_verification', 'REQUIRE_EMAIL_VERIFICATION', False),
         'smtp_host': os.environ.get('SMTP_HOST', ''),
         'smtp_port': int(os.environ.get('SMTP_PORT', '587')),
         'smtp_username': os.environ.get('SMTP_USERNAME', ''),
@@ -52,79 +37,10 @@ def get_email_config():
     }
 
 
-def is_email_verification_enabled() -> bool:
-    """Check if email verification is enabled."""
-    return get_email_config()['enabled']
-
-
-def is_email_verification_required() -> bool:
-    """Check if email verification is required for login."""
-    config = get_email_config()
-    return config['enabled'] and config['required']
-
-
 def is_smtp_configured() -> bool:
     """Check if SMTP settings are properly configured."""
     config = get_email_config()
     return bool(config['smtp_host'] and config['smtp_username'] and config['smtp_password'])
-
-
-def get_serializer(salt: str) -> URLSafeTimedSerializer:
-    """Get a URL-safe timed serializer for token generation.
-
-    SECRET_KEY is guaranteed set (and never the insecure default) by the
-    startup guard in src/app.py, so no fallback is needed here — a fallback
-    would only reintroduce a weak, forgeable signing key.
-    """
-    return URLSafeTimedSerializer(current_app.config['SECRET_KEY'], salt=salt)
-
-
-def generate_verification_token(user_id: int) -> str:
-    """Generate an email verification token."""
-    serializer = get_serializer('email-verification')
-    return serializer.dumps(user_id)
-
-
-def generate_password_reset_token(user_id: int) -> str:
-    """Generate a password reset token."""
-    serializer = get_serializer('password-reset')
-    return serializer.dumps(user_id)
-
-
-def verify_email_token(token: str) -> Optional[int]:
-    """
-    Verify an email verification token.
-
-    Returns the user_id if valid, None otherwise.
-    """
-    serializer = get_serializer('email-verification')
-    try:
-        user_id = serializer.loads(token, max_age=EMAIL_VERIFICATION_EXPIRY)
-        return user_id
-    except SignatureExpired:
-        logger.warning("Email verification token expired")
-        return None
-    except BadSignature:
-        logger.warning("Invalid email verification token")
-        return None
-
-
-def verify_reset_token(token: str) -> Optional[int]:
-    """
-    Verify a password reset token.
-
-    Returns the user_id if valid, None otherwise.
-    """
-    serializer = get_serializer('password-reset')
-    try:
-        user_id = serializer.loads(token, max_age=PASSWORD_RESET_EXPIRY)
-        return user_id
-    except SignatureExpired:
-        logger.warning("Password reset token expired")
-        return None
-    except BadSignature:
-        logger.warning("Invalid password reset token")
-        return None
 
 
 
@@ -328,206 +244,12 @@ def _get_email_template(content_html: str, content_text: str, subject: str,
 
 def _recipient_language(user) -> str:
     """The recipient's interface language, for mail sent outside their own session."""
-    return match_language(getattr(user, 'ui_language', None)) or 'en'
-
-
-def send_verification_email(user) -> bool:
-    """
-    Send a verification email to a user.
-
-    Args:
-        user: User model instance
-
-    Returns True if email was sent successfully, False otherwise.
-    """
-    from src.database import db
-
-    if not is_email_verification_enabled():
-        logger.debug("Email verification is disabled")
-        return False
-
-    if not is_smtp_configured():
-        logger.warning("Cannot send verification email: SMTP not configured")
-        return False
-
-    # Generate token and store it
-    token = generate_verification_token(user.id)
-    user.email_verification_token = token
-    user.email_verification_sent_at = datetime.utcnow()
-    db.session.commit()
-
-    # Build verification URL
-    verify_url = _account_link('auth.verify_email', token=token)
-
-    language = _recipient_language(user)
-    subject = translate('server.email.verify.subject', language)
-    greeting = translate('server.email.common.greeting', language, name=user.username)
-    intro = translate('server.email.verify.intro', language)
-    button = translate('server.email.verify.button', language)
-    copy_link = translate('server.email.common.copyLink', language)
-    expiry = translate('server.email.verify.expiry', language)
-    ignore = translate('server.email.verify.ignore', language)
-
-    content_html = f"""
-<h2 style="color: #1f2937; margin: 0 0 24px 0; font-size: 24px; font-weight: 600;">{_h(translate('server.email.verify.heading', language))}</h2>
-
-<p style="color: #374151; margin: 0 0 16px 0; font-size: 16px;">{_h(greeting)}</p>
-
-<p style="color: #374151; margin: 0 0 24px 0; font-size: 16px;">
-    {_h(intro)}
-</p>
-
-<div style="text-align: center; margin: 32px 0;">
-    <a href="{verify_url}" style="display: inline-block; background-color: #2563eb; color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: 600; font-size: 16px;">{_h(button)}</a>
-</div>
-
-<p style="color: #6b7280; font-size: 14px; margin: 24px 0 8px 0;">{_h(copy_link)}</p>
-<p style="word-break: break-all; color: #2563eb; font-size: 14px; margin: 0; padding: 12px; background-color: #f3f4f6; border-radius: 6px;">{verify_url}</p>
-
-<div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid #e5e7eb;">
-    <p style="color: #9ca3af; font-size: 13px; margin: 0;">
-        <strong>{_h(expiry)}</strong><br>
-        {_h(ignore)}
-    </p>
-</div>
-"""
-
-    content_text = f"""{greeting}
-
-{intro}
-
-{translate('server.email.verify.textLink', language)} {verify_url}
-
-{expiry}
-
-{ignore}"""
-
-    html_body, text_body = _get_email_template(content_html, content_text, subject, language)
-    return _send_email(user.email, subject, html_body, text_body)
-
-
-def send_password_reset_email(user) -> bool:
-    """
-    Send a password reset email to a user.
-
-    Args:
-        user: User model instance
-
-    Returns True if email was sent successfully, False otherwise.
-    """
-    from src.database import db
-
-    if not is_smtp_configured():
-        logger.warning("Cannot send password reset email: SMTP not configured")
-        return False
-
-    # Generate token and store it
-    token = generate_password_reset_token(user.id)
-    user.password_reset_token = token
-    user.password_reset_sent_at = datetime.utcnow()
-    db.session.commit()
-
-    # Build reset URL
-    reset_url = _account_link('auth.reset_password', token=token)
-
-    language = _recipient_language(user)
-    subject = translate('server.email.reset.subject', language)
-    greeting = translate('server.email.common.greeting', language, name=user.username)
-    button = translate('server.email.reset.button', language)
-    copy_link = translate('server.email.common.copyLink', language)
-    expiry = translate('server.email.reset.expiry', language)
-    ignore = translate('server.email.reset.ignore', language)
-
-    content_html = f"""
-<h2 style="color: #1f2937; margin: 0 0 24px 0; font-size: 24px; font-weight: 600;">{_h(translate('server.email.reset.heading', language))}</h2>
-
-<p style="color: #374151; margin: 0 0 16px 0; font-size: 16px;">{_h(greeting)}</p>
-
-<p style="color: #374151; margin: 0 0 24px 0; font-size: 16px;">
-    {_h(translate('server.email.reset.intro', language))}
-</p>
-
-<div style="text-align: center; margin: 32px 0;">
-    <a href="{reset_url}" style="display: inline-block; background-color: #2563eb; color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: 600; font-size: 16px;">{_h(button)}</a>
-</div>
-
-<p style="color: #6b7280; font-size: 14px; margin: 24px 0 8px 0;">{_h(copy_link)}</p>
-<p style="word-break: break-all; color: #2563eb; font-size: 14px; margin: 0; padding: 12px; background-color: #f3f4f6; border-radius: 6px;">{reset_url}</p>
-
-<div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid #e5e7eb;">
-    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-        <tr>
-            <td style="width: 24px; vertical-align: top; padding-right: 12px;">
-                <span style="font-size: 18px;">⚠️</span>
-            </td>
-            <td>
-                <p style="color: #9ca3af; font-size: 13px; margin: 0;">
-                    <strong style="color: #6b7280;">{_h(expiry)}</strong><br>
-                    {_h(ignore)}
-                </p>
-            </td>
-        </tr>
-    </table>
-</div>
-"""
-
-    content_text = f"""{greeting}
-
-{translate('server.email.reset.textIntro', language)}
-
-{reset_url}
-
-{expiry}
-
-{ignore}"""
-
-    html_body, text_body = _get_email_template(content_html, content_text, subject, language)
-    return _send_email(user.email, subject, html_body, text_body)
-
-
-def can_resend_verification(user) -> tuple[bool, Optional[int]]:
-    """
-    Check if a verification email can be resent.
-
-    Returns (can_resend, seconds_until_can_resend)
-    """
-    if not user.email_verification_sent_at:
-        return True, None
-
-    # Allow resend after 60 seconds
-    cooldown = timedelta(seconds=60)
-    time_since_last = datetime.utcnow() - user.email_verification_sent_at
-
-    if time_since_last >= cooldown:
-        return True, None
-
-    remaining = (cooldown - time_since_last).seconds
-    return False, remaining
-
-
-def can_resend_password_reset(user) -> tuple[bool, Optional[int]]:
-    """
-    Check if a password reset email can be resent.
-
-    Returns (can_resend, seconds_until_can_resend)
-    """
-    if not user.password_reset_sent_at:
-        return True, None
-
-    # Allow resend after 60 seconds
-    cooldown = timedelta(seconds=60)
-    time_since_last = datetime.utcnow() - user.password_reset_sent_at
-
-    if time_since_last >= cooldown:
-        return True, None
-
-    remaining = (cooldown - time_since_last).seconds
-    return False, remaining
+    return match_language(getattr(user, 'ui_language', None)) or default_language()
 
 
 # --- Processing notifications (#386) -------------------------------------
 #
-# Unlike verification and password reset, these are sent from a job-queue
+# These are sent from a job-queue
 # worker thread with no request context, so `url_for(_external=True)` is not
 # available: it needs SERVER_NAME, which Speakr does not set. The deep link
 # therefore comes from APP_BASE_URL, and when that is unset the mail is sent
@@ -561,29 +283,6 @@ def get_app_base_url() -> Optional[str]:
     """External base URL of this instance, e.g. https://speakr.example.com."""
     base = (os.environ.get('APP_BASE_URL') or '').split('#')[0].strip()
     return base.rstrip('/') or None
-
-
-_warned_host_links = False
-
-
-def _account_link(endpoint: str, **values) -> str:
-    """Absolute link for verification and password-reset mail (#436).
-
-    Built from APP_BASE_URL when it is set. Otherwise the host comes from the
-    request, including X-Forwarded-Host, which the person asking for a reset
-    link can choose; a warning is logged once so that the variable gets set.
-    """
-    global _warned_host_links
-    base = get_app_base_url()
-    if base:
-        return base + url_for(endpoint, **values)
-    if not _warned_host_links:
-        _warned_host_links = True
-        logger.warning(
-            "APP_BASE_URL is not set, so links in verification and password-reset "
-            "email are built from the request's host header. Set APP_BASE_URL to "
-            "the address users reach Speakr on.")
-    return url_for(endpoint, _external=True, **values)
 
 
 def _recording_url(recording_id: int) -> Optional[str]:

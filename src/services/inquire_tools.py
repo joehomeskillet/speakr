@@ -304,8 +304,7 @@ def tool_get_notes(ctx, args):
     rec, err = ctx.check_scope(args.get('recording_id'))
     if err:
         return {'error': err}
-    # Decision (2026-08-28): only the user's OWN notes, never notes on
-    # recordings shared with them, regardless of toggles.
+    # Decision (2026-08-28): only the user's OWN notes, regardless of toggles.
     if rec.user_id != ctx.user_id:
         return {'error': "Notes are only available on your own recordings"}
     if not rec.notes:

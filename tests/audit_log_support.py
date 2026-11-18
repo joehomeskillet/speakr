@@ -111,20 +111,14 @@ def bearer(plain):
 
 def remove_users(created):
     """Delete the accounts a test created, with what refers to them."""
-    from src.models import GroupMembership, InternalShare, Share, SharedRecordingState
+    from src.models import GroupMembership
     db.session.rollback()
     for user_id in created:
         user = db.session.get(User, user_id)
         if user is None:
             continue
         for recording in Recording.query.filter_by(user_id=user_id).all():
-            Share.query.filter_by(recording_id=recording.id).delete()
-            InternalShare.query.filter_by(recording_id=recording.id).delete()
-            SharedRecordingState.query.filter_by(recording_id=recording.id).delete()
             db.session.delete(recording)
-        InternalShare.query.filter(
-            (InternalShare.owner_id == user_id) | (InternalShare.shared_with_user_id == user_id)).delete()
-        SharedRecordingState.query.filter_by(user_id=user_id).delete()
         APIToken.query.filter_by(user_id=user_id).delete()
         GroupMembership.query.filter_by(user_id=user_id).delete()
         db.session.delete(user)
@@ -134,7 +128,7 @@ def remove_users(created):
 def unfreeze_hot_settings():
     """Remove module attributes that shadow a hot-applied setting.
 
-    ENABLE_INTERNAL_SHARING, ENABLE_PUBLIC_SHARING and the like are read
+    ENABLE_INCOGNITO_MODE and the like are read
     through a module-level __getattr__ (apply_hot_settings), so a saved
     setting applies at once. A test that sets such a name on the module and
     restores it with setattr leaves an ordinary attribute behind, and the

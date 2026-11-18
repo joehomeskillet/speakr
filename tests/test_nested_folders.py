@@ -365,7 +365,7 @@ def test_folder_payloads_keep_their_fields(owner):
         'id', 'name', 'color', 'group_id', 'is_group_folder', 'group_name', 'custom_prompt',
         'title_prompt', 'default_language', 'default_min_speakers', 'default_max_speakers',
         'default_hotwords', 'default_initial_prompt', 'default_transcription_model',
-        'protect_from_deletion', 'retention_days', 'auto_share_on_apply', 'share_with_group_lead',
+        'protect_from_deletion', 'retention_days',
         'naming_template_id', 'naming_template_name', 'export_template_id', 'export_template_name',
         'created_at', 'recording_count',
     }

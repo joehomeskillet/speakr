@@ -64,13 +64,13 @@ def _seed(actor, target, recording_id, count=12):
                                      outcome='denied', details={'part': 'summary', 'format': 'md'},
                                      created_at=base + timedelta(minutes=i))
         elif kind == 2:
-            row = audit.record_in_tx('share.internal.created', recording_id=recording_id, recording_owner_id=actor.id,
+            row = audit.record_in_tx('group.member.added', recording_id=recording_id, recording_owner_id=actor.id,
                                      actor_kind='session', actor_user_id=actor.id, target_user_id=target.id,
-                                     details={'share_id': 5, 'can_edit': True, 'can_reshare': False},
+                                     details={'role': 'member'},
                                      created_at=base + timedelta(minutes=i))
         else:
-            row = audit.record_in_tx('share.public.opened', recording_id=recording_id, recording_owner_id=actor.id,
-                                     actor_kind='public_link', details={'share_id': 9},
+            row = audit.record_in_tx('group.member.removed', recording_id=recording_id, recording_owner_id=actor.id,
+                                     actor_kind='system',
                                      created_at=base + timedelta(minutes=i))
         db.session.flush()
         ids.append(row.id)
@@ -129,10 +129,10 @@ def test_filters(created):
 
     newest_first = list(reversed(ids))
     assert listed('') == newest_first
-    assert listed('group=share') == [i for n, i in reversed(list(enumerate(ids))) if n % 4 in (2, 3)]
+    assert listed('group=admin') == [i for n, i in reversed(list(enumerate(ids))) if n % 4 in (2, 3)]
     assert listed('event=recording.edited') == [i for n, i in reversed(list(enumerate(ids))) if n % 4 == 0]
     assert listed('outcome=denied') == [i for n, i in reversed(list(enumerate(ids))) if n % 4 == 1]
-    assert listed('actor_kind=public_link') == [i for n, i in reversed(list(enumerate(ids))) if n % 4 == 3]
+    assert listed('actor_kind=system') == [i for n, i in reversed(list(enumerate(ids))) if n % 4 == 3]
     # User: the actor or the target, by id or by name in any case.
     assert listed(f'user={target.id}') == [i for n, i in reversed(list(enumerate(ids))) if n % 4 == 2]
     assert listed(f'user={target.username.upper()}') == listed(f'user={target.id}')
@@ -175,14 +175,14 @@ def test_keyset_paging_and_names(created):
     # Names are resolved for the accounts that exist; a deleted one is absent.
     assert first['users'][str(admin.id)] == admin.username
     row = AuditEvent.query.filter_by(id=ids[2]).first()
-    page = _get(client, f'recording_id={rec}&event=share.internal.created').get_json()
+    page = _get(client, f'recording_id={rec}&event=group.member.added').get_json()
     assert page['users'][str(target.id)] == target.username
     assert page['events'][0]['details'] == row.details
     target_id = target.id
     db.session.delete(db.session.get(User, target_id))
     db.session.commit()
     created.remove(target_id)
-    page = _get(client, f'recording_id={rec}&event=share.internal.created').get_json()
+    page = _get(client, f'recording_id={rec}&event=group.member.added').get_json()
     assert str(target_id) not in page['users'] and page['events'][0]['target_user_id'] == target_id
     # Every column of the table, and nothing else.
     assert set(page['events'][0]) == set(audit.COLUMNS)

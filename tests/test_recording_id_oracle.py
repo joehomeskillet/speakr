@@ -3,9 +3,9 @@
 API v1 used to answer 403 for another account's recording and 404 for a
 missing id, so a caller could tell which ids belong to other accounts.
 403 now means the caller can see the recording and the request needs more
-(edit access or ownership). Permissions themselves are unchanged.
+(ownership). Permissions themselves are unchanged.
 
-SHARED-DB: users, tokens, shares and recordings are removed afterwards.
+SHARED-DB: users, tokens and recordings are removed afterwards.
 """
 
 import os
@@ -18,7 +18,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.app import app, db
-from src.models import APIToken, InternalShare, Recording, User
+from src.models import APIToken, Recording, User
 from src.utils.token_auth import hash_token
 
 MISSING_ID = 2_000_000_000
@@ -37,12 +37,8 @@ def world():
                          transcription="Hello.")
         foreign = Recording(user_id=evan.id, title="Evan only", status="COMPLETED", original_filename="b.wav",
                             transcription="Private words.")
-        viewable = Recording(user_id=evan.id, title="Shared to read", status="COMPLETED", original_filename="c.wav",
-                             transcription="Shared words.")
-        db.session.add_all([mine, foreign, viewable])
+        db.session.add_all([mine, foreign])
         db.session.commit()
-        db.session.add(InternalShare(recording_id=viewable.id, owner_id=evan.id, shared_with_user_id=me.id,
-                                     can_edit=False, source_type="manual"))
         tokens = {}
         for who in (me, admin):
             plain = f"tok-{secrets.token_urlsafe(16)}"
@@ -50,14 +46,12 @@ def world():
             tokens[who.id] = plain
         db.session.commit()
         ids = dict(me=me.id, evan=evan.id, admin=admin.id, mine=mine.id, foreign=foreign.id,
-                   viewable=viewable.id, token=tokens[me.id], admin_token=tokens[admin.id])
-    with patch("src.app.ENABLE_INTERNAL_SHARING", True):
-        yield ids
+                   token=tokens[me.id], admin_token=tokens[admin.id])
+    yield ids
     with app.app_context():
         db.session.rollback()
         users = [ids["me"], ids["evan"], ids["admin"]]
         recs = [r.id for r in Recording.query.filter(Recording.user_id.in_(users))]
-        InternalShare.query.filter(InternalShare.recording_id.in_(recs)).delete(synchronize_session=False)
         Recording.query.filter(Recording.id.in_(recs)).delete(synchronize_session=False)
         APIToken.query.filter(APIToken.user_id.in_(users)).delete(synchronize_session=False)
         User.query.filter(User.id.in_(users)).delete(synchronize_session=False)
@@ -86,9 +80,8 @@ def test_foreign_and_missing_reads_match(world, suffix):
     assert "Evan only" not in foreign.get_data(as_text=True)
 
 
-def test_own_and_shared_recordings_still_read(world):
+def test_own_recordings_still_read(world):
     assert _call(world, "GET", f"/api/v1/recordings/{world['mine']}").status_code == 200
-    assert _call(world, "GET", f"/api/v1/recordings/{world['viewable']}").status_code == 200
 
 
 @pytest.mark.parametrize("method,suffix,body", [
@@ -111,23 +104,13 @@ def test_foreign_and_missing_writes_match(world, method, suffix, body):
         assert db.session.get(Recording, world["foreign"]).title == "Evan only"
 
 
-def test_view_without_edit_stays_forbidden(world):
-    rid = world["viewable"]
-    r = _call(world, "PATCH", f"/api/v1/recordings/{rid}", json={"title": "edited"})
-    assert r.status_code == 403 and r.get_json()["code"] == "permission_denied"
-    r = _call(world, "DELETE", f"/api/v1/recordings/{rid}")
-    assert r.status_code == 403 and r.get_json()["code"] == "delete_owner_only"
-    assert _exists(rid)
-
-
 def test_batch_update_uses_one_code_for_hidden_and_missing(world):
     r = _call(world, "PATCH", "/api/v1/recordings/batch",
-              json={"recording_ids": [world["foreign"], MISSING_ID, world["viewable"]],
+              json={"recording_ids": [world["foreign"], MISSING_ID],
                     "updates": {"is_highlighted": True}})
     assert r.status_code == 200
     codes = {item["id"]: item.get("code") for item in r.get_json()["results"]}
     assert codes[world["foreign"]] == codes[MISSING_ID] == "not_found"
-    assert codes[world["viewable"]] == "permission_denied"
 
 
 def test_batch_transcribe_uses_one_code_for_hidden_and_missing(world):
@@ -140,12 +123,11 @@ def test_batch_transcribe_uses_one_code_for_hidden_and_missing(world):
 
 def test_batch_delete_hides_ids_but_keeps_admin_rights(world):
     r = _call(world, "DELETE", "/api/v1/recordings/batch",
-              json={"recording_ids": [world["foreign"], MISSING_ID, world["viewable"]]})
+              json={"recording_ids": [world["foreign"], MISSING_ID]})
     assert r.status_code == 200
     codes = {item["id"]: item.get("code") for item in r.get_json()["results"]}
     assert codes[world["foreign"]] == codes[MISSING_ID] == "not_found"
-    assert codes[world["viewable"]] == "permission_denied"
-    assert _exists(world["foreign"]) and _exists(world["viewable"])
+    assert _exists(world["foreign"])
 
     # An administrator could batch-delete another account's recording before
     # this change and still can.

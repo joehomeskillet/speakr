@@ -5,8 +5,7 @@ transcript in the prompt (the 2a builder, unchanged) and also offers the
 library tools over every recording the user can access. The panel has no
 filters (they belong to the Ask page): filter fields in its request are
 ignored, and access is the only limit.
-Tools per surface: incognito none, the open recording the library tools, the
-Ask page all. With the agent off, or when the endpoint rejects tool calls,
+Tools per surface: the open recording the library tools, the Ask page all. With the agent off, or when the endpoint rejects tool calls,
 the answer is the transcript-only one (a rejected call is retried once
 without tools). The model is mocked: no request leaves the test.
 
@@ -189,18 +188,6 @@ def test_with_the_agent_off_the_panel_has_no_tools(world, monkeypatch):
     assert _answer(events) == 'Plain answer.'
 
 
-def test_incognito_gets_no_tools(world, agent_on):
-    fake = FakeLLM(_text('Incognito answer.'))
-    with patch("src.api.recordings.ENABLE_INCOGNITO_MODE", True):
-        resp, events = _post(world["owner"], "/api/recordings/incognito/chat",
-                             {"transcription": json.dumps(SEGMENTS), "message": QUESTION}, fake)
-    assert resp.status_code == 200
-    assert fake.calls[0]['tools'] is None
-    assert [m['role'] for m in fake.calls[0]['messages']] == ['system', 'user']
-    assert 'You have tools' not in fake.calls[0]['messages'][0]['content']
-    assert _answer(events) == 'Incognito answer.'
-
-
 def test_the_ask_page_offers_every_tool(world, agent_on):
     from src.services.assistant_events import tools_for_surface
     assert tools_for_surface('ask') is None
@@ -208,7 +195,6 @@ def test_the_ask_page_offers_every_tool(world, agent_on):
     assert len(ia.build_toolbox(every, tools_for_surface('ask'))[0]) == 9  # find_people is the ninth
     assert [s['function']['name'] for s in ia.build_toolbox(every, tools_for_surface('recording'))[0]] == \
         list(LIBRARY_TOOLS)
-    assert ia.build_toolbox(every, tools_for_surface('incognito'))[0] == []
 
 
 # ---------------------------------------------------------------------------

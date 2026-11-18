@@ -12,11 +12,6 @@ from src.database import db
 
 
 
-def _current_release_key():
-    from src.config.version import release_key
-    return release_key()
-
-
 class User(db.Model, UserMixin):
     """User model for authentication and profile management."""
 
@@ -30,7 +25,6 @@ class User(db.Model, UserMixin):
     sso_provider = db.Column(db.String(100), nullable=True)
     sso_subject = db.Column(db.String(255), unique=True, nullable=True)
     is_admin = db.Column(db.Boolean, default=False)
-    can_share_publicly = db.Column(db.Boolean, default=True)  # Permission to create public share links
     recordings = db.relationship('Recording', backref='owner', lazy=True)
     transcription_language = db.Column(db.String(10), nullable=True)  # For ISO 639-1 codes
     output_language = db.Column(db.String(50), nullable=True)  # For full language names like "Spanish"
@@ -65,14 +59,7 @@ class User(db.Model, UserMixin):
     # Storage quota in megabytes (None = unlimited, #413)
     storage_quota_mb = db.Column(db.Integer, nullable=True)
 
-    # Email verification fields
     email_verified = db.Column(db.Boolean, default=False)
-    email_verification_token = db.Column(db.String(200), nullable=True, index=True)
-    email_verification_sent_at = db.Column(db.DateTime, nullable=True)
-
-    # Password reset fields
-    password_reset_token = db.Column(db.String(200), nullable=True, index=True)
-    password_reset_sent_at = db.Column(db.DateTime, nullable=True)
 
     # Email notifications for finished processing (#386). Opt-in: mail nobody
     # asked for is worse than no mail at all, so this defaults off and the
@@ -138,10 +125,6 @@ class User(db.Model, UserMixin):
     # The assistant's name in the interface (src/utils/assistant_name.py).
     # Null means the default, Ambrose.
     assistant_name = db.Column(db.String(40), nullable=True)
-    # Release whose "What's new" notes the user has seen (src.config.version
-    # release_key). NULL for accounts from before the column, so they see the
-    # current notes once; new accounts start at the current release.
-    whats_new_seen = db.Column(db.String(32), nullable=True, default=lambda: _current_release_key())
     # Audio player placement in the recording-detail view. 'bottom'
     # (default) keeps the player anchored under the content columns;
     # 'top' renders it above the columns so it sits closer to the
@@ -162,6 +145,17 @@ class User(db.Model, UserMixin):
     # this one time is kept, no history. Written at most once per five minutes,
     # outside the session of the request; see src/services/last_active.py.
     last_seen_at = db.Column(db.DateTime, nullable=True)
+
+    def __init__(self, **kwargs):
+        # Clinic mode only: an omitted language preference starts as German.
+        # Done here and not as a column default so that an explicitly passed
+        # None (ASR auto-detection, model-selected output) is kept.
+        from src.clinic.config import clinic_mode_enabled
+        if clinic_mode_enabled():
+            kwargs.setdefault('transcription_language', 'de')
+            kwargs.setdefault('output_language', 'German')
+            kwargs.setdefault('ui_language', 'de')
+        super().__init__(**kwargs)
 
     def get_id(self):
         version = self.session_version or 0

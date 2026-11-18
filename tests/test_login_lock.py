@@ -18,7 +18,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.app import app, db, bcrypt  # noqa: E402
 from src.models import User, LoginFailure, SystemSetting  # noqa: E402
 from src.services import login_lock  # noqa: E402
-from src.services.email import generate_password_reset_token  # noqa: E402
 
 PW = "Sup3rSecret!"
 ADDR = "203.0.113.7"
@@ -226,36 +225,6 @@ def test_get_login_page_counts_nothing(_ctx):
     user = _user(_ctx)
     app.test_client().get('/login', environ_base={'REMOTE_ADDR': ADDR})
     assert _rows(user) == []
-
-
-def test_unverified_account_correct_password_clears_count(_ctx, monkeypatch):
-    from src.api import auth as auth_mod
-    monkeypatch.setattr(auth_mod, 'is_email_verification_required', lambda: True)
-    user = _user(_ctx)
-    user.email_verified = False
-    db.session.commit()
-    for _ in range(3):
-        _login(user, 'wrong')
-    resp, signed_in = _login(user, PW)
-    assert resp.status_code == 200 and not signed_in
-    db.session.expire_all()
-    assert _rows(user) == []
-
-
-def test_reset_password_clears_lock(_ctx):
-    user = _user(_ctx)
-    for _ in range(5):
-        _login(user, 'wrong')
-    token = generate_password_reset_token(user.id)
-    user.password_reset_token = token
-    db.session.commit()
-    resp = app.test_client().post(f'/reset-password/{token}',
-                                  data={'password': 'NewPassw0rd!', 'confirm_password': 'NewPassw0rd!'})
-    assert resp.status_code == 302
-    db.session.expire_all()
-    assert _rows(user) == []
-    _, signed_in = _login(user, 'NewPassw0rd!')
-    assert signed_in
 
 
 def test_admin_unlock_and_list_flag(_ctx):

@@ -44,7 +44,6 @@ def _index_jobs(recording_id):
 
 def test_a_completed_recording_queues_its_chunks_without_building_them(recording):
     with patch.object(proc, 'ENABLE_INQUIRE_MODE', True), \
-         patch.object(proc, 'apply_team_tag_auto_shares'), \
          patch('src.services.embeddings.process_recording_chunks') as build:
         proc.finish_processing(recording.id)
 

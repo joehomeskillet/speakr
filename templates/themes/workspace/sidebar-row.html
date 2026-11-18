@@ -41,13 +41,7 @@
 
                             <span class="ws-row__meta">
                                 <!-- Folder dot, only in the All view and while folders are on -->
-                                <span v-if="recording.folder && recording.folder.is_foreign && !recording.incognito"
-                                      class="ws-glyph ws-glyph--shared"
-                                      :title="t('sharing.sharedBadge') + ': ' + recording.folder.name">
-                                    <i class="fas fa-folder" :style="{ color: folderMarkColor(recording.folder.color) || '' }"></i>
-                                    <i class="fas fa-share-nodes"></i>
-                                </span>
-                                <button v-if="foldersEnabled && !filterFolder && recording.folder_id && !recording.incognito && !(recording.folder && recording.folder.is_foreign)"
+                                <button v-if="foldersEnabled && !filterFolder && recording.folder_id"
                                         type="button"
                                         @click.stop="filterFolder = recording.folder_id"
                                         class="ws-glyph ws-glyph--folder"
@@ -59,10 +53,7 @@
                                 <!-- Tag dots: click filters by the tag -->
                                 <span v-if="getRecordingTags(recording).length > 0" class="ws-tagdots">
                                     <template v-for="tag in getRecordingTags(recording).slice(0, 3)" :key="tag.id">
-                                        <span v-if="tag.is_foreign" class="ws-dot ws-dot--sm"
-                                              :style="{ backgroundColor: tag.color || '#6B7280' }"
-                                              :title="t('sharing.sharedBadge') + ': ' + tag.name"></span>
-                                        <button v-else type="button" class="ws-dot ws-dot--sm ws-dot--btn"
+                                        <button type="button" class="ws-dot ws-dot--sm ws-dot--btn"
                                                 @click.stop="filterByTag(tag)"
                                                 :style="{ backgroundColor: tag.color || '#6B7280' }"
                                                 :title="tag.group_id ? t('tooltips.groupLabel', { name: tag.group_name }) : t('tooltips.filterByName', { name: tag.name })"></button>
@@ -71,19 +62,11 @@
                                           :title="t('tooltips.moreTags')">+${getRecordingTags(recording).length - 3}</span>
                                 </span>
 
-                                <!-- Sharing -->
-                                <span v-if="recording.is_shared || recording.has_group_tags || recording.shared_with_count > 0 || recording.public_share_count > 0"
+                                <!-- Group recording -->
+                                <span v-if="recording.has_group_tags"
                                       class="ws-glyph"
-                                      :title="[
-                                          recording.is_shared ? t('sharing.sharedBy') + ' ' + (recording.owner_username || t('sharing.unknown')) : '',
-                                          recording.has_group_tags ? t('sharing.teamRecording') : '',
-                                          !recording.is_shared && recording.shared_with_count > 0 ? t('sharing.sharedWith') + ' ' + recording.shared_with_count + ' ' + t('sharing.users') : '',
-                                          !recording.is_shared && recording.public_share_count > 0 ? recording.public_share_count + ' ' + t('sharing.publicLinksGenerated') : ''
-                                      ].filter(s => s).join(' • ')">
-                                    <i v-if="recording.is_shared" class="fas fa-arrow-down"></i>
-                                    <i v-else-if="recording.has_group_tags" class="fas fa-users"></i>
-                                    <i v-else-if="recording.shared_with_count > 0" class="fas fa-arrow-up"></i>
-                                    <i v-else class="fas fa-globe"></i>
+                                      :title="t('sidebar.teamRecording')">
+                                    <i class="fas fa-users"></i>
                                 </span>
                                 <span v-if="recording.audio_deleted_at" class="ws-glyph" :title="t('audioRemoved.label')"><i class="fas fa-volume-xmark"></i></span>
                                 <span v-if="recording.is_archived" class="ws-glyph" :title="t('archive.archived')"><i class="fas fa-box-archive"></i></span>
@@ -92,7 +75,7 @@
                                         :title="recording.duplicate_info.total_copies + ' ' + (t('upload.copies') || 'copies')">
                                     <i class="fas fa-copy"></i>
                                 </button>
-                                <span v-if="recording.mime_type && recording.mime_type.startsWith('video/') && !recording.audio_deleted_at && !recording.incognito"
+                                <span v-if="recording.mime_type && recording.mime_type.startsWith('video/') && !recording.audio_deleted_at"
                                       class="ws-glyph" :title="t('tooltips.video')"><i class="fas fa-video"></i></span>
 
                                 <!-- Star and inbox keep their click-to-toggle behaviour -->

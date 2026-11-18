@@ -31,7 +31,7 @@ if cosine_similarity is None:
         cosine_similarity = None
 
 from src.database import db
-from src.models import Recording, TranscriptChunk, InternalShare, RecordingTag
+from src.models import Recording, TranscriptChunk, RecordingTag
 from src.utils.search import LIKE_ESCAPE, contains_pattern
 from src.utils.error_text import describe_error
 
@@ -362,8 +362,6 @@ def get_accessible_recording_ids(user_id):
 
     Includes:
     - Recordings owned by the user
-    - Recordings shared with the user via InternalShare
-    - Recordings shared via group tags (if team membership exists)
 
     Args:
         user_id (int): User ID to check access for
@@ -376,13 +374,6 @@ def get_accessible_recording_ids(user_id):
     # 1. User's own recordings
     own_recordings = db.session.query(Recording.id).filter_by(user_id=user_id).all()
     accessible_ids.update([r.id for r in own_recordings])
-
-    # 2. Internally shared recordings
-    if _self.ENABLE_INTERNAL_SHARING:
-        shared_recordings = db.session.query(InternalShare.recording_id).filter_by(
-            shared_with_user_id=user_id
-        ).all()
-        accessible_ids.update([r.recording_id for r in shared_recordings])
 
     return list(accessible_ids)
 
@@ -473,10 +464,10 @@ def basic_text_search_chunks(user_id, query, filters=None, top_k=5):
     """
     Basic text search fallback when embeddings are not available.
     Uses simple text matching instead of semantic search.
-    Searches across user's own recordings and recordings shared with them.
+    Searches across the user's own recordings.
     """
     try:
-        # Get all accessible recording IDs (own + shared)
+        # Get all accessible recording IDs
         accessible_recording_ids = get_accessible_recording_ids(user_id)
 
         if not accessible_recording_ids:
@@ -615,7 +606,7 @@ def basic_text_search_chunks(user_id, query, filters=None, top_k=5):
 def semantic_search_chunks(user_id, query, filters=None, top_k=5):
     """
     Perform semantic search on transcript chunks with filtering.
-    Searches across user's own recordings and recordings shared with them.
+    Searches across the user's own recordings.
 
     Args:
         user_id (int): User ID for permission filtering
@@ -650,7 +641,7 @@ def semantic_search_chunks(user_id, query, filters=None, top_k=5):
                 return basic_text_search_chunks(user_id, query, filters, top_k)
             query_embedding = model.encode([query])[0]
 
-        # Get all accessible recording IDs (own + shared)
+        # Get all accessible recording IDs
         accessible_recording_ids = get_accessible_recording_ids(user_id)
 
         if not accessible_recording_ids:
@@ -789,11 +780,3 @@ def embeddings_are_local():
         return ip.is_private or ip.is_loopback or ip.is_link_local
     except ValueError:
         return False
-
-
-# Hot-applied System Settings (high priority) with environment fallback.
-from src.utils.system_settings import apply_hot_settings
-_SYSTEM_SETTING_MAP = {
-    "ENABLE_INTERNAL_SHARING": ('enable_internal_sharing', 'ENABLE_INTERNAL_SHARING', False),
-}
-_self, __getattr__ = apply_hot_settings(__name__, _SYSTEM_SETTING_MAP)

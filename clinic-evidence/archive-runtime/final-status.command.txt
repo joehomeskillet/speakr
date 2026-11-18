@@ -1,1 +1,0 @@
-rtk git status --short --branch

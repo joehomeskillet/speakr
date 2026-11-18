@@ -11,7 +11,9 @@ samples are reduced chunk by chunk, so the decoded audio is never held in
 memory (ten hours are 3.6 million base buckets, a few megabytes). A long file
 takes a while, so the work runs in a thread of the process that got the
 request and the route answers 202 until the file is there. A lock file
-(flock) keeps the other gunicorn workers from computing the same file.
+(flock) keeps the other gunicorn workers from computing the same file. Its
+name is removed before the peaks file is published, so a ready response never
+observes a ``.lock``. The open handle stays flocked until the worker finishes.
 
 Caching: UPLOAD_FOLDER/_peaks/<recording id>-<fingerprint>.bin. The
 fingerprint covers the stored locator and the file's size and modification
@@ -42,6 +44,7 @@ import struct
 import subprocess
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Optional
 
@@ -271,21 +274,59 @@ def _failed_recently(target):
         return False
 
 
-def _write_atomic(path, data):
+@contextmanager
+def _folder_claim(folder):
+    """Block other workers while a `.lock` name is created or dropped.
+
+    The per-target flock stays on the open lock handle until the worker
+    finishes. Unlink only removes the directory entry, so a new file at the
+    same path would be a different inode and would not see that flock. Hold
+    this around both the decision to create the name and the moment it is
+    removed immediately before the result file becomes visible.
+    """
+    fd = os.open(folder, os.O_RDONLY)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+
+def _write_atomic(path, data, lock_path):
+    """Publish `path` only after `lock_path` no longer exists.
+
+    The flock on the still-open lock handle is left for the caller to release.
+    """
     temporary = f'{path}.{os.getpid()}.{threading.get_ident()}.tmp'
     with open(temporary, 'wb') as handle:
         handle.write(data)
-    os.replace(temporary, path)
+    try:
+        with _folder_claim(os.path.dirname(path)):
+            try:
+                os.remove(lock_path)
+            except OSError:
+                pass
+            os.replace(temporary, path)
+    except OSError:
+        try:
+            os.remove(temporary)
+        except OSError:
+            pass
+        raise
 
 
 def _compute_into(storage, audio_path, target, lock_handle, upload_folder, recording_id, log):
+    lock_path = f'{target}.lock'
     try:
         try:
             # Another process may have finished between the check and the lock
             if not os.path.exists(target):
                 with storage.materialize(audio_path) as materialized:
                     data = compute_peaks(materialized.local_path)
-                _write_atomic(target, data)
+                _write_atomic(target, data, lock_path)
                 try:
                     os.remove(f'{target}.failed')
                 except OSError:
@@ -294,12 +335,12 @@ def _compute_into(storage, audio_path, target, lock_handle, upload_folder, recor
         except Exception as error:
             log.warning('No waveform peaks for recording %s: %s', recording_id, error)
             try:
-                _write_atomic(f'{target}.failed', str(error)[:500].encode('utf-8'))
+                _write_atomic(f'{target}.failed', str(error)[:500].encode('utf-8'), lock_path)
             except OSError:
                 pass
     finally:
         try:
-            os.remove(f'{target}.lock')
+            os.remove(lock_path)
         except OSError:
             pass
         try:
@@ -343,22 +384,47 @@ def get_peaks(storage, upload_folder, recording_id, audio_path, log=logger, wait
         return PeaksResult('unavailable')
     if not _slots.acquire(blocking=False):
         return PeaksResult('pending')
+    handle = None
+    claimed = False
     try:
-        handle = open(f'{target}.lock', 'a')
+        with _folder_claim(folder):
+            # Re-check under the same claim that publishes the file, so a
+            # request cannot start a second computation in the gap where the
+            # lock name is already gone and the peaks file is not yet visible.
+            if os.path.exists(target):
+                return PeaksResult('ready', target, mark)
+            if _failed_recently(target):
+                return PeaksResult('unavailable')
+            try:
+                handle = open(f'{target}.lock', 'a')
+            except OSError as error:
+                # The folder is there but cannot be written (read-only storage, or
+                # another owner). Checked before any audio is decoded.
+                _report_unwritable(folder, error, log)
+                return PeaksResult('unavailable')
+            _unwritable_reported.discard(folder)
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                # Another worker is computing this file
+                handle.close()
+                handle = None
+                return PeaksResult('pending')
+            claimed = True
     except OSError as error:
-        # The folder is there but cannot be written (read-only storage, or
-        # another owner). Checked before any audio is decoded.
-        _slots.release()
+        # The thread is not started. Drop the claim so the slot is released
+        # below even when the folder claim itself failed after the flock.
+        claimed = False
         _report_unwritable(folder, error, log)
         return PeaksResult('unavailable')
-    _unwritable_reported.discard(folder)
-    try:
-        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        # Another worker is computing this file
-        handle.close()
-        _slots.release()
-        return PeaksResult('pending')
+    finally:
+        if not claimed:
+            if handle is not None:
+                try:
+                    handle.close()
+                except OSError:
+                    pass
+            _slots.release()
     worker = threading.Thread(
         target=_compute_into, name=f'peaks-{recording_id}', daemon=True,
         args=(storage, audio_path, target, handle, upload_folder, recording_id, log))

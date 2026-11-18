@@ -15,7 +15,7 @@ from werkzeug.utils import secure_filename
 from src.database import db
 from src.models import *
 from src.utils import *
-from src.utils.localization import translate, api_error
+from src.utils.localization import translate, api_error, default_language
 from src.utils.search import contains_pattern, LIKE_ESCAPE
 from src.services.retention import (is_recording_exempt_from_deletion, get_retention_days_for_recording,
                                     process_auto_deletion)
@@ -74,7 +74,7 @@ def admin():
         return redirect(url_for('admin.group_management'))
 
     # Full admins only get here
-    user_language = current_user.ui_language if current_user.is_authenticated and current_user.ui_language else 'en'
+    user_language = current_user.ui_language if current_user.is_authenticated and current_user.ui_language else default_language()
     return render_template('admin.html',
                          title='Admin Dashboard',
                          admin_title=translate('nav.adminDashboard', user_language),
@@ -105,7 +105,7 @@ def group_management():
     if current_user.is_admin:
         return redirect(url_for('admin.admin'))
 
-    user_language = current_user.ui_language if current_user.is_authenticated and current_user.ui_language else 'en'
+    user_language = current_user.ui_language if current_user.is_authenticated and current_user.ui_language else default_language()
     return render_template('group-admin.html',
                          title='Group Management',
                          groups_title=translate('nav.groupManagement', user_language),
@@ -174,7 +174,6 @@ USER_LIST_SORTS = {
     'username': _text_order(User.username),
     'email': _text_order(User.email),
     'is_admin': _flag_order(User.is_admin),
-    'can_share_publicly': _flag_order(User.can_share_publicly),
     'recordings_count': _recording_total_order(db.func.count(Recording.id)),
     'storage_used': _recording_total_order(db.func.sum(Recording.file_size), live_audio_only=True),
     'last_active': _last_active_order,
@@ -339,7 +338,6 @@ def admin_get_users():
             'username': user.username,
             'email': user.email,
             'is_admin': user.is_admin,
-            'can_share_publicly': user.can_share_publicly,
             'recordings_count': recordings_count,
             'storage_used': storage_used,
             'storage_quota_mb': user.storage_quota_mb,
@@ -475,7 +473,7 @@ def admin_update_user(user_id):
     if not data:
         return jsonify(api_error('no_data_provided')), 400
 
-    audited_fields = ('username', 'email', 'can_share_publicly', 'monthly_token_budget',
+    audited_fields = ('username', 'email', 'monthly_token_budget',
                       'monthly_transcription_budget', 'storage_quota_mb')
     before = {name: getattr(user, name) for name in audited_fields}
     before['create_groups_granted'] = user_has_grant(CREATE_GROUPS, user.id)
@@ -518,9 +516,6 @@ def admin_update_user(user_id):
             if other_admins == 0:
                 return jsonify(api_error('last_admin_demotion')), 400
         user.is_admin = new_is_admin
-
-    if 'can_share_publicly' in data:
-        user.can_share_publicly = data['can_share_publicly']
 
     if 'create_groups_granted' in data:
         set_user_grant(CREATE_GROUPS, user.id, bool(data['create_groups_granted']))
@@ -584,7 +579,6 @@ def admin_update_user(user_id):
         'username': user.username,
         'email': user.email,
         'is_admin': user.is_admin,
-        'can_share_publicly': user.can_share_publicly,
         'create_groups_granted': user_has_grant(CREATE_GROUPS, user.id),
         'recordings_count': recordings_count,
         'storage_used': storage_used,
@@ -625,7 +619,7 @@ def admin_delete_user(user_id):
         if total_chunks > 0:
             current_app.logger.info(f"Deleting {total_chunks} transcript chunks with embeddings for user {user_id}")
     # The whole recording goes, as when its owner deletes it: the media, the
-    # transcript, summary, notes and embeddings, its shares, tags and jobs.
+    # transcript, summary, notes and embeddings, its tags and jobs.
     # Deleting only the media left the rows with user_id NULL (#572).
     from src.services.storage import get_storage_service
     from src.services.recording_deletion import delete_recording_completely, cleanup_orphaned_speakers_quietly
@@ -638,16 +632,6 @@ def admin_delete_user(user_id):
 
     # Explicitly delete related records that might not cascade properly
     ProcessingJob.query.filter_by(user_id=user_id).delete()
-    InternalShare.query.filter(
-        (InternalShare.owner_id == user_id) | (InternalShare.shared_with_user_id == user_id)
-    ).delete()
-
-    # Rows of the former share_audit_log table that name the account as the
-    # target of a share. Their foreign key has no ON DELETE, so on PostgreSQL
-    # one such row refused the deletion. The rows were copied to the audit
-    # log (ledger id 0009), where they remain.
-    from src.models import ShareAuditLog
-    ShareAuditLog.query.filter_by(target_user_id=user_id).delete(synchronize_session=False)
 
     # Groups the user created keep existing without a creator (#576)
     Group.query.filter_by(created_by=user_id).update({'created_by': None}, synchronize_session=False)
@@ -1333,10 +1317,6 @@ def admin_get_settings():
                 # No value saved: the value from .env applies.
                 data['value'] = env_backed_display_value(setting.key)
                 data['source'] = 'env'
-                if setting.key == 'user_search_scope':
-                    # Unset in .env as well, it follows show_usernames_in_ui.
-                    from src.services import user_lookup
-                    data['value'] = user_lookup.default_search_scope()
         result.append(data)
     return jsonify(result)
 
@@ -1424,13 +1404,6 @@ def admin_update_setting():
     if key == 'deletion_mode':
         if value not in ('archive', 'audio_only', 'full_recording'):
             return jsonify(api_error('invalid_deletion_mode_value')), 400
-
-    if key == 'user_search_scope':
-        from src.services import user_lookup
-        value = str(value).strip().lower()
-        if value not in user_lookup.SCOPES:
-            return jsonify(api_error('invalid_user_search_scope', scopes=', '.join(user_lookup.SCOPES))), 400
-        setting_type = 'string'
 
     from src.auth.permissions import MODES as PERMISSION_MODES, permission_for_setting
     if permission_for_setting(key):
@@ -2243,7 +2216,6 @@ def admin_voice_embedding_rebaseline():
 from src.utils.system_settings import apply_hot_settings
 _SYSTEM_SETTING_MAP = {
     "USERS_CAN_DELETE": ('users_can_delete', 'USERS_CAN_DELETE', True),
-    "ENABLE_INTERNAL_SHARING": ('enable_internal_sharing', 'ENABLE_INTERNAL_SHARING', False),
     "ENABLE_AUTO_DELETION": ('enable_auto_deletion', 'ENABLE_AUTO_DELETION', False),
     "GLOBAL_RETENTION_DAYS": ('global_retention_days', 'GLOBAL_RETENTION_DAYS', 0),
     "DELETION_MODE": ('deletion_mode', 'DELETION_MODE', 'full_recording'),

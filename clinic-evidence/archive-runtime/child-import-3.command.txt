@@ -1,3 +1,0 @@
-rtk env PYTHONPATH=/nvmetank1/projects/codexweb-wt/clinic-archive /usr/bin/python3 -c 'from sqlalchemy import create_engine
-from src.utils.database import migration_lock
-print("Child imports succeeded")'

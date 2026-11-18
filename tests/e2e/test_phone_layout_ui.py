@@ -10,7 +10,7 @@ test opens the seeded recordings at phone widths and checks:
 - the details line with both dates, and with one date when the meeting and
   the upload fall on the same day, and the Info sheet;
 - the actions in the sheet behind More for a recording of one's own, one
-  shared without rights, a failed one and an incognito one;
+  shared without rights, and a failed one;
 - the four tabs, with Speaker stats as a sheet, opened from the
   row at the top of the summary, in the same place with a long summary and
   without one;
@@ -25,14 +25,12 @@ test opens the seeded recordings at phone widths and checks:
 - no sideways scrolling at 360 and 430 px, and touch targets of 44 px;
 - the same structure in each of the six UI themes;
 - on the desktop: the Transcription / Translation switch stays in view while
-  the transcript scrolls, and an incognito recording has no download control.
+  the transcript scrolls.
 
 A recording's state (another meeting date, shared without rights, failed, a
 translation) is given to the page by changing the response of
 GET /api/recordings/<id> in the browser, so the instance's data stays as it
-is. The incognito recording is put in sessionStorage, where the app keeps
-one, with incognito mode switched on in the response of GET /api/config.
-The long transcript is stored through the app's own save route and replaced
+is. The long transcript is stored through the app's own save route and replaced
 by the seeded one afterwards.
 
 Every test fails on a JavaScript error, a same-origin response of 400 or
@@ -329,14 +327,14 @@ def phone(browser):
 
 @pytest.fixture(autouse=True)
 def plain_state(request):
-    """Each test starts without changed responses and without an incognito recording."""
+    """Each test starts without changed responses."""
     session = request.getfixturevalue("phone") if "phone" in request.fixturenames else None
     yield
     if session:
         session.patches.clear()
         session.config.clear()
         if session.page.url.startswith(BASE):
-            session.page.evaluate("() => { sessionStorage.removeItem('speakr_incognito_recording'); localStorage.removeItem('transcriptionViewMode'); }")
+            session.page.evaluate("() => { localStorage.removeItem('transcriptionViewMode'); }")
 
 
 @pytest.fixture(scope="module")
@@ -501,7 +499,7 @@ def test_details_fold_and_the_info_sheet(phone):
 
 OWN = {"inbox", "star", "archive", "tags", "rename", "regenerate-title", "speakers", "edit-transcript", "bubbles",
        "download-transcript", "translate", "translation-preferences", "reprocess-transcription", "regenerate-summary",
-       "stats", "info", "share", "download-audio", "delete-audio", "delete"}
+       "stats", "info", "download-audio", "delete-audio", "delete"}
 # Present on some instances only: folders switched on
 OPTIONAL = {"folder"}
 
@@ -543,21 +541,20 @@ def test_actions_of_a_recording_of_ones_own(phone):
     phone.check("actions of one's own recording")
 
 
-def test_actions_of_a_recording_shared_without_rights(phone):
+def test_actions_of_a_recording_without_edit_or_delete(phone):
+    """can_edit and can_delete still hide rename, reprocess and delete. Share rows are gone."""
     recording_id = phone.ids[MEETING_TITLE]
-    phone.patches[recording_id] = {"is_shared": True, "can_edit": False, "can_delete": False,
-                                   "share_info": {"can_reshare": False}, "owner_username": "someone"}
+    phone.patches[recording_id] = {"can_edit": False, "can_delete": False}
     phone.open(recording_id)
-    phone.page.locator("[data-phone-shared-in]").wait_for(state="visible", timeout=WAIT)
     names = phone.actions()
     kept = {"inbox", "star", "archive", "tags", "speakers", "edit-transcript", "bubbles", "download-transcript",
             "translate", "translation-preferences", "stats", "info", "download-audio"}
     assert kept <= names, sorted(kept - names)
-    gone = {"rename", "regenerate-title", "reprocess-transcription", "regenerate-summary", "reset", "share",
+    gone = {"rename", "regenerate-title", "reprocess-transcription", "regenerate-summary", "reset",
             "delete-audio", "delete", "folder"}
     assert not (names & gone), sorted(names & gone)
     assert names - kept <= OPTIONAL, sorted(names - kept)
-    phone.check("actions of a shared recording")
+    phone.check("actions without edit or delete")
 
 
 def test_actions_of_a_failed_recording(phone):
@@ -570,64 +567,6 @@ def test_actions_of_a_failed_recording(phone):
         assert name in names, (name, sorted(names))
     assert "regenerate-title" not in names
     phone.check("actions of a failed recording")
-
-
-def incognito_recording():
-    return {
-        "id": "incognito", "incognito": True, "title": "Incognito check", "status": "COMPLETED",
-        "transcription": json.dumps(meeting_segments()), "summary": "A summary kept in this tab only.",
-        "notes": "Notes kept in this tab only.", "participants": "", "audio_duration_seconds": 72,
-        "created_at": "2026-03-05T09:15:00", "meeting_date": "2026-03-05T09:15:00", "tags": [],
-    }
-
-
-def open_incognito(session):
-    """Open the incognito recording the tab keeps: its card is first in the list."""
-    session.config.update({"enable_incognito_mode": True})
-    session.leave()
-    session.page.goto(f"{BASE}/")
-    session.page.evaluate("""(data) => { localStorage.removeItem('lastSelectedRecordingId');
-        sessionStorage.setItem('speakr_incognito_recording', JSON.stringify(data)); }""", incognito_recording())
-    session.leave()
-    session.page.goto(f"{BASE}/")
-    card = session.page.locator("aside.sidebar").get_by_text("Incognito check", exact=True)
-    card.first.wait_for(state="attached", timeout=60000)
-    # The app may show the kept recording by itself; else its card opens it
-    opened = "() => !!document.querySelector('[data-phone-incognito]') || /incognito/i.test((document.querySelector('#app main') || document.body).innerText)"
-    in_place = "Math.abs(document.querySelector('aside.sidebar').getBoundingClientRect().left) < 0.5"
-    session.wait(f"() => ({opened})() || {in_place}")
-    if not session.page.evaluate(opened):
-        card.first.click()
-
-
-def test_an_incognito_recording_on_a_phone(phone):
-    page = phone.page
-    open_incognito(phone)
-    page.locator(BAR).wait_for(state="visible", timeout=WAIT)
-    page.locator("[data-phone-incognito]").wait_for(state="visible", timeout=WAIT)
-    assert page.locator("[data-phone-star]").count() == 0
-    names = phone.actions()
-    assert "discard-incognito" in names and "info" in names and "edit-transcript" in names, sorted(names)
-    downloads = {n for n in names if "download" in n}
-    assert not downloads, sorted(downloads)
-    for name in ("inbox", "star", "archive", "tags", "share", "delete", "delete-audio", "translate"):
-        assert name not in names, name
-    # Summary: copy stays, download is gone
-    phone.tab("summary")
-    acts = page.locator('[data-phone-acts="summary"]')
-    assert acts.get_by_text(en("buttons.copy"), exact=True).is_visible()
-    assert page.locator('[data-phone-download="summary"]').count() == 0
-    phone.tab("notes")
-    assert page.locator('[data-phone-acts="notes"]').get_by_text(en("buttons.copy"), exact=True).is_visible()
-    assert page.locator('[data-phone-download="notes"]').count() == 0
-    phone.tab("transcript")
-    assert page.locator("[data-phone-copy]").is_visible()
-    assert page.locator("[data-phone-switch]").count() == 0
-    # No audio is kept: the strip says so
-    assert en("incognito.audioNotStored") in page.locator("[data-mobile-player]").inner_text()
-    assert page.locator("[data-mobile-player] a[download]").count() == 0
-    phone.shot("phone-layout-test-incognito")
-    phone.check("an incognito recording on a phone")
 
 
 # ---- the tabs ----------------------------------------------------------------
@@ -1337,31 +1276,4 @@ def test_desktop_switch_stays_in_view_while_the_transcript_scrolls(browser, phon
         assert page.evaluate("() => window.scrollY") == 0
         desk.check("the desktop transcription panel")
     finally:
-        desk.close()
-
-
-def test_an_incognito_recording_on_the_desktop_has_no_download_control(browser, phone):
-    desk = Phone(browser, {"width": 1400, "height": 900})
-    try:
-        page = desk.page
-        open_incognito(desk)
-        page.locator(f"#leftMainColumn {SEGMENT}").first.wait_for(state="visible", timeout=60000)
-        # Transcript: copy and edit stay, download is gone
-        tools = page.locator("#leftMainColumn .tabs-bar__actions")
-        assert tools.locator(f"button[title='{en('tooltips.copyTranscript')}']").is_visible()
-        assert page.locator("[data-download-toggle]").count() == 0
-        # Summary: copy and edit stay, download is gone, also in the overflow menu
-        right = page.locator("#rightMainColumn")
-        right.locator(f"button[title='{en('buttons.copySummary')}']").first.wait_for(state="attached", timeout=WAIT)
-        assert page.locator("[data-summary-download-toggle]").count() == 0
-        assert right.locator(f"[title='{en('buttons.downloadSummary')}']").count() == 0
-        # Notes
-        right.locator(".tabs .tab").filter(has_text=en("notes.title")).first.click()
-        right.locator(f"button[title='{en('buttons.copyNotes')}']").first.wait_for(state="attached", timeout=WAIT)
-        assert right.locator(f"[title='{en('buttons.downloadNotes')}']").count() == 0
-        assert right.locator("button").filter(has_text=en("buttons.downloadNotes")).count() == 0
-        desk.check("an incognito recording on the desktop")
-    finally:
-        if page.url.startswith(BASE):
-            page.evaluate("() => sessionStorage.removeItem('speakr_incognito_recording')")
         desk.close()

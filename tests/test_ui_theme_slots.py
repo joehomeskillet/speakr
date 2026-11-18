@@ -46,12 +46,8 @@ _MORE_MENU_COPIES = {
     'showHeaderMoreMenu = false; openSpeakerModal()',
 }
 
-# A slot is placed once. The speaker turn of the transcript is also what the
-# public share page shows (templates/share.html), read-only: it includes the
-# slot with transcript_read_only, and its app provides SHARE_PAGE_NAMES.
-SECOND_PLACES = {'transcript-turn': ('templates/share.html',)}
-SHARE_PAGE_NAMES = {'transcriptView', 'currentPlayingSegmentIndex', 'seekAudioFromEvent', 'showTimestampsSimpleView',
-                    'formatTimestamp', 't'}
+# A slot is placed once.
+SECOND_PLACES = {}
 
 # (theme, slot) -> {kind: {item, ...}}: behaviours the override may leave out.
 # Every entry needs a comment with the reason. Kinds are the keys of
@@ -214,27 +210,6 @@ def _vue_names(markup):
         expression = re.sub(r"'[^']*'", ' ', expression)
         names.update(re.findall(r'(?<![\w$.])[A-Za-z_$][\w$]*', expression))
     return names - {'in', 'of', 'true', 'false', 'null', 'undefined', 'typeof'}
-
-
-@pytest.mark.parametrize('theme', sorted(
-    theme for theme in os.listdir(THEMES_DIR)
-    if os.path.isfile(os.path.join(THEMES_DIR, theme, 'transcript-turn.html'))))
-def test_the_transcript_turn_works_on_the_public_share_page(theme):
-    """templates/share.html renders the transcript-turn slot too, read-only. Its app
-    (static/js/share-page.js) has only a few of the main app's names: a turn
-    that reads another one would be broken for every visitor of a shared link."""
-    text = _read(THEMES_DIR, theme, 'transcript-turn.html')
-    editing = re.findall(r'\{%-? if not transcript_read_only -?%\}(.*?)\{%-? endif -?%\}', text, re.S)
-    assert editing and 'openAsrEditorAtSegment' in ''.join(editing), 'what opens the editor is not left out on the share page'
-    shown = re.sub(r'\{%-? if not transcript_read_only -?%\}.*?\{%-? endif -?%\}', '', text, flags=re.S)
-    shown = re.sub(r'\{#.*?#\}', '', shown, flags=re.S)
-    loop = {'run', 'segment', 'segIndex'}
-    unknown = _vue_names(shown) - loop - SHARE_PAGE_NAMES
-    assert not unknown, f'themes/{theme}/transcript-turn.html reads {sorted(unknown)}, which the share page does not have'
-    share_app = open(os.path.join(ROOT, 'static', 'js', 'share-page.js'), encoding='utf-8').read()
-    returned = share_app[share_app.index('        return {'):]
-    for name in SHARE_PAGE_NAMES:
-        assert re.search(rf'\b{re.escape(name)}\b', returned), f'share-page.js does not return {name}'
 
 
 def test_theme_folders_hold_only_registered_themes_and_slots():

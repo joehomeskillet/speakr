@@ -54,12 +54,6 @@ def init_system_helpers(**kwargs):
 from src.config.ui_themes import COLOR_SCHEMES as THEME_COLOR_SCHEMES
 
 
-def _user_search_scope():
-    """The user_search_scope level in force, for the share window."""
-    from src.services import user_lookup
-    return user_lookup.search_scope()
-
-
 # --- Routes ---
 
 @system_bp.route('/api/user/preferences', methods=['POST'])
@@ -115,16 +109,6 @@ def save_user_preferences():
         'ui_language': current_user.ui_language,
         'assistant_name': assistant_name_of(current_user),
     })
-
-
-@system_bp.route('/api/user/whats-new/seen', methods=['POST'])
-@login_required
-def mark_whats_new_seen():
-    """Record that the user has read the current release's What's new notes."""
-    from src.config.version import release_key
-    current_user.whats_new_seen = release_key()
-    db.session.commit()
-    return jsonify({'success': True, 'seen': current_user.whats_new_seen})
 
 
 def _storage_meter(user):
@@ -379,14 +363,9 @@ def get_config():
             'connector_supports_exact_speaker_count': connector_supports_exact_speaker_count,  # Exact-N only (#362)
             'connector_supports_hotwords': connector_supports_hotwords,
             'connector_supports_initial_prompt': connector_supports_initial_prompt,
-            'enable_internal_sharing': _self.ENABLE_INTERNAL_SHARING,
             'enable_audio_removed_filter': enable_audio_removed_filter,
-            'show_usernames_in_ui': _self.SHOW_USERNAMES_IN_UI,
-            'user_search_scope': _user_search_scope(),
             'can_delete_recordings': can_delete,
             'users_can_delete_enabled': _self.USERS_CAN_DELETE,
-            'enable_incognito_mode': _self.ENABLE_INCOGNITO_MODE,
-            'incognito_mode_default': _self.INCOGNITO_MODE_DEFAULT,
             'enable_folders': SystemSetting.get_setting('enable_folders', False) == True,
             'enable_auto_export': ENABLE_AUTO_EXPORT,
             'video_retention': _self.VIDEO_RETENTION,
@@ -398,19 +377,6 @@ def get_config():
             'transcription_model_options': _get_transcription_model_options(),
             **chunking_info
         }
-        # "What's new" after an update (src/config/version.py release_key)
-        try:
-            from flask_login import current_user
-            if current_user and current_user.is_authenticated:
-                from src.config.version import get_version, release_key
-                payload['whats_new'] = {
-                    'enabled': bool(SystemSetting.get_setting('show_whats_new', True)),
-                    'release': release_key(),
-                    'version': get_version(),
-                    'seen': current_user.whats_new_seen,
-                }
-        except Exception as e:
-            current_app.logger.warning(f"Could not read the What's new state: {e}")
         return jsonify(payload)
     except Exception as e:
         current_app.logger.error(f"Error fetching configuration: {e}")
@@ -454,10 +420,6 @@ def check_deletion_permission():
 from src.utils.system_settings import apply_hot_settings
 _SYSTEM_SETTING_MAP = {
     "USERS_CAN_DELETE": ('users_can_delete', 'USERS_CAN_DELETE', True),
-    "ENABLE_INTERNAL_SHARING": ('enable_internal_sharing', 'ENABLE_INTERNAL_SHARING', False),
-    "SHOW_USERNAMES_IN_UI": ('show_usernames_in_ui', 'SHOW_USERNAMES_IN_UI', False),
-    "ENABLE_INCOGNITO_MODE": ('enable_incognito_mode', 'ENABLE_INCOGNITO_MODE', False),
-    "INCOGNITO_MODE_DEFAULT": ('incognito_mode_default', 'INCOGNITO_MODE_DEFAULT', False),
     "ENABLE_AUTO_DELETION": ('enable_auto_deletion', 'ENABLE_AUTO_DELETION', False),
     "DELETION_MODE": ('deletion_mode', 'DELETION_MODE', 'full_recording'),
     "VIDEO_RETENTION": ('video_retention', 'VIDEO_RETENTION', False),

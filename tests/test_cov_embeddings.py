@@ -45,7 +45,7 @@ import src.services.embeddings as emb_default  # noqa: E402
 _ENV_KEYS = (
     "EMBEDDING_MODEL", "EMBEDDING_BASE_URL", "EMBEDDING_API_KEY",
     "EMBEDDING_DIMENSIONS", "EMBEDDING_API_MAX_RETRIES",
-    "EMBEDDING_API_BACKOFF_SECONDS", "ENABLE_INTERNAL_SHARING",
+    "EMBEDDING_API_BACKOFF_SECONDS",
 )
 
 
@@ -747,17 +747,6 @@ def test_accessible_ids_own_recordings(api_emb):
 def test_accessible_ids_none_for_unknown_user(api_emb):
     with app.app_context():
         assert api_emb.get_accessible_recording_ids(8888888) == []
-
-
-def test_accessible_ids_sharing_disabled_excludes_shares(api_emb):
-    # ENABLE_INTERNAL_SHARING defaults to false in this reload, so the share
-    # branch is skipped — only own recordings are returned.
-    assert api_emb.ENABLE_INTERNAL_SHARING is False
-    with app.app_context():
-        user = _make_user()
-        r = _make_recording(user, transcription="owned")
-        ids = api_emb.get_accessible_recording_ids(user.id)
-        assert r.id in ids
 
 
 # ===========================================================================

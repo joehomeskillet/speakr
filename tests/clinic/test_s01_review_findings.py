@@ -8,7 +8,7 @@ a model or write files.
 import pytest
 from flask_login import login_user
 
-from clinic_support import SECRET_MARKER, dump, login, set_setting
+from clinic_support import SECRET_MARKER, dump, login
 from src.app import app, db
 from src.clinic import config, guard, policy
 from src.clinic.guard import clinic_guard
@@ -189,29 +189,11 @@ def test_6_export_existing_is_closed_by_default(clinic_on, world):
     assert response.status_code == 403 and _code(response) == 'clinic_feature_disabled'
 
 
-# --- 7: the login page does not advertise registration ---------------------------------
-
-def test_7_registration_is_off_in_clinic_mode_whatever_is_stored(clinic_on, world):
-    set_setting('allow_registration', 'true')
-    from src.api.auth import registration_enabled
-    with app.app_context():
-        assert registration_enabled() is False
-    page = app.test_client().get('/login')
-    assert b'href="/register"' not in page.data
-
-
-def test_7_registration_follows_the_setting_when_clinic_mode_is_off(clinic_off, world):
-    set_setting('allow_registration', 'true')
-    from src.api.auth import registration_enabled
-    with app.app_context():
-        assert registration_enabled() is True
-
-
-# --- 8, 9: disabled share routes -------------------------------------------------------
+# --- 8, 9: disabled group routes -------------------------------------------------------
 
 @pytest.mark.parametrize('endpoint', sorted(
-    e for e, r in ROUTE_POLICY.items() if r.kind == 'disabled' and r.feature in ('public_sharing', 'internal_sharing')))
-def test_8_share_routes_are_denied_before_any_id_is_read(clinic_on, world, endpoint):
+    e for e, r in ROUTE_POLICY.items() if r.kind == 'disabled' and r.feature == 'internal_sharing'))
+def test_8_group_routes_are_denied_before_any_id_is_read(clinic_on, world, endpoint):
     from test_s01_routes import _url
     url, method = _url(endpoint, world, 'rec_a')
     for args in ({'query_string': {'recording_id': 'not-a-number'}}, {'json': {'recording_ids': [None, 'x']}},
@@ -222,11 +204,11 @@ def test_8_share_routes_are_denied_before_any_id_is_read(clinic_on, world, endpo
             assert _code(response) == 'clinic_feature_disabled'
 
 
-def test_9_a_share_route_that_gets_enabled_without_a_recording_id_is_refused(clinic_on, world, features_open):
-    """public_id / share_id name no recording: with the lock lifted the guard
+def test_9_a_group_route_that_gets_enabled_without_a_recording_id_is_refused(clinic_on, world, features_open):
+    """group_id names no recording: with the lock lifted the guard
     still cannot decide, so it refuses instead of letting the request through."""
     from test_s01_routes import _url
-    for endpoint in ('shares.view_shared_recording', 'shares.update_share'):
+    for endpoint in ('groups.get_team', 'groups.update_team'):
         url, method = _url(endpoint, world)
         response = _guard(world['user_a'], method, url, json={})
         assert response is not None and _code(response) == 'clinic_feature_unsupported', endpoint

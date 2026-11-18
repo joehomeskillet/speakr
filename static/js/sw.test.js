@@ -115,15 +115,6 @@ describe('routeRequest', () => {
         }
     });
 
-    it('leaves the incognito requests to the browser', () => {
-        // They are POST requests; a GET to the same paths is not handled either.
-        for (const path of ['/api/recordings/incognito', '/api/recordings/incognito/chat', '/api/recordings/incognito/summary']) {
-            expect(route(path, { method: 'POST', mode: 'cors' })).toBe('bypass');
-            expect(route(path, { mode: 'cors' })).toBe('bypass');
-            expect(api.mayStore('static-cache-first', `${ORIGIN}${path}`, { status: 200, type: 'basic' })).toBe(false);
-        }
-    });
-
     it('sends a page to the network, with the offline page as the fallback', () => {
         for (const path of ['/', '/recordings/12', '/account', '/admin', '/inquire', '/group-management', '/login', '/share/abc123', '/docs']) {
             expect(route(path, { mode: 'navigate', destination: 'document' }), path).toBe('navigate');
@@ -220,9 +211,9 @@ describe('the fetch handler', () => {
         expect(worker.caches.open).not.toHaveBeenCalled();
     });
 
-    it('does not answer a POST, the incognito requests among them', async () => {
+    it('does not answer a POST', async () => {
         const worker = loadWorker();
-        for (const path of ['/api/recordings/incognito', '/api/recordings/incognito/chat', '/upload', '/static/js/x.js?v=1.2.3']) {
+        for (const path of ['/upload', '/static/js/x.js?v=1.2.3']) {
             const { handled } = await worker.dispatchFetch(fakeRequest(path, { method: 'POST', mode: 'cors' }));
             expect(handled, path).toBe(false);
         }

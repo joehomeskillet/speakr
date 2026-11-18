@@ -13,7 +13,7 @@ The content of a recording is never part of the log. The data that is stored, an
 | `event`, `event_group` | Name of the event (see [Events](#events)) and its group |
 | `actor_kind` | `session` (browser), `api_token`, `sso_token`, `public_link`, `system` (a scheduled job) or `anonymous` (no account, for example a refused sign-in) |
 | `actor_user_id`, `actor_token_id` | Account and API token of the request, by id |
-| `ip`, `user_agent` | Client address, subject to `audit_log_store_ip`, and the first 160 characters of the user agent. Both are empty for `incognito.used`. |
+| `ip`, `user_agent` | Client address, subject to `audit_log_store_ip`, and the first 160 characters of the user agent. |
 | `recording_id`, `recording_owner_id` | Recording and its owner at the time of the event |
 | `target_user_id`, `group_id` | Account or group that the event concerns |
 | `outcome` | `success`, `denied` or `failed` |
@@ -33,10 +33,7 @@ A row has no link to the recording, the account or the group it names. The rows 
 | `auth.login.failed` | A sign-in was refused. One row per minute for each address and account. | `method`, and `reason`: `bad_password`, `unknown_account`, `no_local_password`, `locked`, `password_login_disabled`, `unverified_email` or `sso_error`. The address that was typed is not stored. |
 | `auth.login.locked` | The limit of wrong passwords was reached and sign-in was locked | `minutes` |
 | `auth.logout` | A signed-in user signed out | |
-| `auth.registered` | An account was created through the registration page | |
 | `auth.password.changed` | A user changed the password of the own account | |
-| `auth.password.reset_requested` | A password reset was requested. One row per five minutes for each address and account. | |
-| `auth.password.reset` | A password was set through a reset link | |
 | `auth.sso.linked`, `auth.sso.unlinked` | An account was linked to, or unlinked from, the SSO provider | |
 | `token.created`, `token.changed`, `token.revoked` | An API token was created, renamed or narrowed, or revoked | `token_id`, `scopes`, `expires`, `sso_client_id` |
 | `token.first_used` | An API token was used for the first time | `token_id` |
@@ -78,16 +75,9 @@ Archive transitions commit the state, an `audit_event` row and an append-only `c
 
 ### Sharing
 
-| Event | Recorded when | Details |
-|---|---|---|
-| `share.internal.created`, `share.internal.changed`, `share.internal.revoked` | A recording was shared with another account, the permissions of the share were changed, or the share was revoked | `share_id`, `can_edit`, `can_reshare`, the earlier values on a change, `cascade` for a share that was revoked together with another one |
-| `share.public.created`, `share.public.changed`, `share.public.revoked` | A public link was created, its options were changed, or it was revoked | `share_id`, `share_summary`, `share_notes`, `expires` |
-| `share.public.opened` | The page of a public link was opened. One row per 30 minutes for each link and visitor. | `share_id` |
-| `share.public.media.played` | The audio of a public link was requested. One row per 30 minutes for each link and visitor. | `share_id` |
+Public share links and internal shares are not part of this build, so the events `share.internal.*` and `share.public.*` are not written. Rows already stored keep their names. `share.public.opened` and `share.public.media.played` never stored the address part of a link.
 
-The address part of a public link gives access to the recording and is never stored in the log. A visitor of a public link has no account, so the row holds the client address and the user agent only.
-
-Rows with `imported` in the details were copied from the table `share_audit_log` of earlier releases (see [Upgrade](#upgrade)).
+Rows with `imported` in the details were copied from `share_audit_log` by an earlier version (see [Upgrade](#upgrade)). This build does not copy that table.
 
 ### Administration
 
@@ -107,20 +97,11 @@ Rows with `imported` in the details were copied from the table `share_audit_log`
 | `audit.pruned` | Rows past the retention period were removed | `count`, `cutoff` |
 | `audit.write_failed` | Events could not be stored (see [Failures](#failures)) | `count` |
 
-### Incognito
-
-| Event | Recorded when | Details |
-|---|---|---|
-| `incognito.used` | An incognito upload was requested. The outcome is `success`, `denied` (incognito mode is off, or the transcription budget is used up) or `failed`. | None |
-
-One row is written for each incognito upload, also for one that is refused or fails, with the account, the time and the outcome. The client address, the user agent and the id of an API token are not stored in this row, whatever the value of `audit_log_store_ip`. Nothing about the file, its size, its duration or its content is stored. Incognito chat and summary requests are not recorded.
-
 ## Events that are not recorded
 
 - Lists of recordings, searches, and questions to Ask Ambrose or to the chat of a recording
 - The creation of a recording by an upload
 - Changes of tags, folders, and of the personal inbox and star state
-- Shares made by a group tag or a group folder
 - A sign-in through the "Remember me" cookie, and a request with an invalid API token
 - The status requests that are sent on a timer from an open page, and the waveform of a recording
 - The statistics pages of a site administrator. They hold counts and sizes per account, and the five latest failed recordings by id, with the username, the time and the stored error text, without a title or a file name.
@@ -135,9 +116,9 @@ The settings are changed under **System settings** or in `.env`. A value in `.en
 | `audit_log_enabled` | `AUDIT_LOG_ENABLED` | `true` | `false`: no event is recorded, with the exceptions below. |
 | `audit_log_retention_days` | `AUDIT_LOG_RETENTION_DAYS` | `365` | Days after which a row is removed. `0`: rows are kept without limit. |
 | `audit_log_store_ip` | `AUDIT_LOG_STORE_IP` | `full` | `full`: the client address is stored. `truncated`: the `/24` network of an IPv4 address or the `/48` network of an IPv6 address is stored. `off`: no address is stored. |
-| `audit_log_record_views` | `AUDIT_LOG_RECORD_VIEWS` | `true` | `false`: `recording.viewed` and `recording.media.played` are not recorded. Downloads, exports, reads through API v1 and the events of public links are recorded in either case. |
+| `audit_log_record_views` | `AUDIT_LOG_RECORD_VIEWS` | `true` | `false`: `recording.viewed` and `recording.media.played` are not recorded. Downloads, exports and reads through API v1 are recorded in either case. |
 
-While the log is off, changes of the `audit_log_*` settings, reading and export of the log, removal of old rows, and `audit.write_failed` are still recorded. Archive and restore transitions also require durable evidence regardless of this switch. A failed evidence write rolls back the transition. Other events, including `incognito.used`, follow the general logging switch.
+While the log is off, changes of the `audit_log_*` settings, reading and export of the log, removal of old rows, and `audit.write_failed` are still recorded. Archive and restore transitions also require durable evidence regardless of this switch. A failed evidence write rolls back the transition. Other events follow the general logging switch.
 
 A change of `audit_log_store_ip` applies to new rows. Addresses in existing rows are not changed.
 
@@ -197,5 +178,5 @@ After a kill of the server process, up to one second of read and sign-in events 
 ## Upgrade
 
 - **The log is on after the upgrade.** From the first start, events are recorded with the client address, for 365 days. Both are changed with the settings above. This is stated in a notice on the Audit log tab until an administrator dismisses it.
-- **Internal shares.** In earlier releases, changes of internal shares were recorded in the table `share_audit_log`, whose rows were deleted with the recording and with the account that made the change. At the first start after the upgrade, these rows are copied once into `audit_event` (migration `0009_copy_share_audit_log_to_audit_event`), with time, actor, target account, recording, address and permission flags. The free-text note of the old rows is not copied. The old table is no longer written and is removed in a later release. Until then its remaining rows, with the address and the note, are still deleted with the recording, while the copies in `audit_event` remain.
+- **Internal shares.** Public share links and internal shares are no longer part of this build. The one-time copy of `share_audit_log` into `audit_event` is not applied on startup. An existing `share_audit_log` table is left in place and is not mapped. Rows already copied into `audit_event` by an earlier version stay there.
 - **Size.** As an estimate, a row takes about 350 bytes including its indexes, and about 150 MB per year can be expected for an installation with 40 active users per day.

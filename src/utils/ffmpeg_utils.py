@@ -137,9 +137,7 @@ def extract_audio_from_video(
         copy_stream: If True, copy audio stream without re-encoding (fast, preserves quality)
                     If False, re-encode to specified format
         allow_debug_copy: Whether the PRESERVE_TEMP_AUDIO debug copy is permitted.
-                    Incognito processing passes False — that debug copy is not
-                    tracked by any cleanup and would silently retain audio from
-                    a flow that promises zero retention.
+                    False keeps audio from being retained by that debug copy.
 
     Returns:
         Tuple of (audio_filepath, mime_type)

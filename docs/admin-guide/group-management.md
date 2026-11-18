@@ -7,38 +7,7 @@ nav_order: 6
 
 # Group Management
 
-Groups enable organized collaboration in multi-user Speakr instances by grouping users and automating recording access through group-specific tags. This powerful feature reduces administrative overhead while maintaining security and control over content access.
-
-## Prerequisites
-
-Before enabling groups, ensure internal sharing is configured. Groups build on Speakr's internal sharing infrastructure to automatically grant access when users apply group tags.
-
-### Required Configuration
-
-Add these settings to your `.env` file:
-
-```bash
-# Enable internal sharing (required for groups)
-ENABLE_INTERNAL_SHARING=true
-
-# Show the owner's username on shared recordings
-SHOW_USERNAMES_IN_UI=true
-
-# Who users can find by part of a username when sharing
-USER_SEARCH_SCOPE=groups    # everyone, groups or exact
-```
-
-After modifying `.env`, restart your Speakr instance for changes to take effect. The Groups tab will appear in the admin dashboard once internal sharing is enabled.
-
-### Privacy Considerations
-
-Two settings affect the entire instance. `SHOW_USERNAMES_IN_UI` controls whether the owner's username is displayed on recordings shared with a user. `USER_SEARCH_SCOPE` controls who a user can find in the share window by typing part of a username:
-
-- `everyone`: any account. This suits small, trusted instances where everyone knows each other.
-- `groups`: only people who share a group with the user. Anyone else is found by full username or full email address.
-- `exact`: nobody. The user types the full username or the full email address of the person.
-
-At every level the search starts at two characters and lists up to ten matches, so the full list of accounts is never loaded. An email address is matched only when typed in full, and the results show usernames only. Without `USER_SEARCH_SCOPE`, the level is `everyone` when usernames are shown and `exact` when they are hidden. Group functionality works identically at every level. See [Who Users Can Find](system-settings.md#who-users-can-find).
+Groups group users in a multi-user Speakr instance. Group tags and group folders belong to a group and are managed by its admins.
 
 ## Creating and Managing Groups
 
@@ -74,14 +43,14 @@ Group names are unique across the instance, ignoring case. A name that is alread
 
 Click the users-cog icon next to any group to open the group management modal. This interface shows current members, their roles, and provides tools for adding or removing members.
 
-To add a member, search for a user and choose their role. A site admin searches all users by username or email address. A group admin who is not a site admin enters the exact username or the exact email address of the person to add; no list of users and no partial search is available to them on this page at any level of `USER_SEARCH_SCOPE`, so the user directory is not exposed to group admins. The email address is compared without regard to case.
+To add a member, search for a user and choose their role. A site admin searches all users by username or email address. A group admin who is not a site admin enters the exact username or the exact email address of the person to add; no list of users and no partial search is available to them on this page, so the user directory is not exposed to group admins. The email address is compared without regard to case.
 
 The roles are:
 
-- **Member**: Can use group tags and access group-tagged recordings. Suitable for most group participants who need to collaborate on content.
-- **Admin**: All member capabilities plus the ability to manage group membership, create and delete group tags, and access group management features. Useful for group leads or managers who need administrative control.
+- **Member**: Can use the group's tags and folders on their own recordings.
+- **Admin**: All member capabilities plus the ability to manage group membership, create and delete group tags, and open group management. Useful for group leads or managers.
 
-Click "Add member" to grant access. The user immediately gains visibility to group tags and will receive future group-tagged recordings. They don't automatically gain access to existing group-tagged recordings - only new ones tagged after they join.
+Click "Add member". The user can then use this group's tags on their own recordings. Membership does not open other members' recordings.
 
 ### Changing Member Roles
 
@@ -89,18 +58,15 @@ Group roles can change as responsibilities evolve. Click the role dropdown next 
 
 Promoting members to admin grants them access to group management capabilities. They'll see a "Groups" link in their interface and can add/remove members, create tags, and manage the group independently. This distributes administrative workload and empowers group leads.
 
-Demoting admins to members removes their management capabilities but preserves their group membership. They retain access to group tags and recordings but can no longer manage group membership or tags. Recordings shared with them through the group become read-only for them, as they are for other members; promoting a member gives edit access to those recordings.
+Demoting admins to members removes their management capabilities but preserves their group membership. They can still use the group's tags on their own recordings.
 
 ### Removing Group Members
 
 Click the red user-times icon next to any member to remove them from the group. Removal is immediate and has several effects:
 
-- The user loses access to group tags
-- They won't receive new group-tagged recordings
-- They lose access to the recordings shared with them through the group's tags and folders
-- Their personal notes on group recordings are preserved
-
-A recording the owner shared with them by hand stays shared, as does one they still have through a tag or folder of another group.
+- The user loses the group's tags in their tag selectors
+- A recording they own stays theirs
+- A tag or folder of another group is unchanged
 
 ### Deleting Groups
 
@@ -111,13 +77,12 @@ Click the red trash icon next to a group to delete it entirely. A confirmation d
 - Removes all group memberships
 - Deletes all group tags (via database cascade)
 - Preserves all recordings (including previously group-tagged ones)
-- Removes the internal shares made through the group's tags and folders
 
-Group deletion is irreversible. Once deleted, the group structure is gone and members lose the access they had through the group. Recordings and shares made by hand stay.
+Group deletion is irreversible. Once deleted, the group structure is gone. Recordings stay.
 
 ## Group Tags
 
-Group tags power automatic sharing within groups. Unlike personal tags that organize individual content, group tags trigger access grants across all group members whenever applied.
+Group tags belong to a group. Unlike personal tags, they are managed by the group's admins.
 
 ### Creating Group Tags
 
@@ -155,47 +120,7 @@ Use protection for recordings that must be permanently preserved:
 
 Protection can be removed by editing the tag later if preservation requirements change. Removing protection doesn't immediately delete recordings - they'll be evaluated for deletion on the next retention check based on their age and other applicable retention policies.
 
-### Auto-Share Settings
-
-Group tags support two levels of automatic sharing that trigger when any group member applies the tag to a recording:
-
-**Share tagged recordings with all group members** is the default and recommended approach. When enabled, applying this tag shares the recording with every group member (excluding the owner). All members receive view and edit permissions, enabling full collaboration.
-
-**Share tagged recordings with group admins** restricts automatic sharing to group admins. When enabled, only users with the admin role in this group receive automatic access. Regular members don't get automatic access, though group admins can manually share with them if needed. This option suits sensitive content that requires administrative oversight before wider distribution.
-
-Both options can be enabled simultaneously, though this is redundant - sharing with all members already includes group admins. Use one or the other based on your content sensitivity and group structure.
-
-### Managing Group Tags
-
-Existing group tags appear in the group tags modal with their current settings. Click the edit icon to modify a tag's name, color, retention, protection, or sharing settings. A change of the sharing settings also applies to the recordings that already carry the tag: members the new settings include gain access to the completed recordings, and members they leave out lose the access the tag gave them. A share made by hand, and access through another group tag or group folder, stay.
-
-Delete group tags by clicking the trash icon. Deleted tags:
-
-- Are removed from all recordings they were applied to
-- Disappear from tag selectors for all group members
-- Don't delete the recordings themselves
-- End the access granted through the tag, except where a share made by hand, another group tag or a group folder still gives it
-
-If a tag was widely used, consider the impact before deletion. Users may have organized content around that tag, and deletion removes that organizational structure. In most cases, retaining unused tags causes no harm.
-
-### Syncing Group Shares
-
-If your instance enabled group features after recordings were already tagged, or if group membership changed significantly, you might have group-tagged recordings that weren't automatically shared with current group members. The "Sync group shares" feature addresses this.
-
-Click "Sync group shares" in the group management modal to open the sync dialog. Review the information about what the sync will do - it applies automatic sharing retroactively to all existing recordings with this group's tags.
-
-The sync operation:
-
-- Identifies all recordings tagged with any of this group's tags
-- Checks each recording for existing shares with current group members
-- Creates missing shares for group members who should have access but don't
-- Respects the tag's sharing settings (all members vs. group admins only)
-- Skips recordings where members already have access
-
-Confirm the sync to execute. Depending on the number of tagged recordings and group size, this might take a few seconds to several minutes. A result modal shows how many shares were created and how many recordings were processed.
-
-Sync is safe to run multiple times - it won't create duplicate shares. Use it after adding many new members, after fixing misconfigured tags, or when migrating from older Speakr versions that didn't have full group support.
-
+## Group Admin Role
 ## Group Admin Role
 
 Group admins are group members with elevated permissions within their group's scope. Unlike full instance administrators who can manage all groups and system settings, group admins can only manage groups where they have the admin role.
@@ -214,9 +139,8 @@ Group admins can perform these actions within their groups:
 - Remove existing members (excluding themselves)
 - Change member roles between admin and member
 - Create new group tags with full configuration options
-- Edit existing group tags including retention and sharing settings
+- Edit existing group tags including retention and protection
 - Delete group tags
-- Sync group shares for their groups
 
 Group admins cannot:
 
@@ -245,18 +169,6 @@ The database enforces these boundaries at the API level. Even if a group admin c
 ### Environment Variables
 
 ```bash
-# Internal Sharing (Required)
-ENABLE_INTERNAL_SHARING=true|false
-
-# Username Display
-SHOW_USERNAMES_IN_UI=true|false
-
-# Who users can find when sharing
-USER_SEARCH_SCOPE=everyone|groups|exact
-
-# Public Sharing Control (Affects group members' public sharing)
-ENABLE_PUBLIC_SHARING=true|false
-
 # Retention Settings (Groups can override)
 ENABLE_AUTO_DELETION=true|false
 GLOBAL_RETENTION_DAYS=90
@@ -288,45 +200,20 @@ Groups use several database tables that work together:
 - `team_id`: References Group (null for personal tags)
 - `retention_days`: Custom retention override (null uses global)
 - `protect_from_deletion`: Boolean protection flag
-- `auto_share_on_apply`: Boolean (share with all members)
-- `share_with_team_lead`: Boolean (share with group admins only)
 
-Cascade deletion is configured so deleting a group deletes its tags and memberships, but preserves recordings and shares.
+Cascade deletion is configured so deleting a group deletes its tags and memberships, but preserves recordings.
 
 ## Troubleshooting
 
-### Groups Tab Not Visible
-
-**Cause**: Internal sharing not enabled or not configured correctly.
-
-**Solution**:
-
-1. Check `.env` contains `ENABLE_INTERNAL_SHARING=true`
-2. Restart Speakr after `.env` changes
-3. Clear browser cache and reload
-4. Check application logs for startup errors
-
 ### Users Can't See Group Tags
 
-**Cause**: User not added to group, or internal sharing disabled.
+**Cause**: User not added to the group.
 
 **Solution**:
 
 1. Verify user is listed in group membership
-2. Confirm `ENABLE_INTERNAL_SHARING=true` in `.env`
-3. Check user is logged in (group tags hidden for anonymous users)
-4. Refresh the page to load updated tag lists
-
-### Auto-Sharing Not Working
-
-**Cause**: Group tag misconfigured or internal sharing disabled.
-
-**Solution**:
-
-1. Edit the group tag and verify "Share tagged recordings with all group members" or "Share tagged recordings with group admins" is enabled
-2. Confirm `ENABLE_INTERNAL_SHARING=true` in `.env`
-3. Check application logs when applying tags for sharing errors
-4. Try manually sharing the recording to verify sharing infrastructure works
+2. Check user is logged in (group tags hidden for anonymous users)
+3. Refresh the page to load updated tag lists
 
 ### Group Admin Can't Access Admin Interface
 
@@ -351,17 +238,7 @@ Cascade deletion is configured so deleting a group deletes its tags and membersh
 4. Review cron scheduler logs for deletion errors
 5. Check tag retention_days is set correctly (null = use global)
 
-### Sync Group Shares Shows Zero Shares Created
-
-**Cause**: All applicable shares already exist, or no recordings have group tags.
-
-**Solution**:
-
-1. Verify recordings actually have tags from this group
-2. Check if group members already have access via other shares
-3. Review whether recordings are owned by current group members (no self-sharing)
-4. Confirm group has members beyond the recording owners
-
+## Best Practices
 ## Best Practices
 
 ### Group Structure
@@ -404,7 +281,7 @@ Review retention policies quarterly to ensure they remain appropriate as busines
 
 Grant group admin roles to natural group leaders - project managers, department heads, tech leads. This distributes administrative workload and empowers groups to self-manage.
 
-Avoid granting group admin too liberally. While it's scoped to individual groups, group admins can add members and create tags that affect access. Limit the role to trusted individuals who understand security implications.
+Avoid granting group admin too liberally. While it's scoped to individual groups, group admins can add members and create tags. Limit the role to trusted individuals.
 
 Document each group's admins in the group description or external documentation. Future administrators will appreciate knowing who to contact about group-specific questions.
 
@@ -413,8 +290,6 @@ Document each group's admins in the group description or external documentation.
 ### Inquire Mode
 
 Group tags automatically appear in Inquire Mode's available filters, enabling group-scoped semantic search. Users can search for "budget discussions" and filter to just their project group, finding relevant conversations without noise from other groups.
-
-Recordings shared via group tags are included in semantic search results. The vector store indexes all accessible recordings, meaning group content becomes part of users' searchable knowledge base automatically.
 
 ### Retention and Auto-Deletion
 
@@ -426,18 +301,9 @@ Tag-level retention policies integrate with Speakr's auto-deletion system. The n
 
 This cascading system lets groups set specific policies while maintaining instance-wide defaults for untagged content.
 
-### Public Sharing
-
-Group membership doesn't affect public sharing capabilities. Users' ability to create public share links is controlled by:
-
-1. Global `ENABLE_PUBLIC_SHARING` setting
-2. Per-user `can_share_publicly` permission (if global is enabled)
-
-Group members can create public links for group recordings if they have appropriate permissions, enabling external stakeholder communication while maintaining group-internal collaboration.
-
 ---
 
-Groups transform multi-user Speakr instances into collaborative platforms where information flows automatically to relevant people. Proper configuration and management ensure security while enabling seamless knowledge sharing.
+Groups group users and give their admins group tags and group folders.
 
 For user-focused group documentation, see the [Group Collaboration](../user-guide/groups.md) guide.
 

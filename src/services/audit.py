@@ -1,10 +1,10 @@
-"""The access audit log: who signed in, who opened, changed, shared or deleted
+"""The access audit log: who signed in, who opened, changed or deleted
 which recording, and what an administrator changed.
 
 One table, ``audit_event`` (``src/models/audit.py``), and two ways into it.
 
 ``record_in_tx(event, ...)``
-    For an action that already writes to the database (a change, a share, an
+    For an action that already writes to the database (a change, an
     administrative action). The row is added to the session of the request and
     is committed or rolled back together with the action, so the row exists
     exactly when the action took effect. The caller commits.
@@ -17,8 +17,8 @@ One table, ``audit_event`` (``src/models/audit.py``), and two ways into it.
     the database and never fails because of the audit log.
 
 What is never recorded
-    Titles, file names, transcript text, search queries, token names, the
-    ``public_id`` of a share link, e-mail addresses, passwords and exception
+    Titles, file names, transcript text, search queries, token names,
+    e-mail addresses, passwords and exception
     text. ``EVENTS`` lists, per event, the only keys the ``details`` column may
     hold. A key that is not listed raises in tests and is dropped with a
     warning otherwise.
@@ -36,15 +36,9 @@ When the database cannot be written
     next batch that is written adds an ``audit.write_failed`` row with the
     count. An event that finds the queue full is logged the same way.
 
-Incognito requests
-    Inside an incognito request only ``incognito.used`` is recorded (actor,
-    time and outcome). Every other event is dropped there, and the fallback
-    line is written outside the incognito log filter because it holds no
-    content.
 """
 
 import atexit
-import contextvars
 import hashlib
 import hmac
 import ipaddress
@@ -75,10 +69,7 @@ EVENTS = {
     'auth.login.failed': ('auth', frozenset({'reason', 'method'})),
     'auth.login.locked': ('auth', frozenset({'minutes'})),
     'auth.logout': ('auth', _NONE),
-    'auth.registered': ('auth', _NONE),
     'auth.password.changed': ('auth', _NONE),
-    'auth.password.reset_requested': ('auth', _NONE),
-    'auth.password.reset': ('auth', _NONE),
     'auth.sso.linked': ('auth', _NONE),
     'auth.sso.unlinked': ('auth', _NONE),
     'token.created': ('auth', frozenset({'token_id', 'scopes', 'expires', 'sso_client_id'})),
@@ -100,16 +91,6 @@ EVENTS = {
     'recording.unarchived': ('change', frozenset({'rule', 'scope', 'retention_days', 'tag_id'})),
     'recording.reprocessed': ('change', frozenset({'kind'})),
     'recording.job.canceled': ('change', frozenset({'kind'})),
-    # Sharing
-    'share.internal.created': ('share', frozenset({'share_id', 'can_edit', 'can_reshare', 'imported'})),
-    'share.internal.changed': ('share', frozenset({
-        'share_id', 'can_edit', 'can_reshare', 'old_can_edit', 'old_can_reshare', 'imported'})),
-    'share.internal.revoked': ('share', frozenset({'share_id', 'cascade', 'imported'})),
-    'share.public.created': ('share', frozenset({'share_id', 'share_summary', 'share_notes', 'expires'})),
-    'share.public.changed': ('share', frozenset({'share_id', 'share_summary', 'share_notes', 'expires'})),
-    'share.public.revoked': ('share', frozenset({'share_id'})),
-    'share.public.opened': ('share', frozenset({'share_id'})),
-    'share.public.media.played': ('share', frozenset({'share_id'})),
     # Administration
     'admin.user.created': ('admin', frozenset({'username', 'is_admin'})),
     'admin.user.changed': ('admin', frozenset({'fields'})),
@@ -131,16 +112,11 @@ EVENTS = {
     'audit.exported': ('audit', frozenset({'filters', 'count', 'format'})),
     'audit.pruned': ('audit', frozenset({'count', 'cutoff'})),
     'audit.write_failed': ('audit', frozenset({'count'})),
-    # Incognito
-    'incognito.used': ('incognito', _NONE),
 }
 
-EVENT_GROUPS = ('auth', 'access', 'change', 'share', 'admin', 'incognito', 'audit')
-ACTOR_KINDS = ('session', 'api_token', 'sso_token', 'public_link', 'system', 'anonymous')
+EVENT_GROUPS = ('auth', 'access', 'change', 'admin', 'audit')
+ACTOR_KINDS = ('session', 'api_token', 'sso_token', 'system', 'anonymous')
 OUTCOMES = ('success', 'denied', 'failed')
-
-# Events whose row never holds the client address, the user agent or a token id.
-NO_CLIENT_EVENTS = frozenset({'incognito.used'})
 
 # Dropped while audit_log_record_views is off.
 VIEW_EVENTS = frozenset({'recording.viewed', 'recording.media.played'})
@@ -150,7 +126,6 @@ DEDUP_VIEW = 30 * 60
 DEDUP_DOWNLOAD = 5 * 60
 DEDUP_DENIED = 60
 DEDUP_LOGIN_FAILED = 60
-DEDUP_RESET_REQUESTED = 5 * 60
 # One bucket for all time: the event is written once.
 DEDUP_ONCE = 10 ** 11
 
@@ -159,12 +134,10 @@ DEDUP_ONCE = 10 ** 11
 SETTING_VALUE_KEYS = frozenset({
     'audit_log_enabled', 'audit_log_retention_days', 'audit_log_store_ip', 'audit_log_record_views',
     'audit_log_notice_dismissed',
-    'allow_registration', 'users_can_delete', 'enable_public_sharing', 'enable_internal_sharing',
-    'show_usernames_in_ui', 'user_search_scope', 'enable_incognito_mode', 'incognito_mode_default',
-    'incognito_temp_max_age_hours', 'enable_auto_deletion', 'global_retention_days', 'deletion_mode',
+    'users_can_delete', 'enable_auto_deletion', 'global_retention_days', 'deletion_mode',
     'recording_tombstone_days', 'webhook_delivery_retention_days', 'webhook_omit_titles',
     'auto_export_delete_with_recording', 'video_retention', 'video_passthrough_asr', 'asr_async_jobs',
-    'max_concurrent_uploads', 'enable_email_verification', 'require_email_verification',
+    'max_concurrent_uploads',
     'session_idle_timeout_minutes', 'api_query_tokens_enabled', 'sso_api_tokens_enabled',
     'login_max_failed_attempts', 'login_lockout_minutes', 'max_file_size_mb',
     'default_storage_quota_mb', 'transcript_length_limit',
@@ -333,7 +306,7 @@ def _visitor_hash(with_agent=True):
 def stamp(moment):
     """A creation time as a short code for a de-duplication key.
 
-    The id of a deleted recording, token or share is given out again on
+    The id of a deleted recording or token is given out again on
     SQLite. With the creation time in the key, an event of the new object is
     never taken for a repeat of an event of the deleted one."""
     if moment is None:
@@ -371,9 +344,6 @@ def _build(event, *, recording=None, recording_id=None, recording_owner_id=None,
         raise ValueError(f'Unknown audit outcome {outcome!r}')
     group = EVENTS[event][0]
 
-    from src.utils.incognito_logging import incognito_active
-    if incognito_active() and event != 'incognito.used':
-        return None
     # The switch cannot hide itself: audit.* events and changes of the
     # audit_log_* settings are written while the log is off.
     if not force and group != 'audit' and not is_enabled():
@@ -400,22 +370,15 @@ def _build(event, *, recording=None, recording_id=None, recording_owner_id=None,
         recording_stamp = stamp(getattr(recording, 'created_at', None))
 
     ip = user_agent = None
-    # An incognito upload is recorded as account, time and outcome only:
-    # no address and no user agent, whatever audit_log_store_ip says.
-    if in_request and actor_kind != 'system' and event not in NO_CLIENT_EVENTS:
+    if in_request and actor_kind != 'system':
         ip = stored_ip(request.remote_addr)
         agent = request.headers.get('User-Agent')
         user_agent = agent[:MAX_USER_AGENT_CHARS] if agent else None
 
-    if event in NO_CLIENT_EVENTS:
-        actor_token_id = None
-
     now = created_at or datetime.utcnow()
     dedup_key = None
     if dedup:
-        if actor_kind == 'public_link' and in_request:
-            who = 'p' + _visitor_hash()
-        elif actor_token_id is not None:
+        if actor_token_id is not None:
             who = f't{actor_token_id}'
         elif actor_user_id is not None:
             who = f'u{actor_user_id}'
@@ -511,16 +474,11 @@ def record(event, **fields):
     return True
 
 
-# --- Logging outside the incognito filter -----------------------------------
+# --- Logging ----------------------------------------------------------------
 
 def _log(level, message, *args):
-    """Log on speakr.audit in an empty context.
-
-    Inside an incognito request every record of another logger is replaced by
-    a withheld-line. A line of this module holds ids, codes and counts only,
-    so it is written as it is, also from an incognito request.
-    """
-    contextvars.Context().run(logger.log, level, message, *args)
+    """Log on speakr.audit. A line of this module holds ids, codes and counts only."""
+    logger.log(level, message, *args)
 
 
 def _json_default(value):
@@ -654,9 +612,7 @@ def _ensure_writer():
         if _writer is not None and _writer_pid == pid and _writer.is_alive():
             return
         thread = threading.Thread(target=_writer_loop, daemon=True, name='AuditLogWriter')
-        # An empty context: the thread must not inherit the incognito mark of
-        # the request that happens to start it.
-        contextvars.Context().run(thread.start)
+        thread.start()
         _writer, _writer_pid = thread, pid
         if not _atexit_registered:
             atexit.register(_flush_at_exit)
@@ -964,7 +920,6 @@ def _record_access(event, dedup, details, recording_of, view_args, status):
 # --- System settings --------------------------------------------------------
 
 _SETTING_ENUMS = {
-    'user_search_scope': ('everyone', 'groups', 'exact'),
     'deletion_mode': ('archive', 'audio_only', 'full_recording'),
     'audit_log_store_ip': ('full', 'truncated', 'off'),
 }
@@ -1000,7 +955,7 @@ _DEFINED_SETTING_KEYS = frozenset({
     'audit_log_notice_dismissed', 'custom_banner', 'default_storage_quota_mb', 'default_timezone',
     'disable_auto_summarization', 'disable_auto_translation', 'embedding_identifier', 'enable_folders',
     'login_lockout_minutes', 'login_max_failed_attempts', 'max_audio_only_video_size_mb',
-    'max_file_size_mb', 'recording_disclaimer', 'show_whats_new', 'transcript_length_limit',
+    'max_file_size_mb', 'recording_disclaimer', 'transcript_length_limit',
     'upload_disclaimer', 'transcription_models_visible_json', 'transcription_default_model',
 })
 

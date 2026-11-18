@@ -3,7 +3,6 @@
  * Handles reprocessing transcription and summary
  */
 
-import * as IncognitoStorage from '../db/incognito-storage.js';
 import { readJsonResponse } from '../utils/response.js';
 import { buildRegenerateBody, normalizePrompt } from '../utils/regenerate-summary.js';
 
@@ -257,7 +256,7 @@ export function useReprocess(state, utils) {
 
     const openRegenerateSummaryModal = async (recording = null) => {
         const rec = recording || selectedRecording.value;
-        if (!rec || rec.incognito === true) return;
+        if (!rec) return;
         Object.assign(regenSummary, {
             recording: rec,
             // Without a summary the dialog generates one, as the empty-state
@@ -379,36 +378,6 @@ export function useReprocess(state, utils) {
 
         try {
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-
-            // Check if this is an incognito recording
-            if (selectedRecording.value.incognito === true) {
-                // Use incognito summary endpoint - generate synchronously
-                const response = await fetch('/api/recordings/incognito/summary', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': csrfToken
-                    },
-                    body: JSON.stringify({
-                        transcription: selectedRecording.value.transcription
-                    })
-                });
-
-                const data = await readJsonResponse(response, t, 'errors.generateSummaryFailed');
-
-                // Update the incognito recording with the new summary
-                selectedRecording.value.summary = data.summary;
-                selectedRecording.value.summary_html = data.summary_html;
-
-                // Update sessionStorage
-                IncognitoStorage.updateIncognitoRecording({
-                    summary: data.summary,
-                    summary_html: data.summary_html
-                });
-
-                showToast(t('messages.summaryGenerated'), 'fa-file-alt');
-                return;
-            }
 
             // Regular recording - use existing flow, with the dialog's prompt
             // fields when it opened this (#253, #584).

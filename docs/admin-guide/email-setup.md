@@ -1,16 +1,12 @@
-# Email Verification & Password Reset
+# Email Setup
 
-This guide explains how to configure email functionality in Speakr, enabling email verification for new user registrations and password reset capabilities for all users.
+This guide explains how to configure outgoing email in Speakr for processing notifications.
 
 ## Overview
 
 Email features in Speakr are completely opt-in. When configured, they provide:
 
-- **Email Verification**: Require new users to verify their email address before accessing the system
-- **Password Reset**: Allow users to reset forgotten passwords via email
 - **Processing Notifications**: Let each user opt in to a message when one of their recordings finishes transcribing, or fails
-
-Both features work independently of domain restrictions—you can use email verification even with open registration (`ALLOW_REGISTRATION=true`) and no domain restrictions.
 
 ## Prerequisites
 
@@ -24,10 +20,6 @@ Both features work independently of domain restrictions—you can use email veri
 Set these variables in your `.env` file (see `config/env.email.example` for a complete template):
 
 ```bash
-# Enable email features
-ENABLE_EMAIL_VERIFICATION=true
-REQUIRE_EMAIL_VERIFICATION=false
-
 # SMTP Configuration
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
@@ -44,8 +36,6 @@ Restart Speakr after updating environment variables.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ENABLE_EMAIL_VERIFICATION` | `false` | Enable email verification for new registrations |
-| `REQUIRE_EMAIL_VERIFICATION` | `false` | Block login for unverified users (only works when verification is enabled) |
 | `SMTP_HOST` | (none) | SMTP server hostname |
 | `SMTP_PORT` | `587` | SMTP server port |
 | `SMTP_USERNAME` | (none) | SMTP authentication username |
@@ -79,52 +69,13 @@ path:
 APP_BASE_URL=https://speakr.example.com
 ```
 
-Links in verification and password-reset mail are built from this address.
-Without it, the host is taken from the request, and a request for a reset link
-can carry a forged `Host` or `X-Forwarded-Host` header that points the emailed
-link at another site. A warning is logged when such a link is sent without
-`APP_BASE_URL`. Notification mail is sent from a background worker, which has no
-request to look at, so without this variable a notification is sent without a
-link to the recording.
+Links in notification mail are built from this address. Notification mail is
+sent from a background worker, which has no request to look at, so without this
+variable a notification is sent without a link to the recording.
 
 Note that each recording sends its own message, so a bulk upload of fifty files
 produces fifty emails. The setting is most useful for long recordings the user
 does not want to wait on.
-
-### Understanding the Two Verification Modes
-
-**Soft Verification** (`ENABLE_EMAIL_VERIFICATION=true`, `REQUIRE_EMAIL_VERIFICATION=false`):
-
-- New users receive a verification email after registration
-- Users can sign in immediately without verifying
-- Useful for encouraging email verification without blocking access
-
-**Strict Verification** (`ENABLE_EMAIL_VERIFICATION=true`, `REQUIRE_EMAIL_VERIFICATION=true`):
-
-- New users receive a verification email after registration
-- Users cannot sign in until they verify their email
-- Best for environments requiring confirmed email addresses
-
-### Combining with Other Registration Settings
-
-Email verification works seamlessly with other registration controls:
-
-```bash
-# Open registration with email verification
-ALLOW_REGISTRATION=true
-ENABLE_EMAIL_VERIFICATION=true
-REQUIRE_EMAIL_VERIFICATION=true
-
-# Domain-restricted registration with verification
-ALLOW_REGISTRATION=true
-REGISTRATION_ALLOWED_DOMAINS=company.com,subsidiary.org
-ENABLE_EMAIL_VERIFICATION=true
-REQUIRE_EMAIL_VERIFICATION=true
-
-# Closed registration (admin creates accounts)
-ALLOW_REGISTRATION=false
-# Email verification not applicable - admin creates verified accounts
-```
 
 ## Provider-Specific Setup
 
@@ -186,48 +137,11 @@ SMTP_PASSWORD=your-password
 - **Port 465 with SSL**: Set `SMTP_USE_TLS=false`, `SMTP_USE_SSL=true`
 - **Port 25 (unencrypted)**: Not recommended for security reasons
 
-## User Experience
-
-### Registration Flow (with verification enabled)
-
-1. User fills out registration form
-2. Account is created with `email_verified=false`
-3. Verification email is sent automatically
-4. User sees "Check your email" page with option to resend
-5. User clicks verification link in email
-6. Account is marked as verified
-7. User can now sign in (if `REQUIRE_EMAIL_VERIFICATION=true`)
-
-### Password Reset Flow
-
-1. User clicks "Forgot password?" on the sign-in page
-2. User enters their email address
-3. If account exists, reset email is sent (no indication if account doesn't exist for security)
-4. User clicks reset link in email
-5. User sets new password
-6. User is redirected to the sign-in page
-
-### Token Expiry
-
-- **Email verification links**: Valid for 24 hours
-- **Password reset links**: Valid for 1 hour
-
-Users can request new links if their tokens expire.
-
-## Migration Behavior
-
-When enabling email verification on an existing instance:
-
-- **Existing users are automatically marked as verified** (grandfathered)
-- Only new registrations after enabling the feature require verification
-- No action needed for current users
-
 ## Security Considerations
 
 1. **Use secure SMTP connections**: Always enable TLS or SSL
 2. **Use app-specific passwords**: When available (Gmail, etc.)
-3. **Set a strong SECRET_KEY**: Token security depends on your Flask secret key
-4. **Consider dedicated email services**: SendGrid, Mailgun, and SES offer better deliverability than personal email accounts
+3. **Consider dedicated email services**: SendGrid, Mailgun, and SES offer better deliverability than personal email accounts
 
 ## Troubleshooting
 
@@ -243,12 +157,6 @@ When enabling email verification on an existing instance:
 1. Use a proper `SMTP_FROM_ADDRESS` that matches your domain
 2. Configure SPF and DKIM records for your domain
 3. Consider using a dedicated email service with good reputation
-
-### Verification link not working
-
-1. Ensure `SECRET_KEY` hasn't changed since the email was sent
-2. Check if the link has expired (24 hours for verification, 1 hour for reset)
-3. Verify your Speakr instance is accessible at the URL in the email
 
 ### "SMTP not configured" errors
 

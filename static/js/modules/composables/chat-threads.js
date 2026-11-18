@@ -8,8 +8,7 @@
  * when another recording opens stays with its own recording.
  *
  * Finished messages and drafts go to sessionStorage under a key per user:
- * they survive a reload and are gone when the tab closes. An incognito
- * recording's thread is never stored and is dropped when it is left.
+ * they survive a reload and are gone when the tab closes.
  * At most `max` threads are kept; the least recently used idle thread goes
  * first, and a thread that is answering is never dropped.
  */
@@ -17,7 +16,6 @@
 export const STORAGE_PREFIX = 'speakr.chatThreads.v1.';
 export const MAX_THREADS = 20;
 export const MAX_STORED_CHARS = 1500000;
-export const INCOGNITO_KEY = 'incognito';
 
 // The parts of a turn worth keeping; html is the rendered answer as shown.
 const KEPT_FIELDS = ['role', 'content', 'html', 'thinking', 'steps', 'stepsLabel', 'activitySummary',
@@ -30,7 +28,6 @@ const safeStorage = (getStorage) => {
 /** The key a recording's thread is kept under, or null for none. */
 export function threadKey(recording) {
     if (!recording || recording.id === undefined || recording.id === null) return null;
-    if (recording.incognito === true || recording.id === INCOGNITO_KEY) return INCOGNITO_KEY;
     return String(recording.id);
 }
 
@@ -73,8 +70,8 @@ export function createChatThreads(opts = {}) {
 
     function blank(key, recording) {
         return {
-            key, recordingId: key === INCOGNITO_KEY ? null : (key === null ? null : recording.id),
-            title: (recording && recording.title) || '', incognito: key === INCOGNITO_KEY,
+            key, recordingId: key === null ? null : recording.id,
+            title: (recording && recording.title) || '',
             messages: [], input: '', loading: false, status: '', following: true,
             controller: null, lastUsed: 0, dropped: false,
         };
@@ -125,7 +122,6 @@ export function createChatThreads(opts = {}) {
         const storage = safeStorage(getStorage);
         if (!storage) return false;
         let keys = Object.keys(state.threads)
-            .filter((k) => !state.threads[k].incognito)
             .sort((a, b) => state.threads[b].lastUsed - state.threads[a].lastUsed);
         while (true) {
             let text;
@@ -158,7 +154,7 @@ export function createChatThreads(opts = {}) {
         if (!data || !Array.isArray(data.threads)) return 0;
         let count = 0;
         data.threads.forEach((saved) => {
-            if (!saved || typeof saved.key !== 'string' || saved.key === INCOGNITO_KEY) return;
+            if (!saved || typeof saved.key !== 'string') return;
             if (state.threads[saved.key]) return;
             const thread = blank(saved.key, { id: saved.recordingId, title: saved.title });
             thread.input = typeof saved.input === 'string' ? saved.input : '';
@@ -179,14 +175,11 @@ export function createChatThreads(opts = {}) {
 
     // ------------------------------------------------------------ switching
     /**
-     * Show the thread of `recording` (null for none). Opening another
-     * recording after an incognito one drops the incognito thread (as the
-     * incognito recording itself goes). Returns the thread now on screen.
+     * Show the thread of `recording` (null for none). Returns the thread now on screen.
      */
     const select = (recording) => {
         const key = threadKey(recording);
         const previous = state.currentKey;
-        if (key !== null && key !== INCOGNITO_KEY && state.threads[INCOGNITO_KEY]) remove(INCOGNITO_KEY);
         state.currentKey = key;
         if (key === null) { save(); return none; }
         let thread = state.threads[key];
@@ -213,7 +206,7 @@ export function createChatThreads(opts = {}) {
     const drop = (ids) => {
         (Array.isArray(ids) ? ids : [ids]).forEach((id) => {
             const key = threadKey({ id });
-            if (key && key !== INCOGNITO_KEY) remove(key);
+            if (key) remove(key);
         });
         save();
     };
@@ -233,12 +226,12 @@ export function createChatThreads(opts = {}) {
 
     /**
      * True when recording `id` has a chat in this tab: a thread with at least
-     * one message. Incognito threads and empty ones (cleared, or only a
+     * one message. Empty ones (cleared, or only a
      * draft) do not count.
      */
     const hasChat = (id) => {
         const key = threadKey({ id });
-        if (key === null || key === INCOGNITO_KEY) return false;
+        if (key === null) return false;
         const thread = get(key);
         return !!(thread && Array.isArray(thread.messages) && thread.messages.length > 0);
     };

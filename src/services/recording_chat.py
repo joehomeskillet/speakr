@@ -1,5 +1,5 @@
 """The prompt for chatting with one recording: one builder for the web
-panel (POST /chat), incognito chat and API v1 (#412 audit C1, mailr spec G9,
+panel (POST /chat) and API v1 (#412 audit C1, mailr spec G9,
 Ambrose phase 2a).
 
 The notes in the prompt are the ones the chatting user can see: the owner's
@@ -15,8 +15,7 @@ The prompt names the assistant with the user's chosen name (decision 3).
 
 A short block names what the recording is: title, date in the user's
 timezone, duration, folder path and tags the user can see, and the speakers
-(metadata_lines). An incognito recording has no saved title, date, folder or
-tags, so it has no block.
+(metadata_lines).
 """
 
 import re
@@ -34,24 +33,6 @@ def _clock(seconds):
 def _marked_transcript(segments):
     return '\n'.join(f"[S{seg['index']} {_clock(seg['start_time'])} {seg['speaker'] or 'Unknown'}] {seg['text']}"
                      for seg in segments)
-
-
-class IncognitoTranscript:
-    """The fields build_chat_messages reads, for an incognito recording that
-    exists only in the browser (#527). Never saved."""
-
-    def __init__(self, transcription, participants=None, notes=None):
-        self.transcription = transcription
-        self.participants = participants if isinstance(participants, str) and participants.strip() else None
-        self._notes = notes if isinstance(notes, str) and notes.strip() else None
-
-    def get_user_notes(self, user):
-        return self._notes
-
-    def segments(self):
-        """The transcript's segments; no saved speakers to resolve."""
-        from src.services.transcript_segments import segments_of
-        return segments_of(self.transcription)
 
 
 def _duration(seconds):
@@ -122,10 +103,7 @@ def participants_with_aliases(participants, user):
 
 
 def metadata_lines(recording, user, segments=None):
-    """The lines of the metadata block, empty ones left out; [] for an
-    incognito recording."""
-    if isinstance(recording, IncognitoTranscript):
-        return []
+    """The lines of the metadata block, empty ones left out."""
     from src.services.library_labels import LibraryLabels
     from src.utils.timezones import to_local, user_timezone
     lines = []
@@ -186,7 +164,7 @@ def build_chat_messages(recording, user, message, history=None, with_sources=Fal
 
     segments = None
     if with_sources:
-        segments = recording.segments() if isinstance(recording, IncognitoTranscript) else canonical_segments(recording)
+        segments = canonical_segments(recording)
     use_markers = bool(segments)
     include_timestamps = bool(getattr(user, 'chat_include_timestamps', False)) and not use_markers
     if use_markers:
@@ -202,7 +180,9 @@ def build_chat_messages(recording, user, message, history=None, with_sources=Fal
     if limit != -1:
         transcript = transcript[:limit]
 
-    language = f"Please provide all your responses in {user.output_language}." if user.output_language else ""
+    from src.clinic.output_language import effective_output_language
+    chat_language = effective_output_language(user.output_language)
+    language = f"Please provide all your responses in {chat_language}." if chat_language else ""
     assistant = assistant_name_of(user)
     identity = assistant_identity(assistant, user.name, user.job_title, user.company)
 

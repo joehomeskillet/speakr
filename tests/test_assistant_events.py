@@ -19,7 +19,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.app import app, db  # noqa: E402
-from src.models import InternalShare, Recording, SharedRecordingState, User  # noqa: E402
+from src.models import Recording, User  # noqa: E402
 from src.services import inquire_agent as ia  # noqa: E402
 from src.services.assistant_events import (LIBRARY_TOOLS, SegmentCitations, library_events, parse_sse,  # noqa: E402
                                            recording_events, sse, tools_for_surface)
@@ -139,7 +139,6 @@ def test_agent_events_pass_through_unchanged():
 # ---------------------------------------------------------------------------
 
 def test_tools_follow_the_surface():
-    assert tools_for_surface('incognito') == []
     assert tools_for_surface('recording') == list(LIBRARY_TOOLS)
     assert tools_for_surface('ask') is None
     with pytest.raises(ValueError):
@@ -202,8 +201,7 @@ def world():
         owner = User(username=f"a2_{s}", email=f"a2_{s}@local.test", password="x", name="Jordan Avery",
                      job_title="Product Manager", company="Fernhill Labs", output_language="German",
                      assistant_name="Iris")
-        guest = User(username=f"a2g_{s}", email=f"a2g_{s}@local.test", password="x")
-        db.session.add_all([owner, guest])
+        db.session.add(owner)
         db.session.commit()
         rec = Recording(user_id=owner.id, title="Weekly sync", status="COMPLETED", original_filename="a.wav",
                         participants="Dana, Omar", transcription=json.dumps(SEGMENTS), notes="OWNER SECRET NOTE")
@@ -211,17 +209,12 @@ def world():
                           transcription="Dana: we froze the travel budget for the quarter.")
         db.session.add_all([rec, plain])
         db.session.commit()
-        db.session.add(InternalShare(recording_id=rec.id, owner_id=owner.id, shared_with_user_id=guest.id))
-        db.session.add(SharedRecordingState(recording_id=rec.id, user_id=guest.id, personal_notes="GUEST NOTE"))
-        db.session.commit()
-        ids = dict(owner=owner.id, guest=guest.id, rec=rec.id, plain=plain.id)
+        ids = dict(owner=owner.id, rec=rec.id, plain=plain.id)
     yield ids
     with app.app_context():
         db.session.rollback()
-        SharedRecordingState.query.filter_by(recording_id=ids["rec"]).delete()
-        InternalShare.query.filter_by(recording_id=ids["rec"]).delete()
         Recording.query.filter(Recording.id.in_([ids["rec"], ids["plain"]])).delete(synchronize_session=False)
-        User.query.filter(User.id.in_([ids["owner"], ids["guest"]])).delete(synchronize_session=False)
+        User.query.filter(User.id.in_([ids["owner"]])).delete(synchronize_session=False)
         db.session.commit()
 
 
@@ -268,14 +261,6 @@ def test_the_web_panel_sends_the_builders_prompt(world):
     assert "Dana, Omar" in system and "OWNER SECRET NOTE" in system
     assert seen["messages"][1:3] == history
     assert seen["operation_type"] == "chat" and seen["stream"] is True and seen["user_id"] == world["owner"]
-
-
-def test_a_recipient_gets_their_own_notes_and_the_default_name(world):
-    with patch("src.api.recordings.has_recording_access", lambda recording, user: True):
-        _, seen, _ = _web_chat(world["guest"], world["rec"], "ok")
-    system = seen["messages"][0]["content"]
-    assert "GUEST NOTE" in system and "OWNER SECRET NOTE" not in system
-    assert system.startswith("You are Ambrose, ")
 
 
 def test_the_web_panel_streams_sources_before_their_markers(world):

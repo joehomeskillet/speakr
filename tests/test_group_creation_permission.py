@@ -90,8 +90,7 @@ def ctx():
     with app.app_context():
         before_users = {u.id for u in User.query.with_entities(User.id).all()}
         before_groups = {g.id for g in Group.query.with_entities(Group.id).all()}
-        with patch.object(groups_module, "ENABLE_INTERNAL_SHARING", True):
-            yield
+        yield
         db.session.rollback()
         for group in Group.query.all():
             if group.id not in before_groups:
@@ -276,15 +275,6 @@ def test_site_admin_create_records_creator_without_membership(ctx):
     assert group.created_by == admin.id
     assert GroupMembership.query.filter_by(group_id=group.id).count() == 0
     assert permissions.group_has_grant(CREATE_GROUPS, group.id)
-
-
-def test_creation_needs_internal_sharing(ctx):
-    _mode("everyone")
-    user = _user("anyone")
-    with patch.object(groups_module, "ENABLE_INTERNAL_SHARING", False):
-        resp = _client(user).post("/api/admin/groups", json={"name": f"n_{uuid.uuid4().hex[:6]}"})
-        assert resp.status_code == 403
-        assert groups_module.can_create_groups(user) is False
 
 
 # --------------------------------------------------------------------------

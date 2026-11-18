@@ -155,9 +155,7 @@ def test_update_keeps_an_existing_long_name_sent_back_unchanged(ctx):
     assert resp.get_json()["color"] == "#000000"
 
 
-def test_group_folder_route_checks_name_and_color(ctx, monkeypatch):
-    import src.api.folders as folders_module
-    monkeypatch.setattr(folders_module, "ENABLE_INTERNAL_SHARING", True)
+def test_group_folder_route_checks_name_and_color(ctx):
     admin = _new_user(ctx)
     group = _new_group(ctx, admin)
     client = _client(admin)

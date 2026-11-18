@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full">
+<html lang="{{ user_language or 'en' }}" class="h-full">
 <head>
     <meta charset="UTF-8">
     <!-- interactive-widget=resizes-content: keyboard resizes layout (Android). -->
@@ -416,6 +416,8 @@
 
     </div>
 
+    <!-- Expired-session hint (called by the fetch interceptor below) -->
+    <script src="{{ url_for('static', filename='js/session-hint.js', v=app_version) }}"></script>
     <!-- CSRF Token Management -->
     <script src="{{ url_for('static', filename='js/csrf-refresh.js', v=app_version) }}"></script>
     
@@ -488,15 +490,6 @@
                     const uiTheme = ref(document.documentElement.getAttribute('data-ui-theme') || 'default');
                     window.addEventListener('speakr:ui-theme', (e) => { uiTheme.value = (e.detail && e.detail.id) || 'default'; });
                     const setUiTheme = (id) => (window.speakrApplyUiTheme ? window.speakrApplyUiTheme(id) : uiTheme.value);
-                    const {
-                        showSharesListModal,
-                        userShares,
-                        isLoadingShares,
-                        openSharesList,
-                        closeSharesList,
-                        copyShareLink,
-                        deleteShare
-                    } = window.SharedComponents.useSharesModal();
                     const { isUserMenuOpen, toggleUserMenu, closeUserMenu } = window.SharedComponents.useUserMenu();
                     const isMobileSidebarOpen = ref(false);
                     
@@ -857,15 +850,6 @@
                         closeColorSchemeModal,
                         selectColorScheme,
                         resetColorScheme,
-                        
-                        // Shares Modal
-                        showSharesListModal,
-                        userShares,
-                        isLoadingShares,
-                        openSharesList,
-                        closeSharesList,
-                        copyShareLink,
-                        deleteShare,
                         
                         // Computed
                         hasActiveFilters,

@@ -25,11 +25,9 @@ def created():
         audit.flush()
         audit.reset_memory()
         users = []
-        set_setting('enable_internal_sharing', 'true')
         yield users
         audit.flush()
         db.session.rollback()
-        SystemSetting.set_setting('enable_internal_sharing', None, None, None)
         reset_audit_settings()
         for group in Group.query.filter(Group.name.like('audgrp%')).all():
             GroupMembership.query.filter_by(group_id=group.id).delete()

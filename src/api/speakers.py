@@ -380,7 +380,7 @@ def list_voice_samples(speaker_id):
         item = r.to_dict()
         item['recording_title'] = titles.get(r.recording_id)
         if r.recording_id not in titles:
-            item['recording_id'] = None  # deleted, or no longer shared with this user
+            item['recording_id'] = None  # deleted
         item['in_current_space'] = effective_space(r.space_id) == current
         samples.append(item)
     return jsonify({'summary': voice_summary(speaker, rows), 'samples': samples})
@@ -635,7 +635,6 @@ def merge_speaker_profiles():
 from src.utils.system_settings import apply_hot_settings
 _SYSTEM_SETTING_MAP = {
     "USERS_CAN_DELETE": ('users_can_delete', 'USERS_CAN_DELETE', True),
-    "ENABLE_INTERNAL_SHARING": ('enable_internal_sharing', 'ENABLE_INTERNAL_SHARING', False),
     "ENABLE_AUTO_DELETION": ('enable_auto_deletion', 'ENABLE_AUTO_DELETION', False),
 }
 _self, __getattr__ = apply_hot_settings(__name__, _SYSTEM_SETTING_MAP)

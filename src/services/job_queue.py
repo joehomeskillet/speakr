@@ -477,7 +477,21 @@ class FairJobQueue:
                     # be a new upload's, so nothing is reported (#597).
                     logger.info(f"Job {job_id} was removed with its recording while it ran; no notices sent")
                     return
-                job.status = 'completed'
+                # A transcription that ended FAILED without raising (no text,
+                # budget used up) must not end as a successful job: the job
+                # outcome mirrors the recording's failure.
+                terminal_error = None
+                if not is_background(job_type):
+                    try:
+                        terminal_error = self._terminal_failure_error(job_type, recording_id, runner_outcome)
+                    except Exception as e:
+                        logger.warning(f"Outcome check on job {job_id} failed: {e}")
+                # Clinic mode only; upstream keeps the job 'completed'.
+                from src.clinic.config import clinic_mode_enabled
+                job_fails = bool(terminal_error) and clinic_mode_enabled()
+                job.status = 'failed' if job_fails else 'completed'
+                if job_fails:
+                    job.error_message = terminal_error
                 job.completed_at = datetime.utcnow()
                 # A cancel that arrived after the last safe point came too
                 # late: the job is complete. The state kept for a cancel is
@@ -488,19 +502,16 @@ class FairJobQueue:
                 # still saved here belongs to an attempt that was abandoned.
                 self._release_remote_task(job)
                 db.session.commit()
-                logger.info(f"Job {job_id} completed successfully")
+                if job_fails:
+                    logger.info(f"Job {job_id} ended failed: {terminal_error}")
+                else:
+                    logger.info(f"Job {job_id} completed successfully")
 
                 # Webhook fan-out (#275). One emit per job-type completion;
                 # subscribers map these to user-visible lifecycle events.
                 # Best-effort: if the webhook subsystem throws, the job is
                 # still marked completed. Background jobs (translation,
                 # Inquire chunks) send no webhooks or emails.
-                terminal_error = None
-                if not is_background(job_type):
-                    try:
-                        terminal_error = self._terminal_failure_error(job_type, recording_id, runner_outcome)
-                    except Exception as e:
-                        logger.warning(f"Outcome check on job {job_id} failed: {e}")
 
                 if terminal_error:
                     # The transcription ended FAILED without raising: it

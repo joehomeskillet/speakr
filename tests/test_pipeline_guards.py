@@ -20,7 +20,6 @@ SRC = os.path.join(ROOT, "src")
 # call name -> allowed (relative file, enclosing function or None for any)
 ALLOWED = {
     "_generate_ai_title": {("src/services/titling.py", "compute_title")},
-    "apply_team_tag_auto_shares": {("src/tasks/processing.py", "finish_processing")},
 }
 NAMING_TEMPLATE_APPLY = {("src/services/titling.py", "compute_title"),
                          ("src/api/naming_templates.py", "test_naming_template")}

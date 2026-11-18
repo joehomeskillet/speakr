@@ -85,7 +85,7 @@ def delete_recording_completely(recording, storage=None, strict_media=False, rea
                        details={'reason': audit_reason or ('retention' if reason == 'retention' else 'user')})
     db.session.info['tombstone_reason'] = reason
     try:
-        db.session.delete(recording)  # cascades to chunks, shares, tags
+        db.session.delete(recording)  # cascades to chunks, tags
         db.session.commit()
     finally:
         db.session.info.pop('tombstone_reason', None)

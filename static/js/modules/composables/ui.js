@@ -6,7 +6,7 @@
 import { savedColorScheme } from '../utils/theme-defaults.js';
 import { filenameFromContentDisposition } from '../utils/content-disposition.js';
 import { confirmDialog } from '../utils/dialogs.js';
-import { realSpeakers } from '../utils/speaker-labels.js';
+import { hasSpeakerLabels, realSpeakers } from '../utils/speaker-labels.js';
 
 /**
  * Decide whether the sidebar should start collapsed.
@@ -1475,7 +1475,7 @@ export function useUI(state, utils, processedTranscription) {
         try {
             const transcriptionData = JSON.parse(displayed);
             if (Array.isArray(transcriptionData)) {
-                const wasDiarized = transcriptionData.some(segment => segment.speaker);
+                const wasDiarized = hasSpeakerLabels(transcriptionData);
                 if (wasDiarized) {
                     textToCopy = transcriptionData.map(segment => {
                         return `[${segment.speaker}]: ${segment.text || segment.sentence}`;

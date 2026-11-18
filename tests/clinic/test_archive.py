@@ -5,7 +5,6 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 from pathlib import Path
 import sqlite3
-import sys
 from threading import Barrier
 
 import pytest
@@ -19,11 +18,10 @@ from src.clinic.models import (
     ClinicArchiveEvent, ClinicAudioRevision, ClinicContextRevision, ClinicDelivery,
     ClinicDictation, ClinicOriginal, ClinicRelease, ClinicTranscriptRevision,
 )
-from src.models import AuditEvent, InternalShare, ProcessingJob, Recording, RecordingTag, Tag, User
-from src.models.sharing import SharedRecordingState
+from src.clinic.archive import ArchiveRestoreDenied
+from src.models import AuditEvent, ProcessingJob, Recording, RecordingTag, Tag, User
 from src.services import audit, retention
 from src.services.recording_state import set_user_archived
-from src.utils.incognito_logging import incognito_context
 
 from clinic_support import login
 
@@ -58,9 +56,6 @@ def listed(client, **params):
 def scene(world, clinic_off, monkeypatch, tmp_path):
     # Use the existing settings boundary while restoring dynamic attributes
     # correctly after the test, including names provided through __getattr__.
-    for name, module in list(sys.modules.items()):
-        if name.startswith('src') and module is not None and hasattr(module, 'ENABLE_INTERNAL_SHARING'):
-            monkeypatch.setitem(module.__dict__, 'ENABLE_INTERNAL_SHARING', True)
     monkeypatch.setitem(retention.__dict__, 'ENABLE_AUTO_DELETION', True)
     monkeypatch.setitem(retention.__dict__, 'GLOBAL_RETENTION_DAYS', 30)
     monkeypatch.setitem(retention.__dict__, 'DELETION_MODE', 'archive')
@@ -113,7 +108,6 @@ def scene(world, clinic_off, monkeypatch, tmp_path):
         db.session.add(delivery)
         db.session.commit()
         children = [dictation, original, audio, transcript, context, release, delivery,
-                    db.session.get(InternalShare, world['internal_id']),
                     db.session.get(ProcessingJob, world['job_b'])]
         yield {**world, 'recording': recording, 'files': [media, original_file, peaks],
                'children': children}
@@ -172,23 +166,25 @@ def test_retention_retry_is_idempotent_and_owner_restore_is_audited(scene):
     assert [row.revision for row in events(recording)] == [1, 2, 3]
 
 
-def test_retention_is_hidden_from_owner_and_recipient_active_lists(scene):
+def test_retention_is_hidden_from_the_owner_active_list(scene):
     recording = scene['recording']
+    owner_id = recording.user_id
     retention.process_auto_deletion()
-    for user_id in (scene['user_a'], scene['user_b']):
-        client = client_for(user_id)
-        assert recording.id not in listed(client)
-        assert listed(client, archived='true')[recording.id]['is_archived'] is True
-    client = client_for(scene['user_a'])
-    response = client.post(f'/recording/{recording.id}/toggle_archive')
-    assert response.status_code == 403
+    owner = client_for(owner_id)
+    assert recording.id not in listed(owner)
+    assert listed(owner, archived='true')[recording.id]['is_archived'] is True
+    # Shares are gone, so the other author has no route to this recording.
+    other = client_for(scene['user_a'])
+    assert recording.id not in listed(other)
+    assert recording.id not in listed(other, archived='true')
+    assert other.post(f'/recording/{recording.id}/toggle_archive').status_code == 404
+    with pytest.raises(ArchiveRestoreDenied):
+        set_user_archived(recording, db.session.get(User, scene['user_a']), False, commit=False)
+    db.session.rollback()
     assert len(events(recording)) == 1
-    headers = {'Authorization': 'Bearer ' + scene['token']}
-    g.pop('_login_user', None)
-    client = app.test_client()
     for flag, included in [('false', False), ('true', True)]:
-        response = client.get('/api/v1/recordings', headers=headers,
-                              query_string={'scope': 'all', 'archived': flag, 'per_page': 100})
+        response = client_for(owner_id).get(
+            '/api/v1/recordings', query_string={'archived': flag, 'per_page': 100})
         assert response.status_code == 200, response.get_data(as_text=True)
         rows = response.get_json()['recordings']
         assert any(row['id'] == recording.id and row['is_archived'] for row in rows) is included
@@ -223,14 +219,18 @@ def test_manual_archive_restore_and_noop_are_audited(scene, entry):
     ]
 
 
-def test_shared_personal_archive_and_toggle_are_audited(scene):
-    recording = scene['recording']
+def test_owner_toggle_archive_is_audited(scene):
+    recording = db.session.get(Recording, scene['rec_a'])
     client = client_for(scene['user_a'])
-    for value in (True, False):
-        response = client.post(f'/recording/{recording.id}/toggle_archive')
-        assert response.status_code == 200
-        assert response.get_json()['is_archived'] is value
-    assert recording.id in listed(client_for(scene['user_b']))
+    response = client.post(f'/recording/{recording.id}/toggle_archive')
+    assert response.status_code == 200
+    assert response.get_json()['is_archived'] is True
+    assert recording.id not in listed(client)
+    assert listed(client, archived='true')[recording.id]['is_archived'] is True
+    response = client.post(f'/recording/{recording.id}/toggle_archive')
+    assert response.status_code == 200
+    assert response.get_json()['is_archived'] is False
+    assert recording.id in listed(client)
     assert all(row.target_user_id == scene['user_a'] and row.details['scope'] == 'personal'
                for row in events(recording))
     assert len(events(recording)) == 2
@@ -322,9 +322,10 @@ def test_retention_failure_rolls_back_then_retry_succeeds(scene, monkeypatch):
     assert len(events(recording)) == 1
 
 
-def test_audit_disabled_still_records_archive_but_suppression_fails_closed(scene, monkeypatch):
+def test_audit_disabled_still_records_archive_but_missing_evidence_fails_closed(scene, monkeypatch):
     monkeypatch.setattr(audit, 'is_enabled', lambda: False)
-    with incognito_context():
+    with monkeypatch.context() as suppressed:
+        suppressed.setattr(audit, 'record_in_tx', lambda *args, **kwargs: None)
         stats = retention.process_auto_deletion()
     assert stats['errors'] == 1 and stats['archived'] == 0
     assert snapshot(scene['recording'])['retention_archived_at'] is None
@@ -404,9 +405,8 @@ def test_tag_only_scheduled_archival_runs_and_disabled_switch_prevents_it(scene,
     assert evidence.details['rule'] == 'retention.tag'
 
 
-@pytest.mark.parametrize('shared', [False, True])
-def test_concurrent_archive_requests_commit_one_transition(scene, shared):
-    recording_id = scene['recording'].id if shared else scene['rec_a']
+def test_concurrent_archive_requests_commit_one_transition(scene):
+    recording_id = scene['rec_a']
     user_id = scene['user_a']
     db.session.rollback()
     ready = Barrier(2)
@@ -453,21 +453,18 @@ def test_admin_archive_count_includes_retention_without_double_counting(scene):
     assert client.get('/admin/stats').get_json()['archived_recordings'] == count_before + 1
 
 
-def test_shared_archive_refreshes_a_stale_personal_state(scene):
-    recording = scene['recording']
+def test_archive_refreshes_a_stale_owner_flag(scene):
+    recording = db.session.get(Recording, scene['rec_a'])
     user = db.session.get(User, scene['user_a'])
     set_user_archived(recording, user, True)
-    state = SharedRecordingState.query.filter_by(
-        recording_id=recording.id, user_id=user.id,
-    ).one()
     db.session.rollback()
-    assert state.is_archived is True
-    # A second session changes the same personal state while the first keeps
-    # an already loaded ORM object. The next call must refresh it under the lock.
+    assert recording.is_archived is True
+    # A second session changes the owner flag while the first keeps an already
+    # loaded ORM object. The next call must refresh it under the lock.
     with app.app_context():
         set_user_archived(db.session.get(Recording, recording.id),
                           db.session.get(User, user.id), False)
-    assert state.is_archived is True
+    assert recording.is_archived is True
     set_user_archived(recording, user, True)
     assert [row.event for row in events(recording)] == [
         'recording.archived', 'recording.unarchived', 'recording.archived',

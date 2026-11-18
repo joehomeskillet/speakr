@@ -5,9 +5,7 @@ tag and folder filters, results and names line.
 Visibility follows the rules the web app applies:
 - a personal tag is visible only to the user who made it, a group tag to the
   members of its group (Recording.get_visible_tags);
-- the owner sees a recording's folder; anyone else sees it only while it is
-  the group folder that shared the recording with them
-  (recording_scope.visible_folder).
+- the owner sees a recording's folder, nobody else does.
 
 A folder is named by its full path, "Projects / Alpha / 2026", as the folder
 selects show it. Parent links are followed only within the folder's own scope
@@ -18,7 +16,7 @@ every path is one name.
 
 
 from src.database import db
-from src.models import Folder, GroupMembership, InternalShare, Recording, RecordingTag, Tag
+from src.models import Folder, GroupMembership, Recording, RecordingTag, Tag
 
 PATH_SEPARATOR = ' / '
 
@@ -48,7 +46,6 @@ class LibraryLabels:
         rows = db.session.query(Recording.id, Recording.user_id, Recording.folder_id) \
             .filter(Recording.id.in_(ids)).all()
         owners = {rid: owner for rid, owner, _f in rows}
-        foreign = [rid for rid, owner, _f in rows if owner != user_id]
 
         member_groups = {gid for (gid,) in db.session.query(GroupMembership.group_id)
                          .filter(GroupMembership.user_id == user_id)}
@@ -61,15 +58,10 @@ class LibraryLabels:
             if visible and rid in owners:
                 self.tags.setdefault(rid, []).append(name)
 
-        share_folder = {}
-        if foreign:
-            share_folder = {rid: folder for rid, folder in db.session.query(
-                InternalShare.recording_id, InternalShare.source_folder_id).filter(
-                InternalShare.shared_with_user_id == user_id, InternalShare.recording_id.in_(foreign))}
         for rid, owner, folder_id in rows:
             if folder_id is None:
                 continue
-            if owner == user_id or (share_folder.get(rid) and share_folder[rid] == folder_id):
+            if owner == user_id:
                 self.folder_of[rid] = folder_id
 
         wanted = set(self.folder_of.values())

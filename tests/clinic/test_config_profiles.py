@@ -23,7 +23,7 @@ def test_clinic_mode_is_off_by_default(monkeypatch):
     # Off means nothing is locked: upstream behaviour stays as it is.
     assert config.feature_locked('chat') is False
     assert config.feature_locked('some_unknown_feature') is False
-    assert config.setting_ceiling('enable_public_sharing') == (False, None)
+    assert config.setting_ceiling('enable_auto_deletion') == (False, None)
 
 
 @pytest.mark.parametrize('value,expected', [
@@ -100,9 +100,7 @@ def test_client_cannot_select_its_profile(clinic):
 
 
 @pytest.mark.parametrize('key,forced', [
-    ('enable_public_sharing', False), ('enable_internal_sharing', False),
     ('api_query_tokens_enabled', False), ('sso_api_tokens_enabled', False),
-    ('enable_incognito_mode', False), ('allow_registration', False),
 ])
 def test_setting_ceilings(clinic, key, forced):
     assert config.setting_ceiling(key) == (True, forced)
@@ -158,7 +156,7 @@ def test_text_model_features_follow_the_model_host(clinic, monkeypatch, feature)
 def test_local_model_does_not_unlock_other_features(clinic, monkeypatch):
     monkeypatch.setenv('CLINIC_LOCAL_MODEL_HOSTS', 'ollama')
     monkeypatch.setenv('TEXT_MODEL_BASE_URL', 'http://ollama:11434/v1')
-    for feature in ('public_sharing', 'user_webhooks', 'personal_api_tokens', 'incognito_processing'):
+    for feature in ('public_sharing', 'user_webhooks', 'personal_api_tokens'):
         assert config.feature_locked(feature) is True
 
 

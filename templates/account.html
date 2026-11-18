@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full">
+<html lang="{{ user_language or 'en' }}" class="h-full">
 <head>
     <meta charset="UTF-8">
     {% include 'includes/theme_account.html' %}
@@ -557,9 +557,6 @@
                     </a>
                     <a href="#" id="tab-prompts" class="tab">
                         <i class="fas fa-cog"></i><span data-i18n="accountTabs.promptOptions">Prompts</span>
-                    </a>
-                    <a href="#" id="tab-shares" class="tab">
-                        <i class="fas fa-share-alt"></i><span data-i18n="accountTabs.sharedTranscripts">Shares</span>
                     </a>
                     <a href="#" id="tab-speakers" class="tab">
                         <i class="fas fa-users"></i><span data-i18n="accountTabs.speakersManagement">Speakers</span>
@@ -1323,16 +1320,6 @@
                          position) was a display preference and a
                          single-setting tab was hard to find. -->
 
-                    <div id="content-shares" class="hidden tab-content">
-                      <div class="tab-scroll">
-                    <h2 class="text-2xl font-semibold text-[var(--text-primary)] mb-6" data-i18n="accountTabs.sharedTranscripts">Shared recordings</h2>
-                    <div id="shares-container" class="space-y-4">
-                        <!-- Shares will be loaded here by JavaScript -->
-                    </div>
-                      </div>
-                      <div class="tab-footer"></div>
-                </div>
-
                     <div id="content-speakers" class="hidden tab-content">
                       <div class="flex-1 min-h-0 flex flex-col overflow-hidden" style="padding: var(--sp-6) var(--sp-6); padding-bottom: 0;">
                     <!-- Header with Auto-label toggle -->
@@ -1671,14 +1658,6 @@
                                         <p class="text-[var(--text-muted)]" data-i18n="transcriptTemplates.selectOrCreate">Select a template to edit or create a new one</p>
                                     </div>
                                 </div>
-                            </div>
-
-                            <!-- Documentation Link -->
-                            <div class="mt-8 text-center">
-                                <a href="https://murtaza-nasir.github.io/speakr/user-guide/transcript-templates/" target="_blank" class="text-sm text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors">
-                                    <i class="fas fa-question-circle mr-1"></i>
-                                    <span data-i18n="transcriptTemplates.viewGuide">View template guide</span>
-                                </a>
                             </div>
                         </div>
 
@@ -2589,7 +2568,6 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
                             <label class="flex items-start gap-2 text-xs text-[var(--text-secondary)]"><input type="checkbox" class="token-scope-box mt-0.5" value="write"> <span><span class="font-medium text-[var(--text-primary)]">write</span>: <span data-i18n="account.tokensTab.scopeWrite">Edit recordings, notes, summaries, tags, folders and speakers</span></span></label>
                             <label class="flex items-start gap-2 text-xs text-[var(--text-secondary)]"><input type="checkbox" class="token-scope-box mt-0.5" value="upload"> <span><span class="font-medium text-[var(--text-primary)]">upload</span>: <span data-i18n="account.tokensTab.scopeUpload">Upload recordings</span></span></label>
                             <label class="flex items-start gap-2 text-xs text-[var(--text-secondary)]"><input type="checkbox" class="token-scope-box mt-0.5" value="process"> <span><span class="font-medium text-[var(--text-primary)]">process</span>: <span data-i18n="account.tokensTab.scopeProcess">Transcribe, summarize, chat and other model calls</span></span></label>
-                            <label class="flex items-start gap-2 text-xs text-[var(--text-secondary)]"><input type="checkbox" class="token-scope-box mt-0.5" value="share"> <span><span class="font-medium text-[var(--text-primary)]">share</span>: <span data-i18n="account.tokensTab.scopeShare">Create and revoke share links</span></span></label>
                             <label class="flex items-start gap-2 text-xs text-[var(--text-secondary)]"><input type="checkbox" class="token-scope-box mt-0.5" value="delete"> <span><span class="font-medium text-[var(--text-primary)]">delete</span>: <span data-i18n="account.tokensTab.scopeDelete">Delete recordings, audio, tags, folders and speakers</span></span></label>
                             <label class="flex items-start gap-2 text-xs text-[var(--text-secondary)]"><input type="checkbox" class="token-scope-box mt-0.5" value="webhooks"> <span><span class="font-medium text-[var(--text-primary)]">webhooks</span>: <span data-i18n="account.tokensTab.scopeWebhooks">Manage webhooks</span></span></label>
                             <label class="flex items-start gap-2 text-xs text-[var(--text-secondary)]"><input type="checkbox" class="token-scope-box mt-0.5" value="account"> <span><span class="font-medium text-[var(--text-primary)]">account</span>: <span data-i18n="account.tokensTab.scopeAccount">Change account settings</span></span></label>
@@ -3056,7 +3034,6 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
 
             const tabAccount = document.getElementById('tab-account');
             const tabPrompts = document.getElementById('tab-prompts');
-            const tabShares = document.getElementById('tab-shares');
             const tabOrganize = document.getElementById('tab-organize');
             const tabTemplates = document.getElementById('tab-templates');
             const tabTokens = document.getElementById('tab-tokens');
@@ -3066,7 +3043,6 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
             const contentAccount = document.getElementById('content-account');
             const contentPrompts = document.getElementById('content-prompts');
             const contentPreferences = document.getElementById('content-preferences');
-            const contentShares = document.getElementById('content-shares');
             const contentSpeakers = document.getElementById('content-speakers');
             const contentOrganize = document.getElementById('content-organize');
             const contentFolders = document.getElementById('content-folders');
@@ -3075,7 +3051,6 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
             const contentTokens = document.getElementById('content-tokens');
             const contentWebhooks = document.getElementById('content-webhooks');
             const contentAbout = document.getElementById('content-about');
-            const sharesContainer = document.getElementById('shares-container');
 
 
             // Simplified tab switching
@@ -3085,7 +3060,6 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
                 { tab: tabAccount, content: contentAccount, name: 'account' },
                 { tab: tabPreferences, content: contentPreferences, name: 'preferences' },
                 { tab: tabPrompts, content: contentPrompts, name: 'prompts' },
-                { tab: tabShares, content: contentShares, name: 'shares' },
                 { tab: tabSpeakers, content: contentSpeakers, name: 'speakers' },
                 { tab: tabOrganize, content: contentOrganize, name: 'organize' },
                 { tab: tabTemplates, content: contentTemplates, name: 'templates' },
@@ -3108,8 +3082,6 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
                 // Load content when switching tabs
                 if (targetName === 'speakers') {
                     loadSpeakersTab();
-                } else if (targetName === 'shares') {
-                    loadShares();
                 } else if (targetName === 'organize') {
                     setOrganizeSubtab(currentOrganizeSubtab);
                 } else if (targetName === 'templates') {
@@ -3136,10 +3108,6 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
 
             function showPromptsTab() {
                 switchToTab('prompts');
-            }
-
-            function showSharesTab() {
-                switchToTab('shares');
             }
 
             function showSpeakersTab() {
@@ -3203,11 +3171,6 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
             tabPrompts.addEventListener('click', (e) => {
                 e.preventDefault();
                 showPromptsTab();
-            });
-
-            tabShares.addEventListener('click', (e) => {
-                e.preventDefault();
-                showSharesTab();
             });
 
             tabSpeakers.addEventListener('click', (e) => {
@@ -4196,272 +4159,6 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
                 }
             }
 
-            async function loadShares() {
-                sharesContainer.innerHTML = '<div class="text-center"><i class="fas fa-spinner fa-spin text-2xl"></i></div>';
-                try {
-                    // Public links, recordings shared with people and groups,
-                    // and recordings shared with this user (#416).
-                    const response = await fetch('/api/shares/overview');
-                    const overview = await response.json();
-                    if (!response.ok) throw new Error(overview.error || tf('account.loadFailed', 'Couldn\'t load'));
-                    const shares = overview.public_links || [];
-
-                    sharesContainer.innerHTML = '';
-                    const section = (icon, title) => {
-                        const el = document.createElement('section');
-                        el.className = 'space-y-3';
-                        el.innerHTML = `<h3 class="text-lg font-medium text-[var(--text-secondary)] flex items-center gap-2"><i class="fas ${icon}"></i>${escapeHtml(title)}</h3>`;
-                        sharesContainer.appendChild(el);
-                        return el;
-                    };
-                    const empty = (el, text) => {
-                        const p = document.createElement('p');
-                        p.className = 'text-sm text-[var(--text-muted)]';
-                        p.textContent = text;
-                        el.appendChild(p);
-                    };
-                    const permissions = (item) => (item.can_edit ? t('sharedTranscripts.canEdit') : t('sharedTranscripts.canView'))
-                        + (item.can_reshare ? ' · ' + t('sharedTranscripts.canReshare') : '')
-                        + (item.source && item.source.type !== 'manual'
-                            ? ' · ' + t(item.source.type === 'group_tag' ? 'sharedTranscripts.viaGroupTag' : 'sharedTranscripts.viaGroupFolder', { name: item.source.name || '' })
-                            : '');
-
-                    const publicSection = section('fa-link', t('sharedTranscripts.publicLinks'));
-                    if (shares.length === 0) empty(publicSection, t('sharedTranscripts.noPublicLinks'));
-
-                    if (overview.internal_sharing_enabled) {
-                        const peopleSection = section('fa-user-friends', t('sharedTranscripts.peopleAndGroups'));
-                        if (!(overview.shared_by_me || []).length) empty(peopleSection, t('sharedTranscripts.noInternalShares'));
-                        (overview.shared_by_me || []).forEach(entry => {
-                            const card = document.createElement('div');
-                            // Wide screens: the recording on the left, its people on the right.
-                            card.className = 'bg-[var(--bg-tertiary)] px-4 py-3 rounded-lg border border-[var(--border-primary)] lg:grid lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:gap-x-6 lg:items-start';
-                            card.innerHTML = `<a href="/recordings/${entry.recording_id}" dir="auto" class="font-semibold hover:underline block truncate lg:py-2" title="${escapeHtml(entry.recording_title)}">${escapeHtml(entry.recording_title)}</a>
-                                <ul class="mt-2 lg:mt-0 divide-y divide-[var(--border-primary)]">${entry.recipients.map(p => `
-                                    <li class="py-2" data-share-row="${p.share_id}">
-                                        <div class="flex items-center justify-between gap-3">
-                                        <div class="min-w-0"><p class="text-sm font-medium">${escapeHtml(p.username || '')}</p>
-                                        <p class="share-permissions-text text-xs text-[var(--text-muted)]">${escapeHtml(permissions(p))}</p></div>
-                                        ${p.revocable
-                                            ? `<div class="flex items-center gap-2 flex-shrink-0">${p.permissions_editable
-                                                    ? `<button type="button" data-share-id="${p.share_id}" aria-label="${escapeHtml(t('sharing.changePermissionsFor', { name: p.username || '' }))}" class="change-permissions-btn text-sm px-2 py-1 rounded border border-[var(--border-secondary)] hover:bg-[var(--bg-secondary)]"><i class="fas fa-user-cog mr-1" aria-hidden="true"></i>${escapeHtml(t('sharing.changePermissions'))}</button>`
-                                                    : ''}<button data-internal-share-id="${p.share_id}" class="revoke-internal-btn text-sm px-2 py-1 rounded border border-[var(--border-secondary)] hover:bg-[var(--bg-secondary)]"><i class="fas fa-user-times mr-1"></i>${escapeHtml(t('sharedTranscripts.revoke'))}</button></div>`
-                                            : `<span class="text-xs text-[var(--text-muted)] text-right max-w-[12rem]">${escapeHtml(t('sharedTranscripts.groupShareNote'))}</span>`}
-                                        </div>
-                                    </li>`).join('')}</ul>`;
-                            // The flags and the grantor's own ceiling, for changing a share in place (D#517)
-                            entry.recipients.forEach(p => {
-                                const btn = card.querySelector(`.change-permissions-btn[data-share-id="${p.share_id}"]`);
-                                if (btn) btn.addEventListener('click', () => openPermissionEditor(card, p, entry.grantable || {}));
-                            });
-                            peopleSection.appendChild(card);
-                        });
-
-                        const withMeSection = section('fa-inbox', t('sharedTranscripts.sharedWithMe'));
-                        if (!(overview.shared_with_me || []).length) empty(withMeSection, t('sharedTranscripts.nothingSharedWithMe'));
-                        (overview.shared_with_me || []).forEach(item => {
-                            const row = document.createElement('div');
-                            row.className = 'bg-[var(--bg-tertiary)] px-4 py-3 rounded-lg border border-[var(--border-primary)] flex items-center justify-between gap-3';
-                            const from = item.owner_username ? t('sharedTranscripts.fromOwner', { name: item.owner_username }) + ' · ' : '';
-                            row.innerHTML = `<div class="min-w-0"><a href="/recordings/${item.recording_id}" dir="auto" class="font-semibold hover:underline">${escapeHtml(item.recording_title)}</a>
-                                <p class="text-xs text-[var(--text-muted)]">${escapeHtml(from + permissions(item))} · ${formatInstant(item.created_at)}</p></div>`;
-                            withMeSection.appendChild(row);
-                        });
-                    }
-
-                    document.querySelectorAll('.revoke-internal-btn').forEach(btn => {
-                        btn.addEventListener('click', handleRevokeInternalShare);
-                    });
-
-                    shares.forEach(share => {
-                        const shareEl = document.createElement('div');
-                        // One row per link on wide screens: title and date, the
-                        // two toggles, the link, delete. Stacked when narrow.
-                        shareEl.className = 'bg-[var(--bg-tertiary)] px-4 py-3 rounded-lg border border-[var(--border-primary)] grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-3 items-center lg:grid-cols-[minmax(0,3fr)_auto_minmax(0,2fr)_auto]';
-                        shareEl.innerHTML = `
-                            <div class="min-w-0 order-1">
-                                <a href="/recordings/${share.recording_id}" dir="auto" class="font-semibold hover:underline block truncate" title="${escapeHtml(share.recording_title)}">${escapeHtml(share.recording_title)}</a>
-                                <p class="text-sm text-[var(--text-muted)]">${t('sharedTranscripts.sharedOn')}: ${formatInstant(share.created_at)}</p>
-                            </div>
-                            <div class="order-3 col-span-2 lg:order-2 lg:col-span-1 flex items-center gap-4 whitespace-nowrap">
-                                <label class="flex items-center text-sm">
-                                    <input type="checkbox" data-share-id="${share.id}" data-share-prop="share_summary" class="share-checkbox h-4 w-4 rounded border-[var(--border-secondary)] text-[var(--text-accent)] focus:ring-[var(--border-focus)]" ${share.share_summary ? 'checked' : ''}>
-                                    <span class="ml-2">${t('sharedTranscripts.shareSummary')}</span>
-                                </label>
-                                <label class="flex items-center text-sm">
-                                    <input type="checkbox" data-share-id="${share.id}" data-share-prop="share_notes" class="share-checkbox h-4 w-4 rounded border-[var(--border-secondary)] text-[var(--text-accent)] focus:ring-[var(--border-focus)]" ${share.share_notes ? 'checked' : ''}>
-                                    <span class="ml-2">${t('sharedTranscripts.shareNotes')}</span>
-                                </label>
-                            </div>
-                            <div class="order-4 col-span-2 lg:order-3 lg:col-span-1 relative min-w-0">
-                                <input value="{{ request.url_root }}share/${share.public_id}" readonly aria-label="${escapeHtml(tf('sharedTranscripts.shareLinkFor', 'Share link for ' + share.recording_title, { title: share.recording_title }))}" class="share-link-input w-full px-3 py-2 pr-12 bg-[var(--bg-input)] border border-[var(--border-secondary)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)]">
-                                <button class="copy-share-link-btn absolute right-1.5 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center rounded bg-[var(--bg-button)] text-[var(--text-button)] hover:bg-[var(--bg-button-hover)] transition-colors" title="${t('buttons.copy')}">
-                                    <i class="fas fa-copy text-xs"></i>
-                                </button>
-                            </div>
-                            <button data-share-id="${share.id}" class="delete-share-btn order-2 lg:order-4 justify-self-end text-[var(--text-danger)] hover:opacity-80 p-1" title="${t('buttons.delete')}"><i class="fas fa-trash"></i></button>
-                        `;
-                        publicSection.appendChild(shareEl);
-                    });
-
-                    document.querySelectorAll('.delete-share-btn').forEach(btn => {
-                        btn.addEventListener('click', handleDeleteShare);
-                    });
-                    document.querySelectorAll('.share-checkbox').forEach(box => {
-                        box.addEventListener('change', handleUpdateShare);
-                    });
-                    document.querySelectorAll('.copy-share-link-btn').forEach(btn => {
-                        btn.addEventListener('click', function(e) {
-                            const button = e.currentTarget;
-                            const input = button.previousElementSibling;
-
-                            navigator.clipboard.writeText(input.value).then(() => {
-                                const icon = button.querySelector('i');
-
-                                // Change to success state
-                                icon.className = 'fas fa-check text-xs';
-                                button.style.transition = 'background-color 0.2s ease';
-                                button.style.backgroundColor = 'var(--bg-success, #10b981)';
-
-                                // Revert after delay
-                                setTimeout(() => {
-                                    button.style.backgroundColor = '';
-                                    icon.className = 'fas fa-copy text-xs';
-                                    setTimeout(() => {
-                                        button.style.transition = '';
-                                    }, 200);
-                                }, 1500);
-                            }).catch(err => {
-                                console.error('Failed to copy:', err);
-                            });
-                        });
-                    });
-
-                } catch (error) {
-                    sharesContainer.innerHTML = `<p class="text-center text-[var(--text-danger)]">${t('errors.loadingShares')}: ${error.message}</p>`;
-                }
-            }
-
-            // First click asks, second revokes (#416).
-            // Change permissions of a manual share in place (D#517). A flag can be
-            // switched on only when it is already on or the grantor holds it.
-            function openPermissionEditor(card, person, grantable) {
-                const row = card.querySelector(`[data-share-row="${person.share_id}"]`);
-                if (!row || row.querySelector('.permission-editor')) return;
-                const box = (flag, label) => {
-                    const disabled = !person[flag] && !grantable[flag];
-                    return `<label class="flex items-center gap-2 text-sm"><input type="checkbox" data-flag="${flag}" class="h-4 w-4 rounded" ${person[flag] ? 'checked' : ''} ${disabled ? 'disabled' : ''}><span>${escapeHtml(label)}</span></label>`;
-                };
-                const editor = document.createElement('div');
-                editor.className = 'permission-editor mt-2 space-y-1.5';
-                editor.setAttribute('role', 'group');
-                editor.setAttribute('aria-label', t('sharing.changePermissionsFor', { name: person.username || '' }));
-                editor.innerHTML = box('can_edit', t('unifiedShareModal.allowEditing'))
-                    + box('can_reshare', t('unifiedShareModal.allowReshare'))
-                    + `<div class="flex justify-end gap-2"><button type="button" class="perm-cancel text-sm px-2 py-1 rounded border border-[var(--border-secondary)] hover:bg-[var(--bg-secondary)]">${escapeHtml(t('common.cancel'))}</button>`
-                    + `<button type="button" class="perm-save text-sm px-2 py-1 rounded bg-[var(--bg-button)] text-[var(--text-button)] hover:bg-[var(--bg-button-hover)]">${escapeHtml(t('common.save'))}</button></div>`;
-                row.appendChild(editor);
-                editor.querySelector('input:not([disabled])')?.focus();
-                editor.querySelector('.perm-cancel').addEventListener('click', () => editor.remove());
-                editor.querySelector('.perm-save').addEventListener('click', async (event) => {
-                    const saveButton = event.currentTarget;
-                    const changes = {};
-                    editor.querySelectorAll('input[data-flag]').forEach(input => {
-                        if (input.checked !== Boolean(person[input.dataset.flag])) changes[input.dataset.flag] = input.checked;
-                    });
-                    if (!Object.keys(changes).length) { editor.remove(); return; }
-                    saveButton.disabled = true;
-                    try {
-                        const csrfToken = document.querySelector('meta[name=csrf-token]')?.getAttribute('content');
-                        const response = await fetch(`/api/internal-shares/${person.share_id}`, {
-                            method: 'PATCH',
-                            headers: Object.assign({ 'Content-Type': 'application/json' }, csrfToken ? { 'X-CSRFToken': csrfToken } : {}),
-                            body: JSON.stringify(changes),
-                        });
-                        const data = await response.json().catch(() => ({}));
-                        if (!response.ok) throw new Error(data.error || t('sharing.updateFailed'));
-                        person.can_edit = Boolean(data.share.can_edit);
-                        person.can_reshare = Boolean(data.share.can_reshare);
-                        loadShares();
-                        showToast(t('sharing.permissionsChanged'));
-                    } catch (error) {
-                        saveButton.disabled = false;
-                        showToast(t('sharing.changePermissionsFailedWithError', { error: error.message }), 'error');
-                    }
-                });
-            }
-
-            async function handleRevokeInternalShare(event) {
-                const button = event.currentTarget;
-                if (!button.dataset.confirming) {
-                    button.dataset.confirming = '1';
-                    button.innerHTML = `<i class="fas fa-user-times mr-1"></i>${escapeHtml(t('sharedTranscripts.confirmRevoke'))}`;
-                    button.classList.add('text-[var(--text-danger)]');
-                    return;
-                }
-                try {
-                    const csrfToken = document.querySelector('meta[name=csrf-token]')?.getAttribute('content');
-                    const response = await fetch(`/api/internal-shares/${button.dataset.internalShareId}`, {
-                        method: 'DELETE',
-                        headers: csrfToken ? { 'X-CSRFToken': csrfToken } : {},
-                    });
-                    if (!response.ok) throw new Error('Failed to revoke');
-                    loadShares();
-                } catch (error) {
-                    alertDialog(t('sharedTranscripts.revokeFailed'));
-                }
-            }
-
-            async function handleDeleteShare(event) {
-                const shareId = event.currentTarget.dataset.shareId;
-                if (!(await confirmDialog({ message: tf('dialogs.deleteShare.message', 'Delete this share link? The link stops working.'), confirmLabel: tf('common.delete', 'Delete'), danger: true }))) return;
-                
-                try {
-                    // Get CSRF token
-                    const csrfToken = document.querySelector('meta[name=csrf-token]')?.getAttribute('content');
-                    
-                    const headers = {};
-                    if (csrfToken) {
-                        headers['X-CSRFToken'] = csrfToken;
-                    }
-                    
-                    const response = await fetch(`/api/share/${shareId}`, { 
-                        method: 'DELETE',
-                        headers: headers
-                    });
-                    if (!response.ok) throw new Error('Failed to delete');
-                    loadShares();
-                } catch (error) {
-                    alertDialog(tf('account.sharesTab.deleteFailed', 'Error deleting share.'));
-                }
-            }
-
-            async function handleUpdateShare(event) {
-                const shareId = event.currentTarget.dataset.shareId;
-                const prop = event.currentTarget.dataset.shareProp;
-                const value = event.currentTarget.checked;
-
-                try {
-                    // Get CSRF token
-                    const csrfToken = document.querySelector('meta[name=csrf-token]')?.getAttribute('content');
-                    
-                    const headers = { 'Content-Type': 'application/json' };
-                    if (csrfToken) {
-                        headers['X-CSRFToken'] = csrfToken;
-                    }
-                    
-                    const response = await fetch(`/api/share/${shareId}`, {
-                        method: 'PUT',
-                        headers: headers,
-                        body: JSON.stringify({ [prop]: value })
-                    });
-                    if (!response.ok) throw new Error('Failed to update');
-                } catch (error) {
-                    alertDialog(tf('account.sharesTab.updateFailed', 'Error updating share.'));
-                    event.currentTarget.checked = !value; // Revert on failure
-                }
-            }
-
             function escapeHtml(text) {
                 // Escapes the quote characters too, not just <>&, because these
                 // values are also interpolated into double-quoted HTML
@@ -4964,12 +4661,9 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
             }
         });
 
-        // Show sharing tabs when internal sharing is enabled
-        const isInternalSharingForTabs = {{ 'true' if enable_internal_sharing else 'false' }};
-        if (isInternalSharingForTabs) {
-            document.getElementById('tagTabSharingBtn')?.classList.remove('hidden');
-            document.getElementById('folderTabSharingBtn')?.classList.remove('hidden');
-        }
+        // Group assignment stays available. Public and internal shares are gone.
+        document.getElementById('tagTabSharingBtn')?.classList.remove('hidden');
+        document.getElementById('folderTabSharingBtn')?.classList.remove('hidden');
 
         // ===== TAB "HAS CUSTOM SETTINGS" INDICATORS =====
         // Each tab in the tag/folder edit modals shows a small accent dot
@@ -5059,11 +4753,10 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
         function updateGroupSelectionVisibility() {
             const groupSelectionSection = document.getElementById('tagGroupSelectionSection');
             const emptyState = document.getElementById('tagSharingEmptyState');
-            const isInternalSharingEnabled = {{ 'true' if enable_internal_sharing else 'false' }};
             const hasGroups = Array.isArray(userAdminGroups) && userAdminGroups.length > 0;
 
             if (groupSelectionSection) {
-                if (isInternalSharingEnabled && hasGroups) {
+                if (hasGroups) {
                     groupSelectionSection.classList.remove('hidden');
                     populateGroupDropdown();
                 } else {
@@ -5071,7 +4764,7 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
                 }
             }
             if (emptyState) {
-                if (isInternalSharingEnabled && !hasGroups) {
+                if (!hasGroups) {
                     emptyState.classList.remove('hidden');
                 } else {
                     emptyState.classList.add('hidden');
@@ -5232,21 +4925,6 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
                 metadata.push(`<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium" style="background-color: #2563eb; color: white;" title="${escapeHtml(tf('account.organizer.retentionTitle', `Retention: ${item.retention_days} days`, { days: item.retention_days }))}">
                     <i class="fas fa-clock"></i>
                     <span>${item.retention_days}d</span>
-                </span>`);
-            }
-
-            // Sharing badge for group-scoped items
-            if (isGroupItem) {
-                const shareIcon = item.auto_share_on_apply ? 'user-friends' : (item.share_with_group_lead ? 'user-tie' : 'user-lock');
-                const shareText = item.auto_share_on_apply
-                    ? tf('account.organizer.shareAllMembers', 'All members')
-                    : (item.share_with_group_lead ? tf('account.organizer.shareAdminsOnly', 'Admins only') : tf('account.organizer.shareManual', 'Manual'));
-                const shareTooltip = item.auto_share_on_apply
-                    ? tf('account.organizer.shareAllMembersTitle', 'Shared with all group members')
-                    : (item.share_with_group_lead ? tf('account.organizer.shareAdminsOnlyTitle', 'Shares with group admins only') : tf('account.organizer.shareManualTitle', 'Manual sharing only'));
-                metadata.push(`<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium" style="background-color: #9333ea; color: white;" title="${escapeHtml(shareTooltip)}">
-                    <i class="fas fa-${shareIcon}"></i>
-                    <span>${escapeHtml(shareText)}</span>
                 </span>`);
             }
 
@@ -5428,9 +5106,7 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
                 // Populate group selection
                 const groupIdSelect = document.getElementById('tagGroupId');
                 const groupSelectionSection = document.getElementById('tagGroupSelectionSection');
-                const isInternalSharingEnabled = {{ 'true' if enable_internal_sharing else 'false' }};
-
-                if (groupIdSelect && isInternalSharingEnabled) {
+                if (groupIdSelect) {
                     // If this tag has a group_id, force show the group selection section
                     if (tag.group_id) {
                         groupSelectionSection?.classList.remove('hidden');
@@ -5451,14 +5127,6 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
 
                     groupIdSelect.value = tag.group_id || '';
                     toggleGroupSettings();
-                }
-
-                // Populate group-specific settings
-                if (document.getElementById('tagAutoShareOnApply')) {
-                    document.getElementById('tagAutoShareOnApply').checked = tag.auto_share_on_apply !== undefined ? tag.auto_share_on_apply : true;
-                }
-                if (document.getElementById('tagShareWithGroupLead')) {
-                    document.getElementById('tagShareWithGroupLead').checked = tag.share_with_group_lead !== undefined ? tag.share_with_group_lead : true;
                 }
 
                 // Populate retention settings
@@ -5553,14 +5221,6 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
                 if (document.getElementById('tagGroupId')) {
                     document.getElementById('tagGroupId').value = '';
                     toggleGroupSettings();
-                }
-
-                // Set default values for group settings
-                if (document.getElementById('tagAutoShareOnApply')) {
-                    document.getElementById('tagAutoShareOnApply').checked = true;
-                }
-                if (document.getElementById('tagShareWithGroupLead')) {
-                    document.getElementById('tagShareWithGroupLead').checked = true;
                 }
 
                 // Clear retention settings and ensure field is enabled
@@ -5996,12 +5656,6 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
                     updateFolderGroupSettingsVisibility();
                 }
 
-                // Group settings
-                var autoShare = document.getElementById('folderAutoShareOnApply');
-                if (autoShare) autoShare.checked = folder.auto_share_on_apply !== false;
-                var shareWithLead = document.getElementById('folderShareWithGroupLead');
-                if (shareWithLead) shareWithLead.checked = folder.share_with_group_lead !== false;
-
                 // Retention settings
                 const folderRetentionDays = document.getElementById('folderRetentionDays');
                 const folderProtectFromDeletion = document.getElementById('folderProtectFromDeletion');
@@ -6198,7 +5852,6 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
         function initFolderGroupSelection() {
             const folderGroupSection = document.getElementById('folderGroupSelectionSection');
             const emptyState = document.getElementById('folderSharingEmptyState');
-            const isInternalSharingEnabled = {{ 'true' if enable_internal_sharing else 'false' }};
             const hasGroups = Array.isArray(userAdminGroups) && userAdminGroups.length > 0;
 
             if (folderGroupSection && hasGroups) {
@@ -6221,7 +5874,7 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
                 }
             }
             if (emptyState) {
-                if (isInternalSharingEnabled && !hasGroups) {
+                if (!hasGroups) {
                     emptyState.classList.remove('hidden');
                 } else {
                     emptyState.classList.add('hidden');
@@ -6323,8 +5976,6 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
             showTagsTab();
         } else if (urlHash === 'folders') {
             showFoldersTab();
-        } else if (urlHash === 'shares') {
-            showSharesTab();
         } else if (urlHash === 'about') {
             showAboutTab();
         } else if (storedTab) {
@@ -6335,8 +5986,6 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
                 showPromptsTab();
             } else if (storedTab === 'tags') {
                 showTagsTab();
-            } else if (storedTab === 'shares') {
-                showSharesTab();
             } else if (storedTab === 'about') {
                 showAboutTab();
             } else {

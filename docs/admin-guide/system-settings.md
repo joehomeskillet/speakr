@@ -16,7 +16,7 @@ The sweet spot depends on your use case. For typical meetings under an hour, 50,
 
 ## Default Storage Quota
 
-**`default_storage_quota_mb`** (default 0, no limit) is the storage quota given to accounts created after it is set, by an administrator, by registration or by SSO. The quota of an existing account does not change; it is set per user in Edit User. See [Storage Quotas](user-management.md#storage-quotas).
+**`default_storage_quota_mb`** (default 0, no limit) is the storage quota given to accounts created after it is set, by an administrator or by SSO. The quota of an existing account does not change; it is set per user in Edit User. See [Storage Quotas](user-management.md#storage-quotas).
 
 ## Maximum File Size
 
@@ -50,7 +50,7 @@ With the jobs API in use:
 - The remote job id is saved on the processing job. A retry after a failed attempt or a restart of Speakr polls the same job. The audio is submitted again only when the service no longer knows the job or its result has expired.
 - Each submit has an `Idempotency-Key` header built from the recording, the processing job, the audio and the transcription parameters, so a repeated submit is attached to the job already running.
 - After a busy answer (503, or 413 with `Retry-After`), the submit is repeated once the `Retry-After` time has passed, within the ASR timeout.
-- A transcription that has no processing job to save the job id on cannot be resumed: a chunk of a chunked transcription, incognito mode and the voice check. Its job is deleted from the service when the attempt fails, and its `Idempotency-Key` is built from the recording or the user, the chunk number and the audio.
+- A transcription that has no processing job to save the job id on cannot be resumed: a chunk of a chunked transcription and the voice check. Its job is deleted from the service when the attempt fails, and its `Idempotency-Key` is built from the recording or the user, the chunk number and the audio.
 
 To find out which path a transcription took, see [WhisperX Asynchronous Jobs](../troubleshooting.md#whisperx-asynchronous-jobs). The technical details are in [Job Queue System](../advanced/job-queue-system.md#5-asynchronous-jobs-of-the-whisperx-asr-service).
 - After a job error marked as not retryable, such as `audio_too_long` or `file_too_large`, the recording is marked failed without a retry. Other job errors are retried up to `JOB_MAX_RETRIES`.
@@ -145,7 +145,7 @@ Leave this field empty to hide the banner completely.
 
 ## Default look for new accounts
 
-With the **default_ui_theme** and **default_color_scheme** settings, you choose the interface theme and the color scheme of every account created afterwards: by registration, by an administrator, by a first SSO sign-in and by the admin account from `.env`. Without a saved value, new accounts start with the **Cards** theme and the **Forest Emerald** color scheme.
+With the **default_ui_theme** and **default_color_scheme** settings, you choose the interface theme and the color scheme of every account created afterwards: by an administrator, by a first SSO sign-in and by the admin account from `.env`. Without a saved value, new accounts start with the **Cards** theme and the **Forest Emerald** color scheme.
 
 | Setting | Values | Default |
 |---|---|---|
@@ -156,7 +156,7 @@ With the **default_ui_theme** and **default_color_scheme** settings, you choose 
 
 Existing accounts keep their theme and color scheme. Users who never picked a theme keep the standard theme with the blue color scheme, or the look they picked in a browser before themes were saved with the account. Users change both in Account settings.
 
-On the sign-in, registration and password reset pages, and on recordings shared with a public link, the same defaults are shown in a browser with no theme or color scheme saved. In a browser where a theme or color scheme was picked before, that choice stays. After sign-in, the account's own theme and color scheme apply, and the defaults for new accounts are not used.
+On the sign-in page and on recordings shared with a public link, the same defaults are shown in a browser with no theme or color scheme saved. In a browser where a theme or color scheme was picked before, that choice stays. After sign-in, the account's own theme and color scheme apply, and the defaults for new accounts are not used.
 
 ## Audio player position for new accounts
 
@@ -170,24 +170,6 @@ Existing accounts keep their position. Users who never picked a position keep th
 
 The **permission_create_groups** setting decides who can create groups: `admins` (site admins only, the default), `selected` (site admins, users with **Can create groups** and members of groups with **Members can create groups**) or `everyone`. Any other value is refused on this page. A user who is not a site admin and creates a group becomes its group admin. See [Who Can Create Groups](group-management.md#who-can-create-groups).
 
-## Who Users Can Find
-
-The **user_search_scope** setting (`USER_SEARCH_SCOPE` in `.env`) decides who a user can find in the share window by typing part of a username:
-
-| Value | Shown as | Part of a username finds |
-|---|---|---|
-| `everyone` | Everyone | Any account |
-| `groups` | People in their groups | Only accounts that share a group with the user |
-| `exact` | Exact username or email | Nobody |
-
-At every level, the full username or the full email address finds its account, at least two characters are needed, and at most ten accounts are listed. An email address is matched only when it is typed in full, without regard to case, so no search tells whether part of an address exists. The results show usernames only; a site admin also gets the email address. Any other value is refused on this page.
-
-The level also applies to the share request itself, so the search cannot be bypassed with a user id. A recording is shared with an account only when the person sharing could find that account in the search: at `everyone` any account, at `groups` an account in one of their groups, and at every level an account named by its full username or full email address. A request that names an account by its numeric id alone is refused at `exact`, and at `groups` for an account outside the person's groups, with the same answer as for an account that does not exist. Site admins are not restricted.
-
-A script that calls `POST /api/recordings/<id>/share-internal` with `user_id` or `user_ids` needs `identifier` or `identifiers` as well at these two levels: the full username or the full email address of each person. Either field can also be sent without the ids.
-
-Without a saved value and without `USER_SEARCH_SCOPE`, the level follows `show_usernames_in_ui`: `everyone` when usernames are shown, `exact` when they are hidden. A group admin who is not a site admin adds members by full username or full email address at every level. The user search of the admin pages is not affected.
-
 ## Privacy and Security Settings
 
 The settings in this section were added for deployments with regulated data. The data concerned is described in [Privacy and regulated data](privacy.md). Each setting can also be set in `.env`, as listed under [Settings That Fall Back to .env](#settings-that-fall-back-to-env).
@@ -199,11 +181,10 @@ The settings in this section were added for deployments with regulated data. The
 | `webhook_delivery_retention_days` | `WEBHOOK_DELIVERY_RETENTION_DAYS` | `30` | Days after which a webhook delivery record is removed. `0`: the records are kept without limit. |
 | `webhook_omit_titles` | `WEBHOOK_OMIT_TITLES` | `false` | `true`: the recording title and the original file name are left out of webhook payloads. |
 | `auto_export_delete_with_recording` | `AUTO_EXPORT_DELETE_WITH_RECORDING` | `false` | `true`: the automatically exported file is deleted together with its recording. |
-| `incognito_temp_max_age_hours` | `INCOGNITO_TEMP_MAX_AGE_HOURS` | `6` | Hours after the last write at which a leftover temporary file of an incognito request is removed. |
 | `audit_log_enabled` | `AUDIT_LOG_ENABLED` | `true` | `false`: no event is recorded in the audit log, except changes of the audit log settings and the reading, export and pruning of the log. |
 | `audit_log_retention_days` | `AUDIT_LOG_RETENTION_DAYS` | `365` | Days after which a row of the audit log is removed. `0`: the rows are kept without limit. |
 | `audit_log_store_ip` | `AUDIT_LOG_STORE_IP` | `full` | `full`, `truncated` (the `/24` network of an IPv4 address, the `/48` network of an IPv6 address) or `off`. |
-| `audit_log_record_views` | `AUDIT_LOG_RECORD_VIEWS` | `true` | `false`: opening and playing a recording is not recorded. Downloads, exports, reads through API v1 and public link events are still recorded. |
+| `audit_log_record_views` | `AUDIT_LOG_RECORD_VIEWS` | `true` | `false`: opening and playing a recording is not recorded. Downloads, exports and reads through API v1 are still recorded. |
 
 ### Audit log
 
@@ -218,7 +199,7 @@ With `session_idle_timeout_minutes` above `0`, the time of the last request is k
 - API tokens are not affected.
 - The requests sent in the background of an open page (the notification count, the job queue status and the refresh of the CSRF token) are not counted as activity. A tab left open is therefore signed out as well.
 - The "Remember me" cookie is not accepted while a timeout is set, and it is removed at the next request.
-- No request is sent during a recording that is held in the browser (an incognito recording, or any recording with server-side chunks turned off). The value must be longer than the longest expected recording. Otherwise the upload at the end is answered with `401`, and an incognito recording, which is held in the memory of that tab only, is lost when the user signs in again in the same tab.
+- No request is sent during a recording that is held in the browser (a recording with server-side chunks turned off). The value must be longer than the longest expected recording. Otherwise the upload at the end is answered with `401`.
 
 ### Tokens in the query parameter
 
@@ -238,20 +219,6 @@ A delivery record holds the payload that was sent and the first 2,000 characters
 ### Exported files of deleted recordings
 
 With automatic export, the exported file of a deleted recording is renamed with the `[deleted]_` prefix by default, and its content is kept. This default was kept on purpose: the export folder is usually a notes vault in which the user edits the files, and notes that were exported in order to be kept would otherwise be removed by a retention rule. With `auto_export_delete_with_recording` set to `true`, the file is deleted together with the recording, whether the recording is deleted by a user, through the API or by a retention rule. Files renamed before the setting was turned on are not removed.
-
-### Temporary files of incognito requests
-
-Each incognito request has a folder of its own under `INCOGNITO_TEMP_DIR` (a variable in `.env` only; the default is `speakr-incognito` in the temporary folder of the system). The folder is removed before the request is answered. A folder left by a crash is removed at the next start and by the hourly cleanup, once nothing was written to it for `incognito_temp_max_age_hours`. Because of the age limit, the files of a request that is still running in another worker process are not removed. The value must therefore be longer than the longest incognito request.
-
-## What's New After Updates
-
-After an update, each user sees a short list of the release's new features once, the next time they open Speakr. The list is closed with **Got it** and is not shown again on any of the user's devices. Accounts created after the update do not see it for that release.
-
-A user who missed several updates sees the lists of all releases since their last visit, newest first, up to five releases.
-
-The **show_whats_new** setting turns the dialog on or off for everyone. It is on by default; switch it off if you announce updates to your users yourself.
-
-The list for each release is part of Speakr's translations, so it appears in the user's interface language, with English as the fallback.
 
 ## System-Wide Impact
 
@@ -273,7 +240,6 @@ The settings below can be set on this page or in `.env`. Until an admin saves a 
 
 | Setting | Variable in `.env` |
 |---|---|
-| `allow_registration` | `ALLOW_REGISTRATION` |
 | `api_query_tokens_enabled` | `API_QUERY_TOKENS_ENABLED` |
 | `asr_async_jobs` | `ASR_ASYNC_JOBS` |
 | `audit_log_enabled` | `AUDIT_LOG_ENABLED` |
@@ -287,27 +253,19 @@ The settings below can be set on this page or in `.env`. Until an admin saves a 
 | `deletion_mode` | `DELETION_MODE` |
 | `enable_auto_deletion` | `ENABLE_AUTO_DELETION` |
 | `enable_email_verification` | `ENABLE_EMAIL_VERIFICATION` |
-| `enable_incognito_mode` | `ENABLE_INCOGNITO_MODE` |
-| `enable_internal_sharing` | `ENABLE_INTERNAL_SHARING` |
-| `enable_public_sharing` | `ENABLE_PUBLIC_SHARING` |
 | `global_retention_days` | `GLOBAL_RETENTION_DAYS` |
 | `help_center_label` | `HELP_CENTER_LABEL` |
 | `help_center_url` | `HELP_CENTER_URL` |
-| `incognito_mode_default` | `INCOGNITO_MODE_DEFAULT` |
-| `incognito_temp_max_age_hours` | `INCOGNITO_TEMP_MAX_AGE_HOURS` |
 | `max_concurrent_uploads` | `MAX_CONCURRENT_UPLOADS` |
 | `recording_tombstone_days` | `RECORDING_TOMBSTONE_DAYS` |
-| `registration_allowed_domains` | `REGISTRATION_ALLOWED_DOMAINS` |
 | `require_email_verification` | `REQUIRE_EMAIL_VERIFICATION` |
 | `session_idle_timeout_minutes` | `SESSION_IDLE_TIMEOUT_MINUTES` |
-| `show_usernames_in_ui` | `SHOW_USERNAMES_IN_UI` |
 | `sso_api_allowed_clients` | `SSO_API_ALLOWED_CLIENTS` |
 | `sso_api_client_names` | `SSO_API_CLIENT_NAMES` |
 | `sso_api_client_scopes` | `SSO_API_CLIENT_SCOPES` |
 | `sso_api_exchange_clients` | `SSO_API_EXCHANGE_CLIENTS` |
 | `sso_api_scopes` | `SSO_API_SCOPES` |
 | `sso_api_tokens_enabled` | `SSO_API_TOKENS_ENABLED` |
-| `user_search_scope` | `USER_SEARCH_SCOPE` |
 | `users_can_delete` | `USERS_CAN_DELETE` |
 | `video_passthrough_asr` | `VIDEO_PASSTHROUGH_ASR` |
 | `video_retention` | `VIDEO_RETENTION` |
@@ -329,16 +287,6 @@ Beyond the UI-configurable settings above, several environment variables in your
 **DEFAULT_COLOR_SCHEME**: Color scheme for new accounts and for signed-out pages in a browser with no saved color scheme. One of `blue`, `emerald` (Forest Emerald), `purple`, `rose`, `amber` or `teal`. Default: `emerald`.
 
 **DEFAULT_AUDIO_PLAYER_POSITION**: Audio player position on a recording's page for new accounts. One of `top` or `bottom`. Default: `top`. See [Audio player position for new accounts](#audio-player-position-for-new-accounts).
-
-### Collaboration & Sharing
-
-**ENABLE_INTERNAL_SHARING**: Controls user-to-user sharing capabilities. Set to `true` to enable internal sharing features, allowing users to share recordings with specific colleagues. Required for group functionality. Default: `false`.
-
-**SHOW_USERNAMES_IN_UI**: Controls whether the owner's username is displayed on recordings shared with a user. Default: `false`. While `USER_SEARCH_SCOPE` is not set, it also sets who users can find when sharing: `everyone` when `true`, `exact` when `false`.
-
-**USER_SEARCH_SCOPE**: Who a user can find in the share window by typing part of a username. One of `everyone`, `groups` (only people in one of the user's groups) or `exact` (the full username or the full email address is needed). Default: follows `SHOW_USERNAMES_IN_UI`. See [Who Users Can Find](#who-users-can-find).
-
-**ENABLE_PUBLIC_SHARING**: The switch for public share links. With `true`, public links are created by users who have the permission, and existing links are served. With `false`, no link is created, and every existing link is answered with `404` until the value is `true` again; the links are not deleted. The link of a user whose permission to share publicly was withdrawn is answered with `404` in the same way. Default: `true`.
 
 ### User Permissions
 
@@ -390,10 +338,6 @@ If the process that owns the background work is recycled or killed, the replacem
 
 When a password is changed, reset by email, or set by an administrator, the account is signed out of every browser. The browser in which the password was changed stays signed in. Sign-ins made before v0.10.15 remain valid until the account's password is next set.
 
-### Public Share Page Rendering
-
-**READABLE_PUBLIC_LINKS**: When `true`, a public share page also carries the whole transcript as plain HTML (in a `<noscript>` block: a heading per speaker turn, a paragraph per segment), so that LLMs, scrapers and other readers that do not run JavaScript can read it. A browser shows the interactive transcript either way. When `false`, the transcript is in the page only as data for that view. Default: `false`.
-
 ### Admin User Creation
 
 **SKIP_EMAIL_DOMAIN_CHECK**: When `true`, bypasses DNS validation of email domains when creating admin users via the setup script. Useful for development or when DNS lookups are restricted. Default: `false`.
@@ -436,11 +380,6 @@ Default: `mp3`.
 ### Configuration Example
 
 ```bash
-# Enable collaboration features
-ENABLE_INTERNAL_SHARING=true
-SHOW_USERNAMES_IN_UI=true
-ENABLE_PUBLIC_SHARING=false
-
 # User permissions
 USERS_CAN_DELETE=false  # Only admins can delete
 

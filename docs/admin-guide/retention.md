@@ -48,9 +48,9 @@ Folder retention and folder protection fields remain stored for compatibility. T
 
 ## Archive State and Restoration
 
-Retention sets `recording.retention_archived_at`, which applies to every viewer. Personal archival uses the existing owner `is_archived` flag or a recipient's `SharedRecordingState.is_archived` flag. The effective archive state combines the recording-wide and personal states.
+Retention sets `recording.retention_archived_at`, which applies to every viewer. Personal archival uses the owner's `is_archived` flag. The effective archive state is set when either value is set.
 
-The regular recording list excludes archived items by default. Select the archive filter to see them. A user can archive or restore their personal view using the existing web controls. Only the owner can restore a recording-wide retention archive. That operation clears the retention timestamp and the owner's personal archive flag. Recipients' personal flags keep their existing values.
+The regular recording list excludes archived items by default. Select the archive filter to see them. The owner archives or restores through the existing web controls. Only the owner can restore a recording-wide retention archive. That operation clears the retention timestamp and sets the owner's `is_archived` flag to the requested value.
 
 Restoring a recording keeps its creation date and retention policy. An old restored recording can therefore be archived again on the next sweep. Apply an exemption or adjust its policy when it should stay active.
 

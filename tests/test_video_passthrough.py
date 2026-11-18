@@ -2,7 +2,7 @@
 Test suite for the VIDEO_PASSTHROUGH_ASR feature.
 
 Tests configuration, code path correctness, and interaction with VIDEO_RETENTION
-across all entry points (processing pipeline, upload handler, file monitor, incognito).
+across all entry points (processing pipeline, upload handler, file monitor).
 Uses static analysis — no running server or real video files required.
 
 Run with: python tests/test_video_passthrough.py
@@ -58,16 +58,7 @@ def get_function_body(source, func_name):
     return '\n'.join(body_lines)
 
 
-def split_at_incognito(source):
-    """Split processing.py into main and incognito sections."""
-    marker = 'def transcribe_incognito('
-    idx = source.find(marker)
-    if idx == -1:
-        return source, ''
-    return source[:idx], source[idx:]
-
-
-PROCESSING_MAIN, PROCESSING_INCOGNITO = split_at_incognito(PROCESSING)
+PROCESSING_MAIN = PROCESSING
 
 
 # ===========================================================================
@@ -238,51 +229,6 @@ class TestRetentionNotBroken(unittest.TestCase):
 
 
 # ===========================================================================
-# 4. Incognito path
-# ===========================================================================
-
-class TestIncognitoPassthrough(unittest.TestCase):
-    """Test passthrough in the incognito transcription path."""
-
-    def test_passthrough_flag_set_in_incognito(self):
-        """video_passthrough_active is computed in incognito path."""
-        self.assertIn('video_passthrough_active = is_video and _self.VIDEO_PASSTHROUGH_ASR',
-                       PROCESSING_INCOGNITO)
-
-    def test_passthrough_skips_extraction_in_incognito(self):
-        """When passthrough is on, incognito skips extract_audio_from_video."""
-        # The passthrough branch logs and does NOT extract
-        self.assertIn('[Incognito] Video passthrough: sending original video to ASR',
-                       PROCESSING_INCOGNITO)
-
-    def test_passthrough_skips_conversion_in_incognito(self):
-        """When passthrough is on, incognito skips convert_if_needed."""
-        self.assertIn('[Incognito] Video passthrough: skipping codec conversion',
-                       PROCESSING_INCOGNITO)
-
-    def test_passthrough_skips_chunking_in_incognito(self):
-        """When passthrough is on, incognito chunking is False."""
-        body = PROCESSING_INCOGNITO
-        self.assertIn('if video_passthrough_active:\n            should_chunk = False', body)
-
-    def test_incognito_does_not_reference_video_retention(self):
-        """Incognito path should NOT reference VIDEO_RETENTION (no retention in incognito)."""
-        self.assertNotIn('_self.VIDEO_RETENTION', PROCESSING_INCOGNITO)
-
-    def test_incognito_still_extracts_without_passthrough(self):
-        """Without passthrough, incognito still extracts audio from video.
-        allow_debug_copy=False keeps the PRESERVE_TEMP_AUDIO debug copy out
-        of the zero-retention incognito path."""
-        self.assertIn('extract_audio_from_video(', PROCESSING_INCOGNITO)
-        self.assertIn('filepath, cleanup_original=False, allow_debug_copy=False)',
-                       PROCESSING_INCOGNITO)
-
-    def test_incognito_still_converts_without_passthrough(self):
-        """Without passthrough, incognito still runs convert_if_needed."""
-        self.assertIn('convert_if_needed(', PROCESSING_INCOGNITO)
-
-
-# ===========================================================================
 # 5. Upload handler (recordings.py, recording_ingestion.py)
 # ===========================================================================
 
@@ -365,12 +311,8 @@ class TestAudioUnaffected(unittest.TestCase):
 
     def test_passthrough_flag_gated_on_is_video(self):
         """video_passthrough_active is always `is_video and VIDEO_PASSTHROUGH_ASR`."""
-        # Main path
         self.assertIn('video_passthrough_active = is_video and _self.VIDEO_PASSTHROUGH_ASR',
                        PROCESSING_MAIN)
-        # Incognito path
-        self.assertIn('video_passthrough_active = is_video and _self.VIDEO_PASSTHROUGH_ASR',
-                       PROCESSING_INCOGNITO)
 
     def test_upload_handler_gated_on_has_video(self):
         """Upload handler skip is gated on `has_video`."""
@@ -440,17 +382,6 @@ class TestInteractionMatrix(unittest.TestCase):
         self.assertNotEqual(else_pos, -1)
         self.assertLess(pt_pos, ret_pos)
         self.assertLess(ret_pos, else_pos)
-
-    def test_incognito_two_way_branch(self):
-        """Incognito has if/else for passthrough/extract (no retention)."""
-        video_block = PROCESSING_INCOGNITO[PROCESSING_INCOGNITO.find('if is_video:'):]
-        pt_pos = video_block.find('if _self.VIDEO_PASSTHROUGH_ASR:')
-        else_pos = video_block.find('\n            else:', pt_pos)
-        self.assertNotEqual(pt_pos, -1)
-        self.assertNotEqual(else_pos, -1)
-        # No VIDEO_RETENTION in incognito
-        incognito_video_block = video_block[:500]
-        self.assertNotIn('VIDEO_RETENTION', incognito_video_block)
 
 
 if __name__ == '__main__':

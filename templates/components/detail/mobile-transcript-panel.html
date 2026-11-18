@@ -13,7 +13,7 @@
 <div v-if="mobileTab === 'transcript'" class="ph-pane ph-pane--transcript" :class="{ 'has-find': transcriptFind.open }" data-phone-pane="transcript">
     <div class="ph-tbar" data-phone-transcript-bar>
         <div class="ph-tbar__main">
-            <div v-if="!selectedRecording.incognito" class="ph-seg" role="group" :aria-label="t('phone.textShown')" data-phone-switch>
+            <div class="ph-seg" role="group" :aria-label="t('phone.textShown')" data-phone-switch>
                 <button type="button" data-phone-switch-option="transcription" @click="viewingTranslation = false"
                         :aria-pressed="viewingTranslation ? 'false' : 'true'" v-text="t('transcription.title')"></button>
                 <button type="button" data-phone-switch-option="translation" @click="viewingTranslation = true"
@@ -65,8 +65,11 @@
         </div>
 
         <!-- No transcription state (only show if not processing and no transcription) -->
+        <div v-if="selectedRecording.status === 'FAILED' && !selectedRecording.transcription" class="p-2">
+            {% include 'components/detail/_transcription-failed.html' %}
+        </div>
         {{ phone_empty('transcript', "t('transcription.noTranscription')", "t('transcription.emptyHint')", icon='fa-align-left',
-                       attrs='v-if="!selectedRecording.transcription && selectedRecording.status !== \'PROCESSING\'"') }}
+                       attrs='v-if="!selectedRecording.transcription && selectedRecording.status !== \'PROCESSING\' && selectedRecording.status !== \'FAILED\'"') }}
 
         <!-- Error Display (when transcription is an error message) -->
         <div v-if="processedTranscription.isError" class="error-display-container p-2">
@@ -89,9 +92,7 @@
              empty state is shown. -->
         {% call phone_empty('translation', "t('translation.noTranslation')", icon='fa-language',
                             attrs='v-if="viewingTranslation && !translationJobActive && selectedRecording.transcription && !selectedRecording.transcription_translation"') %}
-            <div v-if="selectedRecording.incognito" class="empty__body" :title="t('tooltips.translateTranscriptIncognito')"
-                 v-text="t('translation.incognitoUnavailable')"></div>
-            <div v-else-if="selectedRecording.can_edit !== false" class="ph-empty__acts">
+            <div v-if="selectedRecording.can_edit !== false" class="ph-empty__acts">
                 <button @click="generateTranslation()" :disabled="translationJobActive" class="btn btn--primary">
                     <i class="fas fa-language"></i>
                     <span v-text="t('translation.generate')" data-i18n="translation.generate"></span>
@@ -120,7 +121,7 @@
                 <div v-else>
                     <div v-if="processedTranscription.simpleSegments && processedTranscription.simpleSegments.length > 0" data-tv-list>
                         <div class="tv-spacer tv-spacer--before" data-tv-before :style="{ height: transcriptView.before + 'px' }"></div>
-                        <div v-for="unit in transcriptView.segments" :key="unit.key" :data-tv-unit="unit.unit" :class="['transcript-segment cursor-pointer hover:bg-[var(--bg-accent-hover)] p-2 rounded transition-colors', { 'active-playing-segment': currentPlayingSegmentIndex === unit.first }]" @click="seekAudioFromEvent" @dblclick.stop="openAsrEditorAtSegment(unit.first)" :data-start-time="unit.segment.startTime" :data-segment-index="unit.first"><span v-if="showTimestampsSimpleView" class="speaker-segment-timestamp speaker-segment-timestamp--inline">${ formatTimestamp(unit.segment.startTime) }</span>${unit.segment.sentence}</div>
+                        <div v-for="unit in transcriptView.segments" :key="unit.key" :data-tv-unit="unit.unit" :class="['transcript-segment cursor-pointer hover:bg-[var(--bg-accent-hover)] p-2 rounded transition-colors', { 'active-playing-segment': currentPlayingSegmentIndex === unit.first }]" @click="seekAudioFromEvent" @dblclick.stop="openAsrEditorAtSegment(unit.first)" :data-start-time="unit.segment.startTime" :data-segment-index="unit.first"><span class="speaker-segment-timestamp speaker-segment-timestamp--inline" data-segment-timestamp>${ formatTimestamp(unit.segment.startTime) }</span>${unit.segment.sentence}</div>
                         <div class="tv-spacer tv-spacer--after" data-tv-after :style="{ height: transcriptView.after + 'px' }"></div>
                     </div>
                     <div v-else class="whitespace-pre-wrap bidi-auto">${processedTranscription.content}</div>

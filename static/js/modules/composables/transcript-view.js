@@ -31,8 +31,7 @@
  * element (#transcript-print) that the print stylesheet shows in place of
  * the page (styles.css).
  *
- * Other transcripts use the same window. The public share page
- * (static/js/share-page.js) is one more page with the list above. The
+ * Other transcripts use the same window. The
  * Identify speakers dialog (composables/speaker-modal.js) is a second list
  * on the recording page, so it has a name: its list is the element with
  * data-tv-list="speakers" and its find bar the one with

@@ -148,7 +148,7 @@ A transcript of more than 300 segments is drawn only around the part you are rea
 - **Esc** or the x closes the bar.
 - Press Ctrl+F again while the cursor is in the bar to reach the browser's own search.
 
-The Identify speakers dialog and the [public share page](sharing.md#what-recipients-experience) draw a long transcript the same way and have the same find bar, also behind a search button.
+The Identify speakers dialog draws a long transcript the same way and has the same find bar, also behind a search button.
 
 On a phone, the find bar is opened with the search button of the bar pinned above the transcript, for a transcript of any length. The **Transcript** / **Translation** switch, copy and follow playback are in the same bar; see [Phone Layout](pwa.md#phone-layout).
 
@@ -251,7 +251,7 @@ The dialog shows the prompt that applies to you for this recording, in an editab
 - **Admin default**: the default your administrator set.
 - **Built-in default**: the prompt Speakr ships with.
 
-Everyone sees only their own prompt. When you edit a recording someone shared with you, the dialog shows your tags and your default prompt, never the owner's, and the prompt you see is the one that runs. Summaries made automatically after upload or transcription still use the owner's prompt.
+The dialog shows your tags and your default prompt, and the prompt you see is the one that runs. Summaries made automatically after upload or transcription use the owner's prompt.
 
 **Start from** fills the text box from another prompt. It lists the prompts that apply to this recording first, then your other prompts: your default, the admin default and your tags with summary prompts. **Blank** empties the box so you can write a prompt from scratch.
 
@@ -269,7 +269,7 @@ Ambrose is Speakr's assistant (formerly "Chat with Transcription"). Open the ass
 
 Ambrose is the default name. You can give the assistant another name under Account → Preferences → **Assistant** (see [Settings](settings.md#assistant)). To ask about many recordings at once, use the [Ask Ambrose](inquire-mode.md) page.
 
-Each recording keeps its own chat until you close the browser tab, and answers cite the transcript with numbers you can click to play that moment. See [Ambrose](ambrose.md) for chats per recording, incognito recordings, citations and searches of your library.
+Each recording keeps its own chat until you close the browser tab, and answers cite the transcript with numbers you can click to play that moment. See [Ambrose](ambrose.md) for chats per recording, citations and searches of your library.
 
 ![The assistant panel of a recording, next to its notes](../assets/images/screenshots/main-view-chat-notes.png)
 
@@ -299,12 +299,12 @@ These exports are useful when you have used Ambrose to extract specific insights
 
 ## Adding and Managing Notes
 
-The Notes tab is your personal workspace for adding context and thoughts about the recording. These notes are **always private** - only you can see them, whether you own the recording or it's been shared with you. This is different from summaries, which are shared with all users who have access to the recording.
+The Notes tab is your workspace for context and thoughts about the recording. Only the owner sees the notes.
 
-**Important: Notes are Personal, Summaries are Shared**
+**Important: Notes are not the summary**
 
-- **Notes**: Always private to each user. You can add and edit your own notes on any recording (owned or shared) without needing any special permissions. Other users cannot see your notes, and you cannot see theirs.
-- **Summary**: Shared content created by the recording owner. Only users with edit permission can modify the summary, and all users with access to the recording see the same summary.
+- **Notes**: Private to the owner of the recording.
+- **Summary**: Written for the recording and visible to its owner.
 
 ![Notes Tab](../assets/images/screenshots/main-view-notes-tab.png)
 
@@ -318,9 +318,7 @@ Common uses for notes include:
 - Links to related documents or resources mentioned in the recording
 - Questions you want to research or clarify later
 
-Your notes are fully searchable alongside transcriptions, making them valuable for future reference. You can search for a specific term and find it whether it appears in a transcription or in your personal notes. The search will only find results in your own personal notes - you cannot search through other users' notes on shared recordings since notes are always private. Notes are auto-saved as you type, ensuring you never lose your thoughts.
-
-When viewing a shared recording, you can always add and edit your own notes without needing any special permissions. This allows you to annotate shared content with your own thoughts, action items, and follow-ups while keeping them completely private from the recording owner and other users.
+Your notes are fully searchable alongside transcriptions, making them valuable for future reference. You can search for a specific term and find it whether it appears in a transcription or in your personal notes. The search finds notes only on recordings you own. Notes are private to the owner. Notes are auto-saved as you type, ensuring you never lose your thoughts.
 
 ## Copying and Exporting
 

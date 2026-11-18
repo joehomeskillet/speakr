@@ -895,7 +895,6 @@ def _real_summary_step(llm):
     import src.tasks.processing as proc
     with patch.object(proc, "client", MagicMock()), \
          patch.object(proc, "call_llm_completion", llm), \
-         patch.object(proc, "apply_team_tag_auto_shares"), \
          patch.object(proc, "export_recording"), \
          patch.object(proc, "queue_inquire_chunks"), \
          patch("src.services.webhook_dispatch.emit_webhook_event") as emit, \

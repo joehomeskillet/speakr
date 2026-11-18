@@ -9,7 +9,6 @@
         <i class="fas fa-arrow-left" aria-hidden="true"></i>
     </button>
     <h1 v-if="!editingTitle" class="ph-bar__title" data-phone-title dir="auto"
-        :class="{ 'is-shared': selectedRecording.is_shared }"
         v-text="selectedRecording.title || t('help.untitled')"></h1>
     <input v-else
            v-model="selectedRecording.title"
@@ -21,7 +20,7 @@
            class="ph-bar__input" dir="auto"
            :aria-label="t('common.rename')"
            :placeholder="t('help.untitled')">
-    <button v-if="!selectedRecording.incognito && !editingTitle" type="button" class="ph-ib ph-star" data-phone-star
+    <button v-if="!editingTitle" type="button" class="ph-ib ph-star" data-phone-star
             @click="toggleHighlight(selectedRecording)"
             :aria-pressed="selectedRecording.is_highlighted ? 'true' : 'false'"
             :aria-label="selectedRecording.is_highlighted ? t('tooltips.removeHighlight') : t('tooltips.highlight')"

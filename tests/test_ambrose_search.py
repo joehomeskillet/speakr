@@ -18,13 +18,13 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.app import app, db  # noqa: E402
-from src.models import (Folder, Group, GroupMembership, InternalShare, Recording,  # noqa: E402
+from src.models import (Folder, Group, GroupMembership, Recording,  # noqa: E402
                         RecordingTag, Tag, TranscriptChunk, User)
 from src.services import inquire_agent as ia  # noqa: E402
 from src.services.assistant_present import step_label, step_result, summary_line  # noqa: E402
 from src.services.embeddings import serialize_embedding  # noqa: E402
 from src.services.library_labels import LibraryLabels, capped  # noqa: E402
-from src.services.recording_chat import IncognitoTranscript, build_chat_messages  # noqa: E402
+from src.services.recording_chat import build_chat_messages  # noqa: E402
 from src.transcript_chunking import chunk_transcript_segments  # noqa: E402
 
 NESTED = hasattr(Folder, 'parent_id')
@@ -112,8 +112,6 @@ def lib():
         for rec, tag, order in ((r1, budget, 0), (r2, budget, 0), (r2, shared, 1), (r4, budget, 0),
                                 (r4, shared, 1), (r4, mine, 2), (rx, hidden, 0)):
             db.session.add(RecordingTag(recording_id=rec.id, tag_id=tag.id, order=order))
-        db.session.add(InternalShare(recording_id=r4.id, owner_id=owner.id, shared_with_user_id=member.id,
-                                     source_type='group_folder', source_folder_id=team.id))
         for rec in (r1, r2, r3, r4, rx):
             _chunks(rec)
         db.session.commit()
@@ -125,7 +123,6 @@ def lib():
         db.session.rollback()
         recs = [ids[k] for k in ('r1', 'r2', 'r3', 'r4', 'rx')]
         TranscriptChunk.query.filter(TranscriptChunk.recording_id.in_(recs)).delete(synchronize_session=False)
-        InternalShare.query.filter(InternalShare.recording_id.in_(recs)).delete(synchronize_session=False)
         RecordingTag.query.filter(RecordingTag.recording_id.in_(recs)).delete(synchronize_session=False)
         Recording.query.filter(Recording.id.in_(recs)).delete(synchronize_session=False)
         Tag.query.filter(Tag.id.in_(ids['tags'])).delete(synchronize_session=False)
@@ -185,19 +182,11 @@ def test_recording_prompt_shows_only_what_the_viewer_sees(lib):
         assert f'Tags: Budget, Shared {s}\n' in owner_view and 'MineOnly' not in owner_view
         # The member sees the group tag and their own tag, not the owner's personal tag
         assert f'Tags: Shared {s}, MineOnly {s}\n' in member_view
-        assert f'Folder: Team {s}' in member_view and 'Date: 2026-08-25 15:00' in member_view
+        assert f'Folder: Team {s}' not in member_view and 'Date: 2026-08-25 15:00' in member_view
         # The owner's personal folder is never shown to a recipient
         r1 = db.session.get(Recording, lib['r1'])
         labels = LibraryLabels(lib['member'], [r1.id])
         assert labels.folder_path_of(r1.id) is None and labels.tags_of(r1.id) == []
-
-
-def test_incognito_prompt_has_no_metadata_block():
-    with app.app_context():
-        user = User(username='x', email='x@x', password='x')
-        user.id = 0
-        messages, _ = build_chat_messages(IncognitoTranscript(R1_TRANSCRIPT), user, 'Q?', [])
-        assert 'About this recording' not in messages[0]['content']
 
 
 # ---------------------------------------------------------------------------
@@ -269,7 +258,7 @@ def test_metadata_has_visible_tags_and_folder(lib):
     with app.app_context():
         meta = ia.tool_get_recording_metadata(_member_ctx(lib), {'recording_id': lib['r4']})
         s = lib['s']
-        assert meta['tags'] == [f'Shared {s}', f'MineOnly {s}'] and meta['folder'] == f'Team {s}'
+        assert meta['tags'] == [f'Shared {s}', f'MineOnly {s}'] and 'folder' not in meta
 
 
 def test_other_users_tags_and_folders_never_appear(lib):
@@ -283,9 +272,9 @@ def test_other_users_tags_and_folders_never_appear(lib):
         assert f'Hidden {s}' not in line and f'Secret {s}' not in line
         assert ia.tool_list_recordings(ctx, {'tags': [f'Hidden {s}']})['total_in_scope'] == 0
         assert ia.tool_list_recordings(ctx, {'folder': f'Secret {s}'})['total_in_scope'] == 0
-        # The member sees only the shared recording's group labels
+        # The member sees only group and own tags, never the owner's folder
         member_line = ia._names_line(_member_ctx(lib).labels, None)
-        assert f'Shared {s}' in member_line and f'Team {s}' in member_line and f'MineOnly {s}' in member_line
+        assert f'Shared {s}' in member_line and f'Team {s}' not in member_line and f'MineOnly {s}' in member_line
         assert 'Budget' not in member_line and 'Projects' not in member_line
         # Without a recording in scope there is nothing to list
         assert ia._names_line(ia.ToolContext(lib['other'], {}, set(), EVERY).labels, None) == ''

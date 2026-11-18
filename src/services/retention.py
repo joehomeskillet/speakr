@@ -169,7 +169,7 @@ def process_auto_deletion():
 def remove_recording_audio(recording, reason='user'):
     """Delete a recording's media file and keep everything else.
 
-    The transcript, summary, notes, tags and shares stay; the recording shows
+    The transcript, summary, notes and tags stay; the recording shows
     as "Audio removed" and can no longer be played or reprocessed. Used by
     the manual "Delete audio" action.
 

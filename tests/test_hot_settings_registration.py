@@ -45,7 +45,7 @@ def _env_value_unlike(default):
 
 
 def test_the_setting_maps_are_found():
-    assert len(MODULES) >= 20
+    assert len(MODULES) >= 17
     assert "src.app" in MODULES and "src.tasks.processing" in MODULES
 
 

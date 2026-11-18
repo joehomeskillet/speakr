@@ -99,9 +99,6 @@
             <a href="/account" class="block px-4 py-2 hover:bg-[var(--bg-tertiary)] transition-colors">
                 <i class="fas fa-cog mr-2 w-4 text-center"></i><span v-text="t('nav.settings')"></span>
             </a>
-            <button @click="openSharesList" class="w-full text-left px-4 py-2 hover:bg-[var(--bg-tertiary)] transition-colors flex items-center">
-                <i class="fas fa-share-alt mr-2 w-4 text-center"></i><span v-text="t('modal.sharedTranscripts')"></span>
-            </button>
             {% if current_user.is_admin %}
             <a href="/admin" class="block px-4 py-2 hover:bg-[var(--bg-tertiary)] transition-colors">
                 <i class="fas fa-user-shield mr-2 w-4 text-center"></i>
