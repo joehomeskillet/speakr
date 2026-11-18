@@ -16,6 +16,7 @@ When speakers are merged:
 import json
 
 import numpy as np
+from src.clinic.config import clinic_mode_enabled
 from src.database import db
 from src.models import Speaker, SpeakerSnippet
 from src.services.speaker_embedding_matcher import (
@@ -242,6 +243,10 @@ def _combine_embeddings(target, sources):
         target: Target Speaker instance
         sources: List of source Speaker instances
     """
+    # Clinic mode: embeddings come only from the user's own consented enrolment.
+    if clinic_mode_enabled():
+        return
+
     all_embeddings = []
     all_counts = []
 
