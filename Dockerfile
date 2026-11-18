@@ -70,6 +70,37 @@ RUN apt-get update && apt-get install -y --no-install-recommends wget xz-utils \
     && rm -rf /tmp/ff.tar.xz /tmp/ffmpeg-dir
 
 ###############################################################################
+# Stage 2b: dss-decode — the DS2/DSS dictation decoder (dss-codec, MIT), built
+# from the pinned upstream commit. The resulting binary's SHA-256 must equal
+# the one recorded in clinic-evidence/s06-ds2-decoding.json, otherwise the
+# build fails (supply-chain check; also fails when the toolchain produces a
+# different binary: then bump the rust image tag and DSS_CODEC_BINARY_SHA256
+# together with a new S06 evidence run). The runtime stage sets CLINIC_DSS_CODEC_BIN.
+###############################################################################
+FROM rust:1.88-slim-bookworm@sha256:38bc5a86d998772d4aec2348656ed21438d20fcdce2795b56ca434cf21430d89 AS dss-codec-stage
+
+ARG DSS_CODEC_REPO=https://github.com/hirparak/dss-codec.git
+ARG DSS_CODEC_COMMIT=c38d3192239005b0570c5987cbde62e69dd7dbbe
+# Binary hash of the build from the digest-pinned rust image above. It differs
+# from the first local S06 build (f1bfd338…, different toolchain); functional
+# equivalence was proven on the real DS2 fixture: both binaries decode it to a
+# WAV with sha256 27c84c90… (= clinic-evidence/s06-ds2-decoding.json
+# decoded_output.output_sha256). See the docker_build section of that file.
+ARG DSS_CODEC_BINARY_SHA256=e8f84918dfed24b4f0ec3bd8653f431e1a90f0b14176a9280bd3f56d3317570f
+
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && git init /src/dss-codec \
+    && git -C /src/dss-codec fetch --depth 1 "${DSS_CODEC_REPO}" "${DSS_CODEC_COMMIT}" \
+    && git -C /src/dss-codec checkout --detach FETCH_HEAD \
+    && test "$(git -C /src/dss-codec rev-parse HEAD)" = "${DSS_CODEC_COMMIT}" \
+    && cd /src/dss-codec/dss-codec \
+    && if [ -f Cargo.lock ]; then cargo build --release --locked --bin dss-decode; \
+       else cargo build --release --bin dss-decode; fi \
+    && echo "${DSS_CODEC_BINARY_SHA256}  target/release/dss-decode" | sha256sum -c - \
+    && install -m 0755 target/release/dss-decode /usr/local/bin/dss-decode
+
+###############################################################################
 # Stage 3: CSS - compile static/css/tailwind.css with the standalone Tailwind
 # CLI (no Node.js). Only the class names found in templates, static/js and src
 # are compiled (tailwind.config.js). The CLI release is pinned and each arch
@@ -112,6 +143,9 @@ WORKDIR /app
 COPY --from=ffmpeg-stage /usr/local/bin/ffmpeg /usr/local/bin/ffmpeg
 COPY --from=ffmpeg-stage /usr/local/bin/ffprobe /usr/local/bin/ffprobe
 
+# DS2/DSS decoder (hash-verified in dss-codec-stage); see src/clinic/decoder.py
+COPY --from=dss-codec-stage /usr/local/bin/dss-decode /usr/local/bin/dss-decode
+
 # The base image's setuptools is only needed to install packages, and its
 # vendored copies of wheel and jaraco.context carry advisories. It is removed
 # before the locked packages are copied in, so the lite image has none (pytz
@@ -140,6 +174,7 @@ ENV SQLALCHEMY_DATABASE_URI=sqlite:////data/instance/transcriptions.db
 ENV UPLOAD_FOLDER=/data/uploads
 ENV PYTHONPATH=/app
 ENV HF_HOME=/data/instance/huggingface
+ENV CLINIC_DSS_CODEC_BIN=/usr/local/bin/dss-decode
 
 # Add entrypoint script
 COPY scripts/docker-entrypoint.sh /usr/local/bin/

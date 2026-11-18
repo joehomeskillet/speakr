@@ -40,6 +40,15 @@ describe('isAcceptedUploadFile', () => {
     });
 });
 
+describe('dictation containers', () => {
+    it('offers and queues .ds2 and .dss files without a browser type', () => {
+        expect(UPLOAD_ACCEPT.split(',')).toEqual(expect.arrayContaining(['.ds2', '.dss']));
+        expect(isAcceptedUploadFile(file('diktat.ds2'))).toBe(true);
+        expect(isAcceptedUploadFile(file('DIKTAT.DSS', 'application/octet-stream'))).toBe(true);
+        expect(isVideoFileName('diktat.ds2')).toBe(false);
+    });
+});
+
 describe('isVideoFileName', () => {
     it('sizes video containers against the video limit and audio against the regular one', () => {
         for (const name of ['a.mp4', 'a.mov', 'a.webm', 'a.ogv', 'a.mpeg', 'a.mpg', 'a.vob', 'a.asf', 'a.m4v', 'a.ts']) {

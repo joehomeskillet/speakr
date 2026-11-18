@@ -62,10 +62,17 @@
     "verbatim_status": "ok",
     "adapter_call": "decoder.decode_to_wav(fixture, out_dir, timeout_s=300)"
   },
+  "docker_build": {
+    "recorded_date": "2026-11-18",
+    "builder_image": "rust:1.88-slim-bookworm@sha256:38bc5a86d998772d4aec2348656ed21438d20fcdce2795b56ca434cf21430d89",
+    "binary_sha256": "e8f84918dfed24b4f0ec3bd8653f431e1a90f0b14176a9280bd3f56d3317570f",
+    "first_local_build_binary_sha256": "f1bfd338125e35a1462dfe20a0da5228be5110ada9fa24254de0d80d08d8b0cf",
+    "equivalence": "Both binaries decode the confidential local DS2 fixture to a WAV with sha256 27c84c90193b91a616a9570a23ec0196ac4e5dfce7a9850017d87654840ff00e (exit 0); the hash difference is the build toolchain, not the output.",
+    "header_check": "The fixture's first bytes pass the upload magic check (\\x03ds2/\\x02dss): pass"
+  },
   "unproven_scope": [
     "Other DS2 modes",
     "DSS (classic)",
-    "Encrypted DS2 files (with password)",
-    "Wiring into upload/transcription pipeline"
+    "Encrypted DS2 files (with password)"
   ]
 }

@@ -1063,15 +1063,28 @@ def ingest(
                 success_status=success_status,
             )
 
+        # Dictation containers (.ds2/.dss): the extension must match the magic
+        # header, the original is stored as it is (no probe, no conversion) and
+        # the transcription job decodes it (src/clinic/dictation_upload.py).
+        from src.clinic import dictation_upload
+        dictation = dictation_upload.check_upload(filepath, original_filename)
+        if dictation.error:
+            current_app.logger.info(f"Upload refused for user {owner.id}: dictation header mismatch")
+            _discard_staging(filepath)
+            return jsonify({'error': dictation.error, 'code': 'dictation_invalid_header'}), 400
+
         # --- Convert files only when chunking is needed ---
 
         # Check if chunking will be needed for this file (uses connector-aware logic)
         needs_chunking_for_processing = bool(
-            chunking_service and
+            chunking_service and not dictation.is_dictation and
             chunking_service.needs_chunking(filepath, USE_ASR_ENDPOINT, connector_specs)
         )
 
-        upload_probe = probe_upload(filepath=filepath, original_filename=original_filename)
+        if dictation.is_dictation:
+            upload_probe = UploadProbe(None, None, False)
+        else:
+            upload_probe = probe_upload(filepath=filepath, original_filename=original_filename)
         codec_info = upload_probe.codec_info
         probe_error = upload_probe.probe_error
         has_video = upload_probe.has_video
@@ -1097,20 +1110,27 @@ def ingest(
             has_video=has_video,
             original_filename=original_filename,
         )
-        conversion = decide_conversion(
-            codec_info=codec_info,
-            has_video=has_video,
-            keep_audio_only_flag=keep_audio_only_flag,
-            join=join,
-            original_filename=original_filename,
-            should_enforce_size_limit=should_enforce_size_limit,
-            enforce_upload_limits=enforce_upload_limits,
-            effective_audio_only=effective_audio_only,
-            is_likely_video_by_ext=is_likely_video_by_ext,
-            regular_limit_mb=regular_limit_mb,
-            original_file_size=original_file_size,
-            log_path=filepath,
-        )
+        if dictation.is_dictation:
+            # Kept as uploaded; the transcription job decodes it.
+            conversion = ConversionDecision(
+                keep_video_for_this_upload=False, skip_conversion_for_join=False,
+                chunking_will_handle_large_audio=False, extracted_audio_limit_mb=None,
+                can_defer_conversion=False, conversion_deferred=False, convert_in_request=False)
+        else:
+            conversion = decide_conversion(
+                codec_info=codec_info,
+                has_video=has_video,
+                keep_audio_only_flag=keep_audio_only_flag,
+                join=join,
+                original_filename=original_filename,
+                should_enforce_size_limit=should_enforce_size_limit,
+                enforce_upload_limits=enforce_upload_limits,
+                effective_audio_only=effective_audio_only,
+                is_likely_video_by_ext=is_likely_video_by_ext,
+                regular_limit_mb=regular_limit_mb,
+                original_file_size=original_file_size,
+                log_path=filepath,
+            )
         keep_video_for_this_upload = conversion.keep_video_for_this_upload
         extracted_audio_limit_mb = conversion.extracted_audio_limit_mb
         conversion_deferred = conversion.conversion_deferred
@@ -1142,7 +1162,8 @@ def ingest(
         # (file_hash and duplicate_warning already computed above, before conversion)
 
         # Determine MIME type of the final file
-        mime_type = guess_media_type(filepath)
+        mime_type = (dictation_upload.mime_for(dictation.container) if dictation.is_dictation
+                     else guess_media_type(filepath))
 
         # For a retained-video file, derive the MIME from the file's ACTUAL
         # container via the shared probe-driven resolver (the same one the
