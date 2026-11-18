@@ -1537,8 +1537,12 @@ def save_metadata():
         if not recording or not has_recording_access(recording, current_user):
             return jsonify(api_error('recording_not_found')), 404
 
-        # Handle notes separately - no edit permission required (user-specific)
+        # Notes write to the recording itself since the personal-notes branch
+        # was removed with sharing: owner or edit access required.
         if 'notes' in data:
+            if recording.user_id != current_user.id and not has_recording_access(
+                    recording, current_user, require_edit=True):
+                return jsonify(api_error('recording_edit_denied')), 403
             # Stored as written: notes and summaries are Markdown, and the
             # HTML cleaner would turn "> quote" into "&gt; quote". They are
             # cleaned when converted to HTML (md_to_html), the only form ever
@@ -1598,9 +1602,8 @@ def save_metadata():
             from src.services.recording_state import set_user_archived
             set_user_archived(recording, current_user, data.get('is_archived'))
 
-        # The notes of a recipient are personal notes, not an edit of the recording.
         audit.edited(recording, [f for f in edit_fields if requires_edit and f in data]
-                     + (['notes'] if 'notes' in data and recording.user_id == current_user.id else []))
+                     + (['notes'] if 'notes' in data else []))
         db.session.commit()
 
         # Re-export the recording if auto-export is enabled and editable fields were changed

@@ -44,5 +44,5 @@ def archived_condition(recording_model, user_id):
 
 
 def set_user_notes(recording, user, notes):
-    """The owner writes the recording's notes."""
+    """Write the recording's notes. Callers enforce owner or edit access."""
     recording.notes = notes

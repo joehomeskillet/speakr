@@ -2166,10 +2166,13 @@ def update_recording(recording_id):
 def replace_notes(recording_id):
     """Replace notes entirely."""
     recording = db.session.get(Recording, recording_id)
-    # Notes are per user, as in the web app: a recipient with view access
-    # writes their personal notes, never the owner's.
     if not recording or not has_recording_access(recording, current_user):
         return jsonify(api_error('recording_not_found')), 404
+    # Notes write to the recording itself since the personal-notes branch was
+    # removed with sharing: owner or edit access required.
+    if recording.user_id != current_user.id and not has_recording_access(
+            recording, current_user, require_edit=True):
+        return jsonify(api_error('permission_denied')), 403
 
     data = request.get_json()
     if not data or 'notes' not in data:
@@ -2177,8 +2180,7 @@ def replace_notes(recording_id):
 
     from src.services.recording_state import set_user_notes
     set_user_notes(recording, current_user, data['notes'])
-    if recording.user_id == current_user.id:
-        audit.edited(recording, ['notes'])
+    audit.edited(recording, ['notes'])
     db.session.commit()
 
     return jsonify({'success': True, 'notes': recording.get_user_notes(current_user)})
