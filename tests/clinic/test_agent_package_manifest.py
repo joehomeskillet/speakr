@@ -459,6 +459,11 @@ def test_packager_script_stays_offline_and_pinned():
     assert "'--no-restore'" in text and "'--self-contained', 'false'" in text
     assert 'Get-FileHash' in text and 'ToLowerInvariant' in text
     assert 'layout escape' in text
+    assert 'GetUnresolvedProviderPathFromPSPath' in text
+    assert 'StartsWith($Root, [System.StringComparison]::OrdinalIgnoreCase)' in text
+    assert '[Array]::Sort($keys, [System.StringComparer]::Ordinal)' in text
+    assert '$global:LASTEXITCODE = 0' in text
+    assert 'Get-Content -LiteralPath $Path -Encoding UTF8' in text
     assert 'machine_installation = $false' in text
     assert 'production_rollout = $false' in text
     assert 'credential_discovery = $false' in text

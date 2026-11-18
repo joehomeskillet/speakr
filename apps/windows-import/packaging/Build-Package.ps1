@@ -46,8 +46,18 @@ $PackagePolicyJson = @'
 $script:Policy = $PackagePolicyJson | ConvertFrom-Json
 
 function Write-Utf8([string]$Path, [string]$Text) {
+    $resolved = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
     $utf8 = New-Object System.Text.UTF8Encoding $false
-    [System.IO.File]::WriteAllText($Path, $Text, $utf8)
+    [System.IO.File]::WriteAllText($resolved, $Text, $utf8)
+}
+
+function Get-LayoutRelative([string]$Root, [string]$Full) {
+    if ($Full.Length -le $Root.Length -or -not $Full.StartsWith($Root, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw 'layout escape'
+    }
+    $sep = $Full[$Root.Length]
+    if ($sep -ne '\' -and $sep -ne '/') { throw 'layout escape' }
+    return ($Full.Substring($Root.Length + 1) -replace '\\', '/')
 }
 
 function Write-Failure([string]$Status, [int]$Code, $Attempts, $Verification) {
@@ -72,7 +82,7 @@ function Write-Failure([string]$Status, [int]$Code, $Attempts, $Verification) {
 function Get-AuthorizedIdentities([string]$Path) {
     if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return $null }
     $rows = @()
-    foreach ($line in Get-Content -LiteralPath $Path) {
+    foreach ($line in Get-Content -LiteralPath $Path -Encoding UTF8) {
         $trim = $line.Trim()
         if (-not $trim -or $trim.StartsWith('#')) { continue }
         $rows += $trim
@@ -119,9 +129,10 @@ function Invoke-PinnedPublish([string]$Project, [string]$OutDir, [string]$UseVer
     for ($n = 0; $n -lt $max; $n++) {
         $code = 1
         try {
+            $global:LASTEXITCODE = 0
             if ($PublishStub) { & $PublishStub @publishArgs | Out-Null }
             else { & dotnet @publishArgs | Out-Null }
-            if ($null -ne $LASTEXITCODE) { $code = [int]$LASTEXITCODE }
+            $code = [int]$global:LASTEXITCODE
         } catch {
             $code = 1
         }
@@ -135,17 +146,13 @@ function Copy-PublishLayout([string]$Source, [string]$Dest) {
     $root = (Resolve-Path -LiteralPath $Source).Path.TrimEnd('\', '/')
     $skip = @($script:Policy.manifest_name, $script:Policy.failure_name, ($script:Policy.unsigned_marker + '.txt'))
     foreach ($file in @(Get-ChildItem -LiteralPath $root -Recurse -File)) {
-        $full = $file.FullName
-        if ($full.Length -le $root.Length) { throw 'layout escape' }
-        $sep = $full[$root.Length]
-        if ($sep -ne '\' -and $sep -ne '/') { throw 'layout escape' }
-        $rel = $full.Substring($root.Length + 1)
-        $posix = $rel -replace '\\', '/'
+        $posix = Get-LayoutRelative $root $file.FullName
         if ($skip -contains $posix) { continue }
+        $rel = $file.FullName.Substring($root.Length + 1)
         $target = Join-Path $Dest $rel
         $parent = Split-Path -Parent $target
         if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
-        Copy-Item -LiteralPath $full -Destination $target -Force
+        Copy-Item -LiteralPath $file.FullName -Destination $target -Force
     }
 }
 
@@ -172,8 +179,8 @@ if ($Version -and $Version -cne $script:Policy.version) {
 $useVersion = [string]$script:Policy.version
 
 try {
-    [xml]$projectXml = Get-Content -Raw -LiteralPath $ProjectPath
-    [xml]$propsXml = Get-Content -Raw -LiteralPath $DirectoryBuildProps
+    [xml]$projectXml = Get-Content -Raw -LiteralPath $ProjectPath -Encoding UTF8
+    [xml]$propsXml = Get-Content -Raw -LiteralPath $DirectoryBuildProps -Encoding UTF8
 } catch {
     Write-Failure 'stale-version' 2 @() $null
 }
@@ -226,21 +233,23 @@ if ($Configuration -ceq 'Development') {
 }
 
 $skipHash = @([string]$script:Policy.manifest_name, [string]$script:Policy.failure_name)
-$fileRows = @()
 $contentCount = 0
 $rootOut = (Resolve-Path -LiteralPath $OutputDirectory).Path.TrimEnd('\', '/')
-foreach ($file in @(Get-ChildItem -LiteralPath $OutputDirectory -Recurse -File | Sort-Object FullName)) {
-    $full = $file.FullName
-    if ($full.Length -le $rootOut.Length) { throw 'layout escape' }
-    $sep = $full[$rootOut.Length]
-    if ($sep -ne '\' -and $sep -ne '/') { throw 'layout escape' }
-    $rel = $full.Substring($rootOut.Length + 1) -replace '\\', '/'
+$byPath = @{}
+foreach ($file in @(Get-ChildItem -LiteralPath $OutputDirectory -Recurse -File)) {
+    $rel = Get-LayoutRelative $rootOut $file.FullName
     if ($skipHash -contains $rel) { continue }
     if ($rel -cne $markerName) { $contentCount += 1 }
-    $hash = (Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash.ToLowerInvariant()
-    $fileRows += [ordered]@{ path = $rel; sha256 = $hash }
+    $byPath[$rel] = $file.FullName
 }
 if ($contentCount -lt 1) { Write-Failure 'publish-failed' 4 $attempts $null }
+$keys = [string[]]$byPath.Keys
+[Array]::Sort($keys, [System.StringComparer]::Ordinal)
+$fileRows = @()
+foreach ($rel in $keys) {
+    $hash = (Get-FileHash -LiteralPath $byPath[$rel] -Algorithm SHA256).Hash.ToLowerInvariant()
+    $fileRows += [ordered]@{ path = $rel; sha256 = $hash }
+}
 
 $runtimeNotice = ([string]$script:Policy.runtime_notice).Replace('{framework}', $framework).Replace('{runtime}', [string]$script:Policy.publish.runtime)
 $notices = @($runtimeNotice)
