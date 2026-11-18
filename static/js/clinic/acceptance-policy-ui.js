@@ -10,6 +10,14 @@
  * that are no longer eligible are flagged removed and block the save until they
  * are deselected. Clinical data is never written to browser storage. Status
  * colours come from tokens.js only.
+ *
+ * OPEN BACKEND GAP (not closed by this package): neither the policy read
+ * GET /dictations/<id>/acceptance-policy nor the command 'save_acceptance_policy'
+ * exists in src/ or clinic-spec/contracts. routes_workflow.py (w091) only exposes
+ * request_acceptance and decide_acceptance. Persisting the required flag and the
+ * approvers is therefore proven only against mock clients; AC1 is NOT met.
+ * Proposed backend WP: policy read + save endpoint with expected-version check,
+ * plus the clinic-spec contract entry.
  */
 
 import { createClinicApiClient } from './api-client.js';
@@ -251,7 +259,7 @@ export function acceptancePolicyComponent(vue, options) {
   <button type="button" @click="editor.save()">${LABELS.save}</button>
   <h3>${LABELS.decisions}</h3>
   <ul role="list" aria-label="${LABELS.decisions}">
-    <li v-for="d in editor.state.decisions" :key="d.revisionId + d.actorId">{{ d.label }} &ndash; ${LABELS.actor}: {{ d.actorName }}</li>
+    <li v-for="(d, i) in editor.state.decisions" :key="i + '-' + d.revisionId + '-' + d.actorId">{{ d.label }} &ndash; ${LABELS.actor}: {{ d.actorName }}</li>
   </ul>
 </section>`,
     };
