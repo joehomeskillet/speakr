@@ -8,6 +8,7 @@ changes.
 import os
 import re
 import mimetypes
+from time import time
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, session, current_app, make_response
 from markupsafe import escape
 from flask_login import login_user, logout_user, login_required, current_user
@@ -18,6 +19,8 @@ from email_validator import validate_email, EmailNotValidError
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from src.database import db
+from src.clinic import identity
+from src.clinic.config import clinic_mode_enabled
 from src.models import User, SystemSetting, GroupMembership
 from src.utils import password_check, is_safe_url
 from src.services import audit, login_lock
@@ -143,6 +146,10 @@ class LoginForm(FlaskForm):
     submit = SubmitField('Login')
 
 
+class ClinicLoginForm(LoginForm):
+    email = StringField('Loginname oder E-Mail')
+
+
 # --- Helper Functions ---
 
 def _email_notifications_available(user) -> bool:
@@ -230,9 +237,110 @@ def _dummy_password_check(password):
     return False
 
 
+def clinic_session_matches(policy):
+    return (session.get('_user_id') == current_user.get_id()
+            and session.get('clinic_security_version') == policy.security_version
+            and session.get('clinic_provider') == 'local')
+
+
+def clinic_recent_auth(policy):
+    authenticated_at = session.get('clinic_reauth_at')
+    return (clinic_session_matches(policy) and isinstance(authenticated_at, (float, int))
+            and 0 <= time() - authenticated_at <= 300)
+
+
+def _clinic_sign_in(user, security_version):
+    session.clear()
+    session['_remember'] = 'clear'
+    login_user(user, remember=False)
+    session.update(clinic_provider='local', clinic_security_version=security_version, clinic_reauth_at=time())
+
+
+def _clear_clinic_session():
+    logout_user()
+    session.clear()
+    session['_remember'] = 'clear'
+
+
+def _clinic_password_error(exc):
+    if isinstance(exc, identity.HashBusy):
+        return 'hash_busy', 'Bitte später erneut versuchen.', 503
+    if isinstance(exc, identity.PasswordPolicyError):
+        return exc.code, 'Das Passwort muss 15–128 Zeichen lang sein und darf nicht auf der Sperrliste stehen.', 400
+    return 'invalid_recovery_code', 'Der Einmalcode ist ungültig, abgelaufen oder wurde bereits verwendet.', 400
+
+
+def _clinic_redeem(data):
+    password = data.get('new_password')
+    if not password or password != data.get('confirmation', data.get('confirm_password')):
+        return jsonify(code='password_mismatch', error='Bitte das neue Passwort eingeben und bestätigen.'), 400
+    try:
+        identity.complete_recovery(data.get('code'), password, purpose=data.get('purpose'))
+    except identity.IdentityError as exc:
+        db.session.rollback()
+        code, message, status = _clinic_password_error(exc)
+        return jsonify(code=code, error=message), status
+    _clear_clinic_session()
+    response = make_response('', 204)
+    return _mark_signed_out(response)
+
+
+def _clinic_login():
+    if request.method == 'POST':
+        # This is a browser entry point, even if API credentials were also sent.
+        csrf.protect()
+        data = request.get_json(silent=True) if request.is_json else request.form
+        if data is not None and hasattr(data, 'get') and data.get('purpose') in ('activate_local', 'reset_local'):
+            if current_user.is_authenticated:
+                return jsonify(code='sign_out_first', error='Bitte zuerst abmelden.'), 409
+            return _clinic_redeem(data)
+    if current_user.is_authenticated:
+        return redirect(url_for('recordings.index'))
+    stale_session = '_user_id' in session
+    if stale_session:
+        _clear_clinic_session()
+
+    form = ClinicLoginForm()
+    if form.validate_on_submit():
+        login_id = request.form.get('login_id', form.email.data or '').strip()
+        candidate = identity.find_login_user(login_id)
+        client = login_lock.client_key(request.remote_addr)
+        maximum, minutes = login_lock.lock_settings()
+        locked = candidate is not None and maximum and login_lock.is_locked(candidate.id, client)
+        try:
+            result = identity.authenticate_local(login_id, form.password.data)
+        except identity.AuthenticationFailed:
+            db.session.rollback()
+            if candidate is not None and maximum and not locked:
+                login_lock.record_failure(candidate.id, client, maximum, minutes)
+            result = None
+        except identity.HashBusy:
+            return jsonify(code='hash_busy', error='Bitte später erneut versuchen.'), 503
+        if result is not None and not locked and not result.must_change_password:
+            if maximum:
+                login_lock.clear_failures(result.user_id, client)
+                db.session.commit()
+            user = db.session.get(User, result.user_id, populate_existing=True)
+            policy = db.session.get(identity.ClinicAccountPolicy, result.user_id, populate_existing=True)
+            if user and policy and policy.security_version == result.security_version:
+                _clinic_sign_in(user, result.security_version)
+                audit.record('auth.login.succeeded', actor_kind='session', actor_user_id=user.id,
+                             details={'method': 'password', 'remember': False})
+                next_page = request.args.get('next')
+                return redirect(next_page if next_page and is_safe_url(next_page) else url_for('recordings.index'))
+        _audit_login_failed(candidate, 'locked' if locked else 'bad_password')
+        flash('Anmeldung fehlgeschlagen.', 'danger')
+
+    response = make_response(render_template('login.html', title='Anmelden', form=form, sso_enabled=False,
+                                             password_login_disabled=False))
+    return _mark_signed_out(response) if stale_session else response
+
+
 @auth_bp.route('/login', methods=['GET', 'POST'])
 @rate_limit("10 per minute")
 def login():
+    if clinic_mode_enabled():
+        return _clinic_login()
     if current_user.is_authenticated:
         return redirect(url_for('recordings.index'))
 
@@ -282,7 +390,7 @@ def login():
 @auth_bp.route('/auth/sso/login')
 @rate_limit("10 per minute")
 def sso_login():
-    if not is_sso_enabled():
+    if clinic_mode_enabled() or not is_sso_enabled():
         flash(translate('server.flash.ssoNotConfigured'), 'danger')
         return redirect(url_for('auth.login'))
 
@@ -323,7 +431,7 @@ def _leave_for_provider(provider_redirect):
 @auth_bp.route('/auth/sso/callback')
 @rate_limit("20 per minute")
 def sso_callback():
-    if not is_sso_enabled():
+    if clinic_mode_enabled() or not is_sso_enabled():
         flash(translate('server.flash.ssoNotConfigured'), 'danger')
         return redirect(url_for('auth.login'))
 
@@ -399,7 +507,7 @@ def sso_callback():
 @auth_bp.route('/auth/sso/link', methods=['POST'])
 @login_required
 def sso_link():
-    if not is_sso_enabled():
+    if clinic_mode_enabled() or not is_sso_enabled():
         flash(translate('server.flash.ssoNotConfigured'), 'danger')
         return redirect(url_for('auth.account'))
 
@@ -412,6 +520,8 @@ def sso_link():
 @auth_bp.route('/auth/sso/unlink', methods=['POST'])
 @login_required
 def sso_unlink():
+    if clinic_mode_enabled():
+        return jsonify(code='provider_unavailable', error='Dieser Anmeldeanbieter ist hier nicht verfügbar.'), 403
     if not current_user.sso_subject:
         flash(translate('server.flash.ssoNotLinked'), 'warning')
         return redirect(url_for('auth.account'))
@@ -440,7 +550,10 @@ def signed_out_redirect():
     It holds no data, is readable by scripts on purpose, and is removed by
     that script; without it, it ends with the browser session.
     """
-    response = redirect(url_for('auth.login'))
+    return _mark_signed_out(redirect(url_for('auth.login')))
+
+
+def _mark_signed_out(response):
     response.set_cookie(SIGNED_OUT_COOKIE, '1', secure=request.is_secure, httponly=False,
                         samesite='Lax', path='/')
     return response
@@ -451,9 +564,14 @@ def logout():
     # POST-only so the global CSRF check applies: a cross-site GET (e.g.
     # <img src="/logout">) can no longer force-log-out a victim. The menu
     # "Sign out" controls are CSRF-token-carrying POST forms.
+    if clinic_mode_enabled():
+        csrf.protect()
     if current_user.is_authenticated:
         audit.record('auth.logout')
-    logout_user()
+    if clinic_mode_enabled():
+        _clear_clinic_session()
+    else:
+        logout_user()
     return signed_out_redirect()
 
 
@@ -771,7 +889,7 @@ def account():
             })
 
     sso_config = get_sso_config()
-    sso_enabled = is_sso_enabled()
+    sso_enabled = not clinic_mode_enabled() and is_sso_enabled()
     if sso_enabled:
         init_sso_client(current_app)
     sso_linked = bool(current_user.sso_subject)
@@ -878,6 +996,36 @@ def update_auto_summarization():
 @login_required
 @rate_limit("10 per minute")
 def change_password():
+    if clinic_mode_enabled():
+        csrf.protect()
+        data = request.form
+        password = data.get('new_password')
+        if not password or password != data.get('confirm_password'):
+            flash('Bitte das neue Passwort eingeben und bestätigen.', 'danger')
+            return redirect(url_for('auth.account'))
+        user = current_user._get_current_object()
+        policy = db.session.get(identity.ClinicAccountPolicy, user.id)
+        if not policy or not clinic_session_matches(policy):
+            return jsonify(code='local_password_not_permitted', error='Kein lokaler Passwortwechsel möglich.'), 403
+        try:
+            user_id = user.id
+            version = identity.change_password(user_id, data.get('current_password'), password,
+                                               expected_security_version=policy.security_version)
+        except identity.AuthenticationFailed:
+            db.session.rollback()
+            return jsonify(code='local_password_not_permitted', error='Kein lokaler Passwortwechsel möglich.'), 403
+        except identity.IdentityError as exc:
+            db.session.rollback()
+            code, message, status = _clinic_password_error(exc)
+            return jsonify(code=code, error=message), status
+        user = db.session.get(User, user_id, populate_existing=True)
+        policy = db.session.get(identity.ClinicAccountPolicy, user_id, populate_existing=True)
+        if not user or not policy or policy.security_version != version:
+            _clear_clinic_session()
+            return signed_out_redirect()
+        _clinic_sign_in(user, version)
+        flash('Das Passwort wurde geändert.', 'success')
+        return redirect(url_for('auth.account'))
     # Check if password management is disabled for non-admins
     sso_config = get_sso_config()
     password_login_disabled = is_sso_enabled() and sso_config.get('disable_password_login', False)
