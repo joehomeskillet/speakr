@@ -328,7 +328,7 @@ def _get_email_template(content_html: str, content_text: str, subject: str,
 
 def _recipient_language(user) -> str:
     """The recipient's interface language, for mail sent outside their own session."""
-    return match_language(getattr(user, 'ui_language', None)) or 'en'
+    return match_language(getattr(user, 'ui_language', None)) or 'de'
 
 
 def send_verification_email(user) -> bool:

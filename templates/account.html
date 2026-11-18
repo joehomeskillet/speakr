@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full">
+<html lang="{{ user_language or 'de' }}" class="h-full">
 <head>
     <meta charset="UTF-8">
     {% include 'includes/theme_account.html' %}
@@ -103,7 +103,7 @@
         }
 
         function sortLanguageDropdowns() {
-            const locale = (window.i18n && window.i18n.currentLocale) || 'en';
+            const locale = (window.i18n && window.i18n.currentLocale) || 'de';
             fillLanguageDropdowns(locale);
             ['ui_language', 'transcription_language', 'output_language'].forEach(id => {
                 sortSelectOptionsAlphabetically(document.getElementById(id), locale);
@@ -1106,9 +1106,9 @@
                                     <div>
                                         <label for="ui_language" class="block text-sm font-medium text-[var(--text-muted)]" data-i18n="account.interfaceLanguage">Interface language</label>
                                         <select name="ui_language" id="ui_language" class="mt-1 block w-full px-3 py-2 border border-[var(--border-secondary)] rounded-md shadow-sm focus:outline-none focus:ring-[var(--border-focus)] focus:border-[var(--border-focus)] sm:text-sm bg-[var(--bg-input)] text-[var(--text-primary)]">
-                                            <option value="en" {% if current_user.ui_language == 'en' or not current_user.ui_language %}selected{% endif %}>English</option>
+                                            <option value="en" {% if current_user.ui_language == 'en' %}selected{% endif %}>English</option>
                                             <option value="zh" {% if current_user.ui_language == 'zh' %}selected{% endif %}>中文 (Chinese)</option>
-                                            <option value="de" {% if current_user.ui_language == 'de' %}selected{% endif %}>Deutsch (German)</option>
+                                            <option value="de" {% if current_user.ui_language == 'de' or not current_user.ui_language %}selected{% endif %}>Deutsch (German)</option>
                                             <option value="es" {% if current_user.ui_language == 'es' %}selected{% endif %}>Español (Spanish)</option>
                                             <option value="fr" {% if current_user.ui_language == 'fr' %}selected{% endif %}>Français (French)</option>
                                             <option value="ru" {% if current_user.ui_language == 'ru' %}selected{% endif %}>Русский (Russian)</option>

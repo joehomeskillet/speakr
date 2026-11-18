@@ -74,7 +74,7 @@ def admin():
         return redirect(url_for('admin.group_management'))
 
     # Full admins only get here
-    user_language = current_user.ui_language if current_user.is_authenticated and current_user.ui_language else 'en'
+    user_language = current_user.ui_language if current_user.is_authenticated and current_user.ui_language else 'de'
     return render_template('admin.html',
                          title='Admin Dashboard',
                          admin_title=translate('nav.adminDashboard', user_language),
@@ -105,7 +105,7 @@ def group_management():
     if current_user.is_admin:
         return redirect(url_for('admin.admin'))
 
-    user_language = current_user.ui_language if current_user.is_authenticated and current_user.ui_language else 'en'
+    user_language = current_user.ui_language if current_user.is_authenticated and current_user.ui_language else 'de'
     return render_template('group-admin.html',
                          title='Group Management',
                          groups_title=translate('nav.groupManagement', user_language),

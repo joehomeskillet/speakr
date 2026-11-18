@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full">
+<html lang="{{ user_language or 'de' }}" class="h-full">
 <head>
     <meta charset="UTF-8">
     <!-- interactive-widget=resizes-content: on Android Chrome the on-screen
@@ -210,7 +210,7 @@
 
             try {
                 if (window.i18n && window.i18n.init) {
-                    const userLang = localStorage.getItem('preferredLanguage') || '{{ user_language }}' || 'en';
+                    const userLang = localStorage.getItem('preferredLanguage') || '{{ user_language }}' || 'de';
 
                     // Race between i18n init and timeout
                     await Promise.race([

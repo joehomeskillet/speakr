@@ -371,7 +371,7 @@ def _run_migrations(app, engine):
             app.logger.info("Added company column to user table")
         if add_column_if_not_exists(engine, 'user', 'diarize', 'BOOLEAN'):
             app.logger.info("Added diarize column to user table")
-        if add_column_if_not_exists(engine, 'user', 'ui_language', "VARCHAR(10) DEFAULT 'en'"):
+        if add_column_if_not_exists(engine, 'user', 'ui_language', "VARCHAR(10) DEFAULT 'de'"):
             app.logger.info("Added ui_language column to user table")
         if add_column_if_not_exists(engine, 'user', 'sso_provider', 'VARCHAR(100)'):
             app.logger.info("Added sso_provider column to user table")

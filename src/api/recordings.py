@@ -1067,7 +1067,7 @@ def index(recording_id=None, label_name=None):
     ).first() is not None
 
     # Pass the ASR config, inquire mode config, and user language preference to the template
-    user_language = current_user.ui_language if current_user.is_authenticated and current_user.ui_language else 'en'
+    user_language = current_user.ui_language if current_user.is_authenticated and current_user.ui_language else 'de'
 
     # Default target language for the translation modal: the account's
     # preferred output language, falling back to the interface language

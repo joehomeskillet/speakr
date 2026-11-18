@@ -947,7 +947,7 @@ def account():
             ui_lang = request.form.get('ui_language')
             transcription_lang = request.form.get('transcription_language')
             output_lang = request.form.get('output_language')
-            current_user.ui_language = ui_lang if ui_lang else 'en'
+            current_user.ui_language = ui_lang if ui_lang else 'de'
             # Normalize transcription_language so legacy display-name values
             # ("Français", "Deutsch", ...) can't reach the ASR call (issue #256).
             from src.utils.language import normalize_language_code
@@ -1152,7 +1152,7 @@ def account():
     from src.models.system import _SYSTEM_SETTING_CACHE_GENERATION
 
     # Get user's UI language preference
-    user_language = current_user.ui_language if current_user.ui_language else 'en'
+    user_language = current_user.ui_language if current_user.ui_language else 'de'
 
     from src.services.inquire_agent import get_availability as _get_inquire_availability
     _inquire_availability = _get_inquire_availability(current_user)

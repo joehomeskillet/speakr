@@ -105,9 +105,9 @@ def test_format_number_uses_the_request_language_by_default():
         assert format_file_size(1536000) == '1,5 MB'
 
 
-def test_outside_a_request_the_language_is_english():
-    assert request_language() == 'en'
-    assert translate('server.flash.userNotFound') == 'User not found.'
+def test_outside_a_request_the_language_is_german():
+    assert request_language() == 'de'
+    assert translate('server.flash.userNotFound') == 'Benutzer nicht gefunden.'
 
 
 @pytest.mark.parametrize('header,expected', [
@@ -115,16 +115,16 @@ def test_outside_a_request_the_language_is_english():
     ('fr-CA', 'fr'),
     ('pt', 'pt-BR'),
     ('zh-CN,zh;q=0.9', 'zh'),
-    ('xx-YY', 'en'),
+    ('xx-YY', 'de'),
 ])
 def test_anonymous_requests_use_accept_language(header, expected):
     with app.test_request_context('/', headers={'Accept-Language': header}):
         assert request_language() == expected
 
 
-def test_anonymous_request_without_accept_language_is_english():
+def test_anonymous_request_without_accept_language_is_german():
     with app.test_request_context('/'):
-        assert translate('server.flash.userNotFound') == 'User not found.'
+        assert translate('server.flash.userNotFound') == 'Benutzer nicht gefunden.'
 
 
 # ---------------------------------------------------------------------------
@@ -218,13 +218,21 @@ def test_account_emails_use_the_recipients_language(make_user, sender, subject, 
 
 
 @pytest.mark.parametrize('sender,subject', [
-    (email_service.send_verification_email, 'Verify your email for Speakr'),
-    (email_service.send_password_reset_email, 'Reset your Speakr password'),
+    (email_service.send_verification_email, 'E-Mail-Adresse für Speakr bestätigen'),
+    (email_service.send_password_reset_email, 'Speakr-Passwort zurücksetzen'),
 ])
-def test_account_emails_default_to_english(make_user, sender, subject):
+def test_account_emails_default_to_german(make_user, sender, subject):
     uid = make_user(None)
-    got_subject, html_body, text_body = _send(sender, uid, accept_language='de')
+    got_subject, html_body, text_body = _send(sender, uid, accept_language='en')
     assert got_subject == subject
+    assert 'Hallo i18n_' in text_body
+    assert 'Audio-Transkription und Notizen' in html_body
+
+
+def test_account_emails_honor_explicit_english(make_user):
+    uid = make_user('en')
+    subject, html_body, text_body = _send(email_service.send_verification_email, uid)
+    assert subject == 'Verify your email for Speakr'
     assert 'Hi i18n_' in text_body
     assert 'Audio transcription and notes' in html_body
 
@@ -268,7 +276,7 @@ def _budget(tracker, uid, used, budget_field, budget):
 
 def test_token_budget_messages_use_the_users_language(make_user):
     from src.services.token_tracking import token_tracker
-    de, en = make_user('de'), make_user(None)
+    de, en = make_user('de'), make_user('en')
     assert _budget(token_tracker, de, 1200, 'monthly_token_budget', 1000) == (
         False, 120.0, 'Monatliches Token-Budget aufgebraucht (120\xa0%). '
         'Bitten Sie Ihren Administrator um mehr.')
@@ -301,7 +309,7 @@ def _session_client(uid):
 
 @pytest.mark.parametrize('lang,text', [
     ('de', 'Aufnahme nicht gefunden'), ('fr', 'Enregistrement introuvable'),
-    (None, 'Recording not found'),
+    (None, 'Aufnahme nicht gefunden'),
     # An unknown saved language falls back to Accept-Language (ru here).
     ('xx', 'Запись не найдена'),
 ])

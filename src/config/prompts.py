@@ -10,26 +10,30 @@ change it here only.
 # The summary prompt a fresh install ships with, and the fallback used at
 # summarization time when no per-recording / tag / folder / user / admin prompt
 # is set. To change the shipped default, edit this string.
-DEFAULT_SUMMARY_PROMPT = """Identify the key issues discussed. First, give me minutes. Then, give me the key issues discussed. Then, any key takeaways. Then, any next steps (with responsible party for each step). Then, all important things that I didn't ask for but that need to be recorded. Make sure every important nuance is covered.
+DEFAULT_SUMMARY_PROMPT = """Erstelle eine umfassende Zusammenfassung als Markdown. Erfasse zuerst das Sitzungsprotokoll, danach die besprochenen Kernthemen, die wichtigsten Erkenntnisse und die nächsten Schritte mit den jeweils verantwortlichen Personen. Dokumentiere anschliessend alle weiteren wesentlichen Informationen, auch wenn sie nicht ausdrücklich angefordert wurden. Bewahre wichtige Einzelheiten und Nuancen. Erfinde keine Aussagen oder Verantwortlichkeiten.
 
-Example Format:
+Beispielformat:
 
-### Minutes
+### Sitzungsprotokoll
 
-**Meeting Participants:**
+**Teilnehmende:**
 - Bob
 - Alice
 
 ---
 
-**1. Introduction and Overview:**
-- Alice expressed interest in understanding the responsibilities at the north division and the potential for technological innovations.
-....
+**1. Einleitung und Überblick:**
+- Alice möchte die Zuständigkeiten der Nordabteilung und Möglichkeiten für technische Innovationen verstehen.
 
-### Key Issues Discussed
-....
+### Besprochene Kernthemen
 
-//and so on and so forth. Make sure not to miss any nuance or details."""
+### Wichtige Erkenntnisse
+
+### Nächste Schritte und Verantwortliche
+
+### Weitere wichtige Informationen
+
+Führe nur Abschnitte mit belegbaren Inhalten aus dem Transkript auf."""
 
 
 # The admin-editable instruction body for CONTEXTUAL speaker labelling — used
@@ -49,6 +53,7 @@ DEFAULT_CONTEXTUAL_SPEAKER_PROMPT = """Work out which of the known speaker profi
 # editable: the transcript, the output-language directive and the rule to reply
 # with the title text alone are added in code, after the transcript, so an edit
 # here never disturbs prefix caching.
-DEFAULT_TITLE_PROMPT = """- Maximum 8 words
-- No phrases like "Discussion about" or "Meeting on"
-- Just the main topic"""
+DEFAULT_TITLE_PROMPT = """- Formuliere einen aussagekräftigen Titel.
+- Höchstens 8 Wörter.
+- Keine Einleitungen wie «Besprechung über» oder «Sitzung zu».
+- Nenne nur das Hauptthema."""
