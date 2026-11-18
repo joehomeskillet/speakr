@@ -8,6 +8,7 @@ from src.clinic import agent_channel as ch
 from src.clinic import import_centre as ic
 from src.clinic.agent_channel import AgentChannelError
 from src.clinic.author_resolution import normalise_alias
+from src.clinic.import_visibility import ClarificationPolicy
 from src.clinic.models import ClinicDictation, ClinicOriginal
 from src.database import db
 
@@ -81,19 +82,25 @@ def test_unresolved_original_survives_until_confirmed_assignment(env, clinic_on,
     inode = path.stat().st_ino
     assert path.read_bytes() == data
 
+    # Clarification calls need an explicit policy in clinic mode (w116); this one allows every
+    # actor and target so the original refusals below still come from the intent checks.
+    clarify = ClarificationPolicy(may_access=lambda *_: True, may_target=lambda *_: True)
     late = NOW + timedelta(days=2)
     assert _finalize(env, ingest_id, body, now=late, device_map={"USB-1": env["author"].id}) == first
     with pytest.raises(AgentChannelError, match="intent is not open"):
         ic.assign_unassigned(actor_user_id=env["author"].id, delivery_id=delivery_id,
-                             intent_id=intent["id"], now=late)
+                             intent_id=intent["id"], policy=clarify,
+                             expected_snapshot_version=version, now=late)
     confirmed = _intent(env, now=late)
     with pytest.raises(AgentChannelError) as error:
         ic.assign_unassigned(actor_user_id=env["other"].id, delivery_id=delivery_id,
-                             intent_id=confirmed["id"], now=late)
+                             intent_id=confirmed["id"], policy=clarify,
+                             expected_snapshot_version=version, now=late)
     assert error.value.code == "not_found"
     assert ClinicDictation.query.count() == 0
     ic.assign_unassigned(actor_user_id=env["author"].id, delivery_id=delivery_id,
-                         intent_id=confirmed["id"], now=late)
+                         intent_id=confirmed["id"], policy=clarify,
+                         expected_snapshot_version=version, now=late)
     healed = _finalize(env, ingest_id, body, now=late)
     assert healed["state"] == "STORED"
     assert _finalize(env, ingest_id, body, now=late) == healed

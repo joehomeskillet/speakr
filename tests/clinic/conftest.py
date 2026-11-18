@@ -11,7 +11,7 @@ clean-up and put back right after.
 import secrets
 
 import pytest
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect, select, text
 
 from sqlalchemy.sql.ddl import sort_tables
 
@@ -25,7 +25,7 @@ from src.clinic.append_only_guards import (
     trigger_names,
 )
 from src.models import (
-    APIToken, ProcessingJob, Recording, SystemSetting, User,
+    APIToken, ProcessingJob, Recording, RecordingTag, SystemSetting, Tag, User,
 )
 from src.utils.token_auth import hash_token
 
@@ -202,6 +202,24 @@ def _purge_upstream_dependents(user_ids, recording_ids):
                     conn.execute(table.delete().where(fk.parent.notin_(own[parent])))
 
 
+def _purge_orphan_jobs():
+    """SQLite does not enforce foreign keys: a job left behind for a deleted recording
+    would collide on (recording_id, job_type) when a later test reuses that recording id.
+    Tags of deleted accounts and their recording links leak into later tests the same way."""
+    db.session.rollback()
+    ProcessingJob.query.filter(ProcessingJob.recording_id.notin_(select(Recording.id))).delete(
+        synchronize_session=False
+    )
+    RecordingTag.query.filter(RecordingTag.recording_id.notin_(select(Recording.id))).delete(
+        synchronize_session=False
+    )
+    RecordingTag.query.filter(
+        RecordingTag.tag_id.in_(select(Tag.id).where(Tag.user_id.notin_(select(User.id))))
+    ).delete(synchronize_session=False)
+    Tag.query.filter(Tag.user_id.notin_(select(User.id))).delete(synchronize_session=False)
+    db.session.commit()
+
+
 def _purge_new_accounts(user_ids, recording_ids):
     db.session.rollback()
     if db.engine.dialect.name == "postgresql":
@@ -209,8 +227,10 @@ def _purge_new_accounts(user_ids, recording_ids):
     Recording.query.filter(~Recording.id.in_(recording_ids or [0])).delete(
         synchronize_session=False
     )
+    db.session.commit()
     User.query.filter(~User.id.in_(user_ids or [0])).delete(synchronize_session=False)
     db.session.commit()
+    _purge_orphan_jobs()
 
 
 def _ensure_issuer_user():
@@ -230,6 +250,7 @@ def _ensure_issuer_user():
 def clinic_isolation():
     with app.app_context():
         _purge_clinic_rows()
+        _purge_orphan_jobs()
         _ensure_issuer_user()
         users = [row[0] for row in db.session.query(User.id).all()]
         recordings = [row[0] for row in db.session.query(Recording.id).all()]
