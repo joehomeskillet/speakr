@@ -6,7 +6,7 @@
 class I18n {
     constructor() {
         this.translations = {};
-        this.currentLocale = 'en';
+        this.currentLocale = 'de';
         this.fallbackLocale = 'en';
         this.loadedLocales = new Set();
         // English strings for the keys a language lacks, per language, as
@@ -28,12 +28,12 @@ class I18n {
      * Initialize i18n with default locale
      * @param {string} locale - Initial locale code (e.g., 'en', 'es', 'fr', 'zh')
      */
-    async init(locale = 'en') {
+    async init(locale = 'de') {
         // Get saved locale from localStorage or use browser language
         const savedLocale = localStorage.getItem('preferredLanguage');
         const browserLocale = navigator.language.split('-')[0];
         
-        this.currentLocale = savedLocale || locale || browserLocale || 'en';
+        this.currentLocale = savedLocale || locale || browserLocale || 'de';
         
         // Load the initial locale. English, the fallback, is not loaded with
         // it: it is fetched when a key is missing (see t() and loadFallback()),

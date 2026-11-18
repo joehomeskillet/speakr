@@ -27,7 +27,7 @@ const { createApp, ref, shallowRef, computed, nextTick, onMounted } = Vue;
 const i18nVersion = ref(0);
 if (window.i18n) {
     window.addEventListener('i18nReady', () => { i18nVersion.value++; });
-    if (!window.i18n.isReady) window.i18n.init(document.documentElement.lang || 'en');
+    if (!window.i18n.isReady) window.i18n.init(document.documentElement.lang || 'de');
 }
 
 const readData = () => {

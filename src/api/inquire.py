@@ -67,7 +67,7 @@ def inquire():
     # Render the inquire page with user context for theming
     # The interface language, as on the other pages (it was missing here, so
     # Inquire always appeared in the browser language).
-    user_language = current_user.ui_language or 'en'
+    user_language = current_user.ui_language or 'de'
     from src.utils.assistant_name import assistant_name_of
     page_title = translate('inquire.title', user_language, name=assistant_name_of(current_user))
     return render_template('inquire.html',

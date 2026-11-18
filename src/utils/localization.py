@@ -212,7 +212,8 @@ def format_datetime_localized(dt: datetime, language: str) -> str:
     return f"{date_part}{connector}{time_part}"
 
 
-FALLBACK_LANGUAGE = 'en'
+DEFAULT_LANGUAGE = 'de'
+FALLBACK_LANGUAGE = 'en'  # Translation key fallback for missing catalog entries
 # {{name}}, the placeholder syntax interpolate() in static/js/i18n.js fills.
 _PLACEHOLDER_RE = re.compile(r'\{\{(\w+)\}\}')
 
@@ -247,11 +248,11 @@ def request_language() -> str:
     Language for text produced in the current request.
 
     The signed-in user's interface language comes first, then the
-    Accept-Language header. Outside a request, English is used.
+    Accept-Language header. Without a preference, German is used.
     """
     from flask import has_request_context, request
     if not has_request_context():
-        return FALLBACK_LANGUAGE
+        return DEFAULT_LANGUAGE
     try:
         from flask_login import current_user
         if current_user and current_user.is_authenticated:
@@ -261,7 +262,7 @@ def request_language() -> str:
     except Exception:  # app without a login manager
         pass
     # best_match also pairs 'de-AT' with 'de' and 'pt' with 'pt-BR'.
-    return request.accept_languages.best_match(available_languages()) or FALLBACK_LANGUAGE
+    return request.accept_languages.best_match(available_languages()) or DEFAULT_LANGUAGE
 
 
 def _resolve_language(language: Optional[str]) -> str:

@@ -108,10 +108,18 @@ def test_empty_language_falls_through_to_defaults():
 
 def test_auto_detect_only_when_no_default_anywhere():
     with app.app_context():
-        user = _mk_user()  # no account default language
+        user = _mk_user(transcription_language=None)  # explicit auto-detect preference
         rec = _mk_recording(user)
         # Nothing in the chain sets a language => auto-detect (None).
         assert resolve_transcription_params(rec, {"language": ""})["language"] is None
+
+
+def test_new_account_default_language_and_explicit_auto_detection():
+    with app.app_context():
+        user = _mk_user()
+        rec = _mk_recording(user)
+        assert resolve_transcription_params(rec)["language"] == "de"
+        assert resolve_transcription_params(rec, {"language": "auto"})["language"] is None
 
 
 def test_resolver_accepts_explicit_tags_folder_owner_without_recording():

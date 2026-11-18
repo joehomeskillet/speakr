@@ -197,12 +197,20 @@ def test_bootstrap_for_english_has_one_table():
     assert data["translations"]["en"]["nav"]["account"] == "Account"
 
 
-@pytest.mark.parametrize("locale", ["xx", "../en", "en/../de", "", None])
+@pytest.mark.parametrize("locale", ["xx", "../en", "en/../de"])
 def test_bootstrap_for_an_unknown_or_invalid_locale_is_english_only(locale):
     with app.test_request_context():
         data = i18n_bootstrap(locale)
     assert data["locale"] == "en"
     assert list(data["translations"]) == ["en"]
+
+
+@pytest.mark.parametrize("locale", ["", None])
+def test_bootstrap_without_a_preference_defaults_to_german(locale):
+    with app.test_request_context():
+        data = i18n_bootstrap(locale)
+    assert data["locale"] == "de"
+    assert list(data["translations"]) == ["de"]
 
 
 # --- Rendered pages -----------------------------------------------------------
@@ -465,7 +473,7 @@ def _bootstrap_locale(html):
     return data["locale"], set(data["translations"])
 
 
-@pytest.mark.parametrize("accept, locale", [("fr-FR,fr;q=0.9", "fr"), ("pt", "pt-BR"), (None, "en")])
+@pytest.mark.parametrize("accept, locale", [("fr-FR,fr;q=0.9", "fr"), ("pt", "pt-BR"), (None, "de")])
 def test_public_share_page_follows_the_visitors_browser_language(shared_recording, accept, locale):
     """An anonymous visitor gets the Accept-Language locale, not the owner's."""
     headers = {"Accept-Language": accept} if accept else {}
@@ -484,7 +492,7 @@ def test_public_share_page_uses_a_signed_in_viewers_language(german_client, shar
 
 # --- Sign-in pages (server-side text) ----------------------------------------
 
-@pytest.mark.parametrize("accept, locale", [("fr-FR,fr;q=0.9", "fr"), ("pt", "pt-BR"), (None, "en")])
+@pytest.mark.parametrize("accept, locale", [("fr-FR,fr;q=0.9", "fr"), ("pt", "pt-BR"), (None, "de")])
 @pytest.mark.parametrize("path, key", [("/login", "authPages.loginTitle"), ("/register", "authPages.createAccount")])
 def test_sign_in_pages_follow_the_visitors_browser_language(path, key, accept, locale):
     """The forms are rendered on the server in the Accept-Language locale, so

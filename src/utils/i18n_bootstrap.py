@@ -24,6 +24,7 @@ import threading
 logger = logging.getLogger(__name__)
 
 FALLBACK_LOCALE = 'en'
+DEFAULT_LOCALE = 'de'
 _LOCALE_RE = re.compile(r'^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$')
 _LOCALES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
                             'static', 'locales')
@@ -101,7 +102,7 @@ def i18n_bootstrap(locale=None):
                 locale = getattr(current_user, 'ui_language', None)
         except Exception:  # outside a request context
             locale = None
-    locale = locale or FALLBACK_LOCALE
+    locale = locale or DEFAULT_LOCALE
 
     data = _load(locale)
     if data is None:

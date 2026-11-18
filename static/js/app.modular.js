@@ -255,7 +255,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
         if (window.i18n && !window.i18n.currentLocale) {
             const appElement = document.getElementById('app');
-            const userLang = appElement?.dataset.userLanguage || localStorage.getItem('preferredLanguage') || 'en';
+            const userLang = appElement?.dataset.userLanguage || localStorage.getItem('preferredLanguage') || 'de';
 
             // Add timeout to prevent indefinite waiting
             await Promise.race([
@@ -398,8 +398,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             const showSortOptions = ref(false);
 
             // --- i18n State ---
-            const currentLanguage = ref('en');
-            const currentLanguageName = ref('English');
+            const currentLanguage = ref('de');
+            const currentLanguageName = ref('Deutsch');
             const availableLanguages = ref([]);
             const showLanguageMenu = ref(false);
 
@@ -958,7 +958,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             // English name (asr-languages.js), so the entries without a
             // `languages.*` key are still shown in the interface language.
             const outputLanguageLabel = (name, iso) => {
-                const locale = (window.i18n && window.i18n.currentLocale) || 'en';
+                const locale = (window.i18n && window.i18n.currentLocale) || 'de';
                 if (window.SpeakrASRLanguages?.outputLabel) {
                     return window.SpeakrASRLanguages.outputLabel(name, iso, locale);
                 }
@@ -970,7 +970,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             // language already used for the recording that the list does not
             // hold stays selectable.
             const translationLanguageOptions = computed(() => {
-                const locale = (window.i18n && window.i18n.currentLocale) || 'en';
+                const locale = (window.i18n && window.i18n.currentLocale) || 'de';
                 const options = outputLanguages.value.map(([name, iso]) => (
                     { value: name, label: outputLanguageLabel(name, iso) }));
                 options.sort((a, b) => a.label.localeCompare(b.label, locale));
@@ -3049,7 +3049,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             // (also feeds the tag/folder modals' Default Language selects).
             const languageOptions = computed(() => {
                 const options = window.SpeakrASRLanguages
-                    ? window.SpeakrASRLanguages.buildOptions((window.i18n && window.i18n.currentLocale) || 'en')
+                    ? window.SpeakrASRLanguages.buildOptions((window.i18n && window.i18n.currentLocale) || 'de')
                     : [];
                 return [{ value: '', label: t('form.autoDetect') }, ...options];
             });

@@ -506,8 +506,8 @@ def generate_markdown_content(recording, user, include_transcription=True, inclu
     """
     from src.utils.localization import get_export_labels, format_date_localized, format_datetime_localized
 
-    # Get user's language preference (default to English)
-    user_language = getattr(user, 'ui_language', 'en') or 'en'
+    # Get user's language preference (default to German)
+    user_language = getattr(user, 'ui_language', 'de') or 'de'
 
     # Get localized labels
     labels = get_export_labels(user_language)

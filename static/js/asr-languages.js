@@ -43,7 +43,7 @@
     };
 
     function currentLocale(locale) {
-        return locale || (window.i18n && window.i18n.currentLocale) || 'en';
+        return locale || (window.i18n && window.i18n.currentLocale) || 'de';
     }
 
     function displayNamesFor(uiLocale) {
