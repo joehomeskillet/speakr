@@ -47,7 +47,9 @@ const ALIASES = Object.freeze({
     done: 'success',
     warning: 'warning',
     warn: 'warning',
-    summarizing: 'warning',
+    // Summarizing is still in progress. The old badge was amber, and mapping
+    // it to warning would label that stage "Warnung". There is no seventh surface.
+    summarizing: 'processing',
     error: 'error',
     failed: 'error',
     failure: 'error',
@@ -76,7 +78,8 @@ function surface(status, label, background, color, border) {
 
 function canonical(status) {
     if (typeof status !== 'string') return null;
-    return ALIASES[status.trim().toLowerCase()] || null;
+    const key = status.trim().toLowerCase();
+    return Object.prototype.hasOwnProperty.call(ALIASES, key) ? ALIASES[key] : null;
 }
 
 /**
@@ -87,10 +90,11 @@ function canonical(status) {
  * A repeated call with the same status is a retry and returns the same tokens.
  */
 export function surfaceFor(status, context = {}) {
-    if (context.authorized === false) {
+    const ctx = context ?? {};
+    if (ctx.authorized === false) {
         throw new TokenContractError('unauthorized');
     }
-    if (context.version != null && context.version !== TOKEN_CONTRACT_VERSION) {
+    if (ctx.version !== undefined && ctx.version !== null && ctx.version !== TOKEN_CONTRACT_VERSION) {
         throw new TokenContractError('stale_version');
     }
     const key = canonical(status);

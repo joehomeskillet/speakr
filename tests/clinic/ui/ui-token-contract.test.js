@@ -95,7 +95,8 @@ describe('clinic status token contract', () => {
         expect(surfaceFor('QUEUED')).toBe(surfaceFor('pending'));
         expect(surfaceFor('PROCESSING')).toBe(surfaceFor('processing'));
         expect(surfaceFor('COMPLETED')).toBe(surfaceFor('success'));
-        expect(surfaceFor('SUMMARIZING')).toBe(surfaceFor('warning'));
+        expect(surfaceFor('SUMMARIZING')).toBe(surfaceFor('processing'));
+        expect(surfaceFor('pending', null).status).toBe('pending');
         expect(surfaceFor('FAILED')).toBe(surfaceFor('error'));
     });
 
@@ -123,6 +124,8 @@ describe('clinic status token contract', () => {
     it('retries the same tokens and does not invent a surface on failure', () => {
         expect(surfaceFor('error', { attempt: 2 })).toBe(surfaceFor('error', { attempt: 1 }));
         expect(() => surfaceFor('no-such-status')).toThrow(TokenContractError);
+        expect(() => surfaceFor('constructor')).toThrow(TokenContractError);
+        expect(() => surfaceFor('toString')).toThrow(TokenContractError);
         try {
             surfaceFor('#ff0000', { attempt: 2 });
         } catch (error) {
