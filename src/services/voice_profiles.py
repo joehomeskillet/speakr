@@ -136,6 +136,12 @@ def _disabled():
     return os.environ.get('DISABLE_VOICE_EMBEDDING_CHECK', 'false').lower() == 'true'
 
 
+def _clinic_mode():
+    """In clinic mode no upstream voice profile is written; see enrol_own_voice."""
+    from src.clinic.config import clinic_mode_enabled
+    return clinic_mode_enabled()
+
+
 def _setting_int(key):
     from src.models import SystemSetting
     value = SystemSetting.get_setting(key, None)
@@ -311,7 +317,7 @@ def score_against(vector, variants, total_samples):
 def _materialize_legacy(speaker):
     """Write a speaker's pre-sample average out as a real sample, once."""
     from src.models import SpeakerVoiceSample
-    if SpeakerVoiceSample.query.filter_by(speaker_id=speaker.id).count():
+    if _clinic_mode() or SpeakerVoiceSample.query.filter_by(speaker_id=speaker.id).count():
         return
     legacy = _legacy_sample(speaker)
     if legacy is None:
@@ -330,6 +336,10 @@ def record_sample(speaker, recording, label, vector, speech_seconds=None, source
     Replaces whatever sample that (recording, label) had, so re-saving or
     correcting a name never double-counts. Returns 'stored', 'rejected'
     (outlier) or 'invalid'. Does not commit.
+
+    In clinic mode nothing is stored: returns 'blocked' and drops the stale
+    sample that (recording, label) had, so no profile is rebuilt after a purge
+    or a consent withdrawal.
     """
     from src.models import SpeakerVoiceSample
     from src.utils.speaker_labels import is_generic_speaker_label
@@ -340,6 +350,11 @@ def record_sample(speaker, recording, label, vector, speech_seconds=None, source
     space = recording.speaker_embeddings_space_id
     existing = SpeakerVoiceSample.query.filter_by(
         user_id=speaker.user_id, recording_id=recording.id, label=label).first()
+    if _clinic_mode():
+        if existing is not None:
+            db.session.delete(existing)
+            db.session.flush()
+        return 'blocked'
 
     _materialize_legacy(speaker)
     others = [s for s in samples_for(speaker, space)
@@ -384,6 +399,27 @@ def _trim(speaker, space):
     for r in rows[:len(rows) - MAX_SAMPLES]:
         db.session.delete(r)
     db.session.flush()
+
+
+def enrol_own_voice(*, actor_user_id, user_id, vector, space_id=None, expected_consent_id=None):
+    """The clinic path for a voice profile: the user's own voice, with their consent.
+
+    Stores the vector through voice_consent.enrol in its model's embedding
+    space (the given one, else the current backend's), never as an upstream
+    sample. voice_consent refuses anyone but the user, missing or withdrawn
+    consent and a stale expected_consent_id; a refusal raises VoiceConsentError
+    and writes nothing. A voice with no known space is refused, so vectors of
+    different models never mix. Commits.
+    """
+    from src.clinic.voice_consent import EmbeddingRef, VoiceConsentError, enrol
+    vec = normalize(vector)
+    if vec is None:
+        raise VoiceConsentError('invalid_embedding', 'not a usable embedding')
+    space = space_id if space_id is not None else current_space_id()
+    if space is None:
+        raise VoiceConsentError('space_required', 'the embedding model is unknown')
+    ref = EmbeddingRef(to_bytes(vec), int(vec.shape[0]), space)
+    return enrol(user_id, ref, actor_user_id=actor_user_id, expected_consent_id=expected_consent_id)
 
 
 def refresh_speaker_summary(speaker):
