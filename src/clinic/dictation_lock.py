@@ -28,7 +28,10 @@ _VERSION = 1
 _N, _R, _P = 2**14, 8, 1
 _SALT_BYTES, _DIGEST_BYTES = 16, 32
 _MAX_SECRET_CHARS = 1024
-_MAX_N, _MAX_R, _MAX_P = 2**20, 8, 4
+# _MAX_N stays close to the written _N: a tampered record with a huge n would
+# otherwise make verify() allocate gigabytes (memory-exhaustion DoS). 2**15
+# leaves exactly one strengthening step above the current write value.
+_MAX_N, _MAX_R, _MAX_P = 2**15, 8, 4
 _HEX = frozenset("0123456789abcdef")
 
 

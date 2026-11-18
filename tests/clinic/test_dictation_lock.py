@@ -153,7 +153,9 @@ def _mutated(**changes):
         {"version": 2}, {"version": "1"}, {"version": True},
         {"salt": "ab" * 15}, {"salt": "zz" * 16}, {"salt": 5}, {"salt": "AB" * 16},
         {"digest": "ab" * 31}, {"digest": None},
-        {"n": 2**21}, {"n": 2**14 + 1}, {"n": 1}, {"n": 0}, {"n": "16384"}, {"n": 16384.0},
+        # n above _MAX_N (2**15) is a memory-exhaustion vector on verify and is
+        # refused even though it is a valid scrypt parameter.
+        {"n": 2**21}, {"n": 2**16}, {"n": 2**14 + 1}, {"n": 1}, {"n": 0}, {"n": "16384"}, {"n": 16384.0},
         {"r": 0}, {"r": 99}, {"p": 0}, {"p": 99}, {"r": True},
     ],
 )
