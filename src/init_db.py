@@ -21,6 +21,10 @@ from src.utils.localization import default_language
 # Registers clinic tables on db.metadata before create_all(). No src/clinic/__init__.py:
 # src.clinic is a namespace package until the config worker adds one.
 import src.clinic.models  # noqa: F401
+# Imports every clinic model module so create_all() builds all clinic tables.
+import src.clinic.registry
+import src.clinic.append_only_guards
+import src.clinic.startup
 from src.services.embeddings import process_recording_chunks
 from src.utils import (
     add_column_if_not_exists,
@@ -267,6 +271,8 @@ def initialize_database(app):
 
         _run_migrations(app, engine)
 
+    src.clinic.startup.run_startup_sweep(app)
+
 
 @contextmanager
 def _migration_section(app, failures, name):
@@ -334,7 +340,9 @@ def _run_migrations(app, engine):
     with _migration_section(app, failures, "clinic integrity"):
         # Tables come from create_all() via src.clinic.models. Triggers are
         # not part of the model metadata, so they are installed here.
+        src.clinic.registry.create_clinic_tables(engine)
         src.clinic.models.install_clinic_guards(engine)
+        src.clinic.append_only_guards.install_append_only_guards(engine)
 
     with _migration_section(app, failures, "core recording and user columns"):
         # Add is_inbox column with default value of 1 (True)

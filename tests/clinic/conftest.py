@@ -17,6 +17,12 @@ from sqlalchemy.sql.ddl import sort_tables
 from src.app import app, db
 from src.clinic import policy
 from src.clinic.models import install_clinic_guards
+from src.clinic import registry as _clinic_registry  # noqa: F401  (all clinic tables on the metadata)
+from src.clinic.append_only_guards import (
+    APPEND_ONLY_TABLES,
+    install_append_only_guards,
+    trigger_names,
+)
 from src.models import (
     APIToken, ProcessingJob, Recording, SystemSetting, User,
 )
@@ -104,6 +110,15 @@ _TRANSCRIPT_TABLE = "clinic_transcript_revision"
 _TRANSCRIPT_TRIGGERS = ("clinic_transcript_immutable", "clinic_transcript_no_delete")
 
 
+def _guarded_tables():
+    present = set(inspect(db.engine).get_table_names())
+    return [
+        name
+        for name in (_ORIGINAL_TABLE, _TRANSCRIPT_TABLE, *APPEND_ONLY_TABLES)
+        if name in present
+    ]
+
+
 def _clinic_tables_children_first():
     present = set(inspect(db.engine).get_table_names())
     own = [
@@ -124,18 +139,20 @@ def _purge_clinic_rows():
                 *_ORIGINAL_TRIGGERS,
                 *_TRANSCRIPT_TRIGGERS,
                 "clinic_lease_generation_monotone",
+                *(name for table in APPEND_ONLY_TABLES for name in trigger_names(table)),
             ):
                 conn.execute(text("DROP TRIGGER IF EXISTS " + trigger))
         elif dialect == "postgresql":
-            for table_name in (_ORIGINAL_TABLE, _TRANSCRIPT_TABLE):
+            for table_name in _guarded_tables():
                 conn.execute(text("ALTER TABLE " + table_name + " DISABLE TRIGGER USER"))
         for table in tables:
             conn.execute(table.delete())
         if dialect == "postgresql":
-            for table_name in (_ORIGINAL_TABLE, _TRANSCRIPT_TABLE):
+            for table_name in _guarded_tables():
                 conn.execute(text("ALTER TABLE " + table_name + " ENABLE TRIGGER USER"))
     if dialect == "sqlite":
         install_clinic_guards(db.engine)
+        install_append_only_guards(db.engine)
 
 
 def _purge_new_accounts(user_ids, recording_ids):
