@@ -20,6 +20,7 @@ from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
 
+from src.clinic.config import clinic_mode_enabled
 from src.services.error_classification import is_permanent_error, SummaryStepFailed
 from src.utils.error_text import describe_error, log_failure, user_error_text
 
@@ -169,6 +170,7 @@ class FairJobQueue:
         self._enqueue_lock = threading.Lock()
         # Whether this process won the queue-owner election (see startup.initialize_job_queue)
         self._is_owner = False
+        self._lease_thread = None
         self._initialized = True
 
         logger.info(f"FairJobQueue initialized: {TRANSCRIPTION_WORKERS} transcription workers, {SUMMARY_WORKERS} summary workers")
@@ -249,9 +251,14 @@ class FairJobQueue:
         logger.info(f"Started {TRANSCRIPTION_WORKERS} transcription workers, {SUMMARY_WORKERS} summary workers, "
                     f"{INDEX_WORKERS} index workers and {CONVERT_WORKERS} convert workers")
 
+        if clinic_mode_enabled():
+            from src.clinic.job_lease import start_lease_keeper
+            start_lease_keeper(self)
+
     def stop(self):
         """Stop the worker threads gracefully."""
         self._running = False
+        self._lease_thread = None
         for worker in self._transcription_workers + self._summary_workers:
             worker.join(timeout=5)
         self._transcription_workers.clear()
@@ -302,16 +309,19 @@ class FairJobQueue:
                         # This prevents race conditions when multiple workers try to claim the same job
                         from sqlalchemy import update
                         claim_time = datetime.utcnow()
+                        conditions = [ProcessingJob.id == candidate_job.id,
+                                      ProcessingJob.status == 'queued']  # Critical: only claim if still queued
+                        # A retried job reports its progress from 0 again.
+                        values = dict(status='processing', started_at=claim_time,
+                                      progress_done=None, progress_total=None,
+                                      progress_kind=None, stage=None, stage_detail=None)
+                        if clinic_mode_enabled():
+                            # Lease: no second process can claim a row that is held.
+                            from src.clinic.job_lease import claim_values
+                            conditions.append(ProcessingJob.claimed_by.is_(None))
+                            values.update(claim_values(claim_time))
                         result = db.session.execute(
-                            update(ProcessingJob)
-                            .where(
-                                ProcessingJob.id == candidate_job.id,
-                                ProcessingJob.status == 'queued'  # Critical: only claim if still queued
-                            )
-                            # A retried job reports its progress from 0 again.
-                            .values(status='processing', started_at=claim_time,
-                                    progress_done=None, progress_total=None,
-                                    progress_kind=None, stage=None, stage_detail=None)
+                            update(ProcessingJob).where(*conditions).values(**values)
                         )
 
                         if result.rowcount == 0:
@@ -1038,6 +1048,11 @@ class FairJobQueue:
         Recover jobs that were processing when the app crashed.
         Call this on startup to reset orphaned jobs back to queued.
         """
+        if clinic_mode_enabled():
+            from src.clinic.job_lease import recover_stale_jobs
+            recover_stale_jobs(self)
+            return
+
         with self._app_context():
             from src.database import db
             from src.models import ProcessingJob

@@ -65,6 +65,11 @@ class ProcessingJob(db.Model):
     # as soon as the job ends.
     restore_state = db.Column(db.Text, nullable=True)
 
+    # CLINIC_MODE lease (src/clinic/job_lease.py): the process running the job
+    # and the last time it said so. NULL outside clinic mode.
+    claimed_by = db.Column(db.String(80), nullable=True)
+    heartbeat_at = db.Column(db.DateTime, nullable=True)
+
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
     started_at = db.Column(db.DateTime, nullable=True)
