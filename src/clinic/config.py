@@ -37,8 +37,6 @@ FALLBACK_CLIENT_PROFILE = 'managed_web_online'
 SETTING_CEILINGS: dict[str, tuple[str, Any]] = {
     'api_query_tokens_enabled': ('token_query_parameters', False),
     'sso_api_tokens_enabled': ('personal_api_tokens', False),
-    'enable_auto_deletion': ('auto_deletion', False),
-    'global_retention_days': ('auto_deletion', 0),
 }
 
 

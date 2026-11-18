@@ -64,10 +64,14 @@ With media on S3 storage, a request is answered with a redirect to the storage. 
 | `recording.edited` | The title, participants, notes, summary, transcript, translation, speakers, meeting date or retention exemption of a recording were changed | `fields`: the names of the changed fields |
 | `recording.deleted` | A recording was deleted | `reason`: `user`, `retention`, `account_deleted`, `ownerless`, `upload_canceled` or `merged` |
 | `recording.audio.deleted` | The audio of a recording was deleted and the text was kept | `reason`: `user` or `retention` |
+| `recording.archived` | A recording entered the archive automatically or through a user action | `rule`, `scope`, optional `retention_days` and `tag_id` |
+| `recording.unarchived` | A user restored an archived recording | `rule`, `scope` |
 | `recording.reprocessed` | A new transcription, summary, title or translation was started | `kind` |
 | `recording.job.canceled` | A waiting or running job of a recording was canceled | `kind` |
 
-A deletion by a retention rule is recorded with the actor `system`.
+Scheduled retention archival records the actor `system`. A manually started retention run records the administrator who started it. Historical deletion events can still contain the reason `retention`.
+
+Archive transitions commit the state, an `audit_event` row and an append-only `clinic_archive_event` row in one transaction. A repeated request for the current state creates no transition. The rules are `retention.global`, `retention.tag`, `user.archive` and `user.restore`. The scope is `recording` for retention and owner restoration of retention archives, or `personal` for a user's own archive setting. The durable ledger preserves actor, recording, owner, target user, time, rule and revision independently of later account or recording removal. Database triggers reject updates and deletes of ledger rows.
 
 ### Sharing
 
@@ -85,7 +89,7 @@ Rows with `imported` in the details were copied from `share_audit_log` by an ear
 | `admin.user.unlocked` | An administrator ended the sign-in lock of an account | |
 | `admin.user.role_changed` | The administrator role was given or taken away | `old`, `new` |
 | `admin.setting.changed` | A system setting was saved or cleared | `key`. For settings that hold a switch, a number or a fixed choice: `old` and `new`. For every other setting, only the key. A key that is not a setting of the application is stored as `other`. |
-| `admin.retention.run` | Automatic deletion was started by hand | Counts |
+| `admin.retention.run` | Retention archival was started by an administrator | `checked`, `archived`, `already_archived`, `deleted_audio_only`, `deleted_full`, `errors` |
 | `admin.inquire.processed` | An administrator started the processing of recordings for Ask Ambrose on the admin page. The recordings of all accounts are processed. | `processed`, `failed`, `total`, `force` |
 | `group.created`, `group.changed`, `group.deleted` | A group was created, changed or deleted | `fields` |
 | `group.member.added`, `group.member.role_changed`, `group.member.removed` | A member was added to a group, changed in role, or removed | `role`, `old_role` |
@@ -97,7 +101,7 @@ Rows with `imported` in the details were copied from `share_audit_log` by an ear
 
 - Lists of recordings, searches, and questions to Ask Ambrose or to the chat of a recording
 - The creation of a recording by an upload
-- Changes of tags, folders, and of the personal inbox, star and archive state
+- Changes of tags, folders, and of the personal inbox and star state
 - A sign-in through the "Remember me" cookie, and a request with an invalid API token
 - The status requests that are sent on a timer from an open page, and the waveform of a recording
 - The statistics pages of a site administrator. They hold counts and sizes per account, and the five latest failed recordings by id, with the username, the time and the stored error text, without a title or a file name.
@@ -114,11 +118,11 @@ The settings are changed under **System settings** or in `.env`. A value in `.en
 | `audit_log_store_ip` | `AUDIT_LOG_STORE_IP` | `full` | `full`: the client address is stored. `truncated`: the `/24` network of an IPv4 address or the `/48` network of an IPv6 address is stored. `off`: no address is stored. |
 | `audit_log_record_views` | `AUDIT_LOG_RECORD_VIEWS` | `true` | `false`: `recording.viewed` and `recording.media.played` are not recorded. Downloads, exports and reads through API v1 are recorded in either case. |
 
-While the log is off, four kinds of events are still recorded, so that turning the log off is itself on record: a change of one of the `audit_log_*` settings, the reading and export of the log, the removal of old rows, and the `audit.write_failed` row. Every other event is not recorded while the log is off.
+While the log is off, changes of the `audit_log_*` settings, reading and export of the log, removal of old rows, and `audit.write_failed` are still recorded. Archive and restore transitions also require durable evidence regardless of this switch. A failed evidence write rolls back the transition. Other events follow the general logging switch.
 
 A change of `audit_log_store_ip` applies to new rows. Addresses in existing rows are not changed.
 
-Rows past the retention period are removed once a day, at 2:00 in the time of the server. A period of 2190 days is six years. The period required for a deployment is decided by its compliance office.
+Ordinary rows past the retention period are removed once a day, at 2:00 in the time of the server. Archive and restore rows are retained indefinitely, together with the append-only archive ledger. The period required for other audit events is decided by the deployment's compliance office.
 
 The client address is the address received by the application. Behind a reverse proxy, `TRUSTED_PROXY_HOPS` must be set, otherwise the address of the proxy is stored.
 

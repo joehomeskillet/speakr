@@ -1,9 +1,10 @@
-"""One deletion path for the web app, API v1 and full-recording retention.
+"""Manual web/API deletion and preserving retention archival.
 
 API v1 used to join UPLOAD_FOLDER with the storage locator, which never
 matches a locator such as local://recordings/..., so the media stayed on
-disk; it also left processing jobs behind. Retention left speaker snippets
-behind. All three now call delete_recording_completely().
+disk; it also left processing jobs behind. Manual deletion uses
+delete_recording_completely(). Retention preserves the recording, media,
+speaker snippets and processing jobs with mandatory archival evidence.
 """
 
 import json
@@ -107,7 +108,7 @@ def test_web_delete_still_works(ctx):
     assert _gone(rec.id)
 
 
-def test_full_recording_retention_deletes_recordings_with_snippets(ctx):
+def test_retention_archives_and_preserves_recordings_with_snippets(ctx):
     from src.services import retention
     user = _user()
     rec = _rec_with_children(user, created_days_ago=400)
@@ -118,4 +119,14 @@ def test_full_recording_retention_deletes_recordings_with_snippets(ctx):
          patch("src.services.storage.get_storage_service", return_value=storage):
         stats = retention.process_auto_deletion()
     assert stats['errors'] == 0, stats
-    assert _gone(rec.id)
+    from src.models.audit import AuditEvent
+    from src.clinic.models import ClinicArchiveEvent
+    db.session.refresh(rec)
+    assert rec.retention_archived_at is not None
+    assert rec.audio_deleted_at is None
+    assert SpeakerSnippet.query.filter_by(recording_id=rec.id).count() == 1
+    assert ProcessingJob.query.filter_by(recording_id=rec.id).count() == 1
+    assert AuditEvent.query.filter_by(recording_id=rec.id, event='recording.archived').count() >= 1
+    assert ClinicArchiveEvent.query.filter_by(recording_id=rec.id,
+                                            recording_created_at=rec.created_at).count() == 1
+    storage.delete.assert_not_called()

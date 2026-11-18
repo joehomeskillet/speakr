@@ -34,7 +34,9 @@ from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.utils import secure_filename
 
 from src.database import db
-from src.services.recording_state import get_user_archived, set_user_archived, parse_archived_flag
+from src.services.recording_state import (
+    archived_condition, get_user_archived, parse_archived_flag, set_user_archived,
+)
 from src.models import Recording, User, Tag, RecordingTag, Speaker, TranscriptTemplate
 from src.models.processing_job import ProcessingJob
 from src.models.token_usage import TokenUsage
@@ -1351,7 +1353,7 @@ def _recording_list_item(r, refs=None):
         'participants': r.participants,
         'is_inbox': r.is_inbox,
         'is_highlighted': r.is_highlighted,
-        'is_archived': bool(r.is_archived),
+        'is_archived': bool(r.is_archived or r.retention_archived_at),
         'audio_available': r.audio_deleted_at is None,
         'audio_duration': r.get_audio_duration(),
         'has_transcription': bool(r.transcription),
@@ -1537,7 +1539,8 @@ def list_recordings():
     # default so existing integrations see no change.
     if archived_filter is not None:
         is_archived = archived_filter.lower() == 'true'
-        query = query.filter(db.func.coalesce(Recording.is_archived, False) == is_archived)
+        condition = archived_condition(Recording, current_user.id)
+        query = query.filter(condition if is_archived else db.not_(condition))
 
     # Sorting
     sort_columns = {
@@ -2117,7 +2120,15 @@ def update_recording(recording_id):
         archived = parse_archived_flag(data['is_archived'])
         if archived is None:
             return jsonify(api_error('invalid_is_archived')), 400
-        set_user_archived(recording, current_user, archived, commit=False)
+        from src.clinic.archive import ArchiveRestoreDenied
+        try:
+            set_user_archived(recording, current_user, archived, commit=False)
+        except ArchiveRestoreDenied:
+            db.session.rollback()
+            return jsonify(api_error('archive_restore_owner_required')), 403
+        except Exception:
+            db.session.rollback()
+            raise
     if 'folder_id' in data:
         new_folder_id = data['folder_id']
         if new_folder_id is None:
@@ -2126,10 +2137,12 @@ def update_recording(recording_id):
             from src.models.organization import Folder
             target = db.session.get(Folder, new_folder_id)
             if not target:
+                db.session.rollback()
                 return jsonify(api_error('folder_id_not_found', folderId=new_folder_id)), 404
             from src.api.folders import folder_assign_error
             error_key = folder_assign_error(recording, target, current_user, 'target_folder_access_denied')
             if error_key:
+                db.session.rollback()
                 return jsonify(api_error(error_key)), 403
             recording.folder_id = new_folder_id
 
@@ -3727,8 +3740,12 @@ def batch_update_recordings():
                         tag_id=tag_id
                     ).delete()
 
+            # Each successful item includes its archive evidence. A later item
+            # failure must leave earlier results committed and roll itself back.
+            db.session.commit()
             results.append({'id': recording_id, 'success': True})
         except Exception as e:
+            db.session.rollback()
             results.append({'id': recording_id, 'success': False, 'error': str(e)})
 
     db.session.commit()

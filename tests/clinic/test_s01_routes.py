@@ -255,8 +255,8 @@ def test_forged_channel_headers_grant_nothing(clinic_on, world):
 # --- T-060: the settings API cannot lift the ceiling ----------------------------
 
 @pytest.mark.parametrize('key,value', [
-    ('api_query_tokens_enabled', 'true'), ('enable_auto_deletion', 'true'),
-    ('global_retention_days', '30'),
+    ('api_query_tokens_enabled', 'true'),
+    ('sso_api_tokens_enabled', 'true'),
 ])
 def test_admin_cannot_switch_a_locked_setting_on(clinic_on, world, key, value):
     def stored():
@@ -274,18 +274,18 @@ def test_admin_cannot_switch_a_locked_setting_on(clinic_on, world, key, value):
 
 def test_admin_may_switch_a_locked_setting_off(clinic_on, world):
     response = login(world['user_admin']).post(
-        '/admin/settings', json={'key': 'enable_auto_deletion', 'value': 'false', 'setting_type': 'boolean'})
+        '/admin/settings', json={'key': 'api_query_tokens_enabled', 'value': 'false', 'setting_type': 'boolean'})
     assert response.status_code == 200
 
 
 def test_a_stored_conflicting_setting_is_reported_and_overridden(clinic_off, world, monkeypatch):
     from src.clinic.config import find_setting_conflicts
-    set_setting('enable_auto_deletion', 'true')
+    set_setting('api_query_tokens_enabled', 'true')
     monkeypatch.setenv('CLINIC_MODE', '1')
     with app.app_context():
-        assert SystemSetting.get_setting('enable_auto_deletion', True) is False
+        assert SystemSetting.get_setting('api_query_tokens_enabled', True) is False
         conflicts = find_setting_conflicts()
-    assert {'key': 'enable_auto_deletion', 'stored': 'true', 'effective': False} in conflicts
+    assert {'key': 'api_query_tokens_enabled', 'stored': 'true', 'effective': False} in conflicts
 
 
 def test_non_admin_cannot_use_admin_routes(clinic_on, world):

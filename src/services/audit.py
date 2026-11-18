@@ -87,6 +87,8 @@ EVENTS = {
     'recording.edited': ('change', frozenset({'fields'})),
     'recording.deleted': ('change', frozenset({'reason'})),
     'recording.audio.deleted': ('change', frozenset({'reason'})),
+    'recording.archived': ('change', frozenset({'rule', 'scope', 'retention_days', 'tag_id'})),
+    'recording.unarchived': ('change', frozenset({'rule', 'scope', 'retention_days', 'tag_id'})),
     'recording.reprocessed': ('change', frozenset({'kind'})),
     'recording.job.canceled': ('change', frozenset({'kind'})),
     # Administration
@@ -97,7 +99,7 @@ EVENTS = {
     'admin.user.role_changed': ('admin', frozenset({'old', 'new'})),
     'admin.user.deleted': ('admin', frozenset({'username', 'recordings_deleted'})),
     'admin.setting.changed': ('admin', frozenset({'key', 'old', 'new'})),
-    'admin.retention.run': ('admin', frozenset({'checked', 'deleted_audio_only', 'deleted_full', 'errors'})),
+    'admin.retention.run': ('admin', frozenset({'checked', 'archived', 'already_archived', 'deleted_audio_only', 'deleted_full', 'errors'})),
     'admin.inquire.processed': ('admin', frozenset({'processed', 'failed', 'total', 'force'})),
     'group.created': ('admin', _NONE),
     'group.changed': ('admin', frozenset({'fields'})),
@@ -669,7 +671,10 @@ def prune_audit_events(now=None):
     table = AuditEvent.__table__
     removed = 0
     while True:
-        ids = select(table.c.id).where(table.c.created_at < cutoff).order_by(table.c.id).limit(PRUNE_BATCH)
+        ids = select(table.c.id).where(
+            table.c.created_at < cutoff,
+            table.c.event.notin_(('recording.archived', 'recording.unarchived')),
+        ).order_by(table.c.id).limit(PRUNE_BATCH)
         result = db.session.execute(delete(table).where(table.c.id.in_(ids)))
         db.session.commit()
         count = result.rowcount or 0
@@ -915,7 +920,7 @@ def _record_access(event, dedup, details, recording_of, view_args, status):
 # --- System settings --------------------------------------------------------
 
 _SETTING_ENUMS = {
-    'deletion_mode': ('audio_only', 'full_recording'),
+    'deletion_mode': ('archive', 'audio_only', 'full_recording'),
     'audit_log_store_ip': ('full', 'truncated', 'off'),
 }
 _BOOLEAN_WORDS = {'true': 'true', '1': 'true', 'yes': 'true', 'false': 'false', '0': 'false', 'no': 'false'}

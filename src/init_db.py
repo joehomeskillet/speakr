@@ -715,6 +715,8 @@ def _run_migrations(app, engine):
         # anything. Per user, like inbox and star (#394).
         if add_column_if_not_exists(engine, 'recording', 'is_archived', 'BOOLEAN DEFAULT 0'):
             app.logger.info("Added is_archived column to recording table")
+        add_column_if_not_exists(engine, 'recording', 'retention_archived_at', 'DATETIME')
+        add_column_if_not_exists(engine, 'recording', 'archive_revision', 'INTEGER NOT NULL DEFAULT 0')
 
         # Configurable AI title instructions at every level (#400)
         for table in ('user', 'tag', 'folder'):

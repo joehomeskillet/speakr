@@ -265,6 +265,39 @@ class ClinicDelivery(db.Model):
     )
 
 
+class ClinicArchiveEvent(db.Model):
+    """Durable archive evidence, independent of account/recording deletion.
+
+    The unique revision prevents two stale writers from committing evidence
+    for the same transition. The timestamp distinguishes reused SQLite ids.
+    No foreign keys or cascades may remove this evidence.
+    """
+
+    __tablename__ = "clinic_archive_event"
+
+    id = _uuid()
+    recording_id = db.Column(db.Integer, nullable=False, index=True)
+    recording_created_at = db.Column(db.DateTime, nullable=False)
+    revision = db.Column(db.Integer, nullable=False)
+    audit_event_id = db.Column(db.BigInteger, nullable=False)
+    event = db.Column(db.String(48), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False)
+    actor_kind = db.Column(db.String(12), nullable=False)
+    actor_user_id = db.Column(db.Integer, nullable=True)
+    actor_token_id = db.Column(db.Integer, nullable=True)
+    recording_owner_id = db.Column(db.Integer, nullable=True)
+    target_user_id = db.Column(db.Integer, nullable=True)
+    details = db.Column(db.JSON, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint('recording_id', 'recording_created_at', 'revision',
+                         name='uq_clinic_archive_revision'),
+        CheckConstraint('revision > 0', name='ck_clinic_archive_revision'),
+        _in_check('event', ('recording.archived', 'recording.unarchived'),
+                  'ck_clinic_archive_event'),
+    )
+
+
 _ORIGINAL_TRIGGER = "clinic_original_immutable"
 _ORIGINAL_DELETE_TRIGGER = "clinic_original_no_delete"
 _LEASE_TRIGGER = "clinic_lease_generation_monotone"
@@ -384,3 +417,5 @@ def install_clinic_guards(engine) -> None:
     with engine.begin() as conn:
         for statement in statements:
             conn.execute(text(statement))
+    from src.clinic.archive import install_archive_guards
+    install_archive_guards(engine)

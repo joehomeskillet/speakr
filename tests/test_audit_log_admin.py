@@ -203,13 +203,15 @@ def test_the_manual_retention_run_records_counts(created, monkeypatch):
     from src.api import admin as admin_module
     admin = make_user(created, prefix='adm', is_admin=True)
     monkeypatch.setattr(admin_module, 'process_auto_deletion', lambda: {
-        'checked': 7, 'deleted_audio_only': 0, 'deleted_full': 2, 'exempted': 1,
+        'checked': 7, 'archived': 2, 'already_archived': 0,
+        'deleted_audio_only': 0, 'deleted_full': 0, 'exempted': 1,
         'skipped_no_retention': 4, 'errors': 0, 'speaker_cleanup_error': 'SENTINEL text'})
     start = max_id()
     assert client_for(admin).post('/admin/auto-deletion/run').status_code == 200
     rows = rows_after(start)
     assert names(rows) == ['admin.retention.run']
-    assert rows[0].details == {'checked': 7, 'deleted_audio_only': 0, 'deleted_full': 2, 'errors': 0}
+    assert rows[0].details == {'checked': 7, 'archived': 2, 'already_archived': 0,
+                              'deleted_audio_only': 0, 'deleted_full': 0, 'errors': 0}
     assert 'SENTINEL' not in _dump(rows)
 
 

@@ -123,16 +123,18 @@ def _purge_clinic_rows():
             for trigger in (
                 *_ORIGINAL_TRIGGERS,
                 *_TRANSCRIPT_TRIGGERS,
+                "clinic_archive_no_update",
+                "clinic_archive_no_delete",
                 "clinic_lease_generation_monotone",
             ):
                 conn.execute(text("DROP TRIGGER IF EXISTS " + trigger))
         elif dialect == "postgresql":
-            for table_name in (_ORIGINAL_TABLE, _TRANSCRIPT_TABLE):
+            for table_name in (_ORIGINAL_TABLE, _TRANSCRIPT_TABLE, "clinic_archive_event"):
                 conn.execute(text("ALTER TABLE " + table_name + " DISABLE TRIGGER USER"))
         for table in tables:
             conn.execute(table.delete())
         if dialect == "postgresql":
-            for table_name in (_ORIGINAL_TABLE, _TRANSCRIPT_TABLE):
+            for table_name in (_ORIGINAL_TABLE, _TRANSCRIPT_TABLE, "clinic_archive_event"):
                 conn.execute(text("ALTER TABLE " + table_name + " ENABLE TRIGGER USER"))
     if dialect == "sqlite":
         install_clinic_guards(db.engine)

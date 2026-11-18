@@ -2,16 +2,15 @@
 """
 Coverage tests for src/services/retention.py.
 
-This module performs data-destructive auto-deletion of recordings/audio by
-retention policy, so correctness matters. All external side effects (storage
-byte deletion, speaker cleanup) are mocked so tests are hermetic and offline.
+Retention preserves recordings and audio through audited archival. Storage
+deletion and speaker cleanup are mocked to prove they are never invoked.
 
 Strategy:
 - Create User/Recording/Tag rows directly via models.
 - Patch module-level policy constants (ENABLE_AUTO_DELETION, GLOBAL_RETENTION_DAYS,
   DELETION_MODE) since retention.py reads them as module globals.
 - Patch retention.get_storage_service so no real disk/storage I/O happens, and
-  assert the deleter is called with the correct locator.
+  assert the deleter is never called.
 """
 
 import os
@@ -58,6 +57,28 @@ def _wipe_recordings():
 
 
 class RetentionTestBase(unittest.TestCase):
+    def assert_archived(self, rec, stats, storage, rule='retention.global', audio_deleted_at=None):
+        from src.clinic.models import ClinicArchiveEvent
+        from src.models.audit import AuditEvent
+        row = db.session.get(Recording, rec.id)
+        self.assertIsNotNone(row)
+        self.assertIsNotNone(row.retention_archived_at)
+        self.assertEqual(row.audio_deleted_at, audio_deleted_at)
+        self.assertEqual(stats['archived'], 1)
+        self.assertEqual(stats['deleted_full'], 0)
+        self.assertEqual(stats['deleted_audio_only'], 0)
+        self.assertEqual(stats['errors'], 0)
+        evidence = ClinicArchiveEvent.query.filter_by(
+            recording_id=row.id, recording_created_at=row.created_at).one()
+        event = db.session.get(AuditEvent, evidence.audit_event_id)
+        self.assertEqual(event.event, 'recording.archived')
+        self.assertEqual(event.actor_kind, 'system')
+        self.assertEqual(event.recording_id, row.id)
+        self.assertEqual(event.details['rule'], rule)
+        self.assertEqual(event.details['scope'], 'recording')
+        self.assertEqual(evidence.details, event.details)
+        storage.delete.assert_not_called()
+
     def setUp(self):
         self.ctx = app.app_context()
         self.ctx.push()
@@ -211,23 +232,21 @@ class TestProcessAutoDeletion(RetentionTestBase):
              patch.object(retention, 'get_storage_service', return_value=storage), \
              patch('src.services.speaker_cleanup.cleanup_orphaned_speakers',
                    return_value={'speakers_deleted': 0, 'embeddings_removed': 0,
-                                 'speakers_evaluated': 0}):
+                                 'speakers_evaluated': 0}) as speaker_cleanup:
             stats = retention.process_auto_deletion()
+            speaker_cleanup.assert_not_called()
         return stats, storage
 
     def test_disabled_returns_error(self):
         stats, _ = self._run(enabled=False)
-        self.assertEqual(stats, {'error': 'Auto-deletion is not enabled', 'code': 'auto_deletion_disabled'})
+        self.assertEqual(stats, {'error': 'Automatic archival is not enabled', 'code': 'auto_deletion_disabled'})
 
-    def test_full_delete_removes_old_recording_and_audio(self):
+    def test_legacy_full_mode_archives_and_preserves_audio(self):
         rec = self.make_recording(age_days=100, audio_path='user/old.mp3')
         rec_id = rec.id
         stats, storage = self._run(mode='full_recording', global_days=30)
-        self.assertEqual(stats['deleted_full'], 1)
-        # Row is gone
-        self.assertIsNone(db.session.get(Recording, rec_id))
-        # Audio bytes deletion invoked with the right locator
-        storage.delete.assert_called_with('user/old.mp3', missing_ok=True)
+        self.assert_archived(rec, stats, storage)
+        self.assertEqual(db.session.get(Recording, rec_id).audio_path, 'user/old.mp3')
 
     def test_recording_within_retention_kept(self):
         rec = self.make_recording(age_days=5, audio_path='user/new.mp3')
@@ -255,52 +274,50 @@ class TestProcessAutoDeletion(RetentionTestBase):
         self.assertEqual(stats['deleted_full'], 0)
         self.assertIsNotNone(db.session.get(Recording, rec_id))
 
-    def test_audio_only_mode_deletes_audio_keeps_row(self):
+    def test_legacy_audio_only_mode_archives_and_preserves_audio(self):
         rec = self.make_recording(age_days=100, audio_path='user/keep.mp3')
         rec_id = rec.id
         stats, storage = self._run(mode='audio_only', global_days=30)
-        self.assertEqual(stats['deleted_audio_only'], 1)
+        self.assert_archived(rec, stats, storage)
         # Row preserved
         row = db.session.get(Recording, rec_id)
         self.assertIsNotNone(row)
-        # Audio marked deleted and bytes removed
-        self.assertIsNotNone(row.audio_deleted_at)
-        storage.delete.assert_called_with('user/keep.mp3', missing_ok=True)
+        self.assertIsNone(row.audio_deleted_at)
+        self.assertEqual(row.audio_path, 'user/keep.mp3')
 
-    def test_audio_only_skips_already_deleted_audio(self):
-        # In audio_only mode the query filters out audio_deleted_at != None,
-        # so this recording is not even checked.
+    def test_legacy_audio_only_archives_rows_with_previously_deleted_audio(self):
+        removed_at = datetime.utcnow()
         rec = self.make_recording(
             age_days=100, audio_path='user/gone.mp3',
-            audio_deleted_at=datetime.utcnow(),
+            audio_deleted_at=removed_at,
         )
         stats, storage = self._run(mode='audio_only', global_days=30)
-        self.assertEqual(stats['checked'], 0)
+        self.assertEqual(stats['checked'], 1)
+        self.assert_archived(rec, stats, storage, audio_deleted_at=removed_at)
         self.assertEqual(stats['deleted_audio_only'], 0)
         storage.delete.assert_not_called()
 
-    def test_audio_only_missing_file_marks_timestamp_without_delete(self):
+    def test_missing_file_archives_without_fabricating_audio_removal(self):
         rec = self.make_recording(age_days=100, audio_path='user/missing.mp3')
         rec_id = rec.id
         storage = _make_storage_mock(exists=False)  # storage.exists -> False
         stats, storage = self._run(mode='audio_only', global_days=30, storage=storage)
-        # Falls into the "already deleted or doesn't exist" branch
+        self.assert_archived(rec, stats, storage)
         self.assertEqual(stats['deleted_audio_only'], 0)
         row = db.session.get(Recording, rec_id)
-        self.assertIsNotNone(row.audio_deleted_at)
+        self.assertIsNone(row.audio_deleted_at)
         storage.delete.assert_not_called()
 
-    def test_full_mode_completes_prior_audio_only_deletion(self):
-        # Recording whose audio was already deleted (audio_only earlier);
-        # full mode should still remove the row.
+    def test_legacy_full_mode_preserves_previously_audio_deleted_rows(self):
+        removed_at = datetime.utcnow()
         rec = self.make_recording(
             age_days=100, audio_path='user/x.mp3',
-            audio_deleted_at=datetime.utcnow(),
+            audio_deleted_at=removed_at,
         )
         rec_id = rec.id
         stats, storage = self._run(mode='full_recording', global_days=30)
-        self.assertEqual(stats['deleted_full'], 1)
-        self.assertIsNone(db.session.get(Recording, rec_id))
+        self.assert_archived(rec, stats, storage, audio_deleted_at=removed_at)
+        self.assertIsNotNone(db.session.get(Recording, rec_id))
 
     def test_no_eligible_recordings_is_noop(self):
         # Only a young recording exists; nothing deleted.
@@ -312,34 +329,33 @@ class TestProcessAutoDeletion(RetentionTestBase):
         self.assertIsNotNone(db.session.get(Recording, rec_id))
         storage.delete.assert_not_called()
 
-    def test_tag_retention_drives_deletion_over_global(self):
-        # Global says keep 365 days, but a 1-day tag forces deletion of a 100-day recording.
+    def test_tag_retention_drives_archival_over_global(self):
+        # The shorter owner tag determines archival eligibility.
         rec = self.make_recording(age_days=100, audio_path='user/tagged.mp3')
         rec_id = rec.id
         tag = self.make_tag(retention_days=1)
         self.tag_recording(rec, tag)
         stats, storage = self._run(mode='full_recording', global_days=365)
-        self.assertEqual(stats['deleted_full'], 1)
-        self.assertIsNone(db.session.get(Recording, rec_id))
+        self.assert_archived(rec, stats, storage, rule='retention.tag')
+        self.assertIsNotNone(db.session.get(Recording, rec_id))
 
-    def test_failed_recording_full_deleted_past_retention(self):
+    def test_failed_recording_archived_past_retention_in_full_mode(self):
         # Issue #328: FAILED recordings must be swept by retention too.
         rec = self.make_recording(age_days=100, status='FAILED', audio_path='user/failed.mp3')
         rec_id = rec.id
         stats, storage = self._run(mode='full_recording', global_days=30)
-        self.assertEqual(stats['deleted_full'], 1)
-        self.assertIsNone(db.session.get(Recording, rec_id))
-        storage.delete.assert_called_with('user/failed.mp3', missing_ok=True)
+        self.assert_archived(rec, stats, storage)
+        self.assertEqual(db.session.get(Recording, rec_id).audio_path, 'user/failed.mp3')
 
-    def test_failed_recording_audio_only_deletes_audio(self):
+    def test_failed_recording_archived_in_audio_only_mode(self):
         rec = self.make_recording(age_days=100, status='FAILED', audio_path='user/failed2.mp3')
         rec_id = rec.id
         stats, storage = self._run(mode='audio_only', global_days=30)
-        self.assertEqual(stats['deleted_audio_only'], 1)
+        self.assert_archived(rec, stats, storage)
         row = db.session.get(Recording, rec_id)
         self.assertIsNotNone(row)  # row kept in audio_only mode
-        self.assertIsNotNone(row.audio_deleted_at)
-        storage.delete.assert_called_with('user/failed2.mp3', missing_ok=True)
+        self.assertIsNone(row.audio_deleted_at)
+        self.assertEqual(row.audio_path, 'user/failed2.mp3')
 
     def test_in_flight_statuses_never_swept(self):
         # QUEUED/PROCESSING recordings must never be touched, however old.
@@ -360,16 +376,19 @@ class TestProcessAutoDeletion(RetentionTestBase):
         self.assertIsNotNone(db.session.get(Recording, rec_id))
         storage.delete.assert_not_called()
 
-    def test_error_during_deletion_increments_errors_and_rolls_back(self):
+    def test_error_during_auditing_increments_errors_and_rolls_back(self):
         rec = self.make_recording(age_days=100, audio_path='user/boom.mp3')
         rec_id = rec.id
         storage = _make_storage_mock(exists=True)
-        storage.delete.side_effect = RuntimeError("storage down")
-        stats, storage = self._run(mode='full_recording', global_days=30, storage=storage)
+        with patch('src.services.audit.record_in_tx', side_effect=RuntimeError('audit down')):
+            stats, storage = self._run(mode='full_recording', global_days=30, storage=storage)
         self.assertEqual(stats['errors'], 1)
         self.assertEqual(stats['deleted_full'], 0)
         # Recording survives because the transaction was rolled back
         self.assertIsNotNone(db.session.get(Recording, rec_id))
+        self.assertIsNone(db.session.get(Recording, rec_id).retention_archived_at)
+        self.assertEqual(stats['archived'], 0)
+        storage.delete.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -407,7 +426,7 @@ class TestGlobalRetentionFlag(RetentionTestBase):
 
     def test_global_days_zero_is_no_policy_old_recording_kept_and_logs_no_global(self):
         # Boundary: GLOBAL_RETENTION_DAYS == 0 means "no global policy", NOT
-        # "delete everything older than 0 days". An old, untagged recording must
+        # "archive everything older than 0 days". An old, untagged recording must
         # survive, and the "No global retention configured" branch must run.
         rec = self.make_recording(age_days=100, audio_path='user/zero.mp3')
         rec_id = rec.id
@@ -427,16 +446,15 @@ class TestGlobalRetentionFlag(RetentionTestBase):
 
     def test_global_days_positive_makes_old_recording_eligible_and_no_global_log(self):
         # GLOBAL_RETENTION_DAYS > 0 => a global policy applies. An old recording
-        # is eligible and gets deleted, and the "No global retention configured"
+        # is eligible and gets archived, and the "No global retention configured"
         # branch must NOT run.
         rec = self.make_recording(age_days=100, audio_path='user/pos.mp3')
         rec_id = rec.id
         stats, storage, logged_no_global = self._run_capturing_logs(global_days=30)
-        # Behavioral: global policy applies => old recording deleted.
-        self.assertEqual(stats['deleted_full'], 1)
+        # Global policy applies and archival must include preservation evidence.
+        self.assert_archived(rec, stats, storage)
         self.assertEqual(stats['skipped_no_retention'], 0)
-        self.assertIsNone(db.session.get(Recording, rec_id))
-        storage.delete.assert_called_with('user/pos.mp3', missing_ok=True)
+        self.assertIsNotNone(db.session.get(Recording, rec_id))
         # has_global_retention must be True at GLOBAL==30, so the no-global log
         # must NOT fire. Mutating line 94 (> 0 -> < 0) makes it False (log fires);
         # mutating line 97 (if not -> if) makes it log too. Either breaks this.

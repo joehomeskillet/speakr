@@ -85,9 +85,9 @@ def apply_hot_settings(module_name: str, mapping: Dict[str, Tuple[str, str, Any]
 # key: (env var, default, setting_type, description)
 ENV_BACKED_SETTINGS: Dict[str, Tuple[str, Any, str, str]] = {
     'users_can_delete': ('USERS_CAN_DELETE', True, 'boolean', 'Whether non-admin users can delete their recordings.'),
-    'enable_auto_deletion': ('ENABLE_AUTO_DELETION', False, 'boolean', 'Master switch for automatic deletion of old recordings.'),
-    'global_retention_days': ('GLOBAL_RETENTION_DAYS', 0, 'integer', 'Number of days to retain recordings globally. 0 disables auto-deletion.'),
-    'deletion_mode': ('DELETION_MODE', 'full_recording', 'string', 'Deletion mode: audio_only or full_recording.'),
+    'enable_auto_deletion': ('ENABLE_AUTO_DELETION', False, 'boolean', 'Enable automatic archival of old recordings, preserving files and data.'),
+    'global_retention_days': ('GLOBAL_RETENTION_DAYS', 0, 'integer', 'Days before automatic archival. 0 uses tag policies only.'),
+    'deletion_mode': ('DELETION_MODE', 'archive', 'string', 'Archival preserves all files and data. Legacy mode values also archive.'),
     'recording_tombstone_days': ('RECORDING_TOMBSTONE_DAYS', 90, 'integer', 'Days to keep changes-feed tombstones.'),
     'webhook_delivery_retention_days': ('WEBHOOK_DELIVERY_RETENTION_DAYS', 30, 'integer', 'Days to keep webhook delivery records (with their payloads) after they were created. 0 keeps them without limit.'),
     'webhook_omit_titles': ('WEBHOOK_OMIT_TITLES', False, 'boolean', 'Whether the recording title and the original filename are left out of webhook payloads.'),

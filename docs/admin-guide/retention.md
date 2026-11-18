@@ -1,139 +1,122 @@
 ---
 layout: default
-title: Retention & Auto-Deletion
+title: Retention & Automatic Archival
 parent: Admin Guide
 nav_order: 7
 ---
 
-# Auto-Deletion and Retention Policies
+# Automatic Archival and Retention Policies
 
-This document describes the automated retention and deletion system for Speakr recordings.
-
-## Overview
-
-The auto-deletion system provides automated lifecycle management for your recordings, helping you:
-
-- **Comply with data retention policies** - Automatically remove recordings after a specified retention period
-- **Manage storage** - Prevent unlimited growth of audio files
-- **Maintain critical data** - Keep transcriptions and metadata even after audio deletion
-- **Protect important recordings** - Exempt specific recordings from automatic deletion
+The clinic fork moves eligible recordings into the archive. The retention run preserves stored media, original files, transcripts, metadata, child rows, clinical revisions and the exact versions referenced by releases. Archived recordings remain available through the archive filter, subject to the existing access permissions.
 
 ## Configuration
 
-### Environment Variables
+The existing configuration names remain accepted for compatibility. The admin page labels these settings **Automatic archival**, **Archive after days** and **Archive and preserve all data**.
 
-Add these to your `.env` file to configure auto-deletion:
-
-```bash
-# Enable or disable the auto-deletion feature
-ENABLE_AUTO_DELETION=false  # Set to 'true' to enable
-
-# Global retention period in days (0 = disabled)
-GLOBAL_RETENTION_DAYS=90    # Recordings older than this will be processed
-
-# Deletion mode: what to delete
-DELETION_MODE=full_recording  # Options: 'audio_only' or 'full_recording'
+```dotenv
+ENABLE_AUTO_DELETION=false
+GLOBAL_RETENTION_DAYS=90
+DELETION_MODE=archive
 ```
 
-### Deletion Modes
+| Setting | Behavior |
+|---|---|
+| `ENABLE_AUTO_DELETION` | Enables the retention archival sweep for both scheduled and administrator-triggered runs. |
+| `GLOBAL_RETENTION_DAYS` | Days since recording creation before archival. With `0`, only applicable positive tag periods cause archival. |
+| `DELETION_MODE=archive` | Archives eligible recordings and preserves their files and database rows. |
+| Existing `audio_only` or `full_recording` mode | Uses the same preserving archival behavior. Existing configuration remains readable. |
 
-#### Audio-Only Mode (`DELETION_MODE=audio_only`)
-- **Deletes**: The media file only
-- **Keeps**: Transcription, summary, notes, metadata
-- **Use case**: Long-term record keeping with storage optimization
-- **Result**: Recordings are marked "Audio deleted" and stay in the list; the transcription remains searchable
+Values saved in System Settings take precedence. Environment values apply until an administrator saves an override. The daily maintenance scheduler evaluates the current settings at run time and runs at 02:00 in server time. Tag-only policies also run when the global period is zero.
 
-#### Full Recording Mode (`DELETION_MODE=full_recording`)
-- **Deletes**: Complete recording including the media file, transcription, summary, notes
-- **Keeps**: Nothing - recording is permanently removed
-- **Use case**: Complete data removal for compliance
-- **Result**: Recording is completely removed from the system
+Archival retains storage usage. Capacity planning must account for the archived media and the growing audit journal.
 
-Both modes delete whatever media file the recording stores. With [video retention](../user-guide/recording.md) enabled, that file is the retained video, so video recordings are removed the same way audio-only recordings are — `audio_only` mode deletes the video file while keeping the transcript, and `full_recording` removes everything.
+## Eligibility and Policy Selection
 
-## Multi-Tier Retention System
+The sweep considers recordings with status `COMPLETED` or `FAILED`. It reloads and locks each candidate before applying a policy. Recordings already archived by retention are skipped. The recording must have a creation time strictly earlier than the run time minus its effective retention period.
 
-Speakr uses a hierarchical retention policy system:
+| Rule | Effect |
+|---|---|
+| Recording `deletion_exempt` | Keeps the recording out of automatic archival. |
+| Applicable tag `protect_from_deletion` or `retention_days=-1` | Keeps the recording out of automatic archival. |
+| Applicable positive tag periods | The shortest positive tag period replaces the global period. |
+| No applicable positive tag period | Uses the positive global period, when configured. |
+| No positive period | Keeps the recording in its current state. |
 
-### 1. Global Retention (System-Wide)
-Set via `GLOBAL_RETENTION_DAYS` environment variable. Applies to all recordings unless overridden.
+Group tags apply to a recording. Personal tags apply only when they belong to the recording owner. A recipient's private tags cannot change the retention policy for the owner's recording.
 
-```bash
-GLOBAL_RETENTION_DAYS=90  # All recordings older than 90 days
+Folder retention and folder protection fields remain stored for compatibility. The current retention service evaluates recording exemptions, tags and the global setting. Folder-based archival needs a separate scope decision. Use a protected tag for an implemented exemption.
+
+## Archive State and Restoration
+
+Retention sets `recording.retention_archived_at`, which applies to every viewer. Personal archival uses the owner's `is_archived` flag. The effective archive state is set when either value is set.
+
+The regular recording list excludes archived items by default. Select the archive filter to see them. The owner archives or restores through the existing web controls. Only the owner can restore a recording-wide retention archive. That operation clears the retention timestamp and sets the owner's `is_archived` flag to the requested value.
+
+Restoring a recording keeps its creation date and retention policy. An old restored recording can therefore be archived again on the next sweep. Apply an exemption or adjust its policy when it should stay active.
+
+The media and transcript remain available to authorized viewers after archival. A file that had already been removed before archival remains absent.
+
+## Mandatory Audit Evidence
+
+Every actual archive or restore transition writes the recording state, an `audit_event` row and an append-only `clinic_archive_event` row in one transaction. Failure to write either evidence row rolls back the transition. Repeating a request for the current state creates no additional transition.
+
+| Evidence | Recorded value |
+|---|---|
+| Event | `recording.archived` or `recording.unarchived` |
+| Actor | System for the scheduled sweep, signed-in administrator for a manually triggered sweep, session user or API token for a user action |
+| Object | Recording ID, recording creation time, owner ID and target user where applicable |
+| Time and revision | UTC event time and a monotonically increasing recording archive revision |
+| Rule | `retention.global`, `retention.tag`, `user.archive` or `user.restore` |
+| Scope | `recording` for retention and its restoration, `personal` for a personal change |
+| Policy detail | Retention days and selected tag ID when applicable |
+
+Evidence contains identifiers and fixed policy metadata. Archive transitions require auditing even when the general audit logging switch is off. A context that suppresses audit writing prevents the transition. The audit pruning job preserves archive and restore events. Database triggers reject changes to the durable archive ledger, whose identifiers also survive subsequent permitted account or recording deletion.
+
+Concurrent writers serialize on the recording row on PostgreSQL. A unique recording-generation/revision constraint additionally rejects conflicting ledger entries. A failed or conflicting transaction leaves the prior state intact and can be retried.
+
+The retention run handles each recording in a separate transaction. Successfully archived recordings remain committed when a later candidate fails. Inspect the `errors` counter and retry failed candidates after correcting the cause.
+
+## Administrator Endpoints
+
+The existing URLs remain available to authenticated administrators.
+
+```http
+POST /admin/auto-deletion/run
+GET /admin/auto-deletion/stats
 ```
 
-### 2. Tag-Based Retention
-Tags can override the global retention period with custom retention periods. This is especially powerful with group tags, where group admins can set retention policies for their group's content.
+A successful sweep returns counters in this shape.
 
+```json
+{
+  "checked": 150,
+  "archived": 45,
+  "already_archived": 28,
+  "deleted_audio_only": 0,
+  "deleted_full": 0,
+  "exempted": 12,
+  "skipped_no_retention": 6,
+  "errors": 0
+}
 ```
-Global: 90 days
-Tag "Legal Records": 2555 days (7 years)  # Longer retention
-Tag "Daily Standups": 14 days  # Shorter retention
-Untagged recordings: Uses global (90 days)
-```
 
-When a recording has multiple tags with different retention periods, the **shortest** period applies.
+The two historical deletion counters remain zero. `checked` covers settled candidates, including those subsequently skipped. Counts may also leave candidates within their retention period. The stats endpoint reports `deletion_mode` as `archive` and counts recording-wide retention archives in `archived_count`. The dashboard archive count includes both owner-personal and retention archives, counting a recording once.
 
-### 3. Tag-Based Protection
-Individual tags can protect recordings from auto-deletion entirely.
+## API Compatibility
 
-**Example Hierarchy:**
+API v1 keeps its existing default of including both active and archived recordings. Clients can request `archived=false` or `archived=true` to select the effective state for the caller. Recording-wide archival updates the change feed's `is_archived` field for synchronization. The existing manual save, toggle, bulk update and API update routes use the same audited transition service.
 
-- Global retention: 90 days
-- Tag "Sprint Reviews": 180 days (longer than global)
-- Tag "Daily Standups": 14 days (shorter than global)
-- Tag "Legal" with protection enabled: Never deleted (permanent)
+The historical `/api/recordings/archived` endpoint continues to list recordings whose audio was removed, identified by `audio_deleted_at`. The archive filter in the regular recording list selects the current archive state.
 
-## Protecting Recordings from Deletion
+## Existing Manual Deletion and Independent Maintenance
 
-1. Go to **Account settings** → **Tags** tab
-2. Click **Create tag** or **Edit** an existing tag
-3. Check **"Never delete automatically"**
-4. Apply this tag to recordings you want to protect
+The manual recording and media deletion routes retain their existing behavior and access checks. An archived recording remains subject to an explicitly permitted manual deletion. The archival sweep preserves speaker profiles and embeddings and no longer invokes orphan-speaker cleanup.
 
-**When protected:**
-
-- ✅ Recordings with protected tags are exempt from auto-deletion
-- ✅ Works regardless of age or retention period
-- ✅ Applies to all recordings with that tag
-
-## Audio Removed Recordings
-
-When `DELETION_MODE=audio_only` removes a recording's media file, the recording stays in the list, marked "Audio deleted". Users who can delete recordings can also remove the media of a single recording by hand with **Delete audio, keep transcript** (or **Delete video, keep transcript** for a video) in the recording's **⋯** menu. Both paths leave the recording in the same state. For a retained video, the video file is the recording's only stored media, so removing it removes the video and its audio together.
-
-Earlier versions called this state "Archived". "Archived" now means something else: a recording the user has hidden from the main list without deleting anything (see [Recording list](../user-guide/first-steps.md#archiving-recordings)).
-
-### Finding Recordings with Removed Audio
-
-1. Open the **Recordings** sidebar
-2. Expand the filters
-3. Turn on the **Audio deleted** quick filter, next to Starred and Inbox
-
-The filter appears when audio-only retention is active or when the user is allowed to delete recordings.
-
-### What You Can Do with Audio Removed Recordings
-
-| Feature | Available | Notes |
-|---------|-----------|-------|
-| View transcription | ✅ | Full transcript accessible |
-| Search content | ✅ | Text search still works |
-| Read summary | ✅ | AI summary preserved |
-| View/edit notes | ✅ | All metadata accessible |
-| Play audio or video | ❌ | Media file deleted |
-| Reprocess transcription | ❌ | Source audio unavailable |
-| Reprocess summary | ✅ | Uses the kept transcript |
-| Share | ✅ | Can share transcription |
-| Export | ✅ | Download transcript, summary, notes |
-
-### Indicators
-
-- **Sidebar**: grey muted-speaker badge next to the recording title
-- **Player**: "The audio was deleted. The transcript, summary and notes are kept."
-- **Filter**: **Audio deleted** quick filter in the sidebar filters
+The following existing services have their own lifecycle. Their interaction with the clinic-wide preservation requirement is recorded under **OFFENE FRAGEN** in the work-package report. They require a separate decision before a claim covering every automatic cleanup path is possible.
 
 ## Deletion Records for API Clients
 
-When a recording is deleted, by a user or by auto-deletion, Speakr keeps a small record of the deletion: the recording id, the user, the time and the reason. No title or content is kept. API clients read these records from the [changes feed](../user-guide/api-reference.md#changes-feed) to remove their own copy of the recording.
+When an existing manual or independent cleanup path deletes a recording, Speakr keeps a small record of the deletion: the recording id, the user, the time and the reason. No title or content is kept. API clients read these records from the [changes feed](../user-guide/api-reference.md#changes-feed) to remove their own copy of the recording.
 
 The records are removed after `RECORDING_TOMBSTONE_DAYS` days (default 90), checked every hour. A client whose last sync is older than that starts a full sync again.
 
@@ -153,11 +136,11 @@ WEBHOOK_DELIVERY_RETENTION_DAYS=30
 
 ## Exported Files
 
-With automatic export, the exported file of a deleted recording is renamed with the `[deleted]_` prefix and kept. With `AUTO_EXPORT_DELETE_WITH_RECORDING=true`, the file is deleted together with the recording, also when the recording is removed by auto-deletion. See [Exported files of deleted recordings](system-settings.md#exported-files-of-deleted-recordings).
+With automatic export, the exported file of a deleted recording is renamed with the `[deleted]_` prefix and kept. With `AUTO_EXPORT_DELETE_WITH_RECORDING=true`, the file is deleted together with the recording, when an existing deletion path removes the recording. Archival preserves the exported file. See [Exported files of deleted recordings](system-settings.md#exported-files-of-deleted-recordings).
 
 ## Recordings Without an Owner
 
-Before the fix for #572, only the media of a deleted user's recordings was removed. The rows, with their transcripts, summaries, notes and embeddings, were kept without an owner. These leftovers are removed by a daily step at 2:00 AM. The step runs whether or not auto-deletion is enabled, since it is a matter of data integrity and not of retention.
+Before the fix for #572, only the media of a deleted user's recordings was removed. The rows, with their transcripts, summaries, notes and embeddings, were kept without an owner. These leftovers are removed by a daily step at 2:00 AM. The step runs whether or not retention archival is enabled. This independent cleanup still deletes ownerless records and is an open scope question for the clinic deployment.
 
 - **Two runs**: a recording without an owner is only marked on the first run. It is deleted on a later run, together with its media, shares and embeddings, once the mark is at least 20 hours old.
 - **Exclusions**: recordings with an owner are never candidates. A recording with a queued or running job, an active recording session or an unmerged upload part is skipped, and its wait starts again on the next run. A recording that regains an owner loses its mark.
@@ -198,345 +181,19 @@ docker compose exec app python scripts/clean_unreferenced_files.py --move-to /da
 
 **S3 storage.** With `FILE_STORAGE_BACKEND=s3`, the objects under the key prefix in the configured bucket are examined in the same way and can be deleted with `--delete`. `--move-to` is not available for S3 objects.
 
-**Rows without a file.** Recordings and upload parts whose file is missing are reported and left unchanged. Recordings whose audio was deleted on purpose, for example by an audio-only retention policy, are not reported.
+**Rows without a file.** Recordings and upload parts whose file is missing are reported and left unchanged. Recordings whose audio was deleted on purpose, for example by a historical audio-only retention policy, are not reported.
 
 No job workers or schedulers are started by the command, so you can run it while the server is running. A backup of the uploads folder, or a first pass with `--move-to`, is advisable before the first `--delete`.
 
-## Admin Controls
 
-### Running Auto-Deletion
+## Upgrade Behavior
 
-Auto-deletion runs automatically based on configured schedule. Admins can also trigger manually:
+Startup creates the archive evidence table and its immutability guards. Additive migration creates nullable `retention_archived_at` and non-null `archive_revision` with default `0` on existing recording tables. Existing personal archive values and recording content are retained. Existing archive flags are treated as the starting state, without inventing historical transition events.
 
-**API Endpoint:**
-```bash
-POST /admin/auto-deletion/run
-```
+Repeated startup retains archive evidence and revisions. Existing deletion-mode values use archival immediately after the upgrade. Stored files previously removed by older releases remain absent.
 
-**Response:**
-```json
-{
-  "checked": 150,
-  "deleted_audio_only": 45,
-  "deleted_full": 0,
-  "exempted": 12,
-  "errors": 0
-}
-```
+## Operational Checks
 
-### Checking Auto-Deletion Stats
+Use the retention stats endpoint to inspect eligibility and exemptions. Check `recording.archived` and `recording.unarchived` in the audit log and the sweep's `errors` counter. When restoration is refused, verify that the caller owns the recording-wide archive. When restored recordings reappear in the archive, check their original creation date and effective tag/global policy.
 
-**API Endpoint:**
-```bash
-GET /admin/auto-deletion/stats
-```
-
-**Response:**
-```json
-{
-  "enabled": true,
-  "global_retention_days": 90,
-  "deletion_mode": "audio_only",
-  "eligible_count": 45,
-  "exempted_count": 12,
-  "archived_count": 128
-}
-```
-
-## Speaker Data Cleanup
-
-By default, speaker profiles and voice embeddings are preserved even when all associated recordings are deleted. This is because voice embeddings are aggregated values that cannot be reconstructed from individual recordings.
-
-To enable automatic cleanup of orphaned speaker profiles, set `DELETE_ORPHANED_SPEAKERS=true` in your environment.
-
-### What Gets Cleaned Up
-
-When `DELETE_ORPHANED_SPEAKERS=true` and the auto-deletion job runs, the system:
-
-1. **Removes orphaned speaker profiles**: Speakers with no remaining recordings are deleted
-2. **Cleans embedding references**: Recording IDs are removed from speaker voice profile metadata
-3. **Applies to both deletion modes**: Works with both `audio_only` and `full_recording` deletion modes
-
-### Cleanup Schedule
-
-Speaker cleanup runs on the same schedule as auto-deletion:
-
-- **Frequency**: Daily at 2:00 AM (server time)
-- **Trigger**: Automatically when `ENABLE_AUTO_DELETION=true` and `DELETE_ORPHANED_SPEAKERS=true`
-
-### When Speakers Are Deleted
-
-A speaker is considered "orphaned" and deleted when:
-
-- `DELETE_ORPHANED_SPEAKERS=true` is set
-- No `SpeakerSnippet` records exist for the speaker (no voice samples in any recordings)
-- No valid recording references remain in the speaker's voice profile metadata
-
-**Note**: Speakers are preserved as long as they have at least one active recording with speaker identifications.
-
-### Privacy & GDPR Compliance
-
-For deployments that need to treat voice embeddings as biometric data, enable `DELETE_ORPHANED_SPEAKERS=true` to ensure:
-
-- **Data Minimization**: Removes voice data when no longer needed
-- **Right to Erasure**: Deletes voice profiles when recordings are removed
-- **Transparency**: Cleanup activity is logged for audit purposes
-- **Automatic**: No manual intervention required when combined with retention policies
-
-### Monitoring Cleanup Activity
-
-View cleanup statistics in:
-
-- **System logs**: Check application logs for cleanup counts and activity
-- **Auto-deletion response**: Speaker cleanup counts included in scheduled job output
-
-Example log entry:
-```
-INFO - Speaker cleanup completed: 5 speakers deleted, 12 embedding references removed
-```
-
-The cleanup process includes these statistics in the auto-deletion job response:
-
-```json
-{
-  "checked": 123,
-  "deleted_audio_only": 45,
-  "deleted_full": 0,
-  "exempted": 12,
-  "speakers_deleted": 5,
-  "embeddings_cleaned": 12,
-  "speakers_evaluated": 94
-}
-```
-
-### What Data Is Retained
-
-The system preserves:
-
-- **Active speakers**: Speakers with at least one recording containing their voice
-- **Speaker names**: Names are retained as long as associated recordings exist
-- **Voice profiles**: Embedding data is kept when recordings reference the speaker
-
-### What Data Is Removed
-
-The system removes:
-
-- **Orphaned voice embeddings**: Biometric voice data for speakers with no recordings
-- **Speaker records**: Entire speaker profile when completely orphaned
-- **Invalid references**: Recording IDs in embedding history that point to deleted recordings
-- **Usage statistics**: Use counts and timestamps for deleted speakers
-
-This ensures that biometric data is only retained when there's a legitimate purpose (active recordings), fulfilling GDPR's data minimization requirement.
-
-## Practical Use Cases
-
-The retention system solves real problems people have with accumulating recordings. Here's how it gets used:
-
-### Personal Use
-
-You record everything during your workday to capture ideas and discussions. Most of these recordings are ephemeral - useful for a week or two, then forgotten. Set a 30-day global retention with audio-only deletion. After a month, the audio files disappear but the searchable transcriptions remain. You can still find what was said in old recordings, but you're not paying to store hours of audio you'll never listen to again.
-
-If something turns out to be important, tag it with a protected tag before the 30 days expire. The tag prevents deletion, preserving both audio and transcript for as long as you need.
-
-### Group Collaboration
-
-Different types of group content need different lifecycles:
-
-| Content Type | Retention Approach | Why |
-|--------------|-------------------|-----|
-| Daily standups | Group tag with 14-day retention | Routine updates, no long-term value |
-| Sprint planning | Group tag with 90-day retention | Reference value for current quarter |
-| Architecture decisions | Group tag with protection enabled | Document important choices permanently |
-| Customer calls (sales) | Group tag with 1-year retention | Sales cycle duration + follow-up window |
-| Interviews (HR) | Group tag with 2-year retention | Typical employment litigation window |
-| Legal meetings | Protected tag | Indefinite retention for compliance |
-
-Each group sets up their tags once with appropriate retention. Members just tag recordings normally, and lifecycle management happens automatically. Nobody has to remember which recordings to keep or delete.
-
-### Compliance Requirements
-
-Organizations with data retention policies can enforce them automatically. Healthcare organization needs 7-year retention for patient consultations - set that in the relevant group tag. Law firm needs indefinite retention for client meetings - use protected tags. Financial services deletes routine internal calls after 90 days but keeps compliance-related recordings for 7 years - different tags with different retention.
-
-The system enforces policy without requiring anyone to remember the rules. Tag correctly, and retention happens automatically.
-
-### Storage Cost Management
-
-Audio files are large - a one-hour meeting might be 50-100MB. Transcriptions are text - the same meeting might be 10-20KB. Audio-only deletion mode keeps the valuable searchable text while reclaiming storage.
-
-Run audio-only deletion with a 90-day retention. Recordings older than 90 days lose their audio but remain fully searchable. You can still use Inquire Mode to find information, read transcripts, review summaries, and see notes. You just can't play the original audio. For most use cases, that's fine - once you've extracted the information into text, the audio serves no purpose.
-
-This approach lets you keep years of searchable conversation history without accumulating terabytes of audio files.
-
-## Best Practices
-
-### For Compliance
-
-1. **Set appropriate retention periods**
-    ```bash
-    # Example: 7-year retention for financial records
-    GLOBAL_RETENTION_DAYS=2555  # 7 years × 365 days
-    DELETION_MODE=full_recording
-    ```
-
-2. **Use tag-based protection** for records requiring indefinite retention
-    - Create "Legal Hold" or "Permanent" tags
-    - Enable protection on these tags
-    - Apply to relevant recordings
-
-3. **Document your retention policy** in your organization's compliance documentation
-
-### For Storage Management
-
-1. **Start with audio-only deletion**
-    ```bash
-    DELETION_MODE=audio_only
-    ```
-    - Keeps searchable transcriptions
-    - Frees up 95%+ of storage (audio files are large)
-    - Maintains business value of conversations
-
-2. **Use shorter retention periods** for routine recordings
-    ```bash
-    GLOBAL_RETENTION_DAYS=30  # Routine meetings
-    ```
-
-3. **Protect important content** with tags
-    - "Executive Meetings" tag → protect from deletion
-    - "Daily Standup" tag → no protection (routine)
-
-### For Groups
-
-When groups are enabled:
-
-1. **Set conservative global retention** (shorter period as a baseline)
-2. **Configure group tags with custom retention** to match each group's needs
-3. **Use protected group tags** for group content requiring permanent retention
-4. **Document retention policies** so group members understand lifecycle expectations
-
-Example group tag retention configuration:
-
-- Engineering group "Architecture Decisions": Protected (never deleted)
-- Sales group "Customer Calls": 365 days
-- HR group "Interviews": 90 days
-- Operations group "Daily Standups": 14 days
-
-## Deletion Process Flow
-
-```
-1. Automated Check (Daily/Manual Trigger)
-   ↓
-2. Find recordings older than retention period
-   ↓
-3. For each recording:
-   - Check manual exemption flag
-   - Check tags for protection
-   - Skip if exempt
-   ↓
-4. Delete based on mode:
-   - audio_only: Remove file via storage service, keep DB record, set audio_deleted_at
-   - full_recording: Remove file via storage service and DB record
-   ↓
-5. Return statistics
-```
-
-!!! info "S3 Storage Support"
-    Audio deletion works transparently with both local and S3 storage backends. The storage service resolves each recording's storage locator (`local://...` or `s3://...`) and deletes the file from the correct backend. If the file is already missing, the deletion is treated as successful and processing continues.
-
-## Migration Guide
-
-### Enabling Auto-Deletion on Existing System
-
-1. **Test with audio-only mode first:**
-    ```bash
-    ENABLE_AUTO_DELETION=true
-    GLOBAL_RETENTION_DAYS=365  # Start with long period
-    DELETION_MODE=audio_only   # Test safely
-    ```
-
-2. **Protect existing important content:**
-    - Create protected tags
-    - Apply to critical recordings
-    - Verify exemptions via `/admin/auto-deletion/stats`
-
-3. **Run manual test:**
-    ```bash
-    POST /admin/auto-deletion/run
-    ```
-
-4. **Monitor results** and adjust retention period as needed
-
-### Reverting Changes
-
-If you need to disable auto-deletion:
-```bash
-ENABLE_AUTO_DELETION=false
-```
-
-**Note:** Already deleted audio files cannot be recovered. Database records (if using audio-only mode) remain intact.
-
-## API Reference
-
-### Run Auto-Deletion (Admin Only)
-
-```http
-POST /admin/auto-deletion/run
-```
-
-Manually trigger the auto-deletion process.
-
-### Get Deletion Statistics (Admin Only)
-
-```http
-GET /admin/auto-deletion/stats
-```
-
-Get statistics about eligible recordings and current configuration.
-
-## Troubleshooting
-
-### Auto-Deletion Not Running
-
-**Check:**
-
-1. `ENABLE_AUTO_DELETION=true` in `.env`
-2. `GLOBAL_RETENTION_DAYS > 0`
-3. Admin status for manual triggers
-4. Server logs for errors
-
-### Too Many Recordings Being Deleted
-
-**Solutions:**
-
-1. Increase `GLOBAL_RETENTION_DAYS`
-2. Add protected tags to important categories
-3. Check tag assignments on recordings
-4. Review exemption status via stats endpoint
-
-### Recordings with Removed Audio Not Showing
-
-**Check:**
-
-1. Turn on the **Audio deleted** quick filter in the sidebar filters
-2. Verify `DELETION_MODE=audio_only` (`full_recording` deletes the whole recording instead)
-3. Check the `audio_deleted_at` field in the database
-
-## Security Considerations
-
-1. **Admin-only endpoints**: Auto-deletion triggers require admin authentication
-2. **Irreversible deletion**: Deleted audio files cannot be recovered
-3. **Audit trail**: Check server logs for deletion events
-4. **GDPR compliance**: Full deletion mode helps meet "right to be forgotten" requirements
-
-## Support
-
-For issues or questions about auto-deletion:
-
-1. Check server logs for detailed error messages
-2. Verify environment variable configuration
-3. Test with `/admin/auto-deletion/stats` endpoint
-4. Review this documentation
-5. Submit issues on GitHub with logs attached
-
----
-
-Return to [Admin Guide](index.md) →
+See [Audit log](audit-log.md) for event fields and auditing settings.

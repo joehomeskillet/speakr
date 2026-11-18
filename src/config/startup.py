@@ -116,19 +116,15 @@ def get_file_monitor_functions(app):
 
 # --- Auto-Processing API Endpoints ---
 def scheduled_deletion_due():
-    """Whether the daily auto-deletion run should delete anything.
-
-    The same two conditions that used to decide at startup whether the
-    scheduler started at all: auto-deletion on and a global retention period.
-    """
-    return bool(_self.ENABLE_AUTO_DELETION) and _self.GLOBAL_RETENTION_DAYS > 0
+    """Run enabled archival, including policies configured only on tags."""
+    return bool(_self.ENABLE_AUTO_DELETION)
 
 
 def run_daily_maintenance(app):
-    """The work of one daily run: retention auto-deletion, the ownerless
+    """The work of one daily run: retention archival, the ownerless
     cleanup, then the pruning of the audit log.
 
-    Auto-deletion deletes only when it is enabled. The cleanup of recordings
+    Retention archives only when enabled. The cleanup of recordings
     without an owner (#572) is integrity, not retention, and runs every
     time, also when auto-deletion failed. Both run in the scheduler thread,
     so the single-instance election that guards the sweep guards both.
@@ -138,13 +134,13 @@ def run_daily_maintenance(app):
     try:
         with app.app_context():
             if scheduled_deletion_due():
-                app.logger.info("Running scheduled auto-deletion...")
+                app.logger.info("Running scheduled archival...")
                 stats = process_auto_deletion()
-                app.logger.info(f"Scheduled auto-deletion completed: {stats}")
+                app.logger.info(f"Scheduled archival completed: {stats}")
             else:
-                app.logger.info("Scheduled auto-deletion skipped (disabled or no global retention)")
+                app.logger.info("Scheduled archival skipped (disabled)")
     except Exception as e:
-        app.logger.error(f"Error in scheduled auto-deletion: {e}", exc_info=True)
+        app.logger.error(f"Error in scheduled archival: {e}", exc_info=True)
 
     with app.app_context():
         from src.services.ownerless_cleanup import run_ownerless_cleanup
@@ -166,16 +162,16 @@ def run_daily_maintenance(app):
 def initialize_auto_deletion_scheduler(app):
     """Start the daily 2 AM thread that calls run_daily_maintenance()."""
 
-    # The thread always starts. Whether a run deletes anything is decided at
+    # The thread always starts. Whether a run archives anything is decided at
     # run time, so enable_auto_deletion and global_retention_days can be
     # changed in System Settings without a restart (#567).
 
     def run_daily_deletion():
-        """Background thread that runs auto-deletion daily at 2 AM."""
+        """Background thread that runs daily maintenance at 2 AM."""
         import time
         from datetime import datetime, timedelta
 
-        app.logger.info("Auto-deletion scheduler started - will run daily at 2:00 AM")
+        app.logger.info("Archival scheduler started - will run daily at 2:00 AM")
 
         while True:
             try:
@@ -189,7 +185,7 @@ def initialize_auto_deletion_scheduler(app):
 
                 sleep_seconds = (next_run - now).total_seconds()
 
-                app.logger.info(f"Next auto-deletion scheduled for: {next_run.strftime('%Y-%m-%d %H:%M:%S')} (in {sleep_seconds/3600:.1f} hours)")
+                app.logger.info(f"Next archival scheduled for: {next_run.strftime('%Y-%m-%d %H:%M:%S')} (in {sleep_seconds/3600:.1f} hours)")
 
                 # Sleep until next run time
                 time.sleep(sleep_seconds)
@@ -197,7 +193,7 @@ def initialize_auto_deletion_scheduler(app):
                 run_daily_maintenance(app)
 
             except Exception as e:
-                app.logger.error(f"Error in auto-deletion scheduler: {e}", exc_info=True)
+                app.logger.error(f"Error in archival scheduler: {e}", exc_info=True)
                 # Sleep for 1 hour before retrying on error
                 time.sleep(3600)
 
@@ -205,7 +201,7 @@ def initialize_auto_deletion_scheduler(app):
     import threading
     scheduler_thread = threading.Thread(target=run_daily_deletion, daemon=True, name="AutoDeletionScheduler")
     scheduler_thread.start()
-    app.logger.info("✅ Auto-deletion scheduler initialized - running daily at 2:00 AM")
+    app.logger.info("Archival scheduler initialized - running daily at 2:00 AM")
 
 
 def initialize_file_exporter(app):
@@ -414,8 +410,7 @@ def run_startup_tasks(app):
             app, FILE_MONITOR_OWNER_LOCK,
             lambda: initialize_file_monitor(app), 'automated file processing')
 
-        # Deletes recordings on a retention policy. Concurrent sweeps race
-        # each other over the same rows and files.
+        # Elect one scheduler for archival and the independent daily maintenance.
         start_single_instance(
             app, AUTO_DELETION_OWNER_LOCK,
             lambda: initialize_auto_deletion_scheduler(app), 'auto-deletion scheduler')

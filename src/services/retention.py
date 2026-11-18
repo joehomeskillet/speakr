@@ -1,5 +1,5 @@
 """
-Recording retention and auto-deletion services.
+Recording retention archival and existing manual audio removal.
 """
 
 import os
@@ -20,8 +20,7 @@ def tag_binds_retention(recording, tag):
 
     A group tag always does. A personal tag is private to the user who made
     it, and anyone who can view a recording may attach their own (#589), so
-    only the owner's personal tags count: a tag the owner cannot see must
-    not shorten the recording's life or keep it forever.
+    only the owner's personal tags count when choosing the archive period.
     """
     if tag is None:
         return False
@@ -37,7 +36,7 @@ def retention_tags(recording):
 
 def is_recording_exempt_from_deletion(recording):
     """
-    Check if a recording is exempt from auto-deletion.
+    Check the legacy exemption fields for automatic archival.
 
     Args:
         recording: Recording object to check
@@ -49,7 +48,7 @@ def is_recording_exempt_from_deletion(recording):
     if recording.deletion_exempt:
         return True
 
-    # Check if any of the recording's tags protect it from deletion
+    # The existing protection fields now exempt the recording from archival.
     # Protection can be indicated by either protect_from_deletion flag OR retention_days == -1
     for tag in retention_tags(recording):
         if tag.protect_from_deletion:
@@ -96,130 +95,75 @@ def get_retention_days_for_recording(recording):
 
 
 def process_auto_deletion():
-    """
-    Process auto-deletion of recordings based on retention policies.
-    This can be called by a scheduled job or admin endpoint.
+    """Compatibility entry point for scheduled/admin retention archival.
 
-    Supports per-recording retention via tag-level retention_days overrides.
-    Tags with retention_days set take precedence over global retention.
-
-    Returns:
-        Dictionary with deletion statistics
+    Both legacy deletion modes now preserve every file and database row.
+    Each recording and its mandatory evidence commit in one transaction.
     """
+    from src.clinic.archive import archive_for_retention, lock_recording
+
     if not _self.ENABLE_AUTO_DELETION:
-        return api_error('auto_deletion_disabled')
-
-    # Check if any retention policy exists (global or tag-level)
-    has_global_retention = _self.GLOBAL_RETENTION_DAYS > 0
-    # We'll check for tag-level retention on a per-recording basis
-
-    if not has_global_retention:
-        # Still check recordings in case they have tag-level retention
+        return api_error("auto_deletion_disabled")
+    if _self.GLOBAL_RETENTION_DAYS <= 0:
         current_app.logger.info("No global retention configured, checking for tag-level retention policies")
 
     stats = {
-        'checked': 0,
-        'deleted_audio_only': 0,
-        'deleted_full': 0,
-        'exempted': 0,
-        'skipped_no_retention': 0,
-        'errors': 0
+        "checked": 0, "archived": 0, "already_archived": 0,
+        "deleted_audio_only": 0, "deleted_full": 0,
+        "exempted": 0, "skipped_no_retention": 0, "errors": 0,
     }
-
     try:
-        # Get settled recordings to check (COMPLETED and FAILED — never QUEUED
-        # or PROCESSING, so an in-flight backlog can't be swept mid-work)
-        # In audio_only mode: Skip recordings where audio was already deleted
-        # In full_recording mode: Include all (to catch audio-only deletions for full cleanup)
-        settled_statuses = ['COMPLETED', 'FAILED']
-        if _self.DELETION_MODE == 'audio_only':
-            all_recordings = Recording.query.filter(
-                Recording.status.in_(settled_statuses),
-                Recording.audio_deleted_at.is_(None)  # Skip already-deleted audio
-            ).all()
-        else:  # full_recording mode
-            all_recordings = Recording.query.filter(
-                Recording.status.in_(settled_statuses)
-            ).all()
-
-        stats['checked'] = len(all_recordings)
+        candidates = db.session.query(Recording.id).filter(
+            Recording.status.in_(("COMPLETED", "FAILED"))
+        ).all()
+        stats["checked"] = len(candidates)
         current_time = datetime.utcnow()
-
-        for recording in all_recordings:
+        for (recording_id,) in candidates:
             try:
-                # Check if exempt from deletion entirely
+                recording = db.session.get(Recording, recording_id)
+                if recording is None:
+                    continue
+                lock_recording(recording)
+                # Recheck under the lock in case a reprocessing job started.
+                if recording.status not in ("COMPLETED", "FAILED"):
+                    continue
+                if recording.retention_archived_at is not None:
+                    stats["already_archived"] += 1
+                    continue
                 if is_recording_exempt_from_deletion(recording):
-                    stats['exempted'] += 1
+                    stats["exempted"] += 1
                     continue
-
-                # Get the effective retention period for this specific recording
                 retention_days = get_retention_days_for_recording(recording)
-
                 if not retention_days:
-                    # No retention policy applies to this recording
-                    stats['skipped_no_retention'] += 1
+                    stats["skipped_no_retention"] += 1
                     continue
-
-                # Calculate the cutoff date for this specific recording
-                cutoff_date = current_time - timedelta(days=retention_days)
-
-                # Check if recording is past its retention period
-                if recording.created_at >= cutoff_date:
-                    # Recording is still within retention period
+                if recording.created_at is None or recording.created_at >= current_time - timedelta(days=retention_days):
                     continue
-
-                # Recording is past retention period - process deletion
-
-                # Determine deletion mode
-                if _self.DELETION_MODE == 'audio_only':
-                    # Delete only the audio file, keep transcription
-                    current_app.logger.info(f"Recording {recording.id} is past retention ({retention_days} days), removing audio")
-                    if remove_recording_audio(recording, reason='retention'):
-                        stats['deleted_audio_only'] += 1
-
-                else:  # full_recording mode
-                    # Check if this is completing a previous audio_only deletion
-                    if recording.audio_deleted_at:
-                        current_app.logger.info(f"Recording {recording.id} has deleted audio (mode changed), completing full deletion")
-                    else:
-                        current_app.logger.info(f"Recording {recording.id} is past retention ({retention_days} days), deleting fully")
-
-                    from src.services.recording_deletion import delete_recording_completely
-                    deleted_id = recording.id
-                    delete_recording_completely(recording, storage=get_storage_service(), strict_media=True,
-                                                reason='retention')
-                    stats['deleted_full'] += 1
-                    current_app.logger.info(f"Auto-deleted full recording ID: {deleted_id}")
-
-            except Exception as e:
-                stats['errors'] += 1
-                current_app.logger.error(f"Error auto-deleting recording {recording.id}: {e}")
+                matching_tags = [tag.id for tag in retention_tags(recording)
+                                 if tag.retention_days == retention_days and tag.retention_days > 0]
+                changed = archive_for_retention(
+                    recording, now=current_time, retention_days=retention_days,
+                    tag_id=min(matching_tags) if matching_tags else None,
+                )
+                db.session.commit()
+                stats["archived"] += int(changed)
+                current_app.logger.info(
+                    "Archived recording %s after %s retention days (%s)",
+                    recording_id, retention_days, loggable_locator(recording.audio_path),
+                )
+            except Exception as exc:
                 db.session.rollback()
-
-        # After processing recording deletions, clean up orphaned speaker profiles
-        try:
-            from src.services.speaker_cleanup import cleanup_orphaned_speakers
-            speaker_stats = cleanup_orphaned_speakers()
-            stats['speakers_deleted'] = speaker_stats['speakers_deleted']
-            stats['embeddings_cleaned'] = speaker_stats['embeddings_removed']
-            stats['speakers_evaluated'] = speaker_stats['speakers_evaluated']
-            current_app.logger.info(
-                f"Speaker cleanup completed: {speaker_stats['speakers_deleted']} speakers deleted, "
-                f"{speaker_stats['embeddings_removed']} embedding references removed"
-            )
-        except Exception as e:
-            current_app.logger.error(f"Error during speaker cleanup: {e}", exc_info=True)
-            stats['speaker_cleanup_error'] = str(e)
-
-        current_app.logger.info(f"Auto-deletion completed: {stats}")
+                stats["errors"] += 1
+                current_app.logger.error("Error archiving recording %s (%s)", recording_id, type(exc).__name__)
+            finally:
+                # Release locks even when the recording was skipped.
+                db.session.rollback()
+        current_app.logger.info("Automatic archival completed: %s", stats)
         return stats
-
-    except Exception as e:
-        current_app.logger.error(f"Error during auto-deletion process: {e}", exc_info=True)
-        return {'error': str(e)}
-
-# --- API client setup for OpenRouter ---
-# Use environment variables from .env
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("Automatic archival failed (%s)", type(exc).__name__)
+        return {"error": "Automatic archival failed"}
 
 
 def remove_recording_audio(recording, reason='user'):
@@ -227,7 +171,7 @@ def remove_recording_audio(recording, reason='user'):
 
     The transcript, summary, notes and tags stay; the recording shows
     as "Audio removed" and can no longer be played or reprocessed. Used by
-    audio-only retention and by the manual "Delete audio" action.
+    the manual "Delete audio" action.
 
     Returns True when a stored file was deleted, False when there was none
     (the recording is marked either way). Commits.

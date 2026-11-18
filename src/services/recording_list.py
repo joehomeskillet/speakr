@@ -187,4 +187,6 @@ class RecordingListBatch:
 
     def user_archived(self, recording):
         """get_user_archived for the viewer."""
+        if recording.retention_archived_at is not None:
+            return True
         return bool(recording.is_archived)
