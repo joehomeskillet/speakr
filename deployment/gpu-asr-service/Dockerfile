@@ -18,7 +18,7 @@ RUN pip install -r requirements.txt
 # Auf eine Revision (Commit-SHA) festnageln, sobald sie bekannt ist; die Pruefung unten
 # ist massgeblich: ein abweichender SHA-256 bricht den Build ab.
 ARG MODEL_REPO=OpenVINO/whisper-large-v3-turbo-int8-ov
-ARG MODEL_REV=main
+ARG MODEL_REV=b568445dd5dc8c695bde596f8acbb4694fd6ba64
 COPY model.sha256 .
 RUN mkdir -p /models/whisper-large-v3-turbo-int8-ov \
  && awk '{print $2}' model.sha256 | while read -r f; do \
