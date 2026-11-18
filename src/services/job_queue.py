@@ -43,6 +43,10 @@ POLL_INTERVAL = 1.0  # seconds between checking for new jobs
 # membership in this list is the single source of truth for the whole pipeline.
 TRANSCRIPTION_JOBS = ['transcribe', 'reprocess_transcription', 'stitch', 'merge']
 SUMMARY_JOBS = ['summarize', 'reprocess_summary', 'translate_transcription']
+# Clinic follow-ups (src/clinic): only enqueued in clinic mode, so upstream
+# behaviour is unchanged. They run on the fast summary workers.
+CLINIC_JOBS = ['clinic_finalize', 'clinic_output', 'clinic_notify']
+SUMMARY_JOBS += CLINIC_JOBS
 # Building a recording's Inquire chunks (embeddings) has its own workers, so a
 # slow embedding model never holds up a transcription or a summary (#541).
 INDEX_JOBS = ['index_chunks']
@@ -67,11 +71,82 @@ JOB_RUNNERS = {
     'translate_transcription': '_run_translation',
     'index_chunks': '_run_index_chunks',
     'convert': '_run_convert',
+    'clinic_finalize': '_run_clinic_job',
+    'clinic_output': '_run_clinic_job',
+    'clinic_notify': '_run_clinic_job',
 }
 
 # Jobs that run beside a recording's processing: they leave recording.status
 # alone and send no webhooks or emails.
-BACKGROUND_JOBS = ('translate_transcription', 'index_chunks')
+BACKGROUND_JOBS = ('translate_transcription', 'index_chunks', *CLINIC_JOBS)
+
+# Stable operation keys of clinic follow-ups: one job per key and job type,
+# also across concurrent retries and after the first job has ended.
+CLINIC_OPERATION_PARAMS = ('clinic_release_id', 'clinic_operation_key')
+# Written to a clinic_output job before its handler runs; see _run_clinic_job.
+CLINIC_DELIVERY_STARTED = 'delivery_started'
+
+_CLINIC_HANDLERS = {}
+
+
+class ClinicJobError(Exception):
+    """A clinic follow-up failed. The message carries the correlation id."""
+
+    permanent = False
+
+
+class ClinicJobRefused(ClinicJobError):
+    """Retrying cannot help (stale state, no handler, refused input)."""
+
+    permanent = True
+
+
+class ClinicDeliveryUnknown(ClinicJobRefused):
+    """An output may or may not have been delivered: never resend automatically.
+
+    The ledger (src/clinic/output_attempts.py) holds the UNKNOWN claim; only
+    trusted lookup evidence resolves it, not a queue retry.
+    """
+
+
+def register_clinic_handler(job_type, handler):
+    """Register ``handler(params, correlation_id)`` for a clinic job type."""
+    if job_type not in CLINIC_JOBS:
+        raise ValueError(f"Not a clinic job type: {job_type}")
+    _CLINIC_HANDLERS[job_type] = handler
+
+
+def clinic_notify_handler(can_see):
+    """Handler for ``clinic_notify`` jobs: emit the in-app notice after commit.
+
+    ``can_see`` is the caller's real visibility check (user id, workflow row).
+    ``emit`` stores one row per recipient and skips stored ones, so a retry
+    only delivers the recipients that failed.
+    """
+    def handle(params, correlation_id):
+        from src.clinic import workflow, workflow_notifications
+
+        try:
+            result = workflow_notifications.emit(
+                params['event'], params['dictation_id'],
+                actor_user_id=params['actor_user_id'],
+                expected_version=params['expected_version'],
+                acceptor_ids=params.get('acceptor_ids') or (),
+                can_see=can_see, context=params.get('context'))
+        except workflow.WorkflowError as error:
+            raise ClinicJobRefused(f"[{correlation_id}] {error}") from error
+        if result.failed:
+            raise ClinicJobError(f"[{correlation_id}] notice not stored for {len(result.failed)} recipient(s)")
+    return handle
+
+
+def clinic_operation_key(params):
+    """The stable operation key of a clinic follow-up's params, or None."""
+    if isinstance(params, dict):
+        for name in CLINIC_OPERATION_PARAMS:
+            if params.get(name):
+                return name, params[name]
+    return None
 
 
 class StitchTargetMismatch(Exception):
@@ -909,6 +984,40 @@ class FairJobQueue:
 
         return progress
 
+    def _run_clinic_job(self, job, recording, params, job_type=None):
+        """Run a clinic follow-up through its registered handler (src/clinic).
+
+        Failures carry a correlation id (operation key and job id). A
+        clinic_output job is never retried or recovered into a second
+        delivery: the marker is committed before the handler runs, so a
+        retry, a crash recovery or a failure after the adapter call ends as
+        UNKNOWN for the output ledger instead of a resend.
+        """
+        from src.database import db
+
+        correlation_id = f"{(clinic_operation_key(params) or ('', 'none'))[1]}:{job.id}"
+        if not clinic_mode_enabled():
+            raise ClinicJobRefused(f"[{correlation_id}] clinic mode is off")
+        handler = _CLINIC_HANDLERS.get(job_type)
+        if handler is None:
+            raise ClinicJobRefused(f"[{correlation_id}] no handler for {job_type}")
+        output = job_type == 'clinic_output'
+        if output:
+            if params.get(CLINIC_DELIVERY_STARTED):
+                raise ClinicDeliveryUnknown(f"[{correlation_id}] delivery state is UNKNOWN; reconcile, do not resend")
+            job.params = json.dumps({**params, CLINIC_DELIVERY_STARTED: True})
+            db.session.commit()
+        try:
+            outcome = handler(params, correlation_id)
+        except ClinicJobError:
+            raise
+        except Exception as error:
+            logger.error(f"Clinic job {correlation_id} ({job_type}) failed: {describe_error(error)}")
+            cls = ClinicDeliveryUnknown if output else ClinicJobError
+            raise cls(f"[{correlation_id}] {type(error).__name__}") from error
+        if output and outcome == 'UNKNOWN':
+            raise ClinicDeliveryUnknown(f"[{correlation_id}] adapter outcome UNKNOWN; reconcile, do not resend")
+
     def _run_convert(self, job, recording, params, job_type=None):
         """Convert an upload, then queue its transcription (convert worker pool)."""
         from src.services.upload_conversion import convert_uploaded_recording
@@ -984,6 +1093,19 @@ class FairJobQueue:
             db.session.connection()
 
             with self._enqueue_lock:
+                operation = clinic_operation_key(params) if clinic_mode_enabled() else None
+                if operation:
+                    # One job per operation key and type, even after the first
+                    # one ended (a retry must not schedule the work again).
+                    for row in ProcessingJob.query.filter_by(
+                            recording_id=recording_id, job_type=job_type).order_by(ProcessingJob.id):
+                        try:
+                            stored = json.loads(row.params) if row.params else {}
+                        except ValueError:
+                            continue
+                        if clinic_operation_key(stored) == operation:
+                            return row.id
+
                 # Check for existing active job of the SAME TYPE for this recording
                 # Allow different job types to coexist (e.g., transcribe and summarize)
                 existing = ProcessingJob.query.filter(
@@ -992,6 +1114,10 @@ class FairJobQueue:
                     ProcessingJob.status.in_(['queued', 'processing'])
                 ).first()
 
+                if existing and operation:
+                    # An active job of another operation is not this one's job.
+                    raise ClinicJobError(
+                        f"Active {job_type} job {existing.id} belongs to another operation; retry later")
                 if existing:
                     logger.warning(f"Job of type {job_type} already exists for recording {recording_id}: {existing.id}")
                     return existing.id
@@ -1032,6 +1158,15 @@ class FairJobQueue:
                         ProcessingJob.job_type == job_type,
                         ProcessingJob.status.in_(['queued', 'processing'])
                     ).first()
+                    if existing and operation:
+                        try:
+                            won = clinic_operation_key(json.loads(existing.params or '{}'))
+                        except ValueError:
+                            won = None
+                        if won == operation:
+                            return existing.id
+                        raise ClinicJobError(
+                            f"Active {job_type} job {existing.id} belongs to another operation; retry later")
                     if existing:
                         logger.info(
                             f"Job of type {job_type} was created concurrently for recording "
