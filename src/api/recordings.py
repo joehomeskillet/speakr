@@ -2628,8 +2628,15 @@ def get_audio_peaks(recording_id):
         if recording.audio_deleted_at:
             return '', 204
         from src.services.waveform_peaks import get_peaks
-        result = get_peaks(get_storage_service(), current_app.config['UPLOAD_FOLDER'], recording.id,
-                           recording.audio_path, log=current_app.logger)
+        storage = get_storage_service()
+        peaks_source = recording.audio_path
+        # Clinic: DS2/DSS peaks come from the playable MP3, like /audio/<id>.
+        from src.clinic.config import clinic_mode_enabled
+        if clinic_mode_enabled():
+            from src.clinic import dictation_playback
+            peaks_source = dictation_playback.playable_locator(storage, recording.audio_path)
+        result = get_peaks(storage, current_app.config['UPLOAD_FOLDER'], recording.id,
+                           peaks_source, log=current_app.logger)
         if result.status == 'pending':
             response = jsonify({'status': 'pending', 'retry_after': 2})
             response.headers['Retry-After'] = '2'

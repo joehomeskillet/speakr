@@ -103,3 +103,40 @@ def test_clinic_mode_off_keeps_upstream_behaviour(clinic_off, owner, tmp_path, s
     response = _client(owner).get(f'/audio/{rec_id}')
     assert response.get_data() == DS2
     assert not (tmp_path / f'{src.stem}{dictation_playback.PLAYBACK_SUFFIX}').exists()
+
+
+def test_peaks_are_computed_from_the_derivative(clinic_on, owner, tmp_path, stub_decoder, monkeypatch):
+    from src.services import waveform_peaks as peaks
+    stub_decoder()
+    rec_id, src = _ds2_recording(owner, tmp_path)
+    seen = []
+
+    def fake(path):
+        seen.append(path)
+        return peaks.encode_peaks(peaks.build_levels(*peaks.reduce_pcm([b'\x00\x10' * 800])), 0.1)
+
+    monkeypatch.setattr(peaks, 'compute_peaks', fake)
+    app.config['UPLOAD_FOLDER'], old = str(tmp_path / 'up'), app.config['UPLOAD_FOLDER']
+    try:
+        response = _client(owner).get(f'/audio/{rec_id}/peaks')
+    finally:
+        app.config['UPLOAD_FOLDER'] = old
+    assert response.status_code == 200
+    assert seen == [str(tmp_path / f'{src.stem}{dictation_playback.PLAYBACK_SUFFIX}')]
+    assert src.read_bytes() == DS2
+
+
+def test_peaks_clinic_off_read_the_original(clinic_off, owner, tmp_path, stub_decoder, monkeypatch):
+    from src.services import waveform_peaks as peaks
+    stub_decoder()
+    rec_id, src = _ds2_recording(owner, tmp_path)
+    seen = []
+    monkeypatch.setattr(peaks, 'compute_peaks', lambda path: seen.append(path) or (_ for _ in ()).throw(
+        peaks.PeaksError('x')))
+    app.config['UPLOAD_FOLDER'], old = str(tmp_path / 'up'), app.config['UPLOAD_FOLDER']
+    try:
+        _client(owner).get(f'/audio/{rec_id}/peaks')
+    finally:
+        app.config['UPLOAD_FOLDER'] = old
+    assert seen == [str(src)]
+    assert not (tmp_path / f'{src.stem}{dictation_playback.PLAYBACK_SUFFIX}').exists()
