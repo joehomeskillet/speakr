@@ -8,6 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SUPPLEMENT = ROOT / "clinic-evidence/contracts/enrollment-web.openapi.json"
+IMPORT_API = SUPPLEMENT.with_name("import-web.openapi.json")
 CLINIC_API = ROOT / "clinic-spec/contracts/clinic-api.openapi.json"
 PARITY_API = ROOT / "clinic-spec/contracts/parity-api.openapi.json"
 CATALOG = ROOT / "clinic-spec/contracts/parity-command-catalog.json"
@@ -92,8 +93,6 @@ class EnrollmentContractTests(unittest.TestCase):
         expected = {
             ("GET", "/api/clinic/v1/voice/enrollment"): ("consent_state", "consent_history", "embedding_count"),
             ("POST", "/api/clinic/v1/voice/enrollment"): ("embed_with_space", "enrol"),
-            ("POST", "/api/clinic/v1/voice/consent"): ("grant_consent",),
-            ("POST", "/api/clinic/v1/voice/consent/revoke"): ("revoke_consent",),
         }
         actual = {}
         for path, methods in self.contract["paths"].items():
@@ -114,8 +113,16 @@ class EnrollmentContractTests(unittest.TestCase):
         self.assertEqual(self.contract["x-manufacturer-interfaces"], "unresolved")
         self.assertEqual(set(self.operations), {
             "getOwnVoiceEnrollment", "enrollOwnVoiceSample",
-            "grantOwnVoiceConsent", "revokeOwnVoiceConsent",
         })
+        import_paths = read_json(IMPORT_API)["paths"]
+        for action, operation_id in (
+            ("grant", "grantOwnVoiceConsent"),
+            ("revoke", "revokeOwnVoiceConsent"),
+        ):
+            self.assertEqual(
+                import_paths[f"/api/clinic/v1/voice-consent/{action}"]["post"]["operationId"],
+                operation_id,
+            )
         schema = self.contract["components"]["schemas"]["EnrollmentState"]
         self.assertEqual(set(schema["required"]), {"consent_revision", "state", "embedding_count"})
         self.assertTrue(schema["additionalProperties"] is False)
