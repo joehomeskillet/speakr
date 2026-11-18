@@ -11,12 +11,13 @@ Inert when clinic mode is off.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 from flask import Flask, jsonify, request, session
 from flask_login import current_user
 
-from src.clinic import policy
+from src.clinic import lease, live_session, policy
 from src.clinic.config import clinic_mode_enabled, feature_locked, setting_ceiling
 from src.clinic.request_ids import as_id, body_flag, request_ids
 from src.clinic.route_policy import ADMIN, AUTH, DISABLED, PUBLIC, RECORDING, ROUTE_POLICY, RouteRule
@@ -89,6 +90,60 @@ def _targets(rule: RouteRule) -> tuple[list[int], str]:
     return list(dict.fromkeys(ids)), action
 
 
+def assert_dictation_edit_allowed(
+    dictation_id: str, user_id: int, lease_generation: int, now: datetime,
+    *, live_session_id: str | None = None,
+) -> None:
+    """Fence an authorized edit in the same transaction as its write.
+
+    The review check takes the dictation lock used by live-session changes.
+    An ordinary edit need not name a live session, but a live retry must
+    still address the current, unexpired session of this dictation.
+    """
+    if type(lease_generation) is not int or lease_generation < 1:
+        raise lease.LeaseConflict(lease.STALE_GENERATION)
+    lease.assert_current(dictation_id, user_id, lease_generation, now)
+    live_session.assert_edit_allowed(dictation_id, user_id, now)
+    if live_session_id is not None:
+        active = live_session.active_session(dictation_id, now)
+        if active is None or active.id != live_session_id:
+            raise live_session.LiveSessionError('stale_live_session')
+
+
+def _check_edit_locks(recording_ids: list[int], user_id: int):
+    from src.clinic.models import ClinicDictation
+    from src.database import db
+
+    # Stock recordings without a clinic dictation have no clinic edit locks.
+    # Lock linked targets in a stable order before sampling the expiry clock.
+    id_column = ClinicDictation.id
+    targets = db.session.query(id_column).filter(
+        ClinicDictation.recording_id.in_(recording_ids)
+    ).order_by(id_column).with_for_update().all()
+    if not targets:
+        return None
+
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        payload = request.form
+    try:
+        generation = as_id(payload.get('lease_generation'))
+    except (TypeError, ValueError):
+        return _refuse(400, 'invalid_lease_generation', error='Eine gültige Sperrversion ist erforderlich.')
+
+    now = datetime.now(timezone.utc)
+    try:
+        for (dictation_id,) in targets:
+            assert_dictation_edit_allowed(
+                dictation_id, user_id, generation, now, live_session_id=payload.get('live_session_id'),
+            )
+    except lease.LeaseConflict as exc:
+        return _refuse(409, exc.reason, error='Die Bearbeitungssperre ist nicht mehr gültig.')
+    except live_session.LiveSessionError as exc:
+        return _refuse(409, exc.reason, error='Die Live-Sitzung erlaubt diese Änderung nicht.')
+    return None
+
+
 def _check_recordings(rule: RouteRule):
     """Decide every recording the request addresses; a response means refused."""
     try:
@@ -117,6 +172,8 @@ def _check_recordings(rule: RouteRule):
             if decision.visible:
                 return _refuse(403, 'forbidden')
             return _refuse(404, 'not_found')
+    if action in ('edit', 'delete') and request.method != 'OPTIONS':
+        return _check_edit_locks(ids, subject.user_id)
     return None
 
 
