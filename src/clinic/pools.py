@@ -220,10 +220,36 @@ def create_tables(bind=None) -> None:
     )
 
 
-def _actor(actor_id):
-    if db.session.get(User, actor_id) is None:
+def _actor(actor_id, action="manage_pools"):
+    """Authorise a mutation: active site admin or an explicit central-policy grant of ``action``."""
+    from dataclasses import replace
+
+    from . import policy
+    from .config import clinic_mode_enabled
+    from .identity import ClinicAccountPolicy
+
+    user = db.session.get(User, actor_id, populate_existing=True) if type(actor_id) is int else None
+    if user is None:
         raise PoolError("unknown_actor")
-    return actor_id
+    if not clinic_mode_enabled():
+        return actor_id  # upstream behaviour is unchanged with clinic mode off
+    account = db.session.get(ClinicAccountPolicy, user.id, populate_existing=True)
+    if account is not None and account.status != "active":
+        raise PoolError("forbidden")
+    if user.is_admin:
+        return actor_id
+    # Project explicit grants of this action onto a grant-only action on a synthetic
+    # actor-owned resource, so central scope and deny rules still apply.
+    subject = policy.build_subject(user.id)
+    grants = tuple(
+        replace(grant, actions=frozenset({"release"})) for grant in subject.grants
+        if action in grant.actions
+    )
+    if grants and policy.decide(
+        replace(subject, grants=grants), "release", policy.RecordingFacts(recording_id=0, owner_id=user.id),
+    ).allowed:
+        return actor_id
+    raise PoolError("forbidden")
 
 
 def _known_user(user_id):
@@ -441,7 +467,7 @@ def _normalise_actions(actions):
 
 
 def _grant(user_id, effect, scope, *, actor_id, pool_id, actions):
-    actor_id = _actor(actor_id)
+    actor_id = _actor(actor_id, "manage_grants")
     user_id = _known_user(user_id)
     if scope not in SCOPES:
         raise PoolError("unknown_scope")

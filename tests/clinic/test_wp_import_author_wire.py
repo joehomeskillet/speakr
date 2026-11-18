@@ -6,12 +6,22 @@ import pytest
 
 from src.clinic import agent_channel as ch
 from src.clinic import import_centre as ic
+from src.clinic import policy
 from src.clinic.agent_channel import AgentChannelError
 from src.clinic.author_resolution import normalise_alias
 from src.clinic.models import ClinicDictation, ClinicOriginal
 from src.database import db
 
 from test_import_centre import NOW, _data, _env as _env, _intent, _upload, env as env
+
+
+@pytest.fixture(autouse=True)
+def _import_grants(env, monkeypatch):
+    """Import intents need the central-policy action ``import``; grant it to the synthetic users."""
+    allowed = {env["author"].id, env["other"].id}
+    monkeypatch.setattr(policy, "_grant_providers", [
+        lambda uid: (policy.Grant("all", frozenset({"import"})),) if uid in allowed else (),
+    ])
 
 
 def _finalize(env, ingest_id, body, *, now=NOW, **evidence):
