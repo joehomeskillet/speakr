@@ -126,7 +126,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends wget \
 
 WORKDIR /build
 COPY tailwind.config.js ./
-COPY static/css/tailwind.input.css static/css/
+COPY static/css/tailwind.input.css static/css/tokens.css static/css/
 COPY templates templates
 COPY static/js static/js
 COPY src src
