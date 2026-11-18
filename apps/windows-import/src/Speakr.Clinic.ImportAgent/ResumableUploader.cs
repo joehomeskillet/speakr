@@ -13,26 +13,17 @@ public sealed class ResumableUploader
         _options = options;
     }
 
-    public static WireBeginIngest BuildBegin(AgentOptions options, InventoryItem item)
+    public static WireBeginIngest BuildBegin(InventoryItem item, ImportIntent intent)
     {
-        var key = item.IdempotencyKey("begin");
         return new WireBeginIngest
         {
-            RequestId = key,
-            SourceKind = options.SimulatorMode ? "simulator" : "device",
-            MimeType = "application/octet-stream",
-            ExpectedBytes = item.Size,
-            ExpectedSha256 = item.ContentSha256,
-            Source = new SourceObservation
-            {
-                DeviceRegistryId = null,
-                SourceNamespace = item.SourceNamespace,
-                SourceRecordingId = item.SourceRecordingId,
-                ClaimedAuthorCode = item.Completion.ClaimedAuthorCode,
-                ObservedCompletion = item.Completion.ObservedCompletion,
-                ParserVersion = item.Completion.ParserVersion,
-                EvidenceLevel = item.Completion.EvidenceLevel
-            }
+            IntentId = intent.IntentId,
+            DeclaredSize = item.Size,
+            DeclaredSha256 = item.ContentSha256,
+            SourceId = item.SourceId,
+            SnapshotVersion = item.SnapshotVersion,
+            AgentId = intent.AgentId,
+            PostStep = intent.PostStep
         };
     }
 
@@ -44,7 +35,7 @@ public sealed class ResumableUploader
         return (int)Math.Min(AgentOptions.MaxChunkBytes, Math.Max(_options.ChunkSizeBytes, needed));
     }
 
-    public async Task<BoundReceipt> UploadAsync(InventoryItem item, CancellationToken cancellationToken)
+    public async Task<BoundReceipt> UploadAsync(InventoryItem item, ImportIntent intent, CancellationToken cancellationToken)
     {
         var bytes = _spool.Read(item.SnapshotVersion);
         if (bytes.LongLength != item.Size || !string.Equals(Hashing.Sha256Hex(bytes), item.ContentSha256, StringComparison.Ordinal))
@@ -52,10 +43,12 @@ public sealed class ResumableUploader
         var chunkSize = EffectiveChunkSize(bytes.LongLength);
         var chunkCount = (int)((bytes.LongLength + chunkSize - 1) / chunkSize);
         var beginKey = item.IdempotencyKey("begin");
-        var begin = BuildBegin(_options, item);
+        var begin = BuildBegin(item, intent);
         var receipt = await _server.BeginAsync(begin, beginKey, cancellationToken);
         var ingestId = receipt.IngestId;
         RequireProgressable(receipt);
+        if (string.Equals(receipt.State, "STORED", StringComparison.Ordinal))
+            return ReceiptBinder.Bind(item, intent, ingestId, receipt);
         // The server may only report state that fits the local snapshot.
         if (receipt.ReceivedBytes > item.Size || receipt.ReceivedChunks.Any(s => s < 0 || s >= chunkCount))
             throw new ImportConflictException("Server reports upload state beyond the local snapshot.");
@@ -70,7 +63,7 @@ public sealed class ResumableUploader
             digests.Add(new ChunkDigest { Sequence = sequence, Bytes = length, Sha256 = chunkHash });
             if (!received.Contains(sequence))
             {
-                receipt = await _server.PutChunkAsync(ingestId, sequence, chunk, chunkHash, cancellationToken);
+                receipt = await _server.PutChunkAsync(ingestId, sequence, offset, chunk, chunkHash, cancellationToken);
                 ReceiptBinder.RequireSession(ingestId, receipt);
                 received.Add(sequence);
             }
@@ -85,8 +78,7 @@ public sealed class ResumableUploader
         };
         receipt = await _server.FinalizeAsync(ingestId, finalize, item.IdempotencyKey("finalize"), cancellationToken);
         ReceiptBinder.RequireSession(ingestId, receipt);
-        // Finalize is accepted asynchronously (202). Anything but a durable STORED stays unknown here;
-        // it is re-read a bounded number of times and is never treated as stored.
+        // A non-terminal state is re-read a bounded number of times. UNKNOWN is terminal and is never STORED.
         for (var attempt = 0; attempt < _options.FinalizePollAttempts && !ReceiptBinder.IsFinal(receipt); attempt++)
         {
             if (_options.FinalizePollDelayMs > 0)
@@ -94,14 +86,14 @@ public sealed class ResumableUploader
             receipt = await _server.GetAsync(ingestId, cancellationToken);
             ReceiptBinder.RequireSession(ingestId, receipt);
         }
-        return ReceiptBinder.Bind(item, ingestId, receipt);
+        return ReceiptBinder.Bind(item, intent, ingestId, receipt);
     }
 
     private static void RequireProgressable(IngestReceipt receipt)
     {
-        if (string.Equals(receipt.State, "INVALID", StringComparison.Ordinal)
-            || string.Equals(receipt.State, "QUARANTINED", StringComparison.Ordinal))
-            throw new ReceiptRejectedException("Server marked the ingest " + receipt.State + ".");
+        if (receipt.State is "RECEIVING" or "STORED")
+            return;
+        throw new ReceiptRejectedException("Server marked the ingest " + receipt.State + ".");
     }
 }
 
@@ -114,27 +106,34 @@ public static class ReceiptBinder
     }
 
     public static bool IsFinal(IngestReceipt receipt) =>
-        string.Equals(receipt.State, "STORED", StringComparison.Ordinal)
-        || string.Equals(receipt.State, "INVALID", StringComparison.Ordinal)
-        || string.Equals(receipt.State, "QUARANTINED", StringComparison.Ordinal);
+        receipt.State is "STORED" or "INVALID" or "UNKNOWN" or "ABORTED";
 
     // expectedIngestId must come from the session (begin response), never from the receipt under test.
-    public static BoundReceipt Bind(InventoryItem item, string expectedIngestId, IngestReceipt receipt)
+    public static BoundReceipt Bind(InventoryItem item, ImportIntent intent, string expectedIngestId, IngestReceipt receipt)
     {
         RequireSession(expectedIngestId, receipt);
         if (!string.Equals(receipt.State, "STORED", StringComparison.Ordinal)
             || !string.Equals(receipt.Durability, "STORED", StringComparison.Ordinal))
             throw new ReceiptRejectedException("Receipt is not a durable STORED commit.");
-        if (!string.Equals(receipt.Sha256, item.ContentSha256, StringComparison.Ordinal) || receipt.ReceivedBytes != item.Size)
+        if (!string.Equals(receipt.Sha256, item.ContentSha256, StringComparison.Ordinal)
+            || receipt.ReceivedBytes != item.Size
+            || receipt.Size != item.Size)
             throw new ReceiptRejectedException("Receipt is not bound to this snapshot hash and size.");
+        if (!string.Equals(receipt.SourceId, item.SourceId, StringComparison.Ordinal)
+            || !string.Equals(receipt.SnapshotVersion, item.SnapshotVersion, StringComparison.Ordinal))
+            throw new ReceiptRejectedException("Receipt is not bound to this source snapshot.");
+        if (!string.Equals(receipt.IntentId, intent.IntentId, StringComparison.Ordinal))
+            throw new ReceiptRejectedException("Receipt intent does not match the upload.");
         if (receipt.CorrelationId.Length == 0)
             throw new ReceiptRejectedException("Receipt has no correlation id.");
         if (string.Equals(receipt.DecodeState, "INVALID", StringComparison.Ordinal))
             throw new ReceiptRejectedException("Receipt decode state is INVALID.");
-        if (!string.Equals(receipt.AuthorState, "UNRESOLVED", StringComparison.Ordinal)
-            && !string.Equals(receipt.AuthorState, "RESOLVED", StringComparison.Ordinal))
+        if (receipt.AuthorState is not ("UNRESOLVED" or "RESOLVED"))
             throw new ReceiptRejectedException("Receipt author state is not a known value.");
-        // Hash and size come from the server receipt; the source id and version are the local binding.
+        if (receipt.PermittedPostStep is not ("none" or "move_backup" or "delete"))
+            throw new ReceiptRejectedException("Receipt post step is not a known value.");
+        if (receipt.DeletionPermitted && receipt.PermittedPostStep != "delete")
+            throw new ReceiptRejectedException("Receipt permits deletion without a delete step.");
         return new BoundReceipt(
             item.SourceId,
             item.SnapshotVersion,
@@ -144,6 +143,8 @@ public static class ReceiptBinder
             receipt.CorrelationId,
             receipt.State,
             receipt.Durability,
-            receipt.DecodeState);
+            receipt.DecodeState,
+            receipt.PermittedPostStep,
+            receipt.DeletionPermitted);
     }
 }
