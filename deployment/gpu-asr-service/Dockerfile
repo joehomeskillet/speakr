@@ -3,10 +3,29 @@
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive PIP_NO_CACHE_DIR=1 PYTHONUNBUFFERED=1
+# Ubuntu 24.04 liefert intel-opencl-icd 23.43; Arc Pro B50 (Battlemage) braucht die Runtime des
+# Hosts (26.27 / IGC 2.38.2). Pakete aus den GitHub-Releases, SHA-256 geprueft.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates curl ffmpeg \
-    intel-opencl-icd libze1 \
+ && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates curl ffmpeg libze1 \
  && rm -rf /var/lib/apt/lists/*
+RUN mkdir /tmp/gpu-debs && cd /tmp/gpu-debs \
+ && CR=https://github.com/intel/compute-runtime/releases/download/26.27.39122.11 \
+ && IGC=https://github.com/intel/intel-graphics-compiler/releases/download/v2.38.2 \
+ && curl -fsSL --retry 3 -O "$CR/libigdgmm12_22.10.0_amd64.deb" \
+ && curl -fsSL --retry 3 -O "$CR/intel-opencl-icd_26.27.39122.11-0_amd64.deb" \
+ && curl -fsSL --retry 3 -O "$CR/libze-intel-gpu1_26.27.39122.11-0_amd64.deb" \
+ && curl -fsSL --retry 3 -o "intel-igc-core-2_2.38.2+22051_amd64.deb" "$IGC/intel-igc-core-2_2.38.2%2B22051_amd64.deb" \
+ && curl -fsSL --retry 3 -o "intel-igc-opencl-2_2.38.2+22051_amd64.deb" "$IGC/intel-igc-opencl-2_2.38.2%2B22051_amd64.deb" \
+ && printf '%s\n' \
+  '6031a63d6e8a12ce61c14efc15f2c8e727061286e3820b8594e6d00615e04d54  libigdgmm12_22.10.0_amd64.deb' \
+  '6e447a783c99fb5634df298c135a81165be07db98672df96cdf413d22f3e6ac4  intel-opencl-icd_26.27.39122.11-0_amd64.deb' \
+  '58420df60d4bf8ac79aba03f7de1b8b60a93e995b18142391077ff735ce7b74b  libze-intel-gpu1_26.27.39122.11-0_amd64.deb' \
+  '3dbcbe4e716d62e9bd43a4a476d724cf772b4581dbcdd096d70df382e7ccad7e  intel-igc-core-2_2.38.2+22051_amd64.deb' \
+  'e265d191590efd5491bfbbd148c144fdd40aea51e0b57f8651130d2da20b8186  intel-igc-opencl-2_2.38.2+22051_amd64.deb' \
+  > SHA256SUMS \
+ && sha256sum -c SHA256SUMS \
+ && apt-get update && apt-get install -y --no-install-recommends ./*.deb \
+ && rm -rf /var/lib/apt/lists/* /tmp/gpu-debs
 
 WORKDIR /srv/gpu-asr
 RUN python3 -m venv /opt/venv
