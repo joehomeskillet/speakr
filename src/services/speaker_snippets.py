@@ -12,6 +12,7 @@ Key functions:
 """
 
 import json
+from src.clinic.config import clinic_mode_enabled
 from src.database import db
 from src.models import Speaker, SpeakerSnippet, Recording
 from src.utils.search import LIKE_ESCAPE, contains_pattern
@@ -46,6 +47,10 @@ def create_speaker_snippets(recording_id, speaker_map):
     dropped, as a re-save would, and 0 is returned. The recording, its audio
     and its transcript turns are left untouched.
     """
+    # Clinic mode: no per-speaker data from saved transcripts; labels stay anonymous.
+    if clinic_mode_enabled():
+        return 0
+
     from src.utils.speaker_labels import is_real_speaker_name
 
     if _clinic_mode():
