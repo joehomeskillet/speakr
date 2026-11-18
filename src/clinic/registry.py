@@ -30,6 +30,9 @@ MODEL_MODULES = (
     "output",
     "agent_channel",
     "revisions",
+    "richtext",
+    "entra_link_intent",
+    "recipient_defaults",
 )
 
 
