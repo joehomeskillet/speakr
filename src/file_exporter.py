@@ -40,7 +40,7 @@ def format_transcription_with_template(transcription_text, user, template=None):
     """
     # Import here to avoid circular imports
     from src.models import TranscriptTemplate
-    from src.utils.transcript_render import BASIC_TEMPLATE_FORMAT, parse_segments, render_segments
+    from src.utils.transcript_render import basic_template_format, parse_segments, render_segments
 
     # Not our segment-list JSON: return as-is
     segments = parse_segments(transcription_text)
@@ -56,7 +56,7 @@ def format_transcription_with_template(transcription_text, user, template=None):
 
     # Default format if no template set
     if not template:
-        return render_segments(segments, BASIC_TEMPLATE_FORMAT)
+        return render_segments(segments, basic_template_format())
     return render_segments(segments, template.template, template.header)
 
 

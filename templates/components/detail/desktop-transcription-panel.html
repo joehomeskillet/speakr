@@ -228,8 +228,8 @@
                              :title="t('tooltips.doubleClickToEditSegment')"
                              :data-start-time="unit.segment.startTime"
                              :data-segment-index="unit.first">
-                            <span v-if="showTimestampsSimpleView"
-                                  class="speaker-segment-timestamp speaker-segment-timestamp--inline">
+                            <span class="speaker-segment-timestamp speaker-segment-timestamp--inline"
+                                  data-segment-timestamp>
                                 ${ formatTimestamp(unit.segment.startTime) }
                             </span>${unit.segment.sentence}
                         </div>

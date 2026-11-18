@@ -21,6 +21,37 @@ DEFAULT_TIMESTAMP_FORMAT = "[{{start_time}}] {{speaker}}: {{text}}"
 # Used by the download and the export when the user has no template.
 BASIC_TEMPLATE_FORMAT = "[{{speaker}}]: {{text}}"
 
+# The same in clinic mode: a [hh:mm:ss] timestamp in front of every segment.
+CLINIC_BASIC_TEMPLATE_FORMAT = "[{{start_time}}] [{{speaker}}]: {{text}}"
+
+
+def basic_template_format():
+    """The format of the download and the export for a user without a template."""
+    from src.clinic.config import clinic_mode_enabled
+    return CLINIC_BASIC_TEMPLATE_FORMAT if clinic_mode_enabled() else BASIC_TEMPLATE_FORMAT
+
+# Placeholder labels of segments without a speaker (older stored transcripts).
+_NO_SPEAKER = frozenset(('unknown speaker', 'unknown_speaker'))
+
+# The speaker placeholder of a template, with its brackets and colon, as far
+# as they stand directly around it. Removed for a segment without a speaker.
+_SPEAKER_SLOT = re.compile(r'\[\{\{speaker(?:\|upper)?\}\}\]:?[ \t]*|\{\{speaker(?:\|upper)?\}\}:?[ \t]*')
+
+
+def speaker_of(segment):
+    """The speaker label of a segment, or '' if it has none.
+
+    A segment without a "speaker" key at all keeps the label "Unknown" (the
+    output recorded in tests/test_transcript_template_rendering.py). Stored
+    transcripts always carry the key; None means no diarization ran.
+    """
+    if 'speaker' not in segment:
+        return 'Unknown'
+    name = segment.get('speaker')
+    if not isinstance(name, str) or name.strip().lower() in _NO_SPEAKER or not name.strip():
+        return ''
+    return name
+
 # {{name|upper}}. The name cannot contain braces, so a match never starts at
 # an earlier placeholder on the same line.
 _UPPER = re.compile(r'\{\{([^{}]*?)\|upper\}\}')
@@ -75,10 +106,11 @@ def render_segments(segments, template_format, header=None):
     lines = []
     for index, segment in enumerate(segments, 1):
         start, end = segment.get('start_time'), segment.get('end_time')
-        line = template_format
+        speaker = speaker_of(segment)
+        line = template_format if speaker else _SPEAKER_SLOT.sub('', template_format)
         replacements = {
             '{{index}}': str(index),
-            '{{speaker}}': segment.get('speaker', 'Unknown'),
+            '{{speaker}}': speaker,
             '{{text}}': segment.get('sentence', ''),
             '{{start_time}}': _fmt_time(start),
             '{{end_time}}': _fmt_time(end),

@@ -23,6 +23,7 @@ import { usePWA } from './modules/composables/pwa.js';
 import { useNotifications } from './modules/composables/notifications.js';
 import { scrollSegmentIntoView, useTranscriptView } from './modules/composables/transcript-view.js';
 import { segmentRuns } from './modules/utils/transcript-window.js';
+import { hasSpeakerLabels } from './modules/utils/speaker-labels.js';
 import { useBulkSelection } from './modules/composables/bulk-selection.js';
 import { useBulkOperations } from './modules/composables/bulk-operations.js';
 import { useFolders } from './modules/composables/folders.js';
@@ -2354,7 +2355,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 // Handle new simplified JSON format (array of segments)
                 if (transcriptionData && Array.isArray(transcriptionData)) {
-                    const wasDiarized = transcriptionData.some(segment => segment.speaker);
+                    const wasDiarized = hasSpeakerLabels(transcriptionData);
 
                     if (!wasDiarized) {
                         const segments = transcriptionData.map(segment => ({

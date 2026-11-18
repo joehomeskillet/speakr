@@ -44,6 +44,18 @@ export function isGenericSpeakerLabel(name) {
     return BARE.has(text) || NUMBERED.test(text) || LETTERED.test(text) || UNKNOWN.test(text);
 }
 
+/**
+ * True when at least one segment carries a speaker label. A segment without
+ * a speaker, or one with only the "Unknown Speaker" placeholder of older
+ * stored transcripts, is not diarized: the transcript view shows no label.
+ */
+export function hasSpeakerLabels(segments) {
+    return (Array.isArray(segments) ? segments : []).some(
+        (segment) => segment && typeof segment.speaker === 'string' && segment.speaker.trim() !== ''
+            && !UNKNOWN.test(normalizeLabel(segment.speaker)),
+    );
+}
+
 /** True for a non-empty name that is not a diarization label. */
 export function isRealSpeakerName(name) {
     return typeof name === 'string' && name.trim() !== '' && !isGenericSpeakerLabel(name);
