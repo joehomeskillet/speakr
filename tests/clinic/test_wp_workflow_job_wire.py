@@ -143,10 +143,53 @@ def test_notify_workflow_refusal_is_permanent(env, monkeypatch):
     monkeypatch.setattr("src.clinic.workflow_notifications.emit", emit)
     jq.register_clinic_handler("clinic_notify", jq.clinic_notify_handler(lambda *_: True))
     job_id = _enqueue(env, "clinic_notify", event="accepted", dictation_id="d1", actor_user_id=2,
-                      expected_version=3, **KEY)
+                      expected_version=3, transition_id="t-1", **KEY)
     job = _run(job_id)
     assert (job.status, job.retry_count) == ("failed", 1)
     assert f"rel-1:{job_id}" in job.error_message and "stale_version" in job.error_message
+
+
+def _notify_params(**extra):
+    return dict(event="accepted", dictation_id="d1", actor_user_id=2, expected_version=3,
+                acceptor_ids=[7], **extra)
+
+
+def test_notify_without_transition_id_or_operation_key_is_refused(env, monkeypatch):
+    calls = []
+    monkeypatch.setattr("src.clinic.workflow_notifications.emit", lambda *a, **k: calls.append(k))
+    jq.register_clinic_handler("clinic_notify", jq.clinic_notify_handler(lambda *_: True))
+    job = _run(_enqueue(env, "clinic_notify", **_notify_params(**KEY)))
+    assert (job.status, job.retry_count, calls) == ("failed", 1, [])
+    assert "transition_id" in job.error_message
+
+
+def test_two_transitions_at_same_version_both_notify_and_retry_does_not_duplicate(env, monkeypatch):
+    stored, ids = set(), []
+
+    def emit(event, dictation_id, *, transition_id, **kwargs):
+        ids.append(transition_id)
+        key = (event, dictation_id, transition_id)
+        fresh = key not in stored
+        stored.add(key)
+        return SimpleNamespace(failed=(7,) if fresh and len(ids) == 1 else ())
+
+    monkeypatch.setattr("src.clinic.workflow_notifications.emit", emit)
+    jq.register_clinic_handler("clinic_notify", jq.clinic_notify_handler(lambda *_: True))
+    first = _enqueue(env, "clinic_notify", **_notify_params(clinic_operation_key="wf-1:accepted:3:a",
+                                                            transition_id="tr-a"))
+    # Same version_counter, different transition: its own job (no operation clash).
+    db.session.get(ProcessingJob, first).status = "completed"
+    db.session.commit()
+    second = _enqueue(env, "clinic_notify", **_notify_params(clinic_operation_key="wf-1:accepted:3:b",
+                                                             transition_id="tr-b"))
+    assert second != first
+    assert _run(second).status == "queued"       # storage failure -> retried
+    assert _run(second).status == "completed"
+    assert ids == ["tr-b", "tr-b"]               # retry reuses the same transition id
+    # Re-enqueueing the first transition returns the existing job, no new notice.
+    assert _enqueue(env, "clinic_notify", **_notify_params(clinic_operation_key="wf-1:accepted:3:a",
+                                                           transition_id="tr-a")) == first
+    assert len(ids) == 2 and stored == {("accepted", "d1", "tr-b")}
 
 
 def test_missing_handler_and_clinic_mode_off_fail_without_retry(env, monkeypatch):

@@ -126,9 +126,16 @@ def clinic_notify_handler(can_see):
     def handle(params, correlation_id):
         from src.clinic import workflow, workflow_notifications
 
+        # Durable per-transition id: the notice dedupe key is built from it, so
+        # it must be the same on every retry of this job and differ between
+        # two transitions at the same version.
+        transition_id = params.get('transition_id') or params.get('clinic_operation_key')
+        if not transition_id:
+            raise ClinicJobRefused(f"[{correlation_id}] notify job has no transition_id")
         try:
             result = workflow_notifications.emit(
                 params['event'], params['dictation_id'],
+                transition_id=transition_id,
                 actor_user_id=params['actor_user_id'],
                 expected_version=params['expected_version'],
                 acceptor_ids=params.get('acceptor_ids') or (),
