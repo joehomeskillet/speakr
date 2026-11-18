@@ -17,8 +17,11 @@ from pathlib import Path
 
 from sqlalchemy.exc import IntegrityError
 
+from src.clinic import policy
+from src.clinic.config import clinic_mode_enabled
 from src.database import db
 from src.models import *
+from src.services.recording_list import tag_dicts, tag_load_options
 from src.utils import *
 from src.utils.localization import api_error
 
@@ -130,6 +133,29 @@ def init_tags_helpers(**kwargs):
     limiter = kwargs.get('limiter')
 
 
+def _tag_read_dicts(tags: list[Tag]) -> list[dict]:
+    """Serialize already visible tags, counting only recordings the viewer may read."""
+    if not clinic_mode_enabled():
+        return tag_dicts(tags)
+    if not tags:
+        return []
+
+    subject = policy.build_subject(current_user.id, bool(current_user.is_admin))
+    rows = (db.session.query(RecordingTag.tag_id, Recording.id, Recording.user_id)
+            .join(RecordingTag.recording)
+            .filter(RecordingTag.tag_id.in_([tag.id for tag in tags]),
+                    Recording.user_id.is_not(None)))
+    counts: dict[int, int] = {}
+    can_view: dict[int, bool] = {}
+    for tag_id, recording_id, owner_id in rows:
+        if recording_id not in can_view:
+            facts = policy.build_facts(recording_id, owner_id)
+            can_view[recording_id] = policy.decide(subject, 'view', facts).allowed
+        if can_view[recording_id]:
+            counts[tag_id] = counts.get(tag_id, 0) + 1
+    return [tag.to_dict(recording_count=counts.get(tag.id, 0)) for tag in tags]
+
+
 # --- Routes ---
 
 @tags_bp.route('/api/tags', methods=['GET'])
@@ -137,7 +163,6 @@ def init_tags_helpers(**kwargs):
 def get_tags():
     """Get all tags for the current user, including group tags they have access to."""
     # Get user's personal tags
-    from src.services.recording_list import tag_dicts, tag_load_options
     user_tags = (Tag.query.filter_by(user_id=current_user.id, group_id=None)
                  .options(*tag_load_options()).order_by(Tag.name).all())
 
@@ -153,7 +178,7 @@ def get_tags():
 
     # Build response with edit permissions
     result = []
-    dicts = dict(zip([t.id for t in user_tags + team_tags], tag_dicts(user_tags + team_tags)))
+    dicts = {item['id']: item for item in _tag_read_dicts(user_tags + team_tags)}
 
     # Personal tags - user can always edit their own
     for tag in user_tags:
@@ -578,10 +603,9 @@ def get_group_tags(group_id):
         return jsonify(api_error('group_tags_members_only')), 403
 
     # Get all group tags
-    from src.services.recording_list import tag_dicts, tag_load_options
     tags = Tag.query.filter_by(group_id=group_id).options(*tag_load_options()).order_by(Tag.id).all()
 
-    return jsonify({'tags': tag_dicts(tags)})
+    return jsonify({'tags': _tag_read_dicts(tags)})
 
 
 # Hot-applied System Settings (high priority) with environment fallback.
