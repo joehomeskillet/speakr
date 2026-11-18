@@ -43,3 +43,17 @@ sherpa-onnx-Version: Die benchte Laufzeitversion ist im Bench-Verzeichnis nicht 
 ## Verdikt
 
 **PASS.** Alle drei Artefakte tragen permissive Lizenzen (Apache-2.0, MIT, Apache-2.0), die kommerzielle Nutzung und Weitergabe erlauben. Die Lizenzfelder stammen aus Primärquellen. Restvorbehalt: CC-BY-SA-Trainingsdaten (Punkt 1) und nicht geprüfte pyannote-Trainingskorpora (Punkt 2); beides ist keine Lizenzbedingung der Gewichte selbst. Eine Alternative ist daher nicht erforderlich. Falls der Rechtsverantwortliche Punkt 1 ablehnt: nächstbestes Bench-Ergebnis mit klarer Lizenz wäre WeSpeaker ResNet34 (Embedding-EER 1.9 %), dessen Lizenz laut Empfehlung aber widersprüchlich belegt und ungeprüft ist; dann Re-Bench mit der ERes2Net-Variante `eres2net_base_200k` (andere Trainingsdaten) vorziehen.
+
+
+## Ergänzung 2026-11-18: verifizierter Download der Release-Assets (WP speaker-service)
+
+Beide Assets wurden frisch von GitHub heruntergeladen und per `sha256sum` geprüft. Die Werte sind im Dockerfile (`deployment/speaker-service/Dockerfile`) fest eingetragen; `fetch_models.py` bricht den Image-Build bei Abweichung ab.
+
+| Asset | URL | SHA-256 | Vergleich |
+|---|---|---|---|
+| `sherpa-onnx-pyannote-segmentation-3-0.tar.bz2` | https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2 | `24615ee884c897d9d2ba09bb4d30da6bb1b15e685065962db5b02e76e4996488` | identisch mit der lokalen Bench-Datei `seg.tar.bz2` (schliesst die offene Zuordnung oben) |
+| `3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx` | https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx | `1a331345f04805badbb495c775a6ddffcdd1a732567d5ec8b3d5749e3c7a5e4b` | identisch mit dem Wert oben |
+
+Für das Archiv liefert GitHub weiterhin keinen Digest; der Hash ist der eigene Wert aus diesem verifizierten Download. Zur Laufzeit prüft der Dienst zusätzlich den SHA-256 von `model.onnx` (`220ad67c...1079`) und der ERes2Net-Datei und meldet beide über `GET /healthz`.
+
+sherpa-onnx ist auf v2.0.1 gepinnt (`requirements.txt`, PyPI-Wheel, Tag-Commit `af2d8d81dbfa61c4cea4c568da78f3982edca005`). Die Bench-Laufzeit war ebenfalls 2.0.1 (im Bench-venv bestätigt). Lizenztexte: `deployment/speaker-service/THIRD-PARTY-NOTICES`.
