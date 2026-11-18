@@ -17,6 +17,7 @@ from sqlalchemy import text, inspect
 
 from src.database import db
 from src.models import Recording, TranscriptChunk, SystemSetting, User
+from src.utils.localization import default_language
 # Registers clinic tables on db.metadata before create_all(). No src/clinic/__init__.py:
 # src.clinic is a namespace package until the config worker adds one.
 import src.clinic.models  # noqa: F401
@@ -371,7 +372,7 @@ def _run_migrations(app, engine):
             app.logger.info("Added company column to user table")
         if add_column_if_not_exists(engine, 'user', 'diarize', 'BOOLEAN'):
             app.logger.info("Added diarize column to user table")
-        if add_column_if_not_exists(engine, 'user', 'ui_language', "VARCHAR(10) DEFAULT 'en'"):
+        if add_column_if_not_exists(engine, 'user', 'ui_language', f"VARCHAR(10) DEFAULT '{default_language()}'"):
             app.logger.info("Added ui_language column to user table")
         if add_column_if_not_exists(engine, 'user', 'sso_provider', 'VARCHAR(100)'):
             app.logger.info("Added sso_provider column to user table")

@@ -504,10 +504,10 @@ def generate_markdown_content(recording, user, include_transcription=True, inclu
         include_transcription: Whether to include transcription
         include_summary: Whether to include summary
     """
-    from src.utils.localization import get_export_labels, format_date_localized, format_datetime_localized
+    from src.utils.localization import get_export_labels, default_language, format_date_localized, format_datetime_localized
 
     # Get user's language preference (default to English)
-    user_language = getattr(user, 'ui_language', 'en') or 'en'
+    user_language = getattr(user, 'ui_language', None) or default_language()
 
     # Get localized labels
     labels = get_export_labels(user_language)

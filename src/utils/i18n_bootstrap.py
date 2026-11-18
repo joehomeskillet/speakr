@@ -101,7 +101,8 @@ def i18n_bootstrap(locale=None):
                 locale = getattr(current_user, 'ui_language', None)
         except Exception:  # outside a request context
             locale = None
-    locale = locale or FALLBACK_LOCALE
+    from src.utils.localization import default_language
+    locale = locale or default_language()
 
     data = _load(locale)
     if data is None:

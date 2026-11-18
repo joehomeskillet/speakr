@@ -147,6 +147,17 @@ class User(db.Model, UserMixin):
     # outside the session of the request; see src/services/last_active.py.
     last_seen_at = db.Column(db.DateTime, nullable=True)
 
+    def __init__(self, **kwargs):
+        # Clinic mode only: an omitted language preference starts as German.
+        # Done here and not as a column default so that an explicitly passed
+        # None (ASR auto-detection, model-selected output) is kept.
+        from src.clinic.config import clinic_mode_enabled
+        if clinic_mode_enabled():
+            kwargs.setdefault('transcription_language', 'de')
+            kwargs.setdefault('output_language', 'German')
+            kwargs.setdefault('ui_language', 'de')
+        super().__init__(**kwargs)
+
     def get_id(self):
         version = self.session_version or 0
         return f"{self.id}:{version}" if version else str(self.id)

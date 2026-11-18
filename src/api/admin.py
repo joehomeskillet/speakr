@@ -15,7 +15,7 @@ from werkzeug.utils import secure_filename
 from src.database import db
 from src.models import *
 from src.utils import *
-from src.utils.localization import translate, api_error
+from src.utils.localization import translate, api_error, default_language
 from src.utils.search import contains_pattern, LIKE_ESCAPE
 from src.services.retention import (is_recording_exempt_from_deletion, get_retention_days_for_recording,
                                     process_auto_deletion)
@@ -74,7 +74,7 @@ def admin():
         return redirect(url_for('admin.group_management'))
 
     # Full admins only get here
-    user_language = current_user.ui_language if current_user.is_authenticated and current_user.ui_language else 'en'
+    user_language = current_user.ui_language if current_user.is_authenticated and current_user.ui_language else default_language()
     return render_template('admin.html',
                          title='Admin Dashboard',
                          admin_title=translate('nav.adminDashboard', user_language),
@@ -105,7 +105,7 @@ def group_management():
     if current_user.is_admin:
         return redirect(url_for('admin.admin'))
 
-    user_language = current_user.ui_language if current_user.is_authenticated and current_user.ui_language else 'en'
+    user_language = current_user.ui_language if current_user.is_authenticated and current_user.ui_language else default_language()
     return render_template('group-admin.html',
                          title='Group Management',
                          groups_title=translate('nav.groupManagement', user_language),

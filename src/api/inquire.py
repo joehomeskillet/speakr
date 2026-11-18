@@ -17,7 +17,7 @@ from werkzeug.utils import secure_filename
 from src.database import db
 from src.models import *
 from src.utils import *
-from src.utils.localization import translate, api_error
+from src.utils.localization import translate, api_error, default_language
 from src.utils.error_text import log_failure, user_error_text
 from src.utils.speaker_labels import real_speaker_names
 from src.services.embeddings import get_accessible_recording_ids, semantic_search_chunks, EMBEDDINGS_AVAILABLE
@@ -67,7 +67,7 @@ def inquire():
     # Render the inquire page with user context for theming
     # The interface language, as on the other pages (it was missing here, so
     # Inquire always appeared in the browser language).
-    user_language = current_user.ui_language or 'en'
+    user_language = current_user.ui_language or default_language()
     from src.utils.assistant_name import assistant_name_of
     page_title = translate('inquire.title', user_language, name=assistant_name_of(current_user))
     return render_template('inquire.html',
