@@ -495,6 +495,9 @@ def save_state(
     ``expected_version`` is the version the caller read (None for a first
     save). A different stored version raises ``CorrectionConflict``; the
     state is never overwritten silently.
+
+    This flushes without committing. A revision flushed in the same session
+    can be used as the text anchor; the caller commits or rolls back both writes.
     """
     _check_dictation(dictation)
     _require_user(user_id)
