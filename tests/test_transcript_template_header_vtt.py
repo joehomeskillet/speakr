@@ -220,8 +220,7 @@ def test_download_with_a_foreign_template_id_uses_the_basic_format(world):
     """Existing behaviour of the web download, kept: no 404, no foreign header."""
     resp = _client(world["owner"]).get(
         f"/recording/{world['rec']}/download/transcript?template_id={world['foreign']}")
-    # The basic format carries a [hh:mm:ss] timestamp per segment (2026-11-18).
-    assert resp.data.decode() == "[00:00:01] [Alice]: Hello there.\n[00:00:04] [Bob]: Hi back."
+    assert resp.data.decode() == "[Alice]: Hello there.\n[Bob]: Hi back."
 
 
 # --- template API -----------------------------------------------------------

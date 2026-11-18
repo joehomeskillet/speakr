@@ -19,7 +19,16 @@ from datetime import timedelta
 DEFAULT_TIMESTAMP_FORMAT = "[{{start_time}}] {{speaker}}: {{text}}"
 
 # Used by the download and the export when the user has no template.
-BASIC_TEMPLATE_FORMAT = "[{{start_time}}] [{{speaker}}]: {{text}}"
+BASIC_TEMPLATE_FORMAT = "[{{speaker}}]: {{text}}"
+
+# The same in clinic mode: a [hh:mm:ss] timestamp in front of every segment.
+CLINIC_BASIC_TEMPLATE_FORMAT = "[{{start_time}}] [{{speaker}}]: {{text}}"
+
+
+def basic_template_format():
+    """The format of the download and the export for a user without a template."""
+    from src.clinic.config import clinic_mode_enabled
+    return CLINIC_BASIC_TEMPLATE_FORMAT if clinic_mode_enabled() else BASIC_TEMPLATE_FORMAT
 
 # Placeholder labels of segments without a speaker (older stored transcripts).
 _NO_SPEAKER = frozenset(('unknown speaker', 'unknown_speaker'))

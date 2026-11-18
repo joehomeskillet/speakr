@@ -5,7 +5,9 @@ placeholder of older stored transcripts) render without the "[...]:" prefix.
 Every rendered line of the basic export carries its [hh:mm:ss] timestamp, with
 or without a speaker. With a speaker the label stays.
 """
-from src.utils.transcript_render import BASIC_TEMPLATE_FORMAT, render_segments
+import pytest
+
+from src.utils.transcript_render import BASIC_TEMPLATE_FORMAT, basic_template_format, render_segments
 
 
 def _segments(speaker):
@@ -15,15 +17,32 @@ def _segments(speaker):
     ]
 
 
-def test_basic_export_without_speaker_has_no_prefix_but_timestamps():
+def test_basic_format_is_upstream_unless_clinic_mode(monkeypatch):
+    monkeypatch.delenv('CLINIC_MODE', raising=False)
+    assert basic_template_format() == BASIC_TEMPLATE_FORMAT == "[{{speaker}}]: {{text}}"
+    monkeypatch.setenv('CLINIC_MODE', '1')
+    assert basic_template_format() == "[{{start_time}}] [{{speaker}}]: {{text}}"
+
+
+def test_upstream_basic_format_without_speaker_has_no_prefix():
+    out = render_segments(_segments(None), BASIC_TEMPLATE_FORMAT)
+    assert out == "Guten Tag.\nWie geht es Ihnen?"
+
+
+@pytest.fixture
+def clinic(monkeypatch):
+    monkeypatch.setenv('CLINIC_MODE', '1')
+
+
+def test_basic_export_without_speaker_has_no_prefix_but_timestamps(clinic):
     for speaker in (None, '', 'Unknown Speaker', 'UNKNOWN_SPEAKER'):
-        out = render_segments(_segments(speaker), BASIC_TEMPLATE_FORMAT)
+        out = render_segments(_segments(speaker), basic_template_format())
         assert out == "[00:00:00] Guten Tag.\n[01:02:05] Wie geht es Ihnen?"
         assert 'Unknown' not in out and 'UNKNOWN' not in out
 
 
-def test_basic_export_with_speaker_keeps_label_and_adds_timestamp():
-    out = render_segments(_segments('Dr. Meier'), BASIC_TEMPLATE_FORMAT)
+def test_basic_export_with_speaker_keeps_label_and_adds_timestamp(clinic):
+    out = render_segments(_segments('Dr. Meier'), basic_template_format())
     assert out == "[00:00:00] [Dr. Meier]: Guten Tag.\n[01:02:05] [Dr. Meier]: Wie geht es Ihnen?"
 
 

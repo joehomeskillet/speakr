@@ -35,7 +35,7 @@ from src.services.transcription_defaults import (
 )
 from src.utils.dates import to_utc_naive
 from src.utils.log_filters import loggable_error, loggable_locator
-from src.utils.transcript_render import BASIC_TEMPLATE_FORMAT, parse_segments, render_segments
+from src.utils.transcript_render import basic_template_format, parse_segments, render_segments
 from src.services.speaker import (
     update_speaker_usage, apply_speaker_map, participants_from_segments, update_voice_profiles,
 )
@@ -158,7 +158,7 @@ def download_transcript_with_template(recording_id):
             formatted_transcript = source_transcription
         elif not template:
             # No template found: use a basic format
-            formatted_transcript = render_segments(segments, BASIC_TEMPLATE_FORMAT)
+            formatted_transcript = render_segments(segments, basic_template_format())
         else:
             formatted_transcript = render_segments(segments, template.template, template.header)
 
