@@ -153,6 +153,8 @@ class ConnectorRegistry:
 
         try:
             self._active_connector = self.create_connector(connector_name, config)
+            from src.clinic.asr_fallback import wrap_with_gpu_fallback
+            self._active_connector = wrap_with_gpu_fallback(self._active_connector)
             self._connector_name = connector_name
 
             logger.info(f"Initialized transcription connector: {connector_name}")
