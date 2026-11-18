@@ -58,7 +58,7 @@ from src.services.recording_filters import (
     needs_summary_condition,
     needs_speakers_condition,
 )
-from src.utils.localization import api_error, format_number, translate
+from src.utils.localization import api_error, default_language, format_number, translate
 from src.utils.incognito_logging import incognito_route, incognito_log, describe_error, short_code
 from src.utils.error_text import log_failure, user_error_text
 
@@ -1067,7 +1067,7 @@ def index(recording_id=None, label_name=None):
     ).first() is not None
 
     # Pass the ASR config, inquire mode config, and user language preference to the template
-    user_language = current_user.ui_language if current_user.is_authenticated and current_user.ui_language else 'de'
+    user_language = current_user.ui_language if current_user.is_authenticated and current_user.ui_language else default_language()
 
     # Default target language for the translation modal: the account's
     # preferred output language, falling back to the interface language

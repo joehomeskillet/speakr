@@ -19,7 +19,7 @@ from typing import Optional
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
 from flask import current_app, url_for
 
-from src.utils.localization import match_language, translate
+from src.utils.localization import default_language, match_language, translate
 
 logger = logging.getLogger(__name__)
 
@@ -328,7 +328,7 @@ def _get_email_template(content_html: str, content_text: str, subject: str,
 
 def _recipient_language(user) -> str:
     """The recipient's interface language, for mail sent outside their own session."""
-    return match_language(getattr(user, 'ui_language', None)) or 'de'
+    return match_language(getattr(user, 'ui_language', None)) or default_language()
 
 
 def send_verification_email(user) -> bool:

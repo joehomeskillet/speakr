@@ -32,14 +32,14 @@ class User(db.Model, UserMixin):
     is_admin = db.Column(db.Boolean, default=False)
     can_share_publicly = db.Column(db.Boolean, default=True)  # Permission to create public share links
     recordings = db.relationship('Recording', backref='owner', lazy=True)
-    transcription_language = db.Column(db.String(10), nullable=True)  # ISO 639-1; NULL = auto-detect
-    output_language = db.Column(db.String(50), nullable=True)  # Full language name; NULL = model decides
+    transcription_language = db.Column(db.String(10), nullable=True)  # For ISO 639-1 codes
+    output_language = db.Column(db.String(50), nullable=True)  # For full language names like "Spanish"
     # IANA timezone for text the server writes (titles from naming templates) (#412).
     # timezone_mode 'auto': the browser's zone is saved as the user visits;
     # 'fixed': chosen in Account settings. See src/utils/timezones.py.
     timezone = db.Column(db.String(64), nullable=True)
     timezone_mode = db.Column(db.String(8), nullable=True, default='auto')
-    ui_language = db.Column(db.String(10), nullable=True)  # For UI language preference
+    ui_language = db.Column(db.String(10), nullable=True, default='en')  # For UI language preference (en, es, fr, zh)
     summary_prompt = db.Column(db.Text, nullable=True)
     title_prompt = db.Column(db.Text, nullable=True)  # Instructions for AI titles (#400)
     # Inquire content availability (agentic inquire). Transcripts are always
@@ -164,12 +164,14 @@ class User(db.Model, UserMixin):
     last_seen_at = db.Column(db.DateTime, nullable=True)
 
     def __init__(self, **kwargs):
-        # Apply clinic defaults only when the caller has omitted the preference.
-        # Column defaults would also replace an explicitly persisted NULL,
-        # which represents ASR auto-detection or model-selected output.
-        kwargs.setdefault('transcription_language', 'de')
-        kwargs.setdefault('output_language', 'German')
-        kwargs.setdefault('ui_language', 'de')
+        # Clinic mode only: an omitted language preference starts as German.
+        # Done here and not as a column default so that an explicitly passed
+        # None (ASR auto-detection, model-selected output) is kept.
+        from src.clinic.config import clinic_mode_enabled
+        if clinic_mode_enabled():
+            kwargs.setdefault('transcription_language', 'de')
+            kwargs.setdefault('output_language', 'German')
+            kwargs.setdefault('ui_language', 'de')
         super().__init__(**kwargs)
 
     def get_id(self):
