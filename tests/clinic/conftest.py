@@ -90,6 +90,8 @@ def world():
     yield w
     with app.app_context():
         db.session.rollback()
+        if db.engine.dialect.name == "postgresql":
+            _purge_clinic_rows()  # foreign keys are enforced: clinic rows first
         ProcessingJob.query.filter(ProcessingJob.recording_id.in_([w['rec_a'], w['rec_b']])).delete(
             synchronize_session=False)
         APIToken.query.filter_by(user_id=w['user_a']).delete()
@@ -155,8 +157,26 @@ def _purge_clinic_rows():
         install_append_only_guards(db.engine)
 
 
+def _purge_upstream_dependents(user_ids, recording_ids):
+    """PostgreSQL enforces foreign keys that SQLite ignores: remove the upstream
+    rows (usage, shares, tags and so on) that point at accounts or recordings
+    this test created, children first, before those parents are deleted."""
+    own = {"user": user_ids or [0], "recording": recording_ids or [0]}
+    skip = {"user", "recording"}
+    tables = [t for t in db.metadata.tables.values()
+              if not t.name.startswith("clinic_") and t.name not in skip]
+    with db.engine.begin() as conn:
+        for table in reversed(sort_tables(tables)):
+            for fk in table.foreign_keys:
+                parent = fk.column.table.name
+                if parent in own and fk.column.name == "id":
+                    conn.execute(table.delete().where(fk.parent.notin_(own[parent])))
+
+
 def _purge_new_accounts(user_ids, recording_ids):
     db.session.rollback()
+    if db.engine.dialect.name == "postgresql":
+        _purge_upstream_dependents(user_ids, recording_ids)
     Recording.query.filter(~Recording.id.in_(recording_ids or [0])).delete(
         synchronize_session=False
     )
@@ -164,10 +184,24 @@ def _purge_new_accounts(user_ids, recording_ids):
     db.session.commit()
 
 
+def _ensure_issuer_user():
+    """PostgreSQL enforces foreign keys: tests name user id 1 as the issuer of
+    recovery tokens. Keep one such account for the session (SQLite does not check)."""
+    if db.engine.dialect.name != "postgresql" or db.session.get(User, 1) is not None:
+        return
+    db.session.add(User(id=1, username="clinic_issuer", email="clinic_issuer@local.test",
+                        password="x", is_admin=True))
+    db.session.commit()
+    db.session.execute(text(
+        "SELECT setval(pg_get_serial_sequence('\"user\"', 'id'), (SELECT MAX(id) FROM \"user\"))"))
+    db.session.commit()
+
+
 @pytest.fixture(autouse=True)
 def clinic_isolation():
     with app.app_context():
         _purge_clinic_rows()
+        _ensure_issuer_user()
         users = [row[0] for row in db.session.query(User.id).all()]
         recordings = [row[0] for row in db.session.query(Recording.id).all()]
     yield

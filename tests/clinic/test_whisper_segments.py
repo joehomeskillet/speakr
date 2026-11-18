@@ -191,8 +191,9 @@ def test_openai_whisper_fallback_to_text_only():
 
 def _make_user(name):
     pid = os.getpid()
+    # user.username is VARCHAR(20): PostgreSQL enforces it, SQLite does not
     user = User(
-        username=f"{name}_{pid}_{time.time()}",
+        username=f"{name}_{os.urandom(3).hex()}",
         email=f"{name}_{pid}_{time.time()}@example.com",
         password="test-password-1234",
     )
