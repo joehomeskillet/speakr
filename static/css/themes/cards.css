@@ -61,16 +61,16 @@ html[data-ui-theme="cards"] {
     --tracking-wide: 0.04em;
 
     /* neutrals and status tones: light */
-    --c-accent: var(--bg-button);
-    --c-bg:        color-mix(in oklab, var(--c-accent) 7%, #f7f8fb);
-    --c-surface:   color-mix(in oklab, var(--c-accent) 1.5%, #ffffff);
-    --c-surface-2: color-mix(in oklab, var(--c-accent) 6%, #fafbfd);
+    --c-accent: var(--brand-primary, #1C3D42);
+    --c-bg:        var(--brand-canvas, #F7F6F2);
+    --c-surface:   var(--ui-surface, #FFFFFF);
+    --c-surface-2: var(--ui-hover, #E9EEEB);
     --c-surface-3: color-mix(in oklab, var(--c-accent) 11%, #f6f7fa);
-    --c-text:   #1b1d24;
-    --c-text-2: #444955;
-    --c-text-3: #5c6270;
-    --c-border:  color-mix(in oklab, var(--c-accent) 14%, #cdd1da);
-    --c-divider: color-mix(in oklab, var(--c-accent) 9%, #e6e8ee);
+    --c-text:   var(--ui-text, #203438);
+    --c-text-2: var(--ui-text-muted, #52666A);
+    --c-text-3: var(--ui-text-muted, #52666A);
+    --c-border:  var(--ui-border, #D9DFDC);
+    --c-divider: var(--ui-border, #D9DFDC);
     --c-primary: var(--c-accent);
     --c-on-primary: #ffffff;
     --c-primary-c:    color-mix(in oklab, var(--c-accent) 17%, #ffffff);
@@ -130,16 +130,16 @@ html[data-ui-theme="cards"] {
 }
 
 html[data-ui-theme="cards"].dark {
-    --c-accent-d: color-mix(in oklab, var(--bg-button-hover) 55%, #ffffff);
-    --c-bg:        color-mix(in oklab, var(--c-accent-d) 4%, #111216);
-    --c-surface:   color-mix(in oklab, var(--c-accent-d) 5%, #1a1b20);
-    --c-surface-2: color-mix(in oklab, var(--c-accent-d) 7%, #202126);
-    --c-surface-3: color-mix(in oklab, var(--c-accent-d) 11%, #272830);
-    --c-text:   #e8e9ee;
-    --c-text-2: #c9ccd5;
-    --c-text-3: #a4a8b4;
-    --c-border:  color-mix(in oklab, var(--c-accent-d) 14%, #454852);
-    --c-divider: color-mix(in oklab, var(--c-accent-d) 8%, #2c2e36);
+    --c-accent-d: var(--brand-accent, #E4A6BE);
+    --c-bg:        var(--brand-canvas, #142C30);
+    --c-surface:   var(--ui-surface, #1C3D42);
+    --c-surface-2: var(--ui-hover, #315158);
+    --c-surface-3: #264247;
+    --c-text:   var(--ui-text, #F7F6F2);
+    --c-text-2: var(--ui-text-muted, #D0DCDA);
+    --c-text-3: var(--ui-text-muted, #D0DCDA);
+    --c-border:  var(--ui-border, #426166);
+    --c-divider: var(--ui-border, #426166);
     --c-primary: var(--c-accent-d);
     --c-on-primary: color-mix(in oklab, var(--c-accent) 55%, #000000);
     --c-primary-c:    color-mix(in oklab, var(--c-accent) 52%, #1a1b20);
@@ -338,13 +338,23 @@ html[data-ui-theme="cards"] .dropdown-menu {
  * ========================================================================= */
 html[data-ui-theme="cards"] #app { background: var(--c-bg); }
 html[data-ui-theme="cards"] :is(#app > header, #inquire-app > header, #global-header) {
-    background: var(--c-bg);
-    border-bottom: 0;
+    background: var(--brand-primary);
+    color: var(--brand-canvas);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.2);
     min-height: 64px !important; /* the header's min-height is an inline style */
 }
-html[data-ui-theme="cards"] :is(#app > header, #inquire-app > header, #global-header) h1 { font-weight: 700; letter-spacing: -0.01em; color: var(--c-text); }
-html[data-ui-theme="cards"] :is(#app > header, #inquire-app > header, #global-header) .btn--icon { border-radius: var(--c-r-pill); }
-html[data-ui-theme="cards"] :is(#app > header, #inquire-app > header, #global-header) .btn--icon:hover { background: var(--c-hover); }
+html[data-ui-theme="cards"] :is(#app > header, #inquire-app > header, #global-header) :is(h1, h2, h3, a, span:not([class*="bg-"]):not([class*="badge"]), button, .header-action, input) { font-weight: 700; letter-spacing: -0.01em; color: var(--brand-canvas); }
+html[data-ui-theme="cards"] :is(#app > header, #inquire-app > header, #global-header) .btn--icon { border-radius: var(--c-r-pill); color: var(--brand-canvas); }
+html[data-ui-theme="cards"] :is(#app > header, #inquire-app > header, #global-header) .btn--icon:hover { background: rgba(247, 246, 242, 0.12); color: var(--brand-canvas); }
+
+html[data-ui-theme="cards"].dark :is(#app > header, #inquire-app > header, #global-header) {
+    background: var(--brand-canvas);
+    color: var(--ui-text);
+    border-bottom: 1px solid var(--ui-border);
+}
+html[data-ui-theme="cards"].dark :is(#app > header, #inquire-app > header, #global-header) :is(h1, h2, h3, a, span:not([class*="bg-"]):not([class*="badge"]), button, .header-action, input) { color: var(--ui-text); }
+html[data-ui-theme="cards"].dark :is(#app > header, #inquire-app > header, #global-header) .btn--icon { color: var(--ui-text); }
+html[data-ui-theme="cards"].dark :is(#app > header, #inquire-app > header, #global-header) .btn--icon:hover { background: var(--ui-hover); color: var(--ui-text); }
 
 html[data-ui-theme="cards"] .sidebar {
     background: transparent;
