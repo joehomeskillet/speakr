@@ -1579,6 +1579,10 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
                     current_app.logger.warning(
                         f"Dictation decode failed for recording {recording_id}: status={decode_error.status}")
                     return _fail_without_retry(recording, str(decode_error))
+                from src.clinic.config import clinic_mode_enabled
+                if clinic_mode_enabled():
+                    from src.clinic import dictation_playback
+                    dictation_playback.ensure_playback(filepath, wav=dictation_wav)
                 audio_filepath = dictation_wav
                 actual_filepath = dictation_wav
                 actual_content_type = 'audio/wav'

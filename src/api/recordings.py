@@ -2512,6 +2512,8 @@ def delete_job(job_id):
                 if recording.audio_path:
                     try:
                         get_storage_service().delete(recording.audio_path, missing_ok=True)
+                        from src.services.recording_deletion import _remove_playback_derivative
+                        _remove_playback_derivative(get_storage_service(), recording.audio_path)
                     except Exception as e:
                         current_app.logger.error(f"Error deleting audio file of recording {recording.id}: "
                                                  f"{loggable_error(e, recording.audio_path)}")
@@ -2711,6 +2713,16 @@ def get_audio(recording_id):
                 mimetype=serve_mime,
                 conditional=True,
             ))
+
+        # Clinic: DS2/DSS are not browser-playable; play a derived MP3, the
+        # original stays untouched and is what a download returns.
+        from src.clinic.config import clinic_mode_enabled
+        if clinic_mode_enabled():
+            from src.clinic import dictation_playback
+            derived = dictation_playback.ensure_playback(delivery.local_path)
+            if derived:
+                return sandbox_media_response(send_file(
+                    derived, mimetype=dictation_playback.PLAYBACK_MIME, conditional=True))
 
         return sandbox_media_response(send_file(delivery.local_path, mimetype=serve_mime, conditional=True))
     except Exception as e:
