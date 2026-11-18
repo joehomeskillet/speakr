@@ -9,6 +9,8 @@ the processing module keeps the environment flags and tests can toggle them.
 import json
 import re
 
+from src.clinic.output_language import effective_output_language
+
 # Must be byte-identical between the title and summary calls. Keep it short and
 # generic; per-task guidance belongs in the user-message suffix.
 SHARED_LLM_SYSTEM_MSG = (
@@ -156,6 +158,7 @@ def clean_llm_response(text):
 
 def build_title_prompt(transcript_text, title_instructions, user_output_language, prefix_cache_optimized):
     """Return (system_message_content, prompt_text) for AI title generation."""
+    user_output_language = effective_output_language(user_output_language)
     language_directive = f"Please provide the title in {user_output_language}." if user_output_language else ""
 
     if prefix_cache_optimized:
@@ -197,6 +200,7 @@ Title:"""
 def build_summary_prompt(transcript_text, context_section, summarization_instructions,
                          user_output_language, prefix_cache_optimized):
     """Return (system_message_content, prompt_text) for summary generation."""
+    user_output_language = effective_output_language(user_output_language)
     language_directive = f"IMPORTANT: You MUST provide the summary in {user_output_language}. The entire response must be in {user_output_language}." if user_output_language else ""
 
     if prefix_cache_optimized:

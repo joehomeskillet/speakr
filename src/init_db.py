@@ -1128,20 +1128,20 @@ def _run_migrations(app, engine):
             app.logger.info("Initialized default asr_timeout_seconds setting")
         
         if not SystemSetting.query.filter_by(key='admin_default_summary_prompt').first():
-            from src.config.prompts import DEFAULT_SUMMARY_PROMPT
+            from src.clinic.prompts import shipped_summary_prompt
             SystemSetting.set_setting(
                 key='admin_default_summary_prompt',
-                value=DEFAULT_SUMMARY_PROMPT,
+                value=shipped_summary_prompt(),
                 description='Default summarization prompt used when users have not set their own prompt. This serves as the base prompt for all users.',
                 setting_type='string'
             )
             app.logger.info("Initialized admin_default_summary_prompt setting")
 
         if not SystemSetting.query.filter_by(key='admin_default_title_prompt').first():
-            from src.config.prompts import DEFAULT_TITLE_PROMPT
+            from src.clinic.prompts import shipped_title_prompt
             SystemSetting.set_setting(
                 key='admin_default_title_prompt',
-                value=DEFAULT_TITLE_PROMPT,
+                value=shipped_title_prompt(),
                 description='Default instructions for AI-generated recording titles, used when no tag, folder or user title prompt is set.',
                 setting_type='string'
             )

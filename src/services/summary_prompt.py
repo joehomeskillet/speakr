@@ -82,7 +82,7 @@ def describe_summary_prompt(recording, viewer):
     viewer owns the recording), then the viewer's default, the admin or
     shipped default and the viewer's other tags with prompts.
     """
-    from src.config.prompts import DEFAULT_SUMMARY_PROMPT
+    from src.clinic.prompts import admin_summary_prompt, shipped_summary_prompt
     from src.tasks.processing import resolve_summary_prompt_detail
 
     is_owner = recording.user_id == viewer.id
@@ -103,11 +103,11 @@ def describe_summary_prompt(recording, viewer):
 
     if _has_prompt(viewer.summary_prompt):
         options.append(_option('user', viewer.summary_prompt, False, can_save=True))
-    admin_default = SystemSetting.get_setting('admin_default_summary_prompt', None)
+    admin_default = admin_summary_prompt(SystemSetting.get_setting('admin_default_summary_prompt', None))
     if admin_default:
         options.append(_option('admin', admin_default, False, can_save=True))
     else:
-        options.append(_option('default', DEFAULT_SUMMARY_PROMPT, False, can_save=True))
+        options.append(_option('default', shipped_summary_prompt(), False, can_save=True))
     for tag in _viewer_tags(viewer):
         if tag.id not in on_recording and _has_prompt(tag.custom_prompt):
             options.append(_option('tag', tag.custom_prompt.strip(), False, tag.name, tag.id,

@@ -417,11 +417,11 @@ def resolve_summary_prompt_detail(recording, viewer=None):
         return folder.custom_prompt.strip(), 'folder', folder
     if viewer and viewer.summary_prompt and viewer.summary_prompt.strip():
         return viewer.summary_prompt, 'user', viewer
-    admin_default = SystemSetting.get_setting('admin_default_summary_prompt', None)
+    from src.clinic.prompts import admin_summary_prompt, shipped_summary_prompt
+    admin_default = admin_summary_prompt(SystemSetting.get_setting('admin_default_summary_prompt', None))
     if admin_default:
         return admin_default, 'admin', None
-    from src.config.prompts import DEFAULT_SUMMARY_PROMPT
-    return DEFAULT_SUMMARY_PROMPT, 'default', None
+    return shipped_summary_prompt(), 'default', None
 
 
 def resolve_title_instructions(recording, viewer=None):

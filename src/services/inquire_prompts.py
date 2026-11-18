@@ -101,8 +101,9 @@ def _names_line(labels, tool_names, cap=60):
 
 def _system_prompt(user_ctx, filters_text, availability, tool_mode_prompt_block, tool_names=None,
                    names_line=''):
-    language_instruction = (
-        f"Respond in {user_ctx['output_language']}. " if user_ctx.get('output_language') else '')
+    from src.clinic.output_language import effective_output_language
+    agent_language = effective_output_language(user_ctx.get('output_language'))
+    language_instruction = f"Respond in {agent_language}. " if agent_language else ''
     from src.utils.assistant_name import assistant_identity
     identity = assistant_identity(user_ctx.get('assistant_name') or 'Ambrose', user_ctx.get('name'),
                                   user_ctx.get('title'), user_ctx.get('company'))

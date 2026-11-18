@@ -100,11 +100,11 @@ def compute_title(recording, *, raise_budget_errors=False):
 
 def user_title_instructions(user):
     """The user, admin and shipped levels of the title precedence."""
-    from src.config.prompts import DEFAULT_TITLE_PROMPT
+    from src.clinic.prompts import admin_title_prompt, shipped_title_prompt
 
     if user and user.title_prompt and user.title_prompt.strip():
         return user.title_prompt.strip(), 'user'
-    admin_prompt = SystemSetting.get_setting('admin_default_title_prompt', None)
+    admin_prompt = admin_title_prompt(SystemSetting.get_setting('admin_default_title_prompt', None))
     if admin_prompt and str(admin_prompt).strip():
         return str(admin_prompt).strip(), 'admin'
-    return DEFAULT_TITLE_PROMPT, 'default'
+    return shipped_title_prompt(), 'default'

@@ -701,13 +701,13 @@ def account():
 
     from src.models import SystemSetting
     # Get admin default prompt from system settings
-    admin_default_prompt = SystemSetting.get_setting('admin_default_summary_prompt', None)
+    from src.clinic.prompts import admin_summary_prompt, shipped_summary_prompt
+    admin_default_prompt = admin_summary_prompt(SystemSetting.get_setting('admin_default_summary_prompt', None))
     if admin_default_prompt:
         default_summary_prompt_text = admin_default_prompt
     else:
         # Fallback to the shipped default if admin hasn't set one.
-        from src.config.prompts import DEFAULT_SUMMARY_PROMPT
-        default_summary_prompt_text = DEFAULT_SUMMARY_PROMPT
+        default_summary_prompt_text = shipped_summary_prompt()
 
     # The title instructions a user gets when they leave their own blank.
     from src.services.titling import user_title_instructions

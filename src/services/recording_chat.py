@@ -180,7 +180,9 @@ def build_chat_messages(recording, user, message, history=None, with_sources=Fal
     if limit != -1:
         transcript = transcript[:limit]
 
-    language = f"Please provide all your responses in {user.output_language}." if user.output_language else ""
+    from src.clinic.output_language import effective_output_language
+    chat_language = effective_output_language(user.output_language)
+    language = f"Please provide all your responses in {chat_language}." if chat_language else ""
     assistant = assistant_name_of(user)
     identity = assistant_identity(assistant, user.name, user.job_title, user.company)
 
