@@ -1,10 +1,10 @@
 """External references and the new upload fields (mailr spec G8).
 
 A reference links a recording to an item in another system and belongs to
-one user: the owner and a share recipient each see only their own. The API
+one user. The API
 upload takes participants, references, an idempotency key and strict mode.
 
-SHARED-DB: users, tokens, tags, folders, shares, webhooks, recordings and
+SHARED-DB: users, tokens, tags, folders, webhooks, recordings and
 stored media are removed afterwards.
 """
 
@@ -22,7 +22,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.app import app, db
-from src.models import (APIToken, Folder, InternalShare, Recording, RecordingExternalRef, RecordingTag, Tag,
+from src.models import (APIToken, Folder, Recording, RecordingExternalRef, RecordingTag, Tag,
                         User, Webhook, WebhookDelivery)
 from src.utils.token_auth import hash_token
 
@@ -44,7 +44,6 @@ def world():
         folder = Folder(name=f"f-{s}", user_id=owner.id)
         db.session.add_all([rec, mine, theirs, folder])
         db.session.commit()
-        db.session.add(InternalShare(recording_id=rec.id, owner_id=owner.id, shared_with_user_id=guest.id, can_edit=True))
         tokens = {}
         for who in (owner, guest):
             p = f"tok-{secrets.token_urlsafe(16)}"
@@ -53,8 +52,7 @@ def world():
         db.session.commit()
         ids = dict(owner=owner.id, guest=guest.id, rec=rec.id, mine=mine.id, theirs=theirs.id, folder=folder.id,
                    tokens=tokens)
-    with patch("src.app.ENABLE_INTERNAL_SHARING", True):
-        yield ids
+    yield ids
     with app.app_context():
         db.session.rollback()
         users = [ids["owner"], ids["guest"]]
@@ -68,7 +66,6 @@ def world():
                     pass
         RecordingExternalRef.query.filter(RecordingExternalRef.user_id.in_(users)).delete(synchronize_session=False)
         RecordingTag.query.filter(RecordingTag.recording_id.in_(recs)).delete(synchronize_session=False)
-        InternalShare.query.filter(InternalShare.recording_id.in_(recs)).delete(synchronize_session=False)
         hooks = [w.id for w in Webhook.query.filter(Webhook.user_id.in_(users))]
         WebhookDelivery.query.filter(WebhookDelivery.webhook_id.in_(hooks)).delete(synchronize_session=False)
         Webhook.query.filter(Webhook.id.in_(hooks)).delete(synchronize_session=False)
@@ -132,17 +129,6 @@ def test_list_filter_by_ref(world):
         lone = c.get("/api/v1/recordings?external_system=mailr", headers=_h(world))
     assert [r["id"] for r in found] == [world["rec"]] and found[0]["external_refs"][0]["ref"] == EVENT["ref"]
     assert kind == [] and lone.status_code == 400
-
-
-def test_refs_are_private_per_user(world):
-    with app.test_client() as c:
-        assert c.post(_url(world), json=EVENT, headers=_h(world)).status_code == 201
-        assert c.get(_url(world), headers=_h(world, "guest")).get_json()["external_refs"] == []
-        mine = c.post(_url(world), json=dict(EVENT, ref="guest-own"), headers=_h(world, "guest")).get_json()
-        assert [r["ref"] for r in c.get(_url(world), headers=_h(world)).get_json()["external_refs"]] == [EVENT["ref"]]
-        owner_ref = c.get(_url(world), headers=_h(world)).get_json()["external_refs"][0]["id"]
-        assert c.delete(_url(world, f"/{owner_ref}"), headers=_h(world, "guest")).status_code == 404
-        assert mine["ref"] == "guest-own"
 
 
 def test_the_limit_is_fifty(world):

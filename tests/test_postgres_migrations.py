@@ -103,7 +103,7 @@ class TestDatabaseMigrations(unittest.TestCase):
             tables = self._get_table_names()
             expected_tables = [
                 'user', 'recording', 'transcript_chunk', 'tag',
-                'folder', 'share', 'internal_share', 'system_setting',
+                'folder', 'system_setting',
                 'speaker', 'processing_job', 'group', 'group_membership',
             ]
             for table in expected_tables:
@@ -118,7 +118,7 @@ class TestDatabaseMigrations(unittest.TestCase):
                 'transcription_language', 'output_language', 'ui_language',
                 'summary_prompt', 'name', 'job_title',
                 'company', 'diarize', 'sso_provider', 'sso_subject',
-                'can_share_publicly', 'monthly_token_budget',
+                'monthly_token_budget',
                 'monthly_transcription_budget', 'email_verified',
                 'auto_speaker_labelling', 'auto_summarization',
             ]
@@ -144,7 +144,7 @@ class TestDatabaseMigrations(unittest.TestCase):
             columns = self._get_column_names('tag')
             expected = [
                 'id', 'protect_from_deletion', 'group_id',
-                'retention_days', 'auto_share_on_apply',
+                'retention_days',
                 'naming_template_id', 'export_template_id',
             ]
             for col in expected:

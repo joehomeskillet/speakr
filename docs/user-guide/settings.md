@@ -96,7 +96,7 @@ These defaults apply to all your recordings unless overridden by tag defaults, f
 In the **What Ambrose can read** section (formerly Inquire Privacy) you choose what Ambrose may read when it searches your library: on the [Ask Ambrose](inquire-mode.md) page, and in the recording chat when the agent is on. The title contains the name you gave the assistant. Transcripts are always available, since the search needs them. The other two are your choice:
 
 - **Allow access to summaries** (on by default): Ambrose can read the summaries of your recordings, a quick way to survey a long recording before reading its transcript.
-- **Allow access to your notes** (off by default): Ambrose can read your notes. Only your own notes are used, never notes on recordings shared with you.
+- **Allow access to your notes** (off by default): Ambrose can read your notes. Only your own notes are used.
 
 When a content type is off, Ambrose has no tool for it. In the recording chat, your notes on the open recording are part of the question in either case. See [What Ambrose can search](ambrose.md#what-ambrose-can-search).
 
@@ -110,7 +110,7 @@ Ambrose needs no setting for times: in the recording chat, answers cite passages
 
 ### Notes in Summaries
 
-When **Use my notes in summaries** is on, your notes on a recording are added to the summary request as context. Notes can hold the correct spelling of names and products, an agenda, or text pasted from an email or a chat thread. The transcript remains the record of what was said. The setting is off by default, applies to summaries generated after it is turned on (regenerate a summary to use it on an existing recording), and uses only your own notes, never those of people a recording is shared with. Up to 8,000 characters of notes are sent.
+When **Use my notes in summaries** is on, your notes on a recording are added to the summary request as context. Notes can hold the correct spelling of names and products, an agenda, or text pasted from an email or a chat thread. The transcript remains the record of what was said. The setting is off by default, applies to summaries generated after it is turned on (regenerate a summary to use it on an existing recording), and uses only your own notes. Up to 8,000 characters of notes are sent.
 
 ### Writing Effective Prompts
 
@@ -190,30 +190,7 @@ The checkbox only appears when your administrator has enabled automatic translat
 
 **Recordings list sort.** Choose whether the recordings list opens sorted and grouped by **Date added** (the default) or by **Meeting date**. The setting is saved on your account. It is the starting point for any browser that has not picked a sort yet: choosing a sort from the Sort menu in the list overrides it, and that choice is remembered per browser.
 
-## Shared Transcripts Tab
-
-![Shared Transcripts](../assets/images/screenshots/settings-shared-transcripts.png)
-
-The Shared recordings tab, also opened from **Shared recordings** in the user menu, lists everything you have shared and everything shared with you, in three sections:
-
-- **Public links**: each recording with a public link, when you created it, whether it includes the summary and notes, and the link itself.
-- **People and groups**: each recording you have shared with other users, with each person's permissions (view, edit, share). A share made through a group tag or group folder is marked as such. It lasts until the tag or folder is removed from the recording, so it has no revoke button here.
-- **Shared with me**: recordings other users have shared with you, with the owner, your permissions and a link to open each one.
-
-The last two sections appear when internal sharing is enabled. In the user menu dialog they are split into two tabs, **Shared by me** and **Shared with me**.
-
-### Managing Share Settings
-
-The Share Summary checkbox determines whether recipients see your AI-generated summary - useful for giving quick overviews without requiring full transcript reading. The Share Notes checkbox controls access to your personal notes, those additional thoughts and context you've added after the recording.
-
-You can modify these settings anytime without generating new links. Toggle summary or notes on or off, and the change applies immediately to anyone accessing that link. This flexibility lets you adjust sharing based on evolving needs or feedback from recipients.
-
-### Revoking Access
-
-To change what a person may do, click **Change permissions**, check or clear **Allow editing** and **Allow re-sharing**, and click **Save**. To remove a person's access, click **Revoke** and then **Confirm**. Any shares that person passed on are removed too, unless the recipients also have access through another share.
-
-For a public link, click the delete button (trash icon) to revoke access immediately. Once deleted, anyone trying to access that link sees an error message. This instant revocation provides security when you've accidentally shared with wrong parties or when access is no longer appropriate. Remember that deletion can't retrieve information already viewed or downloaded by recipients.
-
+## Speakers Management Tab
 ## Speakers Management Tab
 
 ![Speakers Management with Voice Profiles](../assets/images/screenshots/speaker-id-voice-profiles.png)
@@ -276,7 +253,7 @@ Tag Management transforms simple labels into powerful processing instructions. E
 The interface displays your tags as cards with clear visual badges indicating their configuration. Each card shows the tag name with its color indicator, and visual badges that make it easy to see at a glance:
 
 - **Retention Policy Badges**: Display retention periods (e.g., "90 days") or protection status (∞ infinity symbol for protected tags)
-- **Sharing Badges**: Indicate if this is a group tag with auto-share capabilities (👥 users icon)
+- **Group badges**: A users icon marks a group tag
 - **Language Badges**: Show custom language settings for transcription or summarization
 - **Speaker Range Badges**: Display ASR defaults like "Max 10" speakers for meetings with many participants
 - **Custom Prompts**: Preview of tag-specific AI summarization instructions
@@ -409,7 +386,7 @@ Quick access buttons connect you to essential resources. The GitHub Repository b
 
 ### Key Features
 
-Colorful cards remind you of Speakr's core capabilities. Audio Transcription highlights support for both Whisper API and custom ASR with high accuracy. AI Summarization emphasizes the OpenRouter and Ollama integrations for flexible, powerful summary generation. Speaker Diarization showcases the ability to identify and label different speakers automatically. Interactive Chat demonstrates the conversational AI capabilities for exploring transcripts. Library search highlights questions across all recordings. Sharing & Export emphasizes the ability to share recordings and export to various formats.
+Colorful cards remind you of Speakr's core capabilities. Audio Transcription highlights support for both Whisper API and custom ASR with high accuracy. AI Summarization emphasizes the OpenRouter and Ollama integrations for flexible, powerful summary generation. Speaker Diarization showcases the ability to identify and label different speakers automatically. Interactive Chat demonstrates the conversational AI capabilities for exploring transcripts. Library search highlights questions across all recordings. Export emphasizes export to various formats.
 
 ### Using This Information
 
@@ -417,11 +394,9 @@ This information-rich tab serves multiple purposes. For troubleshooting, it prov
 
 ## Privacy and Security Considerations
 
-Your account settings contain sensitive information that shapes your entire Speakr experience. The custom prompts you create might reveal organizational priorities or confidential project details. Speaker profiles could indicate who you meet with regularly. Share histories show what information you've distributed.
+Your account settings contain sensitive information that shapes your entire Speakr experience. The custom prompts you create might reveal organizational priorities or confidential project details. Speaker profiles could indicate who you meet with regularly.
 
 Always log out when using shared computers. Speakr maintains sessions for convenience, but this means anyone with access to your browser can access your account. The logout button in the user menu immediately terminates your session and requires re-authentication.
-
-Review your shared recordings regularly. Links you created months ago might still be active, providing access to outdated or sensitive information. The Shared recordings tab makes this review easy - scan through periodically and revoke anything no longer needed.
 
 Consider the implications of language settings in international contexts. If you set Chinese as your interface language on a shared computer, the next user might struggle to navigate. Similarly, output language settings affect all AI interactions, so ensure they match your actual needs.
 

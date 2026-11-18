@@ -499,7 +499,7 @@ def test_details_fold_and_the_info_sheet(phone):
 
 OWN = {"inbox", "star", "archive", "tags", "rename", "regenerate-title", "speakers", "edit-transcript", "bubbles",
        "download-transcript", "translate", "translation-preferences", "reprocess-transcription", "regenerate-summary",
-       "stats", "info", "share", "download-audio", "delete-audio", "delete"}
+       "stats", "info", "download-audio", "delete-audio", "delete"}
 # Present on some instances only: folders switched on
 OPTIONAL = {"folder"}
 
@@ -541,21 +541,20 @@ def test_actions_of_a_recording_of_ones_own(phone):
     phone.check("actions of one's own recording")
 
 
-def test_actions_of_a_recording_shared_without_rights(phone):
+def test_actions_of_a_recording_without_edit_or_delete(phone):
+    """can_edit and can_delete still hide rename, reprocess and delete. Share rows are gone."""
     recording_id = phone.ids[MEETING_TITLE]
-    phone.patches[recording_id] = {"is_shared": True, "can_edit": False, "can_delete": False,
-                                   "share_info": {"can_reshare": False}, "owner_username": "someone"}
+    phone.patches[recording_id] = {"can_edit": False, "can_delete": False}
     phone.open(recording_id)
-    phone.page.locator("[data-phone-shared-in]").wait_for(state="visible", timeout=WAIT)
     names = phone.actions()
     kept = {"inbox", "star", "archive", "tags", "speakers", "edit-transcript", "bubbles", "download-transcript",
             "translate", "translation-preferences", "stats", "info", "download-audio"}
     assert kept <= names, sorted(kept - names)
-    gone = {"rename", "regenerate-title", "reprocess-transcription", "regenerate-summary", "reset", "share",
+    gone = {"rename", "regenerate-title", "reprocess-transcription", "regenerate-summary", "reset",
             "delete-audio", "delete", "folder"}
     assert not (names & gone), sorted(names & gone)
     assert names - kept <= OPTIONAL, sorted(names - kept)
-    phone.check("actions of a shared recording")
+    phone.check("actions without edit or delete")
 
 
 def test_actions_of_a_failed_recording(phone):

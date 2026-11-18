@@ -153,7 +153,7 @@ def test_a_refused_request_fires_no_webhook(world):
 
 
 def test_a_scoped_token_is_refused_outside_v1(world):
-    plain = world["token"](["read", "write", "share", "process"])
+    plain = world["token"](["read", "write", "process"])
     with app.test_client() as c:
         assert c.post("/save", json={"id": world["rec"], "title": "x"}, headers=_h(plain)).status_code == 403
         assert c.get("/api/recordings", headers=_h(plain)).status_code == 403

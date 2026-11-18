@@ -490,39 +490,14 @@ def _merge_pending_update(session, webhook_id, data):
     return False
 
 
-def _shared_targets(session, event_type, data):
-    """(webhook, recipient id) for recipients of a shared recording whose
-    webhook asks for shared recordings (spec W6)."""
-    rid = data.get('recording_id') if isinstance(data, dict) else None
-    if not event_type.startswith('recording.') or not rid:
-        return []
-    from src import app as app_module
-    if not getattr(app_module, 'ENABLE_INTERNAL_SHARING', False):
-        return []
-    from src.models import InternalShare, Recording
-    recording = session.get(Recording, rid)
-    if recording is None or recording.status != 'COMPLETED':
-        return []
-    recipients = [uid for (uid,) in session.query(InternalShare.shared_with_user_id)
-                  .filter(InternalShare.recording_id == rid)]
-    if not recipients:
-        return []
-    hooks = (session.query(Webhook)
-             .filter(Webhook.user_id.in_(recipients), Webhook.enabled.is_(True), Webhook.include_shared.is_(True))
-             .all())
-    return [(wh, wh.user_id) for wh in hooks if event_type in wh.event_list]
-
-
 def enqueue_event(session, user_id, event_type, data):
     """Write one pending delivery per subscribed webhook through ``session``
-    and commit it: the owner's webhooks, and recipients' webhooks that ask for
-    shared recordings. Returns the number of deliveries written or merged."""
+    and commit it: the owner's webhooks. Returns the number of deliveries written or merged."""
     subscriptions = session.query(Webhook).filter_by(user_id=user_id, enabled=True).all()
     targets = [(w, user_id) for w in subscriptions if event_type in w.event_list]
     if targets and isinstance(data, dict) and any(field in data for field in TITLE_FIELDS) and omit_titles():
         # The receiver identifies the recording by recording_id.
         data = {key: value for key, value in data.items() if key not in TITLE_FIELDS}
-    targets += _shared_targets(session, event_type, data)
     if not targets:
         return 0
     event_id = str(uuid.uuid4())
@@ -531,10 +506,7 @@ def enqueue_event(session, user_id, event_type, data):
     per_user = {}
     for wh, viewer in targets:
         if viewer not in per_user:
-            viewer_data = _with_updated_at(session, event_type, data, viewer)
-            if viewer != user_id:
-                viewer_data = dict(viewer_data, owner_user_id=user_id)
-            per_user[viewer] = viewer_data
+            per_user[viewer] = _with_updated_at(session, event_type, data, viewer)
         if _deliver_one(session, wh, viewer, event_type, per_user[viewer], event_id, first_attempt_at):
             created += 1
     if created:

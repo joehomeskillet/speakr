@@ -25,7 +25,7 @@ import pytest
 
 from src.app import app, db
 from src.models import (
-    User, SystemSetting, Recording, InternalShare,
+    User, SystemSetting, Recording,
     Group, GroupMembership, TranscriptChunk,
 )
 
@@ -280,15 +280,6 @@ def test_create_user_duplicate_username_400(admin_client, normal_user):
                                    'email': f"{uuid.uuid4().hex}@x.x",
                                    'password': 'p'})
     assert resp.status_code == 400
-
-
-def test_update_user_toggles_can_share(admin_client, normal_user):
-    before = normal_user.can_share_publicly
-    resp = admin_client.put(f'/admin/users/{normal_user.id}',
-                            json={'can_share_publicly': not before})
-    assert resp.status_code == 200
-    db.session.refresh(normal_user)
-    assert normal_user.can_share_publicly == (not before)
 
 
 def test_update_user_budget_and_clear(admin_client, normal_user):
@@ -616,14 +607,6 @@ def _mk_recording(user, file_size=None, audio_path=None,
     return r
 
 
-def _mk_share(recording, owner, shared_with):
-    s = InternalShare(recording_id=recording.id, owner_id=owner.id,
-                      shared_with_user_id=shared_with.id)
-    db.session.add(s)
-    db.session.commit()
-    return s
-
-
 def _delete_all(*objs):
     for o in objs:
         if o is None:
@@ -632,55 +615,6 @@ def _delete_all(*objs):
         if fresh is not None:
             db.session.delete(fresh)
     db.session.commit()
-
-
-# --- line 351: InternalShare cleanup on user delete (owner OR recipient) ----
-
-def test_delete_user_cleans_shares_both_directions_and_spares_others(admin_client):
-    """Deleting a user removes InternalShares where they are owner OR recipient,
-    while leaving shares between unrelated users untouched.
-
-    Kills the `owner_id == user_id` -> `owner_id != user_id` mutant: that
-    mutant would (a) leave the victim's owner-side share behind and
-    (b) wrongly delete an unrelated third-party share whose owner != victim.
-    """
-    victim = _mk_user(is_admin=False)
-    b = _mk_user(is_admin=False)
-    c = _mk_user(is_admin=False)
-    d = _mk_user(is_admin=False)
-
-    rec_a = _mk_recording(victim)   # owned by victim
-    rec_b = _mk_recording(b)        # owned by b
-    rec_c = _mk_recording(c)        # owned by c (no victim involvement)
-
-    share_owner = _mk_share(rec_a, owner=victim, shared_with=b)
-    share_recipient = _mk_share(rec_b, owner=b, shared_with=victim)
-    share_unrelated = _mk_share(rec_c, owner=c, shared_with=d)
-
-    owner_id = share_owner.id
-    recipient_id = share_recipient.id
-    unrelated_id = share_unrelated.id
-    vid = victim.id
-
-    storage = MagicMock()
-    try:
-        with patch('src.services.storage.get_storage_service', return_value=storage):
-            resp = admin_client.delete(f'/admin/users/{vid}')
-        assert resp.status_code == 200, resp.data
-
-        # Victim's owner-side AND recipient-side shares are gone.
-        assert db.session.get(InternalShare, owner_id) is None
-        assert db.session.get(InternalShare, recipient_id) is None
-        # Unrelated third-party share survives (would be wrongly deleted by
-        # the `!=` mutant).
-        assert db.session.get(InternalShare, unrelated_id) is not None
-    finally:
-        _delete_all(share_unrelated, rec_b, rec_c)
-        _delete_all(b, c, d)
-        # victim already deleted by the endpoint (or cleaned if it wasn't)
-        leftover = db.session.get(User, vid)
-        if leftover:
-            _delete_all(leftover)
 
 
 # --- line 344: storage.delete(path, missing_ok=True) on user delete ---------

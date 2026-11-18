@@ -14,7 +14,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.app import app, db
-from src.models import APIToken, InternalShare, Recording, Speaker, User
+from src.models import APIToken, Recording, Speaker, User
 from src.utils.token_auth import hash_token
 
 
@@ -37,7 +37,6 @@ def world():
                             {"speaker": "Dana", "sentence": "Good.", "start_time": 3.0, "end_time": 4.0}]))
         db.session.add(rec)
         db.session.commit()
-        db.session.add(InternalShare(recording_id=rec.id, owner_id=owner.id, shared_with_user_id=guest.id))
         tokens = {}
         for who in (owner, guest):
             p = f"tok-{secrets.token_urlsafe(16)}"
@@ -45,11 +44,9 @@ def world():
             tokens[who.id] = p
         db.session.commit()
         ids = dict(owner=owner.id, guest=guest.id, dana=dana.id, rec=rec.id, tokens=tokens)
-    with patch("src.app.ENABLE_INTERNAL_SHARING", True):
-        yield ids
+    yield ids
     with app.app_context():
         db.session.rollback()
-        InternalShare.query.filter_by(recording_id=ids["rec"]).delete()
         Recording.query.filter_by(id=ids["rec"]).delete()
         Speaker.query.filter(Speaker.user_id.in_([ids["owner"], ids["guest"]])).delete(synchronize_session=False)
         APIToken.query.filter(APIToken.user_id.in_([ids["owner"], ids["guest"]])).delete(synchronize_session=False)
@@ -112,5 +109,4 @@ def test_recording_speakers_report_ids_and_email_to_the_owner_only(world):
          "segment_count": 2},
         {"label": "SPEAKER_01", "identified_name": None, "speaker_id": None, "email": None, "segment_count": 1},
     ]
-    guest_view = _call(world, "get", f"/api/v1/recordings/{world['rec']}/speakers", who="guest").get_json()["speakers"]
-    assert guest_view[0]["speaker_id"] == world["dana"] and guest_view[0]["email"] is None
+    assert _call(world, "get", f"/api/v1/recordings/{world['rec']}/speakers", who="guest").status_code == 404

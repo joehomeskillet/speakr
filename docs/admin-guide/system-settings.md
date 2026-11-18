@@ -170,24 +170,6 @@ Existing accounts keep their position. Users who never picked a position keep th
 
 The **permission_create_groups** setting decides who can create groups: `admins` (site admins only, the default), `selected` (site admins, users with **Can create groups** and members of groups with **Members can create groups**) or `everyone`. Any other value is refused on this page. A user who is not a site admin and creates a group becomes its group admin. See [Who Can Create Groups](group-management.md#who-can-create-groups).
 
-## Who Users Can Find
-
-The **user_search_scope** setting (`USER_SEARCH_SCOPE` in `.env`) decides who a user can find in the share window by typing part of a username:
-
-| Value | Shown as | Part of a username finds |
-|---|---|---|
-| `everyone` | Everyone | Any account |
-| `groups` | People in their groups | Only accounts that share a group with the user |
-| `exact` | Exact username or email | Nobody |
-
-At every level, the full username or the full email address finds its account, at least two characters are needed, and at most ten accounts are listed. An email address is matched only when it is typed in full, without regard to case, so no search tells whether part of an address exists. The results show usernames only; a site admin also gets the email address. Any other value is refused on this page.
-
-The level also applies to the share request itself, so the search cannot be bypassed with a user id. A recording is shared with an account only when the person sharing could find that account in the search: at `everyone` any account, at `groups` an account in one of their groups, and at every level an account named by its full username or full email address. A request that names an account by its numeric id alone is refused at `exact`, and at `groups` for an account outside the person's groups, with the same answer as for an account that does not exist. Site admins are not restricted.
-
-A script that calls `POST /api/recordings/<id>/share-internal` with `user_id` or `user_ids` needs `identifier` or `identifiers` as well at these two levels: the full username or the full email address of each person. Either field can also be sent without the ids.
-
-Without a saved value and without `USER_SEARCH_SCOPE`, the level follows `show_usernames_in_ui`: `everyone` when usernames are shown, `exact` when they are hidden. A group admin who is not a site admin adds members by full username or full email address at every level. The user search of the admin pages is not affected.
-
 ## Privacy and Security Settings
 
 The settings in this section were added for deployments with regulated data. The data concerned is described in [Privacy and regulated data](privacy.md). Each setting can also be set in `.env`, as listed under [Settings That Fall Back to .env](#settings-that-fall-back-to-env).
@@ -202,7 +184,7 @@ The settings in this section were added for deployments with regulated data. The
 | `audit_log_enabled` | `AUDIT_LOG_ENABLED` | `true` | `false`: no event is recorded in the audit log, except changes of the audit log settings and the reading, export and pruning of the log. |
 | `audit_log_retention_days` | `AUDIT_LOG_RETENTION_DAYS` | `365` | Days after which a row of the audit log is removed. `0`: the rows are kept without limit. |
 | `audit_log_store_ip` | `AUDIT_LOG_STORE_IP` | `full` | `full`, `truncated` (the `/24` network of an IPv4 address, the `/48` network of an IPv6 address) or `off`. |
-| `audit_log_record_views` | `AUDIT_LOG_RECORD_VIEWS` | `true` | `false`: opening and playing a recording is not recorded. Downloads, exports, reads through API v1 and public link events are still recorded. |
+| `audit_log_record_views` | `AUDIT_LOG_RECORD_VIEWS` | `true` | `false`: opening and playing a recording is not recorded. Downloads, exports and reads through API v1 are still recorded. |
 
 ### Audit log
 
@@ -271,8 +253,6 @@ The settings below can be set on this page or in `.env`. Until an admin saves a 
 | `deletion_mode` | `DELETION_MODE` |
 | `enable_auto_deletion` | `ENABLE_AUTO_DELETION` |
 | `enable_email_verification` | `ENABLE_EMAIL_VERIFICATION` |
-| `enable_internal_sharing` | `ENABLE_INTERNAL_SHARING` |
-| `enable_public_sharing` | `ENABLE_PUBLIC_SHARING` |
 | `global_retention_days` | `GLOBAL_RETENTION_DAYS` |
 | `help_center_label` | `HELP_CENTER_LABEL` |
 | `help_center_url` | `HELP_CENTER_URL` |
@@ -280,14 +260,12 @@ The settings below can be set on this page or in `.env`. Until an admin saves a 
 | `recording_tombstone_days` | `RECORDING_TOMBSTONE_DAYS` |
 | `require_email_verification` | `REQUIRE_EMAIL_VERIFICATION` |
 | `session_idle_timeout_minutes` | `SESSION_IDLE_TIMEOUT_MINUTES` |
-| `show_usernames_in_ui` | `SHOW_USERNAMES_IN_UI` |
 | `sso_api_allowed_clients` | `SSO_API_ALLOWED_CLIENTS` |
 | `sso_api_client_names` | `SSO_API_CLIENT_NAMES` |
 | `sso_api_client_scopes` | `SSO_API_CLIENT_SCOPES` |
 | `sso_api_exchange_clients` | `SSO_API_EXCHANGE_CLIENTS` |
 | `sso_api_scopes` | `SSO_API_SCOPES` |
 | `sso_api_tokens_enabled` | `SSO_API_TOKENS_ENABLED` |
-| `user_search_scope` | `USER_SEARCH_SCOPE` |
 | `users_can_delete` | `USERS_CAN_DELETE` |
 | `video_passthrough_asr` | `VIDEO_PASSTHROUGH_ASR` |
 | `video_retention` | `VIDEO_RETENTION` |
@@ -309,16 +287,6 @@ Beyond the UI-configurable settings above, several environment variables in your
 **DEFAULT_COLOR_SCHEME**: Color scheme for new accounts and for signed-out pages in a browser with no saved color scheme. One of `blue`, `emerald` (Forest Emerald), `purple`, `rose`, `amber` or `teal`. Default: `emerald`.
 
 **DEFAULT_AUDIO_PLAYER_POSITION**: Audio player position on a recording's page for new accounts. One of `top` or `bottom`. Default: `top`. See [Audio player position for new accounts](#audio-player-position-for-new-accounts).
-
-### Collaboration & Sharing
-
-**ENABLE_INTERNAL_SHARING**: Controls user-to-user sharing capabilities. Set to `true` to enable internal sharing features, allowing users to share recordings with specific colleagues. Required for group functionality. Default: `false`.
-
-**SHOW_USERNAMES_IN_UI**: Controls whether the owner's username is displayed on recordings shared with a user. Default: `false`. While `USER_SEARCH_SCOPE` is not set, it also sets who users can find when sharing: `everyone` when `true`, `exact` when `false`.
-
-**USER_SEARCH_SCOPE**: Who a user can find in the share window by typing part of a username. One of `everyone`, `groups` (only people in one of the user's groups) or `exact` (the full username or the full email address is needed). Default: follows `SHOW_USERNAMES_IN_UI`. See [Who Users Can Find](#who-users-can-find).
-
-**ENABLE_PUBLIC_SHARING**: The switch for public share links. With `true`, public links are created by users who have the permission, and existing links are served. With `false`, no link is created, and every existing link is answered with `404` until the value is `true` again; the links are not deleted. The link of a user whose permission to share publicly was withdrawn is answered with `404` in the same way. Default: `true`.
 
 ### User Permissions
 
@@ -370,10 +338,6 @@ If the process that owns the background work is recycled or killed, the replacem
 
 When a password is changed, reset by email, or set by an administrator, the account is signed out of every browser. The browser in which the password was changed stays signed in. Sign-ins made before v0.10.15 remain valid until the account's password is next set.
 
-### Public Share Page Rendering
-
-**READABLE_PUBLIC_LINKS**: When `true`, a public share page also carries the whole transcript as plain HTML (in a `<noscript>` block: a heading per speaker turn, a paragraph per segment), so that LLMs, scrapers and other readers that do not run JavaScript can read it. A browser shows the interactive transcript either way. When `false`, the transcript is in the page only as data for that view. Default: `false`.
-
 ### Admin User Creation
 
 **SKIP_EMAIL_DOMAIN_CHECK**: When `true`, bypasses DNS validation of email domains when creating admin users via the setup script. Useful for development or when DNS lookups are restricted. Default: `false`.
@@ -416,11 +380,6 @@ Default: `mp3`.
 ### Configuration Example
 
 ```bash
-# Enable collaboration features
-ENABLE_INTERNAL_SHARING=true
-SHOW_USERNAMES_IN_UI=true
-ENABLE_PUBLIC_SHARING=false
-
 # User permissions
 USERS_CAN_DELETE=false  # Only admins can delete
 

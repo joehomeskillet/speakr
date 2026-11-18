@@ -4,8 +4,8 @@
         <template v-if="currentView === 'detail' && selectedRecording">
             <!-- Action groups (#394): organize (inbox, star, archive), then
                  place (folder, tags), then process (a Reprocess menu and
-                 speakers), then share and a More menu holding both deletes.
-                 Between 768 and 1023px the row keeps Reprocess, Share and
+                 speakers), then a More menu holding both deletes.
+                 Between 768 and 1023px the row keeps Reprocess and
                  More only: the organize and place actions and Speakers move
                  into the More menu (its lg:hidden items), so the title, logo
                  and account button keep their room. -->
@@ -107,12 +107,6 @@
                 <i class="fas fa-user-tag"></i>
             </button>
             <div class="hidden md:block w-px h-5 bg-[var(--border-primary)] mx-0.5"></div>
-            <button v-if="!selectedRecording.is_shared || (selectedRecording.share_info && selectedRecording.share_info.can_reshare)"
-                    @click="openUnifiedShareModal(selectedRecording)"
-                    class="btn btn--icon hidden md:inline-flex"
-                    :title="t('buttons.shareRecording')">
-                <i class="fas fa-share-alt"></i>
-            </button>
             <!-- More menu: the destructive actions, kept one click further away. -->
             <!-- From 1024px the menu holds only the deletes; without delete rights
                  it is shown below 1024px only, for the actions the row leaves out. -->

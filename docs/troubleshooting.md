@@ -284,12 +284,6 @@ If you're running the ASR webservice on macOS and getting GPU-related errors or 
 
 This is a Docker limitation on macOS - GPU passthrough isn't supported because Docker runs in a Linux VM. See the [FAQ](faq.md#can-i-use-the-asr-webservice-for-speaker-diarization-on-mac) for complete Mac configuration.
 
-### Sharing Links Don't Work
-
-[Sharing](user-guide/sharing.md) requires your Speakr instance to be accessible from the internet with HTTPS. See [sharing requirements](user-guide/sharing.md#requirements-for-sharing) and [security considerations](user-guide/sharing.md#security-and-privacy-considerations). Local installations or non-SSL setups cannot generate working share links. The share button will be disabled or show an error explaining the requirements.
-
-If your instance meets the requirements but shares still fail, check that your configured URL in the environment matches reality. Mismatched URLs cause share links to point to the wrong location. The URL must be exactly what external users will use to access your instance.
-
 ### Inquire Mode Returns No Results
 
 [Semantic search](user-guide/inquire-mode.md) requires the embedding model to be properly installed and initialized. Check the [Vector Store tab](admin-guide/vector-store.md) in admin settings and review [vector store troubleshooting](admin-guide/vector-store.md#troubleshooting-common-issues) - it should show "Available" status. If not, the sentence-transformers library might be missing or failed to load.

@@ -148,7 +148,7 @@ As an admin, you can create groups to organize users who regularly collaborate:
 
 ### Creating Group Tags
 
-Group tags automatically share recordings with all group members when applied:
+Group tags belong to a group and are managed by its admins. Applying one organizes a recording. It does not give other users access to it.
 
 1. While editing or creating a group, navigate to the **Tags** section
 2. Click "Create Group Tag" and enter:
@@ -159,27 +159,7 @@ Group tags automatically share recordings with all group members when applied:
     - **Retention days** (optional): Auto-delete recordings after this many days (leave blank to keep forever)
 3. Save the tag
 
-When any group member applies this tag to a recording, all group members automatically get access to it.
-
-### Sharing a Recording with a Group
-
-There are two ways to share recordings with groups:
-
-**Method 1: Using Group Tags** (Automatic)
-
-1. When uploading or after creating a recording, click the tag icon
-2. Select any group tag you have access to
-3. All group members automatically receive access to this recording
-4. Future group members will NOT see historical recordings, only new ones tagged after they join
-
-**Method 2: Individual Sharing** (Manual)
-
-1. Open any recording and click the share icon (users icon) in the toolbar
-2. Search for and select users to share with
-3. Choose permission level: view-only, edit, or reshare
-4. Each user receives immediate access
-
-For more details on collaboration features, see the [Sharing & Collaboration guide](user-guide/sharing.md).
+See the [Group Collaboration guide](user-guide/groups.md).
 
 ## Optional Features
 

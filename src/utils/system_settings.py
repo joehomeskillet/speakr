@@ -85,10 +85,6 @@ def apply_hot_settings(module_name: str, mapping: Dict[str, Tuple[str, str, Any]
 # key: (env var, default, setting_type, description)
 ENV_BACKED_SETTINGS: Dict[str, Tuple[str, Any, str, str]] = {
     'users_can_delete': ('USERS_CAN_DELETE', True, 'boolean', 'Whether non-admin users can delete their recordings.'),
-    'enable_public_sharing': ('ENABLE_PUBLIC_SHARING', True, 'boolean', 'Whether public share links are allowed.'),
-    'enable_internal_sharing': ('ENABLE_INTERNAL_SHARING', False, 'boolean', 'Whether internal sharing between users and groups is allowed.'),
-    'show_usernames_in_ui': ('SHOW_USERNAMES_IN_UI', False, 'boolean', 'Whether usernames are visible in the UI.'),
-    'user_search_scope': ('USER_SEARCH_SCOPE', '', 'string', 'Who a user can find by part of a username when sharing: everyone, groups or exact. Unset: everyone when usernames are shown, else exact.'),
     'enable_auto_deletion': ('ENABLE_AUTO_DELETION', False, 'boolean', 'Master switch for automatic deletion of old recordings.'),
     'global_retention_days': ('GLOBAL_RETENTION_DAYS', 0, 'integer', 'Number of days to retain recordings globally. 0 disables auto-deletion.'),
     'deletion_mode': ('DELETION_MODE', 'full_recording', 'string', 'Deletion mode: audio_only or full_recording.'),
@@ -113,10 +109,10 @@ ENV_BACKED_SETTINGS: Dict[str, Tuple[str, Any, str, str]] = {
     'sso_api_scopes': ('SSO_API_SCOPES', 'read', 'string', 'Comma-separated scopes a request with an SSO access token has, and the most an exchanged token may have.'),
     'sso_api_client_scopes': ('SSO_API_CLIENT_SCOPES', '', 'string', 'Per-app scope limits, as client_id=scope1 scope2 pairs separated by commas or new lines. A listed app gets those scopes within sso_api_scopes; an app not listed gets sso_api_scopes.'),
     'sso_api_client_names': ('SSO_API_CLIENT_NAMES', '', 'string', 'Display names for OIDC client IDs, as client_id=Name pairs separated by commas or new lines. Shown on API tokens created through the SSO token exchange.'),
-    'audit_log_enabled': ('AUDIT_LOG_ENABLED', True, 'boolean', 'Whether sign-ins, access to recordings, changes, shares and administrative actions are recorded in the audit log. Changes of the audit log settings are recorded also when this is off.'),
+    'audit_log_enabled': ('AUDIT_LOG_ENABLED', True, 'boolean', 'Whether sign-ins, access to recordings, changes and administrative actions are recorded in the audit log. Changes of the audit log settings are recorded also when this is off.'),
     'audit_log_retention_days': ('AUDIT_LOG_RETENTION_DAYS', 365, 'integer', 'Days after which an audit log row is removed. 0 keeps the rows without limit.'),
     'audit_log_store_ip': ('AUDIT_LOG_STORE_IP', 'full', 'string', 'How the client address is stored in the audit log: full, truncated (the /24 network of an IPv4 address, the /48 network of an IPv6 address) or off.'),
-    'audit_log_record_views': ('AUDIT_LOG_RECORD_VIEWS', True, 'boolean', 'Whether opening and playing a recording in the web interface is recorded in the audit log. Downloads, exports, API reads and public link events are recorded in either case.'),
+    'audit_log_record_views': ('AUDIT_LOG_RECORD_VIEWS', True, 'boolean', 'Whether opening and playing a recording in the web interface is recorded in the audit log. Downloads, exports and API reads are recorded in either case.'),
 }
 
 

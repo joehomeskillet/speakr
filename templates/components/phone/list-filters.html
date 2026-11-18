@@ -33,10 +33,6 @@
             :aria-pressed="showArchivedRecordings ? 'true' : 'false'" :title="t('archive.showArchived')">
         <i class="fas fa-box-archive" aria-hidden="true"></i><span v-text="t('archive.archived')"></span>
     </button>
-    <button v-if="enableInternalSharing" type="button" class="ph-fc" data-phone-filter="shared" @click="showSharedWithMe = !showSharedWithMe"
-            :aria-pressed="showSharedWithMe ? 'true' : 'false'" :title="t('sidebar.sharedWithMe')">
-        <i class="fas fa-users" aria-hidden="true"></i><span v-text="t('sidebar.shared')"></span>
-    </button>
     <button v-if="searchQuery || phoneFilterCount > 0 || filterStarred || filterInbox" type="button" class="ph-fc ph-fc--clear" data-phone-filter="clear"
             @click="clearAllFilters" :title="t('buttons.clearAllFilters')">
         <i class="fas fa-times" aria-hidden="true"></i><span v-text="t('common.clearAll')"></span>

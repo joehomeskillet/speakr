@@ -17,8 +17,8 @@
                         <span class="ws-section__title" v-text="t('workspace.library')"></span>
                     </div>
                     <button type="button" class="ws-nav-item"
-                            :class="{ 'is-active': !filterInbox && !filterStarred && !showArchivedRecordings && !showSharedWithMe && !filterFolder }"
-                            @click="filterInbox = false; filterStarred = false; showArchivedRecordings = false; showSharedWithMe = false; filterFolder = ''">
+                            :class="{ 'is-active': !filterInbox && !filterStarred && !showArchivedRecordings && !filterFolder }"
+                            @click="filterInbox = false; filterStarred = false; showArchivedRecordings = false; filterFolder = ''">
                         <i class="fas fa-layer-group ws-nav-item__icon"></i>
                         <span class="ws-nav-item__label" v-text="t('sidebar.allRecordings')"></span>
                         <span class="ws-nav-item__count" v-text="totalRecordings"></span>
@@ -44,14 +44,6 @@
                             @click="showArchivedRecordings = !showArchivedRecordings">
                         <i class="fas fa-box-archive ws-nav-item__icon"></i>
                         <span class="ws-nav-item__label" v-text="t('archive.archived')"></span>
-                    </button>
-                    <button v-if="enableInternalSharing" type="button" class="ws-nav-item"
-                            :class="{ 'is-active': showSharedWithMe }"
-                            :aria-pressed="showSharedWithMe"
-                            :title="t('sidebar.sharedWithMe')"
-                            @click="showSharedWithMe = !showSharedWithMe">
-                        <i class="fas fa-users ws-nav-item__icon"></i>
-                        <span class="ws-nav-item__label" v-text="t('sidebar.shared')"></span>
                     </button>
                 </div>
 

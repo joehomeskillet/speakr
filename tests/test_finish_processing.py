@@ -60,8 +60,7 @@ def _rec(made, user_id, **kwargs):
 
 
 def _side_effects():
-    return (patch.object(proc, "apply_team_tag_auto_shares"),
-            patch.object(proc, "export_recording"),
+    return (patch.object(proc, "export_recording"),
             patch.object(proc, "queue_inquire_chunks"),
             patch.object(proc, "ENABLE_AUTO_EXPORT", True),
             patch.object(proc, "ENABLE_INQUIRE_MODE", True))
@@ -76,13 +75,12 @@ def test_user_title_without_summary_is_indexed_for_inquire(made):
     with app.app_context():
         u = _user(made)
         r = _rec(made, u.id, title="Board meeting")
-        shares, export, chunks, *flags = _side_effects()
-        with shares as m_shares, export as m_export, chunks as m_chunks, flags[0], flags[1]:
+        export, chunks, *flags = _side_effects()
+        with export as m_export, chunks as m_chunks, flags[0], flags[1]:
             proc.generate_title_task(app.app_context(), r.id, will_auto_summarize=False)
         db.session.expire_all()
         assert db.session.get(Recording, r.id).status == "COMPLETED"
         m_chunks.assert_called_once_with(r.id)
-        m_shares.assert_called_once_with(r.id)
         m_export.assert_called_once_with(r.id)
 
 
@@ -90,15 +88,14 @@ def test_short_transcription_still_runs_the_finishing_steps(made):
     with app.app_context():
         u = _user(made)
         r = _rec(made, u.id, transcription="hi")
-        shares, export, chunks, *flags = _side_effects()
-        with shares as m_shares, export as m_export, chunks as m_chunks, flags[0], flags[1], \
+        export, chunks, *flags = _side_effects()
+        with export as m_export, chunks as m_chunks, flags[0], flags[1], \
              patch.object(proc, "client", MagicMock()):
             proc.generate_summary_only_task(app.app_context(), r.id)
         db.session.expire_all()
         out = db.session.get(Recording, r.id)
         assert out.status == "COMPLETED"
         assert out.summary == "[Summary skipped due to short transcription]"
-        m_shares.assert_called_once_with(r.id)
         m_export.assert_called_once_with(r.id)
         m_chunks.assert_called_once_with(r.id)
 
@@ -107,8 +104,8 @@ def test_normal_summary_runs_each_finishing_step_once(made):
     with app.app_context():
         u = _user(made)
         r = _rec(made, u.id)
-        shares, export, chunks, *flags = _side_effects()
-        with shares as m_shares, export as m_export, chunks as m_chunks, flags[0], flags[1], \
+        export, chunks, *flags = _side_effects()
+        with export as m_export, chunks as m_chunks, flags[0], flags[1], \
              patch.object(proc, "client", MagicMock()), \
              patch.object(proc, "call_llm_completion", return_value=_completion("## Summary\nDone.")):
             proc.generate_summary_only_task(app.app_context(), r.id)
@@ -116,7 +113,6 @@ def test_normal_summary_runs_each_finishing_step_once(made):
         out = db.session.get(Recording, r.id)
         assert out.status == "COMPLETED" and out.summary.startswith("## Summary")
         assert out.summarization_duration_seconds is not None
-        m_shares.assert_called_once_with(r.id)
         m_export.assert_called_once_with(r.id)
         m_chunks.assert_called_once_with(r.id)
 
@@ -125,8 +121,8 @@ def test_a_failing_export_leaves_the_recording_completed(made):
     with app.app_context():
         u = _user(made)
         r = _rec(made, u.id)
-        shares, export, chunks, *flags = _side_effects()
-        with shares, export as m_export, chunks as m_chunks, flags[0], flags[1]:
+        export, chunks, *flags = _side_effects()
+        with export as m_export, chunks as m_chunks, flags[0], flags[1]:
             m_export.side_effect = RuntimeError("disk full")
             proc.finish_processing(r.id)
         db.session.expire_all()
@@ -156,14 +152,14 @@ def test_without_an_llm_client_the_recording_is_completed_not_stuck(made):
         with open(path, "wb") as f:
             f.write(b"\x00" * 1024)
         conv = MagicMock(was_converted=False)
-        shares, export, chunks, *flags = _side_effects()
+        export, chunks, *flags = _side_effects()
         try:
             with patch("src.services.transcription.get_connector", return_value=_make_connector("A full transcript of the meeting.")), \
                  patch.object(proc, "is_video_file", return_value=False), \
                  patch.object(proc, "convert_if_needed", return_value=conv), \
                  patch.object(proc, "client", None), \
                  patch.object(proc, "chunking_service") as svc, \
-                 shares, export, chunks, flags[0], flags[1]:
+                 export, chunks, flags[0], flags[1]:
                 svc.needs_chunking.return_value = False
                 svc.get_audio_duration.return_value = 60.0
                 proc.transcribe_with_connector(app.app_context(), r.id, path, "fin.mp3", time.time(),

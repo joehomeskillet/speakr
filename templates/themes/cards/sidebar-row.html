@@ -32,19 +32,11 @@
                                 </h4>
                                 {% include 'components/assistant/answering-mark.html' %}
                                 <div class="rr-badges flex items-center gap-1 flex-shrink-0">
-                                    <!-- Combined sharing status badge -->
-                                    <span v-if="recording.is_shared || recording.has_group_tags || recording.shared_with_count > 0 || recording.public_share_count > 0"
+                                    <!-- Group (team) recording badge -->
+                                    <span v-if="recording.has_group_tags"
                                           class="inline-flex items-center justify-center gap-1 h-5 px-2 rounded-full text-[9px] leading-none bg-violet-100 dark:bg-violet-900/50 border border-violet-300 dark:border-violet-600"
-                                          :title="[
-                                              recording.is_shared ? t('sharing.sharedBy') + ' ' + (recording.owner_username || t('sharing.unknown')) : '',
-                                              recording.has_group_tags ? t('sharing.teamRecording') : '',
-                                              !recording.is_shared && recording.shared_with_count > 0 ? t('sharing.sharedWith') + ' ' + recording.shared_with_count + ' ' + t('sharing.users') : '',
-                                              !recording.is_shared && recording.public_share_count > 0 ? recording.public_share_count + ' ' + t('sharing.publicLinksGenerated') : ''
-                                          ].filter(s => s).join(' • ')">
-                                        <i v-if="recording.is_shared" class="fas fa-arrow-down text-purple-600 dark:text-purple-400"></i>
+                                          :title="t('sidebar.teamRecording')">
                                         <i v-if="recording.has_group_tags" class="fas fa-users text-blue-600 dark:text-blue-400"></i>
-                                        <i v-if="!recording.is_shared && recording.shared_with_count > 0" class="fas fa-arrow-up text-indigo-600 dark:text-indigo-400"></i>
-                                        <i v-if="!recording.is_shared && recording.public_share_count > 0" class="fas fa-globe text-teal-600 dark:text-teal-400"></i>
                                     </span>
 
                                     <!-- Audio removed badge -->
@@ -98,20 +90,9 @@
                                  when a specific folder is already selected, every
                                  visible recording is in it and the pill would be
                                  redundant. -->
-                            <div v-if="(foldersEnabled && !filterFolder && recording.folder_id) || (recording.folder && recording.folder.is_foreign) || getRecordingTags(recording).length > 0"
+                            <div v-if="(foldersEnabled && !filterFolder && recording.folder_id) || getRecordingTags(recording).length > 0"
                                  class="flex flex-wrap items-center gap-1 mt-1">
-                                <!-- Foreign (shared-in) folder: the folder that granted access. Shown
-                                     leftmost, marked, and NOT clickable — it isn't a folder you own,
-                                     so it must never become a sticky filter (#314). -->
-                                <span v-if="recording.folder && recording.folder.is_foreign"
-                                      class="chip"
-                                      :style="{ '--tag': folderMarkColor(recording.folder.color || '#6B7280') }"
-                                      :title="t('sharing.sharedBadge') + ': ' + recording.folder.name">
-                                    <i class="fas fa-folder chip__icon"></i>
-                                    <span class="chip__label" v-text="recording.folder.name"></span>
-                                    <i class="fas fa-share-nodes chip__shared"></i>
-                                </span>
-                                <button v-if="foldersEnabled && !filterFolder && recording.folder_id && !(recording.folder && recording.folder.is_foreign)"
+                                <button v-if="foldersEnabled && !filterFolder && recording.folder_id"
                                         @click.stop="filterFolder = recording.folder_id"
                                         class="chip chip--clickable"
                                         :style="{ '--tag': getFolderMarkColor(recording.folder_id) }"
@@ -120,16 +101,7 @@
                                     <span class="chip__label" v-text="getFolderName(recording.folder_id)"></span>
                                 </button>
                                 <template v-for="tag in getRecordingTags(recording).slice(0, 4)" :key="tag.id">
-                                    <!-- Foreign (share-reason) tag: marked, not clickable (#314) -->
-                                    <span v-if="tag.is_foreign"
-                                          class="chip"
-                                          :style="{ '--tag': tag.color, '--chip-mark': folderMarkColor(tag.color) }"
-                                          :title="t('sharing.sharedBadge') + ': ' + tag.name">
-                                        <i v-if="tag.group_id" class="fas fa-users chip__icon"></i>
-                                        <span class="chip__label" v-text="tag.name"></span>
-                                        <i class="fas fa-share-nodes chip__shared"></i>
-                                    </span>
-                                    <button v-else
+                                    <button
                                             @click.stop="filterByTag(tag)"
                                             class="chip chip--clickable"
                                             :style="{ '--tag': tag.color, '--chip-mark': folderMarkColor(tag.color) }"

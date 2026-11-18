@@ -3,7 +3,7 @@
 Covers the previously-untested authz boundaries in:
   - src/api/folders.py  (personal folders, group folders, recording-folder
                           assignment, bulk folder move)
-  - src/api/groups.py   (sync-shares, admin group CRUD + members)
+  - src/api/groups.py   (admin group CRUD + members)
 
 Focus is on negatives / IDOR: a user must not be able to read or mutate
 another user's folders, move recordings they don't own, move their own
@@ -511,8 +511,7 @@ def test_get_group_folders_requires_membership():
 
 
 def test_create_group_folder_route_requires_admin_membership():
-    """POST /api/groups/<gid>/folders (the dedicated route, gated by
-    ENABLE_INTERNAL_SHARING) rejects non-admins with 403."""
+    """POST /api/groups/<gid>/folders rejects non-admins with 403."""
     with app.app_context():
         _enable_folders()
         member = _setup_user("cgf_member")
@@ -522,57 +521,16 @@ def test_create_group_folder_route_requires_admin_membership():
 
         client = app.test_client()
         _login(client, member)
-        with patch.object(folders_module, "ENABLE_INTERNAL_SHARING", True):
-            resp = client.post(
-                f"/api/groups/{group.id}/folders",
-                json={"name": "team-folder"},
-            )
+        resp = client.post(
+            f"/api/groups/{group.id}/folders",
+            json={"name": "team-folder"},
+        )
         assert resp.status_code == 403
 
         _cleanup(
             GroupMembership.query.filter_by(group_id=group.id).first(),
             group, member,
         )
-
-
-# ==========================================================================
-# groups.py: sync-shares authz
-# ==========================================================================
-
-def test_sync_shares_requires_group_admin():
-    """POST /api/groups/<gid>/sync-shares: a plain member gets 403."""
-    with app.app_context():
-        member = _setup_user("ss_member")
-        group = _make_group("ss-group")
-        db.session.add(GroupMembership(user_id=member.id, group_id=group.id, role="member"))
-        db.session.commit()
-
-        client = app.test_client()
-        _login(client, member)
-        with patch.object(groups_module, "ENABLE_INTERNAL_SHARING", True):
-            resp = client.post(f"/api/groups/{group.id}/sync-shares")
-        assert resp.status_code == 403, (
-            f"Non-admin reached sync-shares, got {resp.status_code}"
-        )
-
-        _cleanup(
-            GroupMembership.query.filter_by(group_id=group.id).first(),
-            group, member,
-        )
-
-
-def test_sync_shares_outsider_gets_403():
-    with app.app_context():
-        outsider = _setup_user("ss_outsider")
-        group = _make_group("ss-group2")
-
-        client = app.test_client()
-        _login(client, outsider)
-        with patch.object(groups_module, "ENABLE_INTERNAL_SHARING", True):
-            resp = client.post(f"/api/groups/{group.id}/sync-shares")
-        assert resp.status_code == 403
-
-        _cleanup(group, outsider)
 
 
 # ==========================================================================
@@ -585,8 +543,7 @@ def test_create_group_requires_site_admin():
         normal = _setup_user("ag_normal")
         client = app.test_client()
         _login(client, normal)
-        with patch.object(groups_module, "ENABLE_INTERNAL_SHARING", True):
-            resp = client.post("/api/admin/groups", json={"name": "x"})
+        resp = client.post("/api/admin/groups", json={"name": "x"})
         assert resp.status_code == 403, (
             f"Non-admin reached admin group creation, got {resp.status_code}"
         )
@@ -599,8 +556,7 @@ def test_create_group_succeeds_for_site_admin():
         client = app.test_client()
         _login(client, admin)
         name = f"admin-group-{uuid.uuid4().hex[:6]}"
-        with patch.object(groups_module, "ENABLE_INTERNAL_SHARING", True):
-            resp = client.post("/api/admin/groups", json={"name": name})
+        resp = client.post("/api/admin/groups", json={"name": name})
         assert resp.status_code == 201
         group = Group.query.filter_by(name=name).first()
         assert group is not None
@@ -641,11 +597,10 @@ def test_add_member_requires_admin():
 
         client = app.test_client()
         _login(client, normal)
-        with patch.object(groups_module, "ENABLE_INTERNAL_SHARING", True):
-            resp = client.post(
-                f"/api/admin/groups/{group.id}/members",
-                json={"user_id": target.id, "role": "member"},
-            )
+        resp = client.post(
+            f"/api/admin/groups/{group.id}/members",
+            json={"user_id": target.id, "role": "member"},
+        )
         assert resp.status_code == 403
         assert GroupMembership.query.filter_by(group_id=group.id).first() is None
 
@@ -664,11 +619,10 @@ def test_group_admin_can_add_member():
 
         client = app.test_client()
         _login(client, group_admin)
-        with patch.object(groups_module, "ENABLE_INTERNAL_SHARING", True):
-            resp = client.post(
-                f"/api/admin/groups/{group.id}/members",
-                json={"identifier": target.username, "role": "member"},
-            )
+        resp = client.post(
+            f"/api/admin/groups/{group.id}/members",
+            json={"identifier": target.username, "role": "member"},
+        )
         assert resp.status_code == 201
         assert GroupMembership.query.filter_by(
             group_id=group.id, user_id=target.id

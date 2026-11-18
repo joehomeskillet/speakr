@@ -301,11 +301,11 @@ def test_views_off_drops_views_and_plays_only():
         audit.record('recording.media.downloaded', recording_id=8300001)
         audit.record('recording.downloaded', recording_id=1, details={'part': 'transcript', 'format': 'docx'})
         audit.record('recording.content.read', recording_id=1, details={'part': 'transcript'})
-        audit.record('share.public.opened', recording_id=1, actor_kind='public_link', details={'share_id': 4})
+        audit.record('recording.exported', recording_id=1, details={'count': 1})
         audit.flush()
         assert sorted(r.event for r in _rows_after(start)) == [
-            'recording.content.read', 'recording.downloaded', 'recording.media.downloaded',
-            'share.public.opened']
+            'recording.content.read', 'recording.downloaded', 'recording.exported',
+            'recording.media.downloaded']
 
 
 @pytest.mark.parametrize('mode,expected', [('full', '198.51.100.9'), ('truncated', '198.51.100.0'), ('off', None)])

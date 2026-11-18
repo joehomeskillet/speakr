@@ -1,6 +1,6 @@
         <!-- Recording toolbar (Workspace design). The actions that used to be
              ten bare icons in the top header, grouped and labelled:
-             organize | place | process | share. Same handlers and menus. -->
+             organize | place | process. Same handlers and menus. -->
         <div class="ws-toolbar" role="toolbar" :aria-label="selectedRecording.title || t('help.untitled')">
             <!-- Organize: inbox, star, archive -->
             <div class="ws-tb-group">
@@ -106,13 +106,8 @@
 
             <span class="ws-grow"></span>
 
-            <!-- Share and the destructive More menu -->
+            <!-- The destructive More menu -->
             <div class="ws-tb-group">
-                <button v-if="!selectedRecording.is_shared || (selectedRecording.share_info && selectedRecording.share_info.can_reshare)"
-                        @click="openUnifiedShareModal(selectedRecording)"
-                        class="ws-tb" :title="t('buttons.shareRecording')">
-                    <i class="fas fa-share-alt"></i><span class="ws-tb__label" v-text="t('workspace.share')"></span>
-                </button>
                 <div v-if="canDeleteRecordings && selectedRecording.can_delete !== false"
                      class="relative inline-flex" data-header-more-menu>
                     <button @click.stop="showHeaderMoreMenu = !showHeaderMoreMenu; showHeaderReprocessMenu = false"
@@ -168,7 +163,6 @@
                       :title="t('tooltips.folderLabel', { name: getFolderName(selectedRecording.folder_id) })">
                     <i class="fas fa-folder chip__icon"></i>
                     <span class="chip__label">${ getFolderName(selectedRecording.folder_id) }</span>
-                    <i v-if="selectedRecording.folder && selectedRecording.folder.is_foreign" class="fas fa-share-nodes chip__shared"></i>
                 </span>
                 <span v-for="tag in selectedRecording.tags" :key="tag.id"
                       class="chip chip--dot"
@@ -176,7 +170,6 @@
                       :title="tag.group_id ? t('tooltips.groupLabel', { name: tag.group_name }) : tag.name">
                     <i v-if="tag.group_id" class="fas fa-users chip__icon"></i>
                     <span class="chip__label">${tag.name}</span>
-                    <i v-if="tag.is_foreign" class="fas fa-share-nodes chip__shared"></i>
                 </span>
             </div>
 

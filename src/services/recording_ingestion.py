@@ -43,7 +43,7 @@ Storage and database writes:
 * :func:`select_tags_and_folder` reads the upload's tags and folder from the
   form and keeps those the owner may use.
 * :func:`store_recording` reserves the owner's quota, creates the recording,
-  stores the file and commits the recording with its tags and folder shares.
+  stores the file and commits the recording with its tags and folder.
 * :func:`handle_unique_conflict` answers, from the caller's error handling,
   an upload whose rows hit a unique index (#476).
 * :func:`build_ingestion_response` assembles the success answer.
@@ -737,7 +737,7 @@ def store_recording(*, owner, storage, filepath, now, recorded_in_app, original_
     reserved first; a refusal rolls back, removes the staging copy and is
     returned in error_response. The recording is flushed, then prepare runs,
     then the file moves to storage (the staging copy is gone after that) and
-    the tags and folder shares are added before the one commit. An
+    the tags and folder are added before the one commit. An
     IntegrityError from the commit propagates to the caller's handler
     (:func:`handle_unique_conflict`).
     """
@@ -809,10 +809,6 @@ def store_recording(*, owner, storage, filepath, now, recorded_in_app, original_
                 added_at=datetime.utcnow()
             )
             db.session.add(new_association)
-
-        if selected_folder:
-            from src.api.folders import apply_group_folder_shares
-            apply_group_folder_shares(recording, selected_folder)
 
         db.session.commit()
     except Exception:

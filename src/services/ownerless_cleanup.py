@@ -1,8 +1,8 @@
 """Daily removal of recordings that have no owner (#572).
 
 Before #572 an admin's user delete removed the user's media but kept the
-recording rows with user_id NULL: transcript, summary, notes, embeddings and
-shares stayed in the database with nobody able to open or delete them. Every
+recording rows with user_id NULL: transcript, summary, notes, embeddings
+stayed in the database with nobody able to open or delete them. Every
 path that creates a recording sets an owner, so a recording without one is
 always such a leftover.
 

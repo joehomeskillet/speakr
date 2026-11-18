@@ -1081,7 +1081,7 @@ def download_inquire_conversation():
 @inquire_bp.route('/api/inquire/available_filters', methods=['GET'])
 @login_required
 def get_available_filters():
-    """Get available filter options for the user (includes shared recordings)."""
+    """Get available filter options for the user."""
     if not ENABLE_INQUIRE_MODE:
         return jsonify(api_error('inquire_disabled')), 403
     try:
@@ -1098,7 +1098,7 @@ def get_available_filters():
         # Combine all tags
         all_tags = user_tags + group_tags
 
-        # Get all accessible recording IDs (own + shared)
+        # Get all accessible recording IDs
         accessible_recording_ids = get_accessible_recording_ids(current_user.id)
 
         # Get unique speakers from accessible recordings' participants field
@@ -1151,6 +1151,5 @@ from src.utils.system_settings import apply_hot_settings
 _SYSTEM_SETTING_MAP = {
     "ENABLE_AUTO_DELETION": ("enable_auto_deletion", "ENABLE_AUTO_DELETION", False),
     "USERS_CAN_DELETE": ("users_can_delete", "USERS_CAN_DELETE", True),
-    "ENABLE_INTERNAL_SHARING": ("enable_internal_sharing", "ENABLE_INTERNAL_SHARING", False),
 }
 _self, __getattr__ = apply_hot_settings(__name__, _SYSTEM_SETTING_MAP)

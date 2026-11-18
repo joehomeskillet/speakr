@@ -76,7 +76,7 @@ def test_every_desktop_action_of_a_recording_is_on_the_phone():
     # the handlers this test must at least see, so that a changed regex cannot empty it
     assert {'toggleInbox', 'toggleHighlight', 'toggleArchive', 'assignFolderToRecording', 'editRecordingTags',
             'confirmReprocess', 'openRegenerateSummaryModal', 'openTranslationModal', 'confirmReset',
-            'openSpeakerModal', 'openUnifiedShareModal', 'confirmDeleteAudio', 'confirmDelete',
+            'openSpeakerModal', 'confirmDeleteAudio', 'confirmDelete',
             'openParticipantsModal', 'openMeetingDatePicker', 'openDuplicatesModal', 'regenerateTitle',
             'toggleFollowPlayerMode', 'toggleTranscriptionViewMode', 'toggleTranscriptFind', 'copyTranscription',
             'openTranscriptionEditor', 'generateTranslation', 'copySummary', 'downloadSummary', 'toggleEditSummary',
@@ -101,13 +101,13 @@ def test_phone_only_actions_are_kept():
 
 def test_the_list_keeps_its_filters_and_its_menu():
     markup = _phone_markup() + _read(TEMPLATES, 'components', 'sidebar.html')
-    for model in ('filterTextQuery', 'filterInbox', 'filterStarred', 'showArchivedRecordings', 'showSharedWithMe',
+    for model in ('filterTextQuery', 'filterInbox', 'filterStarred', 'showArchivedRecordings',
                   'filterAudioRemoved', 'filterNeedsTranscription', 'filterNeedsSummary', 'filterNeedsSpeakers',
                   'filterTags', 'filterSpeakers', 'filterDatePreset', 'filterDateRange.start', 'filterDateRange.end',
                   'filterFolder', 'includeChildFolders', 'sortBy'):
         assert model in markup, model
     for call in ('enterSelectionMode', 'exitSelectionMode', 'clearAllFilters', 'switchToUploadView',
-                 'toggleNotifications', 'openSharesList', 'openColorSchemeModal', 'toggleDarkMode', 'promptInstall'):
+                 'toggleNotifications', 'openColorSchemeModal', 'toggleDarkMode', 'promptInstall'):
         assert call in markup, call
     for link in ('href="/account"', 'href="/admin"', 'href="/group-management"', 'href="/inquire"', 'action="/logout"'):
         assert link in markup, link

@@ -26,9 +26,9 @@ The filter system in Speakr is designed to be both powerful and intuitive. Click
 
 ### Archiving Recordings
 
-Archive a recording to take it out of the main list without deleting anything: click the archive icon next to the inbox and star icons at the top of an open recording, or select several recordings and use the archive button in the selection bar. The transcript, summary, notes, audio, tags and shares all stay. Search still finds archived recordings (they carry a small archive badge), and the **Archived** toggle below the search bar shows only archived recordings, where the same icon moves one back.
+Archive a recording to take it out of the main list without deleting anything: click the archive icon next to the inbox and star icons at the top of an open recording, or select several recordings and use the archive button in the selection bar. The transcript, summary, notes, audio and tags all stay. Search still finds archived recordings (they carry a small archive badge), and the **Archived** toggle below the search bar shows only archived recordings, where the same icon moves one back.
 
-Archiving is personal, like inbox and star: archiving a recording someone shared with you hides it only from your list.
+Archiving is personal, like inbox and star: it hides the recording from your list.
 
 ### Recording List
 
@@ -120,51 +120,9 @@ For long recordings, the chat interface can save significant time. Instead of re
 
 Remember that the interface updates in real-time. When you upload a new recording or when transcription completes, the interface will automatically refresh to show the latest status. You don't need to manually reload the page to see updates.
 
-## Collaboration Features (Optional)
+## Groups (Optional)
 
-If you're working with a team or family, Speakr's collaboration features help you automatically share recordings with the right people. This section covers groups, group tags, and sharing - all optional but powerful when you need them.
-
-### Understanding Groups and Group Tags
-
-**Groups** are collections of users who regularly work together (e.g., "Engineering Team", "Family", "Sales Department"). Your administrator creates and manages groups, and you're automatically a member of any groups you've been added to.
-
-**Group Tags** are special tags that belong to a group. When you apply a group tag to a recording, all current members of that group automatically get access to it. This is perfect for project-specific content, department meetings, or family events that everyone should see.
-
-### Using Group Tags to Share Recordings
-
-If your administrator has created groups and group tags for you:
-
-1. When creating or editing a recording, click the **tag icon** in the metadata bar
-2. Look for tags that show a group indicator (these are your group tags)
-3. Select any group tag to apply it
-4. All group members instantly receive access to this recording
-
-Group tags can also include custom AI prompts for specialized summaries and retention policies for automatic cleanup. For example, a "Daily Standup" group tag might auto-delete recordings after 14 days, while a "Legal Consultations" tag keeps recordings permanently.
-
-### Individual Sharing
-
-For one-off collaborations or sharing with specific people outside your groups:
-
-1. Open the recording you want to share
-2. Click the **share icon** (users icon) in the toolbar
-3. Search for the user's name and select them
-4. Choose their permission level:
-    - **View Only**: Can read and listen, but not edit
-    - **Edit**: Can modify metadata, notes, and summary
-    - **Reshare**: Can share with additional users
-5. Click to add them - they immediately receive access
-
-### Personal Notes on Shared Recordings
-
-When someone shares a recording with you, you can add your own private notes that only you can see. This is perfect for tracking your action items or personal observations without cluttering the shared content. Your notes are completely separate from the recording owner's notes and the shared summary.
-
-To add personal notes to a shared recording, simply click on the **Notes** tab and start typing. These notes are yours alone and won't be visible to the recording owner or other people who have access.
-
-### Viewing Recordings Shared With You
-
-Recordings that others have shared with you appear in your main recording list with a subtle visual indicator. Use the **From others** filter in the sidebar to view only recordings others have shared with you, making it easy to focus on collaborative content.
-
-For complete details on all collaboration features, see the [Sharing & Collaboration guide](sharing.md).
+Groups, group tags and group folders organize people who work together. Applying a group tag does not give other users access to the recording. See the [Group Collaboration guide](groups.md).
 
 ## Creating New Content
 

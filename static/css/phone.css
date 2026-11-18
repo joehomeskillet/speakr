@@ -171,7 +171,6 @@ html.dark {
     -webkit-line-clamp: 2;
     line-clamp: 2;
 }
-.ph-bar__title.is-shared { color: var(--ph-link); }
 .ph-bar__input {
     flex: 1;
     min-width: 0;

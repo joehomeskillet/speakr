@@ -4,7 +4,7 @@ Regression tests for the security-audit fixes.
 
 Covers:
   - bulk_toggle IDOR: a user cannot toggle inbox/highlight on another user's
-    recording, and no SharedRecordingState row is created for it.
+    recording.
   - rate_limit decorator actually applies a Flask-Limiter limit (it was a
     silent no-op, leaving auth endpoints without per-endpoint limits).
   - Webhook delivery re-validates the URL at SEND time, blocking a target that
@@ -22,7 +22,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.app import app, db
 from src.models import User, Recording
-from src.models.sharing import SharedRecordingState
 
 # The bulk-toggle endpoint is a session-cookie POST guarded by CSRF; disable
 # CSRF for this suite so the test client can exercise it directly (matches the
@@ -67,12 +66,7 @@ def test_bulk_toggle_ignores_other_users_recording():
             body = resp.get_json()
             # The victim's recording must NOT be reported as affected...
             assert rec_id not in body.get("affected_ids", [])
-            # ...and no per-user status row may have been created for the attacker.
-            leaked = SharedRecordingState.query.filter_by(
-                user_id=attacker.id, recording_id=rec_id).first()
-            assert leaked is None, "bulk_toggle created a status row for an inaccessible recording"
         finally:
-            SharedRecordingState.query.filter_by(recording_id=rec_id).delete()
             db.session.delete(db.session.get(Recording, rec_id))
             db.session.delete(db.session.get(User, attacker.id))
             db.session.delete(db.session.get(User, owner.id))
@@ -95,7 +89,6 @@ def test_bulk_toggle_still_works_for_own_recording():
             assert resp.status_code == 200, resp.data
             assert rec_id in resp.get_json().get("affected_ids", [])
         finally:
-            SharedRecordingState.query.filter_by(recording_id=rec_id).delete()
             db.session.delete(db.session.get(Recording, rec_id))
             db.session.delete(db.session.get(User, owner.id))
             db.session.commit()
@@ -242,7 +235,7 @@ def test_recording_session_chunk_uploads_are_rate_limit_exempt():
 def test_signed_in_media_playback_is_rate_limit_exempt():
     """A fragmented MP4 is read through hundreds of range requests, so the
     signed-in media route must not count against the global IP limit (#539).
-    Anonymous requests and the public share route keep the limit."""
+    Anonymous requests keep the limit."""
     from unittest.mock import patch
     from src.app import exempt_status_endpoints
 
@@ -254,8 +247,6 @@ def test_signed_in_media_playback_is_rate_limit_exempt():
         with app.test_request_context("/audio/2371", method="GET"):
             assert exempt_status_endpoints() is True
         with app.test_request_context("/audio/2371/extra", method="GET"):
-            assert exempt_status_endpoints() is not True
-        with app.test_request_context("/share/audio/abc123", method="GET"):
             assert exempt_status_endpoints() is not True
     with patch("flask_login.utils._get_user", return_value=_User(False)):
         with app.test_request_context("/audio/2371", method="GET"):

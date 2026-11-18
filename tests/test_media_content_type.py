@@ -2,7 +2,7 @@
 
 The stored MIME type came from the uploaded file's extension, so an audio file
 named ``.html`` was stored as ``text/html`` and opened as a page on the app's
-own origin from a public share link. Only audio and video types are served as
+own origin. Only audio and video types are served as
 such; anything else is served as ``application/octet-stream``, and every media
 response carries ``Content-Security-Policy: sandbox``.
 """
@@ -14,7 +14,7 @@ import uuid
 import pytest
 
 from src.app import app, db
-from src.models import User, Recording, Share
+from src.models import User, Recording
 from src.utils.mime import served_media_mime
 
 
@@ -37,7 +37,7 @@ def test_without_a_stored_type_the_path_is_checked_under_the_same_rule():
 
 
 @pytest.fixture
-def html_named_share():
+def html_named_recording():
     folder = tempfile.mkdtemp(prefix='speakr_mime_')
     path = os.path.join(folder, 'evil.html')
     with open(path, 'wb') as f:
@@ -51,13 +51,9 @@ def html_named_share():
                         mime_type='text/html', original_filename='evil.html')
         db.session.add(rec)
         db.session.commit()
-        share = Share(recording_id=rec.id, user_id=user.id)
-        db.session.add(share)
-        db.session.commit()
-        ids = (user.id, rec.id, share.public_id)
+        ids = (user.id, rec.id)
     yield ids
     with app.app_context():
-        Share.query.filter_by(recording_id=ids[1]).delete()
         db.session.delete(db.session.get(Recording, ids[1]))
         db.session.delete(db.session.get(User, ids[0]))
         db.session.commit()
@@ -65,17 +61,8 @@ def html_named_share():
     os.rmdir(folder)
 
 
-def test_public_share_never_serves_html(html_named_share):
-    _, _, public_id = html_named_share
-    resp = app.test_client().get(f'/share/audio/{public_id}')
-    assert resp.status_code == 200
-    assert resp.mimetype == 'application/octet-stream'
-    assert resp.headers['Content-Security-Policy'] == 'sandbox'
-    resp.close()
-
-
-def test_owner_audio_route_never_serves_html(html_named_share):
-    user_id, rec_id, _ = html_named_share
+def test_owner_audio_route_never_serves_html(html_named_recording):
+    user_id, rec_id = html_named_recording
     client = app.test_client()
     with client.session_transaction() as sess:
         sess['_user_id'] = str(user_id)

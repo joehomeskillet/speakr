@@ -327,12 +327,3 @@ export function useAudioPlayer(ref, computed) {
         initWithRecording
     };
 }
-
-/**
- * Create a standalone audio player instance.
- * Use this for pages that don't have Vue's ref/computed (like share.html).
- */
-export function createStandalonePlayer(Vue) {
-    const { ref, computed } = Vue;
-    return useAudioPlayer(ref, computed);
-}

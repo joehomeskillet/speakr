@@ -92,7 +92,6 @@ def reindex_recording_chunks_async(recording_id):
 
 # Global helpers (will be injected from app)
 has_recording_access = None
-editable_recording_ids = None
 get_user_recording_status = None
 set_user_recording_status = None
 enrich_recording_dict_with_user_status = None
@@ -103,9 +102,8 @@ chunking_service = None
 
 def init_recordings_helpers(**kwargs):
     """Initialize helper functions and extensions from app."""
-    global has_recording_access, editable_recording_ids, get_user_recording_status, set_user_recording_status, enrich_recording_dict_with_user_status, bcrypt, csrf, limiter, chunking_service
+    global has_recording_access, get_user_recording_status, set_user_recording_status, enrich_recording_dict_with_user_status, bcrypt, csrf, limiter, chunking_service
     has_recording_access = kwargs.get('has_recording_access')
-    editable_recording_ids = kwargs.get('editable_recording_ids')
     get_user_recording_status = kwargs.get('get_user_recording_status')
     set_user_recording_status = kwargs.get('set_user_recording_status')
     enrich_recording_dict_with_user_status = kwargs.get('enrich_recording_dict_with_user_status')
@@ -1151,7 +1149,6 @@ def index(recording_id=None, label_name=None):
                          connector_supports_initial_prompt=connector_supports_initial_prompt,
                          inquire_mode_enabled=ENABLE_INQUIRE_MODE,
                          enable_audio_removed_filter=enable_audio_removed_filter,
-                         enable_internal_sharing=_self.ENABLE_INTERNAL_SHARING,
                          user_language=user_language,
                          default_translation_language=default_translation_language,
                          is_team_admin=is_team_admin,
@@ -1169,8 +1166,6 @@ def get_accessible_recording_ids(user_id):
 
     Includes:
     - Recordings owned by the user
-    - Recordings shared with the user via InternalShare
-    - Recordings shared via group tags (if team membership exists)
 
     Args:
         user_id (int): User ID to check access for
@@ -1183,13 +1178,6 @@ def get_accessible_recording_ids(user_id):
     # 1. User's own recordings
     own_recordings = db.session.query(Recording.id).filter_by(user_id=user_id).all()
     accessible_ids.update([r.id for r in own_recordings])
-
-    # 2. Internally shared recordings
-    if _self.ENABLE_INTERNAL_SHARING:
-        shared_recordings = db.session.query(InternalShare.recording_id).filter_by(
-            shared_with_user_id=user_id
-        ).all()
-        accessible_ids.update([r.recording_id for r in shared_recordings])
 
     return list(accessible_ids)
 
@@ -1222,7 +1210,7 @@ def get_recordings():
 @recordings_bp.route('/api/recordings', methods=['GET'])
 @login_required
 def get_recordings_paginated():
-    """Get recordings with pagination and server-side filtering (includes shared recordings)."""
+    """Get recordings with pagination and server-side filtering."""
     import re
     try:
         # Parse query parameters
@@ -1233,7 +1221,6 @@ def get_recordings_paginated():
         # state left when the media file was deleted and the transcript kept.
         show_archived = request.args.get('archived', '').lower() == 'true'
         show_audio_removed = request.args.get('audio_removed', '').lower() == 'true'
-        show_shared = request.args.get('shared', '').lower() == 'true'
         show_starred = request.args.get('starred', '').lower() == 'true'
         show_inbox = request.args.get('inbox', '').lower() == 'true'
         needs_transcription = request.args.get('needs_transcription', '').lower() == 'true'
@@ -1243,7 +1230,7 @@ def get_recordings_paginated():
         folder_filter = request.args.get('folder', '').strip()  # folder_id or 'none' for no folder
         status_filter = request.args.get('status', '').strip().upper()  # e.g. 'COMPLETED' (used by the merge picker)
 
-        # Get all accessible recording IDs (own + shared)
+        # Get all accessible recording IDs
         accessible_recording_ids = get_accessible_recording_ids(current_user.id)
 
         if not accessible_recording_ids:
@@ -1280,47 +1267,13 @@ def get_recordings_paginated():
         elif not search_query:
             stmt = stmt.where(db.not_(archived_condition(Recording, current_user.id)))
 
-        # Apply shared filter (AND with other filters)
-        if show_shared:
-            # Only show recordings shared with current user (not owned by them)
-            stmt = stmt.where(Recording.user_id != current_user.id)
-
         # Apply starred filter (AND with other filters)
-        # For starred/inbox we need to consider both owned recordings and shared recordings
         if show_starred:
-            from src.models.sharing import SharedRecordingState
-            # For owned recordings: check Recording.is_highlighted
-            # For shared recordings: check SharedRecordingState.is_highlighted
-            starred_subq = select(SharedRecordingState.recording_id).where(
-                db.and_(
-                    SharedRecordingState.user_id == current_user.id,
-                    SharedRecordingState.is_highlighted == True
-                )
-            ).scalar_subquery()
-            stmt = stmt.where(
-                db.or_(
-                    db.and_(Recording.user_id == current_user.id, Recording.is_highlighted == True),
-                    Recording.id.in_(starred_subq)
-                )
-            )
+            stmt = stmt.where(Recording.user_id == current_user.id, Recording.is_highlighted == True)
 
         # Apply inbox filter (AND with other filters)
         if show_inbox:
-            from src.models.sharing import SharedRecordingState
-            # For owned recordings: check Recording.is_inbox
-            # For shared recordings: check SharedRecordingState.is_inbox
-            inbox_subq = select(SharedRecordingState.recording_id).where(
-                db.and_(
-                    SharedRecordingState.user_id == current_user.id,
-                    SharedRecordingState.is_inbox == True
-                )
-            ).scalar_subquery()
-            stmt = stmt.where(
-                db.or_(
-                    db.and_(Recording.user_id == current_user.id, Recording.is_inbox == True),
-                    Recording.id.in_(inbox_subq)
-                )
-            )
+            stmt = stmt.where(Recording.user_id == current_user.id, Recording.is_inbox == True)
 
         # Apply folder filter (AND with other filters)
         if folder_filter:
@@ -1475,35 +1428,18 @@ def get_recordings_paginated():
 
             # Apply text search
             if text_query:
-                from src.models.sharing import SharedRecordingState
-
-                # Search in user-specific notes:
-                # - For owned recordings: search Recording.notes
-                # - For shared recordings: search SharedRecordingState.personal_notes
-
                 # Every character typed is matched literally (#485)
                 pattern = contains_pattern(text_query)
                 text_conditions = [
                     Recording.title.ilike(pattern, escape=LIKE_ESCAPE),
                     Recording.participants.ilike(pattern, escape=LIKE_ESCAPE),
                     Recording.transcription.ilike(pattern, escape=LIKE_ESCAPE),
-                    # Search owner's notes for owned recordings
+                    # Search the owner's notes
                     db.and_(
                         Recording.user_id == current_user.id,
                         Recording.notes.ilike(pattern, escape=LIKE_ESCAPE)
                     )
                 ]
-
-                # Add search for personal notes in shared recordings
-                # Use a subquery to check if personal_notes match
-                shared_notes_subq = select(SharedRecordingState.recording_id).where(
-                    db.and_(
-                        SharedRecordingState.user_id == current_user.id,
-                        SharedRecordingState.personal_notes.ilike(pattern, escape=LIKE_ESCAPE)
-                    )
-                ).scalar_subquery()
-
-                text_conditions.append(Recording.id.in_(shared_notes_subq))
 
                 stmt = stmt.where(db.or_(*text_conditions))
 
@@ -1535,71 +1471,26 @@ def get_recordings_paginated():
         from src.services.recording_list import RecordingListBatch, list_load_options
         recordings = db.session.execute(stmt.options(*list_load_options())).scalars().all()
 
-        # Batch-load this viewer's shares for the page so serialization can resolve
-        # the #314 share-reason tag/folder without an N+1 query.
-        page_rec_ids = [r.id for r in recordings]
-        share_map = {}
-        if page_rec_ids:
-            for s in InternalShare.query.filter(
-                InternalShare.recording_id.in_(page_rec_ids),
-                InternalShare.shared_with_user_id == current_user.id
-            ).all():
-                share_map[s.recording_id] = s
-
         # What the rows need beyond their own columns, read once for the page
         # rather than per row (D#483)
-        batch = RecordingListBatch(recordings, current_user, share_map)
-        editable_ids = editable_recording_ids(recordings, current_user, share_map)
+        batch = RecordingListBatch(recordings, current_user)
 
-        # Enrich recordings with sharing metadata
         enriched_recordings = []
         for recording in recordings:
-            rec_dict = recording.to_list_dict(viewer_user=current_user, share_map=share_map, batch=batch)
+            rec_dict = recording.to_list_dict(viewer_user=current_user, batch=batch)
 
-            # Add sharing metadata
             is_owner = recording.user_id == current_user.id
             rec_dict['is_owner'] = is_owner
 
-            # Get per-user status (owner uses Recording fields, recipients use SharedRecordingState)
             user_inbox, user_highlighted = batch.user_status(recording)
             rec_dict['is_inbox'] = user_inbox
             rec_dict['is_highlighted'] = user_highlighted
             rec_dict['is_archived'] = batch.user_archived(recording)
 
-            # Add edit permission info (has_recording_access rules, group admins included)
-            rec_dict['can_edit'] = recording.id in editable_ids
+            # Only the owner edits and deletes
+            rec_dict['can_edit'] = is_owner
 
-            # Add delete permission info (only owner can delete)
             rec_dict['can_delete'] = is_owner and (_self.USERS_CAN_DELETE or current_user.is_admin)
-
-            if not is_owner:
-                # This is a shared recording - get owner info and share permissions
-                owner = batch.owners.get(recording.user_id)
-                rec_dict['owner_username'] = _owner_username_for_recipient(owner)
-                rec_dict['is_shared'] = True
-                # Don't show outgoing share count for recordings you don't own
-                rec_dict['shared_with_count'] = 0
-                rec_dict['public_share_count'] = 0
-
-                # Get share permissions (reuse the batched map)
-                share = share_map.get(recording.id)
-
-                if share:
-                    rec_dict['share_info'] = {
-                        'share_id': share.id,
-                        'owner_username': _owner_username_for_recipient(owner),
-                        'can_edit': share.can_edit,
-                        'can_reshare': share.can_reshare,
-                        'shared_at': share.created_at.isoformat()
-                    }
-                else:
-                    # Fallback if share record not found (shouldn't happen)
-                    rec_dict['share_info'] = {
-                        'can_edit': False,
-                        'can_reshare': False
-                    }
-            else:
-                rec_dict['is_shared'] = False
 
             # Check if recording has group tags (among visible tags)
             has_group_tags = any(tag.is_group_tag for tag in batch.visible_tags(recording))
@@ -1648,32 +1539,11 @@ def save_metadata():
 
         # Handle notes separately - no edit permission required (user-specific)
         if 'notes' in data:
-            if recording.user_id == current_user.id:
-                # Owner saves to Recording.notes
-                # Stored as written: notes and summaries are Markdown, and the
-                # HTML cleaner would turn "> quote" into "&gt; quote". They are
-                # cleaned when converted to HTML (md_to_html), the only form ever
-                # shown as HTML.
-                recording.notes = data['notes']
-            else:
-                # Shared user saves to personal_notes (requires SharedRecordingState)
-                from src.models.sharing import SharedRecordingState
-                state = SharedRecordingState.query.filter_by(
-                    recording_id=recording.id,
-                    user_id=current_user.id
-                ).first()
-
-                if not state:
-                    # Create SharedRecordingState if it doesn't exist
-                    state = SharedRecordingState(
-                        recording_id=recording.id,
-                        user_id=current_user.id,
-                        is_inbox=True,
-                        is_highlighted=False
-                    )
-                    db.session.add(state)
-
-                state.personal_notes = data['notes']
+            # Stored as written: notes and summaries are Markdown, and the
+            # HTML cleaner would turn "> quote" into "&gt; quote". They are
+            # cleaned when converted to HTML (md_to_html), the only form ever
+            # shown as HTML.
+            recording.notes = data['notes']
 
         # Determine if any fields requiring edit permission are being updated
         edit_fields = ['title', 'participants', 'summary', 'meeting_date']
@@ -2308,17 +2178,6 @@ def get_archived_recordings():
         return jsonify({'error': str(e)}), 500
 
 
-def _owner_username_for_recipient(owner):
-    """The owner's username as a person the recording is shared with gets it.
-
-    Follows show_usernames_in_ui, as the shared-with-me list does
-    (src/api/shares.py): None while usernames are hidden.
-    """
-    if not _self.SHOW_USERNAMES_IN_UI:
-        return None
-    return owner.username if owner else "Unknown"
-
-
 # --- Recording Detail and Audio Endpoints ---
 
 @recordings_bp.route('/api/recordings/<int:recording_id>', methods=['GET'])
@@ -2332,65 +2191,21 @@ def get_recording_detail(recording_id):
         if not recording:
             return jsonify(api_error('recording_not_found')), 404
 
-        # Check ownership or shared access
-        has_access = recording.user_id == current_user.id
-
-        # Check if recording has been shared with current user (if internal sharing is enabled)
-        if not has_access and _self.ENABLE_INTERNAL_SHARING:
-            share = InternalShare.query.filter_by(
-                recording_id=recording_id,
-                shared_with_user_id=current_user.id
-            ).first()
-            has_access = share is not None
-
-        if not has_access:
+        # Check ownership
+        if recording.user_id != current_user.id:
             return jsonify(api_error('recording_not_found')), 404
 
         # Return full detail with HTML conversion
         rec_dict = recording.to_dict(include_html=True, viewer_user=current_user)
 
-        # Add sharing metadata
         is_owner = recording.user_id == current_user.id
         rec_dict['is_owner'] = is_owner
 
-        # Add edit permission info (uses has_recording_access which checks group admin status)
+        # Only the owner edits
         rec_dict['can_edit'] = has_recording_access(recording, current_user, require_edit=True)
 
         # Add delete permission info (only owner can delete)
         rec_dict['can_delete'] = is_owner and (_self.USERS_CAN_DELETE or current_user.is_admin)
-
-        # Add sharing-related fields
-        if not is_owner:
-            # This is a shared recording - get owner info and share permissions
-            owner = db.session.get(User, recording.user_id)
-            rec_dict['owner_username'] = _owner_username_for_recipient(owner)
-            rec_dict['is_shared'] = True
-            # Don't show outgoing share count for recordings you don't own
-            rec_dict['shared_with_count'] = 0
-            rec_dict['public_share_count'] = 0
-
-            # Get share permissions
-            share = InternalShare.query.filter_by(
-                recording_id=recording.id,
-                shared_with_user_id=current_user.id
-            ).first()
-
-            if share:
-                rec_dict['share_info'] = {
-                    'share_id': share.id,
-                    'owner_username': _owner_username_for_recipient(owner),
-                    'can_edit': share.can_edit,
-                    'can_reshare': share.can_reshare,
-                    'shared_at': share.created_at.isoformat()
-                }
-            else:
-                # Fallback if share record not found (shouldn't happen)
-                rec_dict['share_info'] = {
-                    'can_edit': False,
-                    'can_reshare': False
-                }
-        else:
-            rec_dict['is_shared'] = False
 
         # Check if recording has group tags (among visible tags)
         visible_tags = recording.get_visible_tags(current_user)
@@ -2780,25 +2595,13 @@ def get_status(recording_id):
 def _playable_recording(recording_id):
     """The recording when the current user may play its audio, else None.
 
-    The one access rule of the audio routes: the owner, or a user the
-    recording is shared with while internal sharing is on.
+    The one access rule of the audio routes: the owner.
     """
     recording = db.session.get(Recording, recording_id)
     if not recording or not recording.audio_path:
         return None
 
-    # Check if the recording belongs to the current user or has been shared with them
-    has_access = recording.user_id == current_user.id
-
-    # Check if recording has been shared with current user (if internal sharing is enabled)
-    if not has_access and _self.ENABLE_INTERNAL_SHARING:
-        share = InternalShare.query.filter_by(
-            recording_id=recording_id,
-            shared_with_user_id=current_user.id
-        ).first()
-        has_access = share is not None
-
-    return recording if has_access else None
+    return recording if recording.user_id == current_user.id else None
 
 
 @recordings_bp.route('/audio/<int:recording_id>/peaks')
@@ -3050,7 +2853,7 @@ def chat_with_transcription():
 @recordings_bp.route('/api/recordings/<int:recording_id>/tags', methods=['POST'])
 @login_required
 def add_tag_to_recording(recording_id):
-    """Add a tag to a recording. Triggers auto-share for group tags."""
+    """Add a tag to a recording."""
     try:
         recording = db.session.get(Recording, recording_id)
         # Check if user has view access to this recording
@@ -3112,13 +2915,6 @@ def add_tag_to_recording(recording_id):
         )
         db.session.add(recording_tag)
 
-        # A group tag with sharing shares the completed recording (same rule
-        # as API v1 and the end of processing: src/services/tag_sharing.py).
-        from src.services.tag_sharing import apply_tag_shares
-        shares_created = apply_tag_shares(recording, tag, sharing_enabled=_self.ENABLE_INTERNAL_SHARING)
-        if shares_created > 0:
-            current_app.logger.info(f"Created {shares_created} auto-shares for recording {recording_id} via group tag {tag.id}")
-
         db.session.commit()
 
         # Return updated recording with per-user status
@@ -3139,7 +2935,7 @@ def add_tag_to_recording(recording_id):
 @recordings_bp.route('/api/recordings/<int:recording_id>/tags/<int:tag_id>', methods=['DELETE'])
 @login_required
 def remove_tag_from_recording(recording_id, tag_id):
-    """Remove a tag from a recording. Cleans up auto-shares for group tags."""
+    """Remove a tag from a recording."""
     try:
         recording = db.session.get(Recording, recording_id)
         # Check if user has view access to this recording
@@ -3182,13 +2978,6 @@ def remove_tag_from_recording(recording_id, tag_id):
 
         # Remove the association
         db.session.delete(recording_tag)
-
-        # Shares this group tag made end, unless another group tag or the
-        # recording's group folder still gives them (#570, #582)
-        from src.services.auto_shares import drop_stale_auto_shares
-        shares_removed = drop_stale_auto_shares(recording_ids=[recording_id])
-        if shares_removed > 0:
-            current_app.logger.info(f"Removed {shares_removed} auto-shares for recording {recording_id} after removing tag {tag_id}")
 
         db.session.commit()
 
@@ -3391,9 +3180,6 @@ def bulk_update_tags():
                             order=max_order + 1
                         )
                         db.session.add(new_tag)
-                        # A group tag shares the same way as on the single-tag route (#591)
-                        from src.services.tag_sharing import apply_tag_shares
-                        apply_tag_shares(recording, tag, sharing_enabled=_self.ENABLE_INTERNAL_SHARING)
                         affected_ids.append(recording_id)
 
                 else:  # remove
@@ -3409,10 +3195,6 @@ def bulk_update_tags():
             except Exception as e:
                 current_app.logger.error(f"Error updating tag for recording {recording_id}: {e}")
 
-        if action == 'remove' and affected_ids:
-            # Shares the tag made end with it (#570, #582)
-            from src.services.auto_shares import drop_stale_auto_shares
-            drop_stale_auto_shares(recording_ids=affected_ids)
         db.session.commit()
 
         return jsonify({
@@ -3525,15 +3307,11 @@ def bulk_toggle():
                     continue
 
                 # Authorization: only act on recordings the user actually has
-                # access to. Without this, set_user_recording_status would
-                # create a per-user status row for ANY recording id (treating
-                # the caller as a "shared recipient"), leaking a cross-user
-                # existence oracle and polluting the table. Mirrors the single
-                # toggle_inbox / toggle_highlight endpoints.
+                # access to. Mirrors the single toggle_inbox / toggle_highlight
+                # endpoints.
                 if not has_recording_access(recording, current_user):
                     continue
 
-                # Use set_user_recording_status which handles both owners and shared users
                 if field == 'inbox':
                     set_user_recording_status(recording, current_user, is_inbox=value)
                 elif field == 'archive':
@@ -3624,7 +3402,5 @@ _SYSTEM_SETTING_MAP = {
     "ENABLE_AUTO_DELETION": ("enable_auto_deletion", "ENABLE_AUTO_DELETION", False),
     "DELETION_MODE": ("deletion_mode", "DELETION_MODE", "full_recording"),
     "USERS_CAN_DELETE": ("users_can_delete", "USERS_CAN_DELETE", True),
-    "ENABLE_INTERNAL_SHARING": ("enable_internal_sharing", "ENABLE_INTERNAL_SHARING", False),
-    "SHOW_USERNAMES_IN_UI": ("show_usernames_in_ui", "SHOW_USERNAMES_IN_UI", False),
 }
 _self, __getattr__ = apply_hot_settings(__name__, _SYSTEM_SETTING_MAP)

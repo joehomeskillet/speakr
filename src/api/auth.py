@@ -716,7 +716,6 @@ def account():
     USE_ASR_ENDPOINT = os.environ.get('USE_ASR_ENDPOINT', 'false').lower() == 'true'
     USE_NEW_TRANSCRIPTION_ARCHITECTURE = os.environ.get('USE_NEW_TRANSCRIPTION_ARCHITECTURE', 'true').lower() == 'true'
     ENABLE_AUTO_DELETION = bool(SystemSetting.get_setting('enable_auto_deletion', os.environ.get('ENABLE_AUTO_DELETION', 'false').lower() == 'true'))
-    ENABLE_INTERNAL_SHARING = bool(SystemSetting.get_setting('enable_internal_sharing', os.environ.get('ENABLE_INTERNAL_SHARING', 'false').lower() == 'true'))
     ASR_RETURN_SPEAKER_EMBEDDINGS = os.environ.get('ASR_RETURN_SPEAKER_EMBEDDINGS', 'false').lower() == 'true'
     ENABLE_AUTO_EXPORT = os.environ.get('ENABLE_AUTO_EXPORT', 'false').lower() == 'true'
 
@@ -803,7 +802,6 @@ def account():
                            connector_supports_hotwords=connector_supports_hotwords,
                            connector_supports_initial_prompt=connector_supports_initial_prompt,
                            enable_auto_deletion=ENABLE_AUTO_DELETION,
-                           enable_internal_sharing=ENABLE_INTERNAL_SHARING,
                            user_admin_groups=user_admin_groups,
                            is_team_admin=is_team_admin,
                            sso_enabled=sso_enabled,

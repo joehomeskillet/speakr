@@ -1,10 +1,10 @@
-"""The access audit log: who signed in, who opened, changed, shared or deleted
+"""The access audit log: who signed in, who opened, changed or deleted
 which recording, and what an administrator changed.
 
 One table, ``audit_event`` (``src/models/audit.py``), and two ways into it.
 
 ``record_in_tx(event, ...)``
-    For an action that already writes to the database (a change, a share, an
+    For an action that already writes to the database (a change, an
     administrative action). The row is added to the session of the request and
     is committed or rolled back together with the action, so the row exists
     exactly when the action took effect. The caller commits.
@@ -17,8 +17,8 @@ One table, ``audit_event`` (``src/models/audit.py``), and two ways into it.
     the database and never fails because of the audit log.
 
 What is never recorded
-    Titles, file names, transcript text, search queries, token names, the
-    ``public_id`` of a share link, e-mail addresses, passwords and exception
+    Titles, file names, transcript text, search queries, token names,
+    e-mail addresses, passwords and exception
     text. ``EVENTS`` lists, per event, the only keys the ``details`` column may
     hold. A key that is not listed raises in tests and is dropped with a
     warning otherwise.
@@ -89,16 +89,6 @@ EVENTS = {
     'recording.audio.deleted': ('change', frozenset({'reason'})),
     'recording.reprocessed': ('change', frozenset({'kind'})),
     'recording.job.canceled': ('change', frozenset({'kind'})),
-    # Sharing
-    'share.internal.created': ('share', frozenset({'share_id', 'can_edit', 'can_reshare', 'imported'})),
-    'share.internal.changed': ('share', frozenset({
-        'share_id', 'can_edit', 'can_reshare', 'old_can_edit', 'old_can_reshare', 'imported'})),
-    'share.internal.revoked': ('share', frozenset({'share_id', 'cascade', 'imported'})),
-    'share.public.created': ('share', frozenset({'share_id', 'share_summary', 'share_notes', 'expires'})),
-    'share.public.changed': ('share', frozenset({'share_id', 'share_summary', 'share_notes', 'expires'})),
-    'share.public.revoked': ('share', frozenset({'share_id'})),
-    'share.public.opened': ('share', frozenset({'share_id'})),
-    'share.public.media.played': ('share', frozenset({'share_id'})),
     # Administration
     'admin.user.created': ('admin', frozenset({'username', 'is_admin'})),
     'admin.user.changed': ('admin', frozenset({'fields'})),
@@ -122,8 +112,8 @@ EVENTS = {
     'audit.write_failed': ('audit', frozenset({'count'})),
 }
 
-EVENT_GROUPS = ('auth', 'access', 'change', 'share', 'admin', 'audit')
-ACTOR_KINDS = ('session', 'api_token', 'sso_token', 'public_link', 'system', 'anonymous')
+EVENT_GROUPS = ('auth', 'access', 'change', 'admin', 'audit')
+ACTOR_KINDS = ('session', 'api_token', 'sso_token', 'system', 'anonymous')
 OUTCOMES = ('success', 'denied', 'failed')
 
 # Dropped while audit_log_record_views is off.
@@ -142,8 +132,7 @@ DEDUP_ONCE = 10 ** 11
 SETTING_VALUE_KEYS = frozenset({
     'audit_log_enabled', 'audit_log_retention_days', 'audit_log_store_ip', 'audit_log_record_views',
     'audit_log_notice_dismissed',
-    'users_can_delete', 'enable_public_sharing', 'enable_internal_sharing',
-    'show_usernames_in_ui', 'user_search_scope', 'enable_auto_deletion', 'global_retention_days', 'deletion_mode',
+    'users_can_delete', 'enable_auto_deletion', 'global_retention_days', 'deletion_mode',
     'recording_tombstone_days', 'webhook_delivery_retention_days', 'webhook_omit_titles',
     'auto_export_delete_with_recording', 'video_retention', 'video_passthrough_asr', 'asr_async_jobs',
     'max_concurrent_uploads',
@@ -315,7 +304,7 @@ def _visitor_hash(with_agent=True):
 def stamp(moment):
     """A creation time as a short code for a de-duplication key.
 
-    The id of a deleted recording, token or share is given out again on
+    The id of a deleted recording or token is given out again on
     SQLite. With the creation time in the key, an event of the new object is
     never taken for a repeat of an event of the deleted one."""
     if moment is None:
@@ -387,9 +376,7 @@ def _build(event, *, recording=None, recording_id=None, recording_owner_id=None,
     now = created_at or datetime.utcnow()
     dedup_key = None
     if dedup:
-        if actor_kind == 'public_link' and in_request:
-            who = 'p' + _visitor_hash()
-        elif actor_token_id is not None:
+        if actor_token_id is not None:
             who = f't{actor_token_id}'
         elif actor_user_id is not None:
             who = f'u{actor_user_id}'
@@ -928,7 +915,6 @@ def _record_access(event, dedup, details, recording_of, view_args, status):
 # --- System settings --------------------------------------------------------
 
 _SETTING_ENUMS = {
-    'user_search_scope': ('everyone', 'groups', 'exact'),
     'deletion_mode': ('audio_only', 'full_recording'),
     'audit_log_store_ip': ('full', 'truncated', 'off'),
 }

@@ -133,7 +133,6 @@ USER_SORT_COLUMNS = (
     ("username", "username", "asc"),
     ("email", "email", "asc"),
     ("admin", "is_admin", "desc"),
-    ("public share", "can_share_publicly", "desc"),
     ("recordings", "recordings_count", "desc"),
     ("storage used", "storage_used", "desc"),
     ("last active", "last_active", "desc"),
@@ -141,10 +140,10 @@ USER_SORT_COLUMNS = (
 
 
 def _admin_users_table(page):
-    """The User Management table (the only one with a Public share column)."""
+    """The User Management table (the only one with a Last active column)."""
     table = page.locator("table").filter(
-        has=page.locator("th", has_text="Public share")).first
-    table.locator("th", has_text="Public share").first.wait_for(
+        has=page.locator("th", has_text="Last active")).first
+    table.locator("th", has_text="Last active").first.wait_for(
         state="visible", timeout=15000)
     return table
 
@@ -174,7 +173,7 @@ def _expected_user_order(users, key, order):
             return (user["last_seen_at"] is not None, user["last_seen_at"] or "")
         if key in ("username", "email"):
             return user[key].lower()
-        if key in ("is_admin", "can_share_publicly"):
+        if key == "is_admin":
             return bool(user[key])
         return user[key]
     if key == "id":

@@ -198,10 +198,10 @@ class Recording(db.Model):
 
     def get_user_notes(self, user):
         """
-        Get notes from user's perspective (owner or shared recipient).
+        Get notes from user's perspective.
 
         - Recording owner sees Recording.notes
-        - Shared users see their personal_notes from SharedRecordingState
+        - Any other viewer sees no notes
 
         Args:
             user: User object viewing the recording
@@ -215,13 +215,7 @@ class Recording(db.Model):
         if self.user_id == user.id:
             return self.notes  # Owner sees Recording.notes
         else:
-            # Shared user sees their personal notes
-            from src.models.sharing import SharedRecordingState
-            state = SharedRecordingState.query.filter_by(
-                recording_id=self.id,
-                user_id=user.id
-            ).first()
-            return state.personal_notes if state else None
+            return None
 
     def get_audio_duration(self, allow_probe_fallback=False):
         """
@@ -334,20 +328,12 @@ class Recording(db.Model):
             }
         return None
 
-    def _serialize_tags_and_folder(self, viewer_user, share_map=None, batch=None):
-        """Build (tags, folder, folder_id) for a viewer, applying #314 rules.
+    def _serialize_tags_and_folder(self, viewer_user, batch=None):
+        """Build (tags, folder, folder_id) for a viewer.
 
-        For a recording the viewer does NOT own, the share-reason (from the
-        InternalShare row) is surfaced and flagged ``is_foreign: True`` so the
-        UI can mark it and keep it non-filterable.  A group-tag share also
-        surfaces the other tags on this recording from that same group: group
-        tags are shared context for its members, unlike the owner's personal
-        tags.  Tags from other groups and the owner's personal tags/folder are
-        never leaked. Owners (and the no-viewer backward-compat case) see their
-        tags/folder normally.
+        Owners (and the no-viewer backward-compat case) see their tags/folder
+        normally. A viewer who does not own the recording sees none of them.
 
-        share_map: optional {recording_id: InternalShare} to avoid an N+1 query
-        in list views; falls back to a per-recording lookup when not provided.
         batch: optional RecordingListBatch with the page's visible tags and
         tag/folder counts (D#483).
         """
@@ -364,80 +350,30 @@ class Recording(db.Model):
             folder = folder_dict(self.folder) if self.folder else None
             return tags, folder, self.folder_id
 
-        from src.models.sharing import InternalShare
-        if share_map is not None:
-            share = share_map.get(self.id)
-        else:
-            share = InternalShare.query.filter_by(
-                recording_id=self.id, shared_with_user_id=viewer_user.id
-            ).first()
-        reason_tag_id = share.source_tag_id if share else None
-        reason_folder_id = getattr(share, 'source_folder_id', None) if share else None
-
-        tags = []
-        reason_tag = next((tag for tag in visible_tags if tag.id == reason_tag_id), None)
-        if reason_tag:
-            if share and share.source_type == 'group_tag' and reason_tag.group_id:
-                # Group tags are shared metadata for their own group.  Include
-                # only the tags from the group that granted access, so a
-                # recipient never learns the recording's tags from another
-                # group they may also belong to.
-                tags_to_surface = [
-                    tag for tag in visible_tags if tag.group_id == reason_tag.group_id
-                ]
-            else:
-                tags_to_surface = [reason_tag]
-
-            for tag in tags_to_surface:
-                td = tag_dict(tag)
-                td['is_foreign'] = True
-                tags.append(td)
-        if reason_folder_id and self.folder_id == reason_folder_id and self.folder:
-            folder = folder_dict(self.folder)
-            folder['is_foreign'] = True
-            return tags, folder, self.folder_id
-        return tags, None, None
+        return [], None, None
 
     def updated_at_z(self):
         """updated_at (created_at before the first change) as ISO 8601 with Z."""
         value = self.updated_at or self.created_at
         return value.strftime('%Y-%m-%dT%H:%M:%S.%fZ') if value else None
 
-    def to_list_dict(self, viewer_user=None, duplicate_info_map=None, share_map=None, batch=None):
+    def to_list_dict(self, viewer_user=None, duplicate_info_map=None, batch=None):
         """
         Lightweight dict for list views - excludes expensive HTML conversions.
 
         Args:
             viewer_user: User viewing the recording (for tag visibility filtering)
-            share_map: optional {recording_id: InternalShare} for #314 share-reason
-                resolution without an N+1 query.
             batch: optional RecordingListBatch (src/services/recording_list.py)
-                built for viewer_user over the page: share counts, duplicates,
+                built for viewer_user over the page: duplicates,
                 visible tags and tag/folder counts come from it instead of
                 per-row queries (D#483).
         """
-        # Import here to avoid circular dependencies
-        from src.models.sharing import InternalShare, Share
-
         if batch is not None:
-            shared_with_count = batch.shared_with_counts.get(self.id, 0)
-            public_share_count = batch.public_share_counts.get(self.id, 0)
             duplicate_info = batch.duplicate_info(self)
-            if share_map is None:
-                share_map = batch.share_map
         else:
-            # Count internal shares for this recording
-            shared_with_count = db.session.query(func.count(InternalShare.id)).filter(
-                InternalShare.recording_id == self.id
-            ).scalar() or 0
-
-            # Count public shares (link shares) for this recording
-            public_share_count = db.session.query(func.count(Share.id)).filter(
-                Share.recording_id == self.id
-            ).scalar() or 0
             duplicate_info = self._dup_from_map_or_query(duplicate_info_map)
 
-        tags_ser, folder_ser, folder_id_ser = self._serialize_tags_and_folder(viewer_user, share_map, batch)
+        tags_ser, folder_ser, folder_id_ser = self._serialize_tags_and_folder(viewer_user, batch)
 
         return {
             'id': self.id,
@@ -471,8 +407,6 @@ class Recording(db.Model):
             'folder': folder_ser,
             'tags': tags_ser,
             'duplicate_info': duplicate_info,
-            'shared_with_count': shared_with_count,
-            'public_share_count': public_share_count,
             'audio_duration': self.get_audio_duration(),
             'keep_audio_only': self.keep_audio_only,
         }
@@ -482,7 +416,7 @@ class Recording(db.Model):
         back to the per-row query. The map is keyed by file_hash and is
         produced by ``get_duplicate_info_map`` for list endpoints; the
         legacy path stays correct for single-row callers (detail views,
-        share endpoints, etc.)."""
+        etc.)."""
         if duplicate_info_map is not None:
             if not self.file_hash:
                 return None
@@ -497,47 +431,28 @@ class Recording(db.Model):
             return {'total_copies': entry['total_copies'], 'copies': copies}
         return self.get_duplicate_info()
 
-    def to_dict(self, include_html=True, viewer_user=None, duplicate_info_map=None, share_map=None, batch=None):
+    def to_dict(self, include_html=True, viewer_user=None, duplicate_info_map=None, batch=None):
         """
         Full dict with optional HTML conversion for notes/summary.
 
         Args:
             include_html: Whether to include HTML-rendered markdown fields
             viewer_user: User viewing the recording (for tag visibility filtering)
-            share_map: optional {recording_id: InternalShare} for #314 share-reason
-                resolution without an N+1 query.
             batch: optional RecordingListBatch built for viewer_user over the
-                list: share counts, duplicates, visible tags, tag/folder counts
+                list: duplicates, visible tags, tag/folder counts
                 and the viewer's notes come from it instead of per-row queries.
                 A duplicate_info_map, when given, still decides duplicate_info.
         """
-        # Import here to avoid circular dependencies
-        from src.models.sharing import InternalShare, Share
-
         if batch is not None:
-            shared_with_count = batch.shared_with_counts.get(self.id, 0)
-            public_share_count = batch.public_share_counts.get(self.id, 0)
-            if share_map is None:
-                share_map = batch.share_map
             user_notes = batch.user_notes(self) if viewer_user is not None else self.notes
             duplicate_info = (self._dup_from_map_or_query(duplicate_info_map) if duplicate_info_map is not None
                               else batch.duplicate_info(self))
         else:
-            # Count internal shares for this recording
-            shared_with_count = db.session.query(func.count(InternalShare.id)).filter(
-                InternalShare.recording_id == self.id
-            ).scalar() or 0
-
-            # Count public shares (link shares) for this recording
-            public_share_count = db.session.query(func.count(Share.id)).filter(
-                Share.recording_id == self.id
-            ).scalar() or 0
-
             # Get user-specific notes
             user_notes = self.get_user_notes(viewer_user)
             duplicate_info = self._dup_from_map_or_query(duplicate_info_map)
 
-        tags_ser, folder_ser, folder_id_ser = self._serialize_tags_and_folder(viewer_user, share_map, batch)
+        tags_ser, folder_ser, folder_id_ser = self._serialize_tags_and_folder(viewer_user, batch)
 
         data = {
             'id': self.id,
@@ -577,8 +492,6 @@ class Recording(db.Model):
             'resolved_hotwords': self.resolved_hotwords,
             'resolved_initial_prompt': self.resolved_initial_prompt,
             'duplicate_info': duplicate_info,
-            'shared_with_count': shared_with_count,
-            'public_share_count': public_share_count,
             'keep_audio_only': self.keep_audio_only,
         }
 

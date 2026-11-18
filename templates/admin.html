@@ -282,18 +282,6 @@
                                         <span v-if="user.is_admin" class="px-2 inline-flex items-center text-xs leading-5 font-semibold rounded-full bg-[var(--bg-success-light)] text-[var(--text-success-strong)]">${ t('common.yes') }</span>
                                         <span v-else class="px-2 inline-flex items-center text-xs leading-5 font-semibold rounded-full bg-[var(--bg-pending-light)] text-[var(--text-pending-strong)]">${ t('common.no') }</span>
                                     </td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-[var(--text-secondary)]">
-                                        <button @click="togglePublicSharingPermission(user)"
-                                                class="inline-flex items-center"
-                                                :title="user.can_share_publicly ? t('tooltips.revokePublicSharing') : t('tooltips.grantPublicSharing')">
-                                            <span v-if="user.can_share_publicly" class="px-2 inline-flex items-center text-xs leading-5 font-semibold rounded-full bg-[var(--bg-success-light)] text-[var(--text-success-strong)]">
-                                                <i class="fas fa-check mr-1"></i> ${t('adminDashboard.allowed')}
-                                            </span>
-                                            <span v-else class="px-2 inline-flex items-center text-xs leading-5 font-semibold rounded-full bg-[var(--bg-danger-light)] text-[var(--text-danger-strong)]">
-                                                <i class="fas fa-times mr-1"></i> ${t('adminDashboard.blocked')}
-                                            </span>
-                                        </button>
-                                    </td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-[var(--text-secondary)]">${ user.recordings_count }</td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-[var(--text-secondary)]">
                                         ${ formatFileSize(user.storage_used) }<span v-if="user.storage_quota_mb" class="text-xs" :class="storagePctClass(storagePct(user)) || 'text-[var(--text-muted)]'"> / ${ formatFileSize(user.storage_quota_mb * 1048576) }</span>
@@ -325,7 +313,7 @@
                                     </td>
                                 </tr>
                                 <tr v-if="users.length === 0">
-                                    <td colspan="9" class="px-6 py-4 text-center text-sm text-[var(--text-muted)]">
+                                    <td colspan="8" class="px-6 py-4 text-center text-sm text-[var(--text-muted)]">
                                         <div v-if="isLoadingUsers">
                                             <i class="fas fa-spinner fa-spin mr-2"></i> ${ t('adminDashboard.loadingUsers') }
                                         </div>
@@ -1993,67 +1981,9 @@ Summarization Instructions:
                 </div>
                 </div>
 
-                <div class="modal-footer modal-footer--between">
-                    <button @click="syncTeamShares"
-                            class="btn btn--primary">
-                        <i class="fas fa-sync-alt"></i>
-                        ${ t('groups.syncTeamShares') }
-                    </button>
+                <div class="modal-footer">
                     <button @click="closeManageTeamModal"
                             class="btn btn--primary">
-                        ${ t('common.done') }
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Sync Group Shares Confirmation Modal -->
-        <div v-if="showSyncSharesModal" @click.self="showSyncSharesModal = false" class="modal-overlay">
-            <div class="modal-panel modal-panel--sm">
-                <div class="modal-header">
-                    <h3 class="modal-title">${ t('groups.syncTeamShares') }</h3>
-                    <button @click="showSyncSharesModal = false" class="modal-close" :title="t('buttons.close')"><i class="fas fa-times"></i></button>
-                </div>
-                <div class="modal-body">
-                <p class="mb-4 text-[var(--text-secondary)]">
-                    ${ t('groups.syncSharesExplain') }
-                </p>
-                <p class="text-[var(--text-muted)] text-sm">
-                    <i class="fas fa-info-circle mr-1"></i>
-                    ${ t('groups.syncSharesOnlyMissing') }
-                </p>
-                </div>
-                <div class="modal-footer">
-                    <button @click="showSyncSharesModal = false" class="btn btn--ghost">${ t('buttons.cancel') }</button>
-                    <button @click="confirmSyncShares" class="btn btn--primary">
-                        <i class="fas fa-sync-alt mr-2"></i>${ t('groups.syncNow') }
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Sync Results Modal -->
-        <div v-if="showSyncResultsModal" @click.self="showSyncResultsModal = false" class="modal-overlay">
-            <div class="modal-panel modal-panel--sm">
-                <div class="modal-header">
-                    <i class="fas fa-check-circle text-green-500"></i>
-                    <h3 class="modal-title">${ t('groups.syncCompleteTitle') }</h3>
-                    <button @click="showSyncResultsModal = false" class="modal-close" :title="t('buttons.close')"><i class="fas fa-times"></i></button>
-                </div>
-                <div class="modal-body">
-                <div class="space-y-2">
-                    <div class="flex justify-between text-[var(--text-secondary)]">
-                        <span>${ t('groups.sharesCreated') }:</span>
-                        <span class="font-semibold">${ syncResults.shares_created }</span>
-                    </div>
-                    <div class="flex justify-between text-[var(--text-secondary)]">
-                        <span>${ t('groups.recordingsProcessed') }:</span>
-                        <span class="font-semibold">${ syncResults.recordings_processed }</span>
-                    </div>
-                </div>
-                </div>
-                <div class="modal-footer">
-                    <button @click="showSyncResultsModal = false" class="btn btn--primary">
                         ${ t('common.done') }
                     </button>
                 </div>
@@ -2181,25 +2111,6 @@ Summarization Instructions:
                             <label for="protectFromDeletion" class="text-xs text-[var(--text-secondary)]">
                                 <i class="fas fa-shield-alt mr-1"></i> ${ t('groups.protectTagHelp') }
                             </label>
-                        </div>
-                        <div class="space-y-2">
-                            <div class="flex items-center">
-                                <input v-model="newTeamTag.auto_share_on_apply" type="checkbox" id="autoShareOnApply"
-                                       class="mr-2 h-4 w-4 text-[var(--text-accent)] border-[var(--border-secondary)] rounded focus:ring-[var(--border-focus)]">
-                                <label for="autoShareOnApply" class="text-xs text-[var(--text-secondary)]">
-                                    <i class="fas fa-user-friends mr-1"></i> ${ t('groups.autoShareTagHelp') }
-                                </label>
-                            </div>
-                            <div class="flex items-center">
-                                <input v-model="newTeamTag.share_with_group_lead" type="checkbox" id="shareWithGroupLead"
-                                       class="mr-2 h-4 w-4 text-[var(--text-accent)] border-[var(--border-secondary)] rounded focus:ring-[var(--border-focus)]">
-                                <label for="shareWithGroupLead" class="text-xs text-[var(--text-secondary)]">
-                                    <i class="fas fa-user-tie mr-1"></i> ${ t('groups.shareWithAdminsTagHelp') }
-                                </label>
-                            </div>
-                            <p class="text-xs text-[var(--text-muted)] ml-6">
-                                ${ t('groups.autoShareNote') }
-                            </p>
                         </div>
                         <div v-if="teamTagError" class="text-[var(--text-danger)] text-xs">${ teamTagError }</div>
                         <button type="submit" class="btn btn--primary">
@@ -2539,9 +2450,6 @@ Summarization Instructions:
                 const showTeamModal = ref(false);
                 const showManageTeamModal = ref(false);
                 const showDeleteTeamModal = ref(false);
-                const showSyncSharesModal = ref(false);
-                const showSyncResultsModal = ref(false);
-                const syncResults = ref({ shares_created: 0, recordings_processed: 0 });
                 const editingTeam = ref(null);
                 const teamToDelete = ref(null);
                 const currentTeam = ref(null);
@@ -2566,8 +2474,6 @@ Summarization Instructions:
                     default_max_speakers: null,
                     retention_days: null,
                     protect_from_deletion: false,
-                    auto_share_on_apply: true,
-                    share_with_group_lead: true
                 });
                 const teamTagError = ref('');
                 const globalRetentionDays = ref({{ global_retention_days }});
@@ -2635,7 +2541,7 @@ Summarization Instructions:
                 const USER_SORT_STORAGE_KEY = 'speakr.adminUserSort';
                 const USER_SORT_FIRST_ORDER = {
                     id: 'asc', username: 'asc', email: 'asc',
-                    is_admin: 'desc', can_share_publicly: 'desc',
+                    is_admin: 'desc',
                     recordings_count: 'desc', storage_used: 'desc', last_active: 'desc',
                 };
                 const DEFAULT_USER_SORT = { key: 'id', order: 'asc' };
@@ -2667,7 +2573,6 @@ Summarization Instructions:
                     { key: 'username', label: _t('adminDashboard.username') },
                     { key: 'email', label: _t('adminDashboard.email') },
                     { key: 'is_admin', label: _t('adminDashboard.admin') },
-                    { key: 'can_share_publicly', label: _t('adminDashboard.publicShare') },
                     { key: 'recordings_count', label: _t('adminDashboard.recordings') },
                     { key: 'storage_used', label: _t('adminDashboard.storageUsed') },
                     { key: 'last_active', label: _t('adminDashboard.lastActive') },
@@ -3513,37 +3418,6 @@ Summarization Instructions:
                     }
                 };
 
-                const togglePublicSharingPermission = async (user) => {
-                    try {
-                        const csrfToken = document.querySelector('meta[name=csrf-token]')?.getAttribute('content');
-                        const headers = { 'Content-Type': 'application/json' };
-
-                        if (csrfToken) {
-                            headers['X-CSRFToken'] = csrfToken;
-                        }
-
-                        const response = await fetch(`/admin/users/${user.id}`, {
-                            method: 'PUT',
-                            headers: headers,
-                            body: JSON.stringify({
-                                can_share_publicly: !user.can_share_publicly
-                            })
-                        });
-
-                        if (!response.ok) {
-                            const errorData = await response.json();
-                            throw new Error(errorData.error || t('adminDashboard.togglePublicSharingFailed'));
-                        }
-
-                        // Reload users
-                        await loadUsers();
-
-                    } catch (error) {
-                        console.error('Error toggling public sharing permission:', error);
-                        alertDialog(error.message);
-                    }
-                };
-
                 // Group Management Functions
                 const loadGroups = async () => {
                     try {
@@ -3749,41 +3623,6 @@ Summarization Instructions:
                     }
                 };
 
-                const syncTeamShares = () => {
-                    if (!currentTeam.value) return;
-                    showSyncSharesModal.value = true;
-                };
-
-                const confirmSyncShares = async () => {
-                    showSyncSharesModal.value = false;
-                    teamMemberError.value = '';
-
-                    try {
-                        const csrfToken = document.querySelector('meta[name=csrf-token]')?.getAttribute('content');
-                        const headers = { 'Content-Type': 'application/json' };
-                        if (csrfToken) headers['X-CSRFToken'] = csrfToken;
-
-                        const response = await fetch(`/api/groups/${currentTeam.value.id}/sync-shares`, {
-                            method: 'POST',
-                            headers
-                        });
-
-                        if (!response.ok) {
-                            const error = await response.json();
-                            throw new Error(error.error || t('groups.syncSharesFailed'));
-                        }
-
-                        const result = await response.json();
-                        syncResults.value = {
-                            shares_created: result.shares_created,
-                            recordings_processed: result.recordings_processed
-                        };
-                        showSyncResultsModal.value = true;
-                    } catch (error) {
-                        teamMemberError.value = error.message;
-                    }
-                };
-
                 // Group Tags Management
                 const openManageTeamTagsModal = async (group) => {
                     currentTeam.value = group;
@@ -3807,8 +3646,6 @@ Summarization Instructions:
                         default_max_speakers: null,
                         retention_days: null,
                         protect_from_deletion: false,
-                        auto_share_on_apply: true,
-                        share_with_group_lead: true
                     };
                     teamTagError.value = '';
                 };
@@ -3836,8 +3673,6 @@ Summarization Instructions:
                         default_max_speakers: tag.default_max_speakers,
                         retention_days: tag.retention_days,
                         protect_from_deletion: tag.protect_from_deletion || false,
-                        auto_share_on_apply: tag.auto_share_on_apply !== undefined ? tag.auto_share_on_apply : true,
-                        share_with_group_lead: tag.share_with_group_lead !== undefined ? tag.share_with_group_lead : true
                     };
                     // Scroll to top of modal
                     document.querySelector('.max-h-\\[90vh\\]')?.scrollTo({ top: 0, behavior: 'smooth' });
@@ -3855,8 +3690,6 @@ Summarization Instructions:
                         default_max_speakers: null,
                         retention_days: null,
                         protect_from_deletion: false,
-                        auto_share_on_apply: true,
-                        share_with_group_lead: true
                     };
                     teamTagError.value = '';
                 };
@@ -3872,8 +3705,6 @@ Summarization Instructions:
                             name: newTeamTag.value.name,
                             color: newTeamTag.value.color,
                             protect_from_deletion: newTeamTag.value.protect_from_deletion,
-                            auto_share_on_apply: newTeamTag.value.auto_share_on_apply,
-                            share_with_group_lead: newTeamTag.value.share_with_group_lead
                         };
 
                         // Add custom prompt if provided
@@ -3935,8 +3766,6 @@ Summarization Instructions:
                             default_max_speakers: null,
                             retention_days: null,
                             protect_from_deletion: false,
-                            auto_share_on_apply: true,
-                            share_with_group_lead: true
                         };
                         await loadTeamTags(currentTeam.value.id);
                     } catch (error) {
@@ -4494,9 +4323,9 @@ Summarization Instructions:
                 // One page of /admin/audit-log at a time, newest first. The
                 // filters are applied on the server; "Older" and "Newer" page by
                 // the id of the last and the first row shown.
-                const auditGroups = ['auth', 'access', 'change', 'share', 'admin', 'audit'];
+                const auditGroups = ['auth', 'access', 'change', 'admin', 'audit'];
                 const auditOutcomes = ['success', 'denied', 'failed'];
-                const auditActorKinds = ['session', 'api_token', 'sso_token', 'public_link', 'system', 'anonymous'];
+                const auditActorKinds = ['session', 'api_token', 'sso_token', 'system', 'anonymous'];
                 const emptyAuditFilters = () => ({ from: '', to: '', user: '', group: '', recording_id: '', outcome: '', actor_kind: '' });
                 const auditFilters = ref(emptyAuditFilters());
                 const auditEvents = ref([]);
@@ -4742,9 +4571,6 @@ Summarization Instructions:
                     showTeamModal,
                     showManageTeamModal,
                     showDeleteTeamModal,
-                    showSyncSharesModal,
-                    showSyncResultsModal,
-                    syncResults,
                     editingTeam,
                     teamToDelete,
                     currentTeam,
@@ -4817,7 +4643,6 @@ Summarization Instructions:
                     confirmDeleteUser,
                     deleteUser,
                     toggleAdminStatus,
-                    togglePublicSharingPermission,
                     formatFileSize,
                     formatPercent,
                     formatNumber,
@@ -4837,8 +4662,6 @@ Summarization Instructions:
                     addTeamMember,
                     updateMemberRole,
                     removeTeamMember,
-                    syncTeamShares,
-                    confirmSyncShares,
 
                     // Group Tags methods
                     openManageTeamTagsModal,

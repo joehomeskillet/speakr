@@ -35,7 +35,7 @@ app.config['WTF_CSRF_ENABLED'] = False
 app.config['TESTING'] = True
 
 KEYS = ('session_idle_timeout_minutes', 'api_query_tokens_enabled')
-ACTIVE = '/api/shares'                      # needs a signed-in user, answers JSON
+ACTIVE = '/api/recordings'                  # needs a signed-in user, answers JSON
 PASSIVE = '/api/notifications/count'        # polled by the page every minute
 
 

@@ -101,7 +101,6 @@
          data-connector-supports-hotwords="{{ connector_supports_hotwords }}"
          data-connector-supports-initial-prompt="{{ connector_supports_initial_prompt }}"
          data-enable-audio-removed-filter="{{ enable_audio_removed_filter }}"
-         data-enable-internal-sharing="{{ enable_internal_sharing }}"
          data-current-user-name="{{ (current_user.name or current_user.username) if current_user.is_authenticated else '' }}"
          data-current-user-id="{{ current_user.id if current_user.is_authenticated else '' }}"
          data-user-language="{{ user_language }}"
@@ -153,7 +152,6 @@
         {% include 'modals/delete-audio-modal.html' %}
         {% include 'modals/edit-tags-modal.html' %}
         {% include 'modals/datetime-picker-modal.html' %}
-        {% include 'modals/shares-list-modal.html' %}
         {% include 'modals/reset-modal.html' %}
         {% include 'modals/reprocess-modal.html' %}
         {% include 'modals/speaker-modal.html' %}
@@ -168,8 +166,6 @@
         {% include 'modals/recording-disclaimer-modal.html' %}
         {% include 'modals/upload-disclaimer-modal.html' %}
         {% include 'modals/recording-recovery-modal.html' %}
-        {% include 'modals/unified-share-modal.html' %}
-        {% include 'modals/share-delete-modal.html' %}
         {% include 'modals/duplicates-modal.html' %}
         {% include 'modals/global-error.html' %}
         {% include 'modals/toast-container.html' %}

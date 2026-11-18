@@ -443,9 +443,6 @@ def _run_migrations(app, engine):
 
         run_once(engine, '0002_backfill_recording_updated_at', _backfill_recording_updated_at,
                  logger=app.logger)
-        # Public share link expiry (mailr spec G10).
-        if add_column_if_not_exists(engine, 'share', 'expires_at', 'DATETIME'):
-            app.logger.info("Added expires_at column to share table")
         # Speaker contact details (mailr spec G6).
         if add_column_if_not_exists(engine, 'speaker', 'email', 'VARCHAR(320)'):
             app.logger.info("Added email column to speaker table")
@@ -461,14 +458,8 @@ def _run_migrations(app, engine):
         # Chunks are read and deleted by recording, in order (D#441)
         create_index_if_not_exists(engine, 'ix_transcript_chunk_recording', 'transcript_chunk',
                                    'recording_id, chunk_index')
-        # The recording lists and the Shared Transcripts list read shares,
-        # tag links and per-user states by these columns (D#483)
+        # The recording lists read tag links by this column (D#483)
         for index_name, table_name, columns in (
-            ('ix_share_recording_id', 'share', 'recording_id'),
-            ('ix_share_user_id', 'share', 'user_id'),
-            ('ix_internal_share_shared_with_user_id', 'internal_share', 'shared_with_user_id'),
-            ('ix_internal_share_owner_id', 'internal_share', 'owner_id'),
-            ('ix_shared_recording_state_user_id', 'shared_recording_state', 'user_id'),
             ('ix_recording_tags_tag_id', 'recording_tags', 'tag_id'),
         ):
             create_index_if_not_exists(engine, index_name, table_name, columns)
@@ -592,15 +583,6 @@ def _run_migrations(app, engine):
             app.logger.info("Added is_auto_process column to tag table")
         if add_column_if_not_exists(engine, 'tag', 'auto_process_folder_name', 'VARCHAR(100)'):
             app.logger.info("Added auto_process_folder_name column to tag table")
-
-        if add_column_if_not_exists(engine, 'tag', 'auto_share_on_apply', 'BOOLEAN DEFAULT 1'):
-            app.logger.info("Added auto_share_on_apply column to tag table")
-
-        if add_column_if_not_exists(engine, 'tag', 'share_with_group_lead', 'BOOLEAN DEFAULT 1'):
-            app.logger.info("Added share_with_group_lead column to tag table")
-
-        if add_column_if_not_exists(engine, 'user', 'can_share_publicly', 'BOOLEAN DEFAULT 1'):
-            app.logger.info("Added can_share_publicly column to user table")
 
     with _migration_section(app, failures, "user settings columns"):
         # Token budget for rate limiting
@@ -732,15 +714,13 @@ def _run_migrations(app, engine):
         # anything. Per user, like inbox and star (#394).
         if add_column_if_not_exists(engine, 'recording', 'is_archived', 'BOOLEAN DEFAULT 0'):
             app.logger.info("Added is_archived column to recording table")
-        if add_column_if_not_exists(engine, 'shared_recording_state', 'is_archived', 'BOOLEAN DEFAULT 0'):
-            app.logger.info("Added is_archived column to shared_recording_state table")
 
         # Configurable AI title instructions at every level (#400)
         for table in ('user', 'tag', 'folder'):
             if add_column_if_not_exists(engine, table, 'title_prompt', 'TEXT'):
                 app.logger.info(f"Added title_prompt column to {table} table")
 
-    with _migration_section(app, failures, "token indexes, export templates and sharing columns"):
+    with _migration_section(app, failures, "token indexes and export templates"):
         if add_column_if_not_exists(engine, 'tag', 'naming_template_id', 'INTEGER'):
             app.logger.info("Added naming_template_id column to tag table")
 
@@ -767,101 +747,29 @@ def _run_migrations(app, engine):
         if add_column_if_not_exists(engine, 'recording', 'export_filename', 'VARCHAR(500)'):
             app.logger.info("Added export_filename column to recording table")
 
-        # Add source tracking columns to internal_share table
-        if add_column_if_not_exists(engine, 'internal_share', 'source_type', "VARCHAR(20) DEFAULT 'manual'"):
-            app.logger.info("Added source_type column to internal_share table")
+        # Update existing records to have proper order values (approximate by tag_id)
+        try:
+            with engine.connect() as conn:
+                # Get existing associations without order values and assign them
+                existing_associations = conn.execute(text('''
+                    SELECT recording_id, tag_id, 
+                           ROW_NUMBER() OVER (PARTITION BY recording_id ORDER BY tag_id) as row_num
+                    FROM recording_tags 
+                    WHERE "order" = 0
+                ''')).fetchall()
+                
+                for assoc in existing_associations:
+                    conn.execute(text('''
+                        UPDATE recording_tags 
+                        SET "order" = :order_num 
+                        WHERE recording_id = :rec_id AND tag_id = :tag_id
+                    '''), {"order_num": assoc.row_num, "rec_id": assoc.recording_id, "tag_id": assoc.tag_id})
+                
+                conn.commit()
+                app.logger.info(f"Updated order values for {len(existing_associations)} existing tag associations")
+        except Exception as e:
+            app.logger.warning(f"Could not update existing tag order values: {e}")
 
-        if add_column_if_not_exists(engine, 'internal_share', 'source_folder_id', 'INTEGER'):
-            app.logger.info("Added source_folder_id column to internal_share table")
-
-        if add_column_if_not_exists(engine, 'internal_share', 'source_tag_id', 'INTEGER'):
-            app.logger.info("Added source_tag_id column to internal_share table")
-
-            # Migrate existing shares: infer source based on group tag presence
-            try:
-                with engine.connect() as conn:
-                    # For each existing share, check if it was likely created by a group tag
-                    # by looking for group tags on the recording where the shared user is a group member
-                    result = conn.execute(text('''
-                        UPDATE internal_share
-                        SET source_type = 'group_tag',
-                            source_tag_id = (
-                                SELECT t.id FROM tag t
-                                INNER JOIN recording_tags rt ON rt.tag_id = t.id
-                                INNER JOIN group_membership gm ON gm.group_id = t.group_id
-                                WHERE rt.recording_id = internal_share.recording_id
-                                AND gm.user_id = internal_share.shared_with_user_id
-                                AND t.group_id IS NOT NULL
-                                AND (t.auto_share_on_apply = TRUE OR t.share_with_group_lead = TRUE)
-                                LIMIT 1
-                            )
-                        WHERE source_type = 'manual'
-                        AND EXISTS (
-                            SELECT 1 FROM tag t
-                            INNER JOIN recording_tags rt ON rt.tag_id = t.id
-                            INNER JOIN group_membership gm ON gm.group_id = t.group_id
-                            WHERE rt.recording_id = internal_share.recording_id
-                            AND gm.user_id = internal_share.shared_with_user_id
-                            AND t.group_id IS NOT NULL
-                            AND (t.auto_share_on_apply = TRUE OR t.share_with_group_lead = TRUE)
-                        )
-                    '''))
-                    conn.commit()
-                    app.logger.info("Inferred source tracking for existing shares based on group tag presence")
-            except Exception as e:
-                app.logger.warning(f"Could not infer source tracking for existing shares: {e}")
-
-            # Update existing records to have proper order values (approximate by tag_id)
-            try:
-                with engine.connect() as conn:
-                    # Get existing associations without order values and assign them
-                    existing_associations = conn.execute(text('''
-                        SELECT recording_id, tag_id, 
-                               ROW_NUMBER() OVER (PARTITION BY recording_id ORDER BY tag_id) as row_num
-                        FROM recording_tags 
-                        WHERE "order" = 0
-                    ''')).fetchall()
-                    
-                    for assoc in existing_associations:
-                        conn.execute(text('''
-                            UPDATE recording_tags 
-                            SET "order" = :order_num 
-                            WHERE recording_id = :rec_id AND tag_id = :tag_id
-                        '''), {"order_num": assoc.row_num, "rec_id": assoc.recording_id, "tag_id": assoc.tag_id})
-                    
-                    conn.commit()
-                    app.logger.info(f"Updated order values for {len(existing_associations)} existing tag associations")
-            except Exception as e:
-                app.logger.warning(f"Could not update existing tag order values: {e}")
-
-        # Add per-user status columns to shared_recording_state table
-        if add_column_if_not_exists(engine, 'shared_recording_state', 'is_inbox', 'BOOLEAN DEFAULT 1'):
-            app.logger.info("Added is_inbox column to shared_recording_state table")
-
-        # Handle is_starred -> is_highlighted migration
-        inspector = inspect(engine)
-        if 'shared_recording_state' in inspector.get_table_names():
-            columns = [col['name'] for col in inspector.get_columns('shared_recording_state')]
-            has_is_starred = 'is_starred' in columns
-            has_is_highlighted = 'is_highlighted' in columns
-
-            if has_is_starred and not has_is_highlighted:
-                # Rename is_starred to is_highlighted by copying data
-                try:
-                    # Add is_highlighted column using utility (handles PostgreSQL boolean defaults)
-                    add_column_if_not_exists(engine, 'shared_recording_state', 'is_highlighted', 'BOOLEAN DEFAULT 0')
-                    # Copy data from is_starred to is_highlighted
-                    with engine.connect() as conn:
-                        conn.execute(text('UPDATE shared_recording_state SET is_highlighted = is_starred'))
-                        conn.commit()
-                    app.logger.info("Migrated is_starred to is_highlighted in shared_recording_state table")
-                    # Note: We keep is_starred for now to avoid breaking existing code during transition
-                except Exception as e:
-                    app.logger.warning(f"Could not migrate is_starred to is_highlighted: {e}")
-            elif not has_is_highlighted:
-                # Neither column exists, add is_highlighted
-                if add_column_if_not_exists(engine, 'shared_recording_state', 'is_highlighted', 'BOOLEAN DEFAULT 0'):
-                    app.logger.info("Added is_highlighted column to shared_recording_state table")
 
     with _migration_section(app, failures, "meeting_date datetime migration"):
         # Migrate meeting_date from DATE to DATETIME format
@@ -959,9 +867,6 @@ def _run_migrations(app, engine):
             app.logger.warning("New recordings will work correctly, but existing dates may need manual migration")
 
     with _migration_section(app, failures, "webhook secret rotation grace"):
-        # mailr spec W6: recipients' webhooks for shared recordings (opt-in).
-        if add_column_if_not_exists(engine, 'webhook', 'include_shared', 'BOOLEAN DEFAULT 0'):
-            app.logger.info("Added include_shared column to webhook table")
         # mailr spec W2: the previous secret signs a second V2 value for a while.
         if add_column_if_not_exists(engine, 'webhook', 'previous_secret', 'VARCHAR(120)'):
             app.logger.info("Added previous_secret column to webhook table")
@@ -1527,16 +1432,6 @@ def _run_migrations(app, engine):
             db.session.rollback()
             app.logger.warning(f"Group folder name index skipped, retried next start: {e}")
 
-        # Shares a group tag or folder made outlived the member, the folder
-        # link, the tag or the group (#570, #582).
-        try:
-            from src.services.auto_shares import remove_unfounded_auto_shares
-            run_once(engine, '0007_remove_unfounded_auto_shares',
-                     lambda eng: remove_unfounded_auto_shares(logger=app.logger), logger=app.logger)
-        except Exception as e:
-            db.session.rollback()
-            app.logger.warning(f"Stale group share cleanup skipped, retried next start: {e}")
-
         # Diarization labels (SPEAKER_00) were stored as saved speakers,
         # participants and Inquire chunk speakers. Counts only in the log.
         try:
@@ -1546,16 +1441,6 @@ def _run_migrations(app, engine):
         except Exception as e:
             db.session.rollback()
             app.logger.warning(f"Diarization label cleanup skipped, retried next start: {e}")
-
-        # The rows of share_audit_log become share.internal.* rows of the
-        # audit log. The old table is left as it is for one release.
-        try:
-            from src.services.audit_import import copy_share_audit_log
-            run_once(engine, '0009_copy_share_audit_log_to_audit_event',
-                     lambda eng: copy_share_audit_log(eng, logger=app.logger), logger=app.logger)
-        except Exception as e:
-            db.session.rollback()
-            app.logger.warning(f"Copy of share_audit_log skipped, retried next start: {e}")
 
         # Ended recording sessions kept the title and notes typed at the end
         # of a recording, or the file name of an upload in slices.

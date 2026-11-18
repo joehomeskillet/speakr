@@ -1,7 +1,7 @@
 """Page-scoped lookups for the recording lists (D#483).
 
-Serializing a page one row at a time cost several queries per row: the two
-share counts, the duplicate copies, the viewer's inbox/star/archive state,
+Serializing a page one row at a time cost several queries per row: the
+duplicate copies, the viewer's inbox/star/archive state,
 tag visibility, and the tag and folder recording counts. RecordingListBatch
 reads each of them once for the page. Recording.to_list_dict and
 Recording.to_dict take it as ``batch``; without one they keep their per-row
@@ -15,7 +15,7 @@ from sqlalchemy.orm import defer, joinedload, selectinload, with_expression
 
 from src.database import db
 from src.models import (
-    Folder, GroupMembership, InternalShare, Recording, RecordingTag, Share, SharedRecordingState, Tag, User,
+    Folder, GroupMembership, Recording, RecordingTag, Tag,
 )
 
 # Long columns the list payload never reads. Nothing on the list path may
@@ -115,35 +115,12 @@ def _counts(column, ids):
 class RecordingListBatch:
     """The lookups for one page of recordings seen by one viewer.
 
-    share_map is {recording_id: InternalShare} of the viewer's shares for the
-    page, when the caller has already read it. duplicates=False skips the
+    duplicates=False skips the
     duplicate lookup for a caller that passes its own duplicate_info_map.
     """
 
-    def __init__(self, recordings, viewer, share_map=None, duplicates=True):
+    def __init__(self, recordings, viewer, duplicates=True):
         self.viewer = viewer
-        ids = [r.id for r in recordings]
-        foreign = [r for r in recordings if r.user_id != viewer.id]
-        foreign_ids = [r.id for r in foreign]
-
-        if share_map is None:
-            share_map = {}
-            if foreign_ids:
-                share_map = {s.recording_id: s for s in InternalShare.query.filter(
-                    InternalShare.recording_id.in_(foreign_ids),
-                    InternalShare.shared_with_user_id == viewer.id)}
-        self.share_map = share_map
-
-        self.shared_with_counts = _counts(InternalShare.recording_id, ids)
-        self.public_share_counts = _counts(Share.recording_id, ids)
-
-        self.states = {}
-        if foreign_ids:
-            self.states = {s.recording_id: s for s in SharedRecordingState.query.filter(
-                SharedRecordingState.recording_id.in_(foreign_ids),
-                SharedRecordingState.user_id == viewer.id)}
-        owner_ids = sorted({r.user_id for r in foreign if r.user_id is not None})
-        self.owners = {u.id: u for u in User.query.filter(User.id.in_(owner_ids))} if owner_ids else {}
 
         self._duplicates = self._load_duplicates(recordings) if duplicates else {}
 
@@ -156,8 +133,7 @@ class RecordingListBatch:
                                      sorted({r.folder_id for r in recordings if r.folder_id is not None}))
 
     def _load_duplicates(self, recordings):
-        # Scoped to each row's owner, as Recording.get_duplicate_info is, so a
-        # shared row lists its owner's copies and never the viewer's.
+        # Scoped to each row's owner, as Recording.get_duplicate_info is.
         pairs = {(r.user_id, r.file_hash) for r in recordings if r.file_hash and r.user_id is not None}
         if not pairs:
             return {}
@@ -203,21 +179,12 @@ class RecordingListBatch:
 
     def user_status(self, recording):
         """get_user_recording_status for the viewer: (is_inbox, is_highlighted)."""
-        if recording.user_id == self.viewer.id:
-            return (recording.is_inbox, recording.is_highlighted)
-        state = self.states.get(recording.id)
-        return (state.is_inbox, state.is_highlighted) if state else (True, False)
+        return (recording.is_inbox, recording.is_highlighted)
 
     def user_notes(self, recording):
         """Recording.get_user_notes for the viewer."""
-        if recording.user_id == self.viewer.id:
-            return recording.notes
-        state = self.states.get(recording.id)
-        return state.personal_notes if state else None
+        return recording.notes if recording.user_id == self.viewer.id else None
 
     def user_archived(self, recording):
         """get_user_archived for the viewer."""
-        if recording.user_id == self.viewer.id:
-            return bool(recording.is_archived)
-        state = self.states.get(recording.id)
-        return bool(state and state.is_archived)
+        return bool(recording.is_archived)

@@ -7,8 +7,7 @@ Covered here:
   - the shape of the peaks of a generated WAV file (silence, a loud part, a
     half-loud part), decoded by the real ffmpeg, and the coarser levels;
   - the coarser base level of a very long recording;
-  - who gets them: the owner, a user the recording is shared with while
-    internal sharing is on, and nobody else (the rule of GET /audio/<id>);
+  - who gets them: the owner and nobody else (the rule of GET /audio/<id>);
   - caching: a second request does not compute again;
   - invalidation: another audio file is computed again and the old peaks
     file is removed;
@@ -34,7 +33,7 @@ import pytest
 import src.api.recordings as rec_module
 import src.services.waveform_peaks as peaks
 from src.app import app, db
-from src.models import InternalShare, Recording, User
+from src.models import Recording, User
 
 app.config["WTF_CSRF_ENABLED"] = False
 
@@ -187,7 +186,6 @@ def scene():
         recording_id = recording.id
     yield {"owner": owner, "other": other, "id": recording_id, "audio": audio, "url": f"/audio/{recording_id}/peaks"}
     with app.app_context():
-        InternalShare.query.filter_by(recording_id=recording_id).delete()
         recording = db.session.get(Recording, recording_id)
         if recording is not None:
             db.session.delete(recording)
@@ -229,21 +227,6 @@ def test_nobody_else_gets_them(scene):
     # Also not when the owner's peaks are already cached
     assert _wait_for_ready(_client(scene["owner"]), scene["url"]).status_code == 200
     assert other.get(scene["url"]).status_code == 404
-
-
-@needs_ffmpeg
-def test_a_shared_recording_follows_the_rule_of_the_audio_route(scene):
-    with app.app_context():
-        db.session.add(InternalShare(recording_id=scene["id"], owner_id=scene["owner"],
-                                     shared_with_user_id=scene["other"], can_edit=False))
-        db.session.commit()
-    other = _client(scene["other"])
-    with patch("src.app.ENABLE_INTERNAL_SHARING", True), patch.object(rec_module, "ENABLE_INTERNAL_SHARING", True):
-        assert other.get(f"/audio/{scene['id']}").status_code == 200
-        assert _wait_for_ready(other, scene["url"]).status_code == 200
-    with patch("src.app.ENABLE_INTERNAL_SHARING", False), patch.object(rec_module, "ENABLE_INTERNAL_SHARING", False):
-        assert other.get(f"/audio/{scene['id']}").status_code == 404
-        assert other.get(scene["url"]).status_code == 404
 
 
 @needs_ffmpeg

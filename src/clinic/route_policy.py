@@ -118,17 +118,10 @@ _ADMIN = _split("""
 """)
 
 _DISABLED = {
-    'public_sharing': """
-        shares.can_share_publicly shares.create_share shares.delete_share
-        shares.get_existing_share shares.get_shared_audio shares.update_share
-        shares.view_shared_recording shares.get_shares api_v1.create_public_share
-        api_v1.list_public_shares api_v1.revoke_public_share""",
     'internal_sharing': """
-        shares.get_internal_shares shares.get_shared_with_me shares.get_shares_overview
-        shares.revoke_internal_share shares.search_users shares.share_recording_internal
-        shares.update_internal_share groups.add_team_member groups.create_team
+        groups.add_team_member groups.create_team
         groups.delete_team groups.get_team groups.get_teams groups.remove_team_member
-        groups.sync_team_tag_shares groups.update_team groups.update_team_member
+        groups.update_team groups.update_team_member
         tags.create_group_tag tags.get_group_tags folders.create_group_folder
         folders.get_group_folders admin.group_management""",
     'chat': """

@@ -136,8 +136,7 @@ def test_webhook_rotation_grace_columns(tmp_path, fixture):
     _upgrade(db_path)
 
     con = sqlite3.connect(db_path)
-    assert {"previous_secret", "previous_secret_expires_at", "include_shared"} <= _columns(con, "webhook")
-    assert con.execute("SELECT include_shared FROM webhook WHERE id = 3").fetchone()[0] in (0, False)
+    assert {"previous_secret", "previous_secret_expires_at"} <= _columns(con, "webhook")
     row = con.execute("SELECT secret, previous_secret, previous_secret_expires_at FROM webhook WHERE id = 3").fetchone()
     con.close()
     assert row == ("s" * 40, None, None)
@@ -176,19 +175,3 @@ def test_speaker_contact_columns(tmp_path, fixture):
     assert "ix_speaker_user_email" in {r[1] for r in con.execute("PRAGMA index_list('speaker')")}
     assert con.execute("SELECT name, email, aliases FROM speaker WHERE id = 4").fetchone() == ("Dana", None, None)
     con.close()
-
-
-@pytest.mark.parametrize("fixture", FIXTURES, ids=[f[:-4] for f in FIXTURES])
-def test_share_expiry_column(tmp_path, fixture):
-    """G10: share.expires_at arrives empty, so existing links never expire."""
-    db_path, con = _load(tmp_path, fixture)
-    if "share" not in {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}:
-        con.close()
-        pytest.skip("share table not in this release")
-    con.close()
-    _upgrade(db_path)
-    _upgrade(db_path)
-    con = sqlite3.connect(db_path)
-    assert "expires_at" in _columns(con, "share")
-    con.close()
-

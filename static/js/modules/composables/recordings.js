@@ -14,7 +14,7 @@ export function useRecordings(state, utils, reprocessComposable) {
     const {
         recordings, selectedRecording, isLoadingRecordings, isLoadingMore,
         currentPage, perPage, totalRecordings, totalPages, hasNextPage, hasPrevPage,
-        showSharedWithMe, filterAudioRemoved, showArchivedRecordings, searchQuery, searchDebounceTimer,
+        filterAudioRemoved, showArchivedRecordings, searchQuery, searchDebounceTimer,
         filterTags, filterSpeakers, filterDatePreset, filterDateRange, filterTextQuery,
         filterStarred, filterInbox, filterNeedsTranscription, filterNeedsSummary, filterNeedsSpeakers,
         filterFolder, includeChildFolders, sortBy,
@@ -64,7 +64,6 @@ export function useRecordings(state, utils, reprocessComposable) {
                 sort_by: sortBy.value || '',
                 archived: showArchivedRecordings.value ? 'true' : '',
                 audio_removed: filterAudioRemoved.value ? 'true' : '',
-                shared: showSharedWithMe.value ? 'true' : '',
                 starred: filterStarred.value ? 'true' : '',
                 inbox: filterInbox.value ? 'true' : '',
                 needs_transcription: filterNeedsTranscription.value ? 'true' : '',

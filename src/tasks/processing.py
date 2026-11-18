@@ -21,7 +21,7 @@ from openai import OpenAI
 
 from src.services.llm_settings import get_temperature
 from src.database import db
-from src.models import Recording, Tag, TranscriptChunk, SystemSetting, GroupMembership, RecordingTag, InternalShare, SharedRecordingState, User, NamingTemplate
+from src.models import Recording, Tag, TranscriptChunk, SystemSetting, GroupMembership, RecordingTag, User, NamingTemplate
 from src.services.llm import is_using_openai_api, call_llm_completion, format_api_error_message, TEXT_MODEL_NAME, client, http_client_no_proxy, TokenBudgetExceeded
 from src.utils import extract_json_object, safe_json_loads
 from src.utils.ffprobe import get_codec_info, is_video_file, is_lossless_audio, FFProbeError, has_audio_stream, probe_rejected_input
@@ -52,8 +52,6 @@ from src.file_exporter import export_recording, ENABLE_AUTO_EXPORT
 from src.services.transcription_tracking import transcription_tracker
 from src.utils.log_filters import loggable_error, loggable_locator, loggable_path
 from src.services import job_control
-
-# Configuration for internal sharing
 
 # Video retention - when enabled, video files keep their video stream for playback
 
@@ -110,46 +108,6 @@ def resolve_hotwords(hotwords, admin_default):
     if hotwords:
         return hotwords
     return admin_default or hotwords
-
-
-def apply_team_tag_auto_shares(recording_id):
-    """
-    Apply auto-shares for all group tags on a recording after processing completes.
-
-    This function should be called after a recording status changes to COMPLETED.
-    It creates InternalShare records for team members based on group tag settings.
-
-    Args:
-        recording_id: ID of the recording to apply auto-shares for
-    """
-    if not _self.ENABLE_INTERNAL_SHARING:
-        return
-
-    recording = db.session.get(Recording, recording_id)
-    if not recording:
-        return
-
-    # Get all group tags on this recording with auto-share enabled
-    group_tags = db.session.query(Tag).join(
-        RecordingTag, RecordingTag.tag_id == Tag.id
-    ).filter(
-        RecordingTag.recording_id == recording_id,
-        Tag.group_id.isnot(None),
-        db.or_(Tag.auto_share_on_apply == True, Tag.share_with_group_lead == True)
-    ).all()
-
-    if not group_tags:
-        return
-
-    from src.services.tag_sharing import apply_tag_shares
-    shares_created = 0
-    for tag in group_tags:
-        shares_created += apply_tag_shares(recording, tag, require_completed=False,
-                                           sharing_enabled=_self.ENABLE_INTERNAL_SHARING)
-
-    if shares_created > 0:
-        db.session.commit()
-        current_app.logger.info(f"Created {shares_created} auto-shares for recording {recording_id} after processing completed")
 
 
 # format_transcription_for_llm and clean_llm_response live in
@@ -327,13 +285,12 @@ def _connector_specs_log(specs):
 def finish_processing(recording_id):
     """The last step of every processing path (#412).
 
-    Marks the recording COMPLETED, then applies team-tag auto-shares, writes
-    the auto-export and builds the Inquire chunks. Every exit of the pipeline
-    calls this (title only, summary, empty or skipped summary, short
-    transcription), so none of them can skip a step. The steps after COMPLETED
-    are best-effort: a failure is logged and the recording stays COMPLETED. The
-    Inquire chunks are built by the index workers, so the worker running this
-    step is free for the next job.
+    Marks the recording COMPLETED, then writes the auto-export and builds the
+    Inquire chunks. Every exit of the pipeline calls this (title only, summary,
+    empty or skipped summary, short transcription), so none of them can skip a
+    step. The steps after COMPLETED are best-effort: a failure is logged and
+    the recording stays COMPLETED. The Inquire chunks are built by the index
+    workers, so the worker running this step is free for the next job.
     """
     recording = db.session.get(Recording, recording_id)
     if not recording:
@@ -341,10 +298,6 @@ def finish_processing(recording_id):
     recording.status = 'COMPLETED'
     recording.completed_at = datetime.utcnow()
     db.session.commit()
-    try:
-        apply_team_tag_auto_shares(recording_id)
-    except Exception as e:
-        current_app.logger.error(f"Auto-shares failed for recording {recording_id} (recording stays COMPLETED): {e}")
     if ENABLE_AUTO_EXPORT:
         try:
             export_recording(recording_id)
@@ -842,9 +795,9 @@ def generate_summary_only_task(app_context, recording_id, custom_prompt_override
             db.session.commit()
             current_app.logger.info(f"Summarization completed for recording {recording_id} in {recording.summarization_duration_seconds}s.")
 
-            # Status, auto-shares, export and Inquire chunks (#305, #412).
+            # Status, export and Inquire chunks (#305, #412).
             # The steps after COMPLETED are best-effort inside finish_processing,
-            # so a share/export hiccup cannot reach the except below and
+            # so an export hiccup cannot reach the except below and
             # overwrite a good summary with an error.
             finish_processing(recording_id)
             from src.services.webhook_dispatch import emit_summary_result
@@ -2170,7 +2123,7 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
 
             if not will_auto_summarize:
                 # generate_title_task has already finished the recording
-                # (finish_processing: status, auto-shares, export, Inquire chunks).
+                # (finish_processing: status, export, Inquire chunks).
                 reason = "admin setting" if admin_disabled else ("user preference" if user_disabled else "no LLM client")
                 current_app.logger.info(f"Auto-summarization disabled ({reason}), skipping summary for recording {recording_id}")
             else:
@@ -2379,7 +2332,6 @@ def translate_transcription_task(app_context, recording_id, user_id=None, target
 # Hot-applied System Settings (high priority) with environment fallback.
 from src.utils.system_settings import apply_hot_settings
 _SYSTEM_SETTING_MAP = {
-    "ENABLE_INTERNAL_SHARING": ("enable_internal_sharing", "ENABLE_INTERNAL_SHARING", False),
     "VIDEO_RETENTION": ("video_retention", "VIDEO_RETENTION", False),
     "VIDEO_PASSTHROUGH_ASR": ("video_passthrough_asr", "VIDEO_PASSTHROUGH_ASR", False),
 }

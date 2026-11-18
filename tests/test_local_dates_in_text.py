@@ -69,7 +69,7 @@ def test_summary_prompt_recording_date_is_local(rec):
     seen, fake = _capture()
     with app.app_context(), patch.object(proc, "client", MagicMock()), \
          patch.object(proc, "call_llm_completion", side_effect=fake), \
-         patch.object(proc, "apply_team_tag_auto_shares"), patch.object(proc, "export_recording"), \
+         patch.object(proc, "export_recording"), \
          patch.object(proc, "queue_inquire_chunks"):
         proc.generate_summary_only_task(app.app_context(), rid)
     assert any("Recording date: March 05, 2026" in p for p in seen)

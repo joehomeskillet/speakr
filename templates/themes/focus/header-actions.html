@@ -2,15 +2,8 @@
              on narrow screens; mobile-header.html surfaces them in the
              expanded meta panel. -->
         <template v-if="currentView === 'detail' && selectedRecording">
-            <!-- Focus: one recording action (Share) stays in the bar; every other
-                 action sits in the overflow menu below. The menu is a native
+            <!-- Focus: every recording action sits in the overflow menu below. The menu is a native
                  <details>; it closes when focus leaves it or on Escape. -->
-            <button v-if="!selectedRecording.is_shared || (selectedRecording.share_info && selectedRecording.share_info.can_reshare)"
-                    @click="openUnifiedShareModal(selectedRecording)"
-                    class="btn btn--sm focus-share hidden md:inline-flex"
-                    :title="t('buttons.shareRecording')">
-                <i class="fas fa-share-alt"></i><span v-text="t('buttons.shareRecording')"></span>
-            </button>
             <details class="focus-more hidden md:block" data-focus-more data-close-outside
                      @focusout="$event.currentTarget.contains($event.relatedTarget) || $event.currentTarget.removeAttribute('open')"
                      @keydown.esc="$event.currentTarget.removeAttribute('open')">
@@ -20,7 +13,7 @@
                 <div class="focus-more__panel">
             <!-- Action groups (#394): organize (inbox, star, archive), then
                  place (folder, tags), then process (a Reprocess menu and
-                 speakers), then share and a More menu holding both deletes. -->
+                 speakers), then a More menu holding both deletes. -->
             <button @click="toggleInbox(selectedRecording)" class="btn btn--icon hidden md:inline-flex"
                     :style="selectedRecording.is_inbox ? 'color: #3b82f6;' : ''"
                     :title="selectedRecording.is_inbox ? t('tooltips.markAsRead') : t('tooltips.moveToInbox')">

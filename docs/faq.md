@@ -18,7 +18,7 @@ Speakr handles most common audio formats including MP3, WAV, M4A, OGG, FLAC, and
 
 ### Can multiple people use the same Speakr instance?
 
-Yes, Speakr is designed as a multi-user system. Each user has their own account with separate recordings, settings, and speaker libraries. Admins can [create and manage user accounts](admin-guide/user-management.md). See [system statistics](admin-guide/statistics.md) to monitor usage, monitor usage, and configure system-wide settings. Users can't see each other's recordings unless explicitly shared through [share links](user-guide/sharing.md). Learn about [sharing security](user-guide/sharing.md#security-and-privacy-considerations).
+Yes, Speakr is designed as a multi-user system. Each user has their own account with separate recordings, settings, and speaker libraries. Admins can [create and manage user accounts](admin-guide/user-management.md). See [system statistics](admin-guide/statistics.md) to monitor usage and configure system-wide settings. Users can't see each other's recordings.
 
 ## Installation and Setup
 
@@ -127,13 +127,9 @@ When self-hosted properly, your audio and transcriptions never leave your server
 
 Yes, with appropriate precautions. Self-hosting keeps data under your control, but consider your API provider's data policies. OpenAI and OpenRouter have different data retention and usage policies. For maximum security, use local transcription and summarization models, though this requires powerful hardware and technical expertise.
 
-### Are share links secure?
-
-[Share links](user-guide/sharing.md) use cryptographically secure random tokens that are impossible to guess. Manage shared recordings from the [sharing dashboard](user-guide/sharing.md#managing-your-shared-recordings). However, anyone with the link can access the shared content without authentication. Treat share links like passwords - only send them through secure channels and revoke access when no longer needed. For sensitive content, consider alternative sharing methods that require authentication.
-
 ### Who can see my recordings?
 
-Only you can see your recordings by default. [Admin users](admin-guide/user-management.md) cannot directly view other users' recordings through the interface, though they can monitor [usage patterns](admin-guide/statistics.md), though they have database access that could theoretically allow it. Shared recordings are accessible to anyone with the share link. Other users on the same Speakr instance cannot see your recordings unless you explicitly share them.
+Only you can see your recordings. [Admin users](admin-guide/user-management.md) cannot directly view other users' recordings through the interface, though they can monitor [usage patterns](admin-guide/statistics.md) and they have database access that could theoretically allow it. Other users on the same Speakr instance cannot see your recordings.
 
 ## Features and Functionality
 
@@ -151,7 +147,7 @@ Yes, transcriptions are fully editable. Click the Edit button above any transcri
 
 ### What export formats are available?
 
-Speakr can export recordings in multiple formats. Copy transcriptions directly to your clipboard for pasting into other applications. Learn about [export options](features.md#export-options) and [sharing](user-guide/sharing.md). Download complete recordings as Word documents (.docx) including transcription, summary, and notes. [Share links](user-guide/sharing.md) provide read-only web access. Configure what's visible in [share settings](user-guide/sharing.md#creating-a-share-link). The chat history can also be exported for documentation purposes.
+Speakr can export recordings in multiple formats. Copy transcriptions directly to your clipboard for pasting into other applications. Learn about [export options](features.md#export-options). Download complete recordings as Word documents (.docx) including transcription, summary, and notes. The chat history can also be exported for documentation purposes.
 
 ## Troubleshooting
 
@@ -174,10 +170,6 @@ This is a common issue when speaker diarization isn't configured correctly. Here
 5. **Check logs**: Look for pyannote/VAD messages in your ASR container logs to confirm diarization is active
 
 The ASR service should return speaker labels like "SPEAKER_00", "SPEAKER_01" in the transcription. You can then [identify these speakers](user-guide/transcripts.md#speaker-identification) with real names.
-
-### Why can't I share recordings?
-
-[Sharing](user-guide/sharing.md) requires your Speakr instance to be accessible from the internet with HTTPS/SSL encryption. Check [sharing requirements](user-guide/sharing.md#requirements-for-sharing) and [troubleshooting](troubleshooting.md#sharing-links-dont-work). Local installations or non-HTTPS setups cannot generate working share links. The system disables sharing features when these requirements aren't met. To enable sharing, deploy Speakr on a public server with a domain name and SSL certificate.
 
 ### The interface is slow with large transcriptions
 
