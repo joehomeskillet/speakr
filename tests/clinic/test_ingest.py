@@ -85,6 +85,50 @@ def test_stored_bytes_match_the_stream_and_are_not_replaced(opened):
     assert ClinicOriginal.query.count() == 1
 
 
+def test_verified_stored_path_rejects_mismatched_metadata(opened):
+    service, author = opened
+    fields = dict(idempotency_key=KEY, declared_sha256=hashlib.sha256(PAYLOAD).hexdigest(),
+                  declared_size=len(PAYLOAD))
+    assert service.stored_path(**fields) is None
+    receipt = _deliver(service, author)
+    assert service.stored_path(**fields) == service.file_path(receipt.storage_key)
+    for override in (dict(declared_sha256="ab" * 32), dict(declared_size=len(PAYLOAD) + 1)):
+        with pytest.raises(IngestError) as exc:
+            service.stored_path(**{**fields, **override})
+        assert exc.value.code == "conflict"
+    assert service.file_path(receipt.storage_key).read_bytes() == PAYLOAD
+
+
+def test_verified_stored_path_rejects_a_symlink(opened):
+    service, author = opened
+    receipt = _deliver(service, author)
+    other_key = KEY + "-symlink"
+    path = service.file_path(ingest_mod.storage_key_for(other_key))
+    path.symlink_to(service.file_path(receipt.storage_key))
+    with pytest.raises(IngestError) as exc:
+        service.stored_path(idempotency_key=other_key, declared_sha256=receipt.sha256,
+                            declared_size=len(PAYLOAD))
+    assert exc.value.code == "conflict"
+    assert service.file_path(receipt.storage_key).read_bytes() == PAYLOAD
+
+
+def test_deferred_ingest_commit_joins_the_callers_transaction(opened):
+    service, author = opened
+    receipt = _deliver(service, author, commit=False)
+    path = service.file_path(receipt.storage_key)
+    inode = path.stat().st_ino
+    assert db.session.get(ClinicOriginal, receipt.original_id) is not None
+    db.session.rollback()
+    assert ClinicOriginal.query.count() == 0
+    assert ClinicDictation.query.count() == 0
+    assert Recording.query.filter_by(user_id=author).count() == 0
+    assert path.read_bytes() == PAYLOAD
+    retried = _deliver(service, author)
+    assert db.session.get(ClinicOriginal, retried.original_id) is not None
+    assert path.stat().st_ino == inode
+    assert path.read_bytes() == PAYLOAD
+
+
 def test_wrong_declared_hash_writes_no_file(opened):
     service, author = opened
     with pytest.raises(IngestError) as exc:

@@ -6,18 +6,21 @@ Nothing here is evidence for a device, a real agent or the foot-pedal/KIS side.
 
 import hashlib
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from threading import Barrier
 
 import pytest
+from sqlalchemy.exc import OperationalError
 
 from src.app import app, db
 from src.clinic import agent_channel as ch
 from src.clinic import agent_channel_ingest as ing
 from src.clinic import import_centre as ic
 from src.clinic.agent_channel import AgentChannelError, ChannelPolicy
-from src.clinic.ingest import IngestService, storage_key_for
+from src.clinic.ingest import IngestError, IngestService, storage_key_for
 from src.clinic.models import ClinicDictation, ClinicOriginal
-from src.models import User
+from src.models import Recording, User
 
 NOW = datetime(2026, 11, 18, 8, 0, 0, tzinfo=timezone.utc)
 SECRET = b"s" * 32
@@ -254,3 +257,260 @@ def test_foreign_agent_cannot_finalize_the_session(env):
         ic.finalize_delivery(stranger, env["policy"], ingest_id=ingest_id, body=body,
                              ingest_service=env["service"], now=NOW)
     assert err.value.code == "not_found"
+
+
+# --- permanent originals and expired upload sessions ----------------------------------------
+
+def test_unassigned_original_survives_expiry_and_assignment_without_upload_chunks(env):
+    _intent(env, source_ref="usb-2")
+    data = _data("permanent")
+    ingest_id, body, key = _upload(env, data)
+    first = _finalize(env, ingest_id, body)
+    delivery_id = first["import"]["delivery_id"]
+    original = db.session.get(ic.ClinicImportOriginal, delivery_id)
+    storage_key = storage_key_for("agent-ingest:%s:%s" % (env["agent_id"], key))
+    assert original.storage_key == storage_key
+    assert original.content_hash == _sha(data)
+    assert original.size_bytes == len(data)
+    assert "expires_at" not in original.__table__.columns
+    path = env["service"].file_path(storage_key)
+    inode = path.stat().st_ino
+    session_row = db.session.get(ch.ClinicAgentIngest, ingest_id)
+    expires_at = ch.aware(session_row.expires_at)
+    late = expires_at + timedelta(days=30)
+
+    assert ic.expire_intents(now=late) == 1
+    # Expired temporary upload chunks can be retired independently of the original.
+    ch.ClinicAgentChunk.query.filter_by(ingest_id=ingest_id).delete()
+    db.session.commit()
+    author_id = env["author"].id
+    db.session.remove()
+    ic.create_tables()
+    env["author"] = db.session.get(User, author_id)
+    listed = ic.list_unassigned(now=late)
+    assert [delivery["id"] for delivery in listed] == [delivery_id]
+    assert listed[0]["original_state"] == "author_required"
+    assert listed[0]["storage_key"] == storage_key
+    assert listed[0]["sha256"] == _sha(data)
+    assert listed[0]["size"] == len(data)
+    again = _finalize(env, ingest_id, body, now=late)
+    assert again["state"] == "UNKNOWN"
+    assert again["import"]["delivery_id"] == delivery_id
+    assert again["permitted_post_step"] == "none"
+    assert again["deletion_permitted"] is False
+    assert ic.ClinicImportOriginal.query.count() == 1
+    assert ClinicOriginal.query.count() == 0
+    assert path.read_bytes() == data
+    assert ch.aware(db.session.get(ch.ClinicAgentIngest, ingest_id).expires_at) == expires_at
+
+    pool = str(uuid.uuid4())
+    view = _intent(env, now=late, language_id=1033, target_pool_id=pool)
+    ic.assign_unassigned(actor_user_id=env["author"].id, delivery_id=delivery_id,
+                         intent_id=view["id"], now=late)
+    # The web-side assignment creates the full dictation before another agent call.
+    stored = ClinicOriginal.query.one()
+    dictation = db.session.get(ClinicDictation, stored.dictation_id)
+    assert dictation.author_user_id == env["author"].id
+    assert dictation.pool_id == pool
+    assert stored.storage_key == storage_key
+    assert ic.list_unassigned(now=late) == []
+    saved_receipt = stored.receipt
+    healed = _finalize(env, ingest_id, body, now=late)
+    assert healed["state"] == "STORED"
+    assert healed["original_id"] == stored.id
+    assert healed["dictation_id"] == dictation.id
+    assert healed["import"]["language_id"] == 1033
+    assert db.session.get(ic.ClinicImportIntent, view["id"]).status == "FULFILLED"
+
+    much_later = late + timedelta(days=365)
+    retry = _finalize(env, ingest_id, body, now=much_later)
+    session_row = db.session.get(ch.ClinicAgentIngest, ingest_id)
+    begun_again = ing.begin_ingest(
+        env["principal"], env["policy"], intent_id=session_row.intent_id,
+        declared_size=len(data), declared_sha256=_sha(data), idempotency_key=key, now=much_later,
+    )
+    for receipt in (retry, begun_again):
+        assert receipt["ingest_id"] == ingest_id
+        assert receipt["original_id"] == healed["original_id"]
+        assert receipt["dictation_id"] == healed["dictation_id"]
+    assert ClinicOriginal.query.count() == 1
+    assert ClinicDictation.query.count() == 1
+    assert Recording.query.filter_by(user_id=env["author"].id).count() == 1
+    assert ic.ClinicImportOriginal.query.count() == 1
+    assert db.session.get(ClinicOriginal, stored.id).receipt == saved_receipt
+    assert path.stat().st_ino == inode
+    assert path.read_bytes() == data
+
+
+def test_expired_upload_without_a_durable_original_still_expires(env, monkeypatch):
+    ingest_id, body, _ = _upload(env, _data("not-stored"))
+
+    def unavailable(*args, **kwargs):
+        raise OSError("synthetic unavailable original store")
+
+    monkeypatch.setattr(env["service"], "store_original", unavailable)
+    assert _finalize(env, ingest_id, body)["state"] == "UNKNOWN"
+    late = NOW + timedelta(hours=25)
+    with pytest.raises(AgentChannelError) as err:
+        _finalize(env, ingest_id, body, now=late)
+    assert err.value.code == "expired"
+    assert ic.ClinicImportOriginal.query.count() == 0
+    assert ClinicOriginal.query.count() == 0
+    assert list(env["service"].root.rglob("*")) == []
+
+
+def test_expired_receiving_session_cannot_publish_chunks(env):
+    data = _data("expired-upload")
+    ingest_id, body, _ = _upload(env, data)
+    late = NOW + timedelta(hours=25)
+    with pytest.raises(AgentChannelError) as err:
+        _finalize(env, ingest_id, body, now=late)
+    assert err.value.code == "expired"
+    with pytest.raises(AgentChannelError) as err:
+        ing.put_chunk(env["principal"], env["policy"], ingest_id=ingest_id,
+                      sequence=0, offset=0, data=data, chunk_sha256=_sha(data), now=late)
+    assert err.value.code == "expired"
+    assert ic.ClinicImportOriginal.query.count() == 0
+    assert ClinicOriginal.query.count() == 0
+    assert list(env["service"].root.rglob("*")) == []
+
+
+def test_legacy_unknown_original_is_reconciled_after_expiry(env):
+    data = _data("legacy")
+    ingest_id, body, _ = _upload(env, data)
+    # The pre-fix channel writes the file without an import-original reference.
+    first = ing.finalize_ingest(env["principal"], env["policy"], ingest_id=ingest_id,
+                                body=body, store_original=env["service"].store_original, now=NOW)
+    assert first["state"] == "UNKNOWN"
+    assert ic.ClinicImportOriginal.query.count() == 0
+    late = NOW + timedelta(days=7)
+    recovered = _finalize(env, ingest_id, body, now=late)
+    assert recovered["import"]["status"] == "UNASSIGNED"
+    delivery_id = recovered["import"]["delivery_id"]
+    assert db.session.get(ic.ClinicImportOriginal, delivery_id) is not None
+    view = _intent(env, now=late)
+    ic.assign_unassigned(actor_user_id=env["author"].id, delivery_id=delivery_id,
+                         intent_id=view["id"], now=late)
+    healed = _finalize(env, ingest_id, body, now=late)
+    assert healed["state"] == "STORED"
+    original = db.session.get(ClinicOriginal, healed["original_id"])
+    assert env["service"].file_path(original.storage_key).read_bytes() == data
+
+
+def test_failed_reference_write_is_recovered_after_expiry(env, monkeypatch):
+    ingest_id, body, _ = _upload(env, _data("reference-failure"))
+
+    def unavailable(*args, **kwargs):
+        raise OperationalError("INSERT", {}, Exception("synthetic reference write failure"))
+
+    with monkeypatch.context() as patch:
+        patch.setattr(ic, "_remember_original", unavailable)
+        assert _finalize(env, ingest_id, body)["state"] == "UNKNOWN"
+    assert ic.ClinicImportOriginal.query.count() == 0
+    recovered = _finalize(env, ingest_id, body, now=NOW + timedelta(days=7))
+    assert recovered["import"]["status"] == "UNASSIGNED"
+    assert ic.ClinicImportOriginal.query.count() == 1
+    assert ic.list_unassigned()[0]["original_state"] == "author_required"
+
+
+def test_assignment_commit_failure_keeps_original_unassigned_and_retryable(env, monkeypatch):
+    ingest_id, body, _ = _upload(env, _data("atomic-claim"))
+    delivery_id = _finalize(env, ingest_id, body)["import"]["delivery_id"]
+    view = _intent(env)
+    actor_id = env["author"].id
+
+    def unavailable():
+        raise OperationalError("COMMIT", {}, Exception("synthetic assignment commit failure"))
+
+    with monkeypatch.context() as patch:
+        patch.setattr(db.session, "commit", unavailable)
+        with pytest.raises(OperationalError):
+            ic.assign_unassigned(actor_user_id=actor_id, delivery_id=delivery_id,
+                                 intent_id=view["id"], now=NOW)
+    assert [delivery["id"] for delivery in ic.list_unassigned()] == [delivery_id]
+    assert ic.ClinicImportOriginal.query.count() == 1
+    assert ClinicOriginal.query.count() == 0
+    assert ClinicDictation.query.count() == 0
+    assert Recording.query.filter_by(user_id=actor_id).count() == 0
+    ic.assign_unassigned(actor_user_id=actor_id, delivery_id=delivery_id, intent_id=view["id"], now=NOW)
+    assert ClinicOriginal.query.count() == 1
+    assert _finalize(env, ingest_id, body)["state"] == "STORED"
+
+
+def test_assignment_refuses_changed_stored_bytes_and_keeps_clarification_entry(env):
+    data = _data("changed-original")
+    ingest_id, body, _ = _upload(env, data)
+    delivery_id = _finalize(env, ingest_id, body)["import"]["delivery_id"]
+    original = db.session.get(ic.ClinicImportOriginal, delivery_id)
+    path = env["service"].file_path(original.storage_key)
+    path.write_bytes(b"x" * len(data))
+    view = _intent(env)
+    with pytest.raises(IngestError) as err:
+        ic.assign_unassigned(actor_user_id=env["author"].id, delivery_id=delivery_id,
+                             intent_id=view["id"], now=NOW)
+    assert err.value.code == "conflict"
+    assert [delivery["id"] for delivery in ic.list_unassigned()] == [delivery_id]
+    assert ClinicOriginal.query.count() == 0
+    assert db.session.get(ch.ClinicAgentIngest, ingest_id).state == "UNKNOWN"
+
+
+def test_concurrent_assignments_create_one_dictation_for_the_winning_author(env):
+    ingest_id, body, _ = _upload(env, _data("concurrent-claim"))
+    delivery_id = _finalize(env, ingest_id, body)["import"]["delivery_id"]
+    first = _intent(env)
+    second = _intent(env, actor_user_id=env["other"].id)
+    claims = [(env["author"].id, first["id"]), (env["other"].id, second["id"])]
+    ready = Barrier(2)
+    db.session.remove()
+
+    def claim(actor_id, intent_id):
+        with app.app_context():
+            ready.wait(timeout=10)
+            try:
+                ic.assign_unassigned(actor_user_id=actor_id, delivery_id=delivery_id,
+                                     intent_id=intent_id, now=NOW)
+                return "assigned", actor_id, intent_id
+            except AgentChannelError as exc:
+                return exc.code, actor_id, intent_id
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(claim, *args) for args in claims]
+        results = [future.result(timeout=30) for future in futures]
+    assert sorted(result[0] for result in results) == ["assigned", "conflict"]
+    winner = next(result for result in results if result[0] == "assigned")
+    assert ClinicOriginal.query.count() == 1
+    assert ClinicDictation.query.one().author_user_id == winner[1]
+    assert db.session.get(ic.ClinicImportDelivery, delivery_id).intent_id == winner[2]
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_concurrent_finalize_retries_after_expiry_keep_identical_ids(env, monkeypatch, legacy):
+    ingest_id, body, _ = _upload(env, _data("concurrent-finalize"))
+
+    def unavailable(*args, **kwargs):
+        raise OperationalError("INSERT", {}, Exception("synthetic legacy reference gap"))
+
+    with monkeypatch.context() as patch:
+        if legacy:
+            patch.setattr(ic, "_remember_original", unavailable)
+        first = _finalize(env, ingest_id, body)
+    view = _intent(env)
+    ic.assign_unassigned(actor_user_id=env["author"].id, delivery_id=first["import"]["delivery_id"],
+                         intent_id=view["id"], now=NOW)
+    ready = Barrier(2)
+    db.session.remove()
+
+    def finalize():
+        with app.app_context():
+            ready.wait(timeout=10)
+            return _finalize(env, ingest_id, body, now=NOW + timedelta(days=7))
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(finalize) for _ in range(2)]
+        receipts = [future.result(timeout=30) for future in futures]
+    assert all(receipt["state"] == "STORED" for receipt in receipts)
+    assert receipts[0]["original_id"] == receipts[1]["original_id"]
+    assert receipts[0]["dictation_id"] == receipts[1]["dictation_id"]
+    assert ClinicOriginal.query.count() == 1
+    assert ClinicDictation.query.count() == 1
+    assert ic.ClinicImportOriginal.query.count() == 1

@@ -155,6 +155,22 @@ class IngestService:
     def file_path(self, storage_key: str) -> Path:
         return Path(local_path_from_key(str(self.root), storage_key))
 
+    def stored_path(self, *, idempotency_key: str, declared_sha256: str, declared_size: int) -> Path | None:
+        """Find and verify an already published original without using upload chunks."""
+        key = _checked_key(idempotency_key)
+        digest = _checked_sha(declared_sha256)
+        size = _checked_size(declared_size)
+        # Keep the generated path intact so resolving a symlink cannot hide it.
+        path = self.root / storage_key_for(key)
+        if path.resolve() != path:
+            raise IngestError('conflict', 'stored original path contains a symlink')
+        if not path.exists() and not path.is_symlink():
+            return None
+        _require_same(path, digest)
+        if path.stat().st_size != size:
+            raise IngestError('conflict', 'stored original size differs from the declaration')
+        return path
+
     def store_original(
         self,
         stream,
@@ -166,12 +182,16 @@ class IngestService:
         author_user_id: int | None,
         idempotency_key: str,
         now: datetime | None = None,
+        commit: bool = True,
     ) -> IngestReceipt:
         """Store ``stream`` and return the receipt for that delivery.
 
         ``author_user_id`` may be omitted. The file is still stored, and the
         call raises ``author_required`` until a later call with the same key,
         the same bytes and an author inserts the row.
+
+        ``commit=False`` leaves the flushed rows in the caller's transaction
+        so an import-centre assignment and its dictation can commit together.
         """
         key = _checked_key(idempotency_key)
         digest = _checked_sha(declared_sha256)
@@ -197,7 +217,7 @@ class IngestService:
         if db.session.get(User, author_user_id) is None:
             raise IngestError('invalid', 'author_user_id does not exist')
         return _insert_row(
-            author_user_id, storage_key, digest, size, origin, origin_ref, key, moment,
+            author_user_id, storage_key, digest, size, origin, origin_ref, key, moment, commit=commit,
         )
 
     def _publish(self, spool: Path, dest: Path, digest: str) -> None:
@@ -308,7 +328,8 @@ def _receipt_text(key: str, digest: str, size: int, origin: str, origin_ref: str
     }, sort_keys=True, separators=(',', ':'))
 
 
-def _insert_row(author_user_id, storage_key, digest, size, origin, origin_ref, key, moment) -> IngestReceipt:
+def _insert_row(author_user_id, storage_key, digest, size, origin, origin_ref, key, moment,
+                *, commit=True) -> IngestReceipt:
     recording = Recording(
         user_id=author_user_id,
         status='PENDING',
@@ -339,7 +360,8 @@ def _insert_row(author_user_id, storage_key, digest, size, origin, origin_ref, k
         db.session.add(original)
         db.session.flush()
         receipt = _receipt_of(original)
-        _commit()
+        if commit:
+            _commit()
     except SQLAlchemyError:
         db.session.rollback()
         logger.warning(
