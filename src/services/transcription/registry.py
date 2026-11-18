@@ -91,7 +91,11 @@ class ConnectorRegistry:
             Configured connector instance
         """
         connector_class = self.get_connector_class(name)
-        return connector_class(config)
+        connector = connector_class(config)
+        # The one factory: every connector is built here, so every path
+        # (upload, reprocess, retry, chunked) gets the clinic GPU wrapper.
+        from src.clinic.asr_fallback import wrap_with_gpu_fallback
+        return wrap_with_gpu_fallback(connector)
 
     def list_connectors(self) -> List[Dict[str, Any]]:
         """
@@ -153,8 +157,6 @@ class ConnectorRegistry:
 
         try:
             self._active_connector = self.create_connector(connector_name, config)
-            from src.clinic.asr_fallback import wrap_with_gpu_fallback
-            self._active_connector = wrap_with_gpu_fallback(self._active_connector)
             self._connector_name = connector_name
 
             logger.info(f"Initialized transcription connector: {connector_name}")
