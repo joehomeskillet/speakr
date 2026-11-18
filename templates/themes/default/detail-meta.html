@@ -18,9 +18,9 @@
              between wrapped rows. -->
         <div class="bg-[var(--bg-secondary)] border-b border-[var(--border-primary)] px-5 py-2.5 flex-shrink-0 flex flex-wrap items-center gap-x-2.5 gap-y-2 text-xs text-[var(--text-muted)]">
             <!-- Chip group (folder + tags), tight 4px gap like the sidebar -->
-            <div v-if="(foldersEnabled && selectedRecording.folder_id && !selectedRecording.incognito) || (selectedRecording.tags && selectedRecording.tags.length > 0)"
+            <div v-if="(foldersEnabled && selectedRecording.folder_id) || (selectedRecording.tags && selectedRecording.tags.length > 0)"
                  class="flex flex-wrap items-center gap-1">
-                <span v-if="foldersEnabled && selectedRecording.folder_id && !selectedRecording.incognito"
+                <span v-if="foldersEnabled && selectedRecording.folder_id"
                       class="chip"
                       :style="{ backgroundColor: getFolderColor(selectedRecording.folder_id), color: getContrastTextColor(getFolderColor(selectedRecording.folder_id)), '--chip-mark': folderMarkColor(getFolderColor(selectedRecording.folder_id)) }"
                       :title="t('tooltips.folderLabel', { name: getFolderName(selectedRecording.folder_id) })">

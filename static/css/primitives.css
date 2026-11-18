@@ -110,9 +110,6 @@
     --tint-pending-border: rgba(234, 179, 8, 0.30);
     --tint-pending-fg:     rgb(161, 98, 7);
 
-    --tint-incognito:        rgba(139, 92, 246, 0.10); /* violet */
-    --tint-incognito-border: rgba(139, 92, 246, 0.30);
-    --tint-incognito-fg:     rgb(109, 40, 217);
 }
 
 html.dark {
@@ -130,8 +127,6 @@ html.dark {
     --tint-processing-fg:     rgb(216, 180, 254);
     --tint-pending:        rgba(250, 204, 21, 0.18);
     --tint-pending-fg:     rgb(253, 224, 71);
-    --tint-incognito:        rgba(167, 139, 250, 0.15);
-    --tint-incognito-fg:     rgb(196, 181, 253);
 }
 
 html.dark {
@@ -783,7 +778,6 @@ html.dark select.field {
 .pill-status--danger     { background: var(--tint-danger);     color: var(--tint-danger-fg);     border-color: var(--tint-danger-border); }
 .pill-status--processing { background: var(--tint-processing); color: var(--tint-processing-fg); border-color: var(--tint-processing-border); }
 .pill-status--pending    { background: var(--tint-pending);    color: var(--tint-pending-fg);    border-color: var(--tint-pending-border); }
-.pill-status--incognito  { background: var(--tint-incognito);  color: var(--tint-incognito-fg);  border-color: var(--tint-incognito-border); }
 
 
 /* ---- User-coloured chip (folder / tag) --------------------------------

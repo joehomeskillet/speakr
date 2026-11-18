@@ -8,7 +8,7 @@ a model or write files.
 import pytest
 from flask_login import login_user
 
-from clinic_support import SECRET_MARKER, dump, login, set_setting
+from clinic_support import SECRET_MARKER, dump, login
 from src.app import app, db
 from src.clinic import config, guard, policy
 from src.clinic.guard import clinic_guard
@@ -187,24 +187,6 @@ def test_6_export_existing_with_no_recording_is_refused(clinic_on, world, featur
 def test_6_export_existing_is_closed_by_default(clinic_on, world):
     response = login(world['user_a']).post('/api/recordings/export-existing')
     assert response.status_code == 403 and _code(response) == 'clinic_feature_disabled'
-
-
-# --- 7: the login page does not advertise registration ---------------------------------
-
-def test_7_registration_is_off_in_clinic_mode_whatever_is_stored(clinic_on, world):
-    set_setting('allow_registration', 'true')
-    from src.api.auth import registration_enabled
-    with app.app_context():
-        assert registration_enabled() is False
-    page = app.test_client().get('/login')
-    assert b'href="/register"' not in page.data
-
-
-def test_7_registration_follows_the_setting_when_clinic_mode_is_off(clinic_off, world):
-    set_setting('allow_registration', 'true')
-    from src.api.auth import registration_enabled
-    with app.app_context():
-        assert registration_enabled() is True
 
 
 # --- 8, 9: disabled share routes -------------------------------------------------------

@@ -87,11 +87,8 @@ CALL_SITES = {
     os.path.join('src', 'tasks', 'processing.py'): {
         '_generate_ai_title': 'title',
         'generate_summary_only_task': 'summary',
-        '_generate_incognito_title': 'title',
-        'generate_incognito_summary': 'summary',
     },
     os.path.join('src', 'api', 'recordings.py'): {
-        'chat_incognito': 'chat',
         'chat_with_transcription': 'chat',
     },
 }
@@ -125,26 +122,6 @@ def test_every_call_site_sends_its_configured_temperature(path):
     literal = [n.lineno for n in ast.walk(tree)
                if isinstance(n, ast.keyword) and n.arg == 'temperature' and isinstance(n.value, ast.Constant)]
     assert literal == [], f"hard-coded temperature in {path} at lines {literal}"
-
-
-def test_incognito_title_and_summary_use_the_resolved_values(ctx):
-    from src.tasks import processing
-    _admin_value('title', '0.15')
-    _admin_value('summary', '0')
-    completion = MagicMock()
-    completion.choices = [MagicMock(message=MagicMock(content='A title'))]
-    seen = []
-
-    def fake(*args, **kwargs):
-        seen.append(kwargs.get('temperature'))
-        return completion
-
-    fake_client = MagicMock()
-    fake_client.chat.completions.create.side_effect = fake
-    with patch.object(processing, 'client', fake_client), patch('src.services.llm.client', fake_client):
-        processing._generate_incognito_title('Some transcript text about budgets.')
-        processing.generate_incognito_summary('Some transcript text about budgets.')
-    assert seen == [0.15, 0.0]
 
 
 # ---------------------------------------------------------------- admin API

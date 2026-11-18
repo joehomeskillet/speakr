@@ -122,26 +122,6 @@ def test_the_lock_is_recorded_once_and_later_attempts_are_refused_as_locked(crea
         SystemSetting.set_setting('login_lockout_minutes', '15', None, 'integer')
 
 
-def test_registration(created):
-    from src.api import auth as auth_mod
-    start = max_id()
-    client = anonymous_client()
-    name = 'reg' + uuid.uuid4().hex[:8]
-    with mock.patch.object(auth_mod, 'registration_enabled', return_value=True), \
-            mock.patch.object(auth_mod, 'is_registration_domain_allowed', return_value=True), \
-            mock.patch.object(auth_mod, 'is_email_verification_enabled', return_value=False):
-        resp = client.post('/register', data={
-            'username': name, 'email': f'{name}@example.com',
-            'password': PASSWORD, 'confirm_password': PASSWORD})
-    assert resp.status_code == 302, resp.data[:300]
-    user = User.query.filter_by(username=name).first()
-    created.append(user.id)
-    rows = rows_after(start)
-    assert names(rows) == ['auth.registered']
-    assert rows[0].target_user_id == user.id and rows[0].actor_kind == 'anonymous' and rows[0].details is None
-    assert name not in json.dumps(rows[0].to_dict())
-
-
 def test_password_change_is_recorded_with_the_change_only(created):
     user = make_user(created)
     client = client_for(user)
@@ -154,32 +134,6 @@ def test_password_change_is_recorded_with_the_change_only(created):
     rows = rows_after(start)
     assert names(rows) == ['auth.password.changed']
     assert rows[0].actor_user_id == user.id and rows[0].details is None
-
-
-def test_password_reset_request_and_reset(created):
-    from src.api import auth as auth_mod
-    user = make_user(created)
-    start = max_id()
-    client = anonymous_client()
-    with mock.patch.object(auth_mod, 'is_smtp_configured', return_value=True), \
-            mock.patch.object(auth_mod, 'can_resend_password_reset', return_value=(True, 0)), \
-            mock.patch.object(auth_mod, 'send_password_reset_email', return_value=True):
-        client.post('/forgot-password', data={'email': user.email})
-        client.post('/forgot-password', data={'email': user.email})
-        client.post('/forgot-password', data={'email': 'SENTINELADDR@nowhere.test'})
-    requested = rows_after(start, 'auth.password.reset_requested')
-    assert sorted((r.target_user_id or 0) for r in requested) == [0, user.id]
-
-    user = db.session.get(User, user.id)
-    user.password_reset_token = 'tok-' + 'a' * 20
-    db.session.commit()
-    with mock.patch.object(auth_mod, 'verify_reset_token', return_value=user.id):
-        resp = client.post(f'/reset-password/{user.password_reset_token}', data={
-            'password': 'An0ther-Passw0rd!', 'confirm_password': 'An0ther-Passw0rd!'})
-    assert resp.status_code == 302
-    reset = rows_after(start, 'auth.password.reset')
-    assert len(reset) == 1 and reset[0].target_user_id == user.id and reset[0].actor_kind == 'anonymous'
-    assert 'SENTINEL' not in json.dumps([r.to_dict() for r in rows_after(start)])
 
 
 def test_sso_unlink(created):

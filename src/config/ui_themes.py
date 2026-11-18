@@ -199,7 +199,7 @@ def new_user_audio_player_position():
 def apply_new_user_defaults(user):
     """Give a user who is being created the defaults for new accounts: the UI
     theme, the color scheme and the audio player position. Called wherever an
-    account is created (registration, admin, SSO, the admin scripts); never for
+    account is created (admin, SSO, the admin scripts); never for
     an account that already exists."""
     user.ui_theme = new_user_theme()
     user.theme_color_scheme = new_user_color_scheme()

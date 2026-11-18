@@ -41,13 +41,13 @@
 
                             <span class="ws-row__meta">
                                 <!-- Folder dot, only in the All view and while folders are on -->
-                                <span v-if="recording.folder && recording.folder.is_foreign && !recording.incognito"
+                                <span v-if="recording.folder && recording.folder.is_foreign"
                                       class="ws-glyph ws-glyph--shared"
                                       :title="t('sharing.sharedBadge') + ': ' + recording.folder.name">
                                     <i class="fas fa-folder" :style="{ color: folderMarkColor(recording.folder.color) || '' }"></i>
                                     <i class="fas fa-share-nodes"></i>
                                 </span>
-                                <button v-if="foldersEnabled && !filterFolder && recording.folder_id && !recording.incognito && !(recording.folder && recording.folder.is_foreign)"
+                                <button v-if="foldersEnabled && !filterFolder && recording.folder_id && !(recording.folder && recording.folder.is_foreign)"
                                         type="button"
                                         @click.stop="filterFolder = recording.folder_id"
                                         class="ws-glyph ws-glyph--folder"
@@ -92,7 +92,7 @@
                                         :title="recording.duplicate_info.total_copies + ' ' + (t('upload.copies') || 'copies')">
                                     <i class="fas fa-copy"></i>
                                 </button>
-                                <span v-if="recording.mime_type && recording.mime_type.startsWith('video/') && !recording.audio_deleted_at && !recording.incognito"
+                                <span v-if="recording.mime_type && recording.mime_type.startsWith('video/') && !recording.audio_deleted_at"
                                       class="ws-glyph" :title="t('tooltips.video')"><i class="fas fa-video"></i></span>
 
                                 <!-- Star and inbox keep their click-to-toggle behaviour -->

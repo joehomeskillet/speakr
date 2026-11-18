@@ -72,7 +72,6 @@ function makeState(overrides = {}) {
         isRecording: ref(false),
         audioBlobURL: ref(null),
         speakerColorMap: ref({}),
-        incognitoRecording: ref(null),
         ...overrides
     };
 }

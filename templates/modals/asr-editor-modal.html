@@ -23,12 +23,6 @@
                 <i class="fas fa-info-circle"></i>
                 <span v-text="t('help.audioDeletedMessage')"></span>
             </div>
-            <!-- Show message for incognito recordings -->
-            <div v-else-if="selectedRecording.incognito"
-                 class="bg-[var(--bg-tertiary)] border border-[var(--border-primary)] text-[var(--text-secondary)] px-4 py-3 rounded-lg flex items-center gap-2 text-sm">
-                <i class="fas fa-user-secret"></i>
-                <span v-text="t('incognito.audioNotStored')"></span>
-            </div>
             <!-- Custom Audio Player (Independent from main player) -->
             <div v-else class="flex items-center gap-3">
                 <audio ref="asrEditorAudioRef" class="hidden" data-asr-editor-audio
@@ -84,7 +78,7 @@
         <!-- Timeline: waveform and one lane per speaker (static/js/modules/asr-editor/timeline.js) -->
         <asr-editor-timeline v-if="asrEditorSession" :key="'timeline-' + asrEditorSession.key" :session="asrEditorSession"
                              :duration="Number(selectedRecording.audio_duration_seconds) || 0"
-                             :has-audio="!selectedRecording.audio_deleted_at && !selectedRecording.incognito"></asr-editor-timeline>
+                             :has-audio="!selectedRecording.audio_deleted_at"></asr-editor-timeline>
 
         {% include 'components/find-replace-bar.html' %}
 
@@ -103,8 +97,8 @@
             </span>
             <!-- The checkbox of the Identify Speakers dialog, with its server route
                  (regenerate_summary on update_transcript) and its own wording: an
-                 edit here is not only about names. Not for a translation or an
-                 incognito recording, which that route does not store. -->
+                 edit here is not only about names. Not for a translation,
+                 which that route does not store. -->
             <label v-if="asrEditorSession && canRegenerateSummary(asrEditorSession)" class="asr-editor-footer__summary" data-asr-regenerate-summary>
                 <input type="checkbox" v-model="asrEditorRegenerateSummary">
                 <span v-text="t('asrEditor.updateSummary')"></span>

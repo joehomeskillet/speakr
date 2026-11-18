@@ -9,7 +9,7 @@ what that changes for a person, in headless Chromium:
   there is exactly one registration, also on the other signed-in pages; a
   browser that is not signed in gets no worker;
 - after browsing, Cache Storage holds files under /static/ only: no page, no
-  response of /api/, nothing of an incognito request;
+  response of /api/;
 - a recording page loaded again without a network shows the "You are
   offline" page of the worker, not the recording, and the app comes back
   when the network does;
@@ -212,26 +212,6 @@ def test_only_static_files_are_in_cache_storage_after_browsing(context, signed_i
     }""", rec_id)
     assert all(status in (200, 206) for status in answers.values()), answers
 
-    # The incognito rule: an incognito request, and what answers it, is never stored.
-    incognito = page.evaluate("""async () => {
-        const token = document.querySelector('meta[name="csrf-token"]').content;
-        const form = new FormData();
-        form.append('file', new Blob([new Uint8Array(64)], { type: 'audio/wav' }), 'incognito-probe.wav');
-        const out = [];
-        for (const [path, options] of [
-            ['/api/recordings/incognito', { method: 'POST', body: form, headers: { 'X-CSRFToken': token } }],
-            ['/api/recordings/incognito/chat', { method: 'POST', headers: { 'X-CSRFToken': token, 'Content-Type': 'application/json' }, body: '{}' }],
-            ['/api/recordings/incognito', { method: 'GET' }],
-        ]) {
-            const response = await fetch(path, options);
-            await response.arrayBuffer();
-            out.push(response.status);
-        }
-        return out;
-    }""")
-    assert len(incognito) == 3  # each was answered by the server (whatever the status), not by the worker
-    page.wait_for_timeout(500)
-
     entries = page.evaluate(CACHED)
     assert len(entries) > 10, f"the worker stored almost nothing: {entries}"
     version = app_version(page)
@@ -388,7 +368,7 @@ def test_sign_out_empties_cache_storage(context, signed_in):
         const cache = await caches.open(name);
         await cache.put('/static/sentinel-of-the-signed-in-user.js?v=1', new Response('x'));
         await (await caches.open('another-cache')).put('/static/other', new Response('y'));
-        sessionStorage.setItem('speakr_incognito_recording', JSON.stringify({
+        sessionStorage.setItem('speakr_session_item', JSON.stringify({
             title: 'private', original_filename: 'Jane Doe intake.mp3', file_size: 123 }));
         sessionStorage.setItem('speakr_chat_threads:1', '[]');
         // An upload in slices that ended before the sign-out (past its 24 hours:

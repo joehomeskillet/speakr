@@ -3,7 +3,6 @@
  * Handles loading, selecting, filtering, and managing recordings
  */
 
-import * as IncognitoStorage from '../db/incognito-storage.js';
 import { matchTagsByLabelName } from '../utils/label-links.js';
 import { confirmDialog } from '../utils/dialogs.js';
 import { realSpeakers } from '../utils/speaker-labels.js';
@@ -23,8 +22,6 @@ export function useRecordings(state, utils, reprocessComposable) {
         useAsrEndpoint, connectorSupportsDiarization, globalError, uploadQueue, isProcessingActive, currentView, showUploadModal, uploadDeepLinkPending, labelDeepLinkPending,
         isMobileScreen, isSidebarCollapsed, isRecording, audioBlobURL, windowWidth,
         speakerColorMap,
-        // Incognito mode
-        incognitoRecording
     } = state;
 
     const { setGlobalError, showToast } = utils;
@@ -236,18 +233,6 @@ export function useRecordings(state, utils, reprocessComposable) {
             if (utils.discardActiveRecording) {
                 try { await utils.discardActiveRecording(); } catch (_) { /* non-fatal */ }
             }
-        }
-
-        // Check if switching away from incognito recording to a regular recording
-        if (incognitoRecording && incognitoRecording.value &&
-            selectedRecording.value?.id === 'incognito' &&
-            recording?.id !== 'incognito') {
-            if (!(await confirmDialog({ message: t('incognito.switchDiscardConfirm'), confirmLabel: t('common.discard'), danger: true }))) {
-                return;
-            }
-            // Clear incognito recording immediately - this is the "incognito" promise
-            IncognitoStorage.clearIncognitoRecording();
-            incognitoRecording.value = null;
         }
 
         // Reset modal audio state when switching recordings

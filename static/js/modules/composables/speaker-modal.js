@@ -101,7 +101,7 @@ export function useSpeakerModal(state, utils) {
     });
 
     const canPlayModalAudio = computed(() =>
-        !!selectedRecording.value && !selectedRecording.value.audio_deleted_at && !selectedRecording.value.incognito);
+        !!selectedRecording.value && !selectedRecording.value.audio_deleted_at);
 
     const visibleModalSegments = computed(() => {
         const segs = speakerModalData.value.segments;

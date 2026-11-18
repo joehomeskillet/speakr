@@ -24,7 +24,7 @@ from src.services import inquire_agent as ia  # noqa: E402
 from src.services.assistant_present import step_label, step_result, summary_line  # noqa: E402
 from src.services.embeddings import serialize_embedding  # noqa: E402
 from src.services.library_labels import LibraryLabels, capped  # noqa: E402
-from src.services.recording_chat import IncognitoTranscript, build_chat_messages  # noqa: E402
+from src.services.recording_chat import build_chat_messages  # noqa: E402
 from src.transcript_chunking import chunk_transcript_segments  # noqa: E402
 
 NESTED = hasattr(Folder, 'parent_id')
@@ -190,14 +190,6 @@ def test_recording_prompt_shows_only_what_the_viewer_sees(lib):
         r1 = db.session.get(Recording, lib['r1'])
         labels = LibraryLabels(lib['member'], [r1.id])
         assert labels.folder_path_of(r1.id) is None and labels.tags_of(r1.id) == []
-
-
-def test_incognito_prompt_has_no_metadata_block():
-    with app.app_context():
-        user = User(username='x', email='x@x', password='x')
-        user.id = 0
-        messages, _ = build_chat_messages(IncognitoTranscript(R1_TRANSCRIPT), user, 'Q?', [])
-        assert 'About this recording' not in messages[0]['content']
 
 
 # ---------------------------------------------------------------------------

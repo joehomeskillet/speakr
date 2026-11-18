@@ -291,33 +291,6 @@ def test_the_old_helper_name_applies_every_default():
 # ---------------------------------------------------------------- every way an account is created
 
 
-def _register(email):
-    with mock.patch.object(auth_mod, "registration_enabled", return_value=True), \
-            mock.patch.object(auth_mod, "is_registration_domain_allowed", return_value=True), \
-            mock.patch.object(auth_mod, "is_email_verification_enabled", return_value=False):
-        return app.test_client().post("/register", data={
-            "username": "nt_" + uuid.uuid4().hex[:10], "email": email,
-            "password": PW, "confirm_password": PW,
-        })
-
-
-def test_registration_writes_the_defaults(cleanup):
-    email = f"reg_{uuid.uuid4().hex[:8]}@example.com"
-    cleanup.append(email)
-    assert _register(email).status_code == 302
-    assert _look(email=email) == ("cards", "emerald", None)
-    assert _player(email=email) == "top"
-
-
-def test_registration_follows_the_env_variables(cleanup):
-    email = f"reg_{uuid.uuid4().hex[:8]}@example.com"
-    cleanup.append(email)
-    with env(DEFAULT_UI_THEME="workspace", DEFAULT_COLOR_SCHEME="purple", DEFAULT_AUDIO_PLAYER_POSITION="bottom"):
-        assert _register(email).status_code == 302
-    assert _look(email=email) == ("workspace", "purple", None)
-    assert _player(email=email) == "bottom"
-
-
 def test_an_admin_created_user_gets_the_defaults(cleanup):
     admin = _user(cleanup, is_admin=True)
     name = "nt_" + uuid.uuid4().hex[:10]
@@ -499,13 +472,11 @@ def test_null_still_resolves_to_the_default_theme_after_sign_in(cleanup):
 # ---------------------------------------------------------------- signed-out pages
 
 
-SIGNED_OUT = ("/login", "/register", "/forgot-password")
+SIGNED_OUT = ("/login",)
 
 
 def _signed_out_page(path):
-    with mock.patch.object(auth_mod, "registration_enabled", return_value=True), \
-            mock.patch.object(auth_mod, "is_smtp_configured", return_value=True):
-        resp = app.test_client().get(path)
+    resp = app.test_client().get(path)
     assert resp.status_code == 200, path
     return resp.get_data(as_text=True)
 

@@ -727,41 +727,6 @@ def test_upload_unexpected_error_removes_staging_copy():
         _cleanup(user)
 
 
-def test_incognito_empty_file_returns_400():
-    with app.app_context():
-        user = _mk_user("inc_empty")
-        client = app.test_client()
-        _login(client, user)
-        with patch("src.api.recordings.ENABLE_INCOGNITO_MODE", True), \
-             patch("src.tasks.processing.transcribe_incognito") as transcribe:
-            resp = client.post("/api/recordings/incognito",
-                               data={"file": (io.BytesIO(b""), "empty.mp3")},
-                               content_type="multipart/form-data")
-        assert resp.status_code == 400
-        assert resp.get_json()["code"] == "empty_file"
-        assert transcribe.call_count == 0
-        _cleanup(user)
-
-
-def test_incognito_decode_failure_returns_400():
-    with app.app_context():
-        user = _mk_user("inc_decode")
-        client = app.test_client()
-        _login(client, user)
-        with patch("src.api.recordings.ENABLE_INCOGNITO_MODE", True), \
-             patch("src.tasks.processing.transcribe_incognito",
-                   return_value={"error": AUDIO_DECODE_FAILED_MESSAGE,
-                                 "error_code": "audio_decode_failed"}):
-            resp = client.post("/api/recordings/incognito",
-                               data={"file": (io.BytesIO(b"This is not audio."), "x.mp4")},
-                               content_type="multipart/form-data")
-        assert resp.status_code == 400
-        body = resp.get_json()
-        assert body["code"] == "audio_decode_failed"
-        assert body["incognito"] is True
-        _cleanup(user)
-
-
 # --------------------------------------------------------------------------- #
 # /save metadata edit
 # --------------------------------------------------------------------------- #

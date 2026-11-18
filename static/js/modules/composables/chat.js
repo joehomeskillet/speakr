@@ -4,8 +4,7 @@
  *
  * The chat itself is the shared AssistantChat (modules/assistant/chat.js,
  * templates/components/assistant/chat.html), also used by the Ask page.
- * This module says how a recording question is sent (POST /chat, or the
- * incognito route with the transcript in the request) and keeps the Word
+ * This module says how a recording question is sent (POST /chat) and keeps the Word
  * downloads. With the library tools on, the server lets Ambrose search every
  * recording the user can access; the panel sends no filters.
  *
@@ -35,7 +34,7 @@ export function useChat(state, utils) {
     // An answer finished in a recording that is no longer open: say where,
     // and open it on a click.
     const announce = (thread) => {
-        if (!threads || !thread || thread.dropped || thread.incognito || threads.isCurrent(thread)) return;
+        if (!threads || !thread || thread.dropped || threads.isCurrent(thread)) return;
         const list = thread.messages || [];
         const last = list[list.length - 1];
         if (!last || last.role !== 'assistant') return;
@@ -47,26 +46,8 @@ export function useChat(state, utils) {
         else showToast(t('chat.answeredIn', params), 'fa-comment-dots', 6000, 'info', open);
     };
 
-    const isIncognito = () => !!(selectedRecording.value && selectedRecording.value.incognito === true);
-
     const request = ({ message, history, signal }) => {
         const recording = selectedRecording.value;
-        if (isIncognito()) {
-            // An incognito recording exists only in the browser: the
-            // transcript travels with the question. No tools.
-            return fetch('/api/recordings/incognito/chat', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                signal,
-                body: JSON.stringify({
-                    transcription: recording.transcription,
-                    participants: recording.participants || '',
-                    notes: recording.notes || '',
-                    message,
-                    message_history: history.map((m) => ({ role: m.role, content: m.content })),
-                }),
-            });
-        }
         return fetch('/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -87,7 +68,7 @@ export function useChat(state, utils) {
         // The recording a turn is about: its thread's, else the open one.
         openRecordingId: (thread) => {
             if (threads && thread) return thread.recordingId;
-            return selectedRecording.value && !isIncognito() ? selectedRecording.value.id : null;
+            return selectedRecording.value ? selectedRecording.value.id : null;
         },
         isDisabled: () => !selectedRecording.value || selectedRecording.value.status !== 'COMPLETED' ||
             !!(processedTranscription && processedTranscription.value && processedTranscription.value.isError),
