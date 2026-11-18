@@ -27,6 +27,8 @@ function items(n) {
     return Array.from({ length: n }, (_, i) => ({ id: 'f' + (i + 1), name: 'F' + (i + 1), version: 1, spec }));
 }
 
+const one = (i, extra) => ok({ ...items(i)[i - 1], ...(extra || {}) });
+
 function make(responses, extra) {
     const calls = [];
     const client = {
@@ -44,9 +46,12 @@ function make(responses, extra) {
 
 describe('worklist filters ui', () => {
     it('loads and applies a server-backed filter', async () => {
-        const { c, applied } = make([ok({ items: items(2) })]);
+        const { c, applied } = make([ok({ items: items(2) }), one(2)]);
         expect(await c.load()).toBe(true);
-        c.select('f2');
+        const pending = c.select('f2');
+        expect(c.state.specLoaded).toBe(false);
+        await pending;
+        expect(c.state.specLoaded).toBe(true);
         expect(c.state.selectedId).toBe('f2');
         expect(c.state.draft.conditions[0]).toEqual({ field: 'status', op: 'eq', value: 'pending' });
         expect(applied.at(-1)).toEqual({ filterId: 'f2', query: '' });
@@ -57,8 +62,10 @@ describe('worklist filters ui', () => {
             ok({ items: [] }),
             ok({ id: 'f1' }),
             ok({ items: items(1) }),
+            one(1),
             ok({ id: 'f1' }),
             ok({ items: items(1) }),
+            one(1),
             ok(null),
             ok({ items: [] }),
         ]);
@@ -71,11 +78,14 @@ describe('worklist filters ui', () => {
         expect(calls[1][1].method).toBe('POST');
         expect(calls[1][1].body).toEqual({ name: 'Dringend', spec });
         expect(c.state.selectedId).toBe('f1');
-        expect(await c.save(false)).toBe(true);
+        expect(calls[2][0]).toBe('/worklist/filters');
         expect(calls[3][0]).toBe('/worklist/filters/f1');
-        expect(calls[3][1]).toMatchObject({ method: 'PUT', ifMatch: '1' });
+        expect(calls[3][1].method).toBeUndefined();
+        expect(await c.save(false)).toBe(true);
+        expect(calls[4][0]).toBe('/worklist/filters/f1');
+        expect(calls[4][1]).toMatchObject({ method: 'PUT', ifMatch: '1' });
         expect(await c.remove()).toBe(true);
-        expect(calls[5][1]).toMatchObject({ method: 'DELETE', ifMatch: '1' });
+        expect(calls[7][1]).toMatchObject({ method: 'DELETE', ifMatch: '1' });
         expect(c.state.selectedId).toBeNull();
     });
 
@@ -83,7 +93,7 @@ describe('worklist filters ui', () => {
         const { c, calls } = make([ok({ items: items(MAX_FILTERS) })]);
         await c.load();
         expect(c.state.limitReached).toBe(true);
-        c.select(null);
+        await c.select(null);
         c.state.draft.name = 'Neu';
         expect(await c.save(false)).toBe(false);
         expect(c.state.error).toBe('limit_reached');
@@ -122,9 +132,10 @@ describe('worklist filters ui', () => {
 
     it('restores only the current user last selection', async () => {
         const storage = memoryStorage({ 'clinic.worklist.filter.7': 'f2', 'clinic.worklist.filter.8': 'f1' });
-        const mine = make([ok({ items: items(2) })], { storage });
+        const mine = make([ok({ items: items(2) }), one(2)], { storage });
         await mine.c.load();
         expect(mine.c.state.selectedId).toBe('f2');
+        expect(mine.c.state.specLoaded).toBe(true);
         const stale = make([ok({ items: items(1) })], { storage });
         await stale.c.load();
         expect(stale.c.state.selectedId).toBeNull();
@@ -133,9 +144,9 @@ describe('worklist filters ui', () => {
     });
 
     it('keeps clinical data out of browser storage', async () => {
-        const { c, storage } = make([ok({ items: items(1) })]);
+        const { c, storage } = make([ok({ items: items(1) }), one(1)]);
         await c.load();
-        c.select('f1');
+        await c.select('f1');
         c.setQuery('Patientin Muster');
         const stored = JSON.stringify([...storage.data.entries()]);
         expect(stored).toBe('[["clinic.worklist.filter.7","f1"]]');
@@ -145,20 +156,20 @@ describe('worklist filters ui', () => {
 
     it('survives blocked storage', async () => {
         const throwing = { getItem() { throw new Error('x'); }, setItem() { throw new Error('x'); }, removeItem() { throw new Error('x'); } };
-        const { c } = make([ok({ items: items(1) })], { storage: throwing });
+        const { c } = make([ok({ items: items(1) }), one(1)], { storage: throwing });
         expect(await c.load()).toBe(true);
-        c.select('f1');
+        await c.select('f1');
         expect(c.state.selectedId).toBe('f1');
     });
 
     it('reloads on a stale version and refuses unauthorized', async () => {
-        const stale = make([ok({ items: items(1) }), bad('conflict', 'REVISION_CONFLICT'), ok({ items: [{ ...items(1)[0], version: 2 }] })]);
+        const stale = make([ok({ items: items(1) }), one(1), bad('conflict', 'REVISION_CONFLICT'), ok({ items: items(1) }), one(1, { version: 2 })]);
         await stale.c.load();
-        stale.c.select('f1');
+        await stale.c.select('f1');
         expect(await stale.c.save(false)).toBe(false);
         expect(stale.c.state.error).toBe('conflict');
         expect(stale.c.state.filters[0].version).toBe(2);
-        expect(stale.calls).toHaveLength(3);
+        expect(stale.calls).toHaveLength(5);
 
         const denied = make([bad('permission', 'FORBIDDEN')]);
         expect(await denied.c.load()).toBe(false);
@@ -167,16 +178,35 @@ describe('worklist filters ui', () => {
     });
 
     it('retries a failed load and does not auto-repeat a failed write', async () => {
-        const { c, calls } = make([bad('network', 'NETWORK'), ok({ items: items(1) }), bad('network', 'NETWORK')]);
+        const { c, calls } = make([bad('network', 'NETWORK'), ok({ items: items(1) }), one(1), bad('network', 'NETWORK')]);
         expect(await c.load()).toBe(false);
         expect(c.state.error).toBe('network');
         expect(await c.load()).toBe(true);
         expect(c.state.error).toBeNull();
-        c.select('f1');
+        await c.select('f1');
         expect(await c.remove()).toBe(false);
         expect(c.state.error).toBe('network');
-        expect(calls).toHaveLength(3);
+        expect(calls).toHaveLength(4);
         expect(c.state.busy).toBe(false);
+    });
+
+    it('blocks save and delete until the spec is fetched, so an empty spec never overwrites', async () => {
+        const { c, calls } = make([ok({ items: items(1) }), bad('network', 'NETWORK'), one(1, { version: 3 }), ok({ id: 'f1' }), ok({ items: items(1) }), one(1)]);
+        await c.load();
+        await c.select('f1');
+        expect(c.state.specLoaded).toBe(false);
+        expect(c.state.error).toBe('network');
+        expect(c.state.draft.conditions).toEqual([]);
+        expect(await c.save(false)).toBe(false);
+        expect(await c.save(true)).toBe(false);
+        expect(await c.remove()).toBe(false);
+        expect(calls).toHaveLength(2);
+        await c.select('f1');
+        expect(c.state.specLoaded).toBe(true);
+        expect(c.state.filters[0].version).toBe(3);
+        expect(c.state.draft.conditions).toHaveLength(1);
+        await c.save(false);
+        expect(calls[3][1]).toMatchObject({ method: 'PUT', ifMatch: '3', body: { name: 'F1', spec } });
     });
 
     it('exposes labelled, native, keyboard-operable markup with token styling only', () => {
@@ -189,6 +219,7 @@ describe('worklist filters ui', () => {
         expect(t).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
         expect(t).not.toMatch(/class="[^"]*\[/);
         const data = WorklistFiltersPanel.data();
+        expect(t).toContain('!s.specLoaded');
         expect(data.boxStyle).toContain('var(--border-primary)');
         expect(data.errorStyle).toContain('var(--bg-danger-light)');
         expect(Object.keys(LABELS.errors)).toEqual(expect.arrayContaining(['limit_reached', 'conflict', 'permission', 'network']));

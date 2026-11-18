@@ -9,6 +9,7 @@
  *
  * Server contract used here (relative to /api/clinic/v1):
  *   GET    /worklist/filters
+ *   GET    /worklist/filters/<id>       -> {id, name, version, spec}
  *   POST   /worklist/filters            {name, spec}
  *   PUT    /worklist/filters/<id>       {name, spec}  If-Match: <version>
  *   DELETE /worklist/filters/<id>                     If-Match: <version>
@@ -169,6 +170,7 @@ export function createWorklistFilters(options) {
         loading: false,
         busy: false,
         loaded: false,
+        specLoaded: true,
         error: null,
         message: '',
         limitReached: false,
@@ -216,13 +218,13 @@ export function createWorklistFilters(options) {
             if (!selected()) {
                 const last = readLast(storage, userId);
                 const known = last && state.filters.some((f) => f.id === last);
-                if (known) select(last, true);
+                if (known) await select(last, true);
                 else {
                     state.selectedId = null;
                     writeLast(storage, userId, null);
                 }
             } else {
-                select(state.selectedId, true);
+                await select(state.selectedId, true);
             }
             return true;
         } finally {
@@ -230,15 +232,28 @@ export function createWorklistFilters(options) {
         }
     }
 
-    function select(id, silent) {
+    // The list may omit specs. The spec and version used for editing always come
+    // from GET /filters/<id>; until it arrives writes stay blocked (specLoaded).
+    async function select(id, silent) {
         const found = id ? state.filters.find((f) => f.id === id) : null;
         state.selectedId = found ? found.id : null;
         writeLast(storage, userId, state.selectedId);
-        state.draft = found
-            ? { name: found.name, conditions: specToConditions(found.spec) }
-            : { name: '', conditions: [] };
+        state.draft = { name: found ? found.name : '', conditions: [] };
+        state.specLoaded = !found;
         if (!silent) clearMessage();
         onApply({ filterId: state.selectedId, query: state.query });
+        if (!found) return true;
+        const res = await client.request(BASE + '/' + encodeURIComponent(found.id));
+        if (state.selectedId !== found.id) return false; // a newer selection won
+        if (res.outcome !== 'ok' || !res.data || typeof res.data.spec !== 'object' || res.data.spec === null) {
+            return fail(res.outcome !== 'ok' && LABELS.errors[res.outcome] ? res.outcome : 'UNKNOWN');
+        }
+        found.name = res.data.name;
+        found.version = res.data.version;
+        found.spec = res.data.spec;
+        state.draft = { name: found.name, conditions: specToConditions(found.spec) };
+        state.specLoaded = true;
+        return true;
     }
 
     function setQuery(text) {
@@ -260,6 +275,7 @@ export function createWorklistFilters(options) {
     }
 
     async function save(asNew) {
+        if (!state.specLoaded) return false;
         const bad = validateDraft(state.draft);
         if (bad) return fail(bad);
         const current = selected();
@@ -284,7 +300,7 @@ export function createWorklistFilters(options) {
             }
             const keep = res.data && res.data.id ? res.data.id : current && current.id;
             await load();
-            if (keep) select(keep, true);
+            if (keep && state.selectedId !== keep) await select(keep, true);
             return true;
         } finally {
             state.busy = false;
@@ -293,7 +309,7 @@ export function createWorklistFilters(options) {
 
     async function remove() {
         const current = selected();
-        if (!current) return false;
+        if (!current || !state.specLoaded) return false;
         state.busy = true;
         clearMessage();
         try {
@@ -310,7 +326,7 @@ export function createWorklistFilters(options) {
             state.selectedId = null;
             writeLast(storage, userId, null);
             await load();
-            select(null, true);
+            await select(null, true);
             return true;
         } finally {
             state.busy = false;
@@ -362,6 +378,7 @@ export const WorklistFiltersPanel = {
   <form @submit.prevent="controller.save(false)" novalidate>
     <label for="wf-name">{{ labels.name }}</label>
     <input id="wf-name" type="text" maxlength="60" autocomplete="off" v-model="s.draft.name"
+           :readonly="!s.specLoaded"
            :aria-invalid="s.error === 'name_required' || s.error === 'name_too_long' ? 'true' : 'false'">
     <fieldset v-for="(c, i) in s.draft.conditions" :key="i">
       <legend>{{ labels.fields[c.field] || c.field }}</legend>
@@ -380,9 +397,9 @@ export const WorklistFiltersPanel = {
       <button type="button" @click="controller.removeCondition(i)">{{ labels.removeCondition }}</button>
     </fieldset>
     <button type="button" @click="controller.addCondition()">{{ labels.addCondition }}</button>
-    <button type="submit" :disabled="s.busy">{{ labels.save }}</button>
-    <button type="button" :disabled="s.busy || s.limitReached || !s.selectedId" @click="controller.save(true)">{{ labels.saveNew }}</button>
-    <button type="button" :disabled="s.busy || !s.selectedId" @click="controller.remove()">{{ labels.remove }}</button>
+    <button type="submit" :disabled="s.busy || !s.specLoaded">{{ labels.save }}</button>
+    <button type="button" :disabled="s.busy || !s.specLoaded || s.limitReached || !s.selectedId" @click="controller.save(true)">{{ labels.saveNew }}</button>
+    <button type="button" :disabled="s.busy || !s.specLoaded || !s.selectedId" @click="controller.remove()">{{ labels.remove }}</button>
   </form>
 </section>`,
 };
