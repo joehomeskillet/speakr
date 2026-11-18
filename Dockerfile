@@ -77,7 +77,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends wget xz-utils \
 # different binary: then bump the rust image tag and DSS_CODEC_BINARY_SHA256
 # together with a new S06 evidence run). The runtime stage sets CLINIC_DSS_CODEC_BIN.
 ###############################################################################
-FROM rust:1.88-slim-bookworm AS dss-codec-stage
+FROM rust:1.88-slim-bookworm@sha256:38bc5a86d998772d4aec2348656ed21438d20fcdce2795b56ca434cf21430d89 AS dss-codec-stage
 
 ARG DSS_CODEC_REPO=https://github.com/hirparak/dss-codec.git
 ARG DSS_CODEC_COMMIT=c38d3192239005b0570c5987cbde62e69dd7dbbe
