@@ -86,6 +86,9 @@ def add_human_revision(
 ) -> ClinicTranscriptRevision:
     """Append a human correction, or return the tip when the text is unchanged.
 
+    A new row is flushed, so its ID is available to other writes in the same
+    session. The caller owns the commit or rollback.
+
     ``author_user_id`` must be an existing user. The frozen transcript table
     has no author column, so the id is not stored on the row.
     """
