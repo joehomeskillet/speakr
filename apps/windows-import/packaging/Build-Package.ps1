@@ -300,5 +300,6 @@ $manifest = [ordered]@{
     }
 }
 $manifestPath = Join-Path $OutputDirectory $script:Policy.manifest_name
+# shortcut: Windows PowerShell 5.1 ConvertTo-Json unwraps a one-element array; accept an object or a one-item array until the host is PowerShell 7
 Write-Utf8 $manifestPath (($manifest | ConvertTo-Json -Depth 8) + "`n")
 exit 0
