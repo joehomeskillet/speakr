@@ -39,7 +39,7 @@ public sealed class ImportWorker : BackgroundService
             }
             catch (Exception ex)
             {
-                _log.Info("cycle failed " + ex.GetType().Name);
+                _log.Error("cycle failed " + ex.GetType().Name + " " + LogText.Clean(ex.Message));
             }
 
             try

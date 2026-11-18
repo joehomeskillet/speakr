@@ -15,6 +15,12 @@
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />
+    <Using Include="Speakr.Clinic.ImportAgent" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Fixtures\import-agent-boundary.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Speakr.Clinic.ImportAgent\Speakr.Clinic.ImportAgent.csproj" />

@@ -1,0 +1,855 @@
+[
+ {
+  "id": "PAR-ADM-001",
+  "title": "Autoren und Schreibkräfte verwalten",
+  "status": "partial",
+  "evidence": [
+   "src/clinic/identity.py",
+   "tests/clinic/test_identity_lifecycle.py::test_create_local_user_is_pending_without_password",
+   "tests/clinic/test_identity_lifecycle.py::test_disable_blocks_login_and_reactivate_restores"
+  ],
+  "note": "Lokaler Benutzer-Lebenszyklus getestet. Getrennte Anlage/Bearbeitung von Autoren und Schreibkräften samt Übernehmen/OK-Admin-UI ist nicht getestet."
+ },
+ {
+  "id": "PAR-ADM-002",
+  "title": "Autorenpools mit Mehrfachmitgliedschaft",
+  "status": "partial",
+  "evidence": [
+   "src/clinic/pools.py:87",
+   "tests/clinic/test_pools.py::test_same_name_pools_do_not_transfer_rights",
+   "tests/clinic/test_pools.py::test_removing_membership_removes_derived_rights"
+  ],
+  "note": "Autorenpools und Mitglieder als Service implementiert; Mehrfachmitgliedschaft nicht gezielt getestet, keine Admin-UI."
+ },
+ {
+  "id": "PAR-ADM-003",
+  "title": "Schreibkraftpools eigenständig verwalten",
+  "status": "partial",
+  "evidence": [
+   "src/clinic/pools.py:95",
+   "tests/clinic/test_pools.py::test_staff_member_sees_linked_author_pools_only"
+  ],
+  "note": "Schreibkraftpools als Service mit Verknüpfung zu Autorenpools; eigenständige Verwaltung per UI fehlt."
+ },
+ {
+  "id": "PAR-ADM-004",
+  "title": "Zugriff nach Autor oder Autorenpool mit Ausnahmen",
+  "status": "implemented",
+  "evidence": [
+   "tests/clinic/test_s01_policy.py::test_author_scope_grant_reaches_only_the_listed_authors",
+   "tests/clinic/test_s01_policy.py::test_author_pool_grant_needs_the_recordings_pool",
+   "tests/clinic/test_s01_policy.py::test_deny_by_author_wins_over_a_grant",
+   "tests/clinic/test_pools.py::test_pool_grant_is_limited_to_that_pool_and_those_actions",
+   "tests/clinic/test_pools.py::test_deny_beats_every_grant"
+  ],
+  "note": "Zugriff nach Autor oder Pool mit Deny-Ausnahmen auf Policy-Ebene getestet. Admin-UI zur Pflege fehlt."
+ },
+ {
+  "id": "PAR-ADM-005",
+  "title": "Aktionen unabhängig voneinander berechtigen",
+  "status": "implemented",
+  "evidence": [
+   "tests/clinic/test_s01_policy.py::test_sensitive_actions_on_own_recording_need_a_grant",
+   "tests/clinic/test_s01_policy.py::test_own_scope_grant_adds_an_action_on_own_recordings_only",
+   "tests/clinic/test_s01_policy.py::test_pool_grant_without_actions_confers_nothing"
+  ],
+  "note": "Aktionen einzeln berechtigbar (Policy-Ebene). Admin-UI fehlt."
+ },
+ {
+  "id": "PAR-ADM-006",
+  "title": "Autoren-Sichtbereiche und Schreibkraftauswahl",
+  "status": "partial",
+  "evidence": [
+   "src/clinic/pools.py:405",
+   "tests/clinic/test_pools.py::test_staff_member_sees_linked_author_pools_only",
+   "tests/clinic/test_s01_routes.py::test_lists_counts_and_search_show_only_own_recordings"
+  ],
+  "note": "Sichtbereiche getestet; Schreibkraftauswahl im Versandweg fehlt."
+ },
+ {
+  "id": "PAR-ADM-007",
+  "title": "Voreingestellte Empfänger und Selbstkorrektur",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-ADM-008",
+  "title": "Administrative und Statistik-Accounts",
+  "status": "partial",
+  "evidence": [
+   "tests/clinic/test_pools.py::test_admin_flag_alone_grants_nothing",
+   "tests/clinic/test_s01_review_findings.py::test_13_stats_scope_all_is_forbidden"
+  ],
+  "note": "Admin-Flag vergibt keine Fachrechte; ein eigener Statistik-Account ist nicht implementiert."
+ },
+ {
+  "id": "PAR-ADM-009",
+  "title": "Windows-/AD-Auswahl und bestätigter AD-Abgleich",
+  "status": "open-web-gap",
+  "evidence": [],
+  "note": "Offene Web-Lücke WG-ADM-009 (clinic-spec/planning/web-parity-gaps.json, status open): Lokale Windows-Konten des Arbeitsplatzes auslesen. Bleibt offen. Unabhängig umsetzbar: serverseitiger AD-/Directory-Abgleich, lokale Appkonten."
+ },
+ {
+  "id": "PAR-ADM-010",
+  "title": "Windows-SSO mit eindeutigem Kontext",
+  "status": "partial",
+  "evidence": [
+   "src/clinic/entra.py",
+   "tests/clinic/test_entra_adapter.py::test_happy_path_with_prelinked_subject"
+  ],
+  "note": "Entra-OIDC-Adapter nur gegen Mock/Fixtures; kein Windows-SSO-Nachweis (AGENTS.md: Mocks sind keine Evidenz für Entra)."
+ },
+ {
+  "id": "PAR-ADM-011",
+  "title": "Benutzerstart, letzte Auswahl und Wechsel",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-CFG-001",
+  "title": "Zentrale Vorgaben und lokale Änderungen",
+  "status": "partial",
+  "evidence": [
+   "src/clinic/config.py",
+   "tests/clinic/test_config_profiles.py::test_setting_ceilings",
+   "tests/clinic/test_config_profiles.py::test_locked_features_in_clinic_mode",
+   "tests/clinic/test_config_profiles.py::test_client_cannot_select_its_profile"
+  ],
+  "note": "Serverseitige Profile, Sperren und Obergrenzen; keine lokalen Änderungen pro Arbeitsplatz/UI."
+ },
+ {
+  "id": "PAR-CFG-002",
+  "title": "Vorlagen zentral speichern und zuordnen",
+  "status": "partial",
+  "evidence": [
+   "src/clinic/presets.py",
+   "tests/clinic/test_presets.py"
+  ],
+  "note": "Versionierte Server-Vorlagen (ClinicTemplate) mit Einfügemarke als Datenmodell/Service getestet. Admin-/UI-/REST-Wiring fehlt (Wiring-Welle)."
+ },
+ {
+  "id": "PAR-CFG-003",
+  "title": "Versandkategorien und Pflichtangaben",
+  "status": "partial",
+  "evidence": [
+   "src/clinic/presets.py",
+   "tests/clinic/test_presets.py"
+  ],
+  "note": "Kategorien-Sets mit Pflichtauswahl (ClinicCategorySet) als Datenmodell/Service getestet. Admin-/UI-/REST-Wiring fehlt (Wiring-Welle)."
+ },
+ {
+  "id": "PAR-CFG-004",
+  "title": "RegEx-basierte Metadatenzuweisung mit Vorschau",
+  "status": "partial",
+  "evidence": [
+   "src/clinic/presets.py",
+   "tests/clinic/test_presets.py"
+  ],
+  "note": "Regex-Regeln mit Vorschau-Parität, ReDoS-Grenze und Identitätsziel-Verbot getestet. Admin-/UI-/REST-Wiring fehlt (Wiring-Welle)."
+ },
+ {
+  "id": "PAR-CFG-005",
+  "title": "Konfigurierbare Metadatenspalten",
+  "status": "partial",
+  "evidence": [
+   "src/clinic/presets.py",
+   "tests/clinic/test_presets.py"
+  ],
+  "note": "Konfigurierbare Metadatenspalten inkl. XXE-sicherer XML-Extraktion getestet. Admin-/UI-/REST-Wiring fehlt (Wiring-Welle)."
+ },
+ {
+  "id": "PAR-REC-001",
+  "title": "Recorder mit Titel-, Aufnahme- und Versandphase",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-REC-002",
+  "title": "Aufnahme- und Wiedergabesteuerung",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-REC-003",
+  "title": "Audio einfügen, überschreiben, kürzen und rückgängig",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-REC-004",
+  "title": "Stimmgesteuerte Aufnahme",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-REC-005",
+  "title": "Audio-Geräte und Aufnahme-/Wiedergabepegel",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-REC-006",
+  "title": "Versandparameter und optionaler Diktatschutz",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-REC-007",
+  "title": "Autarker Recorder und lokales Speichern",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-REC-008",
+  "title": "Audio-Text-Sitzungen und Textdateien speichern/laden",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-LIVE-001",
+  "title": "Live-Erkennung im eigenen Diktierfenster",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-LIVE-002",
+  "title": "Diktieren in allgemeine Windows-Textfenster",
+  "status": "open-web-gap",
+  "evidence": [],
+  "note": "Offene Web-Lücke WG-LIVE-002 (clinic-spec/planning/web-parity-gaps.json, status open): Direktdiktat in fremde native Windows-Textfelder. Bleibt offen. Unabhängig umsetzbar: Live-Diktat im Webeditor, bewusster Clipboard-/Dateiexport."
+ },
+ {
+  "id": "PAR-LIVE-003",
+  "title": "Sofortige Entwurfssicherung pro Phrase",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Entwurfsspeicher pro Phrase im Code."
+ },
+ {
+  "id": "PAR-LIVE-004",
+  "title": "Mehrere Entwürfe und bewusstes Verwerfen",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-LIVE-005",
+  "title": "Rich-Text-Bearbeitung und Versandformat",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-LIVE-006",
+  "title": "Diktierfokus an Fenster binden",
+  "status": "open-web-gap",
+  "evidence": [],
+  "note": "Offene Web-Lücke WG-LIVE-006 (clinic-spec/planning/web-parity-gaps.json, status open): SpeechLock an fremdes Windows-Fenster. Bleibt offen."
+ },
+ {
+  "id": "PAR-LIVE-007",
+  "title": "Automatische Fokusbindung und immer oben",
+  "status": "open-web-gap",
+  "evidence": [],
+  "note": "Offene Web-Lücke WG-LIVE-007 (clinic-spec/planning/web-parity-gaps.json, status open): Automatische native Fokusbindung/Always-on-top. Bleibt offen."
+ },
+ {
+  "id": "PAR-LIVE-008",
+  "title": "Text und Aussprache vorlesen",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-IMP-001",
+  "title": "Geräte erkennen und Diktate auflisten",
+  "status": "partial",
+  "evidence": [
+   "apps/windows-import/src/Speakr.Clinic.ImportAgent/SourceWalker.cs",
+   "src/clinic/agent_channel.py",
+   "tests/clinic/test_agent_channel.py::test_inventory_grants_no_rights_and_creates_no_intent"
+  ],
+  "note": "Inventar-Kanal serverseitig getestet; echte Philips-Geräte nicht (Hardware-Tests not_run)."
+ },
+ {
+  "id": "PAR-IMP-002",
+  "title": "Autor aus Geräte-ID oder Aufnahme-Autor auflösen",
+  "status": "partial",
+  "evidence": [
+   "src/clinic/ingest.py",
+   "tests/clinic/test_ingest.py::test_missing_author_keeps_the_file_until_an_author_is_known",
+   "src/clinic/import_centre.py",
+   "tests/clinic/test_import_centre.py"
+  ],
+  "note": "Datei bleibt bis zur Autorzuordnung erhalten; Import-Zentrale: Intent-Match und Autor-Nachlieferung getestet. Auflösung aus Geräte-ID/Aufnahme-Autor fehlt."
+ },
+ {
+  "id": "PAR-IMP-003",
+  "title": "Manueller und gemeinsamer Geräteversand",
+  "status": "partial",
+  "evidence": [
+   "src/clinic/agent_channel_ingest.py",
+   "tests/clinic/test_agent_channel.py::test_upload_with_interruption_and_resume",
+   "tests/clinic/test_agent_channel.py::test_replay_returns_same_receipt_and_stores_once"
+  ],
+  "note": "Resumable Upload und Quittung getestet; manueller/gemeinsamer Geräteversand per UI fehlt."
+ },
+ {
+  "id": "PAR-IMP-004",
+  "title": "Automatischer Versand und EOL-Grenze",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-IMP-005",
+  "title": "Quelllöschung nach bestätigter Übernahme",
+  "status": "partial",
+  "evidence": [
+   "apps/windows-import/src/Speakr.Clinic.ImportAgent/PostImport.cs",
+   "tests/clinic/test_agent_channel.py::test_removal_needs_policy_intent_and_dictation_id",
+   "tests/clinic/test_agent_channel.py::test_receipt_does_not_permit_removal_by_default"
+  ],
+  "note": "Serverseitige Löschfreigabe nur mit Intent und Quittung getestet; C#-Agent-Löschung liegt ausserhalb tests/clinic, echte Geräte nicht geprüft."
+ },
+ {
+  "id": "PAR-IMP-006",
+  "title": "Backupkopie und Aufbewahrungsfrist",
+  "status": "partial",
+  "evidence": [
+   "apps/windows-import/src/Speakr.Clinic.ImportAgent/PostImport.cs:43"
+  ],
+  "note": "move_backup im Agenten vorhanden; Aufbewahrungsfrist/Bereinigung fehlt; kein Test unter tests/clinic."
+ },
+ {
+  "id": "PAR-IMP-007",
+  "title": "Datei- und Mehrfachimport von Audio und Dokumenten",
+  "status": "partial",
+  "evidence": [
+   "src/clinic/ingest.py",
+   "tests/clinic/test_ingest.py::test_stored_bytes_match_the_stream_and_are_not_replaced"
+  ],
+  "note": "Einzel-Audioingest getestet; Mehrfachimport und Dokumente fehlen."
+ },
+ {
+  "id": "PAR-IMP-008",
+  "title": "Dropfolder-Autoversand",
+  "status": "partial",
+  "evidence": [
+   "apps/windows-import/src/Speakr.Clinic.ImportAgent/ImportOrchestrator.cs",
+   "apps/windows-import/tests/Speakr.Clinic.ImportAgent.Tests/ContractAndFindingTests.cs"
+  ],
+  "note": "Windows-Agent importiert aus freigegebenen Ordnern; Contract-/Finding-Tests in der VM 51/51 bestanden. Web-seitige Dropfolder-Konfiguration fehlt."
+ },
+ {
+  "id": "PAR-IMP-009",
+  "title": "Geräteverwaltung, Autorenlisten und Schutzoptionen",
+  "status": "open-web-gap",
+  "evidence": [],
+  "note": "Offene Web-Lücke WG-IMP-009 (clinic-spec/planning/web-parity-gaps.json, status open): Schreibende Philips-Gerätekonfiguration. Bleibt offen."
+ },
+ {
+  "id": "PAR-IMP-010",
+  "title": "Firmwarebestand und Versionsvergleich",
+  "status": "open-web-gap",
+  "evidence": [],
+  "note": "Offene Web-Lücke WG-IMP-010 (clinic-spec/planning/web-parity-gaps.json, status open): Firmware auf PocketMemo schreiben. Bleibt offen."
+ },
+ {
+  "id": "PAR-WF-001",
+  "title": "Arbeitsliste für Autoren und Schreibkräfte",
+  "status": "partial",
+  "evidence": [
+   "tests/clinic/test_s01_routes.py::test_lists_counts_and_search_show_only_own_recordings"
+  ],
+  "note": "Sichtbarkeitsgefilterte Listen; eigene Arbeitsliste mit Status-Spalten fehlt."
+ },
+ {
+  "id": "PAR-WF-002",
+  "title": "Automatische und manuelle Aktualisierung",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-WF-003",
+  "title": "Gespeicherte Filter und Metadatensuche",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-WF-004",
+  "title": "Sortieren, Gruppieren und Layout merken",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-WF-005",
+  "title": "Diktatmetadaten bearbeiten und neu zuweisen",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-WF-006",
+  "title": "Verlauf eines Diktats anzeigen",
+  "status": "partial",
+  "evidence": [
+   "src/clinic/revisions.py:110",
+   "tests/clinic/test_revisions.py::test_parent_chain_and_history_order",
+   "tests/clinic/test_pools.py::test_history_rows_are_written_and_append_only"
+  ],
+  "note": "Revisions- und Pool-Verlauf serverseitig; Verlaufsanzeige (UI) fehlt."
+ },
+ {
+  "id": "PAR-WF-007",
+  "title": "Exklusive Bearbeitung und Freigabe",
+  "status": "implemented",
+  "evidence": [
+   "src/clinic/lease.py",
+   "tests/clinic/test_review_lease.py::test_acquire_heartbeat_expiry_and_takeover",
+   "tests/clinic/test_review_lease.py::test_double_acquire_by_two_users_yields_one_holder",
+   "tests/clinic/test_review_lease.py::test_foreign_holder_is_rejected"
+  ],
+  "note": "Exklusive Bearbeitung per Lease inkl. Ablauf/Übernahme getestet. UI-Anbindung offen."
+ },
+ {
+  "id": "PAR-WF-008",
+  "title": "Vorbereitung, Abschrift und Korrektur unterscheiden",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-WF-009",
+  "title": "Abnahme aktivieren und Berechtigte festlegen",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-WF-010",
+  "title": "Rückweisung und erneute Abnahme",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-WF-011",
+  "title": "Fertigstellen und Weiterverarbeitung",
+  "status": "partial",
+  "evidence": [
+   "src/clinic/release.py:135",
+   "tests/clinic/test_release_binding.py::test_release_binds_exact_versions_and_stores_decision"
+  ],
+  "note": "Freigabe an exakte Versionen gebunden; Weiterverarbeitung/Workflow-Schritt Fertigstellen fehlt."
+ },
+ {
+  "id": "PAR-WF-012",
+  "title": "Fertiges Diktat wieder zur Korrektur öffnen",
+  "status": "partial",
+  "evidence": [
+   "src/clinic/release.py:235",
+   "tests/clinic/test_release_binding.py::test_new_revision_makes_release_inactive",
+   "tests/clinic/test_release_binding.py::test_new_release_after_change_is_active_old_stays_readable"
+  ],
+  "note": "Neue Revision macht Freigabe inaktiv; Wiedereröffnen als Workflow-Aktion fehlt."
+ },
+ {
+  "id": "PAR-WF-013",
+  "title": "Archivieren, Löschen und Aufbewahrungsfrist",
+  "status": "partial",
+  "evidence": [
+   "tests/clinic/test_s01_review_findings.py::test_1_merge_with_a_delete_flag_is_refused_while_hard_delete_is_locked"
+  ],
+  "note": "Hartes Löschen gesperrt; Archivierung und Aufbewahrungsfrist nicht implementiert."
+ },
+ {
+  "id": "PAR-WF-014",
+  "title": "Benachrichtigungen bei Abnahme und Fertigstellung",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-COR-001",
+  "title": "Manuelle Abschrift mit Player und Vorlage",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-COR-002",
+  "title": "Synchroner Text-Audio-Editor",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-COR-003",
+  "title": "Wellenform, aktuelle Phrase und Erkennungsmarken",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-COR-004",
+  "title": "Tempo und Spulen",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-COR-005",
+  "title": "Zwei Korrekturmodi und automatische Rücksprünge",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-COR-006",
+  "title": "Zwischenspeichern und an Position fortsetzen",
+  "status": "partial",
+  "evidence": [
+   "src/clinic/revisions.py:79",
+   "tests/clinic/test_revisions.py::test_append_does_not_change_an_existing_revision"
+  ],
+  "note": "Zwischenstände als unveränderliche Revisionen; Positions-Fortsetzung im Editor fehlt."
+ },
+ {
+  "id": "PAR-COR-007",
+  "title": "Audioindizes verwalten",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-COR-008",
+  "title": "Automatische Wiedergabelautstärke",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-COR-009",
+  "title": "Editierfunktionen, Auswahl und Phrase vormerken",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-COR-010",
+  "title": "Korrekturplatz ohne ASR-Installation",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-VOC-001",
+  "title": "Benutzer- und Poolwortschatz",
+  "status": "partial",
+  "evidence": [
+   "src/clinic/vocabulary.py",
+   "tests/clinic/test_vocabulary.py"
+  ],
+  "note": "Benutzer-/Poolwortschatz mit Vorrangregeln (User > Pool) als Datenmodell/Service getestet. Admin-/UI-/REST-Wiring fehlt (Wiring-Welle)."
+ },
+ {
+  "id": "PAR-VOC-002",
+  "title": "Textwortlisten importieren und exportieren",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-VOC-003",
+  "title": "Negativwortliste und Reaktivierung",
+  "status": "partial",
+  "evidence": [
+   "src/clinic/vocabulary.py",
+   "tests/clinic/test_vocabulary.py"
+  ],
+  "note": "Negativwortliste über Status suppressed inkl. Pool-/User-Ausnahmen getestet; Reaktivierung über Statuswechsel. Admin-/UI-/REST-Wiring fehlt (Wiring-Welle)."
+ },
+ {
+  "id": "PAR-VOC-004",
+  "title": "Vorbehaltswortliste prüfen",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-VOC-005",
+  "title": "Sitzungsänderungen prüfen oder zurückstellen",
+  "status": "partial",
+  "evidence": [
+   "src/clinic/vocabulary.py",
+   "tests/clinic/test_vocabulary.py"
+  ],
+  "note": "Review-Flow (annehmen User/Pool, ablehnen, SPÄTER, UNDO) mit Audit-Trail getestet. Admin-/UI-/REST-Wiring fehlt (Wiring-Welle)."
+ },
+ {
+  "id": "PAR-VOC-006",
+  "title": "Vokabular durchsuchen und aus Markierung ergänzen",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-VOC-007",
+  "title": "Aussprache trainieren und Phonetik bearbeiten",
+  "status": "partial",
+  "evidence": [
+   "src/clinic/vocabulary.py",
+   "tests/clinic/test_vocabulary.py"
+  ],
+  "note": "Aussprache-/Phonetikhinweise als Datenmodell getestet; akustisches Training ist mit faster-whisper nicht möglich (Spike-Lücke), UI fehlt."
+ },
+ {
+  "id": "PAR-VOC-008",
+  "title": "Befehle, Makros und Textbausteine verwalten",
+  "status": "partial",
+  "evidence": [
+   "src/clinic/vocabulary.py",
+   "tests/clinic/test_vocabulary.py"
+  ],
+  "note": "Sprachkommandos/Makros (Trigger, Aktion, Hooks) als Datenmodell/Service getestet. Admin-/UI-/REST-Wiring fehlt (Wiring-Welle)."
+ },
+ {
+  "id": "PAR-ASR-001",
+  "title": "Lokale Hintergrundtranskription",
+  "status": "partial",
+  "evidence": [
+   "tests/clinic/test_asr_local_only.py::TestOpenAIWhisperConnectorClinicGuard",
+   "tests/clinic/test_whisper_segments.py::test_processing_persists_segments_without_diarization"
+  ],
+  "note": "Nur lokale ASR-Endpunkte erlaubt, Segmente/Zeitstempel persistiert; kein Test mit echter lokaler Engine (nur Stub/Mock)."
+ },
+ {
+  "id": "PAR-ASR-002",
+  "title": "Getrennte Online-/Offlineprofile und Quellen",
+  "status": "partial",
+  "evidence": [
+   "src/clinic/config.py",
+   "tests/clinic/test_config_profiles.py::test_default_client_profile_is_managed_web_online"
+  ],
+  "note": "Clientprofil-Default getestet; Offline-Profil und Quellenwahl fehlen."
+ },
+ {
+  "id": "PAR-ASR-003",
+  "title": "ASR-Wartezeit mit manueller Ersatzbearbeitung",
+  "status": "partial",
+  "evidence": [
+   "tests/clinic/test_revisions.py::test_late_asr_does_not_replace_a_human_correction"
+  ],
+  "note": "Späte ASR überschreibt keine manuelle Korrektur; Wartezeit-UI mit manuellem Ersatz fehlt."
+ },
+ {
+  "id": "PAR-ASR-004",
+  "title": "Optimierung aus geprüfter Korrektur",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-ASR-005",
+  "title": "Optimierungsfenster und Mindestdatenmenge",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-ASR-006",
+  "title": "Profil-Speicherung und Arbeitsstationswechsel",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-ASR-007",
+  "title": "Diktierquelle und Versand-Audioformat",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-EXP-001",
+  "title": "Mehrere Exportwege pro Abschluss",
+  "status": "partial",
+  "evidence": [
+   "src/clinic/export.py:118",
+   "src/clinic/export.py:123",
+   "tests/clinic/test_export_service.py::test_released_export_contains_exactly_the_bound_text"
+  ],
+  "note": "Nur Text- und DOCX-Download; weitere Exportwege fehlen."
+ },
+ {
+  "id": "PAR-EXP-002",
+  "title": "Zwischenablage formatiert/unformatiert",
+  "status": "partial",
+  "evidence": [
+   "src/clinic/output.py",
+   "tests/clinic/test_output.py"
+  ],
+  "note": "Append-only Ausgabebelege (Kanal CLIPBOARD, PLAIN/FORMATTED, revisionsgebunden) getestet; die eigentliche Zwischenablage-Ausgabe im Browser fehlt."
+ },
+ {
+  "id": "PAR-EXP-003",
+  "title": "RTF-Ausgabe",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-EXP-004",
+  "title": "Word-Ausgabe mit Vorlage und Textmarke",
+  "status": "open-web-gap",
+  "evidence": [
+   "src/clinic/export.py:123",
+   "tests/clinic/test_export_service.py::test_docx_roundtrip_umlauts_and_long_text"
+  ],
+  "note": "Offene Web-Lücke WG-EXP-004 (clinic-spec/planning/web-parity-gaps.json, status open): Einfügen in bereits geöffnetes natives Word-Dokument. Bleibt offen. Unabhängig umsetzbar: DOCX-Erzeugung vorhanden (src/clinic/export.py:123)."
+ },
+ {
+  "id": "PAR-EXP-005",
+  "title": "OpenOffice-Writer-/ODT-Ausgabe",
+  "status": "open-web-gap",
+  "evidence": [],
+  "note": "Offene Web-Lücke WG-EXP-005 (clinic-spec/planning/web-parity-gaps.json, status open): Einfügen in bereits geöffnetes natives Writer-Dokument. Bleibt offen."
+ },
+ {
+  "id": "PAR-EXP-006",
+  "title": "Dateiname, Ablageort und Kollisionen",
+  "status": "partial",
+  "evidence": [
+   "src/clinic/export.py:103",
+   "tests/clinic/test_export_service.py::test_filename_sanitising",
+   "src/clinic/output.py",
+   "tests/clinic/test_output.py"
+  ],
+  "note": "Dateinamen-Platzhalter (%A Autor, %T Titel, Reihenfolge nach Position) und Bereinigung getestet; Ablageort und Kollisionsbehandlung fehlen."
+ },
+ {
+  "id": "PAR-EXP-007",
+  "title": "Allgemeiner Fenstertransfer",
+  "status": "open-web-gap",
+  "evidence": [],
+  "note": "Offene Web-Lücke WG-EXP-007 (clinic-spec/planning/web-parity-gaps.json, status open): Fensterklasse/-titel, Vordergrund und Tastensimulation. Bleibt offen."
+ },
+ {
+  "id": "PAR-EXP-008",
+  "title": "Geschriebenes Dokument kopieren",
+  "status": "partial",
+  "evidence": [
+   "src/clinic/output.py",
+   "tests/clinic/test_output.py"
+  ],
+  "note": "Ausgabebelege für Kopieren/Textausgabe mit exakter Revisionsbindung getestet; Kopier-UI fehlt."
+ },
+ {
+  "id": "PAR-EXP-009",
+  "title": "Originalaudio speichern oder Mailentwurf öffnen",
+  "status": "open-web-gap",
+  "evidence": [],
+  "note": "Offene Web-Lücke WG-EXP-009 (clinic-spec/planning/web-parity-gaps.json, status open): Lokales Mailprogramm mit Audioanhang öffnen. Bleibt offen."
+ },
+ {
+  "id": "PAR-EXP-010",
+  "title": "Word-Add-in: Dokument und Audio übergeben",
+  "status": "open-web-gap",
+  "evidence": [],
+  "note": "Offene Web-Lücke WG-EXP-010 (clinic-spec/planning/web-parity-gaps.json, status open): Natives Word-Add-in mit aktueller Audiositzung. Bleibt offen."
+ },
+ {
+  "id": "PAR-OPS-001",
+  "title": "Fusssteuerung und Tastenzuordnung",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-OPS-002",
+  "title": "Mikrofon-/Diktiergerätsteuerung und Rückmeldung",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-OPS-003",
+  "title": "Hotkeys frei setzen und zurücksetzen",
+  "status": "open-web-gap",
+  "evidence": [],
+  "note": "Offene Web-Lücke WG-OPS-003 (clinic-spec/planning/web-parity-gaps.json, status open): Systemweite Hotkeys ohne Browserfokus. Bleibt offen."
+ },
+ {
+  "id": "PAR-OPS-004",
+  "title": "Autostart, Tray und programmatischer Start",
+  "status": "open-web-gap",
+  "evidence": [],
+  "note": "Offene Web-Lücke WG-OPS-004 (clinic-spec/planning/web-parity-gaps.json, status open): Nativer Tray-/Autostart-/Hintergrundprozess. Bleibt offen."
+ },
+ {
+  "id": "PAR-OPS-005",
+  "title": "Statistikerfassung und Aufbewahrung",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-OPS-006",
+  "title": "Diktat-, Frist- und Bearbeitungsstatistiken",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-OPS-007",
+  "title": "Statistik als CSV und ohne UI",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "PAR-OPS-008",
+  "title": "Dienstbetrieb, Jobs und beobachtbare Fehler",
+  "status": "partial",
+  "evidence": [
+   "tests/clinic/test_s01_review_findings.py::test_5_the_owner_may_cancel_an_own_job",
+   "tests/clinic/test_s01_review_findings.py::test_5_a_user_cannot_touch_a_foreign_job"
+  ],
+  "note": "Job-Zugriffsschutz getestet; Dienstbetrieb und beobachtbare Fehler-Sicht fehlen."
+ },
+ {
+  "id": "PAR-OPS-009",
+  "title": "Original und Arbeitskopie getrennt aufbewahren",
+  "status": "implemented",
+  "evidence": [
+   "src/clinic/models.py",
+   "tests/clinic/test_clinic_models.py::test_original_cannot_be_updated_in_place",
+   "tests/clinic/test_clinic_models.py::test_original_cannot_be_deleted",
+   "tests/clinic/test_ingest.py::test_stored_bytes_match_the_stream_and_are_not_replaced",
+   "tests/clinic/test_decoder.py::test_good_wav_decodes_and_original_untouched"
+  ],
+  "note": "Unveränderliches Original, getrennte Arbeitskopie/Decoder getestet. Kein Nachweis für Philips-Echtgeräte."
+ },
+ {
+  "id": "PAR-OPS-010",
+  "title": "Gerätesteuerung in RDP-/ICA-Sitzungen",
+  "status": "missing",
+  "evidence": [],
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ }
+]

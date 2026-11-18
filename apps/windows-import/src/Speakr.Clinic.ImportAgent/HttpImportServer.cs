@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Cryptography.X509Certificates;
@@ -62,7 +63,7 @@ public sealed class HttpImportServer : IImportServer
 
     public async Task<IngestReceipt> BeginAsync(WireBeginIngest body, string idempotencyKey, CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, "api/clinic/v1/ingests")
+        using var request = new HttpRequestMessage(HttpMethod.Post, "api/clinic/v1/agent/ingests")
         {
             Content = JsonContent.Create(body, options: ImportJson.Options)
         };
@@ -74,17 +75,19 @@ public sealed class HttpImportServer : IImportServer
     public async Task<IngestReceipt> PutChunkAsync(
         string ingestId,
         int sequence,
+        long offset,
         ReadOnlyMemory<byte> body,
         string sha256,
         CancellationToken cancellationToken)
     {
         using var content = new ByteArrayContent(body.ToArray());
         content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
-        using var request = new HttpRequestMessage(HttpMethod.Put, $"api/clinic/v1/ingests/{IngestPath(ingestId)}/chunks/{sequence}")
+        using var request = new HttpRequestMessage(HttpMethod.Put, $"api/clinic/v1/agent/ingests/{IngestPath(ingestId)}/chunks/{sequence}")
         {
             Content = content
         };
         request.Headers.TryAddWithoutValidation("X-Chunk-SHA256", sha256);
+        request.Headers.TryAddWithoutValidation("X-Chunk-Offset", offset.ToString(CultureInfo.InvariantCulture));
         using var response = await _http.SendAsync(request, cancellationToken);
         return await ReadReceipt(response, cancellationToken);
     }
@@ -95,7 +98,7 @@ public sealed class HttpImportServer : IImportServer
         string idempotencyKey,
         CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"api/clinic/v1/ingests/{IngestPath(ingestId)}/finalize")
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"api/clinic/v1/agent/ingests/{IngestPath(ingestId)}/finalize")
         {
             Content = JsonContent.Create(body, options: ImportJson.Options)
         };
@@ -106,8 +109,21 @@ public sealed class HttpImportServer : IImportServer
 
     public async Task<IngestReceipt> GetAsync(string ingestId, CancellationToken cancellationToken)
     {
-        using var response = await _http.GetAsync($"api/clinic/v1/ingests/{IngestPath(ingestId)}", cancellationToken);
+        using var response = await _http.GetAsync($"api/clinic/v1/agent/ingests/{IngestPath(ingestId)}", cancellationToken);
         return await ReadReceipt(response, cancellationToken);
+    }
+
+    public async Task<IngestReceipt> AbortAsync(string ingestId, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"api/clinic/v1/agent/ingests/{IngestPath(ingestId)}/abort");
+        using var response = await _http.SendAsync(request, cancellationToken);
+        return await ReadReceipt(response, cancellationToken);
+    }
+
+    public async Task ReportOutcomeAsync(AgentOutcome outcome, CancellationToken cancellationToken)
+    {
+        using var response = await _http.PostAsJsonAsync("api/clinic/v1/agent/outcomes", outcome, ImportJson.Options, cancellationToken);
+        await EnsureSuccess(response, cancellationToken);
     }
 
     // The ingest id is server supplied. Only a canonical GUID may reach a URL path.
@@ -129,6 +145,13 @@ public sealed class HttpImportServer : IImportServer
         receipt.State ??= "";
         receipt.Durability ??= "";
         receipt.DecodeState ??= "";
+        receipt.AgentId ??= "";
+        receipt.IntentId ??= "";
+        receipt.SourceId ??= "";
+        receipt.SnapshotVersion ??= "";
+        receipt.PermittedPostStep ??= "";
+        receipt.AuthorState ??= "";
+        receipt.Completion ??= "";
         return receipt;
     }
 
@@ -136,10 +159,29 @@ public sealed class HttpImportServer : IImportServer
     {
         if ((int)response.StatusCode is >= 200 and <= 299)
             return;
-        var text = await response.Content.ReadAsStringAsync(cancellationToken);
-        text = LogText.Clean(text, 240);
-        if ((int)response.StatusCode == 409)
+        var raw = await response.Content.ReadAsStringAsync(cancellationToken);
+        var code = ProblemCode(raw);
+        var text = LogText.Clean(raw, 240);
+        var status = (int)response.StatusCode;
+        if (status == 409 || code == "conflict")
             throw new ImportConflictException(text);
-        throw new ImportServerException((int)response.StatusCode, text);
+        if (status == 410 || code == "expired")
+            throw new ImportExpiredException(text);
+        throw new ImportServerException(status, code is null ? text : code + ": " + text);
+    }
+
+    private static string? ProblemCode(string raw)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(raw);
+            if (doc.RootElement.TryGetProperty("code", out var code) && code.ValueKind == JsonValueKind.String)
+                return code.GetString();
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+        return null;
     }
 }
