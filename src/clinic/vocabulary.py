@@ -545,51 +545,56 @@ def get_effective_pronunciation_hints(
             for w, src in m.values()}
 
 
-# --- Import / Export ---
+# --- Import / Export (PAR-VOC-002) ---
+# UTF-8: "written" or "written<TAB>spoken". Edge spaces ignored; tab separates. Skip blanks
+# and '#' lines. Sort is written_form, code point. Raw = active rows of one scope; effective
+# = merged active list (user overrides pools). Suppressed rows are omitted. Duplicates match
+# exact written_form: replace stamps origin import, sets active, and keeps a missing spoken
+# form; skip keeps the row; error raises duplicate_entry. Empty written form or a form over
+# 255 characters is listed in errors and the import continues.
+_MAX_FORM = 255
 
+def _vocab_line(written: str, spoken: str | None) -> str:
+    return f"{written}\t{spoken}" if spoken else written
 
-def export_vocabulary_text(
-    scope: str, user_id: int | None = None, pool_id: str | None = None, session: Session | None = None,
-) -> str:
+def export_vocabulary_text(scope: str, user_id: int | None = None, pool_id: str | None = None, session: Session | None = None) -> str:
     s = _get_session(session)
     q = _scope_filter(s.query(ClinicVocabularyEntry), ClinicVocabularyEntry, scope, user_id, pool_id)
-    entries = q.filter_by(status=STATUS_ACTIVE).order_by(ClinicVocabularyEntry.written_form.asc()).all()
-    lines = [f"{e.written_form}\t{e.spoken_form}" if e.spoken_form else e.written_form for e in entries]
-    return "\n".join(lines)
+    rows = q.filter_by(status=STATUS_ACTIVE).order_by(ClinicVocabularyEntry.written_form.asc()).all()
+    return "\n".join(_vocab_line(row.written_form, row.spoken_form) for row in rows)
 
+def export_effective_vocabulary_text(user_id: int, pool_ids: list[str] | None = None, session: Session | None = None) -> str:
+    rows = sorted(get_effective_vocabulary(user_id, pool_ids, session=session).values(), key=lambda row: row["written_form"])
+    return "\n".join(_vocab_line(row["written_form"], row["spoken_form"]) for row in rows)
 
-def import_vocabulary_text(
-    content: str, scope: str, user_id: int | None = None, pool_id: str | None = None,
-    origin: str = ORIGIN_IMPORT, duplicate_rule: str = "replace", session: Session | None = None,
-) -> dict[str, int]:
-    s = _get_session(session)
-    added = updated = skipped = 0
-    for raw_line in content.splitlines():
-        line = raw_line.strip()
+def import_vocabulary_text(content: str, scope: str, user_id: int | None = None, pool_id: str | None = None, origin: str = ORIGIN_IMPORT, duplicate_rule: str = "replace", session: Session | None = None) -> dict[str, Any]:
+    if duplicate_rule not in ("replace", "skip", "error"):
+        raise VocabularyError("invalid_duplicate_rule", "duplicate_rule must be replace, skip or error.")
+    if origin != ORIGIN_IMPORT:
+        raise VocabularyError("invalid_origin", "Import must mark entries with origin 'import'.")
+    s, added, updated, skipped = _get_session(session), 0, 0, 0
+    errors: list[dict[str, Any]] = []
+    for line_no, raw in enumerate(content.lstrip("\ufeff").splitlines(), start=1):
+        line = raw.strip(" ")
         if not line or line.startswith("#"):
             continue
-        parts = line.split("\t", 1)
-        written, spoken = parts[0].strip(), parts[1].strip() if len(parts) > 1 else None
-        if not written:
+        written, _, spoken = (part.strip() for part in line.partition("\t"))
+        if not written or len(written) > _MAX_FORM or len(spoken) > _MAX_FORM:
+            errors.append({"line": line_no, "reason": "empty_written_form" if not written else "form_too_long"})
             continue
-        query = _scope_filter(s.query(ClinicVocabularyEntry), ClinicVocabularyEntry, scope, user_id, pool_id)
-        existing = query.filter_by(written_form=written).first()
-        if existing is not None:
-            if duplicate_rule == "error":
-                raise VocabularyError("duplicate_entry", f"Entry '{written}' already exists.")
-            if duplicate_rule == "skip":
-                skipped += 1
-                continue
-            existing.spoken_form, existing.status, existing.origin, existing.updated_at = (
-                spoken or existing.spoken_form, STATUS_ACTIVE, origin, _utcnow()
-            )
-            updated += 1
-        else:
-            add_vocabulary_entry(
-                scope=scope, written_form=written, spoken_form=spoken,
-                user_id=user_id, pool_id=pool_id, origin=origin,
-                status=STATUS_ACTIVE, session=s,
-            )
+        spoken_form = spoken or None
+        hit = _scope_filter(s.query(ClinicVocabularyEntry), ClinicVocabularyEntry, scope, user_id, pool_id).filter_by(written_form=written).first()
+        if hit is None:
+            add_vocabulary_entry(scope=scope, written_form=written, spoken_form=spoken_form, user_id=user_id, pool_id=pool_id, origin=ORIGIN_IMPORT, status=STATUS_ACTIVE, session=s)
             added += 1
+            continue
+        if duplicate_rule == "error":
+            raise VocabularyError("duplicate_entry", f"Entry '{written}' already exists.")
+        if duplicate_rule == "skip":
+            skipped += 1
+            continue
+        hit.spoken_form = spoken_form if spoken_form is not None else hit.spoken_form
+        hit.status, hit.origin, hit.updated_at = STATUS_ACTIVE, ORIGIN_IMPORT, _utcnow()
+        updated += 1
     s.flush()
-    return {"added": added, "updated": updated, "skipped": skipped}
+    return {"added": added, "updated": updated, "skipped": skipped, "errors": errors}
