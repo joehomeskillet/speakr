@@ -133,6 +133,32 @@ def init_tags_helpers(**kwargs):
     limiter = kwargs.get('limiter')
 
 
+def _recording_access_for_assignment(recording, user, require_edit=False):
+    """Recording access check handed to the group assignment rules.
+
+    Outside clinic mode this is the injected upstream check. In clinic mode the
+    central clinic policy decides (action 'edit' when edit is required), so a
+    site admin or a stale owner relation grants nothing by itself.
+    """
+    if not clinic_mode_enabled():
+        return has_recording_access(recording, user, require_edit=require_edit)
+    subject = policy.build_subject(user.id, bool(getattr(user, 'is_admin', False)))
+    facts = policy.build_facts(recording.id, recording.user_id)
+    return policy.decide(subject, 'edit' if require_edit else 'view', facts).allowed
+
+
+def _clean_group_id(raw):
+    """Return (ok, group_id) for a posted group id; clinic mode accepts integers only."""
+    if not raw or not clinic_mode_enabled():
+        return True, raw
+    if isinstance(raw, bool):
+        return False, None
+    try:
+        return True, int(raw)
+    except (TypeError, ValueError):
+        return False, None
+
+
 def _tag_read_dicts(tags: list[Tag]) -> list[dict]:
     """Serialize already visible tags, counting only recordings the viewer may read."""
     if not clinic_mode_enabled():
@@ -212,7 +238,9 @@ def create_tag():
     if not color_ok:
         return jsonify(api_error('invalid_tag_color')), 400
 
-    group_id = data.get('group_id')
+    group_ok, group_id = _clean_group_id(data.get('group_id'))
+    if not group_ok:
+        return jsonify(api_error('group_tag_create_admin_only')), 403
 
     # If creating a group tag, verify user is admin of that group
     if group_id:
@@ -355,14 +383,17 @@ def update_tag(tag_id):
 
     # Handle group_id changes (converting between personal and group tags)
     if 'group_id' in data:
-        new_group_id = data['group_id'] if data['group_id'] else None
+        group_ok, new_group_id = _clean_group_id(data['group_id'])
+        if not group_ok:
+            return jsonify(api_error('tag_group_assign_admin_only')), 403
+        new_group_id = new_group_id if new_group_id else None
         # str() lets a group id sent as "3" match 3, as for folders (#586)
         if str(new_group_id or '') != str(tag.group_id or ''):
             # Admin of the new group, and each recording allows the group tag (#578, #579)
             name_error = regroup_name_error(tag, new_group_id, tag.name)
             if name_error:
                 return jsonify(api_error(name_error)), 400
-            error_key = regroup_error(tag, new_group_id, current_user, has_recording_access)
+            error_key = regroup_error(tag, new_group_id, current_user, _recording_access_for_assignment)
             if error_key:
                 return jsonify(api_error(error_key)), 403
             tag.group_id = new_group_id

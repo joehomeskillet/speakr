@@ -20,6 +20,12 @@ MAX_SNIPPETS_PER_SPEAKER = 7
 MAX_SNIPPETS_PER_RECORDING = 2
 
 
+def _clinic_mode():
+    """In clinic mode no per-person snippet is kept or offered; turns stay anonymous."""
+    from src.clinic.config import clinic_mode_enabled
+    return clinic_mode_enabled()
+
+
 def create_speaker_snippets(recording_id, speaker_map):
     """
     Extract and store representative snippets for each identified speaker.
@@ -35,8 +41,17 @@ def create_speaker_snippets(recording_id, speaker_map):
 
     Returns:
         int: Number of snippets created
+
+    In clinic mode nothing is created: the recording's stale snippets are
+    dropped, as a re-save would, and 0 is returned. The recording, its audio
+    and its transcript turns are left untouched.
     """
     from src.utils.speaker_labels import is_real_speaker_name
+
+    if _clinic_mode():
+        if SpeakerSnippet.query.filter_by(recording_id=recording_id).delete():
+            db.session.commit()
+        return 0
 
     recording = db.session.get(Recording, recording_id)
     if not recording or not recording.transcription:
@@ -275,6 +290,8 @@ def get_speaker_snippets(speaker_id, limit=3):
         list: List of snippet dictionaries with audio segment information
               [{'recording_id': 123, 'start_time': 45.2, 'duration': 3.5, ...}, ...]
     """
+    if _clinic_mode():
+        return []  # No audio excerpts of a named person in clinic mode.
     # Always dynamically generate audio snippets from recent recordings
     return _generate_dynamic_snippets(speaker_id, limit)
 
