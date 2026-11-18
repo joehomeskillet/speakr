@@ -48,7 +48,8 @@ import os
 import queue
 import threading
 import time
-from datetime import datetime, timedelta
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import create_engine, delete, func, select, text
 from sqlalchemy.pool import NullPool
@@ -655,14 +656,114 @@ def reset_memory():
 
 
 # --- Pruning ----------------------------------------------------------------
+# Clinic mode (CLINIC_MODE on) makes the table append-only for the application
+# itself (R-031): prune_audit_events removes nothing and only reports the rows
+# it withholds. Removing audit rows is then the task of a separate retention
+# process that runs under its own database role (the application role has no
+# delete privilege on audit_event, see tests/clinic/test_audit_database_role.py)
+# and under an approved RetentionPolicy. plan_privileged_retention is the input
+# for that process: it checks the policy and counts the eligible rows, and it
+# never deletes. The process itself, its role and its approval are operated and
+# documented outside the application; a database superuser remains able to
+# remove rows, which is the documented residual risk.
+
+# Archive evidence is kept by every pruning run, clinic mode or not.
+PROTECTED_EVENTS = ('recording.archived', 'recording.unarchived')
+RETENTION_BOUNDARY = 'separate_privileged_retention'
+
+
+@dataclass(frozen=True)
+class RetentionPolicy:
+    """An approved audit retention policy for the separately privileged process."""
+    policy_id: str
+    version: int
+    retention_days: int
+    approved_by: str
+    approved_at: datetime
+
+
+class RetentionPolicyRejected(ValueError):
+    """The retention policy is missing, unapproved, stale or too short."""
+
+    def __init__(self, code):
+        self.code = code
+        super().__init__(code)
+
+
+def _clinic_mode():
+    from src.clinic.config import clinic_mode_enabled
+    return clinic_mode_enabled()
+
+
+def _aged_rows(cutoff):
+    """Rows older than cutoff that a pruning run may consider (archive evidence excluded)."""
+    table = AuditEvent.__table__
+    return db.session.execute(select(func.count()).select_from(table).where(
+        table.c.created_at < cutoff, table.c.event.notin_(PROTECTED_EVENTS),
+    )).scalar() or 0
+
+
+def retention_boundary(now=None):
+    """What ordinary pruning withholds in clinic mode. Reads only."""
+    days = retention_days()
+    cutoff = (now or datetime.utcnow()) - timedelta(days=days) if days > 0 else None
+    return {
+        'boundary': RETENTION_BOUNDARY,
+        'deleted': 0,
+        'retention_days': days,
+        'cutoff': cutoff.strftime('%Y-%m-%dT%H:%M:%S') if cutoff else None,
+        'withheld': _aged_rows(cutoff) if cutoff else 0,
+    }
+
+
+def plan_privileged_retention(policy, reviewed_version, now=None):
+    """Check an approved policy and count the rows it would release. Deletes nothing.
+
+    reviewed_version is the policy version the operator reviewed; a policy that
+    changed since then is stale. The policy may never be shorter than the
+    configured audit_log_retention_days, and a configured 0 keeps every row.
+    """
+    now = now or datetime.utcnow()
+    approved_at = getattr(policy, 'approved_at', None)
+    if isinstance(approved_at, datetime) and approved_at.tzinfo is not None:
+        approved_at = approved_at.astimezone(timezone.utc).replace(tzinfo=None)
+    if (not isinstance(policy, RetentionPolicy) or not policy.policy_id or not policy.approved_by
+            or not isinstance(approved_at, datetime) or approved_at > now):
+        raise RetentionPolicyRejected('policy_not_approved')
+    if isinstance(policy.version, bool) or not isinstance(policy.version, int) or policy.version < 1:
+        raise RetentionPolicyRejected('bad_version')
+    if policy.version != reviewed_version:
+        raise RetentionPolicyRejected('stale_version')
+    days = policy.retention_days
+    if isinstance(days, bool) or not isinstance(days, int) or days < 1:
+        raise RetentionPolicyRejected('bad_retention')
+    configured = retention_days()
+    if configured <= 0 or days < configured:
+        raise RetentionPolicyRejected('shorter_than_configured')
+    cutoff = now - timedelta(days=days)
+    return {
+        'policy_id': policy.policy_id,
+        'version': policy.version,
+        'retention_days': days,
+        'cutoff': cutoff.strftime('%Y-%m-%dT%H:%M:%S'),
+        'eligible': _aged_rows(cutoff),
+        'performed_deletion': False,
+    }
+
 
 def prune_audit_events(now=None):
     """Delete the rows older than audit_log_retention_days, in batches, then
     record the run. Returns the number of rows removed.
 
     This is the only statement in the application that deletes from
-    audit_event (tests/test_audit_log_core.py asserts it).
+    audit_event (tests/test_audit_log_core.py asserts it). In clinic mode it
+    removes nothing and logs the retention boundary instead.
     """
+    if _clinic_mode():
+        report = retention_boundary(now)
+        _log(logging.INFO, 'Audit pruning withheld (%s): %d row(s) past cutoff %s kept',
+             report['boundary'], report['withheld'], report['cutoff'])
+        return 0
     days = retention_days()
     if days <= 0:
         return 0
@@ -673,7 +774,7 @@ def prune_audit_events(now=None):
     while True:
         ids = select(table.c.id).where(
             table.c.created_at < cutoff,
-            table.c.event.notin_(('recording.archived', 'recording.unarchived')),
+            table.c.event.notin_(PROTECTED_EVENTS),
         ).order_by(table.c.id).limit(PRUNE_BATCH)
         result = db.session.execute(delete(table).where(table.c.id.in_(ids)))
         db.session.commit()
