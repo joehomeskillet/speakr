@@ -652,7 +652,7 @@ Resolution order at upload time:
 4. The default transcription model chosen by an administrator in the admin settings
 5. The connector's own model. For the OpenAI, Mistral and VibeVoice connectors this is `TRANSCRIPTION_MODEL`. The `asr_endpoint` connector has none: it sends no `model` parameter, and the ASR service uses its own default.
 
-If the override isn't in `TRANSCRIPTION_MODELS_AVAILABLE`, it's dropped with a warning in the log and the recording uses the connector's own model, which guards against stale browser caches sending old model ids. The same resolution applies to reprocessing, bulk reprocessing, API v1, watch folders, incognito mode and the startup voice embedding check.
+If the override isn't in `TRANSCRIPTION_MODELS_AVAILABLE`, it's dropped with a warning in the log and the recording uses the connector's own model, which guards against stale browser caches sending old model ids. The same resolution applies to reprocessing, bulk reprocessing, API v1, watch folders and the startup voice embedding check.
 
 The override is propagated to the connector via the `model` field on `TranscriptionRequest`. Connectors that key on a model name (OpenAI Whisper) honour it directly. The `asr_endpoint` connector forwards the override as a `model=` query parameter; the [whisperx-asr-service](https://github.com/murtaza-nasir/whisperx-asr-service) fork uses it to switch the loaded Whisper model on demand, while the upstream `ahmetoner/whisper-asr-webservice` ignores unknown query parameters, so the override is safe in either case.
 

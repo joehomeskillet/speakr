@@ -13,7 +13,7 @@
 <div v-if="mobileTab === 'transcript'" class="ph-pane ph-pane--transcript" :class="{ 'has-find': transcriptFind.open }" data-phone-pane="transcript">
     <div class="ph-tbar" data-phone-transcript-bar>
         <div class="ph-tbar__main">
-            <div v-if="!selectedRecording.incognito" class="ph-seg" role="group" :aria-label="t('phone.textShown')" data-phone-switch>
+            <div class="ph-seg" role="group" :aria-label="t('phone.textShown')" data-phone-switch>
                 <button type="button" data-phone-switch-option="transcription" @click="viewingTranslation = false"
                         :aria-pressed="viewingTranslation ? 'false' : 'true'" v-text="t('transcription.title')"></button>
                 <button type="button" data-phone-switch-option="translation" @click="viewingTranslation = true"
@@ -89,9 +89,7 @@
              empty state is shown. -->
         {% call phone_empty('translation', "t('translation.noTranslation')", icon='fa-language',
                             attrs='v-if="viewingTranslation && !translationJobActive && selectedRecording.transcription && !selectedRecording.transcription_translation"') %}
-            <div v-if="selectedRecording.incognito" class="empty__body" :title="t('tooltips.translateTranscriptIncognito')"
-                 v-text="t('translation.incognitoUnavailable')"></div>
-            <div v-else-if="selectedRecording.can_edit !== false" class="ph-empty__acts">
+            <div v-if="selectedRecording.can_edit !== false" class="ph-empty__acts">
                 <button @click="generateTranslation()" :disabled="translationJobActive" class="btn btn--primary">
                     <i class="fas fa-language"></i>
                     <span v-text="t('translation.generate')" data-i18n="translation.generate"></span>

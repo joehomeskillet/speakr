@@ -4,13 +4,11 @@
  */
 
 import * as FailedUploads from '../db/failed-uploads.js';
-import * as IncognitoStorage from '../db/incognito-storage.js';
 import * as RecordingDB from '../db/recording-persistence.js';
 import { getUploadCsrfToken, isCsrfRejection } from '../csrf.js';
 import { shouldSliceUpload, uploadFileInSlices } from '../db/sliced-file-upload.js';
 import { computeUploadTimeout } from '../utils/upload-timeout.js';
 import { recorderInUse } from '../utils/recorder-state.js';
-import { confirmDialog } from '../utils/dialogs.js';
 import { getFriendlyError } from '../utils/upload-errors.js';
 import { uploadCancelPlan } from '../utils/upload-cancel.js';
 import {
@@ -30,8 +28,6 @@ export function useUpload(state, utils) {
         dragover, availableTags, uploadTagSearchFilter,
         // Folder state
         availableFolders, selectedFolderId,
-        // Incognito mode state
-        incognitoMode, incognitoRecording, incognitoProcessing,
         // Video / audio-only upload state
         videoRetentionEnabled, keepAudioOnly, maxAudioOnlyVideoSizeMB,
         // View state
@@ -62,8 +58,7 @@ export function useUpload(state, utils) {
     const joinQueuedItems = computed(() => uploadQueue.value.filter(item => item.status === 'queued'));
     const joinAvailable = computed(() =>
         joinQueuedItems.value.length >= 2
-        && joinQueuedItems.value.length <= MAX_JOIN_FILES
-        && !(incognitoMode && incognitoMode.value));
+        && joinQueuedItems.value.length <= MAX_JOIN_FILES);
     const joinActive = computed(() => joinMode.value && joinAvailable.value);
     const joinTotalDuration = computed(() => totalJoinDuration(joinQueuedItems.value));
     const joinHasVideo = computed(() => joinQueuedItems.value.some(item => isVideoFileName(item.file?.name)));
@@ -1147,207 +1142,6 @@ export function useUpload(state, utils) {
         );
     });
 
-    // === INCOGNITO MODE FUNCTIONS ===
-
-    /**
-     * Upload and process a file in incognito mode.
-     * The file is processed synchronously and no data is saved to the database.
-     * Results are stored only in sessionStorage.
-     */
-    const startIncognitoUpload = async () => {
-        const pendingFiles = uploadQueue.value.filter(item => item.status === 'queued');
-        if (pendingFiles.length === 0) {
-            return;
-        }
-
-        // Only process the first file for incognito mode
-        const fileItem = pendingFiles[0];
-
-        // Check if incognito mode state is available
-        if (!incognitoMode || !incognitoProcessing || !incognitoRecording) {
-            console.warn('[Incognito] Incognito state not available, falling back to normal upload');
-            startUpload();
-            return;
-        }
-
-        incognitoProcessing.value = true;
-        processingMessage.value = t('incognito.processingInProgress');
-        processingProgress.value = 10;
-        progressPopupMinimized.value = false;
-
-        try {
-            const formData = new FormData();
-            formData.append('file', fileItem.file);
-
-            // Add ASR options
-            const asrOpts = fileItem.asrOptions || {};
-            const language = asrOpts.language || uploadLanguage.value;
-            const minSpeakers = asrOpts.min_speakers || uploadMinSpeakers.value;
-            const maxSpeakers = asrOpts.max_speakers || uploadMaxSpeakers.value;
-
-            if (language) {
-                formData.append('language', language);
-            }
-            if (minSpeakers && minSpeakers !== '') {
-                formData.append('min_speakers', minSpeakers.toString());
-            }
-            if (maxSpeakers && maxSpeakers !== '') {
-                formData.append('max_speakers', maxSpeakers.toString());
-            }
-
-            const hotwords = asrOpts.hotwords || uploadHotwords.value;
-            const initialPrompt = asrOpts.initial_prompt || uploadInitialPrompt.value;
-            if (hotwords && hotwords.trim()) {
-                formData.append('hotwords', hotwords.trim());
-            }
-            if (initialPrompt && initialPrompt.trim()) {
-                formData.append('initial_prompt', initialPrompt.trim());
-            }
-            const incogModel = asrOpts.transcription_model || uploadTranscriptionModel.value;
-            if (incogModel && incogModel.trim()) {
-                formData.append('transcription_model', incogModel.trim());
-            }
-
-            // Request auto-summarization
-            formData.append('auto_summarize', 'true');
-
-            processingMessage.value = t('incognito.uploadingFile');
-            processingProgress.value = 20;
-
-            console.log('[Incognito] Uploading file:', fileItem.file.name);
-
-            const response = await fetch('/api/recordings/incognito', {
-                method: 'POST',
-                body: formData
-            });
-
-            processingProgress.value = 50;
-
-            // Parse response
-            const contentType = response.headers.get('content-type') || '';
-            if (!contentType.includes('application/json')) {
-                const text = await response.text();
-                const titleMatch = text.match(/<title>([^<]+)<\/title>/i);
-                throw uploadError(titleMatch?.[1] || t('errors.serverErrorStatus', { status: response.status }), titleMatch?.[1] || `Server error (${response.status})`);
-            }
-
-            const data = await response.json();
-
-            if (!response.ok || data.error) {
-                const err = uploadError(data.error || t('errors.processingFailedWithStatus', { status: response.status }), data.error || `Processing failed with status ${response.status}`);
-                err.code = data.code;
-                err.errorType = data.error_type;
-                throw err;
-            }
-
-            processingProgress.value = 80;
-            processingMessage.value = t('incognito.processingComplete');
-
-            // Store result in sessionStorage
-            const incognitoData = {
-                id: 'incognito',
-                incognito: true,
-                title: data.title || t('incognito.recordingTitle'),
-                transcription: data.transcription,
-                summary: data.summary,
-                summary_html: data.summary_html,
-                created_at: data.created_at,
-                original_filename: data.original_filename,
-                file_size: data.file_size,
-                audio_duration_seconds: data.audio_duration_seconds,
-                processing_time_seconds: data.processing_time_seconds,
-                status: 'COMPLETED'
-            };
-
-            IncognitoStorage.saveIncognitoRecording(incognitoData);
-            incognitoRecording.value = incognitoData;
-
-            // Remove the processed file from queue
-            const index = uploadQueue.value.findIndex(item => item.clientId === fileItem.clientId);
-            if (index !== -1) {
-                uploadQueue.value.splice(index, 1);
-            }
-
-            processingProgress.value = 100;
-            processingMessage.value = t('incognito.recordingReady');
-
-            // Auto-select the incognito recording and switch to detail view,
-            // unless the next recording is already under way (#407); it stays
-            // available from the incognito entry in the sidebar.
-            if (!recorderInUse(isRecording, currentView)) {
-                selectedRecording.value = incognitoData;
-                currentView.value = 'detail';
-            }
-            // Dismiss the upload modal if it was still open behind the
-            // success transition.
-            if (showUploadModal) showUploadModal.value = false;
-
-            // Show toast
-            showToast(t('incognito.recordingProcessed'), 'fa-user-secret');
-
-            console.log('[Incognito] Processing complete');
-
-        } catch (error) {
-            console.error('[Incognito] Processing failed:', error);
-            const friendlyErr = getFriendlyError(error.matchText || error.message, t, error.code, error.errorType);
-            setGlobalError(`${friendlyErr.title}: ${friendlyErr.guidance}`);
-            fileItem.status = 'failed';
-            fileItem.error = error.message;
-        } finally {
-            incognitoProcessing.value = false;
-            processingProgress.value = 0;
-            processingMessage.value = '';
-        }
-    };
-
-    /**
-     * Clear the incognito recording with confirmation
-     */
-    const clearIncognitoRecordingWithConfirm = async () => {
-        if (incognitoRecording && incognitoRecording.value) {
-            if (await confirmDialog({ message: t('incognito.discardConfirm'), confirmLabel: t('common.discard'), danger: true })) {
-                IncognitoStorage.clearIncognitoRecording();
-                incognitoRecording.value = null;
-                // If the incognito recording was selected, clear selection
-                if (selectedRecording.value?.id === 'incognito') {
-                    selectedRecording.value = null;
-                }
-                showToast(t('incognito.recordingDiscarded'), 'fa-trash');
-            }
-        }
-    };
-
-    /**
-     * Select the incognito recording for viewing
-     */
-    const selectIncognitoRecording = () => {
-        if (incognitoRecording && incognitoRecording.value) {
-            selectedRecording.value = incognitoRecording.value;
-            currentView.value = 'detail';
-            // Dismiss the upload modal if it was still open behind the
-            // success transition.
-            if (showUploadModal) showUploadModal.value = false;
-        }
-    };
-
-    /**
-     * Load incognito recording from sessionStorage on app init
-     */
-    const loadIncognitoRecording = () => {
-        const stored = IncognitoStorage.getIncognitoRecording();
-        if (stored && incognitoRecording) {
-            incognitoRecording.value = stored;
-            console.log('[Incognito] Loaded recording from sessionStorage');
-        }
-    };
-
-    /**
-     * Check if there's an incognito recording (for navigation guards)
-     */
-    const hasIncognitoRecording = () => {
-        return IncognitoStorage.hasIncognitoRecording();
-    };
-
     // Cap so a permanently-broken upload doesn't retry forever.
     const MAX_AUTO_RETRIES = 3;
     let _isResurfacing = false;
@@ -1490,11 +1284,5 @@ export function useUpload(state, utils) {
         handleTagTouchStart,
         handleTagTouchMove,
         handleTagTouchEnd,
-        // Incognito mode
-        startIncognitoUpload,
-        clearIncognitoRecordingWithConfirm,
-        selectIncognitoRecording,
-        loadIncognitoRecording,
-        hasIncognitoRecording
     };
 }

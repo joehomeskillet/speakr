@@ -234,7 +234,7 @@ def test_chunks_finished_of_total_are_stored_and_returned(ctx, no_throttle, tmp_
 
 
 def test_chunks_outside_a_job_store_nothing(ctx, tmp_path):
-    # Incognito mode and the voice check run without a processing job.
+    # The voice check runs without a processing job.
     assert job_control.current().job_id is None
     recording = _recording()
     job = _job(recording)

@@ -78,7 +78,7 @@ export function createAsrEditorTimeline() {
             session: { type: Object, required: true },
             // The recording's stored length in seconds, until the audio element knows its own.
             duration: { type: Number, default: 0 },
-            // False when the recording has no audio file (removed, incognito): no waveform is asked for.
+            // False when the recording has no audio file (removed): no waveform is asked for.
             hasAudio: { type: Boolean, default: true },
         },
 

@@ -308,7 +308,7 @@ The **Initial prompt** field provides context to the transcription engine about 
 
 Both fields follow a precedence hierarchy: values you set in the upload form override tag defaults, which override folder defaults, which override your personal defaults in [account settings](settings.md#custom-prompts-tab). If you regularly transcribe similar content, set your defaults at the tag or user level so you don't have to enter them every time.
 
-The same fields, along with the saved-template picker, are also available in the in-app recorder: after stopping a recording, expand **Upload settings**, then **Advanced ASR options**. Values set there travel with the recording through every upload path, including crash recovery and incognito processing.
+The same fields, along with the saved-template picker, are also available in the in-app recorder: after stopping a recording, expand **Upload settings**, then **Advanced ASR options**. Values set there travel with the recording through every upload path, including crash recovery.
 
 #### Transcription Model
 
@@ -334,7 +334,7 @@ A recorder or phone often splits a long meeting into several files. When two or 
 
 Each file is uploaded and checked as usual. Once the last one arrives, Speakr joins the audio in order and transcribes the result once, so you get one continuous transcript and summary without transcribing the pieces separately. The meeting date is the earliest of the files' dates. As with merging, if any file is a video, the joined recording keeps the audio only. If one file fails to upload, the others are discarded and a message names the file, so you can add the files again and retry. Up to 20 files can be joined, and joining is not available in incognito mode.
 
-If incognito mode is enabled at the server, a toggle in the upload modal lets you process recordings without saving them to your account. Incognito uploads accept one file at a time. In-app recordings made with incognito on are captured entirely in the browser — even when server-side chunk streaming is enabled, no audio reaches the server until you explicitly process the recording — so the 200 MB in-browser recording cap applies to them.
+
 
 ### Mobile Upload Experience
 

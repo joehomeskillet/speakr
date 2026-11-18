@@ -354,7 +354,7 @@ class ASREndpointConnector(BaseTranscriptionConnector):
         """Idempotency-Key for POST /jobs: the processing job, the audio and the parameters.
 
         The task key names what is transcribed (a processing job and its
-        audio bytes, or a chunk, an incognito upload or the voice check and
+        audio bytes, or a chunk or the voice check and
         its audio bytes) and is the same on every retry of it; the digest of
         the parameters changes the key when the parameters change.
         """
@@ -367,7 +367,7 @@ class ASREndpointConnector(BaseTranscriptionConnector):
                           capabilities: Dict[str, Any]) -> TranscriptionResponse:
         """Submit a job (or resume the saved one), poll it and fetch the result.
 
-        A request without save_provider_task (a chunk, incognito mode, the
+        A request without save_provider_task (a chunk, the
         voice check) has nothing that could resume its job or remove it
         later, so the job is deleted on the service on every failure.
         """

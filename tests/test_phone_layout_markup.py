@@ -9,8 +9,6 @@ What is guarded:
   - every action of a recording on the desktop header and panels is also in
     the phone layout, so nothing is lost on a phone;
   - the structure is shared: no theme folder carries phone markup;
-  - an incognito recording has no download control, on a phone or on the
-    desktop (the download routes need a stored recording);
   - the texts of the phone layout exist and are all used;
   - Events and Speaker stats are opened from the row above the summary, and
     the four tabs take their empty state from one macro;
@@ -94,7 +92,7 @@ def test_phone_only_actions_are_kept():
     """What the phone header offered before the shared layout and the desktop does not."""
     phone = _calls(_phone_markup())
     for name in ('downloadTranscript', 'clearChat', 'downloadChat',
-                 'clearIncognitoRecordingWithConfirm', 'phoneFilterByTag', 'skipAudio', 'setPlaybackRate',
+                 'phoneFilterByTag', 'skipAudio', 'setPlaybackRate',
                  'toggleAudioPlayback', 'enterVideoFullscreen'):
         assert name in phone, name
     markup = _phone_markup()
@@ -165,50 +163,12 @@ def test_no_volume_control_in_the_phone_player():
     assert 'setAudioVolume' not in strip and 'toggleAudioMute' not in strip and 'volume' not in strip.lower()
 
 
-INCOGNITO_GATE = '!selectedRecording.incognito'
-
-
 def _element_with(source, needle):
     """The opening tag that holds `needle`."""
     at = source.index(needle)
     start = source.rindex('<', 0, at)
     end = source.index('>', at)
     return source[start:end + 1]
-
-
-def test_an_incognito_recording_has_no_download_control():
-    right = _read(DETAIL_DIR, 'desktop-right-panel.html')
-    # the summary's download menu (its wrapper carries the condition) and the overflow menu's two formats
-    wrapper = right[:right.index('data-summary-download-toggle')]
-    assert INCOGNITO_GATE in wrapper[wrapper.rindex('<div'):]
-    for call in ('@click="downloadSummary(\'docx\')"', '@click="downloadSummary(\'md\')"'):
-        assert INCOGNITO_GATE in _element_with(right, call), call
-    assert right.count('@click="downloadNotes"') == 2
-    for part in right.split('@click="downloadNotes"')[:-1]:
-        assert INCOGNITO_GATE in part[part.rindex('<button'):]
-
-    transcript = _read(DETAIL_DIR, 'desktop-transcription-panel.html')
-    wrapper = transcript[:transcript.index('data-download-toggle')]
-    assert INCOGNITO_GATE in wrapper[wrapper.rindex('<div'):]
-
-    chat = _read(DETAIL_DIR, 'floating-chat.html')
-    assert INCOGNITO_GATE in chat[:chat.index('@click="downloadChat"')][-120:]
-    assert "download_if='!selectedRecording.incognito'" in chat
-    assert "download_if='!selectedRecording.incognito'" in _read(DETAIL_DIR, 'mobile-chat-panel.html')
-    macro = _read(TEMPLATES, 'components', 'assistant', 'chat.html')
-    assert '{% if download_if %} v-if="{{ download_if }}"{% endif %} type="button" @click="{{ download }}(index)"' in macro
-
-    phone = _phone_markup()
-    for needle in ('data-phone-download="summary"', 'data-phone-download="notes"', 'data-phone-download="chat"',
-                   'data-phone-action="download-transcript"'):
-        assert INCOGNITO_GATE in _element_with(phone, needle), needle
-    sheets = _read(PHONE_DIR, 'recording-sheets.html')
-    audio = sheets[:sheets.index('data-phone-action="download-audio"')]
-    assert '<template v-if="!selectedRecording.incognito">' in audio[audio.rindex('<div v-if="(!selectedRecording.is_shared'):] \
-        or INCOGNITO_GATE in audio[audio.rindex('<template'):]
-    # copy stays
-    for call in ('copySummary', 'copyNotes', 'copyTranscription'):
-        assert INCOGNITO_GATE not in _element_with(phone, f'@click="{call}"'), call
 
 
 def test_phone_texts_exist_and_are_used():

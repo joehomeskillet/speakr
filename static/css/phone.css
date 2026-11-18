@@ -205,7 +205,6 @@ html.dark {
 }
 .ph-pill > i { font-size: 10px; }
 .ph-pill--info { background: var(--tint-info, var(--bg-info-light, var(--ph-accent-c))); color: var(--tint-info-fg, var(--text-info-strong, var(--ph-on-accent-c))); }
-.ph-pill--incognito { background: var(--tint-incognito, var(--ph-surface-3)); color: var(--tint-incognito-fg, var(--ph-text)); }
 .ph-pill--alert { background: #dc2626; color: #ffffff; }
 
 /* Folder and tag chips, tinted with the folder's or the tag's own colour (--tag) */

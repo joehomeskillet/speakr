@@ -2848,8 +2848,7 @@ Summarization Instructions:
                             'custom_banner',
                             'disable_auto_summarization',
                             'disable_auto_translation',
-                            'enable_folders',
-                            'show_whats_new'
+                            'enable_folders'
                         ];
                         data.sort((a, b) => {
                             const ai = settingOrder.indexOf(a.key);
@@ -4495,7 +4494,7 @@ Summarization Instructions:
                 // One page of /admin/audit-log at a time, newest first. The
                 // filters are applied on the server; "Older" and "Newer" page by
                 // the id of the last and the first row shown.
-                const auditGroups = ['auth', 'access', 'change', 'share', 'admin', 'incognito', 'audit'];
+                const auditGroups = ['auth', 'access', 'change', 'share', 'admin', 'audit'];
                 const auditOutcomes = ['success', 'denied', 'failed'];
                 const auditActorKinds = ['session', 'api_token', 'sso_token', 'public_link', 'system', 'anonymous'];
                 const emptyAuditFilters = () => ({ from: '', to: '', user: '', group: '', recording_id: '', outcome: '', actor_kind: '' });

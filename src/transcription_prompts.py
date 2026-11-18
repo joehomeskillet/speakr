@@ -194,40 +194,6 @@ Title:"""
     return system_message_content, prompt_text
 
 
-def build_incognito_summary_prompt(transcript_text, summarization_instructions,
-                                   user_output_language):
-    """Return (system_message_content, prompt_text) for an incognito summary.
-
-    Incognito recordings have no stored context, so this is the summary layout
-    without the context section and without the prefix-cache variants.
-    """
-    language_directive = (
-        f"IMPORTANT: You MUST provide the summary in {user_output_language}."
-        if user_output_language else ""
-    )
-
-    system_message_content = (
-        "You are an AI assistant that generates comprehensive summaries for "
-        "meeting transcripts. Respond only with the summary in Markdown format."
-    )
-    if user_output_language:
-        system_message_content += (
-            f" You MUST generate the entire summary in {user_output_language}."
-        )
-
-    prompt_text = f"""Transcription:
-\"\"\"
-{transcript_text}
-\"\"\"
-
-Summarization Instructions:
-{summarization_instructions}
-
-{language_directive}"""
-
-    return system_message_content, prompt_text
-
-
 def build_summary_prompt(transcript_text, context_section, summarization_instructions,
                          user_output_language, prefix_cache_optimized):
     """Return (system_message_content, prompt_text) for summary generation."""

@@ -3,7 +3,6 @@ const { createApp, ref, reactive, computed, onMounted, onUnmounted, watch, nextT
 // Import composables
 import { useRecordings } from './modules/composables/recordings.js';
 import { resolveInitialSort } from './modules/utils/sort-preference.js';
-import { releasesToShow, releaseVersion } from './modules/utils/whats-new.js';
 import { useUpload } from './modules/composables/upload.js';
 import { useAudio } from './modules/composables/audio.js';
 import { useUI } from './modules/composables/ui.js';
@@ -427,20 +426,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             const pendingRecordingMode = ref(null);
             const uploadDisclaimer = ref('');
             const showUploadDisclaimerModal = ref(false);
-            const whatsNew = ref({ show: false, items: [], version: '', releases: [] });
-            // Close the What's new dialog and record it for the account, so
-            // other devices do not show it again.
-            const dismissWhatsNew = async () => {
-                whatsNew.value = { ...whatsNew.value, show: false };
-                try {
-                    await fetch('/api/user/whats-new/seen', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken.value },
-                    });
-                } catch (e) {
-                    console.warn('Could not record that What\'s new was read:', e);
-                }
-            };
             const customBanner = ref('');
             const showBanner = ref(true);
 
@@ -618,12 +603,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             const appBadgeCount = ref(0);
             const currentMediaMetadata = ref(null);
             const isMediaSessionActive = ref(false);
-
-            // --- Incognito Mode State ---
-            const enableIncognitoMode = ref(false);  // Server config
-            const incognitoMode = ref(false);
-            const incognitoRecording = ref(null);
-            const incognitoProcessing = ref(false);
 
             // --- Video / Audio-Only Upload State ---
             // Server config: whether VIDEO_RETENTION is enabled. Controls
@@ -1980,7 +1959,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 maxFileSizeMB, chunkingEnabled, chunkingMode, chunkingLimit, chunkingLimitDisplay,
                 maxConcurrentUploads, recordingDisclaimer, showRecordingDisclaimerModal, pendingRecordingMode,
                 uploadDisclaimer, showUploadDisclaimerModal,
-                whatsNew, dismissWhatsNew,
                 customBanner, showBanner,
                 showAdvancedOptions, userTranscriptionLanguage, uploadLanguage, uploadMinSpeakers, uploadMaxSpeakers, uploadHotwords, uploadInitialPrompt, initialPromptTemplates, applyInitialPromptTemplate, showHintsPopover, hintsPopoverStyle, toggleHintsPopover, uploadTranscriptionModel, uploadPromptVariables, showPromptVariablesPanel, selectedPromptVariables, reprocessAvailableVariables, transcriptionModelOptions,
                 availableTags, selectedTagIds, uploadTagSearchFilter,
@@ -2006,8 +1984,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 notificationPermission, pushSubscription, appBadgeCount,
                 currentMediaMetadata, isMediaSessionActive,
 
-                // Incognito Mode
-                enableIncognitoMode, incognitoMode, incognitoRecording, incognitoProcessing,
                 videoRetentionEnabled, keepAudioOnly, maxAudioOnlyVideoSizeMB,
 
                 // Bulk Selection
@@ -2697,7 +2673,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             // it fires once per navigation, not on in-place field updates.
             watch(() => (selectedRecording.value && selectedRecording.value.id) || null, async (id) => {
                 const rec = selectedRecording.value;
-                if (!id || id === 'incognito' || !rec) return;
+                if (!id || !rec) return;
                 if ('transcription' in rec) return;            // already a full detail object
                 if (utils._hydratingSelectedRecording) return; // selectRecording is fetching it
                 try {
@@ -4051,7 +4027,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             // Summary and notes of the open recording. The server's sanitized
             // HTML is used when present; without it (a summary saved in this
-            // tab, an incognito recording) the markdown is rendered here and
+            // tab) the markdown is rendered here and
             // sanitized. The raw text is never used as HTML (#439).
             const renderedField = (field) => {
                 const rec = selectedRecording.value;
@@ -4162,7 +4138,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             // link to that group of recordings without them having to know the
             // URL shape. Everything else maps back to '/'. replaceState avoids
             // history spam; the path is only changed (query + hash preserved).
-            // Incognito (id 'incognito') is not a number, so it maps to '/'.
             const syncAddressBar = () => {
                 try {
                     const rec = selectedRecording.value;
@@ -4211,16 +4186,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 } else if (oldView === 'recording') {
                     // Destroy editor when leaving recording view
                     uiComposable.destroyRecordingNotesEditor();
-                }
-
-                // Clear incognito data when navigating away from detail view
-                // This ensures incognito data doesn't linger when user goes to upload/recording view
-                if (oldView === 'detail' && newView !== 'detail') {
-                    if (uploadComposable.hasIncognitoRecording()) {
-                        console.log('[Incognito] Clearing data on view change from detail');
-                        sessionStorage.removeItem('speakr_incognito_recording');
-                        incognitoRecording.value = null;
-                    }
                 }
             });
 
@@ -4622,23 +4587,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                         enableAudioRemovedFilter.value = config.enable_audio_removed_filter === true;
                         showUsernamesInUI.value = config.show_usernames_in_ui === true;
                         userSearchScope.value = resolveSearchScope(config.user_search_scope, showUsernamesInUI.value);
-                        enableIncognitoMode.value = config.enable_incognito_mode === true;
                         foldersEnabled.value = config.enable_folders === true;
-                        // What's new after an update: once per account. Every
-                        // release with notes since the one the account last saw
-                        // is listed, newest first (utils/whats-new.js).
-                        const wn = config.whats_new;
-                        if (wn && wn.enabled && wn.release && wn.seen !== wn.release && window.i18n?.items) {
-                            const available = window.i18n.keys ? window.i18n.keys('whatsNew.releases') : [wn.release];
-                            const releases = releasesToShow(available, wn.release, wn.seen)
-                                .map((key) => ({ key, version: releaseVersion(key),
-                                                 items: window.i18n.items('whatsNew.releases.' + key) }))
-                                .filter((release) => release.items.length);
-                            if (releases.length) {
-                                whatsNew.value = { show: true, releases, items: releases[0].items,
-                                    version: String(wn.version || '').replace(/^v/, '').replace(/-.*$/, '') };
-                            }
-                        }
                         maxConcurrentUploads.value = config.max_concurrent_uploads || 3;
                         // Video / audio-only upload config. videoRetention from
                         // the server controls whether the "Keep audio only"
@@ -4679,11 +4628,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                                 filterFolder.value = savedFolder;
                             }
                         }
-
-                        // Set default incognito mode state if feature enabled and default is true
-                        if (config.enable_incognito_mode && config.incognito_mode_default) {
-                            incognitoMode.value = true;
-                        }
                     }
                 } catch (error) {
                     console.error('Failed to load config:', error);
@@ -4691,12 +4635,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 // Initialize UI settings from localStorage
                 uiComposable.initializeUI();
-
-                // Restore the incognito recording after a reload; sessionStorage
-                // keeps it until the tab closes (#528). Only if the feature is enabled.
-                if (enableIncognitoMode.value) {
-                    uploadComposable.loadIncognitoRecording();
-                }
 
                 // Initialize audio capabilities
                 await audioComposable.initializeAudio();
@@ -4734,7 +4672,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // Visibility change handler for wake lock
                 document.addEventListener('visibilitychange', audioComposable.handleVisibilityChange);
 
-                // Prevent data loss on tab close/refresh during recording or incognito mode
+                // Prevent data loss on tab close/refresh during recording
                 window.addEventListener('beforeunload', (e) => {
                     // Check for unsaved recording
                     if (audioComposable.hasUnsavedRecording()) {
@@ -4752,14 +4690,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                         e.preventDefault();
                         e.returnValue = ''; // Chrome requires this
                         return 'Uploads are still in progress. Leaving now may lose recordings that have not finished uploading.';
-                    }
-                    // Check for incognito recording that would be lost
-                    // Only warn if we're currently viewing the incognito recording
-                    // (if user navigated away, they've implicitly abandoned it or already been warned)
-                    if (uploadComposable.hasIncognitoRecording() && selectedRecording.value?.id === 'incognito') {
-                        e.preventDefault();
-                        e.returnValue = ''; // Chrome requires this
-                        return 'You have an incognito recording that will be lost. Are you sure you want to leave?';
                     }
                 });
 
