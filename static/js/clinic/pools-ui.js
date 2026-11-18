@@ -7,15 +7,15 @@
  * the newer server state and never overwrites it. Clinical data and
  * membership lists stay in memory only (no browser storage).
  *
- * Server reads use GET /pools and writes use the typed parity commands via
- * the shared api client. Colours come only from the token contract.
+ * Server reads use GET /pools and writes use PUT /pools/<kind>/<pool_id> with
+ * the full membership set via the shared api client. Colours come only from the token contract.
  */
 
 import { surfaceFor } from './tokens.js';
 
 export const POOL_TYPES = Object.freeze({
-    author: Object.freeze({ command: 'save_author_pool', listKey: 'author_pools' }),
-    staff: Object.freeze({ command: 'save_staff_pool', listKey: 'staff_pools' }),
+    author: Object.freeze({ kind: 'author', listKey: 'author_pools' }),
+    staff: Object.freeze({ kind: 'staff', listKey: 'staff_pools' }),
 });
 
 const LABELS = {
@@ -25,6 +25,7 @@ const LABELS = {
     'clinic.pools.revision': 'Stand',
     'clinic.pools.members': 'Mitglieder',
     'clinic.pools.add': 'Mitglied hinzufügen',
+    'clinic.pools.addLabel': 'Benutzer-ID des neuen Mitglieds',
     'clinic.pools.remove': 'Entfernen',
     'clinic.pools.confirmRemove': 'Mitgliedschaft wirklich entfernen?',
     'clinic.pools.confirm': 'Ja, entfernen',
@@ -104,7 +105,7 @@ export function createPoolsStore(client, onChange) {
     }
 
     async function send(write) {
-        const res = await client.command(write.body, { idempotencyKey: write.key });
+        const res = await client.request(write.path, { method: 'PUT', body: write.body, idempotencyKey: write.key });
         if (res.outcome === 'ok') {
             state.failedWrite = null;
             return load();
@@ -119,12 +120,8 @@ export function createPoolsStore(client, onChange) {
         const requestId = newId();
         return send({
             key: requestId,
-            body: {
-                command: POOL_TYPES[type].command,
-                request_id: requestId,
-                expected_revision: state.revision,
-                payload: { pool_id: pool.id, name: pool.name, member_user_ids: memberUserIds },
-            },
+            path: '/pools/' + POOL_TYPES[type].kind + '/' + encodeURIComponent(pool.id),
+            body: { expected_revision: state.revision, name: pool.name, member_user_ids: memberUserIds },
         });
     }
 
@@ -199,6 +196,11 @@ export const POOLS_TEMPLATE = `
           <button type="button" @click="store.requestRemoval(type, pool.id, uid)">{{ label('clinic.pools.remove') }}</button>
         </li>
       </ul>
+      <form @submit.prevent="addFromDraft(type, pool.id)">
+        <label :for="'pools-add-' + pool.id">{{ label('clinic.pools.addLabel') }}</label>
+        <input :id="'pools-add-' + pool.id" type="number" min="1" step="1" inputmode="numeric" v-model="drafts[pool.id]">
+        <button type="submit">{{ label('clinic.pools.add') }}</button>
+      </form>
     </article>
   </section>
   <div v-if="state.pendingRemoval" role="alertdialog" aria-modal="false" aria-labelledby="pools-confirm">
@@ -219,8 +221,14 @@ export function createPoolsComponent(Vue, client) {
                 const s = statusSurface(state);
                 return { background: s.background, color: s.color, borderColor: s.border };
             });
+            const drafts = Vue.reactive({});
+            function addFromDraft(type, poolId) {
+                const userId = Number(drafts[poolId]);
+                drafts[poolId] = '';
+                return store.addMember(type, poolId, userId);
+            }
             Vue.onMounted(() => store.load());
-            return { state, store, label, surfaceStyle, onKey: (e) => handleKey(store, e) };
+            return { state, store, label, surfaceStyle, drafts, addFromDraft, onKey: (e) => handleKey(store, e) };
         },
     };
 }
