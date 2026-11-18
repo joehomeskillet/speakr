@@ -14,14 +14,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Sequence
 
 from sqlalchemy import ForeignKeyConstraint, event
 
 from src.clinic import policy
 from src.clinic.audio_revisions import (
-    AudioRevisionError,
     ClinicAudioRevision,
+    ClinicAudioRevisionSnapshot,
     EditDecisionList,
     OP_CUT,
     OP_INSERT,
@@ -41,7 +40,7 @@ from src.clinic.correction import (
     ClinicTextAudioLink,
     effective_links,
 )
-from src.clinic.lease import LeaseConflict, assert_current
+from src.clinic.lease import assert_current
 from src.clinic.models import (
     ClinicDictation,
     ClinicTranscriptRevision,
@@ -52,7 +51,6 @@ from src.clinic.models import (
 from src.clinic.release import (
     ClinicRelease,
     ClinicReleaseSupersession,
-    active_release,
     invalidate_on_change,
 )
 from src.database import db
@@ -149,6 +147,22 @@ def _require_edit_permission(dictation: ClinicDictation, actor_user_id: int) -> 
         raise AudioInvalidationPermissionDenied("audio edit not permitted")
 
 
+def _get_baseline_edl(dictation: ClinicDictation) -> EditDecisionList:
+    init_snap = (
+        db.session.query(ClinicAudioRevisionSnapshot)
+        .filter_by(dictation_id=dictation.id, operation_seq=0)
+        .first()
+    )
+    if init_snap is not None:
+        init_rev = db.session.get(ClinicAudioRevision, init_snap.audio_revision_id)
+        if init_rev:
+            return get_revision_edl(dictation, init_rev)
+    cur = current_audio_revision(dictation)
+    if cur:
+        return get_revision_edl(dictation, cur)
+    raise AudioInvalidationError("no audio revision initialized for dictation")
+
+
 def get_source_slices_for_interval(
     edl: EditDecisionList, start_ms: int, end_ms: int
 ) -> list[tuple[str, str, int, int]] | None:
@@ -157,7 +171,9 @@ def get_source_slices_for_interval(
         return None
     if start_ms == end_ms:
         for e in edl.entries:
-            if e.output_start_ms <= start_ms <= e.output_end_ms:
+            if (e.output_start_ms <= start_ms < e.output_end_ms) or (
+                start_ms == edl.total_duration_ms and start_ms == e.output_end_ms
+            ):
                 offset = start_ms - e.output_start_ms
                 pos = e.source_start_ms + offset
                 return [(e.source_id, e.source_type, pos, pos)]
@@ -218,7 +234,7 @@ def invalidate_audio_change(
             raise AudioInvalidationConflict(f"stale revision: expected {expected_revision_id}, got {prev_id}")
 
     new_edl = get_revision_edl(dictation, new_revision)
-    old_edl = get_revision_edl(dictation, previous_revision) if previous_revision else new_edl
+    base_edl = _get_baseline_edl(dictation)
 
     events: list[ClinicAudioInvalidationEvent] = []
     preserved_links: list[str] = []
@@ -240,20 +256,25 @@ def invalidate_audio_change(
         db.session.add(ev)
         events.append(ev)
 
-    # 1. Evaluate text-audio links
+    # 1. Evaluate text-audio links against baseline timeline
     links = db.session.query(ClinicTextAudioLink).filter_by(dictation_id=dictation.id).order_by(ClinicTextAudioLink.seq.asc()).all()
     for link in links:
-        if is_interval_compatible(old_edl, new_edl, link.audio_start_ms, link.audio_end_ms):
+        if is_interval_compatible(base_edl, new_edl, link.audio_start_ms, link.audio_end_ms):
             preserved_links.append(link.id)
         else:
             invalidated_links.append(link.id)
             reason = REASON_OUT_OF_BOUNDS if link.audio_end_ms > new_edl.total_duration_ms else REASON_INTERVAL_CHANGED
             _emit(TARGET_LINK, link.id, reason)
 
-    # 2. Evaluate markers
+    # 2. Evaluate markers against their bound revision (or baseline)
     markers = db.session.query(ClinicMarker).filter(ClinicMarker.dictation_id == dictation.id, ClinicMarker.deleted_at.is_(None)).all()
     for marker in markers:
-        if not is_position_compatible(old_edl, new_edl, marker.position_ms):
+        m_base_edl = base_edl
+        if marker.audio_revision_id:
+            m_rev = db.session.get(ClinicAudioRevision, marker.audio_revision_id)
+            if m_rev:
+                m_base_edl = get_revision_edl(dictation, m_rev)
+        if not is_position_compatible(m_base_edl, new_edl, marker.position_ms):
             reason = REASON_OUT_OF_BOUNDS if marker.position_ms > new_edl.total_duration_ms else REASON_POSITION_CHANGED
             _emit(TARGET_MARKER, marker.id, reason)
 
@@ -376,5 +397,10 @@ def get_compatible_links(
     target_rev = audio_revision or current_audio_revision(dictation)
     if target_rev is None:
         return all_links
-    invalidated_ids = get_invalidated_link_ids(dictation.id, target_rev.id)
-    return [link for link in all_links if link.id not in invalidated_ids]
+    target_edl = get_revision_edl(dictation, target_rev)
+    base_edl = _get_baseline_edl(dictation)
+    return [
+        link
+        for link in all_links
+        if is_interval_compatible(base_edl, target_edl, link.audio_start_ms, link.audio_end_ms)
+    ]
