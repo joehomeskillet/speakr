@@ -747,6 +747,8 @@ def _run_migrations(app, engine):
             app.logger.info("Added is_archived column to recording table")
         if add_column_if_not_exists(engine, 'shared_recording_state', 'is_archived', 'BOOLEAN DEFAULT 0'):
             app.logger.info("Added is_archived column to shared_recording_state table")
+        add_column_if_not_exists(engine, 'recording', 'retention_archived_at', 'DATETIME')
+        add_column_if_not_exists(engine, 'recording', 'archive_revision', 'INTEGER NOT NULL DEFAULT 0')
 
         # Configurable AI title instructions at every level (#400)
         for table in ('user', 'tag', 'folder'):

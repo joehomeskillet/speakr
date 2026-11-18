@@ -102,11 +102,17 @@ def test_client_cannot_select_its_profile(clinic):
 @pytest.mark.parametrize('key,forced', [
     ('enable_public_sharing', False), ('enable_internal_sharing', False),
     ('api_query_tokens_enabled', False), ('sso_api_tokens_enabled', False),
-    ('enable_incognito_mode', False), ('enable_auto_deletion', False),
-    ('global_retention_days', 0), ('allow_registration', False),
+    ('enable_incognito_mode', False), ('allow_registration', False),
 ])
 def test_setting_ceilings(clinic, key, forced):
     assert config.setting_ceiling(key) == (True, forced)
+
+
+@pytest.mark.parametrize('key', ['enable_auto_deletion', 'global_retention_days'])
+def test_preserving_archival_is_configurable_while_deletion_stays_locked(clinic, key):
+    assert config.setting_ceiling(key) == (False, None)
+    assert config.feature_locked('auto_deletion') is True
+    assert config.feature_locked('clinical_user_hard_delete') is True
 
 
 def test_setting_without_ceiling_is_untouched(clinic):

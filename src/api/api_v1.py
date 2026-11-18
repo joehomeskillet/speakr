@@ -1360,7 +1360,7 @@ def _recording_list_item(r, refs=None, shared=None):
         'participants': r.participants,
         'is_inbox': r.is_inbox,
         'is_highlighted': r.is_highlighted,
-        'is_archived': bool(r.is_archived),
+        'is_archived': bool(r.is_archived or r.retention_archived_at),
         'audio_available': r.audio_deleted_at is None,
         'audio_duration': r.get_audio_duration(),
         'has_transcription': bool(r.transcription),
@@ -1564,7 +1564,8 @@ def list_recordings():
     if archived_filter is not None:
         is_archived = archived_filter.lower() == 'true'
         query = query.filter((personal_flag(current_user.id, 'is_archived', False) if scope != 'own'
-                              else db.func.coalesce(Recording.is_archived, False)) == is_archived)
+                              else db.or_(db.func.coalesce(Recording.is_archived, False),
+                                          Recording.retention_archived_at.is_not(None))) == is_archived)
 
     # Sorting
     sort_columns = {
@@ -2233,7 +2234,15 @@ def update_recording(recording_id):
             return jsonify(api_error('invalid_is_archived')), 400
         # Per user, like the web app: a shared editor archives it for
         # themselves only (#394).
-        set_user_archived(recording, current_user, archived, commit=False)
+        from src.clinic.archive import ArchiveRestoreDenied
+        try:
+            set_user_archived(recording, current_user, archived, commit=False)
+        except ArchiveRestoreDenied:
+            db.session.rollback()
+            return jsonify(api_error('archive_restore_owner_required')), 403
+        except Exception:
+            db.session.rollback()
+            raise
     if 'folder_id' in data:
         new_folder_id = data['folder_id']
         if new_folder_id is None:
@@ -2244,10 +2253,12 @@ def update_recording(recording_id):
             from src.models.organization import Folder
             target = db.session.get(Folder, new_folder_id)
             if not target:
+                db.session.rollback()
                 return jsonify(api_error('folder_id_not_found', folderId=new_folder_id)), 404
             from src.api.folders import apply_group_folder_shares, folder_assign_error
             error_key = folder_assign_error(recording, target, current_user, 'target_folder_access_denied')
             if error_key:
+                db.session.rollback()
                 return jsonify(api_error(error_key)), 403
             recording.folder_id = new_folder_id
             apply_group_folder_shares(recording, target)
@@ -3910,8 +3921,12 @@ def batch_update_recordings():
                 from src.services.auto_shares import drop_stale_auto_shares
                 drop_stale_auto_shares(recording_ids=[recording_id])
 
+            # Each successful item includes its archive evidence. A later item
+            # failure must leave earlier results committed and roll itself back.
+            db.session.commit()
             results.append({'id': recording_id, 'success': True})
         except Exception as e:
+            db.session.rollback()
             results.append({'id': recording_id, 'success': False, 'error': str(e)})
 
     db.session.commit()

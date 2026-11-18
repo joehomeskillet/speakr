@@ -135,7 +135,7 @@ def test_env_booleans_are_true_only(unsaved_setting, monkeypatch, raw, expected)
 
 
 @pytest.mark.parametrize('enabled, days, due', [
-    ('true', '30', True), ('false', '30', False), ('true', '0', False),
+    ('true', '30', True), ('false', '30', False), ('true', '0', True),
 ])
 def test_scheduled_deletion_reads_settings_at_run_time(restore_settings, monkeypatch, enabled, days, due):
     from src.config.startup import scheduled_deletion_due

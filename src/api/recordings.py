@@ -1724,11 +1724,21 @@ def save_metadata():
                 recording,
                 current_user,
                 is_inbox=data.get('is_inbox'),
-                is_highlighted=data.get('is_highlighted')
+                is_highlighted=data.get('is_highlighted'),
+                commit=False,
             )
         if 'is_archived' in data:
-            from src.services.recording_state import set_user_archived
-            set_user_archived(recording, current_user, data.get('is_archived'))
+            from src.services.recording_state import parse_archived_flag, set_user_archived
+            from src.clinic.archive import ArchiveRestoreDenied
+            archived = parse_archived_flag(data['is_archived'])
+            if archived is None:
+                db.session.rollback()
+                return jsonify(api_error('invalid_is_archived')), 400
+            try:
+                set_user_archived(recording, current_user, archived, commit=False)
+            except ArchiveRestoreDenied:
+                db.session.rollback()
+                return jsonify(api_error('archive_restore_owner_required')), 403
 
         # The notes of a recipient are personal notes, not an edit of the recording.
         audit.edited(recording, [f for f in edit_fields if requires_edit and f in data]
@@ -1960,7 +1970,13 @@ def toggle_archive(recording_id):
         if not recording or not has_recording_access(recording, current_user):
             return jsonify(api_error('recording_not_found')), 404
         from src.services.recording_state import get_user_archived, set_user_archived
-        new_value = set_user_archived(recording, current_user, not get_user_archived(recording, current_user))
+        from src.clinic.archive import ArchiveRestoreDenied, lock_recording
+        lock_recording(recording)
+        try:
+            new_value = set_user_archived(recording, current_user, not get_user_archived(recording, current_user))
+        except ArchiveRestoreDenied:
+            db.session.rollback()
+            return jsonify(api_error('archive_restore_owner_required')), 403
         return jsonify({'success': True, 'is_archived': new_value})
     except Exception as e:
         db.session.rollback()
@@ -3914,6 +3930,12 @@ def bulk_toggle():
         if field not in ['inbox', 'highlight', 'archive']:
             return jsonify(api_error('invalid_bulk_status_field')), 400
 
+        if field == 'archive':
+            from src.services.recording_state import parse_archived_flag
+            value = parse_archived_flag(value)
+            if value is None:
+                return jsonify(api_error('invalid_is_archived')), 400
+
         if len(recording_ids) > 100:
             return jsonify(api_error('bulk_update_limit')), 400
 
@@ -3946,6 +3968,7 @@ def bulk_toggle():
                 affected_ids.append(recording_id)
 
             except Exception as e:
+                db.session.rollback()
                 current_app.logger.error(f"Error toggling {field} for recording {recording_id}: {e}")
 
         db.session.commit()

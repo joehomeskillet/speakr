@@ -1,0 +1,1 @@
+rtk git diff --exit-code -- clinic-spec/planning clinic-spec/tests tests/test_audit_log_coverage.py tests/test_startup_single_instance.py tests/test_ownerless_cleanup.py tests/test_audit_log_recordings.py

@@ -114,7 +114,7 @@ _ADMIN = _split("""
     admin.admin_get_users admin.admin_get_visible_models admin.admin_set_llm_temperatures
     admin.admin_toggle_admin admin.admin_update_setting admin.admin_update_user
     admin.admin_voice_embedding_check admin.admin_voice_embedding_rebaseline
-    admin.admin_voice_embedding_status admin.get_auto_deletion_stats
+    admin.admin_voice_embedding_status admin.get_auto_deletion_stats admin.run_auto_deletion
 """)
 
 _DISABLED = {
@@ -171,8 +171,6 @@ _DISABLED = {
         recordings.delete_recording recordings.delete_recording_audio
         recordings.bulk_delete_recordings api_v1.delete_recording
         api_v1.delete_recording_audio api_v1.batch_delete_recordings admin.admin_delete_user""",
-    'auto_deletion': """
-        admin.run_auto_deletion""",
     'auto_process': """
         admin.admin_start_auto_process admin.admin_stop_auto_process
         admin.admin_trigger_auto_process admin.admin_update_auto_process_config""",

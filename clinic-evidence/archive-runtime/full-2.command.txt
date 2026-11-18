@@ -1,0 +1,1 @@
+rtk env PYTHONPATH=/nvmetank1/projects/codexweb-wt/clinic-archive/clinic-evidence/archive-runtime /usr/bin/python3 -m pytest tests/ -q -n 4 --dist loadfile -p no:cacheprovider --timeout=120 --rootdir /nvmetank1/projects/codexweb-wt/clinic-archive

@@ -46,6 +46,9 @@ def personal_flag(user_id, column_name, default):
     recording's own for the owner, SharedRecordingState for a recipient.
     Use with an outer join on SharedRecordingState for this user."""
     from src.models import Recording, SharedRecordingState
+    if column_name == 'is_archived':
+        from src.services.recording_state import archived_condition
+        return archived_condition(Recording, user_id)
     return case((Recording.user_id == user_id, func.coalesce(getattr(Recording, column_name), default)),
                 else_=func.coalesce(getattr(SharedRecordingState, column_name), default))
 
@@ -89,7 +92,7 @@ def share_details(recordings, user):
                       'shared_at': share.created_at.strftime('%Y-%m-%dT%H:%M:%S.%fZ') if share.created_at else None},
             'is_inbox': bool(state.is_inbox) if state and state.is_inbox is not None else True,
             'is_highlighted': bool(state.is_highlighted) if state else False,
-            'is_archived': bool(state.is_archived) if state and state.is_archived is not None else False,
+            'is_archived': r.retention_archived_at is not None or bool(state and state.is_archived),
             'tags': [{'id': t.id, 'name': t.name, 'color': t.color}
                      for t in r.get_visible_tags(user, member_group_ids)],
         }

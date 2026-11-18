@@ -64,6 +64,9 @@ class Recording(db.Model):
     is_inbox = db.Column(db.Boolean, default=True)  # New recordings are marked as inbox by default
     is_highlighted = db.Column(db.Boolean, default=False)  # Recordings can be highlighted by the user
     is_archived = db.Column(db.Boolean, default=False)  # Hidden from the main list, nothing deleted (#394)
+    # Retention archives the recording for every viewer. Personal flags remain independent.
+    retention_archived_at = db.Column(db.DateTime, nullable=True)
+    archive_revision = db.Column(db.Integer, nullable=False, default=0, server_default='0')
     mime_type = db.Column(db.String(100), nullable=True)
     audio_duration_seconds = db.Column(db.Float, nullable=True)  # Cached audio duration to avoid materializing remote storage during serialization
     completed_at = db.Column(db.DateTime, nullable=True)
@@ -459,7 +462,7 @@ class Recording(db.Model):
             'mime_type': self.mime_type,  # cheap column read; lets the sidebar mark video recordings without opening them
             'is_inbox': self.is_inbox,
             'is_highlighted': self.is_highlighted,
-            'is_archived': bool(self.is_archived),
+            'is_archived': bool(self.is_archived or self.retention_archived_at),
             'audio_deleted_at': self.audio_deleted_at.isoformat() if self.audio_deleted_at else None,
             'audio_available': self.audio_deleted_at is None,
             # True only when a playable audio file actually exists yet. A merge
@@ -564,7 +567,7 @@ class Recording(db.Model):
             'user_id': self.user_id,
             'is_inbox': self.is_inbox,
             'is_highlighted': self.is_highlighted,
-            'is_archived': bool(self.is_archived),
+            'is_archived': bool(self.is_archived or self.retention_archived_at),
             'mime_type': self.mime_type,
             'audio_deleted_at': self.audio_deleted_at.isoformat() if self.audio_deleted_at else None,
             'audio_available': self.audio_deleted_at is None,

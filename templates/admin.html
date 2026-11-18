@@ -729,7 +729,7 @@
                         <div v-for="setting in displayedSettings" :key="setting.id" class="bg-[var(--bg-tertiary)] p-4 rounded-lg border border-[var(--border-primary)] shadow-sm">
                             <div class="flex justify-between items-start gap-2">
                                 <div class="flex-grow min-w-0">
-                                    <h4 class="text-md font-medium text-[var(--text-primary)] mb-1 break-all">${ setting.key }</h4>
+                                    <h4 class="text-md font-medium text-[var(--text-primary)] mb-1 break-all">${ getSettingLabel(setting) }</h4>
                                     <p class="text-sm text-[var(--text-muted)] mb-2">${ getSettingDescription(setting) }</p>
                                     <div class="flex items-center space-x-2">
                                         <span class="text-xs px-2 py-1 bg-[var(--bg-accent)] text-[var(--text-accent)] rounded">${ setting.setting_type }</span>
@@ -1701,14 +1701,14 @@ Summarization Instructions:
                     <div>
                         <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">${ t('adminDashboard.settingKey') }</label>
                         <div class="px-3 py-2 bg-[var(--bg-tertiary)] text-[var(--text-muted)] rounded-md font-mono text-sm">
-                            ${ editingSetting.key }
+                            ${ getSettingLabel(editingSetting) }
                         </div>
                     </div>
                     
                     <div>
                         <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">${ t('adminDashboard.description') }</label>
                         <div class="px-3 py-2 text-[var(--text-muted)] text-sm">
-                            ${ editingSetting.description || t('adminDashboard.noDescriptionAvailable') }
+                            ${ getSettingDescription(editingSetting) }
                         </div>
                     </div>
                     
@@ -1813,15 +1813,11 @@ Summarization Instructions:
                                    :placeholder="`Enter ${editingSetting.setting_type} value`">
                         </div>
                         
-                        <!-- Deletion mode: constrained to audio_only / full_recording -->
+                        <!-- The legacy mode key always selects preservation archival. -->
                         <div v-else-if="editingSetting.key === 'deletion_mode'" class="flex items-center space-x-4">
                             <label class="flex items-center cursor-pointer">
-                                <input v-model="settingNewValue" type="radio" value="audio_only" class="mr-2 text-[var(--text-accent)] focus:ring-[var(--border-focus)]">
-                                <span class="text-[var(--text-primary)]">${ t('adminDashboard.deletionModeAudioOnly') }</span>
-                            </label>
-                            <label class="flex items-center cursor-pointer">
-                                <input v-model="settingNewValue" type="radio" value="full_recording" class="mr-2 text-[var(--text-accent)] focus:ring-[var(--border-focus)]">
-                                <span class="text-[var(--text-primary)]">${ t('adminDashboard.deletionModeFullRecording') }</span>
+                                <input v-model="settingNewValue" type="radio" value="archive" class="mr-2 text-[var(--text-accent)] focus:ring-[var(--border-focus)]">
+                                <span class="text-[var(--text-primary)]">${ t('adminDashboard.archiveMode') }</span>
                             </label>
                         </div>
 
@@ -3092,7 +3088,9 @@ Summarization Instructions:
                     settingError.value = '';
                     
                     // Initialize form values based on setting type and key
-                    if (setting.key === 'transcript_length_limit') {
+                    if (setting.key === 'deletion_mode') {
+                        settingNewValue.value = 'archive';
+                    } else if (setting.key === 'transcript_length_limit') {
                         if (setting.value === '-1') {
                             settingUseNoLimit.value = true;
                             settingNewValue.value = 30000; // Default if unchecked
@@ -3268,9 +3266,21 @@ Summarization Instructions:
                 };
                 const userSearchScopeLabel = (scope) => userSearchScopeKeys[scope] ? t(userSearchScopeKeys[scope]) : (scope || '');
 
+                const getSettingLabel = (setting) => {
+                    const keys = {
+                        enable_auto_deletion: 'adminDashboard.autoArchive',
+                        global_retention_days: 'adminDashboard.archiveAfterDays',
+                        deletion_mode: 'adminDashboard.archiveMode'
+                    };
+                    return keys[setting.key] ? t(keys[setting.key]) : setting.key;
+                };
+
                 const getSettingDescription = (setting) => {
                     // Map setting keys to translation keys
                     const descriptionKeys = {
+                        'enable_auto_deletion': 'adminDashboard.autoArchiveHelp',
+                        'global_retention_days': 'adminDashboard.archiveAfterDaysHelp',
+                        'deletion_mode': 'adminDashboard.archiveModeHelp',
                         'transcript_length_limit': 'adminDashboard.settings.transcriptLengthLimitDesc',
                         'max_file_size_mb': 'adminDashboard.settings.maxFileSizeDesc',
                         'max_audio_only_video_size_mb': 'adminDashboard.settings.maxAudioOnlyVideoSizeDesc',
@@ -4806,6 +4816,7 @@ Summarization Instructions:
                     sortUserListBy, setUserSortKey, reverseUserSort,
                     parseInstant,
                     getSettingDescription,
+                    getSettingLabel,
                     permissionModes,
                     isPermissionModeSetting,
                     permissionModeLabel,

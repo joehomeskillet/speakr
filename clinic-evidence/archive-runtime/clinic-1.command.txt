@@ -1,0 +1,1 @@
+rtk env PYTHONPATH=/nvmetank1/projects/codexweb-wt/clinic-archive/clinic-evidence/archive-runtime /usr/bin/python3 -m pytest tests/clinic -q -p no:cacheprovider --rootdir /nvmetank1/projects/codexweb-wt/clinic-archive

@@ -1,0 +1,28 @@
+rtk /usr/bin/python3 -c 'from pathlib import Path
+import ast
+import json
+root = Path.cwd()
+locale_paths = sorted((root / "static/locales").glob("*.json"))
+for path in locale_paths:
+    json.loads(path.read_text())
+print("Locale JSON valid", len(locale_paths))
+map_path = root / "clinic-evidence/upstream-map.json"
+evidence = json.loads(map_path.read_text())
+component = evidence["components"]["recording_retention_archive"]
+assert component["verified_head"] == "946da7c6532999d0f433e9e899f6c1f8a0d5b616"
+assert component["status"] == "implemented_gates_blocked"
+for name in component["paths"]:
+    assert (root / name).is_file(), name
+    if name.endswith(".py"):
+        ast.parse((root / name).read_text(), filename=name)
+print("Evidence map JSON, source paths and Python syntax valid", len(component["paths"]))
+for name, expected in [("clinic-2", 0), ("focused-final", 0), ("full-3", 1), ("environment-3", 0), ("child-import-3", 1), ("final-head", 0), ("final-diff-check", 0), ("final-scope-guard", 0)]:
+    prefix = root / "clinic-evidence/archive-runtime" / name
+    command = prefix.with_suffix(".command.txt").read_text()
+    output = prefix.with_suffix(".log").read_bytes()
+    code = int(prefix.with_suffix(".exit.txt").read_text())
+    assert command.startswith("rtk ") and code == expected, name
+    print("Capture complete", name, "exit", code, "output_bytes", len(output))
+for key in ["required_clinic_gate", "required_full_gate"]:
+    assert component["verification"][key] == "blocked_prescribed_interpreter_inaccessible"
+print("Required gates correctly blocked")'

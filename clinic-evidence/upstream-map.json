@@ -58,7 +58,40 @@
     "static/js/modules/asr-editor/model.js",
     "static/js/modules/asr-editor/draft.js",
     "static/js/modules/db/recording-persistence.js",
-    "static/js/modules/db/server-recording-sessions.js"
+    "static/js/modules/db/server-recording-sessions.js",
+    "/home/codexweb/briefs/archive.md",
+    "/nvmetank1/projects/speakr/AGENTS.md",
+    "src/clinic/archive.py",
+    "src/clinic/models.py",
+    "src/clinic/config.py",
+    "src/clinic/route_policy.py",
+    "src/services/retention.py",
+    "src/services/recording_state.py",
+    "src/services/recording_scope.py",
+    "src/services/recording_list.py",
+    "src/services/recording_changes.py",
+    "src/services/ownerless_cleanup.py",
+    "src/utils/system_settings.py",
+    "templates/admin.html",
+    "docs/admin-guide/retention.md",
+    "docs/admin-guide/audit-log.md",
+    "tests/clinic/test_archive.py",
+    "tests/clinic/conftest.py",
+    "tests/clinic/test_config_profiles.py",
+    "tests/clinic/test_s01_routes.py",
+    "tests/test_cov_retention.py",
+    "tests/test_recording_deletion.py",
+    "tests/test_env_backed_settings.py",
+    "tests/test_audit_log_admin.py",
+    "tests/test_ownerless_cleanup.py",
+    "tests/test_startup_single_instance.py",
+    "static/locales/en.json",
+    "static/locales/de.json",
+    "static/locales/es.json",
+    "static/locales/fr.json",
+    "static/locales/pt-BR.json",
+    "static/locales/ru.json",
+    "static/locales/zh.json"
   ],
   "components": {
     "user_model": {
@@ -242,6 +275,84 @@
       ],
       "description": "One-shot programmatic migration ledger (schema_migrations table, run_once helper, dynamic column/index addition).",
       "reuse_for": "Execution of clinic schema additions and indexes under src/clinic/migrations/ without introducing Alembic."
+    },
+    "recording_retention_archive": {
+      "paths": [
+        "src/clinic/archive.py",
+        "src/clinic/models.py",
+        "src/models/recording.py",
+        "src/init_db.py",
+        "src/services/retention.py",
+        "src/services/audit.py",
+        "src/services/recording_state.py",
+        "src/services/recording_scope.py",
+        "src/services/recording_list.py",
+        "src/services/recording_changes.py",
+        "src/api/recordings.py",
+        "src/api/api_v1.py",
+        "src/api/admin.py",
+        "src/clinic/config.py",
+        "src/clinic/route_policy.py",
+        "src/config/startup.py",
+        "src/utils/system_settings.py",
+        "templates/admin.html",
+        "tests/clinic/test_archive.py"
+      ],
+      "description": "Recording-wide retention archival with mandatory transactional audit events, an append-only archive ledger, personal archive compatibility and additive legacy-schema migration.",
+      "reuse_for": "Preserve originals, media, child rows, immutable revisions and exact version-bound releases while filtering archived recordings from active web lists. Reuse existing schedules, settings, archive controls and APIs.",
+      "work_package": "/home/codexweb/briefs/archive.md",
+      "status": "implemented_gates_blocked",
+      "verified_head": "946da7c6532999d0f433e9e899f6c1f8a0d5b616",
+      "branch": "clinic/archive",
+      "commit_status": "uncommitted_read_only_git_metadata",
+      "verification": {
+        "required_clinic_gate": "blocked_prescribed_interpreter_inaccessible",
+        "required_full_gate": "blocked_prescribed_interpreter_inaccessible",
+        "supplementary_runtime": "Python 3.14.4, SQLite, explicit archive-runtime/sitecustomize.py import bootstrap",
+        "supplementary_clinic": {
+          "passed": 1560,
+          "skipped": 1,
+          "exit_code": 0,
+          "capture": "clinic-evidence/archive-runtime/clinic-2"
+        },
+        "supplementary_focused_final": {
+          "passed": 654,
+          "exit_code": 0,
+          "capture": "clinic-evidence/archive-runtime/focused-final"
+        },
+        "supplementary_full": {
+          "passed": 7949,
+          "failed": 57,
+          "skipped": 242,
+          "errors": 16,
+          "subtests_passed": 10,
+          "exit_code": 1,
+          "capture": "clinic-evidence/archive-runtime/full-3"
+        },
+        "postgresql": "not_verified",
+        "hardware_and_external_integrations": "not_verified",
+        "report": "clinic-evidence/archive-report.md",
+        "environment_evidence": "clinic-evidence/archive-runtime/environment-3.log",
+        "report_requested_path": "/home/codexweb/reports/archive-report.md",
+        "report_destination_status": "blocked_read_only_filesystem",
+        "report_destination_capture": "clinic-evidence/archive-runtime/report-destination-write",
+        "final_static_checks": {
+          "status": "passed",
+          "captures": [
+            "clinic-evidence/archive-runtime/final-static-check",
+            "clinic-evidence/archive-runtime/final-diff-check",
+            "clinic-evidence/archive-runtime/final-scope-guard"
+          ]
+        }
+      },
+      "scope_decisions": [
+        "Only the recording owner may restore recording-wide retention archival.",
+        "Restoration preserves recording age and policy, so the next sweep may archive it again.",
+        "Legacy audio_only and full_recording configuration values both archive.",
+        "API v1 keeps its inclusive default and supports explicit archived=true or archived=false filters.",
+        "Folder retention fields remain stored-only pending a separate scope decision.",
+        "Independent cleanup lifecycles are recorded under OFFENE FRAGEN in the report."
+      ]
     },
     "test_layout_and_ci": {
       "paths": [

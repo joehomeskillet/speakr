@@ -299,8 +299,7 @@ def test_forged_channel_headers_grant_nothing(clinic_on, world):
 
 @pytest.mark.parametrize('key,value', [
     ('enable_public_sharing', 'true'), ('enable_internal_sharing', 'true'),
-    ('api_query_tokens_enabled', 'true'), ('enable_auto_deletion', 'true'),
-    ('allow_registration', 'true'), ('global_retention_days', '30'),
+    ('api_query_tokens_enabled', 'true'), ('allow_registration', 'true'),
 ])
 def test_admin_cannot_switch_a_locked_setting_on(clinic_on, world, key, value):
     def stored():

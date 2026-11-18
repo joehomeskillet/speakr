@@ -1,9 +1,10 @@
-"""Per-user archive state (#394).
+"""Personal archive state (#394) and recording-wide retention archival.
 
 Archive works like inbox and star: the owner's value lives on the recording,
 and each user a recording is shared with keeps their own value on their
 SharedRecordingState row, so archiving a shared recording never hides it for
-anyone else.
+anyone else. Retention archival applies to every viewer, and the owner can
+restore it through the same audited transition service.
 """
 
 from sqlalchemy import select
@@ -13,10 +14,14 @@ from src.models.sharing import SharedRecordingState
 
 
 def _state(recording, user):
-    return SharedRecordingState.query.filter_by(recording_id=recording.id, user_id=user.id).first()
+    return SharedRecordingState.query.filter_by(
+        recording_id=recording.id, user_id=user.id,
+    ).populate_existing().first()
 
 
 def get_user_archived(recording, user):
+    if recording.retention_archived_at is not None:
+        return True
     if recording.user_id == user.id:
         return bool(recording.is_archived)
     state = _state(recording, user)
@@ -24,7 +29,21 @@ def get_user_archived(recording, user):
 
 
 def set_user_archived(recording, user, value, commit=True):
+    from src.clinic.archive import ArchiveRestoreDenied, lock_recording, record_transition
+
     value = bool(value)
+    lock_recording(recording)
+    retained = recording.retention_archived_at is not None
+    if retained and not value and recording.user_id != user.id:
+        raise ArchiveRestoreDenied('Only the owner can restore a retention-archived recording')
+    if get_user_archived(recording, user) == value:
+        if commit:
+            db.session.commit()
+        return value
+    scope = 'personal'
+    if retained and not value:
+        recording.retention_archived_at = None
+        scope = 'recording'
     if recording.user_id == user.id:
         recording.is_archived = value
     else:
@@ -34,6 +53,8 @@ def set_user_archived(recording, user, value, commit=True):
                                          is_inbox=True, is_highlighted=False)
             db.session.add(state)
         state.is_archived = value
+    record_transition(recording, value, rule='user.archive' if value else 'user.restore',
+                      scope=scope, target_user_id=user.id)
     if commit:
         db.session.commit()
     return value
@@ -64,6 +85,7 @@ def archived_condition(recording_model, user_id):
                 db.func.coalesce(SharedRecordingState.is_archived, False) == True)  # noqa: E712
     ).scalar_subquery()
     return db.or_(
+        recording_model.retention_archived_at.is_not(None),
         db.and_(recording_model.user_id == user_id,
                 db.func.coalesce(recording_model.is_archived, False) == True),  # noqa: E712
         recording_model.id.in_(shared_archived),

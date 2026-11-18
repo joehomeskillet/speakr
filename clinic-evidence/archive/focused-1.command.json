@@ -1,0 +1,9 @@
+{
+  "argv": [
+    "/usr/bin/python3",
+    "-c",
+    "import sys; sys.path.append('/nvmetank1/projects/speakr/venv/lib/python3.11/site-packages'); import pytest; sys.exit(pytest.main(['tests/test_cov_retention.py', 'tests/test_recording_deletion.py', 'tests/test_archive_and_audio_removal.py', 'tests/test_audit_log_admin.py', 'tests/test_env_backed_settings.py', 'tests/test_log_file_names.py', '-q', '-p', 'no:cacheprovider', '--disable-warnings']))"
+  ],
+  "cwd": "/nvmetank1/projects/codexweb-wt/clinic-archive",
+  "exit_code": 2
+}

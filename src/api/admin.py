@@ -915,7 +915,9 @@ def admin_get_stats():
     pending_recordings = Recording.query.filter_by(status='PENDING').count()
     failed_recordings = Recording.query.filter_by(status='FAILED').count()
     audio_removed_recordings = Recording.query.filter(Recording.audio_deleted_at.isnot(None)).count()
-    archived_recordings = Recording.query.filter(Recording.is_archived.is_(True)).count()
+    archived_recordings = Recording.query.filter(db.or_(
+        Recording.is_archived.is_(True), Recording.retention_archived_at.is_not(None),
+    )).count()
 
     # The job queue: what is waiting, running, and what failed this week.
     from datetime import datetime as _dt, timedelta as _td
@@ -1420,7 +1422,7 @@ def admin_update_setting():
         value = str(value).strip().lower()
 
     if key == 'deletion_mode':
-        if value not in ('audio_only', 'full_recording'):
+        if value not in ('archive', 'audio_only', 'full_recording'):
             return jsonify(api_error('invalid_deletion_mode_value')), 400
 
     if key == 'user_search_scope':
@@ -1472,7 +1474,7 @@ def admin_update_setting():
 @login_required
 @audit.emits('admin.retention.run')
 def run_auto_deletion():
-    """Admin endpoint to manually trigger auto-deletion process."""
+    """Admin endpoint to trigger retention archival through its legacy URL."""
     if not current_user.is_admin:
         return jsonify(api_error('admin_required')), 403
 
@@ -1481,11 +1483,13 @@ def run_auto_deletion():
         if isinstance(stats, dict) and 'checked' in stats:
             audit.record_in_tx('admin.retention.run', details={
                 name: int(stats.get(name) or 0)
-                for name in ('checked', 'deleted_audio_only', 'deleted_full', 'errors')})
+                for name in ('checked', 'archived', 'already_archived',
+                             'deleted_audio_only', 'deleted_full', 'errors')})
             db.session.commit()
         return jsonify(stats)
     except Exception as e:
-        current_app.logger.error(f"Error running auto-deletion: {e}")
+        db.session.rollback()
+        current_app.logger.error(f"Error running automatic archival: {type(e).__name__}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -1493,7 +1497,7 @@ def run_auto_deletion():
 @admin_bp.route('/admin/auto-deletion/stats', methods=['GET'])
 @login_required
 def get_auto_deletion_stats():
-    """Get statistics about recordings eligible for auto-deletion."""
+    """Get statistics about recordings eligible for retention archival."""
     if not current_user.is_admin:
         return jsonify(api_error('admin_required')), 403
 
@@ -1501,7 +1505,7 @@ def get_auto_deletion_stats():
         stats = {
             'enabled': _self.ENABLE_AUTO_DELETION,
             'global_retention_days': _self.GLOBAL_RETENTION_DAYS,
-            'deletion_mode': _self.DELETION_MODE,
+            'deletion_mode': 'archive',
             'eligible_count': 0,
             'exempted_count': 0,
             'no_retention_count': 0,
@@ -1509,9 +1513,10 @@ def get_auto_deletion_stats():
         }
 
         if _self.ENABLE_AUTO_DELETION:
-            # Check ALL completed recordings (per-recording retention)
+            # Match the sweep, including failed recordings and excluding archives.
             all_recordings = Recording.query.filter(
-                Recording.status == 'COMPLETED'
+                Recording.status.in_(('COMPLETED', 'FAILED')),
+                Recording.retention_archived_at.is_(None),
             ).all()
 
             eligible = 0
@@ -1536,7 +1541,7 @@ def get_auto_deletion_stats():
                 cutoff_date = current_time - timedelta(days=retention_days)
 
                 # Check if past retention period
-                if recording.created_at < cutoff_date:
+                if recording.created_at is not None and recording.created_at < cutoff_date:
                     eligible += 1
 
             stats['eligible_count'] = eligible
@@ -1545,7 +1550,7 @@ def get_auto_deletion_stats():
 
         # Count already archived recordings
         stats['archived_count'] = Recording.query.filter(
-            Recording.audio_deleted_at.is_not(None)
+            Recording.retention_archived_at.is_not(None)
         ).count()
 
         return jsonify(stats)
