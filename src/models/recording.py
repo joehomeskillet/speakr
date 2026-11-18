@@ -552,8 +552,6 @@ class Recording(db.Model):
             'translation_duration_seconds': self.translation_duration_seconds,
             'summary': self.summary,
             'status': self.status,
-            # Shown in the detail view when a FAILED recording has no transcript.
-            'error_message': self.error_message if self.status == 'FAILED' else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'completed_at': self.completed_at.isoformat() if self.completed_at else None,
             'updated_at': self.updated_at_z(),

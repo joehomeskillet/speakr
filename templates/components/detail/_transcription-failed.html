@@ -1,7 +1,8 @@
 {# A recording whose transcription ended FAILED without a transcript (for
    example the service returned no text). Shown in place of the "no
-   transcript yet" state, with the existing reprocess action. The server
-   message sits in the technical details. #}
+   transcript yet" state, with the existing reprocess action. The text is a
+   locale key; the recording JSON carries no error message (pinned by the
+   ingestion characterization tests). #}
 <div class="notice notice--danger" data-notice-level="danger" data-transcription-failed>
     <div class="notice__icon"><i class="fas fa-exclamation-circle"></i></div>
     <div class="notice__body">
@@ -13,9 +14,5 @@
                 <span v-text="t('buttons.reprocessTranscription')"></span>
             </button>
         </div>
-        <details v-if="selectedRecording.error_message" class="notice__details">
-            <summary v-text="t('errors.technicalDetails')"></summary>
-            <div class="notice__details-body"><pre>${selectedRecording.error_message}</pre></div>
-        </details>
     </div>
 </div>

@@ -21,7 +21,6 @@ def test_the_failed_partial_names_the_error_and_offers_the_existing_retry():
     assert "t('transcription.failedTitle')" in partial
     assert "t('transcription.failedMessage')" in partial
     assert 'reprocessTranscription(selectedRecording.id)' in partial
-    assert 'selectedRecording.error_message' in partial
 
 
 def test_desktop_and_phone_show_it_instead_of_the_empty_state():
