@@ -158,13 +158,17 @@ def _removal_step(policy, intent, dictation_id):
 
 
 @transactional
-def finalize_ingest(principal, policy, *, ingest_id, body, store_original, now=None):
+def finalize_ingest(principal, policy, *, ingest_id, body, store_original, now=None, recover_original=None):
     """Verify, store the original through the injected callable and return the bound receipt.
 
     ``store_original(stream, declared_sha256=, declared_size=, origin=, origin_ref=, author_user_id=,
     idempotency_key=, now=)`` returns an object or mapping with ``original_id`` and optionally
     ``dictation_id``. Only a clean return with an original id makes the session STORED; an exception
     or an answer without it leaves UNKNOWN, and a repeated finalize retries with the same key.
+
+    ``recover_original`` is an optional server-side lookup of a verified,
+    already stored original. Recovery of UNKNOWN sessions precedes upload
+    expiry and works after their temporary chunks have been removed.
     """
     agent = agent_of(principal)
     now = aware(now) or utcnow()
@@ -173,6 +177,10 @@ def finalize_ingest(principal, policy, *, ingest_id, body, store_original, now=N
         return _receipt(row)
     if row.state == "ABORTED":
         raise AgentChannelError("conflict", "session was aborted")
+    if row.state == "UNKNOWN" and recover_original is not None:
+        result = recover_original()
+        if result is not None:
+            return _finish_ingest(row, policy, result)
     if aware(row.expires_at) <= now:
         raise AgentChannelError("expired", "ingest session")
     chunks = _chunks(row.id)
@@ -199,6 +207,11 @@ def finalize_ingest(principal, policy, *, ingest_id, body, store_original, now=N
         except Exception:  # any failure is ambiguous: the bytes may or may not be durable
             logger.warning("agent ingest %s: store_original failed, state UNKNOWN", row.id, exc_info=True)
             return _receipt(row)
+    return _finish_ingest(row, policy, result)
+
+
+def _finish_ingest(row, policy, result):
+    """Bind a durable original to its channel receipt and retire upload chunks."""
     get = result.get if isinstance(result, dict) else (lambda name: getattr(result, name, None))
     if not get("original_id"):
         return _receipt(row)

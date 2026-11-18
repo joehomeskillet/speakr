@@ -1,16 +1,13 @@
 """Import centre service: typed import intents of a signed-in user and the matching of agent deliveries.
 
 A user declares what is about to arrive (source device or folder, expected file
-names, target author and pool). The agent channel (``agent_channel_ingest``)
-stays unchanged: it finalizes with ``author_user_id=None`` and the original
-store answers ``author_required`` until an author is supplied. This service
-decides the author. ``finalize_delivery`` finds the open intent that fits the
-delivery, calls ``finalize_ingest`` with a store callable that adds the intent's
-author, and the same idempotency key lets the ingest service heal the row.
+names, target author and pool). This service supplies the author to the original
+store and records durable originals awaiting an author in ``ClinicImportOriginal``.
 
 A delivery without a matching intent is kept on the clarification list
-(status ``UNASSIGNED``). Its bytes and its ingest session stay; nothing is
-dropped. Assigning it to an intent and repeating the agent's finalize completes it.
+(status ``UNASSIGNED``). Its original reference has no expiry. Assignment creates
+the dictation from the verified stored file, and the agent can retrieve its bound
+receipt after upload-session expiry using the same idempotency key.
 
 No Flask routes live here. Callers supply the signed-in user id.
 """
@@ -22,6 +19,7 @@ from datetime import timedelta
 from typing import Callable, Optional
 
 from sqlalchemy import CheckConstraint, ForeignKey
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from src.database import db
 from src.models import User
@@ -29,7 +27,8 @@ from src.models import User
 from .agent_channel import (
     AgentChannelError, ClinicAgentIngest, agent_of, aware, inventory_row, transactional, utcnow,
 )
-from .agent_channel_ingest import finalize_ingest
+from .agent_channel_ingest import finalize_ingest, get_receipt
+from .ingest import IngestError, IngestService, storage_key_for
 from .models import ClinicDictation
 
 # Owner decision 2026-11-18: files without a language are German. Windows LangId 1031 = de-DE.
@@ -89,7 +88,27 @@ class ClinicImportDelivery(db.Model):
     )
 
 
-IMPORT_TABLES = (ClinicImportIntent, ClinicImportDelivery)
+class ClinicImportOriginal(db.Model):
+    """Durable original awaiting author resolution. This reference never expires."""
+
+    __tablename__ = "clinic_import_original"
+    delivery_id = db.Column(
+        db.String(36), ForeignKey("clinic_import_delivery.id"), primary_key=True,
+    )
+    idempotency_key = db.Column(db.String(512), nullable=False, unique=True)
+    storage_root = db.Column(db.Text, nullable=False)
+    storage_key = db.Column(db.String(500), nullable=False, unique=True)
+    content_hash = db.Column(db.String(64), nullable=False)
+    size_bytes = db.Column(db.BigInteger, nullable=False)
+    origin = db.Column(db.String(32), nullable=False)
+    origin_ref = db.Column(db.String(255), nullable=False)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+    __table_args__ = (
+        CheckConstraint("size_bytes > 0", name="ck_clinic_import_original_size"),
+    )
+
+
+IMPORT_TABLES = (ClinicImportIntent, ClinicImportDelivery, ClinicImportOriginal)
 
 
 def create_tables(bind=None):
@@ -206,11 +225,18 @@ def list_import_intents(*, actor_user_id, status=None, now=None):
 
 def list_unassigned(*, now=None):
     """Clarification list: deliveries no open intent claimed. Authorisation is the caller's job."""
+    query = db.session.query(ClinicImportDelivery, ClinicImportOriginal).outerjoin(
+        ClinicImportOriginal, ClinicImportOriginal.delivery_id == ClinicImportDelivery.id,
+    ).filter(ClinicImportDelivery.status == "UNASSIGNED").order_by(ClinicImportDelivery.created_at)
     return [
         {"id": d.id, "ingest_id": d.ingest_id, "agent_id": d.agent_id, "source_id": d.source_id,
          "root_id": d.root_id, "relative_path": d.relative_path, "language_id": d.language_id,
-         "created_at": aware(d.created_at).isoformat()}
-        for d in ClinicImportDelivery.query.filter_by(status="UNASSIGNED").order_by(ClinicImportDelivery.created_at)
+         "created_at": aware(d.created_at).isoformat(),
+         "original_state": "author_required" if original else "pending",
+         "storage_key": original.storage_key if original else None,
+         "sha256": original.content_hash if original else None,
+         "size": original.size_bytes if original else None}
+        for d, original in query
     ]
 
 
@@ -248,7 +274,7 @@ def _refresh_fulfilment(intent):
 
 @transactional
 def assign_unassigned(*, actor_user_id, delivery_id, intent_id, now=None):
-    """The intent's owner claims a clarification-list delivery. The agent's repeated finalize completes it."""
+    """Claim a delivery and create its dictation atomically from its durable original."""
     now = aware(now) or utcnow()
     intent = _own_intent(actor_user_id, intent_id)
     delivery = db.session.get(ClinicImportDelivery, delivery_id)
@@ -258,8 +284,16 @@ def assign_unassigned(*, actor_user_id, delivery_id, intent_id, now=None):
         raise AgentChannelError("conflict", "delivery is already assigned")
     if intent.status != "OPEN" or aware(intent.expires_at) <= now:
         raise AgentChannelError("conflict", "intent is not open")
-    delivery.intent_id, delivery.status, delivery.assigned_at = intent.id, "MATCHED", now
-    delivery.language_id = intent.language_id
+    claimed = ClinicImportDelivery.query.filter_by(id=delivery_id, status="UNASSIGNED").update({
+        "intent_id": intent.id, "status": "MATCHED", "assigned_at": now,
+        "language_id": intent.language_id,
+    }, synchronize_session=False)
+    if claimed != 1:
+        raise AgentChannelError("conflict", "delivery is already assigned")
+    db.session.refresh(delivery)
+    original = db.session.get(ClinicImportOriginal, delivery.id)
+    if original is not None:
+        _heal_original(original, intent)
     db.session.commit()
     return delivery.id
 
@@ -284,10 +318,88 @@ def _record_delivery(agent, session_row, now):
     return delivery
 
 
-def _author_injecting(store_original, author_user_id):
+def _remember_original(delivery, ingest_service, fields):
+    """Persist verified storage metadata before returning author_required."""
+    values = {
+        "idempotency_key": fields["idempotency_key"], "storage_root": str(ingest_service.root),
+        "storage_key": storage_key_for(fields["idempotency_key"]),
+        "content_hash": fields["declared_sha256"], "size_bytes": fields["declared_size"],
+        "origin": fields["origin"], "origin_ref": fields["origin_ref"],
+    }
+    original = db.session.get(ClinicImportOriginal, delivery.id)
+    if original is None:
+        original = ClinicImportOriginal(delivery_id=delivery.id, created_at=fields["now"], **values)
+        db.session.add(original)
+        try:
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            original = db.session.get(ClinicImportOriginal, delivery.id)
+            if original is None:
+                raise
+        except SQLAlchemyError:
+            db.session.rollback()
+            raise
+    if any(getattr(original, name) != value for name, value in values.items()):
+        raise IngestError("conflict", "stored original differs from the import delivery")
+    return original
+
+
+def _author_injecting(ingest_service, author_user_id, delivery):
     def store(stream, **kwargs):
-        return store_original(stream, **{**kwargs, "author_user_id": author_user_id})
+        try:
+            return ingest_service.store_original(stream, **{**kwargs, "author_user_id": author_user_id})
+        except IngestError as exc:
+            if exc.code == "author_required":
+                _remember_original(delivery, ingest_service, kwargs)
+            raise
     return store
+
+
+def _recover_original(delivery, session_row, ingest_service, now):
+    """Reconcile UNKNOWN deliveries, including files published before this table existed."""
+    original = db.session.get(ClinicImportOriginal, delivery.id)
+    if original is not None:
+        return original
+    fields = {
+        "idempotency_key": "agent-ingest:%s:%s" % (session_row.agent_id, session_row.idempotency_key),
+        "declared_sha256": session_row.declared_sha256, "declared_size": session_row.declared_size,
+        "origin": "agent", "origin_ref": "agent:%s:%s:%s" % (
+            session_row.agent_id, session_row.source_id, session_row.snapshot_version,
+        ), "now": now,
+    }
+    path = ingest_service.stored_path(
+        idempotency_key=fields["idempotency_key"], declared_sha256=fields["declared_sha256"],
+        declared_size=fields["declared_size"],
+    )
+    if path is None:
+        return None
+    return _remember_original(delivery, ingest_service, fields)
+
+
+def _heal_original(original, intent):
+    """Verify stored bytes and add the dictation within the caller's transaction."""
+    locked = ClinicImportDelivery.query.filter_by(
+        id=original.delivery_id, intent_id=intent.id, status="MATCHED",
+    ).update({"status": "MATCHED"}, synchronize_session=False)
+    if locked != 1:
+        raise AgentChannelError("conflict", "delivery assignment changed")
+    service = IngestService(original.storage_root)
+    path = service.stored_path(
+        idempotency_key=original.idempotency_key, declared_sha256=original.content_hash,
+        declared_size=original.size_bytes,
+    )
+    if path is None:
+        raise IngestError("storage_failed", "stored import original is missing")
+    with path.open("rb") as stream:
+        receipt = service.store_original(
+            stream, idempotency_key=original.idempotency_key, declared_sha256=original.content_hash,
+            declared_size=original.size_bytes, origin=original.origin, origin_ref=original.origin_ref,
+            author_user_id=intent.target_author_user_id, now=aware(original.created_at), commit=False,
+        )
+    if intent.target_pool_id:
+        db.session.get(ClinicDictation, receipt.dictation_id).pool_id = intent.target_pool_id
+    return receipt
 
 
 def _complete(delivery, intent, receipt):
@@ -307,8 +419,8 @@ def finalize_delivery(principal, policy, *, ingest_id, body, ingest_service, now
     """Finalize one agent upload through the import centre.
 
     ``ingest_service`` is an ``IngestService``. With a matching intent the original is stored for the
-    intent's author. Without one the bytes are stored and the session stays UNKNOWN (``author_required``),
-    the delivery appears on the clarification list. The receipt is the channel's receipt plus an
+    intent's author. Without one the bytes and their permanent reference are stored and the session
+    stays UNKNOWN (``author_required``). The receipt is the channel's receipt plus an
     ``import`` block (delivery id, status, intent id, language id).
     """
     agent = agent_of(principal)
@@ -321,10 +433,17 @@ def finalize_delivery(principal, policy, *, ingest_id, body, ingest_service, now
         delivery = _record_delivery(agent, session_row, now)
     intent = db.session.get(ClinicImportIntent, delivery.intent_id) if delivery and delivery.intent_id else None
     author = intent.target_author_user_id if intent else None
-    receipt = finalize_ingest(
-        principal, policy, ingest_id=ingest_id, body=body, now=now,
-        store_original=_author_injecting(ingest_service.store_original, author),
-    )
+    original = None
+    if delivery is not None and session_row.state == "UNKNOWN":
+        original = _recover_original(delivery, session_row, ingest_service, now)
+    if original is not None and intent is None:
+        receipt = get_receipt(principal, ingest_id=ingest_id)
+    else:
+        receipt = finalize_ingest(
+            principal, policy, ingest_id=ingest_id, body=body, now=now,
+            store_original=_author_injecting(ingest_service, author, delivery),
+            recover_original=(lambda: _heal_original(original, intent)) if original and intent else None,
+        )
     if delivery is not None and intent is not None:
         _complete(delivery, intent, receipt)
     if delivery is not None:
