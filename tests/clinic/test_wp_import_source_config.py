@@ -31,6 +31,8 @@ def _env():
 def world():
     with app.app_context():
         admin = _user("adm")
+        admin.is_admin = True
+        db.session.commit()
         author = _user("aut")
         other = _user("oth")
         yield {"admin": admin, "author": author, "other": other}
