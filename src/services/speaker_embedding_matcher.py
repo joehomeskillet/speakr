@@ -264,6 +264,20 @@ def apply_auto_speaker_labels(recording, user):
     return auto_label_map(recording, user, threshold)
 
 
+def _name_has_active_consent(name):
+    """True when `name` is the name or username of a user with active voice consent."""
+    from sqlalchemy import func
+    from src.clinic.voice_consent import has_active_consent
+    from src.models import User
+    key = str(name or '').strip().lower()
+    if not key:
+        return False
+    users = User.query.filter(
+        (func.lower(User.name) == key) | (func.lower(User.username) == key)
+    ).all()
+    return any(has_active_consent(user.id) for user in users)
+
+
 def apply_speaker_names_to_transcription(recording, speaker_map):
     """
     Apply speaker name mappings to a recording's transcription.
@@ -285,6 +299,12 @@ def apply_speaker_names_to_transcription(recording, speaker_map):
     # Only real names are applied: a diarization label is not a name.
     from src.utils.speaker_labels import is_real_speaker_name
     speaker_map = {label: name for label, name in (speaker_map or {}).items() if is_real_speaker_name(name)}
+
+    # Clinic mode: only users with active own voice consent are named; every
+    # other label (patients, third parties) stays the neutral diarization label.
+    from src.clinic.config import clinic_mode_enabled
+    if clinic_mode_enabled():
+        speaker_map = {label: name for label, name in speaker_map.items() if _name_has_active_consent(name)}
 
     if not speaker_map or not recording.transcription:
         logger.warning(f"Auto-label: No speaker_map or transcription (map={bool(speaker_map)}, trans={bool(recording.transcription)})")

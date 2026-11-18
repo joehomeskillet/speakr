@@ -335,6 +335,11 @@ def apply_contextual_auto_labels(recording, user):
     if not user.auto_speaker_labelling or not recording.transcription:
         return {}
 
+    # Clinic mode: contextual (LLM) naming is off; it could name patients.
+    from src.clinic.config import clinic_mode_enabled
+    if clinic_mode_enabled():
+        return {}
+
     from src.models import Speaker
     from src.services.speaker_embedding_matcher import apply_speaker_names_to_transcription
     from src.services.speaker_snippets import create_speaker_snippets
