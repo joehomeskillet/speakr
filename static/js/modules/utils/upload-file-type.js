@@ -9,6 +9,8 @@
 const AUDIO_EXTENSIONS = [
     'mp3', 'm4a', 'wav', 'aac', 'ogg', 'oga', 'opus', 'flac', 'wma', 'aiff', 'caf',
     '3gp', '3gpp', 'amr', 'weba',
+    // Dictation containers (Olympus DS2, classic DSS); the server decodes them.
+    'ds2', 'dss',
 ];
 
 // Video containers, sized against the audio-only video limit.

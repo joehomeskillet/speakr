@@ -1618,9 +1618,32 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
             actual_filename = original_filename
             audio_filepath = None  # Track temp audio extracted from video (for cleanup)
 
+            # Dictation container (.ds2/.dss): the stored original stays as it
+            # is; the ASR gets a 16 kHz mono WAV decoded next to it. A decoder
+            # failure ends the recording FAILED with a German message, no retry.
+            dictation_wav = None
+            from src.clinic import dictation_upload
+            if dictation_upload.sniff_container(filepath):
+                try:
+                    dictation_wav = dictation_upload.decode_for_asr(filepath)
+                except dictation_upload.DictationDecodeError as decode_error:
+                    current_app.logger.warning(
+                        f"Dictation decode failed for recording {recording_id}: status={decode_error.status}")
+                    return _fail_without_retry(recording, str(decode_error))
+                audio_filepath = dictation_wav
+                actual_filepath = dictation_wav
+                actual_content_type = 'audio/wav'
+                actual_filename = os.path.basename(dictation_wav)
+                try:
+                    recording.audio_duration_seconds = float(dictation_upload.wav_seconds(dictation_wav))
+                    db.session.commit()
+                except Exception as duration_err:
+                    db.session.rollback()
+                    current_app.logger.warning(f"Could not cache the decoded duration of recording {recording_id}: {duration_err}")
+
             # Use codec detection to check if file is a video
             try:
-                is_video = is_video_file(filepath, timeout=10)
+                is_video = False if dictation_wav else is_video_file(filepath, timeout=10)
                 if is_video:
                     current_app.logger.info(f"Video detected for recording {recording_id} ({loggable_path(filepath, recording_id)})")
             except FFProbeError as e:
@@ -2043,6 +2066,8 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
             # to storage), so the local copy is always safe to remove after
             # transcription. Previously this was gated on effective_video_retention,
             # leaking the legacy branch's _audio.* into UPLOAD_FOLDER.
+            if dictation_wav:
+                _remove_derived_temp_files(filepath, dictation_wav)
             if is_video and audio_filepath and audio_filepath != filepath:
                 try:
                     if os.path.exists(audio_filepath):
