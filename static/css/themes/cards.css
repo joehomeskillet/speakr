@@ -347,6 +347,14 @@ html[data-ui-theme="cards"] :is(#app > header, #inquire-app > header, #global-he
 html[data-ui-theme="cards"] :is(#app > header, #inquire-app > header, #global-header) .btn--icon { border-radius: var(--c-r-pill); color: var(--brand-canvas); }
 html[data-ui-theme="cards"] :is(#app > header, #inquire-app > header, #global-header) .btn--icon:hover { background: rgba(247, 246, 242, 0.12); color: var(--brand-canvas); }
 
+html[data-ui-theme="cards"] :is(#app > header, #inquire-app > header, #global-header) :is([role="menu"], [data-user-menu-dropdown], [data-notifications-panel], .surface-raised, .dropdown-menu) :is(h1, h2, h3, a, button, input, span, p, div) {
+    color: var(--c-text) !important;
+}
+html[data-ui-theme="cards"] :is(#app > header, #inquire-app > header, #global-header) :is([role="menu"], [data-user-menu-dropdown], [data-notifications-panel], .surface-raised, .dropdown-menu) :is(a, button):hover {
+    background-color: var(--ui-hover) !important;
+    color: var(--c-text) !important;
+}
+
 html[data-ui-theme="cards"].dark :is(#app > header, #inquire-app > header, #global-header) {
     background: var(--brand-canvas);
     color: var(--ui-text);

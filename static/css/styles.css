@@ -6582,6 +6582,16 @@ code, kbd, samp, pre {
     color: var(--brand-canvas);
 }
 
+/* Explicitly exempt dropdown menus, notification panels and raised surfaces from inheriting header text color */
+:is(#app > header, #inquire-app > header, #global-header) :is([role="menu"], [data-user-menu-dropdown], [data-notifications-panel], .surface-raised, .dropdown-menu) :is(h1, h2, h3, a, button, input, span, p, div) {
+    color: var(--text-primary);
+}
+
+:is(#app > header, #inquire-app > header, #global-header) :is([role="menu"], [data-user-menu-dropdown], [data-notifications-panel], .surface-raised, .dropdown-menu) :is(a, button):hover {
+    background-color: var(--ui-hover);
+    color: var(--text-primary);
+}
+
 :is(#app > header, #inquire-app > header, #global-header) .btn.header-action {
     color: var(--brand-canvas);
     background: transparent;
@@ -6633,6 +6643,14 @@ code, kbd, samp, pre {
 
 /* Visible focus states per WCAG AA */
 :focus-visible {
-    outline: 2px solid var(--border-focus) !important;
-    outline-offset: 2px !important;
+    outline: 2px solid var(--border-focus);
+    outline-offset: 2px;
+}
+:is(#app > header, #inquire-app > header, #global-header) .btn.header-action:focus-visible {
+    outline: 2px solid var(--brand-canvas);
+    outline-offset: 2px;
+}
+.dark :is(#app > header, #inquire-app > header, #global-header) .btn.header-action:focus-visible {
+    outline: 2px solid var(--brand-accent);
+    outline-offset: 2px;
 }
