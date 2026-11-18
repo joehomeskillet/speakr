@@ -460,7 +460,8 @@ def call_llm_completion(messages, temperature=0.7, response_format=None, stream=
         )
 
         request_started_at = time.monotonic()
-        response = client.chat.completions.create(**completion_args)
+        from src.clinic.llm_limits import limited
+        response = limited(client).chat.completions.create(**completion_args)
 
         # Track usage for non-streaming calls
         if user_id and operation_type and not stream and response.usage:

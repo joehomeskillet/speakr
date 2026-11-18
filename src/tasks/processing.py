@@ -2157,10 +2157,20 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
             # stage goes through another connection, which on SQLite would
             # wait for this session's open write.
             db.session.commit()
-            job.stage('titling')
-            generate_title_task(app_context, recording_id, will_auto_summarize=will_auto_summarize)
+            from src.clinic.config import clinic_mode_enabled
+            follow_up = clinic_mode_enabled()
+            if follow_up:
+                # The LLM never runs on a transcription worker: the title and the
+                # summary are a job of the summary queue (src/clinic/follow_up.py).
+                from src.clinic.follow_up import enqueue_follow_up
+                enqueue_follow_up(recording, will_auto_summarize)
+            else:
+                job.stage('titling')
+                generate_title_task(app_context, recording_id, will_auto_summarize=will_auto_summarize)
 
-            if not will_auto_summarize:
+            if follow_up:
+                pass
+            elif not will_auto_summarize:
                 # generate_title_task has already finished the recording
                 # (finish_processing: status, export, Inquire chunks).
                 reason = "admin setting" if admin_disabled else ("user preference" if user_disabled else "no LLM client")
