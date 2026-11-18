@@ -218,9 +218,12 @@
  {
   "id": "PAR-LIVE-001",
   "title": "Live-Erkennung im eigenen Diktierfenster",
-  "status": "missing",
-  "evidence": [],
-  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+  "status": "partial",
+  "evidence": [
+   "src/clinic/live_session.py",
+   "tests/clinic/test_live_session.py"
+  ],
+  "note": "Live-Sitzungszustand (RECORDING/PAUSED/ENDED), Einzel-Sitzungs-Invariante und Sprachsperre als Service getestet; Editor-UI fehlt. Routen-/UI-Wiring fehlt (Wiring-Welle)."
  },
  {
   "id": "PAR-LIVE-002",
@@ -232,9 +235,12 @@
  {
   "id": "PAR-LIVE-003",
   "title": "Sofortige Entwurfssicherung pro Phrase",
-  "status": "missing",
-  "evidence": [],
-  "note": "Kein Entwurfsspeicher pro Phrase im Code."
+  "status": "partial",
+  "evidence": [
+   "src/clinic/live_session.py",
+   "tests/clinic/test_live_session.py"
+  ],
+  "note": "Autosave-Quittungen (streng steigend, idempotent) und Wiederaufnahme ab letzter Quittung getestet; Phrase-Granularität offen. Routen-/UI-Wiring fehlt (Wiring-Welle)."
  },
  {
   "id": "PAR-LIVE-004",
@@ -371,9 +377,11 @@
   "title": "Arbeitsliste für Autoren und Schreibkräfte",
   "status": "partial",
   "evidence": [
-   "tests/clinic/test_s01_routes.py::test_lists_counts_and_search_show_only_own_recordings"
+   "tests/clinic/test_s01_routes.py::test_lists_counts_and_search_show_only_own_recordings",
+   "src/clinic/workflow.py",
+   "tests/clinic/test_workflow.py"
   ],
-  "note": "Sichtbarkeitsgefilterte Listen; eigene Arbeitsliste mit Status-Spalten fehlt."
+  "note": "Arbeitslisten-Service je Rolle/Pool mit Statusgruppen, Stückzahl und Audiolänge getestet; zusätzlich Guard-/Policy-Evidenz. Routen-/UI-Wiring fehlt (Wiring-Welle)."
  },
  {
   "id": "PAR-WF-002",
@@ -429,23 +437,32 @@
  {
   "id": "PAR-WF-008",
   "title": "Vorbereitung, Abschrift und Korrektur unterscheiden",
-  "status": "missing",
-  "evidence": [],
-  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+  "status": "partial",
+  "evidence": [
+   "src/clinic/workflow.py",
+   "tests/clinic/test_workflow.py"
+  ],
+  "note": "Statusmodell trennt Vorbereitung (Offline/Online), Zu schreiben und Zu korrigieren mit Übergangstabelle; getestet. Routen-/UI-Wiring fehlt (Wiring-Welle)."
  },
  {
   "id": "PAR-WF-009",
   "title": "Abnahme aktivieren und Berechtigte festlegen",
-  "status": "missing",
-  "evidence": [],
-  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+  "status": "partial",
+  "evidence": [
+   "src/clinic/workflow.py",
+   "tests/clinic/test_workflow.py"
+  ],
+  "note": "Abnahmepflicht steuert complete→Abzunehmen; Berechtigten-Verwaltung fehlt. Routen-/UI-Wiring fehlt (Wiring-Welle)."
  },
  {
   "id": "PAR-WF-010",
   "title": "Rückweisung und erneute Abnahme",
-  "status": "missing",
-  "evidence": [],
-  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+  "status": "partial",
+  "evidence": [
+   "src/clinic/workflow.py",
+   "tests/clinic/test_workflow.py"
+  ],
+  "note": "reject→Zu korrigieren und erneute Abnahme in der Übergangstabelle getestet. Routen-/UI-Wiring fehlt (Wiring-Welle)."
  },
  {
   "id": "PAR-WF-011",
@@ -525,16 +542,21 @@
   "status": "partial",
   "evidence": [
    "src/clinic/revisions.py:79",
-   "tests/clinic/test_revisions.py::test_append_does_not_change_an_existing_revision"
+   "tests/clinic/test_revisions.py::test_append_does_not_change_an_existing_revision",
+   "src/clinic/correction.py",
+   "tests/clinic/test_correction.py"
   ],
-  "note": "Zwischenstände als unveränderliche Revisionen; Positions-Fortsetzung im Editor fehlt."
+  "note": "Korrekturstand mit optimistischer Version und Übergabe (hand_over) getestet; Lease-Kopplung und atomares Speichern fehlen (Wiring)."
  },
  {
   "id": "PAR-COR-007",
   "title": "Audioindizes verwalten",
-  "status": "missing",
-  "evidence": [],
-  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+  "status": "partial",
+  "evidence": [
+   "src/clinic/correction.py",
+   "tests/clinic/test_correction.py"
+  ],
+  "note": "Audioindex-Marker (SECTION/INDEX) mit append-only Ereignislog getestet; Bindung an Audio-Revisionen fehlt — bleibt partial (Vorgabe Lead)."
  },
  {
   "id": "PAR-COR-008",
@@ -644,9 +666,11 @@
   "status": "partial",
   "evidence": [
    "src/clinic/config.py",
-   "tests/clinic/test_config_profiles.py::test_default_client_profile_is_managed_web_online"
+   "tests/clinic/test_config_profiles.py::test_default_client_profile_is_managed_web_online",
+   "src/clinic/asr_profiles.py",
+   "tests/clinic/test_asr_profiles.py"
   ],
-  "note": "Clientprofil-Default getestet; Offline-Profil und Quellenwahl fehlen."
+  "note": "Profiloptionen (separate Offline-Profile, Quelle Headset/Recorder) als versioniertes Datenmodell getestet; kein Trainings-/Erkennungsnachweis aus diesem Paket; Anbindung fehlt."
  },
  {
   "id": "PAR-ASR-003",
@@ -674,9 +698,12 @@
  {
   "id": "PAR-ASR-006",
   "title": "Profil-Speicherung und Arbeitsstationswechsel",
-  "status": "missing",
-  "evidence": [],
-  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+  "status": "partial",
+  "evidence": [
+   "src/clinic/asr_profiles.py",
+   "tests/clinic/test_asr_profiles.py"
+  ],
+  "note": "Serverseitige Profil-Speicherung (versioniert) getestet — Arbeitsstationswechsel damit abbildbar; profile_configured und training_proven strikt getrennt; UI fehlt."
  },
  {
   "id": "PAR-ASR-007",
@@ -804,16 +831,22 @@
  {
   "id": "PAR-OPS-005",
   "title": "Statistikerfassung und Aufbewahrung",
-  "status": "missing",
-  "evidence": [],
-  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+  "status": "partial",
+  "evidence": [
+   "src/clinic/statistics.py",
+   "tests/clinic/test_statistics.py"
+  ],
+  "note": "Statistik-Service (Stückzahl, Audiolängen) über bestehende Zeilen, Zeitbasis Erstellung/Abschluss; Aufbewahrung/Erfassungspflicht offen. Routen-/UI-Wiring fehlt (Wiring-Welle)."
  },
  {
   "id": "PAR-OPS-006",
   "title": "Diktat-, Frist- und Bearbeitungsstatistiken",
-  "status": "missing",
-  "evidence": [],
-  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+  "status": "partial",
+  "evidence": [
+   "src/clinic/statistics.py",
+   "tests/clinic/test_statistics.py"
+  ],
+  "note": "Gruppierung Status × Autor × Schreibkraft × Zeitraum (Tag/ISO-Woche/Monat, Europe/Zurich) getestet; Frist-Statistik fehlt. Routen-/UI-Wiring fehlt (Wiring-Welle)."
  },
  {
   "id": "PAR-OPS-007",
