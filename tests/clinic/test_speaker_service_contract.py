@@ -81,6 +81,8 @@ def test_routes_exist_and_methods_are_restricted(client):
 def test_healthz_reports_models_versions_and_hashes(client):
     body = client.get("/healthz").get_json()
     assert body["models_loaded"] is True
+    assert body["status"] == "ok"
+    assert body["model"] == "emb-stub"
     assert body["sherpa_onnx"] == "2.0.1"
     assert body["segmentation"]["sha256"] == "a" * 64
     assert body["embedding"]["sha256"] == "b" * 64

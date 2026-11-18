@@ -79,7 +79,10 @@ def create_app(
         engine = state["engine"]
         if engine is None:
             return jsonify({"models_loaded": False, "error": state["error"]}), 503
-        return jsonify({"models_loaded": True, **engine.info()})
+        info = engine.info()
+        return jsonify(
+            {"status": "ok", "model": info["embedding"]["name"], "models_loaded": True, **info}
+        )
 
     @app.post("/embed")
     def embed():
