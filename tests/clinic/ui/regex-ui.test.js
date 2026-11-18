@@ -81,6 +81,14 @@ describe('regex ui model', () => {
         expect(m.canApply()).toBe(false);
     });
 
+    it('shows a combined message for a POLICY_DENIED authorization denial', async () => {
+        const m = model(async () => bad('permission', 'POLICY_DENIED'));
+        await m.preview();
+        expect(m.state.failure.message).toContain('Keine Berechtigung');
+        expect(m.state.failure.message).toContain('Zielfeld nicht erlaubt');
+        expect(m.canApply()).toBe(false);
+    });
+
     it('drops the preview on a stale version at apply', async () => {
         const m = model(async (path) => (path === '/regex/preview' ? ok(PREVIEW) : bad('conflict', 'REVISION_CONFLICT')));
         await m.preview();

@@ -44,7 +44,8 @@ export const LABELS = Object.freeze({
     applying: 'Werte werden übernommen.',
     applied: 'Die Werte wurden übernommen.',
     invalidPattern: 'Ungültiges oder zu aufwendiges Muster.',
-    forbiddenTarget: 'Zielfeld nicht erlaubt: Kontext- und Identitätsfelder können nicht gesetzt werden.',
+    // POLICY_DENIED covers both an actor denial and a forbidden target; the server does not separate them.
+    forbiddenTarget: 'Keine Berechtigung oder Zielfeld nicht erlaubt (Kontext- und Identitätsfelder können nicht gesetzt werden).',
     stale: 'Regeln oder Eingabe haben sich geändert. Bitte die Vorschau neu berechnen.',
     denied: 'Keine Berechtigung für diese Aktion.',
     failed: 'Die Aktion ist fehlgeschlagen.',
@@ -291,10 +292,10 @@ export function createRegexRulesComponent(Vue) {
       <input type="text" :value="rule.name" @input="model.setRule(i, 'name', $event.target.value)">
     </label>
     <label>{{ model.label('pattern') }}
-      <input type="text" required :value="rule.pattern" @input="model.setRule(i, 'pattern', $event.target.value)">
+      <input type="text" required :id="'clinic-regex-pattern-' + i" :aria-invalid="model.state.failure ? 'true' : null" :aria-describedby="model.state.failure ? 'clinic-regex-failure' : null" :value="rule.pattern" @input="model.setRule(i, 'pattern', $event.target.value)">
     </label>
     <label>{{ model.label('target') }}
-      <input type="text" required :value="rule.target_field" @input="model.setRule(i, 'target_field', $event.target.value)">
+      <input type="text" required :id="'clinic-regex-target-' + i" :aria-invalid="model.state.failure ? 'true' : null" :aria-describedby="model.state.failure ? 'clinic-regex-failure' : null" :value="rule.target_field" @input="model.setRule(i, 'target_field', $event.target.value)">
     </label>
     <label>{{ model.label('replacement') }}
       <input type="text" :value="rule.replacement" @input="model.setRule(i, 'replacement', $event.target.value)">
@@ -313,11 +314,11 @@ export function createRegexRulesComponent(Vue) {
     <p v-if="model.state.phase === 'applying'">{{ model.label('applying') }}</p>
     <p v-if="model.state.phase === 'applied'" :style="style(model.previewSurface())">{{ model.label('applied') }}</p>
   </div>
-  <div v-if="model.state.failure" role="alert" :style="style(model.failureSurface())">
+  <div v-if="model.state.failure" id="clinic-regex-failure" role="alert" :style="style(model.failureSurface())">
     <p>{{ model.state.failure.message }}</p>
     <button v-if="model.state.failure.retryable" type="button" @click="model.retry()">{{ model.label('retry') }}</button>
   </div>
-  <div v-if="model.state.preview">
+  <div v-if="model.state.preview" role="region" :aria-label="model.label('preview')">
     <table>
       <caption>{{ model.label('preview') }}</caption>
       <thead><tr>
