@@ -13,6 +13,15 @@ from src.database import db
 from src.utils.log_filters import loggable_error, loggable_locator
 
 
+def _remove_playback_derivative(storage, locator):
+    """Clinic: the DS2/DSS playback MP3 goes with its recording."""
+    try:
+        from src.clinic import dictation_playback
+        dictation_playback.remove_playback(storage.resolve_local_filesystem_path(locator))
+    except ValueError:
+        pass  # not a local locator
+
+
 def delete_recording_completely(recording, storage=None, strict_media=False, reason='deleted',
                                 audit_reason=None):
     """Delete the media, the rows that reference the recording, and the recording.
@@ -46,6 +55,7 @@ def delete_recording_completely(recording, storage=None, strict_media=False, rea
     if recording.audio_path:
         try:
             storage.delete(recording.audio_path, missing_ok=True)
+            _remove_playback_derivative(storage, recording.audio_path)
             current_app.logger.info(f"Deleted media for recording {recording_id}: {loggable_locator(recording.audio_path)}")
         except Exception as e:
             if strict_media:
