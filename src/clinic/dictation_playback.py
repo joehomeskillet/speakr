@@ -54,6 +54,18 @@ def ensure_playback(original, wav=None) -> Optional[str]:
         shutil.rmtree(work, ignore_errors=True)
 
 
+def playable_locator(storage, audio_path: str) -> str:
+    """Storage locator of what a player should read: the MP3 derivative for a
+    local DS2/DSS original (created if missing), else ``audio_path`` itself."""
+    try:
+        local = storage.resolve_local_filesystem_path(audio_path)
+    except Exception:
+        return audio_path
+    if ensure_playback(local):
+        return playback_path(audio_path)
+    return audio_path
+
+
 def remove_playback(original) -> None:
     """Delete the derivative together with its recording (best effort)."""
     try:
