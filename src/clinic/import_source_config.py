@@ -10,9 +10,12 @@ authenticated user id.
 from __future__ import annotations
 
 import fnmatch
+import os
 import re
 import uuid
+from dataclasses import replace
 from datetime import datetime, timezone
+from pathlib import PurePosixPath, PureWindowsPath
 from typing import Callable, Optional
 
 from sqlalchemy import CheckConstraint, ForeignKey, UniqueConstraint
@@ -20,7 +23,9 @@ from sqlalchemy import CheckConstraint, ForeignKey, UniqueConstraint
 from src.database import db
 from src.models import User
 
+from . import policy
 from .agent_channel import AgentChannelError, aware, transactional, utcnow
+from .identity import ClinicAccountPolicy
 from .import_centre import resolve_language
 from .workflow import normalize_priority
 
@@ -82,11 +87,37 @@ def _clean_ref(value, what):
     return value
 
 
-def _clean_root(value):
-    root = str(value or "").strip().replace("\\", "/")
-    if not root or _CONTROL.search(root) or ".." in root.split("/"):
+def _root_path(value: str) -> PurePosixPath | PureWindowsPath:
+    root = value.replace("\\", "/")
+    if _CONTROL.search(root) or ".." in root.split("/"):
         raise AgentChannelError("invalid", "approved_root")
-    return root.rstrip("/") or "/"
+    drive = re.match(r"^[A-Za-z]:", root)
+    if root.startswith("//") or drive:
+        # Reject Windows device namespaces and names Win32 may reinterpret.
+        tail = root[2:] if drive else root
+        if (root.startswith(("//?/", "//./")) or re.search(r'[<>"|?*:]', tail)
+                or any(p != "." and p.endswith((".", " ")) for p in tail.split("/"))):
+            raise AgentChannelError("invalid", "approved_root")
+        path: PurePosixPath | PureWindowsPath = PureWindowsPath(root)
+    else:
+        path = PurePosixPath(root)
+    if not path.is_absolute():
+        raise AgentChannelError("invalid", "approved_root")
+    return path
+
+
+def _clean_root(value: str) -> str:
+    if not isinstance(value, str):
+        raise AgentChannelError("invalid", "approved_root")
+    root = _root_path(value)
+    for entry in os.environ.get("CLINIC_IMPORT_ROOT_ALLOWLIST", "").split(";"):
+        try:
+            base = _root_path(entry.strip())
+        except AgentChannelError:
+            continue
+        if type(root) is type(base) and root.is_relative_to(base):
+            return root.as_posix()
+    raise AgentChannelError("forbidden", "approved_root outside allowlist")
 
 
 def _clean_pattern(value):
@@ -96,9 +127,34 @@ def _clean_pattern(value):
     return pattern
 
 
-def _may_manage(actor_user_id):
-    if db.session.get(User, actor_user_id) is None:
+def _known_actor(actor_user_id: int) -> User:
+    actor = db.session.get(User, actor_user_id, populate_existing=True) if type(actor_user_id) is int else None
+    if actor is None:
         raise AgentChannelError("forbidden", "unknown user")
+    return actor
+
+
+def _may_manage(actor_user_id: int) -> None:
+    actor = _known_actor(actor_user_id)
+    account = db.session.get(ClinicAccountPolicy, actor.id, populate_existing=True)
+    if account is not None and account.status != "active":
+        raise AgentChannelError("forbidden", "inactive account")
+    if actor.is_admin:
+        return
+
+    # The evaluator has a closed list of recording actions. Project only explicit
+    # import grants onto a grant-only action on a synthetic, actor-owned resource.
+    # This preserves central scope and deny rules without changing recording policy.
+    subject = policy.build_subject(actor.id)
+    grants = tuple(
+        replace(grant, actions=frozenset({"release"})) for grant in subject.grants
+        if "manage_import_sources" in grant.actions
+    )
+    if grants and policy.decide(
+        replace(subject, grants=grants), "release", policy.RecordingFacts(recording_id=0, owner_id=actor.id),
+    ).allowed:
+        return
+    raise AgentChannelError("forbidden", "manage_import_sources required")
 
 
 def _view(row):
@@ -178,8 +234,7 @@ def update_source_config(
         raise AgentChannelError("not_found", "import source config")
     if row.policy_version != expected_version:
         raise AgentChannelError("conflict", "stale policy version")
-    if approved_root is not None:
-        row.approved_root = _clean_root(approved_root)
+    row.approved_root = _clean_root(row.approved_root if approved_root is None else approved_root)
     if target_author_user_id is not None:
         if db.session.get(User, target_author_user_id) is None:
             raise AgentChannelError("invalid", "target_author_user_id")
@@ -214,7 +269,7 @@ def update_source_config(
 
 @transactional
 def delete_source_config(*, actor_user_id, config_id):
-    """Server-controlled removal. The caller must authorize outside this layer."""
+    """Remove an owned import-source configuration with source management authority."""
     _may_manage(actor_user_id)
     row = db.session.get(ClinicImportSourceConfig, config_id)
     if row is None or row.created_by_user_id != actor_user_id:
@@ -226,7 +281,7 @@ def delete_source_config(*, actor_user_id, config_id):
 
 
 def get_source_config(*, actor_user_id, config_id):
-    _may_manage(actor_user_id)
+    _known_actor(actor_user_id)
     row = db.session.get(ClinicImportSourceConfig, config_id)
     if row is None or row.created_by_user_id != actor_user_id:
         raise AgentChannelError("not_found", "import source config")
@@ -234,7 +289,7 @@ def get_source_config(*, actor_user_id, config_id):
 
 
 def list_source_configs(*, actor_user_id):
-    _may_manage(actor_user_id)
+    _known_actor(actor_user_id)
     rows = ClinicImportSourceConfig.query.filter_by(created_by_user_id=actor_user_id).order_by(
         ClinicImportSourceConfig.source_kind, ClinicImportSourceConfig.source_ref)
     return [_view(r) for r in rows]
@@ -255,16 +310,7 @@ def _validate_path(config, relative_path):
     parts = raw.split("/")
     if any(p == ".." for p in parts):
         raise AgentChannelError("forbidden", "path traversal")
-    if config.source_kind == "folder":
-        root = config.approved_root.replace("\\", "/").rstrip("/")
-        if not root.startswith("/"):
-            raise AgentChannelError("invalid", "approved_root must be absolute for folder sources")
-        combined = (root + "/" + raw).split("/")
-        root_parts = root.split("/")
-        # Any escaping step would already have been rejected above; this guards
-        # against future normalization that might collapse symlinks or prefixes.
-        if combined[: len(root_parts)] != root_parts:
-            raise AgentChannelError("forbidden", "source outside approved root")
+    _clean_root(config.approved_root)
 
 
 def resolve_source_config(source_kind, source_ref, relative_path):

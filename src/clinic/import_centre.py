@@ -9,16 +9,21 @@ A delivery without a matching intent is kept on the clarification list
 the dictation from the verified stored file, and the agent can retrieve its bound
 receipt after upload-session expiry using the same idempotency key.
 
-No Flask routes live here. Callers supply the signed-in user id.
+No Flask routes live here. Clinic clarification callers supply the authenticated
+user id and server-owned visibility policy.
 """
+
+from __future__ import annotations
 
 import json
 import logging
 import re
 import uuid
 from collections.abc import Collection, Mapping
+from contextvars import ContextVar
+from dataclasses import replace
 from datetime import datetime, timedelta
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 from sqlalchemy import CheckConstraint, ForeignKey
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -35,6 +40,9 @@ from .config import clinic_mode_enabled
 from .ingest import IngestError, IngestService, storage_key_for
 from .models import ClinicDictation
 
+if TYPE_CHECKING:
+    from .import_visibility import ClarificationPolicy, ImportScope
+
 logger = logging.getLogger(__name__)
 
 # Owner decision 2026-11-18: files without a language are German. Windows LangId 1031 = de-DE.
@@ -46,6 +54,14 @@ DELIVERY_STATES = ("MATCHED", "UNASSIGNED")
 _REF = re.compile(r"^[A-Za-z0-9._:@-]{1,128}$")
 _CONTROL = re.compile(r"[\x00-\x1f]")
 _MAX_FILES = 500
+
+# Single-use continuations for the predecessor policy's callbacks into this
+# module. They are local to the enclosing policy call and never come from a
+# caller or request. Drop them once visibility can use explicit internal hooks.
+_list_for_visibility = ContextVar("import_list_for_visibility", default=False)
+_claim_for_visibility: ContextVar[tuple[int, str, str] | None] = ContextVar(
+    "import_claim_for_visibility", default=None,
+)
 
 
 def _uid():
@@ -229,8 +245,31 @@ def list_import_intents(*, actor_user_id, status=None, now=None):
     return [_view(i) for i in query.order_by(ClinicImportIntent.created_at)]
 
 
-def list_unassigned(*, now=None):
-    """Clarification list: deliveries no open intent claimed. Authorisation is the caller's job."""
+def list_unassigned(
+    *, actor_user_id: int | None = None, policy: ClarificationPolicy | None = None,
+    now: datetime | None = None,
+) -> list[dict]:
+    """List unresolved deliveries visible to the authenticated clinic actor."""
+    if clinic_mode_enabled():
+        if _list_for_visibility.get():
+            _list_for_visibility.set(False)
+            return _unassigned_rows()
+        if type(actor_user_id) is not int or actor_user_id <= 0 or policy is None:
+            raise AgentChannelError("forbidden", "clarification actor and policy required")
+
+        from . import import_visibility
+
+        token = _list_for_visibility.set(True)
+        try:
+            return import_visibility.list_unassigned(policy, actor_user_id=actor_user_id)["items"]
+        finally:
+            _list_for_visibility.reset(token)
+    if policy is not None:
+        raise AgentChannelError("not_found", "import clarification")
+    return _unassigned_rows()
+
+
+def _unassigned_rows() -> list[dict]:
     query = db.session.query(ClinicImportDelivery, ClinicImportOriginal).outerjoin(
         ClinicImportOriginal, ClinicImportOriginal.delivery_id == ClinicImportDelivery.id,
     ).filter(ClinicImportDelivery.status == "UNASSIGNED").order_by(ClinicImportDelivery.created_at)
@@ -281,8 +320,47 @@ def _refresh_fulfilment(intent):
 
 
 @transactional
-def assign_unassigned(*, actor_user_id, delivery_id, intent_id, now=None):
+def assign_unassigned(
+    *, actor_user_id: int | None = None, delivery_id: str, intent_id: str,
+    policy: ClarificationPolicy | None = None, expected_snapshot_version: str | None = None,
+    now: datetime | None = None,
+) -> str:
     """Claim a delivery and create its dictation atomically from its durable original."""
+    if type(actor_user_id) is not int or actor_user_id <= 0:
+        raise AgentChannelError("forbidden", "clarification actor required")
+    if clinic_mode_enabled():
+        claim = (actor_user_id, delivery_id, intent_id)
+        if policy is None:
+            if _claim_for_visibility.get() != claim:
+                raise AgentChannelError("forbidden", "clarification policy required")
+            _claim_for_visibility.set(None)
+        else:
+            from . import import_visibility
+
+            may_target = policy.may_target
+
+            def authorize_target(actor: int, scope: ImportScope, author: int, intent: ClinicImportIntent | None) -> bool:
+                if may_target is None or may_target(actor, scope, author, intent) is not True:
+                    return False
+                _claim_for_visibility.set(claim)
+                return True
+
+            token = _claim_for_visibility.set(None)
+            try:
+                # Visibility checks the version and records the audit before calling back.
+                return import_visibility.assign_unassigned(
+                    replace(policy, may_target=authorize_target), actor_user_id=actor_user_id,
+                    delivery_id=delivery_id, intent_id=intent_id,
+                    expected_snapshot_version=expected_snapshot_version or "", now=now,
+                )
+            finally:
+                _claim_for_visibility.reset(token)
+    elif policy is not None:
+        raise AgentChannelError("not_found", "import clarification")
+    return _claim_unassigned(actor_user_id=actor_user_id, delivery_id=delivery_id, intent_id=intent_id, now=now)
+
+
+def _claim_unassigned(*, actor_user_id: int, delivery_id: str, intent_id: str, now: datetime | None) -> str:
     now = aware(now) or utcnow()
     intent = _own_intent(actor_user_id, intent_id)
     delivery = db.session.get(ClinicImportDelivery, delivery_id)
