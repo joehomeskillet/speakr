@@ -486,8 +486,11 @@ class FairJobQueue:
                         terminal_error = self._terminal_failure_error(job_type, recording_id, runner_outcome)
                     except Exception as e:
                         logger.warning(f"Outcome check on job {job_id} failed: {e}")
-                job.status = 'failed' if terminal_error else 'completed'
-                if terminal_error:
+                # Clinic mode only; upstream keeps the job 'completed'.
+                from src.clinic.config import clinic_mode_enabled
+                job_fails = bool(terminal_error) and clinic_mode_enabled()
+                job.status = 'failed' if job_fails else 'completed'
+                if job_fails:
                     job.error_message = terminal_error
                 job.completed_at = datetime.utcnow()
                 # A cancel that arrived after the last safe point came too
@@ -499,7 +502,7 @@ class FairJobQueue:
                 # still saved here belongs to an attempt that was abandoned.
                 self._release_remote_task(job)
                 db.session.commit()
-                if terminal_error:
+                if job_fails:
                     logger.info(f"Job {job_id} ended failed: {terminal_error}")
                 else:
                     logger.info(f"Job {job_id} completed successfully")

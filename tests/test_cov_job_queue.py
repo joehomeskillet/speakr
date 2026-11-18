@@ -1273,7 +1273,7 @@ def test_an_empty_transcript_sends_one_failed_webhook_and_one_failure_email(trac
     rid, jid, emit, send = _empty_transcript_job(track, job_type)
     rec = db.session.get(Recording, rid)
     assert (rec.status, rec.error_message, rec.transcription) == ("FAILED", EMPTY_TRANSCRIPT_MESSAGE, None)
-    assert db.session.get(ProcessingJob, jid).status == "failed"
+    assert db.session.get(ProcessingJob, jid).status == "completed"
     assert [c.kwargs["event_type"] for c in emit.call_args_list] == ["recording.transcription.failed"]
     assert emit.call_args.kwargs["data"] == {"recording_id": rid, "title": "JQ Test Recording",
                                              "error": EMPTY_TRANSCRIPT_MESSAGE}
@@ -1298,7 +1298,7 @@ def test_an_exhausted_budget_sends_one_failed_webhook_and_one_failure_email(trac
                                                  returns_message=True, transcript="Old words.")
     rec = db.session.get(Recording, rid)
     assert (rec.status, rec.error_message) == ("FAILED", OVER_BUDGET)
-    assert db.session.get(ProcessingJob, jid).status == "failed"
+    assert db.session.get(ProcessingJob, jid).status == "completed"
     assert [c.kwargs["event_type"] for c in emit.call_args_list] == ["recording.transcription.failed"]
     assert emit.call_args.kwargs["data"] == {"recording_id": rid, "title": "JQ Test Recording",
                                              "error": OVER_BUDGET}
