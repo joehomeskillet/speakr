@@ -70,10 +70,17 @@ class OpenAIWhisperConnector(BaseTranscriptionConnector):
             }
             http_client = httpx.Client(verify=True, headers=app_headers)
 
+        from src.clinic.asr_timeout import client_options
+        try:
+            options = client_options()
+        except ValueError as exc:
+            raise ConfigurationError(str(exc)) from exc
+
         self.client = OpenAI(
             api_key=config['api_key'],
             base_url=config.get('base_url') or None,
-            http_client=http_client
+            http_client=http_client,
+            **options
         )
         self.model = config.get('model', 'whisper-1')
 
