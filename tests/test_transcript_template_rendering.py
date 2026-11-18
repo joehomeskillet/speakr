@@ -409,7 +409,14 @@ EXPECTED_LLM = {
 # as ": Hello there.". The match no longer crosses a placeholder. That also
 # keeps an unknown {{foo}} before an unknown {{foo|upper}}: unknown plain
 # placeholders were always left as written.
+# The basic format (no template) carries a [hh:mm:ss] timestamp in front of
+# every segment (owner decision 2026-11-18, clinic dictation: no speaker
+# labels, but timestamps). The earlier output stays in EXPECTED_USER.
 FIXED_USER = {
+    'none/basic': '[00:00:01] [Alice]: Hello there.\n[00:00:04] [Bob]: Hi back.',
+    'none/missing': '[00:00:00] [Unknown]: No speaker.\n[00:00:02] [Carol]: \n[00:00:00] [Dan]: No times.',
+    'none/over_an_hour': '[00:59:59] [Alice]: Late.\n[01:02:05] [Bob]: Later.\n[23:59:59] [Eve]: Day.',
+    'none/unicode': '[00:00:00] [Zoë]: Grüße, 你好 ✓',
     'unknown_placeholder/basic': '{{foo}}  Hello there.\n{{foo}}  Hi back.',
     'unknown_placeholder/missing': '{{foo}}  No speaker.\n{{foo}}  \n{{foo}}  No times.',
     'unknown_placeholder/over_an_hour': '{{foo}}  Late.\n{{foo}}  Later.\n{{foo}}  Day.',
