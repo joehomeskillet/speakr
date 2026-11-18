@@ -14,6 +14,14 @@ from test_pools import _dictation, _suffix, _user, pool_db as pool_db
 from test_s01_review_findings import _guard, features_open as features_open
 
 
+@pytest.fixture(autouse=True)
+def _pool_admin_grants(monkeypatch):
+    """Pool and grant writes need central-policy grants; the synthetic users hold them."""
+    monkeypatch.setattr(policy, "_grant_providers", [
+        lambda uid: (policy.Grant("all", frozenset({"manage_pools", "manage_grants"})),),
+    ])
+
+
 def test_startup_policy_is_shared_by_worklist_and_route_guard(clinic_on, features_open):
     author, typist = _user(), _user()
     author_pool = pools.create_author_pool(f'A-{_suffix()}', actor_id=author.id)
