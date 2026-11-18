@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -14,17 +15,19 @@ public enum IntentBindingState
 
 public static class IntentBinding
 {
+    // Eight lines, LF, no trailing LF. expires_at is the wire string, not a reformatted clock.
     public static string Sign(ImportIntent intent, string agentId, byte[] key)
     {
         var text = string.Join(
             '\n',
-            "speakr-import-intent-v1",
+            "speakr-import-intent-v2",
             intent.IntentId,
             intent.Kind,
             agentId,
             intent.SourceId,
             intent.SnapshotVersion,
-            intent.PostStep);
+            intent.PostStep,
+            intent.ExpiresAt);
         return Convert.ToHexString(HMACSHA256.HashData(key, Encoding.UTF8.GetBytes(text))).ToLowerInvariant();
     }
 
@@ -37,9 +40,21 @@ public static class IntentBinding
             return supplied ? IntentBindingState.Invalid : IntentBindingState.Unbound;
         var expected = Encoding.ASCII.GetBytes(Sign(intent, ownAgentId, key));
         var actual = Encoding.ASCII.GetBytes(intent.Signature.ToLowerInvariant());
-        return CryptographicOperations.FixedTimeEquals(expected, actual)
-            ? IntentBindingState.Valid
-            : IntentBindingState.Invalid;
+        if (expected.Length != actual.Length || !CryptographicOperations.FixedTimeEquals(expected, actual))
+            return IntentBindingState.Invalid;
+        return ExpiresInFuture(intent.ExpiresAt) ? IntentBindingState.Valid : IntentBindingState.Invalid;
+    }
+
+    public static bool ExpiresInFuture(string expiresAt)
+    {
+        if (!DateTimeOffset.TryParseExact(
+                expiresAt,
+                "yyyy-MM-dd'T'HH:mm:ss'Z'",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                out var expires))
+            return false;
+        return expires > DateTimeOffset.UtcNow;
     }
 }
 

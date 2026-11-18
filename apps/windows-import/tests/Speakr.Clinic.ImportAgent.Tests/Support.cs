@@ -72,7 +72,8 @@ static class Temp
             SourceId = item.SourceId,
             SnapshotVersion = item.SnapshotVersion,
             PostStep = step,
-            AgentId = "agent-1"
+            AgentId = "agent-1",
+            ExpiresAt = "2099-01-01T00:00:00Z"
         };
         intent.Signature = IntentBinding.Sign(intent, "agent-1", IntentKey);
         return intent;
@@ -88,6 +89,9 @@ static class Temp
 sealed class ListLog : IImportLog
 {
     public List<string> Lines { get; } = [];
+    public List<string> Errors { get; } = [];
 
     public void Info(string message) => Lines.Add(message);
+
+    public void Error(string message) => Errors.Add(message);
 }

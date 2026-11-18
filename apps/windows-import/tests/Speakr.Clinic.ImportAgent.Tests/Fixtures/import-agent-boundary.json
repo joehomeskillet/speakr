@@ -1,0 +1,41 @@
+{
+  "version": "4.0-web",
+  "allowed_operations": [
+    "discover_allowlisted_sources",
+    "read_inventory",
+    "stable_snapshot",
+    "read_source_metadata",
+    "encrypt_bounded_spool",
+    "calculate_hash",
+    "resumable_upload",
+    "receive_bound_receipt",
+    "retry",
+    "report_health",
+    "import_backup_policy",
+    "guarded_post_receipt_source_delete"
+  ],
+  "denied_operations": [
+    "microphone_capture",
+    "audio_playback",
+    "transcription",
+    "text_editing",
+    "review_or_release",
+    "global_hotkeys",
+    "hid_control",
+    "foreign_window_lookup",
+    "send_input",
+    "clipboard",
+    "office_automation",
+    "firmware_flash",
+    "device_configuration_write",
+    "local_user_enumeration",
+    "credential_passthrough",
+    "generic_shell",
+    "arbitrary_file_proxy"
+  ],
+  "network": "outbound HTTPS only to configured clinic ingress; no browser-to-localhost listener",
+  "source_deletion_default": false,
+  "device_backup_scope": "Only enrolled source snapshots; no arbitrary server-requested local path",
+  "commands": "typed import job + actor/source/version binding; deny unknown commands",
+  "rights": "Upload/status of own imports; no general audio/text read privileges"
+}

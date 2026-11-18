@@ -50,10 +50,12 @@ public sealed class SimulatorImportServer : IImportServer
             return Task.FromResult<IReadOnlyList<ImportIntent>>(_intents.ToArray());
     }
 
+    public List<AgentOutcome> Outcomes { get; } = [];
+
     public Task<IngestReceipt> BeginAsync(WireBeginIngest body, string idempotencyKey, CancellationToken cancellationToken)
     {
-        if (!string.Equals(body.RequestId, idempotencyKey, StringComparison.Ordinal))
-            throw new ImportConflictException("request_id and Idempotency-Key differ.");
+        if (idempotencyKey.Length is < 8 or > 255)
+            throw new ImportServerException(400, "idempotency key");
         var hash = PayloadHash(body);
         lock (_gate)
         {
@@ -64,7 +66,7 @@ public sealed class SimulatorImportServer : IImportServer
                     throw new ImportConflictException("Idempotency key reused with a different source version.");
                 return Task.FromResult(existing.Receipt());
             }
-            var session = new Session(Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), hash, body.ExpectedSha256, body.ExpectedBytes);
+            var session = new Session(Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), hash, body);
             _byKey[idempotencyKey] = session;
             _byId[session.Id] = session;
             return Task.FromResult(session.Receipt());
@@ -74,6 +76,7 @@ public sealed class SimulatorImportServer : IImportServer
     public Task<IngestReceipt> PutChunkAsync(
         string ingestId,
         int sequence,
+        long offset,
         ReadOnlyMemory<byte> body,
         string sha256,
         CancellationToken cancellationToken)
@@ -81,19 +84,27 @@ public sealed class SimulatorImportServer : IImportServer
         if (sequence < 0)
             throw new ImportServerException(400, "sequence");
         if (body.Length < 1 || body.Length > AgentOptions.MaxChunkBytes)
-            throw new ImportServerException(413, "chunk size");
+            throw new ImportServerException(400, "chunk size");
         var actual = Hashing.Sha256Hex(body.Span);
         if (!string.Equals(actual, sha256, StringComparison.Ordinal))
-            throw new ImportConflictException("chunk hash");
+            throw new ImportServerException(400, "chunk hash");
         lock (_gate)
         {
             var session = _byId[ingestId];
+            if (session.Aborted)
+                throw new ImportConflictException("session is ABORTED");
             if (session.Chunks.TryGetValue(sequence, out var previous))
             {
                 if (!previous.AsSpan().SequenceEqual(body.Span))
                     throw new ImportConflictException("chunk replay differs");
                 return Task.FromResult(session.Receipt());
             }
+            var priorBytes = session.Chunks.Where(pair => pair.Key < sequence).Sum(pair => (long)pair.Value.Length);
+            var priorCount = session.Chunks.Count(pair => pair.Key < sequence);
+            if (priorCount != sequence || offset != priorBytes)
+                throw new ImportConflictException("chunk offset out of order");
+            if (offset + body.Length > session.DeclaredSize)
+                throw new ImportConflictException("chunk exceeds the declared size");
             session.Chunks[sequence] = body.ToArray();
             PutSequences.Add(sequence);
             var receipt = session.Receipt();
@@ -134,8 +145,9 @@ public sealed class SimulatorImportServer : IImportServer
             var stored = ReadStoredBytes(ingestId);
             if (stored.LongLength != body.TotalBytes || !string.Equals(Hashing.Sha256Hex(stored), body.Sha256, StringComparison.Ordinal))
                 throw new ImportConflictException("content hash");
-            if (session.ExpectedSha256 is not null && !string.Equals(session.ExpectedSha256, body.Sha256, StringComparison.Ordinal))
-                throw new ImportConflictException("expected hash");
+            if (!string.Equals(session.DeclaredSha256, body.Sha256, StringComparison.Ordinal)
+                || session.DeclaredSize != body.TotalBytes)
+                throw new ImportServerException(400, "finalize size or total hash differs from the declaration");
             session.Finalized = body;
             session.Committed = DurableCommit;
             return Task.FromResult(session.Receipt());
@@ -148,46 +160,75 @@ public sealed class SimulatorImportServer : IImportServer
             return Task.FromResult(_byId[ingestId].Receipt());
     }
 
+    public Task<IngestReceipt> AbortAsync(string ingestId, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            var session = _byId[ingestId];
+            if (session.Finalized is not null || session.Committed)
+                throw new ImportConflictException("session cannot be aborted");
+            session.Aborted = true;
+            session.Chunks.Clear();
+            return Task.FromResult(session.Receipt());
+        }
+    }
+
+    public Task ReportOutcomeAsync(AgentOutcome outcome, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+            Outcomes.Add(outcome);
+        return Task.CompletedTask;
+    }
+
     private static string PayloadHash(WireBeginIngest body)
     {
-        var text = string.Join(
-            '\n',
-            body.SourceKind,
-            body.Source.SourceNamespace,
-            body.Source.SourceRecordingId,
-            body.ExpectedSha256,
-            body.Source.ObservedCompletion,
-            body.Source.EvidenceLevel);
+        var text = string.Join('\n', body.IntentId, body.DeclaredSize.ToString(System.Globalization.CultureInfo.InvariantCulture), body.DeclaredSha256);
         return Hashing.Sha256Hex(System.Text.Encoding.UTF8.GetBytes(text));
     }
 
-    private sealed class Session(string id, string correlationId, string payloadHash, string? expectedSha256, long? expectedBytes)
+    private sealed class Session(string id, string correlationId, string payloadHash, WireBeginIngest begin)
     {
         public string Id { get; } = id;
         public string CorrelationId { get; } = correlationId;
         public string PayloadHash { get; } = payloadHash;
-        public string? ExpectedSha256 { get; } = expectedSha256;
-        public long? ExpectedBytes { get; } = expectedBytes;
+        public string DeclaredSha256 { get; } = begin.DeclaredSha256;
+        public long DeclaredSize { get; } = begin.DeclaredSize;
+        public string IntentId { get; } = begin.IntentId;
+        public string SourceId { get; } = begin.SourceId;
+        public string SnapshotVersion { get; } = begin.SnapshotVersion;
+        public string AgentId { get; } = begin.AgentId;
+        public string PostStep { get; } = begin.PostStep.Length == 0 ? "none" : begin.PostStep;
         public Dictionary<int, byte[]> Chunks { get; } = [];
         public WireFinalizeIngest? Finalized { get; set; }
         public bool Committed { get; set; }
+        public bool Aborted { get; set; }
 
         public IngestReceipt Receipt()
         {
-            var stored = Finalized is not null && Committed;
+            var stored = Finalized is not null && Committed && !Aborted;
+            var state = Aborted ? "ABORTED" : stored ? "STORED" : Finalized is null ? "RECEIVING" : "FINALIZING";
+            var permitted = stored ? PostStep : "none";
             return new IngestReceipt
             {
                 IngestId = Id,
-                State = stored ? "STORED" : Finalized is null ? "RECEIVING" : "FINALIZING",
+                State = state,
                 ReceivedChunks = Chunks.Keys.Order().ToArray(),
-                ReceivedBytes = Chunks.Values.Sum(c => (long)c.Length),
-                Sha256 = Finalized?.Sha256,
+                ReceivedBytes = stored ? DeclaredSize : Chunks.Values.Sum(c => (long)c.Length),
+                Sha256 = stored ? DeclaredSha256 : null,
                 DictationId = null,
                 Durability = stored ? "STORED" : "RECEIVED",
-                DecodeState = "NOT_STARTED",
+                DecodeState = stored ? "PENDING" : "NOT_STARTED",
                 Completion = "UNKNOWN",
                 AuthorState = "UNRESOLVED",
-                CorrelationId = CorrelationId
+                CorrelationId = CorrelationId,
+                AgentId = AgentId,
+                IntentId = IntentId,
+                SourceId = SourceId,
+                SnapshotVersion = SnapshotVersion,
+                Size = DeclaredSize,
+                OriginalId = stored ? Id : null,
+                PermittedPostStep = permitted,
+                DeletionPermitted = permitted == "delete"
             };
         }
     }

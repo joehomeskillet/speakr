@@ -42,10 +42,54 @@ public static class PathGuard
                 continue;
             if (segment.EndsWith('.') || segment.EndsWith(' '))
                 return true;
-            if (windows && System.Text.RegularExpressions.Regex.IsMatch(segment, "~[0-9]"))
+            // shortcut: all-caps names that are exactly a generated 8.3 alias are refused; mixed-case names such as report~1.dss are kept. Upgrade when a managed API can tell a short alias from the long name without P/Invoke.
+            if (windows && IsGeneratedShortName(segment))
                 return true;
         }
         return false;
+    }
+
+    // NTFS stores a generated short alias in uppercase (PROGRA~1, REPORT~1.DSS). A long name keeps its case.
+    internal static bool IsGeneratedShortName(string segment)
+    {
+        if (segment.Length is < 2 or > 12)
+            return false;
+        foreach (var ch in segment)
+        {
+            if (char.IsLetter(ch) && char.IsLower(ch))
+                return false;
+        }
+        var dot = segment.LastIndexOf('.');
+        var baseName = dot < 0 ? segment : segment[..dot];
+        var ext = dot < 0 ? "" : segment[(dot + 1)..];
+        if (dot >= 0 && (ext.Length is < 1 or > 3 || ext.AsSpan().Contains('.')))
+            return false;
+        if (baseName.Length is < 2 or > 8)
+            return false;
+        var tilde = baseName.IndexOf('~');
+        if (tilde <= 0 || tilde != baseName.LastIndexOf('~') || tilde > 6)
+            return false;
+        var digits = baseName[(tilde + 1)..];
+        if (digits.Length == 0)
+            return false;
+        foreach (var ch in digits)
+        {
+            if (!char.IsAsciiDigit(ch))
+                return false;
+        }
+        if (baseName[..tilde].Length + 1 + digits.Length > 8)
+            return false;
+        foreach (var ch in baseName[..tilde])
+        {
+            if (!char.IsAsciiLetterOrDigit(ch) && ch != '_')
+                return false;
+        }
+        foreach (var ch in ext)
+        {
+            if (!char.IsAsciiLetterOrDigit(ch) && ch != '_')
+                return false;
+        }
+        return true;
     }
 
     public static string Normalize(string path)

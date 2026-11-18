@@ -29,10 +29,13 @@ public sealed class PostImport
         var move = string.Equals(intent.PostStep, "move_backup", StringComparison.Ordinal);
         if (!delete && !move)
             return PostImportOutcome.RejectedStep;
-        // Destructive steps need an intent that is verifiably addressed to this agent. Without it the
-        // source stays untouched (the contract defines no intent signature yet, see README).
         if (IntentBinding.Verify(intent, _options.AgentId, _intentKey) != IntentBindingState.Valid)
             return PostImportOutcome.RefusedUnbound;
+        // The receipt is the server's grant. A local intent cannot widen it.
+        if (delete && (receipt.PermittedPostStep != "delete" || !receipt.DeletionPermitted))
+            return PostImportOutcome.RejectedStep;
+        if (move && receipt.PermittedPostStep != "move_backup")
+            return PostImportOutcome.RejectedStep;
         if (!PathGuard.TryAdmit(item.RootPath, item.FullPath, out var full))
             return PostImportOutcome.Conflict;
         if (!File.Exists(full))

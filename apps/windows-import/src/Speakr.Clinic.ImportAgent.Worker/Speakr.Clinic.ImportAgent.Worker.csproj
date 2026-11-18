@@ -5,6 +5,9 @@
     <RootNamespace>Speakr.Clinic.ImportAgent.Worker</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Speakr.Clinic.ImportAgent.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\Speakr.Clinic.ImportAgent\Speakr.Clinic.ImportAgent.csproj" />
   </ItemGroup>
   <ItemGroup>

@@ -59,7 +59,6 @@ public sealed class ImportOrchestrator
         var inventory = Collect(now);
         var report = new InventoryReport
         {
-            AgentId = _options.AgentId,
             Items = inventory.Select(ToWire).ToList()
         };
         await _server.ReportInventoryAsync(report, cancellationToken);
@@ -74,12 +73,14 @@ public sealed class ImportOrchestrator
             {
                 _log.Info("rejected intent");
                 outcomes.Add(PostImportOutcome.RejectedStep);
+                await TryReport(intent, PostImportOutcome.RejectedStep, null, cancellationToken);
                 continue;
             }
             if (IntentBinding.Verify(intent, _options.AgentId, _intentKey) == IntentBindingState.Invalid)
             {
                 _log.Info("rejected intent: foreign agent or bad signature");
                 outcomes.Add(PostImportOutcome.RejectedStep);
+                await TryReport(intent, PostImportOutcome.RejectedStep, null, cancellationToken);
                 continue;
             }
             var match = inventory.FirstOrDefault(item =>
@@ -89,6 +90,7 @@ public sealed class ImportOrchestrator
             {
                 _log.Info("intent conflict " + LogText.Clean(intent.SourceId));
                 outcomes.Add(PostImportOutcome.Conflict);
+                await TryReport(intent, PostImportOutcome.Conflict, null, cancellationToken);
                 continue;
             }
             try
@@ -96,14 +98,17 @@ public sealed class ImportOrchestrator
                 if (!EnsureSpooled(match))
                 {
                     outcomes.Add(PostImportOutcome.Conflict);
+                    await TryReport(intent, PostImportOutcome.Conflict, null, cancellationToken);
                     continue;
                 }
                 _log.Info("upload " + LogText.Clean(match.SourceId) + " bytes " + match.Size);
-                var receipt = await _uploader.UploadAsync(match, cancellationToken);
+                var receipt = await _uploader.UploadAsync(match, intent, cancellationToken);
                 receipts.Add(receipt);
                 // The spool copy is dropped at the start of the next collection pass.
                 _stored.Add(match.SnapshotVersion);
-                outcomes.Add(_post.Apply(match, intent, receipt));
+                var post = _post.Apply(match, intent, receipt);
+                outcomes.Add(post);
+                await TryReport(intent, post, receipt.IngestId, cancellationToken);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -192,12 +197,12 @@ public sealed class ImportOrchestrator
                 }
                 var sha = Hashing.Sha256Hex(bytes);
                 var relative = Path.GetRelativePath(Path.GetFullPath(root.Path), file).Replace('\\', '/');
-                if (relative.Length > AgentOptions.MaxSourceFieldChars)
+                if (!ContractIds.IsRelativePath(relative))
                 {
-                    _log.Info("name too long for the ingest contract");
+                    _log.Info("path outside the ingest contract");
                     continue;
                 }
-                var sourceId = root.Id + "/" + relative;
+                var sourceId = ContractIds.SourceId(root.Id, relative);
                 var version = Hashing.Sha256Hex(Encoding.UTF8.GetBytes(sourceId + "\n" + bytes.Length + "\n" + mtime.UtcTicks + "\n" + sha));
                 if (!_stored.Contains(version))
                 {
@@ -221,7 +226,68 @@ public sealed class ImportOrchestrator
     }
 
     public Task<BoundReceipt> UploadAsync(InventoryItem item, CancellationToken cancellationToken = default) =>
-        _uploader.UploadAsync(item, cancellationToken);
+        UploadAsync(item, SyntheticIntent(item), cancellationToken);
+
+    public Task<BoundReceipt> UploadAsync(InventoryItem item, ImportIntent intent, CancellationToken cancellationToken = default) =>
+        _uploader.UploadAsync(item, intent, cancellationToken);
+
+    private ImportIntent SyntheticIntent(InventoryItem item) => new()
+    {
+        IntentId = item.IdempotencyKey("intent"),
+        Kind = ImportIntentKind.ImportSnapshot,
+        AgentId = _options.AgentId,
+        SourceId = item.SourceId,
+        SnapshotVersion = item.SnapshotVersion,
+        PostStep = "none",
+        ExpiresAt = "2099-01-01T00:00:00Z"
+    };
+
+    private async Task TryReport(ImportIntent intent, PostImportOutcome post, string? ingestId, CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParseExact(intent.IntentId, "D", out _))
+            return;
+        foreach (var name in OutcomeNames(intent, post, ingestId is not null))
+        {
+            try
+            {
+                await _server.ReportOutcomeAsync(new AgentOutcome
+                {
+                    IntentId = intent.IntentId,
+                    IngestId = ingestId,
+                    Outcome = name
+                }, cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _log.Info("outcome failed " + ex.GetType().Name);
+            }
+        }
+    }
+
+    private static IEnumerable<string> OutcomeNames(ImportIntent intent, PostImportOutcome post, bool stored)
+    {
+        if (stored)
+            yield return "stored";
+        switch (post)
+        {
+            case PostImportOutcome.Moved:
+                yield return "moved";
+                break;
+            case PostImportOutcome.Deleted:
+                yield return "deleted";
+                break;
+            case PostImportOutcome.Conflict:
+                yield return "conflict";
+                break;
+            case PostImportOutcome.RejectedStep:
+            case PostImportOutcome.RefusedUnbound:
+                yield return "refused";
+                break;
+            case PostImportOutcome.SkippedPolicyOff when intent.PostStep is not ("none" or ""):
+                yield return "refused";
+                break;
+        }
+    }
 
     public PostImportOutcome ApplyPost(InventoryItem item, ImportIntent intent, BoundReceipt receipt) =>
         _post.Apply(item, intent, receipt);

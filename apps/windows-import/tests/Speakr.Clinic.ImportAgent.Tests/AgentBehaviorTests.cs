@@ -65,7 +65,7 @@ public class AgentBehaviorTests
             var agent = Temp.Agent(Temp.Options(root, spool), server);
             var result = await Temp.Stabilize(agent, DateTimeOffset.Parse("2026-01-02T00:00:00Z"));
             var item = Assert.Single(result.Inventory);
-            Assert.Equal("root-a/note.dss", item.SourceId);
+            Assert.Equal("root-a:note.dss", item.SourceId);
             Assert.Equal(3, item.Size);
             Assert.Equal("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", item.ContentSha256);
             Assert.Equal("unknown", item.Completion.ObservedCompletion);
@@ -136,11 +136,12 @@ public class AgentBehaviorTests
             Assert.Equal(PostImportOutcome.SkippedPolicyOff, Assert.Single(skipped.Post));
             Assert.Equal("original-bytes", File.ReadAllText(path));
 
-            var enabled = Temp.Agent(Temp.Options(root, spool, post: true, backup: backup), server);
+            var enabled = Temp.Agent(Temp.Options(root, spool, post: true, backup: backup), new SimulatorImportServer());
             var stable = Assert.Single((await Temp.Stabilize(enabled, start.AddSeconds(10))).Inventory);
-            var receipt = await enabled.UploadAsync(stable);
+            var deleteIntent = Temp.Intent(stable, "delete");
+            var receipt = await enabled.UploadAsync(stable, deleteIntent);
             File.WriteAllText(path, "changed-bytes");
-            Assert.Equal(PostImportOutcome.Conflict, enabled.ApplyPost(stable, Temp.Intent(stable, "delete"), receipt));
+            Assert.Equal(PostImportOutcome.Conflict, enabled.ApplyPost(stable, deleteIntent, receipt));
             Assert.Equal("changed-bytes", File.ReadAllText(path));
             var foreign = receipt with { SourceId = "other-root/note.dss" };
             Assert.Throws<ReceiptRejectedException>(() => enabled.ApplyPost(stable, Temp.Intent(stable, "delete"), foreign));
@@ -293,26 +294,30 @@ public class AgentBehaviorTests
             var production = new SimulatorImportServer();
             var agent = Temp.Agent(Temp.Options(root, spool), production);
             var item = Assert.Single((await Temp.Stabilize(agent, start)).Inventory);
+            Assert.Equal("unknown", item.Completion.ObservedCompletion);
+            Assert.Equal("unverified", item.Completion.EvidenceLevel);
+            Assert.Null(item.Completion.ClaimedAuthorCode);
             production.Enqueue(Temp.Intent(item, "none"));
             await agent.RunOnceAsync(start.AddSeconds(6));
-            Assert.Equal("unknown", production.LastBegin!.Source.ObservedCompletion);
-            Assert.Equal("unverified", production.LastBegin.Source.EvidenceLevel);
-            Assert.Null(production.LastBegin.Source.ClaimedAuthorCode);
-            Assert.Equal("device", production.LastBegin.SourceKind);
             var json = JsonSerializer.Serialize(production.LastBegin, ImportJson.Options);
+            Assert.DoesNotContain("source_kind", json);
+            Assert.DoesNotContain("request_id", json);
             Assert.DoesNotContain("author_user_id", json);
             Assert.DoesNotContain("hdr-author", json);
 
             var simulated = new SimulatorImportServer();
             var simulatorAgent = Temp.Agent(Temp.Options(root, spool, mode: "simulator"), simulated);
             var fixture = Assert.Single((await Temp.Stabilize(simulatorAgent, start.AddSeconds(30))).Inventory);
+            Assert.Equal("completed", fixture.Completion.ObservedCompletion);
+            Assert.Equal("fixture", fixture.Completion.EvidenceLevel);
+            Assert.Equal("hdr-author", fixture.Completion.ClaimedAuthorCode);
             simulated.Enqueue(Temp.Intent(fixture, "none"));
             await simulatorAgent.RunOnceAsync(start.AddSeconds(36));
-            Assert.Equal("completed", simulated.LastBegin!.Source.ObservedCompletion);
-            Assert.Equal("fixture", simulated.LastBegin.Source.EvidenceLevel);
-            Assert.Equal("hdr-author", simulated.LastBegin.Source.ClaimedAuthorCode);
-            Assert.Equal("simulator", simulated.LastBegin.SourceKind);
-            Assert.DoesNotContain("author_user_id", JsonSerializer.Serialize(simulated.LastBegin, ImportJson.Options));
+            var simulatedJson = JsonSerializer.Serialize(simulated.LastBegin, ImportJson.Options);
+            Assert.DoesNotContain("source_kind", simulatedJson);
+            Assert.DoesNotContain("request_id", simulatedJson);
+            Assert.DoesNotContain("author_user_id", simulatedJson);
+            Assert.DoesNotContain("hdr-author", simulatedJson);
         }
         finally
         {
