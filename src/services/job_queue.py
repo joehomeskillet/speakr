@@ -383,6 +383,9 @@ class FairJobQueue:
                 from src.models import ProcessingJob
 
                 try:
+                    # A clinic follow-up without a registered handler stays
+                    # queued (not failed) until register_clinic_handler runs.
+                    job_types = [t for t in job_types if t not in CLINIC_JOBS or t in _CLINIC_HANDLERS]
                     order = self.turn_order(job_types)
                     candidate_job = order[0] if order else None
 

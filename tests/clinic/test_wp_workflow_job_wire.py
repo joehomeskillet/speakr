@@ -192,6 +192,25 @@ def test_two_transitions_at_same_version_both_notify_and_retry_does_not_duplicat
     assert len(ids) == 2 and stored == {("accepted", "d1", "tr-b")}
 
 
+@pytest.mark.parametrize("job_type", jq.CLINIC_JOBS)
+def test_job_without_handler_stays_pending_and_runs_once_after_registration(env, job_type):
+    job_id = _enqueue(env, job_type)
+    claim = lambda: jq.job_queue._claim_next_job(jq.SUMMARY_JOBS, "summary")  # noqa: E731
+    # Workers skip it: not claimed, not failed, nothing consumed.
+    assert claim() is None and claim() is None
+    job = db.session.get(ProcessingJob, job_id)
+    assert (job.status, job.retry_count, job.error_message) == ("queued", 0, None)
+
+    calls = []
+    jq.register_clinic_handler(job_type, lambda params, correlation_id: calls.append(correlation_id))
+    claimed = claim()
+    assert claimed is not None and claimed.id == job_id
+    assert claim() is None
+    job = _run(job_id)
+    assert (job.status, len(calls)) == ("completed", 1)
+    assert claim() is None and len(calls) == 1
+
+
 def test_missing_handler_and_clinic_mode_off_fail_without_retry(env, monkeypatch):
     job = _run(_enqueue(env, "clinic_finalize"))
     assert (job.status, job.retry_count) == ("failed", 1)
