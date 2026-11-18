@@ -14,6 +14,7 @@ segment handling is the same code for both.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import os
 from typing import Any, Optional
@@ -124,11 +125,21 @@ class FallbackTranscriptionConnector(BaseTranscriptionConnector):
         except (AttributeError, OSError, ValueError):
             pass
 
+    @staticmethod
+    def _gpu_request(request: TranscriptionRequest) -> TranscriptionRequest:
+        """A per-request model override (reprocess) names a CPU model; the GPU
+        target keeps CLINIC_GPU_ASR_MODEL when that is set."""
+        model = os.environ.get(GPU_MODEL_ENV, '').strip()
+        if model and request.model:
+            return dataclasses.replace(request, model=model)
+        return request
+
     def transcribe(self, request: TranscriptionRequest) -> TranscriptionResponse:
         reason = self._gpu_healthy()
         if reason is None:
+            logger.info('ASR: sending job to GPU target %s', self._gpu_url)
             try:
-                return self._gpu.transcribe(request)
+                return self._gpu.transcribe(self._gpu_request(request))
             except TranscriptionError as exc:
                 reason = _fallback_reason(exc)
                 if reason is None:
@@ -151,12 +162,14 @@ class FallbackTranscriptionConnector(BaseTranscriptionConnector):
 def wrap_with_gpu_fallback(cpu: BaseTranscriptionConnector) -> BaseTranscriptionConnector:
     """Wrap the OpenAI-compatible CPU connector when a GPU target is configured.
 
-    Any other connector (asr_endpoint, clinic_stub) and any setup without
-    clinic mode or without CLINIC_GPU_ASR_BASE_URL is returned unchanged.
+    Every connector type is wrapped (openai_whisper and asr_endpoint), except
+    the clinic_stub test double and an already wrapped connector. Without
+    clinic mode or without CLINIC_GPU_ASR_BASE_URL it is returned unchanged.
     """
+    from src.services.transcription.connectors.clinic_stub import ClinicStubTranscriptionConnector
     from src.services.transcription.connectors.openai_whisper import OpenAIWhisperConnector
 
-    if not fallback_enabled() or type(cpu) is not OpenAIWhisperConnector:
+    if (not fallback_enabled() or isinstance(cpu, (FallbackTranscriptionConnector, ClinicStubTranscriptionConnector))):
         return cpu
     url = gpu_base_url()
     timeout = gpu_timeout()
