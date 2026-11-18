@@ -1,0 +1,14 @@
+# Snippet fuer das Staging-Compose (Deploy durch den Orchestrator). Noch nicht Default-ASR.
+services:
+  gpu-asr:
+    build: ./deployment/gpu-asr-service
+    restart: unless-stopped        # Prozess-Abbruch bei OpenCL-Fehler -> automatischer Neustart
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - "${RENDER_GID:-109}"       # Gruppe von /dev/dri/renderD*
+    environment:
+      ASR_DEVICE: GPU.0
+      ASR_TIMEOUT_S: "300"
+    expose:
+      - "8000"
