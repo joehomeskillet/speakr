@@ -122,11 +122,44 @@ def test_verbose_json_has_segments_and_words(svc):
     assert eng.calls[0]["timestamps"] is True
 
 
-def test_prompt_and_hotwords_are_passed_through(svc):
-    client, eng = make_client(svc)
+def test_prompt_and_hotwords_are_passed_through_when_enabled(svc):
+    client, eng = make_client(svc, PROMPTS_ENABLED=True)
     post(client, prompt="Anamnese, Befund", hotwords="Metformin Ramipril")
     assert eng.calls[0]["prompt"] == "Anamnese, Befund"
     assert eng.calls[0]["hotwords"] == "Metformin Ramipril"
+
+
+def test_prompts_are_ignored_by_default(svc):
+    client, eng = make_client(svc)
+    assert post(client, prompt="Anamnese", hotwords="Metformin").status_code == 200
+    assert eng.calls[0]["prompt"] is None
+    assert eng.calls[0]["hotwords"] is None
+
+
+def test_long_prompt_is_truncated_to_55_words_and_logged(svc, caplog):
+    client, eng = make_client(svc, PROMPTS_ENABLED=True)
+    long_prompt = " ".join(f"w{i}" for i in range(200))
+    with caplog.at_level("WARNING"):
+        resp = post(client, prompt=long_prompt)
+    assert resp.status_code == 200
+    assert eng.calls[0]["prompt"].split() == [f"w{i}" for i in range(55)]
+    assert "truncated from 200 to 55 words" in caplog.text
+
+
+def test_prompt_and_hotwords_share_one_55_word_budget(svc):
+    client, eng = make_client(svc, PROMPTS_ENABLED=True)
+    post(client, prompt=" ".join(["p"] * 40), hotwords=" ".join(["h"] * 40))
+    assert len(eng.calls[0]["prompt"].split()) == 40
+    assert len(eng.calls[0]["hotwords"].split()) == 15
+
+
+def test_prompt_limit_can_be_lowered_but_never_raised(svc):
+    client, eng = make_client(svc, PROMPTS_ENABLED=True, PROMPT_MAX_WORDS=10)
+    post(client, prompt=" ".join(["w"] * 30))
+    assert len(eng.calls[0]["prompt"].split()) == 10
+    client, eng = make_client(svc, PROMPTS_ENABLED=True, PROMPT_MAX_WORDS=500)
+    post(client, prompt=" ".join(["w"] * 200))
+    assert len(eng.calls[0]["prompt"].split()) == 55
 
 
 @pytest.mark.parametrize("fields,status", [
