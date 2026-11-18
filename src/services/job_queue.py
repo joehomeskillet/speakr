@@ -779,6 +779,11 @@ class FairJobQueue:
         from src.tasks.processing import generate_summary_only_task
         from flask import current_app
 
+        if params.get('follow_up'):
+            # Title and summary queued by a transcription job (src/clinic/follow_up.py).
+            from src.clinic.follow_up import run_follow_up
+            return run_follow_up(current_app._get_current_object().app_context(), recording.id, params)
+
         generate_summary_only_task(
             current_app._get_current_object().app_context(),
             recording.id,

@@ -399,9 +399,14 @@ def run_startup_tasks(app):
         # start_single_instance(). Adding one here without an election means
         # it runs once per gunicorn worker plus twice more from the
         # entrypoint scripts; see the comment on SINGLE_INSTANCE_LOCKS.
-        start_single_instance(
+        queue_started = start_single_instance(
             app, JOB_QUEUE_OWNER_LOCK,
             lambda: start_job_queue(app), 'job queue')
+        from src.clinic.config import clinic_mode_enabled
+        if not queue_started and clinic_mode_enabled():
+            # Clinic: take over when the owner dies (src/clinic/queue_owner.py).
+            from src.clinic.queue_owner import start_reelection_watch
+            start_reelection_watch(app)
 
         # Watches one directory. Several watchers racing over the same
         # dropped file is how one upload becomes several recordings.

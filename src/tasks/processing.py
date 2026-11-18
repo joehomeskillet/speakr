@@ -270,6 +270,13 @@ def _end_transaction_before_external_call(*instances):
         session.expire_on_commit = previous
 
 
+def _end_transaction_in_clinic_mode(*instances):
+    """Same as above, for call sites upstream leaves open; CLINIC_MODE only."""
+    from src.clinic.config import clinic_mode_enabled
+    if clinic_mode_enabled():
+        _end_transaction_before_external_call(*instances)
+
+
 def _connector_specs_log(specs):
     """The worker's "Connector specs" log line; an unset cap is unlimited (#588)."""
     def _seconds(value):
@@ -1322,6 +1329,8 @@ def transcribe_chunks_with_connector(connector, filepath, filename, mime_type, l
                                     should_cancel=chunk_cancel,
                                 )
 
+                            # Chunks are the long ASR calls: no transaction across them.
+                            _end_transaction_in_clinic_mode()
                             response = connector.transcribe(request)
 
                         # For the first diarized chunk, extract speaker samples for subsequent chunks
@@ -2120,6 +2129,7 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
                     try:
                         from src.services.speaker_identification import apply_contextual_auto_labels
                         current_app.logger.info(f"Applying contextual auto speaker labelling for recording {recording.id}")
+                        _end_transaction_in_clinic_mode(recording)  # the labelling calls the LLM
                         contextual_map = apply_contextual_auto_labels(recording, label_user)
                         if not contextual_map:
                             current_app.logger.info(f"No saved speaker matched recording {recording.id} contextually")
@@ -2147,10 +2157,20 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
             # stage goes through another connection, which on SQLite would
             # wait for this session's open write.
             db.session.commit()
-            job.stage('titling')
-            generate_title_task(app_context, recording_id, will_auto_summarize=will_auto_summarize)
+            from src.clinic.config import clinic_mode_enabled
+            follow_up = clinic_mode_enabled()
+            if follow_up:
+                # The LLM never runs on a transcription worker: the title and the
+                # summary are a job of the summary queue (src/clinic/follow_up.py).
+                from src.clinic.follow_up import enqueue_follow_up
+                enqueue_follow_up(recording, will_auto_summarize)
+            else:
+                job.stage('titling')
+                generate_title_task(app_context, recording_id, will_auto_summarize=will_auto_summarize)
 
-            if not will_auto_summarize:
+            if follow_up:
+                pass
+            elif not will_auto_summarize:
                 # generate_title_task has already finished the recording
                 # (finish_processing: status, export, Inquire chunks).
                 reason = "admin setting" if admin_disabled else ("user preference" if user_disabled else "no LLM client")
