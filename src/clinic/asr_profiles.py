@@ -14,8 +14,9 @@ Every profile change appends a ``ClinicAsrProfileVersion`` row (who, when,
 what changed, full snapshot). A call that changes nothing writes no version.
 
 Hotword merge (``effective_hotwords``): the profile lists set ids in order.
-Pool sets (only those of the pool the caller names) are applied first, then
-author sets. Later wins per term, so an author set beats a pool set and a
+Pool sets (only those of the pool the caller names, with current author
+membership required in clinic mode) are applied first, then author sets.
+Later wins per term, so an author set beats a pool set and a
 later reference beats an earlier one inside the same scope. Terms compare
 case-insensitively after Unicode NFC. An author set can list ``blocked``
 terms; they remove the term from everything applied before it.
@@ -32,7 +33,8 @@ import uuid
 
 from sqlalchemy import CheckConstraint, UniqueConstraint, event
 
-from src.clinic.pools import AwareDateTime, _utcnow
+from src.clinic.config import clinic_mode_enabled
+from src.clinic.pools import AwareDateTime, ClinicAuthorPoolMember, _utcnow
 from src.database import db
 from src.models import User
 
@@ -208,6 +210,12 @@ def _known_user(user_id):
     return user_id
 
 
+def _can_use_pool(user_id: int, pool_id: str) -> bool:
+    if not clinic_mode_enabled():
+        return True
+    return ClinicAuthorPoolMember.query.filter_by(pool_id=pool_id, user_id=user_id).first() is not None
+
+
 def _clean_options(options):
     """Recognition options from the behaviour reference (PAR-ASR-002/003/006).
 
@@ -301,11 +309,14 @@ def effective_hotwords(user_id, pool_id=None):
     """Merged hotword list for an author (see module docstring for the rule).
 
     Returns terms in application order, the winner's spelling kept. Sets that
-    are not owned by the author or do not belong to ``pool_id`` are skipped.
+    are not owned by the author or do not belong to an authorized ``pool_id``
+    are skipped.
     """
     profile = ClinicAsrProfile.query.filter_by(user_id=user_id).first()
     if profile is None:
         return []
+    if pool_id is not None and not _can_use_pool(user_id, pool_id):
+        pool_id = None
     sets = []
     for position, set_id in enumerate(profile.hotword_set_ids):
         row = db.session.get(ClinicHotwordSet, set_id)
@@ -363,6 +374,8 @@ def set_profile(user_id, *, actor_id, language=_UNSET, model=_UNSET, options=_UN
             if row is None:
                 raise AsrProfileError("set_unknown")
             if row.scope == "author" and row.owner_user_id != user_id:
+                raise AsrProfileError("set_foreign")
+            if row.scope == "pool" and not _can_use_pool(user_id, row.pool_id):
                 raise AsrProfileError("set_foreign")
         new["hotword_set_ids"] = ids
 

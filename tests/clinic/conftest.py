@@ -8,7 +8,6 @@ immutability triggers on clinic_original_version are switched off only for this
 clean-up and put back right after.
 """
 
-import fcntl
 import secrets
 
 import pytest
@@ -32,29 +31,31 @@ from src.utils.token_auth import hash_token
 
 from clinic_support import SECRET_MARKER
 
-# The queue tests share the one test database across xdist processes: a sweep
-# or claim in one process mutates rows another process asserts on. These
-# modules therefore run serialized against each other (and only against each
-# other) through one file lock; everything else keeps full parallelism.
+# Claim takes a queued row and the orphan sweep requeues a processing row.
+# Each pytest process has its own database (root conftest), so a file lock
+# cannot hide rows an earlier module in this process left behind. Park those
+# rows before the test creates its own, and leave them parked.
 _QUEUE_DB_MODULES = (
     'test_job_lease', 'test_job_queue_owner', 'test_llm_decoupling',
     'test_job_failed_on_recording_failed',
 )
 
 
-@pytest.fixture(scope='module', autouse=True)
-def _queue_db_serialized(request):
+def _retire_foreign_jobs():
+    with app.app_context():
+        ProcessingJob.query.filter(
+            ProcessingJob.status.in_(('queued', 'processing'))
+        ).update({'status': 'failed'}, synchronize_session=False)
+        db.session.commit()
+
+
+@pytest.fixture(autouse=True)
+def _queue_table_quiet(request):
+    """No claimable or sweepable ProcessingJob rows from an earlier module."""
     name = request.module.__name__.rsplit('.', 1)[-1]
-    if name not in _QUEUE_DB_MODULES:
-        yield
-        return
-    handle = open('/tmp/speakr-queue-tests.lock', 'a')
-    fcntl.flock(handle, fcntl.LOCK_EX)
-    try:
-        yield
-    finally:
-        fcntl.flock(handle, fcntl.LOCK_UN)
-        handle.close()
+    if name in _QUEUE_DB_MODULES:
+        _retire_foreign_jobs()
+    yield
 
 
 @pytest.fixture
@@ -78,7 +79,7 @@ def _no_policy_providers():
 
 
 @pytest.fixture
-def world():
+def world(_queue_table_quiet):
     """Authors a and b (same routing pool in a later work package), one admin.
 
     Each author owns one recording. The clinic policy must close every remaining

@@ -2,7 +2,7 @@
 
 All parts are additive and bound to one ``ClinicDictation``.
 
-* Markers sit on an audio position in ms. ``SECTION`` is a section mark of
+* Markers sit on an audio revision at a position in ms. ``SECTION`` is a section mark of
   the correction window (label such as "Anamnese"), ``INDEX`` a named audio
   index. A marker may carry a text anchor (transcript revision plus
   character offset). Create, move and delete go to an append-only event log
@@ -25,7 +25,12 @@ import json
 
 from sqlalchemy import CheckConstraint, ForeignKeyConstraint, UniqueConstraint
 
+from src.clinic import policy
+from src.clinic.audio_revisions import AudioRevisionError, get_revision_edl
+from src.clinic.config import clinic_mode_enabled
+from src.clinic.lease import LeaseConflict, assert_current
 from src.clinic.models import (
+    ClinicAudioRevision,
     ClinicDictation,
     ClinicTranscriptRevision,
     _created_at,
@@ -97,6 +102,43 @@ class ClinicMarker(db.Model):
         _in_check("marker_type", MARKER_TYPES, "ck_clinic_marker_type"),
     )
 
+    @property
+    def audio_revision_id(self) -> str | None:
+        """None means unaligned: legacy rows contain no audio revision provenance."""
+        return _marker_audio_revision_id(self.id)
+
+    @property
+    def version(self) -> int:
+        """Number of committed or transaction-local marker events."""
+        return db.session.scalar(_marker_version(self.id))
+
+
+class ClinicMarkerAudioBinding(db.Model):
+    """Write-once binding shared by the marker and its entire event history.
+
+    An additive table lets existing installations keep their marker and event
+    rows intact. Neither a text anchor nor the current audio head proves which
+    audio timeline a legacy marker was placed on.
+    """
+
+    __tablename__ = "clinic_marker_audio_binding"
+
+    marker_id = db.Column(db.String(36), primary_key=True)
+    dictation_id = db.Column(db.String(36), nullable=False)
+    audio_revision_id = db.Column(db.String(36), nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["dictation_id", "marker_id"], ["clinic_marker.dictation_id", "clinic_marker.id"],
+            name="fk_clinic_marker_binding_marker",
+        ),
+        ForeignKeyConstraint(
+            ["dictation_id", "audio_revision_id"],
+            ["clinic_audio_revision.dictation_id", "clinic_audio_revision.id"],
+            name="fk_clinic_marker_binding_audio",
+        ),
+    )
+
 
 class ClinicMarkerEvent(db.Model):
     """Append-only trace of marker changes: who, when, from where to where."""
@@ -120,6 +162,10 @@ class ClinicMarkerEvent(db.Model):
         ),
         _in_check("action", EVENT_ACTIONS, "ck_clinic_marker_event_action"),
     )
+
+    @property
+    def audio_revision_id(self) -> str | None:
+        return _marker_audio_revision_id(self.marker_id)
 
 
 class ClinicTextAudioLink(db.Model):
@@ -202,11 +248,16 @@ def add_marker(
     label: str | None = None,
     anchor_revision: ClinicTranscriptRevision | None = None,
     anchor_offset: int | None = None,
+    audio_revision_id: str | None = None,
+    lease_generation: int | None = None,
 ) -> ClinicMarker:
     """Create a marker and log it. The caller commits."""
     _check_dictation(dictation)
     _require_user(actor_user_id)
     _check_ms(position_ms, "position_ms")
+    if clinic_mode_enabled() or audio_revision_id is not None:
+        _require_marker_write(dictation, actor_user_id, lease_generation)
+        _check_audio_position(dictation, audio_revision_id, position_ms)
     if marker_type not in MARKER_TYPES:
         raise CorrectionError("unknown marker_type")
     if (anchor_revision is None) != (anchor_offset is None):
@@ -225,27 +276,67 @@ def add_marker(
     )
     db.session.add(marker)
     db.session.flush()
+    if audio_revision_id is not None:
+        db.session.add(ClinicMarkerAudioBinding(
+            marker_id=marker.id, dictation_id=dictation.id, audio_revision_id=audio_revision_id,
+        ))
     _log(marker, EVENT_CREATE, actor_user_id, None, position_ms)
     return marker
 
 
-def move_marker(marker: ClinicMarker, new_position_ms: int, actor_user_id: int) -> ClinicMarker:
+def move_marker(
+    marker: ClinicMarker, new_position_ms: int, actor_user_id: int, *,
+    expected_version: int | None = None, lease_generation: int | None = None,
+) -> ClinicMarker:
     """Move a live marker to another audio position and log old and new."""
-    _check_marker(marker)
-    _require_user(actor_user_id)
     _check_ms(new_position_ms, "new_position_ms")
-    old = marker.position_ms
-    marker.position_ms = new_position_ms
-    _log(marker, EVENT_MOVE, actor_user_id, old, new_position_ms)
-    return marker
+    return _change_marker(marker, actor_user_id, expected_version, lease_generation, new_position_ms)
 
 
-def delete_marker(marker: ClinicMarker, actor_user_id: int) -> ClinicMarker:
+def delete_marker(
+    marker: ClinicMarker, actor_user_id: int, *,
+    expected_version: int | None = None, lease_generation: int | None = None,
+) -> ClinicMarker:
     """Soft delete. The row and its events stay; the marker leaves the list."""
-    _check_marker(marker)
+    return _change_marker(marker, actor_user_id, expected_version, lease_generation, None)
+
+
+def _change_marker(
+    marker: ClinicMarker, actor_user_id: int, expected_version: int | None,
+    lease_generation: int | None, position_ms: int | None,
+) -> ClinicMarker:
+    if not isinstance(marker, ClinicMarker) or marker.id is None:
+        raise CorrectionError("marker must be a persisted ClinicMarker")
     _require_user(actor_user_id)
-    marker.deleted_at = _utcnow()
-    _log(marker, EVENT_DELETE, actor_user_id, marker.position_ms, None)
+    changes = {"deleted_at": _utcnow()} if position_ms is None else {"position_ms": position_ms}
+    if clinic_mode_enabled() or marker.audio_revision_id is not None:
+        dictation = db.session.get(ClinicDictation, marker.dictation_id)
+        if dictation is None:
+            raise CorrectionError("marker dictation does not exist")
+        _require_marker_write(dictation, actor_user_id, lease_generation)
+        db.session.refresh(marker)
+        if (
+            type(expected_version) is not int
+            or marker.deleted_at is not None
+            or marker.version != expected_version
+        ):
+            raise CorrectionConflict("marker changed since it was read")
+        if position_ms is not None:
+            _check_audio_position(dictation, marker.audio_revision_id, position_ms)
+        old = marker.position_ms
+        updated = db.session.execute(db.update(ClinicMarker).where(
+            ClinicMarker.id == marker.id, ClinicMarker.deleted_at.is_(None),
+            _marker_version(marker.id).scalar_subquery() == expected_version,
+        ).values(**changes).execution_options(synchronize_session=False))
+        if updated.rowcount != 1:
+            raise CorrectionConflict("marker changed since it was read")
+        db.session.refresh(marker)
+    else:
+        _check_marker(marker)
+        old = marker.position_ms
+        for name, value in changes.items():
+            setattr(marker, name, value)
+    _log(marker, EVENT_DELETE if position_ms is None else EVENT_MOVE, actor_user_id, old, position_ms)
     return marker
 
 
@@ -487,6 +578,51 @@ def hand_over(
 
 
 # ---------------------------------------------------------- helpers
+
+
+def _marker_audio_revision_id(marker_id: str) -> str | None:
+    binding = db.session.get(ClinicMarkerAudioBinding, marker_id)
+    return None if binding is None else binding.audio_revision_id
+
+
+def _marker_version(marker_id: str):
+    return db.select(db.func.count(ClinicMarkerEvent.id)).where(
+        ClinicMarkerEvent.marker_id == marker_id,
+    )
+
+
+def _require_marker_write(
+    dictation: ClinicDictation, actor_user_id: int, lease_generation: int | None,
+) -> None:
+    from src.models import Recording
+
+    owner_id = db.session.query(Recording.user_id).filter_by(id=dictation.recording_id).scalar()
+    if owner_id is None or not policy.decide(
+        policy.build_subject(actor_user_id), "edit", policy.build_facts(dictation.recording_id, owner_id),
+    ).allowed:
+        raise CorrectionError("marker edit not permitted")
+    if type(lease_generation) is not int:
+        raise CorrectionConflict("a current review lease is required")
+    try:
+        assert_current(dictation.id, actor_user_id, lease_generation, _utcnow())
+    except LeaseConflict as exc:
+        raise CorrectionConflict(exc.reason) from exc
+
+
+def _check_audio_position(
+    dictation: ClinicDictation, audio_revision_id: str | None, position_ms: int,
+) -> None:
+    if not isinstance(audio_revision_id, str) or not audio_revision_id:
+        raise CorrectionError("an explicit audio revision is required")
+    revision = db.session.get(ClinicAudioRevision, audio_revision_id)
+    if revision is None:
+        raise CorrectionError("audio revision is unavailable for this dictation")
+    try:
+        edl = get_revision_edl(dictation, revision)
+    except AudioRevisionError as exc:
+        raise CorrectionError("audio revision is unavailable for this dictation") from exc
+    if position_ms > edl.total_duration_ms:
+        raise CorrectionError("position is outside the audio revision")
 
 
 def _log(marker, action, actor_user_id, old, new):

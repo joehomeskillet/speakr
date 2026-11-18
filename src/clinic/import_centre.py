@@ -13,9 +13,11 @@ No Flask routes live here. Callers supply the signed-in user id.
 """
 
 import json
+import logging
 import re
 import uuid
-from datetime import timedelta
+from collections.abc import Collection, Mapping
+from datetime import datetime, timedelta
 from typing import Callable, Optional
 
 from sqlalchemy import CheckConstraint, ForeignKey
@@ -28,8 +30,12 @@ from .agent_channel import (
     AgentChannelError, ClinicAgentIngest, agent_of, aware, inventory_row, transactional, utcnow,
 )
 from .agent_channel_ingest import finalize_ingest, get_receipt
+from .author_resolution import AuthorResolutionError, resolve_author
+from .config import clinic_mode_enabled
 from .ingest import IngestError, IngestService, storage_key_for
 from .models import ClinicDictation
+
+logger = logging.getLogger(__name__)
 
 # Owner decision 2026-11-18: files without a language are German. Windows LangId 1031 = de-DE.
 DEFAULT_LANG_ID = 1031
@@ -249,12 +255,14 @@ def _fits(intent, root_id, source_id, relative_path):
     return not expected or _file_name(relative_path or "") in expected
 
 
-def _find_intent(item, now):
+def _find_intent(item, now, author_user_id=None):
     """Oldest open, unexpired intent that fits the reported file; ``None`` if there is none."""
     if item is None:
         return None
-    query = ClinicImportIntent.query.filter_by(status="OPEN").order_by(ClinicImportIntent.created_at)
-    for intent in query:
+    query = ClinicImportIntent.query.filter_by(status="OPEN")
+    if author_user_id is not None:
+        query = query.filter_by(target_author_user_id=author_user_id)
+    for intent in query.order_by(ClinicImportIntent.created_at):
         if aware(intent.expires_at) > now and _fits(intent, item.root_id, item.source_id, item.relative_path):
             return intent
     return None
@@ -300,12 +308,33 @@ def assign_unassigned(*, actor_user_id, delivery_id, intent_id, now=None):
 
 # --- agent side -------------------------------------------------------------------------
 
-def _record_delivery(agent, session_row, now):
+def _resolved_author(item, session_row, device_map, alias_map, embedded_author_for):
+    # A reported snapshot must still describe the bytes declared at begin_ingest.
+    if item is None or (item.sha256, item.size) != (session_row.declared_sha256, session_row.declared_size):
+        return None
+    embedded = embedded_author_for(
+        session_row.agent_id, session_row.source_id, session_row.snapshot_version, session_row.declared_sha256,
+    ) if embedded_author_for is not None else None
+    try:
+        return resolve_author(
+            device_id=item.root_id, embedded_author=embedded,
+            device_map=device_map, alias_map=alias_map,
+        ).author_user_id
+    except AuthorResolutionError as exc:
+        logger.warning("import author evidence rejected for ingest %s: %s", session_row.id, exc.code)
+        return None
+
+
+def _record_delivery(agent, session_row, now, *, device_map, alias_map, embedded_author_for):
     delivery = ClinicImportDelivery.query.filter_by(ingest_id=session_row.id).first()
     if delivery is not None:
         return delivery
     item = inventory_row(agent.id, session_row.source_id, session_row.snapshot_version)
-    intent = _find_intent(item, now)
+    if clinic_mode_enabled():
+        author = _resolved_author(item, session_row, device_map, alias_map, embedded_author_for)
+        intent = _find_intent(item, now, author) if author is not None else None
+    else:
+        intent = _find_intent(item, now)
     delivery = ClinicImportDelivery(
         ingest_id=session_row.id, agent_id=agent.id, source_id=session_row.source_id,
         root_id=item.root_id if item else None, relative_path=item.relative_path if item else None,
@@ -415,13 +444,22 @@ def _complete(delivery, intent, receipt):
 
 
 @transactional
-def finalize_delivery(principal, policy, *, ingest_id, body, ingest_service, now=None):
+def finalize_delivery(
+    principal, policy, *, ingest_id: str, body: dict, ingest_service: IngestService,
+    now: datetime | None = None, device_map: Mapping[str, int] | None = None,
+    alias_map: Mapping[str, Collection[int]] | None = None,
+    embedded_author_for: Callable[[str, str, str, str], str | None] | None = None,
+) -> dict:
     """Finalize one agent upload through the import centre.
 
-    ``ingest_service`` is an ``IngestService``. With a matching intent the original is stored for the
-    intent's author. Without one the bytes and their permanent reference are stored and the session
-    stays UNKNOWN (``author_required``). The receipt is the channel's receipt plus an
-    ``import`` block (delivery id, status, intent id, language id).
+    In clinic mode, use server-owned device bindings (by normalized inventory root) and
+    header aliases (normalized as in ``resolve_author``). ``embedded_author_for`` looks
+    up validated header evidence by (agent id, source id, snapshot version, sha256).
+    None of these inputs should be taken from the agent's finalize body.
+
+    A matching intent must target the resolved author. Otherwise, keep the permanent
+    original and leave the session UNKNOWN until an explicit assignment. A retry
+    uses the recorded delivery decision. The channel receipt includes an ``import`` block.
     """
     agent = agent_of(principal)
     now = aware(now) or utcnow()
@@ -430,7 +468,10 @@ def finalize_delivery(principal, policy, *, ingest_id, body, ingest_service, now
         raise AgentChannelError("not_found", "ingest session")
     delivery = None
     if session_row.state in ("RECEIVING", "UNKNOWN", "STORED"):
-        delivery = _record_delivery(agent, session_row, now)
+        delivery = _record_delivery(
+            agent, session_row, now, device_map=device_map or {}, alias_map=alias_map or {},
+            embedded_author_for=embedded_author_for,
+        )
     intent = db.session.get(ClinicImportIntent, delivery.intent_id) if delivery and delivery.intent_id else None
     author = intent.target_author_user_id if intent else None
     original = None
