@@ -104,6 +104,9 @@ def update_speaker_embedding(speaker, new_embedding, recording_id):
     Returns:
         float: Similarity between new embedding and previous average (None if first)
     """
+    from src.clinic.config import clinic_mode_enabled
+    if clinic_mode_enabled():
+        return None  # clinic mode: no voice embedding is written
     new_emb_array = np.array(new_embedding, dtype=np.float32)
     similarity_to_avg = None
 
