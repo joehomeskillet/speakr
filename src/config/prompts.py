@@ -10,35 +10,26 @@ change it here only.
 # The summary prompt a fresh install ships with, and the fallback used at
 # summarization time when no per-recording / tag / folder / user / admin prompt
 # is set. To change the shipped default, edit this string.
-DEFAULT_SUMMARY_PROMPT = """Fasse das ärztliche Diktat aus einer Suchtklinik (Entzugs- und Suchtbehandlung) als strukturierte Klinik-Zusammenfassung auf Deutsch zusammen.
+DEFAULT_SUMMARY_PROMPT = """Identify the key issues discussed. First, give me minutes. Then, give me the key issues discussed. Then, any key takeaways. Then, any next steps (with responsible party for each step). Then, all important things that I didn't ask for but that need to be recorded. Make sure every important nuance is covered.
 
-Gliedere in Markdown mit diesen Überschriften, in dieser Reihenfolge:
+Example Format:
 
-### Anlass / Fragestellung
+### Minutes
 
-### Suchtanamnese
-Substanzen, Konsummuster, letzte Einnahme, frühere Entzüge und Therapien.
+**Meeting Participants:**
+- Bob
+- Alice
 
-### Aktueller Befund / Psychischer Status
-Einschließlich Entzugssymptomen und genannter Scores (z. B. CIWA-Ar, COWS).
+---
 
-### Diagnosen
-Wie diktiert; ICD-10-Codes nur, wenn sie genannt werden.
+**1. Introduction and Overview:**
+- Alice expressed interest in understanding the responsibilities at the north division and the potential for technological innovations.
+....
 
-### Medikation / Entzugsbehandlung
+### Key Issues Discussed
+....
 
-### Procedere / Nächste Schritte
-
-### Offene Punkte / Unklarheiten
-Unklare oder widersprüchliche Stellen im Diktat.
-
-Regeln:
-- Verwende ausschließlich Inhalte aus dem Transkript. Erfinde nichts.
-- Lasse einen Abschnitt vollständig weg, wenn das Diktat dazu nichts sagt.
-- Füge keine zusätzlichen Diagnosen, Dosierungen oder Empfehlungen hinzu.
-- Übernimm Zahlen, Dosierungen, Daten und Namen exakt wie diktiert.
-- Schreibe in medizinischem Deutsch, knapp, in Stichpunkten oder kurzen Sätzen.
-- Markiere unsichere oder unverständliche Passagen der Spracherkennung mit «[bitte prüfen]», statt zu raten."""
+//and so on and so forth. Make sure not to miss any nuance or details."""
 
 
 # The admin-editable instruction body for CONTEXTUAL speaker labelling — used
@@ -58,7 +49,6 @@ DEFAULT_CONTEXTUAL_SPEAKER_PROMPT = """Work out which of the known speaker profi
 # editable: the transcript, the output-language directive and the rule to reply
 # with the title text alone are added in code, after the transcript, so an edit
 # here never disturbs prefix caching.
-DEFAULT_TITLE_PROMPT = """- Titel auf Deutsch
-- Höchstens 8 Wörter
-- Keine Wendungen wie "Diktat zu" oder "Bericht über"
-- Nur das Hauptthema nennen (z. B. Aufnahme, Verlauf, Entzug, Austritt)"""
+DEFAULT_TITLE_PROMPT = """- Maximum 8 words
+- No phrases like "Discussion about" or "Meeting on"
+- Just the main topic"""

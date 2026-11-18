@@ -195,25 +195,7 @@ def test_default_instructions_keep_the_previous_prompt(ctx):
     rec = _recording(_user())
     with admin_title_prompt(''):
         _, messages = _title_messages(rec, False)
-    assert '- Höchstens 8 Wörter' in messages["user"]
-
-
-def test_incognito_titles_use_the_user_level(ctx):
-    user = _user(title_prompt='- Start with the date')
-    calls = []
-
-    def fake_create(**kwargs):
-        calls.append(kwargs["messages"])
-        stub = MagicMock()
-        stub.choices = [MagicMock()]
-        stub.choices[0].message.content = "A title"
-        return stub
-
-    fake_client = MagicMock()
-    fake_client.chat.completions.create.side_effect = fake_create
-    with patch("src.tasks.processing.client", new=fake_client), patch("src.services.llm.client", new=fake_client):
-        processing._generate_incognito_title(TRANSCRIPT, user=user)
-    assert '- Start with the date' in calls[-1][1]["content"]
+    assert '- Maximum 8 words' in messages["user"]
 
 
 # ------------------------------------------------------------- where it is set

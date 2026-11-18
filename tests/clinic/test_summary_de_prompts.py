@@ -3,7 +3,12 @@
 import pytest
 
 from src import transcription_prompts as prompts
-from src.config.prompts import DEFAULT_SUMMARY_PROMPT, DEFAULT_TITLE_PROMPT
+from src.clinic import prompts as clinic_prompts
+from src.clinic.prompts import CLINIC_DEFAULT_SUMMARY_PROMPT, CLINIC_DEFAULT_TITLE_PROMPT
+from src.config.prompts import DEFAULT_SUMMARY_PROMPT as UPSTREAM_SUMMARY, DEFAULT_TITLE_PROMPT as UPSTREAM_TITLE
+
+DEFAULT_SUMMARY_PROMPT = CLINIC_DEFAULT_SUMMARY_PROMPT
+DEFAULT_TITLE_PROMPT = CLINIC_DEFAULT_TITLE_PROMPT
 
 # Synthetic dictation, fictitious patient.
 TRANSCRIPT = (
@@ -79,3 +84,50 @@ def test_chat_default_language_in_clinic_mode(monkeypatch):
     assert effective_output_language('Spanish') == 'Spanish'
     monkeypatch.delenv('CLINIC_MODE')
     assert effective_output_language(None) is None
+
+
+def test_clinic_mode_selects_the_german_defaults(monkeypatch):
+    monkeypatch.setenv('CLINIC_MODE', '1')
+    assert clinic_prompts.shipped_summary_prompt() == CLINIC_DEFAULT_SUMMARY_PROMPT
+    assert clinic_prompts.shipped_title_prompt() == CLINIC_DEFAULT_TITLE_PROMPT
+    # unset or still-upstream admin values become the clinic default
+    assert clinic_prompts.admin_summary_prompt(None) == CLINIC_DEFAULT_SUMMARY_PROMPT
+    assert clinic_prompts.admin_summary_prompt(UPSTREAM_SUMMARY) == CLINIC_DEFAULT_SUMMARY_PROMPT
+    assert clinic_prompts.admin_title_prompt(UPSTREAM_TITLE) == CLINIC_DEFAULT_TITLE_PROMPT
+
+
+def test_without_clinic_mode_the_upstream_defaults_stay(monkeypatch):
+    monkeypatch.delenv('CLINIC_MODE', raising=False)
+    assert clinic_prompts.shipped_summary_prompt() == UPSTREAM_SUMMARY
+    assert clinic_prompts.shipped_title_prompt() == UPSTREAM_TITLE
+    assert clinic_prompts.admin_summary_prompt(UPSTREAM_SUMMARY) == UPSTREAM_SUMMARY
+    assert clinic_prompts.admin_summary_prompt(None) is None
+    assert "Minutes" in UPSTREAM_SUMMARY and "Maximum 8 words" in UPSTREAM_TITLE
+
+
+def test_custom_admin_prompt_wins_in_clinic_mode(monkeypatch):
+    monkeypatch.setenv('CLINIC_MODE', '1')
+    assert clinic_prompts.admin_summary_prompt("Eigener Prompt") == "Eigener Prompt"
+    assert clinic_prompts.admin_title_prompt("- Eigener Titel") == "- Eigener Titel"
+
+
+def test_title_resolution_in_clinic_mode(monkeypatch):
+    from src.app import app
+    from src.models import SystemSetting
+    from src.services.titling import user_title_instructions
+
+    monkeypatch.setenv('CLINIC_MODE', '1')
+    with app.app_context():
+        previous = SystemSetting.get_setting('admin_default_title_prompt', None)
+        try:
+            SystemSetting.set_setting('admin_default_title_prompt', UPSTREAM_TITLE, setting_type='string')
+            assert user_title_instructions(None)[0] == CLINIC_DEFAULT_TITLE_PROMPT
+            SystemSetting.set_setting('admin_default_title_prompt', '- Eigener Titel', setting_type='string')
+            assert user_title_instructions(None) == ('- Eigener Titel', 'admin')
+            monkeypatch.delenv('CLINIC_MODE')
+            SystemSetting.set_setting('admin_default_title_prompt', UPSTREAM_TITLE, setting_type='string')
+            assert user_title_instructions(None)[0] == UPSTREAM_TITLE
+        finally:
+            SystemSetting.set_setting('admin_default_title_prompt',
+                                      previous if previous is not None else UPSTREAM_TITLE,
+                                      setting_type='string')
