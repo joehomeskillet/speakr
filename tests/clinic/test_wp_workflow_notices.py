@@ -38,8 +38,8 @@ def case(monkeypatch):
         db.session.commit()
         state = {"visible": set(ids.values())}
 
-        def send(event, actor="other", version=0, **kw):
-            args = dict(actor_user_id=ids[actor], expected_version=version,
+        def send(event, actor="other", version=0, transition="t1", **kw):
+            args = dict(actor_user_id=ids[actor], expected_version=version, transition_id=transition,
                         acceptor_ids=[ids["acceptor"]],
                         can_see=lambda uid, _row: uid in state["visible"])
             return emit(event, item.id, **(args | kw))
@@ -54,7 +54,7 @@ def _rows():
 def test_acceptance_request_notifies_acceptor_once_with_stable_key(case):
     item, ids, _, send = case
     first = send("acceptance_requested")
-    assert first.event_key == event_key("acceptance_requested", item.id, 0)
+    assert first.event_key == event_key("acceptance_requested", item.id, "t1")
     assert (first.created, first.existing) == ((ids["acceptor"],), ())
     again = send("acceptance_requested")
     assert (again.created, again.existing) == ((), (ids["acceptor"],))
@@ -77,6 +77,24 @@ def test_rejection_goes_to_current_assignee_only_and_text_is_free_of_details(cas
     assert later.created == (ids["other"],)
     with pytest.raises(workflow.WorkflowError, match="forbidden_context"):
         send("acceptance_rejected", actor="acceptor", context={"patient_name": "Muster"})
+
+
+def test_two_cycles_at_same_version_counter_both_notify_and_retry_does_not_duplicate(case):
+    item, ids, _, send = case
+    notified = []
+    for cycle in ("c1", "c2"):
+        workflow.transition(db.session(), item.id, "reject")
+        db.session.commit()
+        result = send("acceptance_rejected", actor="acceptor", transition=cycle)
+        notified.append(result.created)
+        retry = send("acceptance_rejected", actor="acceptor", transition=cycle)
+        assert (retry.created, retry.existing) == ((), (ids["typist"],))
+        workflow.transition(db.session(), item.id, "complete")
+        db.session.commit()
+    assert notified == [(ids["typist"],), (ids["typist"],)]
+    assert len(_rows()) == 2
+    with pytest.raises(workflow.WorkflowError, match="invalid_action_input"):
+        send("acceptance_rejected", actor="acceptor", transition="")
 
 
 def test_recipient_without_current_visibility_is_dropped(case):
@@ -109,7 +127,7 @@ def test_completion_notifies_author_and_stale_version_is_refused(case):
         send("completed", actor="typist", version=5)
     with pytest.raises(workflow.WorkflowError, match="not_found"):
         emit("completed", "missing", actor_user_id=ids["typist"], expected_version=0,
-             acceptor_ids=[], can_see=lambda *_: True)
+             transition_id="t1", acceptor_ids=[], can_see=lambda *_: True)
 
 
 def test_retry_after_failed_store_delivers_only_missing_and_keeps_dismissal(case, monkeypatch):

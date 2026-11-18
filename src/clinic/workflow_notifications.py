@@ -8,8 +8,11 @@ the durable row, refuses an event that the stored status does not support
 German text with ``notification_rules`` (no transcript or patient data) and
 stores one row per recipient through ``services.notifications``.
 
-The event key is ``clinic.wf:<event>:<dictation>:<version>``. A repeated or
-retried call finds the stored row per recipient and skips it, so there are no
+The event key is ``clinic.wf:<event>:<dictation>:<transition_id>``. The caller
+passes a durable per-transition id (for example the audit event id of the
+accept or reject); ``version_counter`` is only a staleness check because it
+changes on finalize alone, so two accept/reject cycles share it. A repeated or
+retried call for the same transition finds the stored row per recipient and skips it, so there are no
 duplicates, a dismissed notice is not revived, and a recipient whose delivery
 failed is the only one retried. The local in-app path needs no SMTP.
 """
@@ -47,8 +50,11 @@ class EmitResult:
     failed: tuple[int, ...]  # storing failed; a retry delivers only these
 
 
-def event_key(event: str, dictation_id: str, version: int) -> str:
-    return f"{KEY_PREFIX}:{event}:{dictation_id}:{version}"
+MAX_TRANSITION_ID = 64
+
+
+def event_key(event: str, dictation_id: str, transition_id: str) -> str:
+    return f"{KEY_PREFIX}:{event}:{dictation_id}:{transition_id}"
 
 
 def emit(
@@ -57,6 +63,7 @@ def emit(
     *,
     actor_user_id: int,
     expected_version: int,
+    transition_id: str,
     acceptor_ids: Collection[int],
     can_see: Callable[[int, workflow.ClinicWorkflowDictation], bool],
     context: Mapping | None = None,
@@ -68,6 +75,9 @@ def emit(
         raise workflow.WorkflowError("unknown_event")
     if (not isinstance(dictation_id, str) or not dictation_id
             or type(actor_user_id) is not int or actor_user_id < 1):
+        raise workflow.WorkflowError("invalid_action_input")
+    if (not isinstance(transition_id, str) or not transition_id
+            or len(transition_id) > MAX_TRANSITION_ID):
         raise workflow.WorkflowError("invalid_action_input")
     if type(expected_version) is not int or expected_version < 0:
         raise workflow.WorkflowError("stale_version")
@@ -93,7 +103,7 @@ def emit(
     except notification_rules.NotificationError as error:
         raise workflow.WorkflowError(error.code) from error
 
-    key = event_key(event, dictation_id, expected_version)
+    key = event_key(event, dictation_id, transition_id)
     created: list[int] = []
     existing: list[int] = []
     failed: list[int] = []
