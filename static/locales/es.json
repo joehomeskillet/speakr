@@ -3136,6 +3136,8 @@
     "editTranscription": "Editar transcripción",
     "highlightSearchResults": "Resaltar resultados de búsqueda",
     "noTranscription": "Aún no hay transcripción",
+    "failedTitle": "La transcripción ha fallado",
+    "failedMessage": "El servicio de transcripción no devolvió texto. Es posible que la grabación no contenga voz. Puede iniciar el procesamiento de nuevo.",
     "regenerateTranscription": "Regenerar transcripción",
     "saveTranscription": "Guardar transcripción",
     "searchInTranscript": "Buscar en la transcripción…",

@@ -3136,6 +3136,8 @@
     "editTranscription": "Modifier la transcription",
     "highlightSearchResults": "Surligner les résultats de recherche",
     "noTranscription": "Pas encore de transcription",
+    "failedTitle": "La transcription a échoué",
+    "failedMessage": "Le service de transcription n’a renvoyé aucun texte. L’enregistrement ne contient peut-être pas de parole. Vous pouvez relancer le traitement.",
     "regenerateTranscription": "Régénérer la transcription",
     "saveTranscription": "Enregistrer la transcription",
     "searchInTranscript": "Rechercher dans la transcription…",

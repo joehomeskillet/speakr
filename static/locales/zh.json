@@ -3136,6 +3136,8 @@
     "editTranscription": "编辑转录文本",
     "highlightSearchResults": "高亮搜索结果",
     "noTranscription": "暂无转录文本",
+    "failedTitle": "转录失败",
+    "failedMessage": "转录服务未返回任何文本。录音中可能没有语音。您可以重新开始处理。",
     "regenerateTranscription": "重新生成转录文本",
     "saveTranscription": "保存转录文本",
     "searchInTranscript": "在转录中搜索…",
