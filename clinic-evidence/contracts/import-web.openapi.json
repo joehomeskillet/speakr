@@ -1,0 +1,155 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Speakr clinic import and own-user voice consent web extension",
+    "version": "0.1.0-proposal",
+    "description": "Additive own-platform HTTP contracts. Scheduled consumers wire the existing clinic services. No manufacturer API is specified or verified here."
+  },
+  "x-contract-status": "specified_not_implemented",
+  "x-requirements": ["PAR-IMP-001", "OWN-SPK-001", "OWN-SPK-002", "R-039", "R-042"],
+  "x-original-oracle": {"id": "BT-IMP-001", "status": "not_run", "web_gaps": "remain_open"},
+  "x-manufacturer-interfaces": "unresolved",
+  "x-existing-operations": [
+    {"contract": "../../clinic-spec/contracts/clinic-api.openapi.json", "method": "POST", "path": "/api/clinic/v1/ingests", "operationId": "beginIngest", "handler": null},
+    {"contract": "../../clinic-spec/contracts/clinic-api.openapi.json", "method": "GET", "path": "/api/clinic/v1/ingests/{ingest_id}", "operationId": "getIngest", "handler": null},
+    {"contract": "../../clinic-spec/contracts/clinic-api.openapi.json", "method": "POST", "path": "/api/clinic/v1/ingests/{ingest_id}/resolve-author", "operationId": "resolveIngestAuthor", "handler": null},
+    {"contract": "agent-channel.openapi.json", "method": "PUT", "path": "/api/clinic/v1/agent/inventory", "operationId": "reportAgentInventory", "handler": "src.clinic.agent_channel.report_inventory"},
+    {"contract": "agent-channel.openapi.json", "method": "GET", "path": "/api/clinic/v1/agent/intents", "operationId": "pollAgentIntents", "handler": "src.clinic.agent_channel.poll_intents"},
+    {"contract": "agent-channel.openapi.json", "method": "POST", "path": "/api/clinic/v1/agent/ingests", "operationId": "beginAgentIngest", "handler": "src.clinic.agent_channel_ingest.begin_ingest"},
+    {"contract": "agent-channel.openapi.json", "method": "GET", "path": "/api/clinic/v1/agent/ingests/{ingest_id}", "operationId": "getAgentIngest", "handler": "src.clinic.agent_channel_ingest.get_receipt"},
+    {"contract": "agent-channel.openapi.json", "method": "PUT", "path": "/api/clinic/v1/agent/ingests/{ingest_id}/chunks/{sequence}", "operationId": "putAgentChunk", "handler": "src.clinic.agent_channel_ingest.put_chunk"},
+    {"contract": "agent-channel.openapi.json", "method": "POST", "path": "/api/clinic/v1/agent/ingests/{ingest_id}/finalize", "operationId": "finalizeAgentIngest", "handler": "src.clinic.agent_channel_ingest.finalize_ingest"},
+    {"contract": "agent-channel.openapi.json", "method": "POST", "path": "/api/clinic/v1/agent/ingests/{ingest_id}/abort", "operationId": "abortAgentIngest", "handler": "src.clinic.agent_channel_ingest.abort_ingest"},
+    {"contract": "agent-channel.openapi.json", "method": "POST", "path": "/api/clinic/v1/agent/outcomes", "operationId": "reportAgentOutcome", "handler": "src.clinic.agent_channel_ingest.record_outcome"},
+    {"contract": "../../clinic-spec/contracts/parity-api.openapi.json", "method": "POST", "path": "/parity/commands", "operationId": "executeParityCommand", "commandId": "queue_import", "schema": "#/components/schemas/QueueImport", "handler": null},
+    {"contract": "../../clinic-spec/contracts/parity-api.openapi.json", "method": "POST", "path": "/parity/commands", "operationId": "executeParityCommand", "commandId": "request_source_cleanup", "schema": "#/components/schemas/RequestSourceCleanup", "handler": null}
+  ],
+  "x-http-policy": {
+    "activation": "CLINIC_MODE only; unknown or unwired routes denied",
+    "actor": "Authenticated browser session only; never trust an actor, author or pool right from JSON",
+    "csrf": "X-CSRF-Token on every unsafe method; reject missing or invalid token before service call",
+    "object_permissions": "Re-evaluate live actor, author scope, source scope and pool assignment on every operation; audit other-user access and assignment",
+    "idempotency": "All commands: actor-scoped key plus canonical request digest stored durably with the committed result for at least the approved retention. Same key and payload returns identical status/body without side effects; changed payload is 409; failed/unknown execution must reconcile before replay",
+    "revision": "Creation requires no existing object. Import assignment checks both live states atomically; source updates compare policy_version; consent compares latest history id (0 when absent). Stale state/version returns 409 before changes",
+    "errors": "401 unauthenticated; 403 denied; 404 inaccessible object; 409 stale/reused key; 422 invalid input; 503 temporary/ambiguous failure. Errors never include patient or recording content"
+  },
+  "x-consumer-adapters": {
+    "list_unassigned": "Authorize actor at both boundaries, scope by typist pool, omit storage_key, sha256 and size; return bounded results.",
+    "assign_unassigned": "Enforce W13 author/pool access and audit before calling existing service; adapt its delivery-id return to AssignmentReceipt. Existing service currently restricts intent ownership.",
+    "voice_consent": "Compose consent_state, consent_history latest purpose id, and embedding_count; adapt grant/revoke service return to ConsentView.",
+    "bounded_reads": "Consumer must paginate or reject oversize collections; never silently truncate."
+  },
+  "security": [{"browserSession": []}],
+  "paths": {
+    "/api/clinic/v1/import-centre/agents/{agent_id}/inventory": {
+      "get": {"operationId": "listImportInventory", "summary": "Freigegebene Importdateien anzeigen", "x-handler": "src.clinic.device_inventory_view.get_device_inventory", "x-permission": "clinic.import.read_inventory on this agent and its approved source roots", "parameters": [{"$ref": "#/components/parameters/AgentId"}], "responses": {"200": {"description": "Snapshotliste", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/InventoryView"}}}}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}, "404": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/clinic/v1/import-centre/intents": {
+      "get": {"operationId": "listImportIntents", "summary": "Eigene Importaufträge anzeigen", "x-handler": "src.clinic.import_centre.list_import_intents", "x-permission": "own author intent or explicit admin read scope", "responses": {"200": {"description": "Aufträge", "content": {"application/json": {"schema": {"type": "array", "maxItems": 500, "items": {"$ref": "#/components/schemas/ImportIntent"}}}}}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}}},
+      "post": {"operationId": "createImportIntent", "summary": "Importauftrag für Autor erstellen", "x-handler": "src.clinic.import_centre.create_import_intent", "x-permission": "clinic.import for own author or explicit assign-author scope", "x-revision": "new intent; no client-provided id or revision", "parameters": [{"$ref": "#/components/parameters/Csrf"}, {"$ref": "#/components/parameters/IdempotencyKey"}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ImportIntentCreate"}}}}, "responses": {"201": {"description": "Auftrag erstellt oder identisch wiederholt", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ImportIntent"}}}}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}, "422": {"$ref": "#/components/responses/Problem"}, "503": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/clinic/v1/import-centre/unassigned": {
+      "get": {"operationId": "listUnassignedImports", "summary": "Klärliste anzeigen", "x-handler": "src.clinic.import_centre.list_unassigned", "x-permission": "active admin or lead of the assigned typist pool; redact unauthorized deliveries", "description": "Ordinary typists receive no unassigned deliveries. Hide storage keys and raw originals.", "responses": {"200": {"description": "Offene Zuordnungen", "content": {"application/json": {"schema": {"type": "array", "maxItems": 500, "items": {"$ref": "#/components/schemas/UnassignedImport"}}}}}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/clinic/v1/import-centre/unassigned/{delivery_id}/assign": {
+      "post": {"operationId": "assignUnassignedImport", "summary": "Diktat einem Autor zuordnen", "x-handler": "src.clinic.import_centre.assign_unassigned", "x-permission": "active admin or typist-pool lead with this delivery in scope; may choose a foreign author", "x-revision": "atomically compare delivery UNASSIGNED and intent OPEN/unexpired; repeat returns recorded result", "parameters": [{"$ref": "#/components/parameters/DeliveryId"}, {"$ref": "#/components/parameters/Csrf"}, {"$ref": "#/components/parameters/IdempotencyKey"}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AssignImport"}}}}, "responses": {"200": {"description": "Zugeordnet", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AssignmentReceipt"}}}}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}, "404": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}, "422": {"$ref": "#/components/responses/Problem"}, "503": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/clinic/v1/import-centre/source-configs": {
+      "get": {"operationId": "listImportSourceConfigs", "summary": "Eigene Importquellen anzeigen", "x-handler": "src.clinic.import_source_config.list_source_configs", "x-permission": "own approved source configuration; authorized admin expansion requires service guard", "responses": {"200": {"description": "Quellen", "content": {"application/json": {"schema": {"type": "array", "maxItems": 500, "items": {"$ref": "#/components/schemas/SourceConfig"}}}}}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}}},
+      "post": {"operationId": "createImportSourceConfig", "summary": "Importquelle freigeben", "x-handler": "src.clinic.import_source_config.create_source_config", "x-permission": "source management plus explicit target-author and source-deletion grants", "x-revision": "server creates policy_version=1", "parameters": [{"$ref": "#/components/parameters/Csrf"}, {"$ref": "#/components/parameters/IdempotencyKey"}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SourceConfigCreate"}}}}, "responses": {"201": {"description": "Quelle angelegt oder identisch wiederholt", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SourceConfig"}}}}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}, "422": {"$ref": "#/components/responses/Problem"}, "503": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/clinic/v1/import-centre/source-configs/{config_id}": {
+      "patch": {"operationId": "updateImportSourceConfig", "summary": "Importquelle mit Versionsprüfung ändern", "x-handler": "src.clinic.import_source_config.update_source_config", "x-permission": "owner plus source management; changing author/delete flags requires dedicated grant", "x-revision": "expected_version must equal policy_version; success increments exactly once", "parameters": [{"$ref": "#/components/parameters/ConfigId"}, {"$ref": "#/components/parameters/Csrf"}, {"$ref": "#/components/parameters/IdempotencyKey"}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SourceConfigPatch"}}}}, "responses": {"200": {"description": "Aktualisierte Quelle oder identische Wiederholung", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SourceConfig"}}}}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}, "404": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}, "422": {"$ref": "#/components/responses/Problem"}, "503": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/clinic/v1/voice-consent": {
+      "get": {"operationId": "getOwnVoiceConsent", "summary": "Eigene Stimmprofil-Einwilligung anzeigen", "x-handler": "src.clinic.voice_consent.consent_state + src.clinic.voice_consent.consent_history + src.clinic.voice_consent.embedding_count", "x-permission": "signed-in subject only; no patient or foreign user profile", "responses": {"200": {"description": "Einwilligungsstatus", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConsentView"}}}}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/clinic/v1/voice-consent/grant": {
+      "post": {"operationId": "grantOwnVoiceConsent", "summary": "Eigene Einwilligung erteilen", "x-handler": "src.clinic.voice_consent.grant_consent", "x-permission": "user may consent only for own internal user.id", "x-revision": "expected_consent_id equals latest append-only history id, or 0 when absent", "parameters": [{"$ref": "#/components/parameters/Csrf"}, {"$ref": "#/components/parameters/IdempotencyKey"}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GrantConsent"}}}}, "responses": {"201": {"description": "Einwilligung protokolliert oder identisch wiederholt", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConsentView"}}}}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}, "422": {"$ref": "#/components/responses/Problem"}, "503": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/clinic/v1/voice-consent/revoke": {
+      "post": {"operationId": "revokeOwnVoiceConsent", "summary": "Eigene Einwilligung widerrufen", "x-handler": "src.clinic.voice_consent.revoke_consent", "x-permission": "user may revoke only own internal user.id", "x-revision": "expected_consent_id equals latest append-only history id; all enrolled embeddings removed in same transaction", "parameters": [{"$ref": "#/components/parameters/Csrf"}, {"$ref": "#/components/parameters/IdempotencyKey"}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RevokeConsent"}}}}, "responses": {"200": {"description": "Widerruf protokolliert oder identisch wiederholt", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConsentView"}}}}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}, "422": {"$ref": "#/components/responses/Problem"}, "503": {"$ref": "#/components/responses/Problem"}}}
+    }
+  },
+  "components": {
+    "securitySchemes": {"browserSession": {"type": "apiKey", "in": "cookie", "name": "session"}},
+    "parameters": {
+      "Csrf": {"in": "header", "name": "X-CSRF-Token", "required": true, "schema": {"type": "string", "minLength": 16, "maxLength": 4096}},
+      "IdempotencyKey": {"in": "header", "name": "Idempotency-Key", "required": true, "schema": {"type": "string", "minLength": 8, "maxLength": 255}},
+      "AgentId": {"in": "path", "name": "agent_id", "required": true, "schema": {"type": "string", "format": "uuid"}},
+      "DeliveryId": {"in": "path", "name": "delivery_id", "required": true, "schema": {"type": "string", "format": "uuid"}},
+      "ConfigId": {"in": "path", "name": "config_id", "required": true, "schema": {"type": "string", "format": "uuid"}}
+    },
+    "responses": {"Problem": {"description": "Verweigerung ohne Patientendaten", "content": {"application/problem+json": {"schema": {"$ref": "../../clinic-spec/contracts/clinic-api.openapi.json#/components/schemas/Problem"}}}}},
+    "schemas": {
+      "InventoryView": {"type": "object", "additionalProperties": false, "required": ["agent_id", "count", "items", "queried_at"], "properties": {"agent_id": {"type": "string", "format": "uuid"}, "count": {"type": "integer", "minimum": 0, "maximum": 5000}, "items": {"type": "array", "maxItems": 5000, "items": {"$ref": "agent-channel.openapi.json#/components/schemas/InventoryItem"}}, "queried_at": {"type": "string", "format": "date-time"}}},
+      "ImportIntentCreate": {"type": "object", "additionalProperties": false, "required": ["source_kind", "source_ref"], "properties": {"source_kind": {"type": "string", "enum": ["device", "folder"]}, "source_ref": {"$ref": "#/components/schemas/SourceRef"}, "expected_files": {"type": "array", "maxItems": 500, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 255}}, "target_author_user_id": {"type": "integer", "minimum": 1, "description": "Defaults to signed-in user; explicit authorization for another author."}, "target_pool_id": {"type": "string", "format": "uuid", "nullable": true}, "language_id": {"type": "integer", "minimum": 1, "maximum": 65535, "default": 1031}}},
+      "ImportIntent": {"type": "object", "additionalProperties": false, "required": ["id", "status", "source_kind", "source_ref", "expected_files", "target_author_user_id", "language_id", "created_at", "expires_at"], "properties": {"id": {"type": "string", "format": "uuid"}, "status": {"type": "string", "enum": ["OPEN", "FULFILLED", "EXPIRED", "CANCELLED"]}, "source_kind": {"type": "string", "enum": ["device", "folder"]}, "source_ref": {"$ref": "#/components/schemas/SourceRef"}, "expected_files": {"type": "array", "maxItems": 500, "items": {"type": "string", "maxLength": 255}}, "target_author_user_id": {"type": "integer", "minimum": 1}, "target_pool_id": {"type": "string", "format": "uuid", "nullable": true}, "language_id": {"type": "integer", "minimum": 1, "maximum": 65535}, "created_at": {"type": "string", "format": "date-time"}, "expires_at": {"type": "string", "format": "date-time"}}},
+      "UnassignedImport": {"type": "object", "additionalProperties": false, "required": ["id", "ingest_id", "agent_id", "source_id", "created_at", "original_state"], "properties": {"id": {"type": "string", "format": "uuid"}, "ingest_id": {"type": "string", "format": "uuid"}, "agent_id": {"type": "string", "format": "uuid"}, "source_id": {"$ref": "#/components/schemas/SourceRef"}, "root_id": {"$ref": "#/components/schemas/SourceRef"}, "relative_path": {"type": "string", "maxLength": 1024, "nullable": true}, "language_id": {"type": "integer", "minimum": 1, "maximum": 65535}, "created_at": {"type": "string", "format": "date-time"}, "original_state": {"type": "string", "enum": ["author_required", "pending"]}}},
+      "AssignImport": {"type": "object", "additionalProperties": false, "required": ["intent_id", "expected_delivery_status", "expected_intent_status"], "properties": {"intent_id": {"type": "string", "format": "uuid"}, "expected_delivery_status": {"type": "string", "enum": ["UNASSIGNED"]}, "expected_intent_status": {"type": "string", "enum": ["OPEN"]}}},
+      "AssignmentReceipt": {"type": "object", "additionalProperties": false, "required": ["delivery_id", "status", "intent_id"], "properties": {"delivery_id": {"type": "string", "format": "uuid"}, "status": {"type": "string", "enum": ["MATCHED"]}, "intent_id": {"type": "string", "format": "uuid"}}},
+      "SourceRef": {"type": "string", "pattern": "^[A-Za-z0-9._:@-]{1,128}$"},
+      "SourceConfigFields": {"type": "object", "additionalProperties": false, "properties": {"approved_root": {"type": "string", "minLength": 1, "maxLength": 1024}, "target_author_user_id": {"type": "integer", "minimum": 1}, "target_pool_id": {"type": "string", "format": "uuid", "nullable": true}, "autosend_enabled": {"type": "boolean"}, "eol_filter_enabled": {"type": "boolean"}, "file_pattern": {"type": "string", "minLength": 1, "maxLength": 255}, "priority": {"type": "integer", "enum": [0, 1, 128]}, "language_id": {"type": "integer", "minimum": 1, "maximum": 65535, "default": 1031}, "asr_profile_id": {"type": "string", "maxLength": 128, "nullable": true}, "allow_source_delete": {"type": "boolean", "default": false}}},
+      "SourceConfigCreate": {
+        "type": "object", "additionalProperties": false,
+        "required": ["source_kind", "source_ref", "approved_root", "target_author_user_id"],
+        "properties": {
+          "source_kind": {"type": "string", "enum": ["device", "folder"]},
+          "source_ref": {"$ref": "#/components/schemas/SourceRef"},
+          "approved_root": {"$ref": "#/components/schemas/SourceConfigFields/properties/approved_root"},
+          "target_author_user_id": {"$ref": "#/components/schemas/SourceConfigFields/properties/target_author_user_id"},
+          "target_pool_id": {"$ref": "#/components/schemas/SourceConfigFields/properties/target_pool_id"},
+          "autosend_enabled": {"$ref": "#/components/schemas/SourceConfigFields/properties/autosend_enabled"},
+          "eol_filter_enabled": {"$ref": "#/components/schemas/SourceConfigFields/properties/eol_filter_enabled"},
+          "file_pattern": {"$ref": "#/components/schemas/SourceConfigFields/properties/file_pattern"},
+          "priority": {"$ref": "#/components/schemas/SourceConfigFields/properties/priority"},
+          "language_id": {"$ref": "#/components/schemas/SourceConfigFields/properties/language_id"},
+          "asr_profile_id": {"$ref": "#/components/schemas/SourceConfigFields/properties/asr_profile_id"},
+          "allow_source_delete": {"$ref": "#/components/schemas/SourceConfigFields/properties/allow_source_delete"}
+        }
+      },
+      "SourceConfigPatch": {
+        "type": "object", "additionalProperties": false, "minProperties": 2,
+        "required": ["expected_version"],
+        "properties": {
+          "expected_version": {"type": "integer", "minimum": 1},
+          "approved_root": {"$ref": "#/components/schemas/SourceConfigFields/properties/approved_root"},
+          "target_author_user_id": {"$ref": "#/components/schemas/SourceConfigFields/properties/target_author_user_id"},
+          "target_pool_id": {"$ref": "#/components/schemas/SourceConfigFields/properties/target_pool_id"},
+          "autosend_enabled": {"$ref": "#/components/schemas/SourceConfigFields/properties/autosend_enabled"},
+          "eol_filter_enabled": {"$ref": "#/components/schemas/SourceConfigFields/properties/eol_filter_enabled"},
+          "file_pattern": {"$ref": "#/components/schemas/SourceConfigFields/properties/file_pattern"},
+          "priority": {"$ref": "#/components/schemas/SourceConfigFields/properties/priority"},
+          "language_id": {"$ref": "#/components/schemas/SourceConfigFields/properties/language_id"},
+          "asr_profile_id": {"$ref": "#/components/schemas/SourceConfigFields/properties/asr_profile_id"},
+          "allow_source_delete": {"$ref": "#/components/schemas/SourceConfigFields/properties/allow_source_delete"}
+        }
+      },
+      "SourceConfig": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "source_kind", "source_ref", "policy_version", "approved_root", "target_author_user_id", "target_pool_id", "autosend_enabled", "eol_filter_enabled", "file_pattern", "priority", "language_id", "asr_profile_id", "allow_source_delete", "created_at", "updated_at"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "source_kind": {"type": "string", "enum": ["device", "folder"]},
+          "source_ref": {"$ref": "#/components/schemas/SourceRef"},
+          "policy_version": {"type": "integer", "minimum": 1},
+          "created_at": {"type": "string", "format": "date-time"},
+          "updated_at": {"type": "string", "format": "date-time"},
+          "approved_root": {"$ref": "#/components/schemas/SourceConfigFields/properties/approved_root"},
+          "target_author_user_id": {"$ref": "#/components/schemas/SourceConfigFields/properties/target_author_user_id"},
+          "target_pool_id": {"$ref": "#/components/schemas/SourceConfigFields/properties/target_pool_id"},
+          "autosend_enabled": {"$ref": "#/components/schemas/SourceConfigFields/properties/autosend_enabled"},
+          "eol_filter_enabled": {"$ref": "#/components/schemas/SourceConfigFields/properties/eol_filter_enabled"},
+          "file_pattern": {"$ref": "#/components/schemas/SourceConfigFields/properties/file_pattern"},
+          "priority": {"$ref": "#/components/schemas/SourceConfigFields/properties/priority"},
+          "language_id": {"$ref": "#/components/schemas/SourceConfigFields/properties/language_id"},
+          "asr_profile_id": {"$ref": "#/components/schemas/SourceConfigFields/properties/asr_profile_id"},
+          "allow_source_delete": {"$ref": "#/components/schemas/SourceConfigFields/properties/allow_source_delete"}
+        }
+      },
+      "GrantConsent": {"type": "object", "additionalProperties": false, "required": ["expected_consent_id", "statement_text"], "properties": {"expected_consent_id": {"type": "integer", "minimum": 0}, "statement_text": {"type": "string", "minLength": 1, "maxLength": 20000}}},
+      "RevokeConsent": {"type": "object", "additionalProperties": false, "required": ["expected_consent_id"], "properties": {"expected_consent_id": {"type": "integer", "minimum": 1}}},
+      "ConsentView": {"type": "object", "additionalProperties": false, "required": ["state", "latest_consent_id", "embedding_count"], "properties": {"state": {"type": "string", "enum": ["none", "granted", "revoked"]}, "latest_consent_id": {"type": "integer", "minimum": 0}, "embedding_count": {"type": "integer", "minimum": 0}, "granted_at": {"type": "string", "format": "date-time", "nullable": true}, "revoked_at": {"type": "string", "format": "date-time", "nullable": true}}}
+    }
+  }
+}
