@@ -65,8 +65,11 @@
         </div>
 
         <!-- No transcription state (only show if not processing and no transcription) -->
+        <div v-if="selectedRecording.status === 'FAILED' && !selectedRecording.transcription" class="p-2">
+            {% include 'components/detail/_transcription-failed.html' %}
+        </div>
         {{ phone_empty('transcript', "t('transcription.noTranscription')", "t('transcription.emptyHint')", icon='fa-align-left',
-                       attrs='v-if="!selectedRecording.transcription && selectedRecording.status !== \'PROCESSING\'"') }}
+                       attrs='v-if="!selectedRecording.transcription && selectedRecording.status !== \'PROCESSING\' && selectedRecording.status !== \'FAILED\'"') }}
 
         <!-- Error Display (when transcription is an error message) -->
         <div v-if="processedTranscription.isError" class="error-display-container p-2">

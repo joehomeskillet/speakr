@@ -3136,6 +3136,8 @@
     "editTranscription": "Edit transcript",
     "highlightSearchResults": "Highlight search results",
     "noTranscription": "No transcript yet",
+    "failedTitle": "Transcription failed",
+    "failedMessage": "The transcription service returned no text. The recording may contain no speech. You can start processing again.",
     "regenerateTranscription": "Regenerate transcript",
     "saveTranscription": "Save transcript",
     "searchInTranscript": "Search in transcript…",

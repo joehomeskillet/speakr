@@ -1,0 +1,21 @@
+{# A recording whose transcription ended FAILED without a transcript (for
+   example the service returned no text). Shown in place of the "no
+   transcript yet" state, with the existing reprocess action. The server
+   message sits in the technical details. #}
+<div class="notice notice--danger" data-notice-level="danger" data-transcription-failed>
+    <div class="notice__icon"><i class="fas fa-exclamation-circle"></i></div>
+    <div class="notice__body">
+        <h3 class="notice__title" v-text="t('transcription.failedTitle')" data-i18n="transcription.failedTitle"></h3>
+        <p class="notice__message" v-text="t('transcription.failedMessage')" data-i18n="transcription.failedMessage"></p>
+        <div v-if="selectedRecording.can_edit !== false" class="notice__actions">
+            <button class="btn btn--primary" @click="reprocessTranscription(selectedRecording.id)">
+                <i class="fas fa-redo-alt"></i>
+                <span v-text="t('buttons.reprocessTranscription')"></span>
+            </button>
+        </div>
+        <details v-if="selectedRecording.error_message" class="notice__details">
+            <summary v-text="t('errors.technicalDetails')"></summary>
+            <div class="notice__details-body"><pre>${selectedRecording.error_message}</pre></div>
+        </details>
+    </div>
+</div>

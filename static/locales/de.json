@@ -3136,6 +3136,8 @@
     "editTranscription": "Transkript bearbeiten",
     "highlightSearchResults": "Suchergebnisse hervorheben",
     "noTranscription": "Noch kein Transkript",
+    "failedTitle": "Transkription fehlgeschlagen",
+    "failedMessage": "Der Transkriptionsdienst hat keinen Text geliefert. Die Aufnahme enthält möglicherweise keine Sprache. Sie können die Verarbeitung erneut starten.",
     "regenerateTranscription": "Transkript neu generieren",
     "saveTranscription": "Transkript speichern",
     "searchInTranscript": "In Transkript suchen…",
