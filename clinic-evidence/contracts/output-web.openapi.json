@@ -1,0 +1,107 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Speakr clinic output and operations web extension",
+    "version": "0.1.0-proposal",
+    "description": "Additive own-platform contracts for PAR-EXP-001 and PAR-OPS-008 (R-039/R-042). These operations require CLINIC_MODE and managed browser sessions. Existing contract operations remain authoritative. No manufacturer interface is specified or considered verified. Responses use Cache-Control: no-store."
+  },
+  "servers": [{"url": "/api/clinic/v1"}],
+  "security": [{"ClinicSession": []}],
+  "x-status": "proposed-speakr-extension; route wiring pending",
+  "x-manufacturer-interfaces": "unresolved; no device, office, or external KIS success implied",
+  "x-reused-operations": [
+    {"area": "output-api", "document": "clinic-spec/contracts/clinic-api.openapi.json", "method": "POST", "path": "/api/clinic/v1/dictations/{dictation_id}/deliveries", "operationId": "requestDelivery", "schema": "DeliveryRequest", "handler": "src.clinic.output_attempts.freeze_output_attempts; src.clinic.kis.deliver", "consumer": "w106-output-api"},
+    {"area": "output-api", "document": "clinic-spec/contracts/clinic-api.openapi.json", "method": "GET", "path": "/api/clinic/v1/deliveries/{delivery_id}", "operationId": "getDelivery", "schema": "Delivery", "handler": "ClinicDelivery scoped lookup", "consumer": "w106-output-api"},
+    {"area": "output-api", "document": "clinic-spec/contracts/clinic-api.openapi.json", "method": "POST", "path": "/api/clinic/v1/deliveries/{delivery_id}/reconcile", "operationId": "reconcileDelivery", "schema": "Delivery", "handler": "src.clinic.kis.reconcile", "consumer": "w106-output-api"},
+    {"area": "output-api", "document": "clinic-spec/contracts/clinic-api.openapi.json", "method": "GET", "path": "/api/clinic/v1/deliveries/{delivery_id}/artifact", "operationId": "downloadArtifact", "schema": "inline:application/octet-stream", "handler": "src.clinic.export.render_text/render_docx", "consumer": "w106-output-api"},
+    {"area": "output-api", "document": "clinic-spec/contracts/parity-api.openapi.json", "method": "POST", "path": "/api/clinic/v1/parity/commands", "operationId": "executeParityCommand", "commandId": "render_output", "schema": "RenderOutput", "handler": "src.clinic.output_attempts.freeze_output_attempts", "consumer": "w106-output-api"},
+    {"area": "clipboard-api", "document": "clinic-spec/contracts/clinic-api.openapi.json", "method": "GET", "path": "/api/clinic/v1/dictations/{dictation_id}/revisions/{revision_id}", "operationId": "getRevisionContent", "schema": "TranscriptContent", "handler": "src.clinic.rich_text_doc.to_clipboard_flavors (browser copy only)", "consumer": "w107-clipboard-api"},
+    {"area": "context-api", "document": "clinic-spec/contracts/clinic-api.openapi.json", "method": "GET", "path": "/api/clinic/v1/dictations/{dictation_id}/context", "operationId": "readContext", "schema": "ContextView", "handler": "ClinicContextRevision scoped read", "consumer": "w187-context-api"},
+    {"area": "context-api", "document": "clinic-spec/contracts/clinic-api.openapi.json", "method": "POST", "path": "/api/clinic/v1/dictations/{dictation_id}/context", "operationId": "bindContext", "schema": "ContextBind", "handler": "src.clinic.context_grants.bind_context_grant", "consumer": "w187-context-api"},
+    {"area": "statistics-api", "document": "clinic-spec/contracts/parity-api.openapi.json", "method": "POST", "path": "/api/clinic/v1/parity/commands", "operationId": "executeParityCommand", "commandId": "render_report", "schema": "RenderReport", "handler": "src.clinic.statistics_access.read_aggregates", "consumer": "w109-statistics-api"},
+    {"area": "jobs-api", "document": "clinic-spec/contracts/parity-api.openapi.json", "method": "POST", "path": "/api/clinic/v1/parity/commands", "operationId": "executeParityCommand", "commandId": "queue_import", "schema": "QueueImport", "handler": "src.services.job_queue.FairJobQueue", "consumer": "w110-jobs-api"}
+  ],
+  "paths": {
+    "/dictations/{dictation_id}/output-attempts": {
+      "get": {
+        "operationId": "listOutputAttempts", "summary": "Ergebnisse je Ausgabeziel", "x-handler": "src.clinic.output_attempts.OutputAttempt; src.clinic.output.list_outputs", "x-consumer": "w106-output-api",
+        "description": "Page through all frozen per-target results with a stable snapshot cursor and no silent truncation, at most 50 per page. UNKNOWN stays unresolved and blocks blind resend; independent target outcomes remain visible. No patient content or absolute target paths.",
+        "x-required-role-policy": "active admin full read access or current dictation export/read permission with case, holder and explicit denies", "parameters": [{"$ref": "#/components/parameters/DictationId"}, {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 50, "default": 50}}, {"name": "cursor", "in": "query", "schema": {"type": "string", "minLength": 1, "maxLength": 256}, "description": "Opaque, server-issued snapshot cursor. A stale or invalid cursor is refused."}],
+        "responses": {"200": {"description": "Page of target results", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OutputAttempts"}}}}, "400": {"$ref": "#/components/responses/Problem"}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}, "404": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/dictations/{dictation_id}/clipboard/{revision_id}": {
+      "get": {
+        "operationId": "getClipboardFlavors", "summary": "Zwischenablage vorbereiten", "x-handler": "src.clinic.rich_text_doc.to_clipboard_flavors", "x-consumer": "w107-clipboard-api",
+        "description": "Exact authorized revision, rendered as sanitized text/plain and text/html. Browser Clipboard API alone performs the copy. Refuse stale/non-head revision unless an explicitly authorized historical read applies. Maximum 1048576 UTF-8 bytes per flavor.",
+        "x-required-role-policy": "active admin full read access or current dictation transcript read and case permission, including explicit denies", "parameters": [{"$ref": "#/components/parameters/DictationId"}, {"$ref": "#/components/parameters/RevisionId"}],
+        "responses": {"200": {"description": "Clipboard flavors", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClipboardFlavors"}}}}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}, "404": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}, "413": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/users/me/output-preferences": {
+      "get": {
+        "operationId": "getOutputPreferences", "summary": "Eigene Ausgabeoptionen", "x-consumer": "w106-output-api", "x-handler": "src.clinic.presets.ClinicPreset (scope=user, key=output_targets)", "x-required-role-policy": "authenticated own user only",
+        "description": "Read the authenticated user's persisted output_targets preset as a versioned snapshot. Missing preference returns version 0 with empty targets; no inherited pool or other-user output selection.",
+        "responses": {"200": {"description": "Current preference revision", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OutputPreferences"}}}}, "401": {"$ref": "#/components/responses/Problem"}}
+      },
+      "put": {
+        "operationId": "saveOutputPreferences", "x-command-id": "save_output_preferences", "summary": "Eigene Ausgabeoptionen speichern", "x-consumer": "w106-output-api", "x-handler": "src.clinic.presets.set_preset (scope=user, key=output_targets; consumer enforces atomic version and replay guards)",
+        "description": "Persist own options in the existing user-scoped ClinicPreset, atomically with optimistic version checking and a durable replay record. On identical actor + key + payload replay return the first result before checking the now-stale version, without a second write. Reused key with a different payload is 409. Empty options are allowed.",
+        "x-required-role-policy": "authenticated own user only", "parameters": [{"$ref": "#/components/parameters/Csrf"}, {"$ref": "#/components/parameters/Idempotency"}, {"$ref": "#/components/parameters/IfMatch"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SavePreferences"}}}},
+        "responses": {"200": {"description": "Stored preference revision or identical replay", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OutputPreferences"}}}}, "400": {"$ref": "#/components/responses/Problem"}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}, "412": {"$ref": "#/components/responses/Problem"}, "428": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/statistics/aggregates": {
+      "get": {
+        "operationId": "getStatisticsAggregates", "summary": "Statistik im freigegebenen Umfang", "x-handler": "src.clinic.statistics_access.read_aggregates", "x-consumer": "w109-statistics-api",
+        "description": "Time window is half-open and bounded to 366 days. Check explicit author/author-pool aggregate grants on every read. Requested scope_version must equal the current grant-set version; no unrestricted statistics scope. Maximum 4000 buckets.",
+        "x-required-role-policy": "statistics aggregate capability and explicit current scope grants", "parameters": [{"name": "start", "in": "query", "required": true, "schema": {"type": "string", "format": "date-time"}}, {"name": "end", "in": "query", "required": true, "schema": {"type": "string", "format": "date-time"}}, {"name": "time_basis", "in": "query", "schema": {"enum": ["created", "completed"], "default": "created"}}, {"name": "grain", "in": "query", "schema": {"enum": ["day", "week", "month"]}}, {"name": "group_by", "in": "query", "style": "form", "explode": false, "schema": {"type": "array", "maxItems": 4, "uniqueItems": true, "items": {"enum": ["status", "author", "typist", "period"]}}}, {"name": "scope_version", "in": "query", "required": true, "schema": {"type": "integer", "minimum": 0}}],
+        "responses": {"200": {"description": "Scoped aggregates", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/StatisticsResult"}}}}, "400": {"$ref": "#/components/responses/Problem"}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}, "412": {"$ref": "#/components/responses/Problem"}, "413": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/jobs/health": {
+      "get": {
+        "operationId": "getClinicJobHealth", "summary": "Verarbeitungsstatus", "x-handler": "src.clinic.job_health.summarise", "x-consumer": "w110-jobs-api",
+        "description": "Aggregated ProcessingJob/JobQueue health from a bounded server-side snapshot. Failure details are redacted, not raw exceptions; at most 10 recent failures. No transcript or patient data.",
+        "x-required-role-policy": "authorized clinic operations administrator", "responses": {"200": {"description": "Redacted health", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/JobHealth"}}}}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}, "503": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/jobs/{job_id}/retry": {
+      "post": {
+        "operationId": "retryClinicJob", "x-command-id": "retry_job", "summary": "Fehlgeschlagenen Auftrag erneut einreihen", "x-handler": "src.services.job_queue.FairJobQueue; src.clinic.job_lease.recover_stale_jobs", "x-consumer": "w110-jobs-api",
+        "description": "Retry only a failed, eligible ProcessingJob with a live object/author/pool check and matching job revision. Atomically claim one retry in the existing JobQueue. Never blindly retry UNKNOWN external effects or a running job. Same actor/key/payload replays one receipt; mismatched payload 409. Failure leaves the original visible.",
+        "x-required-role-policy": "active clinic operations administrator with full access; validate linked dictation and routing state against current objects", "parameters": [{"name": "job_id", "in": "path", "required": true, "schema": {"type": "integer", "minimum": 1}}, {"$ref": "#/components/parameters/Csrf"}, {"$ref": "#/components/parameters/Idempotency"}, {"$ref": "#/components/parameters/IfMatch"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RetryJob"}}}},
+        "responses": {"202": {"description": "Queued or identical replay, not proof of completion", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/JobRetryReceipt"}}}}, "400": {"$ref": "#/components/responses/Problem"}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}, "404": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}, "412": {"$ref": "#/components/responses/Problem"}, "428": {"$ref": "#/components/responses/Problem"}, "503": {"$ref": "#/components/responses/Problem"}}
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {"ClinicSession": {"type": "apiKey", "in": "cookie", "name": "clinic_session"}},
+    "parameters": {
+      "DictationId": {"name": "dictation_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
+      "RevisionId": {"name": "revision_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
+      "Csrf": {"name": "X-CSRF-Token", "in": "header", "required": true, "schema": {"type": "string", "minLength": 1, "maxLength": 512}},
+      "Idempotency": {"name": "Idempotency-Key", "in": "header", "required": true, "schema": {"type": "string", "minLength": 8, "maxLength": 128}, "description": "Replay scope is authenticated actor, operation, object and canonical payload, retained durably across retries."},
+      "IfMatch": {"name": "If-Match", "in": "header", "required": true, "schema": {"type": "string", "pattern": "^\"[0-9]+\"$"}, "description": "Quoted decimal current version. Missing=428, stale=412. Must match expected_version in request body."}
+    },
+    "responses": {"Problem": {"description": "Stable refusal (400 invalid, 401 unauthenticated, 403 forbidden/CSRF, 404 concealed, 409 conflicting request or unresolved effect, 412 stale version, 413 limit, 428 missing precondition, 503 unavailable)", "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}}},
+    "schemas": {
+      "Problem": {"type": "object", "additionalProperties": false, "required": ["code", "status"], "properties": {"code": {"enum": ["invalid", "unauthenticated", "forbidden", "not_found", "conflict", "stale_version", "limit_exceeded", "precondition_required", "unavailable"]}, "status": {"type": "integer", "minimum": 400, "maximum": 599}, "detail": {"type": "string", "maxLength": 200}}},
+      "OutputAttempts": {"type": "object", "additionalProperties": false, "required": ["dictation_id", "items", "next_cursor"], "properties": {"dictation_id": {"type": "string", "format": "uuid"}, "items": {"type": "array", "maxItems": 50, "items": {"$ref": "#/components/schemas/OutputAttempt"}}, "next_cursor": {"type": ["string", "null"], "maxLength": 256}}},
+      "OutputAttempt": {"type": "object", "additionalProperties": false, "required": ["attempt_id", "channel", "target_alias", "status", "text_revision_id"], "properties": {"attempt_id": {"type": "string", "format": "uuid"}, "channel": {"enum": ["clipboard", "download", "server_alias", "kis_draft"]}, "target_alias": {"type": "string", "maxLength": 128}, "status": {"enum": ["pending", "succeeded", "failed", "UNKNOWN"]}, "text_revision_id": {"type": "string", "format": "uuid"}}},
+      "ClipboardFlavors": {"type": "object", "additionalProperties": false, "required": ["revision_id", "text/plain", "text/html"], "properties": {"revision_id": {"type": "string", "format": "uuid"}, "text/plain": {"type": "string", "maxLength": 1048576}, "text/html": {"type": "string", "maxLength": 1048576, "description": "Sanitized HTML with no scripts, external resources or active content."}}},
+      "OutputTarget": {"type": "object", "additionalProperties": false, "required": ["channel", "target_alias", "format", "selected_by_default"], "properties": {"channel": {"enum": ["clipboard", "download", "server_alias", "kis_draft"]}, "target_alias": {"type": "string", "minLength": 1, "maxLength": 128, "description": "Approved alias; no arbitrary local or server path."}, "format": {"enum": ["plain", "formatted", "txt", "rtf", "docx"]}, "selected_by_default": {"type": "boolean"}}},
+      "OutputTargets": {"type": "array", "maxItems": 8, "uniqueItems": true, "x-unique-key": ["channel", "target_alias"], "description": "Reject repeated channel/target_alias pairs and formats incompatible with the selected channel.", "items": {"$ref": "#/components/schemas/OutputTarget"}},
+      "OutputPreferences": {"type": "object", "additionalProperties": false, "required": ["version", "targets"], "properties": {"version": {"type": "integer", "minimum": 0}, "targets": {"$ref": "#/components/schemas/OutputTargets"}}},
+      "SavePreferences": {"type": "object", "additionalProperties": false, "required": ["request_id", "expected_version", "targets"], "properties": {"request_id": {"type": "string", "format": "uuid"}, "expected_version": {"type": "integer", "minimum": 0}, "targets": {"$ref": "#/components/schemas/OutputTargets"}}},
+      "StatisticsResult": {"type": "object", "additionalProperties": false, "required": ["time_basis", "zone", "window", "start", "end", "grain", "group_by", "as_of", "excluded_missing_timestamp", "buckets"], "properties": {"time_basis": {"enum": ["created", "completed"]}, "zone": {"const": "Europe/Zurich"}, "window": {"type": "string"}, "start": {"type": "string", "format": "date-time"}, "end": {"type": "string", "format": "date-time"}, "grain": {"type": ["string", "null"], "enum": ["day", "week", "month", null]}, "group_by": {"type": "array", "maxItems": 4, "uniqueItems": true, "items": {"enum": ["status", "author", "typist", "period"]}}, "as_of": {"type": "string", "format": "date-time"}, "excluded_missing_timestamp": {"type": "integer", "minimum": 0}, "buckets": {"type": "array", "maxItems": 4000, "items": {"$ref": "#/components/schemas/StatisticsBucket"}}}},
+      "StatisticsBucket": {"type": "object", "required": ["count", "total_seconds", "average_seconds", "known_duration_count", "incomplete"], "properties": {"count": {"type": "integer", "minimum": 0}, "total_seconds": {"type": ["number", "null"], "minimum": 0}, "average_seconds": {"type": ["number", "null"], "minimum": 0}, "known_duration_count": {"type": "integer", "minimum": 0}, "incomplete": {"type": "boolean"}, "status": {"type": ["string", "null"]}, "author_user_id": {"type": ["integer", "null"]}, "typist_user_id": {"type": ["integer", "null"]}, "period_start": {"type": ["string", "null"]}}},
+      "JobHealth": {"type": "object", "additionalProperties": false, "required": ["counts", "stuck_ids", "oldest_queued_age_s", "recent_failures"], "properties": {"counts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}}, "stuck_ids": {"type": "array", "maxItems": 100, "items": {"type": "integer", "minimum": 1}}, "oldest_queued_age_s": {"type": ["integer", "null"], "minimum": 0}, "recent_failures": {"type": "array", "maxItems": 10, "items": {"$ref": "#/components/schemas/JobFailure"}}}},
+      "JobFailure": {"type": "object", "additionalProperties": false, "required": ["id", "job_type", "error_class", "message"], "properties": {"id": {"type": "integer", "minimum": 1}, "job_type": {"type": "string", "maxLength": 80}, "error_class": {"type": "string", "maxLength": 80}, "message": {"type": "string", "maxLength": 200}, "finished_at": {"type": ["string", "null"], "format": "date-time"}}},
+      "RetryJob": {"type": "object", "additionalProperties": false, "required": ["request_id", "expected_version"], "properties": {"request_id": {"type": "string", "format": "uuid"}, "expected_version": {"type": "integer", "minimum": 0}}},
+      "JobRetryReceipt": {"type": "object", "additionalProperties": false, "required": ["request_id", "job_id", "job_revision", "state"], "properties": {"request_id": {"type": "string", "format": "uuid"}, "job_id": {"type": "integer", "minimum": 1}, "job_revision": {"type": "integer", "minimum": 1}, "state": {"const": "queued"}}}
+    }
+  }
+}

@@ -586,6 +586,9 @@ app.config['WTF_CSRF_CHECK_DEFAULT'] = False
 # refused request does nothing else, not even a last-active write. Inert when
 # clinic mode is off.
 from src.clinic.guard import install_clinic_guard
+from src.clinic.policy import install_pool_policy
+
+install_pool_policy(app)
 install_clinic_guard(app)
 
 

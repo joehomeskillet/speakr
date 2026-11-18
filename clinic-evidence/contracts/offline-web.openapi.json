@@ -1,0 +1,90 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Speakr clinic offline-web extension (proposed)",
+    "version": "0.1.0-proposal",
+    "description": "Additive own-platform contract for PAR-REC-007, R-039 and R-042. Not an implemented Speakr endpoint. Manufacturer interfaces remain unresolved. BT-REC-007 and all web parity gaps remain open."
+  },
+  "servers": [{"url": "/"}],
+  "security": [{"browserSession": []}],
+  "x-implementation-owner": "w263-offline-api",
+  "x-comparison-owner": "w296-compare-rec",
+  "x-manufacturer-interfaces": "unresolved",
+  "x-browser-boundary": "Browser MediaRecorder and explicit user file open/save only. BYOD has no intentional persistent audio or text. Managed persistence requires a fresh, explicit, encrypted_user_unlock server grant and a verified browser profile. No native recorder, extension, local bridge, secret in browser storage, or cloud ASR. Browser eviction can remove offline drafts.",
+  "x-reconnect-semantics": "Local draft is UNSENT until the existing ingest APIs return a durable STORED receipt; STORED does not imply submitted, delivered or protected. On reconnect recheck current grant and object rights before each operation. A disconnected request cannot be reported successful. After an ambiguous failure, GET the existing ingest receipt and replay the same idempotency key or chunk sequence and digest; never silently create a second delivery.",
+  "x-existing-operation-mappings": [
+    {"method": "POST", "path": "/api/clinic/v1/ingests", "operationId": "beginIngest", "request_schema": "BeginIngest", "response_schema": "IngestReceipt", "handler": "w263-offline-api:beginIngest (HTTP binding pending)", "reuse": "src.clinic.ingest.IngestService"},
+    {"method": "GET", "path": "/api/clinic/v1/ingests/{ingest_id}", "operationId": "getIngest", "response_schema": "IngestReceipt", "handler": "w263-offline-api:getIngest (HTTP binding pending)", "reuse": "src.clinic.ingest.IngestService.stored_path"},
+    {"method": "PUT", "path": "/api/clinic/v1/ingests/{ingest_id}/chunks/{sequence}", "operationId": "putChunk", "request_media_type": "application/octet-stream", "max_body_bytes": 4194304, "response_schema": "IngestReceipt", "handler": "w263-offline-api:putChunk (HTTP binding pending)", "reuse": "src.clinic.recorder_chunks.ChunkSession.accept"},
+    {"method": "POST", "path": "/api/clinic/v1/ingests/{ingest_id}/finalize", "operationId": "finalizeIngest", "request_schema": "FinalizeIngest", "response_schema": "IngestReceipt", "handler": "w263-offline-api:finalizeIngest (HTTP binding pending)", "reuse": "src.clinic.recorder_chunks.ChunkSession.finalize + src.clinic.ingest.IngestService.store_original"},
+    {"method": "GET", "path": "/api/clinic/v1/dictations", "operationId": "listDictations", "response_schema": "DictationList", "handler": "w263-offline-api:listDictations (HTTP binding pending)", "reuse": "src.clinic.policy.decide"},
+    {"method": "GET", "path": "/api/clinic/v1/dictations/{dictation_id}", "operationId": "getDictation", "response_schema": "Dictation", "handler": "w263-offline-api:getDictation (HTTP binding pending)", "reuse": "src.clinic.policy.decide"},
+    {"method": "POST", "path": "/api/clinic/v1/dictations/{dictation_id}/submit", "operationId": "submitDictation", "request_schema": "Submit", "response_schema": "Dictation", "handler": "w263-offline-api:submitDictation (HTTP binding pending)", "reuse": "src.clinic.policy.decide"},
+    {"method": "POST", "path": "/api/clinic/v1/dictations/{dictation_id}/revisions", "operationId": "saveRevision", "request_schema": "SaveRevision", "response_schema": "Revision", "handler": "w263-offline-api:saveRevision (HTTP binding pending)", "reuse": "src.clinic.revisions.add_human_revision"},
+    {"method": "GET", "path": "/api/clinic/v1/dictations/{dictation_id}/revisions/{revision_id}", "operationId": "getRevisionContent", "response_schema": "TranscriptContent", "handler": "w263-offline-api:getRevisionContent (HTTP binding pending)", "reuse": "src.clinic.revisions.history"},
+    {"method": "GET", "path": "/api/clinic/v1/dictations/{dictation_id}/audio/{original_version_id}", "operationId": "streamAudio", "response_media_type": "audio/wav", "handler": "w263-offline-api:streamAudio (HTTP binding pending)", "reuse": "src.clinic.policy.decide"}
+  ],
+  "x-existing-parity-command-mappings": [
+    {"method": "POST", "path": "/api/clinic/v1/parity/commands", "operationId": "executeParityCommand", "command": "start_live_session", "request_schema": "StartLiveSession", "handler": "executeParityCommand (proposed; online only)"},
+    {"method": "POST", "path": "/api/clinic/v1/parity/commands", "operationId": "executeParityCommand", "command": "stop_live_session", "request_schema": "StopLiveSession", "handler": "executeParityCommand (proposed; online only)"}
+  ],
+  "x-no-new-command": "Live-session parity commands remain online-only; the existing ingest, submit and revision commands handle reconnection. No offline-specific parity command exists in the current catalog.",
+  "x-reused-write-guards": "Existing browser writes require X-CSRFToken (parity commands use X-CSRF-Token), fresh object/scope permission and current lease where applicable. Idempotency-Key is scoped by actor+operation+aggregate+request hash. Changed payload under a reused key => 409. If-Match on submit/revision protects current server revision; absent => 428, stale => 412. Chunk sequence+SHA256 repeats are safe; changed bytes => 409. Use the existing BeginIngest 128 MiB total, PutChunk 4 MiB per chunk, and FinalizeIngest 128 segment limits. No offline shortcut to release or delivery.",
+  "paths": {
+    "/api/clinic/v1/offline-web/capability": {
+      "get": {
+        "operationId": "getOfflineWebCapability",
+        "summary": "Read current managed browser offline permission",
+        "description": "CLINIC_MODE only. Adapter calls src.clinic.offline_policy.offline_capability with the current server-side grant and trusted-ingress VerifiedBrowser; client headers never grant privileges. Discovery omits all previous-* headers. Resume supplies all three stored reference fields; compare them to the verified browser and current grant. Partial reference => 400, missing reference on an identified resume => 428, stale reference => 412. A disabled/revoked grant returns 200 available=false, never a false online delivery receipt. No CSRF on this safe GET; subsequent writes retain their existing CSRF and object policies. No caching or patient content in response or logs. Body 1 KiB maximum.",
+        "x-handler": "src.clinic.offline_policy.offline_capability (w263 HTTP binding pending)",
+        "x-required-role-policy": "authenticated active user with verified managed_web_offline browser; object permissions rechecked by existing ingest/dictation operations",
+        "x-trusted-channel": "managed_web_offline only",
+        "parameters": [
+          {"name": "X-Offline-Previous-Version", "in": "header", "description": "Prior server grant revision for resume; all previous-* headers are required together.", "schema": {"type": "integer", "minimum": 1, "maximum": 2147483647}},
+          {"name": "X-Offline-Previous-Browser-Id", "in": "header", "description": "Original draft browser binding, never a substitute for ingress verification.", "schema": {"type": "string", "minLength": 1, "maxLength": 128}},
+          {"name": "X-Offline-Previous-Account-Version", "in": "header", "description": "Original draft account/session version; never an authentication credential.", "schema": {"type": "string", "minLength": 1, "maxLength": 128}}
+        ],
+        "security": [{"browserSession": []}],
+        "responses": {
+          "200": {
+            "description": "Current approval or explicit unavailable state",
+            "headers": {"Cache-Control": {"required": true, "schema": {"type": "string", "const": "no-store"}}},
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OfflineCapability"}}}
+          },
+          "400": {"$ref": "#/components/responses/Problem"},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "412": {"$ref": "#/components/responses/Problem"},
+          "428": {"$ref": "#/components/responses/Problem"},
+          "503": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {"browserSession": {"type": "apiKey", "in": "cookie", "name": "session"}},
+    "schemas": {
+      "OfflineCapability": {"oneOf": [{"$ref": "#/components/schemas/OfflineGranted"}, {"$ref": "#/components/schemas/OfflineDenied"}]},
+      "OfflineGranted": {
+        "type": "object", "additionalProperties": false,
+        "required": ["available", "version", "account_version", "browser_id", "quota_bytes", "key_policy"],
+        "properties": {
+          "available": {"const": true},
+          "version": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+          "account_version": {"type": "string", "minLength": 1, "maxLength": 128},
+          "browser_id": {"type": "string", "minLength": 1, "maxLength": 128},
+          "quota_bytes": {"type": "integer", "minimum": 1, "maximum": 134217728},
+          "key_policy": {"const": "encrypted_user_unlock"}
+        }
+      },
+      "OfflineDenied": {
+        "type": "object", "additionalProperties": false,
+        "required": ["available", "message"],
+        "properties": {"available": {"const": false}, "message": {"type": "string", "minLength": 1, "maxLength": 256}}
+      }
+    },
+    "responses": {
+      "Problem": {"description": "RFC 7807-style refusal, no patient data", "content": {"application/problem+json": {"schema": {"$ref": "../../clinic-spec/contracts/clinic-api.openapi.json#/components/schemas/Problem"}}}}
+    }
+  }
+}

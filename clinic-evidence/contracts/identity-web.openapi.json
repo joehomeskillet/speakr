@@ -1,0 +1,107 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Speakr clinic identity web extensions",
+    "version": "0.1.0-proposal",
+    "description": "Additive own-platform contracts for PAR-ADM-001/010, R-039/042. Endpoints in this file are proposals for Flask adapters, not deployed routes or manufacturer APIs."
+  },
+  "x-status": "proposed_not_implemented",
+  "x-requirements": ["PAR-ADM-001", "PAR-ADM-010", "R-039", "R-042"],
+  "x-original-oracles": ["BT-ADM-001", "BT-ADM-010"],
+  "x-manufacturer-interfaces": "unresolved",
+  "x-windows-sso": "Server-side Negotiate/IWA only after immutable principal-to-User.id verification; unknown or ambiguous identity is denied. No client-side Windows account selection. No external-directory writes.",
+  "x-reused-operations": [
+    {"slice": "pools-api", "source": "clinic-spec/contracts/clinic-api.openapi.json", "method": "GET", "path": "/api/clinic/v1/pools", "operationId": "listPools", "response_schema": "#/components/schemas/PoolList", "handler": "proposed Flask adapter -> src.clinic.pools.resources_for"},
+    {"slice": "pools-api", "source": "clinic-spec/contracts/parity-api.openapi.json", "method": "POST", "path": "/api/clinic/v1/parity/commands", "operationId": "executeParityCommand", "command": "save_author_pool", "request_schema": "#/components/schemas/SaveAuthorPool", "handler": "proposed parity adapter -> src.clinic.pools.create_author_pool/add_author_member/remove_author_member"},
+    {"slice": "grants-api", "source": "clinic-spec/contracts/parity-api.openapi.json", "method": "POST", "path": "/api/clinic/v1/parity/commands", "operationId": "executeParityCommand", "command": "set_author_scope", "request_schema": "#/components/schemas/SetAuthorScope", "handler": "proposed parity adapter -> src.clinic.pools.allow/deny"},
+    {"slice": "directory-api", "source": "src/api/admin.py", "method": "GET", "path": "/admin/users", "handler": "admin_get_users", "status": "existing_flask_route"},
+    {"slice": "directory-api", "source": "src/api/admin.py", "method": "POST", "path": "/admin/users", "handler": "admin_add_user", "status": "existing_legacy_flask_route"},
+    {"slice": "directory-api", "source": "src/api/admin.py", "method": "PUT", "path": "/admin/users/{user_id}", "handler": "admin_update_user", "status": "existing_legacy_flask_route"},
+    {"slice": "directory-api", "source": "src/api/admin.py", "method": "DELETE", "path": "/admin/users/{user_id}", "handler": "admin_delete_user", "status": "existing_legacy_flask_route_forbidden_in_clinic_mode"},
+    {"slice": "directory-api", "source": "src/api/admin.py", "method": "POST", "path": "/admin/users/{user_id}/toggle-admin", "handler": "admin_toggle_admin", "status": "existing_legacy_flask_route_requires_clinic_policy_guard"},
+    {"slice": "identity-providers-api", "source": "src/api/api_v1.py", "method": "GET", "path": "/api/v1/sso/status", "handler": "get_sso_status", "status": "existing_sso_token_exchange_status"},
+    {"slice": "identity-providers-api", "source": "src/api/auth.py", "method": "GET", "path": "/auth/sso/login", "handler": "sso_login", "status": "existing_legacy_flask_route"},
+    {"slice": "identity-providers-api", "source": "src/api/auth.py", "method": "GET", "path": "/auth/sso/callback", "handler": "sso_callback", "status": "existing_legacy_flask_route"},
+    {"slice": "identity-providers-api", "source": "src/api/auth.py", "method": "POST", "path": "/auth/sso/link", "handler": "sso_link", "status": "existing_legacy_flask_route"},
+    {"slice": "identity-providers-api", "source": "src/api/auth.py", "method": "POST", "path": "/auth/sso/unlink", "handler": "sso_unlink", "status": "existing_legacy_flask_route"},
+    {"slice": "preferences-api", "source": "src/api/api_v1.py", "method": "GET", "path": "/api/v1/users/me", "handler": "get_current_user", "status": "existing_flask_route"},
+    {"slice": "preferences-api", "source": "src/api/system.py", "method": "POST", "path": "/api/user/preferences", "handler": "save_user_preferences", "status": "existing_flask_route"}
+  ],
+  "x-reused-parity-command-ids": ["save_author_pool", "set_author_scope"],
+  "x-adapter-rules": {
+    "mode": "CLINIC_MODE",
+    "accounts": "Existing User.id; local accounts first, pending_activation; never silently link email or SSO claims.",
+    "permissions": "Server-side current actor and object-scoped permissions, deny first; recent reauthentication for privileged identity mutations. Default deny.",
+    "revisions": "Every update requires expected_version matching the current account-policy version. Stale updates return 409 with no side effect; new user starts at version 1.",
+    "last_admin": "Protect the last active locally usable identity administrator via src.clinic.identity.set_status; reject their disablement with 409 and no side effect.",
+    "legacy_delete": "Under CLINIC_MODE deny legacy DELETE /admin/users/{user_id}; use audited set_user_status to disable instead. Legacy behavior outside CLINIC_MODE stays unchanged.",
+    "idempotency": "Mutations atomically bind actor, command, Idempotency-Key, request_id and payload digest. Identical retry returns the original result without a second mutation; conflicting reuse returns 409.",
+    "failure": "No partial writes, automatic account linking or external provider calls on refused requests; audit successful mutations and denied privileged attempts. 503 for unavailable local dependencies.",
+    "status": "Contract only. Corresponding HTTP guards, storage for idempotency and handlers belong to consumer packages."
+  },
+  "paths": {
+    "/api/clinic/v1/identity/providers": {
+      "get": {
+        "operationId": "listClinicIdentityProviders",
+        "x-handler": "proposed Flask adapter -> src.clinic.entra.EntraConfig and src.clinic.identity.ClinicAccountPolicy",
+        "x-permission": "authenticated user; return availability only, no secrets/tenant identifiers",
+        "description": "Local provider is available by policy; Entra is prepared but disabled until explicitly enabled. Windows SSO has no verified adapter.",
+        "responses": {"200": {"description": "Provider capabilities", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ProviderList"}}}}, "401": {"$ref": "#/components/responses/Problem"}, "503": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/clinic/v1/identity/directory/preview": {
+      "post": {
+        "operationId": "previewClinicDirectory",
+        "x-handler": "proposed Flask adapter -> src.clinic.directory_reconcile.compute_diff",
+        "x-permission": "identity_admin with recent reauthentication; local users loaded server-side, never from request",
+        "description": "Read-only comparison of a supplied, approved directory export. Immutable object_id matching only. No directory/Windows discovery, account creation or synchronization.",
+        "x-max-request-bytes": 1048576,
+        "parameters": [{"$ref": "#/components/parameters/Csrf"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PreviewRequest"}}}},
+        "responses": {"200": {"description": "Review-only diff", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PreviewResult"}}}}, "400": {"$ref": "#/components/responses/Problem"}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}, "413": {"$ref": "#/components/responses/Problem"}, "503": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/clinic/v1/identity/users/{user_id}/grants": {
+      "get": {
+        "operationId": "getClinicUserGrants",
+        "x-handler": "proposed Flask adapter -> src.clinic.pools.ClinicVisibilityGrant (scoped read); src.clinic.pools.grants_for remains the dictation-specific decision service",
+        "x-permission": "identity_admin or own user.id; never disclose another user's grants without privilege",
+        "parameters": [{"name": "user_id", "in": "path", "required": true, "schema": {"type": "integer", "minimum": 1}}],
+        "responses": {"200": {"description": "Object-scoped grant snapshot", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GrantList"}}}}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}, "404": {"$ref": "#/components/responses/Problem"}, "503": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/clinic/v1/identity/commands": {
+      "post": {
+        "operationId": "executeClinicIdentityCommand",
+        "x-handler": "proposed Flask adapter -> src.clinic.identity.create_local_user/set_status/revoke_sessions",
+        "x-permission": "create_local_user: user_admin; set_user_status: user_admin plus recent reauthentication; revoke_user_sessions: user_admin or self, scoped per target",
+        "x-max-request-bytes": 16384,
+        "parameters": [{"$ref": "#/components/parameters/Csrf"}, {"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/IdentityCommand"}}}},
+        "responses": {"200": {"description": "Committed update or identical retry of an update", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CommandResult"}}}}, "201": {"description": "New local user or identical retry of the creation", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CommandResult"}}}}, "400": {"$ref": "#/components/responses/Problem"}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}, "413": {"$ref": "#/components/responses/Problem"}, "422": {"$ref": "#/components/responses/Problem"}, "429": {"$ref": "#/components/responses/Problem"}, "503": {"$ref": "#/components/responses/Problem"}}
+      }
+    }
+  },
+  "security": [{"ClinicSession": []}],
+  "components": {
+    "securitySchemes": {"ClinicSession": {"type": "apiKey", "in": "cookie", "name": "session"}},
+    "parameters": {
+      "Csrf": {"name": "X-CSRF-Token", "in": "header", "required": true, "schema": {"type": "string", "minLength": 1, "maxLength": 512}},
+      "IdempotencyKey": {"name": "Idempotency-Key", "in": "header", "required": true, "schema": {"type": "string", "minLength": 8, "maxLength": 128}}
+    },
+    "responses": {"Problem": {"description": "Stable error, no credentials or private data", "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}}},
+    "schemas": {
+      "Problem": {"type": "object", "additionalProperties": false, "required": ["code"], "properties": {"code": {"type": "string", "enum": ["invalid", "unauthenticated", "forbidden", "not_found", "stale_version", "idempotency_conflict", "too_large", "capability_unavailable", "rate_limited", "unavailable"]}}},
+      "ProviderList": {"type": "object", "additionalProperties": false, "required": ["items"], "properties": {"items": {"type": "array", "maxItems": 3, "items": {"type": "object", "additionalProperties": false, "required": ["provider", "enabled"], "properties": {"provider": {"enum": ["local", "entra", "windows_server"]}, "enabled": {"type": "boolean"}}}}}},
+      "DirectoryEntry": {"type": "object", "additionalProperties": false, "required": ["object_id", "account", "display_name", "enabled"], "properties": {"object_id": {"type": ["string", "null"], "maxLength": 128}, "account": {"type": "string", "minLength": 1, "maxLength": 256}, "display_name": {"type": "string", "minLength": 1, "maxLength": 256}, "email": {"type": ["string", "null"], "maxLength": 320}, "enabled": {"type": "boolean"}}},
+      "PreviewRequest": {"type": "object", "additionalProperties": false, "required": ["entries"], "properties": {"entries": {"type": "array", "maxItems": 5000, "items": {"$ref": "#/components/schemas/DirectoryEntry"}}}},
+      "PreviewResult": {"type": "object", "additionalProperties": false, "required": ["items", "truncated"], "properties": {"items": {"type": "array", "maxItems": 5000, "items": {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"enum": ["new", "changed", "disabled_in_directory", "missing_in_directory", "ambiguous", "unmatchable"]}, "object_id": {"type": ["string", "null"], "maxLength": 128}, "user_id": {"type": "integer", "minimum": 1}}}}, "truncated": {"type": "boolean"}}},
+      "GrantList": {"type": "object", "additionalProperties": false, "required": ["user_id", "revision", "items"], "properties": {"user_id": {"type": "integer", "minimum": 1}, "revision": {"type": "integer", "minimum": 0}, "items": {"type": "array", "maxItems": 1000, "items": {"type": "object", "additionalProperties": false, "required": ["effect", "scope", "actions"], "properties": {"effect": {"enum": ["allow", "deny"]}, "scope": {"enum": ["own", "pool", "all"]}, "pool_id": {"type": "string", "format": "uuid"}, "actions": {"type": "array", "maxItems": 5, "uniqueItems": true, "items": {"enum": ["view", "play", "edit", "export", "release"]}}}}}}},
+      "IdentityCommand": {"oneOf": [{"$ref": "#/components/schemas/CreateLocalUser"}, {"$ref": "#/components/schemas/SetUserStatus"}, {"$ref": "#/components/schemas/RevokeUserSessions"}]},
+      "CreateLocalUser": {"type": "object", "additionalProperties": false, "required": ["command", "request_id", "payload"], "properties": {"command": {"const": "create_local_user"}, "request_id": {"type": "string", "format": "uuid"}, "payload": {"type": "object", "additionalProperties": false, "required": ["username", "email"], "properties": {"username": {"type": "string", "minLength": 2, "maxLength": 20}, "email": {"type": "string", "minLength": 3, "maxLength": 320}, "name": {"type": "string", "minLength": 1, "maxLength": 256}}}}},
+      "SetUserStatus": {"type": "object", "additionalProperties": false, "required": ["command", "request_id", "expected_version", "payload"], "properties": {"command": {"const": "set_user_status"}, "request_id": {"type": "string", "format": "uuid"}, "expected_version": {"type": "integer", "minimum": 1}, "payload": {"type": "object", "additionalProperties": false, "required": ["user_id", "status", "reason"], "properties": {"user_id": {"type": "integer", "minimum": 1}, "status": {"enum": ["active", "disabled"]}, "reason": {"type": "string", "minLength": 1, "maxLength": 512}}}}},
+      "RevokeUserSessions": {"type": "object", "additionalProperties": false, "required": ["command", "request_id", "expected_version", "payload"], "properties": {"command": {"const": "revoke_user_sessions"}, "request_id": {"type": "string", "format": "uuid"}, "expected_version": {"type": "integer", "minimum": 1}, "payload": {"type": "object", "additionalProperties": false, "required": ["user_id"], "properties": {"user_id": {"type": "integer", "minimum": 1}}}}},
+      "CommandResult": {"type": "object", "additionalProperties": false, "required": ["request_id", "user_id", "version"], "properties": {"request_id": {"type": "string", "format": "uuid"}, "user_id": {"type": "integer", "minimum": 1}, "version": {"type": "integer", "minimum": 1}}}
+    }
+  }
+}

@@ -1,8 +1,8 @@
 """Central access decision for recordings in clinic mode.
 
-One pure function, ``decide``, answers "may this subject do this action on this
-recording". Nothing else in the clinic code decides access; the Flask guard
-(src/clinic/guard.py) only collects the inputs and calls it.
+``decide`` answers "may this subject do this action on this recording". In a
+clinic app it checks live pool policy before evaluating the base rules. The
+Flask guard only collects the inputs and calls it.
 
 Rules (secure defaults, R-011):
 
@@ -17,16 +17,20 @@ Rules (secure defaults, R-011):
 * A deny exception always wins, over every grant and over ownership.
 * Being a site admin confers nothing. There is no owner or admin shortcut.
 
-Pools come from a later work package. This module takes them as input:
-``Subject.grants`` and ``RecordingFacts.pool_ids``. Providers that fill them
-from storage are registered with ``register_grant_provider`` and
-``register_pool_provider``.
+The legacy grant and pool providers still fill ``Subject.grants`` and
+``RecordingFacts.pool_ids``. The app's pool adapter also needs the target and
+action to evaluate current staff links and scoped denies.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from contextvars import ContextVar
+from dataclasses import dataclass, replace
 from typing import Callable, Iterable
+
+from flask import Flask, current_app, has_app_context
+
+from src.clinic.config import clinic_mode_enabled
 
 ACTIONS = frozenset({'view', 'play', 'download', 'edit', 'export', 'delete', 'release'})
 OWN_DEFAULT_ACTIONS = frozenset({'view', 'play', 'edit'})
@@ -75,6 +79,38 @@ class Decision:
     visible: bool = False
 
 
+_POOL_POLICY = 'clinic_pool_policy'
+_adapter_input: ContextVar[RecordingFacts | None] = ContextVar('clinic_pool_input', default=None)
+
+
+def install_pool_policy(app: Flask) -> None:
+    """Install the live adapter once on this app, without reading the database."""
+    from src.clinic.pool_policy import decide as pool_decide
+
+    app.extensions.setdefault(_POOL_POLICY, pool_decide)
+
+
+def _pool_decision(subject: Subject, action: str, rec: RecordingFacts) -> Decision | None:
+    if _adapter_input.get() is not None or not has_app_context() or not clinic_mode_enabled():
+        return None
+    adapter = current_app.extensions.get(_POOL_POLICY)
+    if adapter is None:
+        return None
+
+    from src.clinic.models import ClinicDictation
+
+    dictation = (
+        ClinicDictation.query.filter_by(recording_id=rec.recording_id).populate_existing().one_or_none()
+    )
+    if dictation is None:
+        return None
+    token = _adapter_input.set(rec)
+    try:
+        return adapter(subject, action, dictation)
+    finally:
+        _adapter_input.reset(token)
+
+
 def _denied(subject: Subject, rec: RecordingFacts) -> bool:
     return any(
         rec.recording_id in d.recording_ids or rec.owner_id in d.author_ids
@@ -98,6 +134,9 @@ def decide(subject: Subject, action: str, rec: RecordingFacts) -> Decision:
     """The one access decision for a recording."""
     if action not in ACTIONS:
         return Decision(False, 'unknown_action')
+    pool_result = _pool_decision(subject, action, rec)
+    if pool_result is not None:
+        return pool_result
     owner = rec.owner_id == subject.user_id
     if _denied(subject, rec):
         return Decision(False, 'deny_exception', visible=owner)
@@ -111,7 +150,7 @@ def decide(subject: Subject, action: str, rec: RecordingFacts) -> Decision:
     return Decision(False, 'no_grant')
 
 
-# --- providers (filled by later work packages: pools, staff grants) ----------
+# --- legacy providers --------------------------------------------------------
 
 GrantProvider = Callable[[int], Iterable[Grant | Deny]]
 PoolProvider = Callable[[int], Iterable[int]]
@@ -146,6 +185,11 @@ def build_subject(user_id: int, is_admin: bool = False) -> Subject:
 
 
 def build_facts(recording_id: int, owner_id: int) -> RecordingFacts:
+    # The adapter adds live facts to the caller's existing pool IDs, then calls
+    # decide again for the base rules. Do not re-run legacy providers on that path.
+    base = _adapter_input.get()
+    if base is not None and base.recording_id == recording_id:
+        return replace(base, owner_id=owner_id)
     pools: set[int] = set()
     for provider in _pool_providers:
         pools.update(provider(recording_id))
