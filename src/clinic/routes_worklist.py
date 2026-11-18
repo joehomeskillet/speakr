@@ -10,13 +10,15 @@ from uuid import uuid4
 
 from flask import Blueprint, abort, jsonify, request, session
 from flask_login import current_user
+from flask_wtf.csrf import validate_csrf
+from wtforms.validators import ValidationError
 from werkzeug.exceptions import HTTPException
 
 from src.clinic import policy, workflow
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.list_layout import Group
 from src.clinic.parity_dispatch import CommandProblem, ParityDispatch
-from src.clinic.saved_filters import FilterError
+from src.clinic.saved_filters import FilterError, validate_filter
 from src.clinic.worklist_etag import list_etag
 from src.clinic.worklist_filters import SavedFilter, WorklistFilterStore, WorklistPage, query_worklist
 from src.clinic.worklist_layout import LayoutStore, StoredLayout
@@ -164,6 +166,100 @@ def create_blueprint(
     def own_filters():
         return jsonify(items=[{'id': item.id, 'name': item.name, 'version': item.version}
                               for item in filters.list(current_user.id)])
+
+    def filter_problem(status: int, code: str, title: str, **extra):
+        response = jsonify(type='about:blank', status=status, code=code, title=title,
+                           correlation_id=str(uuid4()), **extra)
+        response.mimetype = 'application/problem+json'
+        return response, status
+
+    def filter_body(item: SavedFilter) -> dict:
+        return {'id': item.id, 'name': item.name, 'version': item.version, 'spec': item.spec}
+
+    def if_match() -> int | None:
+        raw = (request.headers.get('If-Match') or '').strip()
+        if raw[:2] == 'W/':
+            raw = raw[2:]
+        raw = raw.strip('"')
+        return int(raw) if raw.isascii() and raw.isdigit() else None
+
+    def run_filter_write(filter_id: str | None, action: Callable[[], object]):
+        """Run one store write for the session actor; map store errors to problems."""
+        try:
+            validate_csrf(request.headers.get('X-CSRF-Token'))
+        except ValidationError:
+            return filter_problem(403, 'FORBIDDEN', 'Ungültiges CSRF-Token')
+        try:
+            return action()
+        except FilterError as error:
+            if error.code == 'not_found':
+                abort(404)
+            if error.code == 'stale_version':
+                current = filters.get(current_user.id, filter_id)
+                return filter_problem(409, 'stale_version', 'Versionskonflikt',
+                                      id=current.id, version=current.version)
+            if error.code in ('duplicate_name', 'limit_reached'):
+                return filter_problem(409, error.code, 'Konflikt')
+            abort(400)
+        except OSError:
+            return filter_problem(503, 'DEPENDENCY_UNAVAILABLE', 'Dienst nicht verfügbar')
+
+    @blueprint.get('/filters/<filter_id>')
+    def own_filter(filter_id: str):
+        try:
+            return jsonify(filter_body(filters.get(current_user.id, filter_id)))
+        except FilterError:
+            abort(404)
+
+    @blueprint.post('/filters')
+    def create_filter():
+        payload = request.get_json(silent=True)
+        if not (isinstance(payload, dict) and isinstance(payload.get('name'), str)
+                and isinstance(payload.get('spec'), dict)):
+            abort(400)
+        response = run_filter_write(None, lambda: (
+            jsonify(filter_body(filters.create(current_user.id, payload['name'], payload['spec']))),
+            201))
+        return response
+
+    @blueprint.put('/filters/<filter_id>')
+    def update_filter(filter_id: str):
+        payload = request.get_json(silent=True)
+        if not (isinstance(payload, dict) and payload and set(payload) <= {'name', 'spec'}
+                and isinstance(payload.get('name', ''), str)
+                and isinstance(payload.get('spec', {}), dict)):
+            abort(400)
+        version = if_match()
+        if version is None:
+            abort(400)
+
+        def apply():
+            actor = current_user.id
+            if 'spec' in payload:
+                validate_filter(payload['spec'])
+            saved = filters.get(actor, filter_id)
+            if 'name' in payload:
+                saved = filters.rename(actor, filter_id, payload['name'], expected_version=version)
+                version_now = saved.version
+            else:
+                version_now = version
+            if 'spec' in payload:
+                saved = filters.replace(actor, filter_id, payload['spec'], expected_version=version_now)
+            return jsonify(filter_body(saved))
+
+        return run_filter_write(filter_id, apply)
+
+    @blueprint.delete('/filters/<filter_id>')
+    def delete_filter(filter_id: str):
+        version = if_match()
+        if version is None:
+            abort(400)
+
+        def apply():
+            filters.delete(current_user.id, filter_id, expected_version=version)
+            return '', 204
+
+        return run_filter_write(filter_id, apply)
 
     @blueprint.get('/layout')
     def own_layout():
