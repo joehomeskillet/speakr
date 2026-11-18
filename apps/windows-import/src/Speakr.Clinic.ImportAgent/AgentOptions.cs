@@ -58,8 +58,8 @@ public sealed class AgentOptions
         {
             if (string.IsNullOrWhiteSpace(root.Id) || string.IsNullOrWhiteSpace(root.Path))
                 throw new InvalidOperationException("Each allowed root needs an id and a path.");
-            if (root.Id.Length > MaxSourceFieldChars)
-                throw new InvalidOperationException("Allowed root ids are limited to 128 characters by the ingest contract.");
+            if (!ContractIds.IsId(root.Id))
+                throw new InvalidOperationException("Allowed root id does not match the agent contract.");
             if (!Path.IsPathRooted(root.Path))
                 throw new InvalidOperationException("Allowed roots must be absolute paths.");
             if (!ids.Add(root.Id))
