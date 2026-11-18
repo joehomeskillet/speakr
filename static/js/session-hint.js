@@ -57,8 +57,8 @@
         banner.setAttribute('aria-live', 'assertive');
         banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483000;' +
             'display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap;' +
-            'padding:12px 16px;background:#b45309;color:#fff;font:500 14px/1.4 system-ui,sans-serif;' +
-            'box-shadow:0 2px 8px rgba(0,0,0,.3);';
+            'padding:12px 16px;background:var(--brand-accent,#7A1C3E);color:var(--brand-canvas,#F7F6F2);font:500 14px/1.4 var(--ui-font-sans,system-ui,sans-serif);' +
+            'box-shadow:0 1px 4px rgba(0,0,0,.15);';
 
         var text = document.createElement('span');
         text.setAttribute('data-session-hint-message', '');
@@ -69,8 +69,8 @@
         button.type = 'button';
         button.setAttribute('data-session-hint-reload', '');
         button.textContent = translate('sessionHintReload', 'Seite neu laden');
-        button.style.cssText = 'padding:6px 14px;border:0;border-radius:6px;background:#fff;' +
-            'color:#7c2d12;font:600 14px system-ui,sans-serif;cursor:pointer;';
+        button.style.cssText = 'padding:6px 14px;border:0;border-radius:var(--ui-radius-sm,8px);background:var(--brand-canvas,#F7F6F2);' +
+            'color:var(--brand-accent,#7A1C3E);font:600 14px var(--ui-font-sans,system-ui,sans-serif);cursor:pointer;';
         button.addEventListener('click', function () { window.location.reload(); });
 
         banner.appendChild(text);

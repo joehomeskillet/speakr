@@ -1,0 +1,33 @@
+/* DUSS / Appcadabra shared design tokens | v1.0 | 2026-11-18 */
+:root {
+  color-scheme: light;
+  --brand-primary: #1C3D42;
+  --brand-accent: #7A1C3E;
+  --brand-canvas: #F7F6F2;
+  --brand-accent-darkmode: #E4A6BE;
+  --ui-surface: #FFFFFF;
+  --ui-text: #203438;
+  --ui-text-muted: #52666A;
+  --ui-border: #D9DFDC;
+  --ui-hover: #E9EEEB;
+  --ui-radius-sm: 8px;
+  --ui-radius-md: 12px;
+  --ui-space-1: 4px;
+  --ui-space-2: 8px;
+  --ui-space-3: 12px;
+  --ui-space-4: 16px;
+  --ui-space-6: 24px;
+  --ui-space-8: 32px;
+  --ui-font-sans: Inter, 'Segoe UI', system-ui, sans-serif;
+  --ui-font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+.dark, [data-theme="dark"] {
+  color-scheme: dark;
+  --brand-canvas: #142C30;
+  --ui-surface: #1C3D42;
+  --ui-text: #F7F6F2;
+  --ui-text-muted: #D0DCDA;
+  --ui-border: #426166;
+  --ui-hover: #315158;
+  --brand-accent: #E4A6BE;
+}

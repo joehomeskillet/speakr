@@ -10,12 +10,12 @@
                  into the More menu (its lg:hidden items), so the title, logo
                  and account button keep their room. -->
             <button @click="toggleInbox(selectedRecording)" class="btn btn--icon hidden lg:inline-flex"
-                    :style="selectedRecording.is_inbox ? 'color: #3b82f6;' : ''"
+                    :style="selectedRecording.is_inbox ? 'color: var(--text-accent);' : ''"
                     :title="selectedRecording.is_inbox ? t('tooltips.markAsRead') : t('tooltips.moveToInbox')">
                 <i class="fas fa-inbox"></i>
             </button>
             <button @click="toggleHighlight(selectedRecording)" class="btn btn--icon hidden lg:inline-flex"
-                    :style="selectedRecording.is_highlighted ? 'color: #eab308;' : ''"
+                    :style="selectedRecording.is_highlighted ? 'color: var(--text-warn-strong);' : ''"
                     :title="selectedRecording.is_highlighted ? t('tooltips.removeHighlight') : t('tooltips.highlight')">
                 <i class="fas fa-star"></i>
             </button>

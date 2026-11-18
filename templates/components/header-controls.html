@@ -23,7 +23,7 @@
     <button v-if="showInstallButton && !isPWAInstalled"
             @click="promptInstall"
             class="btn btn--sm header-action"
-            style="background: #16a34a; color: #fff; border-color: transparent;"
+            style="background: var(--bg-success); color: var(--text-button); border-color: transparent;"
             :title="t('pwa.installApp')">
         <i class="fas fa-download"></i>
         <span class="hidden sm:inline" v-text="t('pwa.installApp')"></span>

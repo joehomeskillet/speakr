@@ -1,3 +1,5 @@
+@import './tokens.css';
+
 /* Page-to-page navigation: a short cross-fade between same-origin pages in
    browsers with cross-document View Transitions (Chrome and Edge 126+, Safari
    18.2+); elsewhere this rule has no effect. styles.css is loaded on every page,
@@ -30,49 +32,49 @@ body.unloaded {
 
 /* Color Scheme CSS Variables */
 :root {
-    /* Default Light Theme (Blue) - More muted with better contrast */
-    --bg-primary: #e8eaed; /* muted gray */
-    --bg-secondary: #f8f9fa; /* off-white */
-    --bg-tertiary: #f0f2f4; /* light gray */
-    --bg-accent: #c3d9f7; /* muted blue */
-    --bg-accent-hover: #aec9f2; /* deeper muted blue */
-    --bg-button: #2563eb; /* blue-600 */
-    --bg-button-hover: #1d4ed8; /* blue-700 */
+    /* DUSS Light Theme (Default): Warm Cream Canvas, Clean White Surface, Dark Slate Teal Primary */
+    --bg-primary: var(--brand-canvas); /* Warm Cream #F7F6F2 */
+    --bg-secondary: var(--ui-surface); /* Clean White card #FFFFFF */
+    --bg-tertiary: var(--ui-hover); /* Light subtle hover #E9EEEB */
+    --bg-accent: #EADBDF; /* Subtle Burgundy tint for active items */
+    --bg-accent-hover: #DFCAD1; /* Deeper burgundy tint */
+    --bg-button: var(--brand-primary); /* Dark Slate Teal #1C3D42 */
+    --bg-button-hover: #142C30; /* Darker slate hover */
     --bg-danger: #dc2626; /* red-600 */
     --bg-danger-hover: #b91c1c; /* red-700 */
     --bg-danger-light: #fce4e4; /* muted red */
-    --bg-info-light: #c3d9f7; /* muted blue */
+    --bg-info-light: #D9E4E5; /* subtle teal tint */
     --bg-warn-light: #fef3c7; /* amber-100 */
     --bg-success-light: #c6f0dc; /* muted green */
     --bg-pending-light: #eeeeec; /* stone */
     --bg-processing-light: #ede9fe; /* violet-100 */
-    --bg-input: #fafbfc; /* slightly gray white */
-    --bg-audio-player: var(--bg-tertiary);
+    --bg-input: var(--ui-surface); /* White input surface #FFFFFF */
+    --bg-audio-player: var(--ui-surface);
 
-    --text-primary: #1f2937; /* gray-800 */
-    --text-secondary: #374151; /* gray-700 */
-    --text-muted: #565e6b; /* between gray-600 and gray-500: 4.5:1 on the muted grey, blue accent and scheme surfaces */
-    --text-light: #5f6773; /* 4.5:1 or more on the muted grey and accent-free surfaces */
-    --text-accent: #1d4ed8; /* blue-700 */
-    --text-button: #ffffff; /* white */
+    --text-primary: var(--ui-text); /* #203438 */
+    --text-secondary: var(--ui-text); /* #203438 */
+    --text-muted: var(--ui-text-muted); /* #52666A */
+    --text-light: var(--ui-text-muted); /* #52666A */
+    --text-accent: var(--brand-accent); /* #7A1C3E Burgundy */
+    --text-button: var(--brand-canvas); /* #F7F6F2 Warm Cream */
     --text-danger: #b91c1c; /* red-700 */
     --text-danger-strong: #991b1b; /* red-800 */
-    --text-info-strong: #1e40af; /* blue-800 */
+    --text-info-strong: var(--brand-primary); /* #1C3D42 */
     --text-warn-strong: #b45309; /* amber-700 */
     --text-success-strong: #065f46; /* green-800 */
     --text-pending-strong: #44403c; /* stone-700 */
     --text-processing-strong: #5b21b6; /* violet-800 */
 
-    --border-primary: #e5e7eb; /* gray-200 */
-    --border-secondary: #d1d5db; /* gray-300 */
-    --border-accent: #93c5fd; /* blue-300 */
+    --border-primary: var(--ui-border); /* #D9DFDC */
+    --border-secondary: var(--ui-border); /* #D9DFDC */
+    --border-accent: var(--brand-accent); /* #7A1C3E */
     --border-danger: #f87171; /* red-400 */
-    --border-focus: #3b82f6; /* blue-500 */
-    --ring-focus: #bfdbfe; /* blue-200 */
+    --border-focus: var(--brand-primary); /* #1C3D42 */
+    --ring-focus: rgba(28, 61, 66, 0.25);
     
-    --scrollbar-track: #f1f1f1;
-    --scrollbar-thumb: #c5c5c5;
-    --scrollbar-thumb-hover: #a8a8a8;
+    --scrollbar-track: var(--brand-canvas);
+    --scrollbar-thumb: var(--ui-border);
+    --scrollbar-thumb-hover: var(--ui-text-muted);
     
     /* Success fills (status badges, copy buttons) */
     --bg-success: #10b981;
@@ -177,30 +179,31 @@ body.unloaded {
 .dark { color-scheme: dark; }
 
 .dark {
-    --bg-primary: #111827; /* gray-900 */
-    --bg-secondary: #1f2937; /* gray-800 */
-    --bg-tertiary: #374151; /* gray-700 */
-    --bg-accent: #1e3a8a; /* blue-900 */
-    --bg-accent-hover: #1e40af; /* blue-800 */
-    --bg-button: #2563eb; /* blue-600 */
-    --bg-button-hover: #1d4ed8; /* blue-700, as in light mode: white text keeps 6.7:1 (blue-500 gave 3.67:1) */
+    /* DUSS Dark Mode Architecture: Deep Slate Canvas #142C30, Slate Teal Surface #1C3D42, Warm Cream Text #F7F6F2, Soft Rose Accent #E4A6BE */
+    --bg-primary: var(--brand-canvas); /* Deep Slate Canvas #142C30 */
+    --bg-secondary: var(--ui-surface); /* Slate Teal Surface #1C3D42 */
+    --bg-tertiary: var(--ui-hover); /* Slate Teal Hover #315158 */
+    --bg-accent: #264247; /* Muted accent on teal surface */
+    --bg-accent-hover: #315158;
+    --bg-button: var(--brand-accent); /* Soft Rose #E4A6BE */
+    --bg-button-hover: #EDBDCE;
     --bg-danger: #dc2626; /* red-600 */
     --bg-danger-hover: #ef4444; /* red-500 */
     --bg-danger-light: #7f1d1d; /* red-900 */
-    --bg-info-light: #1e3a8a; /* blue-900 */
+    --bg-info-light: #1C3D42; /* teal surface */
     --bg-warn-light: #78350f; /* amber-900 */
     --bg-success-light: #064e3b; /* green-900 */
     --bg-pending-light: #292524; /* stone-800 */
     --bg-processing-light: #4c1d95; /* violet-900 */
-    --bg-input: #374151; /* gray-700 */
-    --bg-audio-player: var(--bg-secondary);
+    --bg-input: #173338; /* Recessed dark teal */
+    --bg-audio-player: var(--ui-surface);
 
-    --text-primary: #f3f4f6; /* gray-100 */
-    --text-secondary: #d1d5db; /* gray-300 */
-    --text-muted: #cbd5e1; /* slate-300 - improved contrast */
-    --text-light: #a1aec2; /* 4.5:1 or more on bg-tertiary */
-    --text-accent: #7ab3fb; /* between blue-300 and blue-400: 4.5:1 on the accent and tertiary surfaces */
-    --text-button: #ffffff; /* white */
+    --text-primary: var(--ui-text); /* Warm Cream #F7F6F2 */
+    --text-secondary: var(--ui-text); /* Warm Cream #F7F6F2 */
+    --text-muted: var(--ui-text-muted); /* #D0DCDA */
+    --text-light: var(--ui-text-muted); /* #D0DCDA */
+    --text-accent: var(--brand-accent); /* Soft Rose #E4A6BE */
+    --text-button: #142C30; /* High contrast on Rose CTA (7.33:1) */
     --text-danger: #f87171; /* red-400 */
     --text-danger-strong: #fca5a5; /* red-300 */
     --text-info-strong: #93c5fd; /* blue-300 */
@@ -209,16 +212,16 @@ body.unloaded {
     --text-pending-strong: #d6d3d1; /* stone-300 */
     --text-processing-strong: #c4b5fd; /* violet-300 */
 
-    --border-primary: #475569; /* slate-600 - more visible */
-    --border-secondary: #64748b; /* slate-500 - better contrast */
-    --border-accent: #1d4ed8; /* blue-700 */
+    --border-primary: var(--ui-border); /* #426166 */
+    --border-secondary: var(--ui-border); /* #426166 */
+    --border-accent: var(--brand-accent); /* #E4A6BE */
     --border-danger: #ef4444; /* red-500 */
-    --border-focus: #3b82f6; /* blue-500 */
-    --ring-focus: #1e40af; /* blue-800 */
+    --border-focus: var(--brand-accent); /* #E4A6BE */
+    --ring-focus: rgba(228, 166, 190, 0.3);
     
-    --scrollbar-track: #2d3748; /* gray-800 */
-    --scrollbar-thumb: #4a5568; /* gray-600 */
-    --scrollbar-thumb-hover: #718096; /* gray-500 */
+    --scrollbar-track: var(--brand-canvas);
+    --scrollbar-thumb: var(--ui-border);
+    --scrollbar-thumb-hover: var(--ui-hover);
 }
 
 /* Dark Theme Variants */
@@ -6558,4 +6561,96 @@ select:disabled {
     max-height: max(40vh, 75vw);
     object-fit: contain;
     background: var(--bg-tertiary);
+}
+
+/* DUSS System Architecture: Typography, Nav/Header, Subtle Shadows, Focus Rings */
+body {
+    font-family: var(--ui-font-sans, Inter, 'Segoe UI', system-ui, sans-serif);
+}
+
+code, kbd, samp, pre {
+    font-family: var(--ui-font-mono, 'JetBrains Mono', ui-monospace, monospace);
+}
+
+:is(#app > header, #inquire-app > header, #global-header) {
+    background-color: var(--brand-primary) !important;
+    color: var(--brand-canvas) !important;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.2) !important;
+}
+
+:is(#app > header, #inquire-app > header, #global-header) :is(h1, h2, h3, a, button, input) {
+    color: var(--brand-canvas);
+}
+
+/* Explicitly exempt dropdown menus, notification panels and raised surfaces from inheriting header text color */
+:is(#app > header, #inquire-app > header, #global-header) :is([role="menu"], [data-user-menu-dropdown], [data-notifications-panel], .surface-raised, .dropdown-menu) :is(h1, h2, h3, a, button, input, span, p, div) {
+    color: var(--text-primary);
+}
+
+:is(#app > header, #inquire-app > header, #global-header) :is([role="menu"], [data-user-menu-dropdown], [data-notifications-panel], .surface-raised, .dropdown-menu) :is(a, button):hover {
+    background-color: var(--ui-hover);
+    color: var(--text-primary);
+}
+
+:is(#app > header, #inquire-app > header, #global-header) .btn.header-action {
+    color: var(--brand-canvas);
+    background: transparent;
+    border-color: transparent;
+}
+
+:is(#app > header, #inquire-app > header, #global-header) .btn.header-action:hover {
+    background: rgba(247, 246, 242, 0.12);
+    color: var(--brand-canvas);
+}
+
+:is(#app > header, #inquire-app > header, #global-header) .btn.header-action[data-user-menu-toggle] {
+    background: rgba(247, 246, 242, 0.12);
+    color: var(--brand-canvas);
+    border-color: transparent;
+}
+
+.dark :is(#app > header, #inquire-app > header, #global-header) {
+    background-color: var(--brand-canvas) !important;
+    color: var(--ui-text) !important;
+    border-bottom: 1px solid var(--ui-border) !important;
+}
+
+.dark :is(#app > header, #inquire-app > header, #global-header) :is(h1, h2, h3, a, button, input) {
+    color: var(--ui-text);
+}
+
+.dark :is(#app > header, #inquire-app > header, #global-header) .btn.header-action {
+    color: var(--ui-text);
+}
+
+.dark :is(#app > header, #inquire-app > header, #global-header) .btn.header-action:hover {
+    background: var(--ui-hover);
+    color: var(--ui-text);
+}
+
+.dark :is(#app > header, #inquire-app > header, #global-header) .btn.header-action[data-user-menu-toggle] {
+    background: var(--ui-hover);
+    color: var(--ui-text);
+}
+
+/* DUSS Flat/Reduced aesthetic: no heavy shadows or gradients */
+.shadow-lg, .shadow-xl, .shadow-2xl {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08) !important;
+}
+.shadow-md {
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+}
+
+/* Visible focus states per WCAG AA */
+:focus-visible {
+    outline: 2px solid var(--border-focus);
+    outline-offset: 2px;
+}
+:is(#app > header, #inquire-app > header, #global-header) .btn.header-action:focus-visible {
+    outline: 2px solid var(--brand-canvas);
+    outline-offset: 2px;
+}
+.dark :is(#app > header, #inquire-app > header, #global-header) .btn.header-action:focus-visible {
+    outline: 2px solid var(--brand-accent);
+    outline-offset: 2px;
 }
