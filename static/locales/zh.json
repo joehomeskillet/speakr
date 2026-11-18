@@ -1531,6 +1531,8 @@
     "serviceUnavailableGuidance": "通常是临时问题。请几分钟后再试。",
     "serviceUnavailableMessage": "转录服务暂时不可用。",
     "sessionExpiredReload": "您的会话已过期。请刷新页面后重试。",
+    "sessionHintMessage": "会话已过期，请刷新页面。在此之前，未保存的输入仍会保留显示。",
+    "sessionHintReload": "刷新页面",
     "shareTargetGeneric": "无法处理共享的音频。请改为从 Speakr 上传。",
     "shareTarget_missing_file": "共享时未附加音频文件。请在共享前先选择文件。",
     "shareTarget_queue_failed": "共享的音频已保存，但无法开始转录。",

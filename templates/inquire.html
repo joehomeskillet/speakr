@@ -416,6 +416,8 @@
 
     </div>
 
+    <!-- Expired-session hint (called by the fetch interceptor below) -->
+    <script src="{{ url_for('static', filename='js/session-hint.js', v=app_version) }}"></script>
     <!-- CSRF Token Management -->
     <script src="{{ url_for('static', filename='js/csrf-refresh.js', v=app_version) }}"></script>
     

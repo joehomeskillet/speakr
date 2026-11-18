@@ -1531,6 +1531,8 @@
     "serviceUnavailableGuidance": "C’est généralement temporaire. Réessayez dans quelques minutes.",
     "serviceUnavailableMessage": "Le service de transcription est temporairement indisponible.",
     "sessionExpiredReload": "Votre session a expiré. Rechargez la page et réessayez.",
+    "sessionHintMessage": "Session expirée. Veuillez recharger la page. Les saisies non enregistrées restent visibles jusque-là.",
+    "sessionHintReload": "Recharger la page",
     "shareTargetGeneric": "Impossible de traiter l'audio partagé. Importez-le plutôt depuis Speakr.",
     "shareTarget_missing_file": "Aucun fichier audio n'était joint au partage. Sélectionnez le fichier avant de partager.",
     "shareTarget_queue_failed": "L'audio partagé a été enregistré, mais la transcription n'a pas pu démarrer.",
