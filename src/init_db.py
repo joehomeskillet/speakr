@@ -14,6 +14,7 @@ import tempfile
 from contextlib import contextmanager
 
 from sqlalchemy import text, inspect
+from sqlalchemy.exc import OperationalError
 
 from src.database import db
 from src.models import Recording, TranscriptChunk, SystemSetting, User
@@ -21,6 +22,10 @@ from src.utils.localization import default_language
 # Registers clinic tables on db.metadata before create_all(). No src/clinic/__init__.py:
 # src.clinic is a namespace package until the config worker adds one.
 import src.clinic.models  # noqa: F401
+# Imports every clinic model module so create_all() builds all clinic tables.
+import src.clinic.registry
+import src.clinic.append_only_guards
+import src.clinic.startup
 from src.services.embeddings import process_recording_chunks
 from src.utils import (
     add_column_if_not_exists,
@@ -240,7 +245,13 @@ def initialize_database(app):
 
     This function should be called within an app context.
     """
-    db.create_all()
+    try:
+        db.create_all()
+    except OperationalError as exc:
+        # Several processes starting together can both see a table as missing.
+        if 'already exists' not in str(exc):
+            raise
+        db.create_all()
 
     # Check and add new columns if they don't exist
     engine = db.engine
@@ -266,6 +277,8 @@ def initialize_database(app):
             app.logger.warning(f"Could not create the schema_migrations ledger: {e}")
 
         _run_migrations(app, engine)
+
+    src.clinic.startup.run_startup_sweep(app)
 
 
 @contextmanager
@@ -334,7 +347,9 @@ def _run_migrations(app, engine):
     with _migration_section(app, failures, "clinic integrity"):
         # Tables come from create_all() via src.clinic.models. Triggers are
         # not part of the model metadata, so they are installed here.
+        src.clinic.registry.create_clinic_tables(engine)
         src.clinic.models.install_clinic_guards(engine)
+        src.clinic.append_only_guards.install_append_only_guards(engine)
 
     with _migration_section(app, failures, "core recording and user columns"):
         # Add is_inbox column with default value of 1 (True)

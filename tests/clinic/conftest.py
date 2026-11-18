@@ -17,6 +17,12 @@ from sqlalchemy.sql.ddl import sort_tables
 from src.app import app, db
 from src.clinic import policy
 from src.clinic.models import install_clinic_guards
+from src.clinic import registry as _clinic_registry  # noqa: F401  (all clinic tables on the metadata)
+from src.clinic.append_only_guards import (
+    APPEND_ONLY_TABLES,
+    install_append_only_guards,
+    trigger_names,
+)
 from src.models import (
     APIToken, ProcessingJob, Recording, SystemSetting, User,
 )
@@ -84,6 +90,8 @@ def world():
     yield w
     with app.app_context():
         db.session.rollback()
+        if db.engine.dialect.name == "postgresql":
+            _purge_clinic_rows()  # foreign keys are enforced: clinic rows first
         ProcessingJob.query.filter(ProcessingJob.recording_id.in_([w['rec_a'], w['rec_b']])).delete(
             synchronize_session=False)
         APIToken.query.filter_by(user_id=w['user_a']).delete()
@@ -102,6 +110,15 @@ _ORIGINAL_TABLE = "clinic_original_version"
 _ORIGINAL_TRIGGERS = ("clinic_original_immutable", "clinic_original_no_delete")
 _TRANSCRIPT_TABLE = "clinic_transcript_revision"
 _TRANSCRIPT_TRIGGERS = ("clinic_transcript_immutable", "clinic_transcript_no_delete")
+
+
+def _guarded_tables():
+    present = set(inspect(db.engine).get_table_names())
+    return [
+        name
+        for name in (_ORIGINAL_TABLE, _TRANSCRIPT_TABLE, "clinic_archive_event", *APPEND_ONLY_TABLES)
+        if name in present
+    ]
 
 
 def _clinic_tables_children_first():
@@ -126,22 +143,42 @@ def _purge_clinic_rows():
                 "clinic_archive_no_update",
                 "clinic_archive_no_delete",
                 "clinic_lease_generation_monotone",
+                *(name for table in APPEND_ONLY_TABLES for name in trigger_names(table)),
             ):
                 conn.execute(text("DROP TRIGGER IF EXISTS " + trigger))
         elif dialect == "postgresql":
-            for table_name in (_ORIGINAL_TABLE, _TRANSCRIPT_TABLE, "clinic_archive_event"):
+            for table_name in _guarded_tables():
                 conn.execute(text("ALTER TABLE " + table_name + " DISABLE TRIGGER USER"))
         for table in tables:
             conn.execute(table.delete())
         if dialect == "postgresql":
-            for table_name in (_ORIGINAL_TABLE, _TRANSCRIPT_TABLE, "clinic_archive_event"):
+            for table_name in _guarded_tables():
                 conn.execute(text("ALTER TABLE " + table_name + " ENABLE TRIGGER USER"))
     if dialect == "sqlite":
         install_clinic_guards(db.engine)
+        install_append_only_guards(db.engine)
+
+
+def _purge_upstream_dependents(user_ids, recording_ids):
+    """PostgreSQL enforces foreign keys that SQLite ignores: remove the upstream
+    rows (usage, shares, tags and so on) that point at accounts or recordings
+    this test created, children first, before those parents are deleted."""
+    own = {"user": user_ids or [0], "recording": recording_ids or [0]}
+    skip = {"user", "recording"}
+    tables = [t for t in db.metadata.tables.values()
+              if not t.name.startswith("clinic_") and t.name not in skip]
+    with db.engine.begin() as conn:
+        for table in reversed(sort_tables(tables)):
+            for fk in table.foreign_keys:
+                parent = fk.column.table.name
+                if parent in own and fk.column.name == "id":
+                    conn.execute(table.delete().where(fk.parent.notin_(own[parent])))
 
 
 def _purge_new_accounts(user_ids, recording_ids):
     db.session.rollback()
+    if db.engine.dialect.name == "postgresql":
+        _purge_upstream_dependents(user_ids, recording_ids)
     Recording.query.filter(~Recording.id.in_(recording_ids or [0])).delete(
         synchronize_session=False
     )
@@ -149,10 +186,24 @@ def _purge_new_accounts(user_ids, recording_ids):
     db.session.commit()
 
 
+def _ensure_issuer_user():
+    """PostgreSQL enforces foreign keys: tests name user id 1 as the issuer of
+    recovery tokens. Keep one such account for the session (SQLite does not check)."""
+    if db.engine.dialect.name != "postgresql" or db.session.get(User, 1) is not None:
+        return
+    db.session.add(User(id=1, username="clinic_issuer", email="clinic_issuer@local.test",
+                        password="x", is_admin=True))
+    db.session.commit()
+    db.session.execute(text(
+        "SELECT setval(pg_get_serial_sequence('\"user\"', 'id'), (SELECT MAX(id) FROM \"user\"))"))
+    db.session.commit()
+
+
 @pytest.fixture(autouse=True)
 def clinic_isolation():
     with app.app_context():
         _purge_clinic_rows()
+        _ensure_issuer_user()
         users = [row[0] for row in db.session.query(User.id).all()]
         recordings = [row[0] for row in db.session.query(Recording.id).all()]
     yield
