@@ -64,7 +64,7 @@
    "tests/clinic/test_pools.py::test_staff_member_sees_linked_author_pools_only",
    "tests/clinic/test_s01_routes.py::test_lists_counts_and_search_show_only_own_recordings"
   ],
-  "note": "Sichtbereiche getestet; Schreibkraftauswahl im Versandweg fehlt."
+  "note": "Sichtbereiche getestet; Schreibkraftauswahl im Versandweg fehlt. Owner-Entscheid W12 (2026-11-18): Ein aktiver Admin hat vollen Zugriff und öffnet Audio und Transkript jedes Benutzers direkt ohne zusätzlichen Schritt oder Begründungsdialog; Audit-Logging wie bei jedem anderen Benutzerzugriff."
  },
  {
   "id": "PAR-ADM-007",
@@ -312,7 +312,7 @@
    "src/clinic/author_resolution.py",
    "tests/clinic/test_author_resolution.py"
   ],
-  "note": "Autor-Auflösung aus Geräte-ID/Aufnahme-Autor als Service getestet; zusammen mit Import-Zentrale (Intent-Match, Nachlieferung). Verdrahtung in den Agent-Kanal fehlt."
+  "note": "Autor-Auflösung aus Geräte-ID/Aufnahme-Autor als Service getestet; zusammen mit Import-Zentrale (Intent-Match, Nachlieferung). Verdrahtung in den Agent-Kanal fehlt. Owner-Entscheid W13 (2026-11-18): Unzugewiesene Diktate sind für Admins und Pool-Leads der Schreibkraftpools sichtbar; diese können ein Diktat jedem (auch fremden) Autor zuweisen, audit-logged; normale Schreibkräfte sehen nur ihnen zugewiesene Diktate."
  },
  {
   "id": "PAR-IMP-003",
@@ -532,7 +532,7 @@
   "title": "Synchroner Text-Audio-Editor",
   "status": "missing",
   "evidence": [],
-  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden. Owner-Entscheid W10 (2026-11-18): Bei jedem Speichern läuft automatisch eine Nachführung; unveränderte Wörter behalten ihre Zeitstempel, geänderte Spannen übernehmen die Zeiten der Nachbarn, neu getippte Wörter erhalten keinen Audioanker."
  },
  {
   "id": "PAR-COR-003",
@@ -633,7 +633,7 @@
   "title": "Vorbehaltswortliste prüfen",
   "status": "missing",
   "evidence": [],
-  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden. Owner-Entscheid W11 (2026-11-18): Konfigurierte Wörter/Muster werden im Transkript immer zur Prüfung markiert; ein Diktat ist nicht finalisierbar, solange eine Markierung offen ist."
  },
  {
   "id": "PAR-VOC-005",
