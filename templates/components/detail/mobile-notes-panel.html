@@ -27,7 +27,7 @@
             <button v-if="selectedRecording.notes" type="button" class="ph-tbtn" @click="copyNotes" :title="t('buttons.copyNotes')">
                 <i class="fas fa-copy" aria-hidden="true"></i><span v-text="t('buttons.copy')"></span>
             </button>
-            <button v-if="selectedRecording.notes && !selectedRecording.incognito" type="button" class="ph-tbtn" data-phone-download="notes"
+            <button v-if="selectedRecording.notes" type="button" class="ph-tbtn" data-phone-download="notes"
                     @click="downloadNotes" :title="t('buttons.downloadNotes')">
                 <i class="fas fa-download" aria-hidden="true"></i><span v-text="t('common.download')"></span>
             </button>

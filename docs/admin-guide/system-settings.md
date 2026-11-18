@@ -16,7 +16,7 @@ The sweet spot depends on your use case. For typical meetings under an hour, 50,
 
 ## Default Storage Quota
 
-**`default_storage_quota_mb`** (default 0, no limit) is the storage quota given to accounts created after it is set, by an administrator, by registration or by SSO. The quota of an existing account does not change; it is set per user in Edit User. See [Storage Quotas](user-management.md#storage-quotas).
+**`default_storage_quota_mb`** (default 0, no limit) is the storage quota given to accounts created after it is set, by an administrator or by SSO. The quota of an existing account does not change; it is set per user in Edit User. See [Storage Quotas](user-management.md#storage-quotas).
 
 ## Maximum File Size
 
@@ -50,7 +50,7 @@ With the jobs API in use:
 - The remote job id is saved on the processing job. A retry after a failed attempt or a restart of Speakr polls the same job. The audio is submitted again only when the service no longer knows the job or its result has expired.
 - Each submit has an `Idempotency-Key` header built from the recording, the processing job, the audio and the transcription parameters, so a repeated submit is attached to the job already running.
 - After a busy answer (503, or 413 with `Retry-After`), the submit is repeated once the `Retry-After` time has passed, within the ASR timeout.
-- A transcription that has no processing job to save the job id on cannot be resumed: a chunk of a chunked transcription, incognito mode and the voice check. Its job is deleted from the service when the attempt fails, and its `Idempotency-Key` is built from the recording or the user, the chunk number and the audio.
+- A transcription that has no processing job to save the job id on cannot be resumed: a chunk of a chunked transcription and the voice check. Its job is deleted from the service when the attempt fails, and its `Idempotency-Key` is built from the recording or the user, the chunk number and the audio.
 
 To find out which path a transcription took, see [WhisperX Asynchronous Jobs](../troubleshooting.md#whisperx-asynchronous-jobs). The technical details are in [Job Queue System](../advanced/job-queue-system.md#5-asynchronous-jobs-of-the-whisperx-asr-service).
 - After a job error marked as not retryable, such as `audio_too_long` or `file_too_large`, the recording is marked failed without a retry. Other job errors are retried up to `JOB_MAX_RETRIES`.
@@ -145,7 +145,7 @@ Leave this field empty to hide the banner completely.
 
 ## Default look for new accounts
 
-With the **default_ui_theme** and **default_color_scheme** settings, you choose the interface theme and the color scheme of every account created afterwards: by registration, by an administrator, by a first SSO sign-in and by the admin account from `.env`. Without a saved value, new accounts start with the **Cards** theme and the **Forest Emerald** color scheme.
+With the **default_ui_theme** and **default_color_scheme** settings, you choose the interface theme and the color scheme of every account created afterwards: by an administrator, by a first SSO sign-in and by the admin account from `.env`. Without a saved value, new accounts start with the **Cards** theme and the **Forest Emerald** color scheme.
 
 | Setting | Values | Default |
 |---|---|---|
@@ -156,7 +156,7 @@ With the **default_ui_theme** and **default_color_scheme** settings, you choose 
 
 Existing accounts keep their theme and color scheme. Users who never picked a theme keep the standard theme with the blue color scheme, or the look they picked in a browser before themes were saved with the account. Users change both in Account settings.
 
-On the sign-in, registration and password reset pages, and on recordings shared with a public link, the same defaults are shown in a browser with no theme or color scheme saved. In a browser where a theme or color scheme was picked before, that choice stays. After sign-in, the account's own theme and color scheme apply, and the defaults for new accounts are not used.
+On the sign-in page and on recordings shared with a public link, the same defaults are shown in a browser with no theme or color scheme saved. In a browser where a theme or color scheme was picked before, that choice stays. After sign-in, the account's own theme and color scheme apply, and the defaults for new accounts are not used.
 
 ## Audio player position for new accounts
 
@@ -199,7 +199,6 @@ The settings in this section were added for deployments with regulated data. The
 | `webhook_delivery_retention_days` | `WEBHOOK_DELIVERY_RETENTION_DAYS` | `30` | Days after which a webhook delivery record is removed. `0`: the records are kept without limit. |
 | `webhook_omit_titles` | `WEBHOOK_OMIT_TITLES` | `false` | `true`: the recording title and the original file name are left out of webhook payloads. |
 | `auto_export_delete_with_recording` | `AUTO_EXPORT_DELETE_WITH_RECORDING` | `false` | `true`: the automatically exported file is deleted together with its recording. |
-| `incognito_temp_max_age_hours` | `INCOGNITO_TEMP_MAX_AGE_HOURS` | `6` | Hours after the last write at which a leftover temporary file of an incognito request is removed. |
 | `audit_log_enabled` | `AUDIT_LOG_ENABLED` | `true` | `false`: no event is recorded in the audit log, except changes of the audit log settings and the reading, export and pruning of the log. |
 | `audit_log_retention_days` | `AUDIT_LOG_RETENTION_DAYS` | `365` | Days after which a row of the audit log is removed. `0`: the rows are kept without limit. |
 | `audit_log_store_ip` | `AUDIT_LOG_STORE_IP` | `full` | `full`, `truncated` (the `/24` network of an IPv4 address, the `/48` network of an IPv6 address) or `off`. |
@@ -218,7 +217,7 @@ With `session_idle_timeout_minutes` above `0`, the time of the last request is k
 - API tokens are not affected.
 - The requests sent in the background of an open page (the notification count, the job queue status and the refresh of the CSRF token) are not counted as activity. A tab left open is therefore signed out as well.
 - The "Remember me" cookie is not accepted while a timeout is set, and it is removed at the next request.
-- No request is sent during a recording that is held in the browser (an incognito recording, or any recording with server-side chunks turned off). The value must be longer than the longest expected recording. Otherwise the upload at the end is answered with `401`, and an incognito recording, which is held in the memory of that tab only, is lost when the user signs in again in the same tab.
+- No request is sent during a recording that is held in the browser (a recording with server-side chunks turned off). The value must be longer than the longest expected recording. Otherwise the upload at the end is answered with `401`.
 
 ### Tokens in the query parameter
 
@@ -238,20 +237,6 @@ A delivery record holds the payload that was sent and the first 2,000 characters
 ### Exported files of deleted recordings
 
 With automatic export, the exported file of a deleted recording is renamed with the `[deleted]_` prefix by default, and its content is kept. This default was kept on purpose: the export folder is usually a notes vault in which the user edits the files, and notes that were exported in order to be kept would otherwise be removed by a retention rule. With `auto_export_delete_with_recording` set to `true`, the file is deleted together with the recording, whether the recording is deleted by a user, through the API or by a retention rule. Files renamed before the setting was turned on are not removed.
-
-### Temporary files of incognito requests
-
-Each incognito request has a folder of its own under `INCOGNITO_TEMP_DIR` (a variable in `.env` only; the default is `speakr-incognito` in the temporary folder of the system). The folder is removed before the request is answered. A folder left by a crash is removed at the next start and by the hourly cleanup, once nothing was written to it for `incognito_temp_max_age_hours`. Because of the age limit, the files of a request that is still running in another worker process are not removed. The value must therefore be longer than the longest incognito request.
-
-## What's New After Updates
-
-After an update, each user sees a short list of the release's new features once, the next time they open Speakr. The list is closed with **Got it** and is not shown again on any of the user's devices. Accounts created after the update do not see it for that release.
-
-A user who missed several updates sees the lists of all releases since their last visit, newest first, up to five releases.
-
-The **show_whats_new** setting turns the dialog on or off for everyone. It is on by default; switch it off if you announce updates to your users yourself.
-
-The list for each release is part of Speakr's translations, so it appears in the user's interface language, with English as the fallback.
 
 ## System-Wide Impact
 
@@ -273,7 +258,6 @@ The settings below can be set on this page or in `.env`. Until an admin saves a 
 
 | Setting | Variable in `.env` |
 |---|---|
-| `allow_registration` | `ALLOW_REGISTRATION` |
 | `api_query_tokens_enabled` | `API_QUERY_TOKENS_ENABLED` |
 | `asr_async_jobs` | `ASR_ASYNC_JOBS` |
 | `audit_log_enabled` | `AUDIT_LOG_ENABLED` |
@@ -287,17 +271,13 @@ The settings below can be set on this page or in `.env`. Until an admin saves a 
 | `deletion_mode` | `DELETION_MODE` |
 | `enable_auto_deletion` | `ENABLE_AUTO_DELETION` |
 | `enable_email_verification` | `ENABLE_EMAIL_VERIFICATION` |
-| `enable_incognito_mode` | `ENABLE_INCOGNITO_MODE` |
 | `enable_internal_sharing` | `ENABLE_INTERNAL_SHARING` |
 | `enable_public_sharing` | `ENABLE_PUBLIC_SHARING` |
 | `global_retention_days` | `GLOBAL_RETENTION_DAYS` |
 | `help_center_label` | `HELP_CENTER_LABEL` |
 | `help_center_url` | `HELP_CENTER_URL` |
-| `incognito_mode_default` | `INCOGNITO_MODE_DEFAULT` |
-| `incognito_temp_max_age_hours` | `INCOGNITO_TEMP_MAX_AGE_HOURS` |
 | `max_concurrent_uploads` | `MAX_CONCURRENT_UPLOADS` |
 | `recording_tombstone_days` | `RECORDING_TOMBSTONE_DAYS` |
-| `registration_allowed_domains` | `REGISTRATION_ALLOWED_DOMAINS` |
 | `require_email_verification` | `REQUIRE_EMAIL_VERIFICATION` |
 | `session_idle_timeout_minutes` | `SESSION_IDLE_TIMEOUT_MINUTES` |
 | `show_usernames_in_ui` | `SHOW_USERNAMES_IN_UI` |

@@ -278,93 +278,6 @@ def test_change_password_refuses_sso_only_account():
         app.config['WTF_CSRF_ENABLED'] = saved
 
 
-def test_sso_only_user_can_add_password_via_password_reset_flow():
-    """Regression test for the legitimate SSO-to-password workflow that
-    would have caught it if the GHSA-x4q4-3ww4-h329 fix were over-broad
-    (i.e. blocking change_password without offering a replacement).
-
-    The shape of the legitimate flow:
-
-      1. SSO-only user (no local password) wants to unlink SSO later.
-      2. ``sso_unlink`` requires a password, so they need to add one.
-      3. They go to ``forgot_password`` with their email.
-      4. The system emails a reset link (must work for SSO-only users).
-      5. They open the link and ``reset_password`` sets their first
-         password.
-      6. The account now has both an SSO link and a password, so
-         ``sso_unlink`` will work next time.
-
-    Steps 3-5 are covered here. Step 6 is exercised separately because
-    sso_unlink hits CSRF; the unit-level coverage is in the route's own
-    happy-path tests.
-    """
-    from unittest.mock import patch
-
-    saved_csrf = app.config.get('WTF_CSRF_ENABLED', True)
-    app.config['WTF_CSRF_ENABLED'] = False
-    try:
-        with app.app_context():
-            user = _make_user(
-                'sso_reset',
-                password=None,
-                sso_provider='Drift',
-                sso_subject=f'subj-{uuid.uuid4().hex[:6]}',
-                email_verified=True,
-            )
-            assert user.password is None
-
-            client = app.test_client()
-
-            # Step 3-4: forgot_password must send a reset email even
-            # though the user has no existing password.
-            with patch('src.api.auth.send_password_reset_email', return_value=True) as send_mail, \
-                 patch('src.api.auth.can_resend_password_reset', return_value=(True, 0)), \
-                 patch('src.api.auth.is_smtp_configured', return_value=True):
-                resp = client.post('/forgot-password', data={'email': user.email}, follow_redirects=False)
-                # forgot_password renders a "check your email" template on success (200)
-                assert resp.status_code == 200, resp.data
-                send_mail.assert_called_once()
-                # Confirm the call targeted the SSO-only user we just created
-                sent_to = send_mail.call_args.args[0]
-                assert sent_to.id == user.id, (
-                    'forgot_password did not call send_password_reset_email '
-                    'for an SSO-only user; this is the regression that '
-                    'would have surfaced any over-broad fix to '
-                    'change_password.'
-                )
-
-            # Step 5: reset_password sets the first password.
-            # Patch the token verifier so we do not need the real
-            # serializer round-trip for the test. The real send step stores
-            # the token on the user; reset_password now binds to that stored
-            # value (single-use enforcement), so mirror that here.
-            new_password = 'A_Strong_New_Password!1'
-            user.password_reset_token = 'fake-token-value'
-            db.session.commit()
-            with patch('src.api.auth.verify_reset_token', return_value=user.id):
-                resp = client.post(
-                    '/reset-password/fake-token-value',
-                    data={'password': new_password, 'confirm_password': new_password},
-                    follow_redirects=False,
-                )
-                # Successful reset redirects to login
-                assert resp.status_code == 302, resp.data
-
-            db.session.refresh(user)
-            assert user.password is not None, (
-                'reset_password did not set an initial password on an '
-                'SSO-only user; the safe add-password flow is broken.'
-            )
-            # And the SSO link is intact, so sso_unlink can run later.
-            assert user.sso_subject is not None
-            assert user.sso_provider is not None
-
-            db.session.delete(user)
-            db.session.commit()
-    finally:
-        app.config['WTF_CSRF_ENABLED'] = saved_csrf
-
-
 def test_api_v1_blueprint_remains_csrf_exempt_for_all_token_methods():
     """The documented programmatic surface (every example in
     docs/user-guide/api-tokens.md points at /api/v1/*) must continue
@@ -580,29 +493,6 @@ def test_api_v1_post_with_authorization_header_token_succeeds():
             db.session.commit()
     finally:
         app.config['WTF_CSRF_ENABLED'] = saved
-
-
-def test_forgot_password_does_not_email_when_smtp_not_configured():
-    """Safety net: when SMTP is not configured, forgot_password must
-    NOT attempt to send (otherwise we leak SMTP misconfiguration errors
-    on every reset request). The route should redirect with a flash."""
-    from unittest.mock import patch
-    saved_csrf = app.config.get('WTF_CSRF_ENABLED', True)
-    app.config['WTF_CSRF_ENABLED'] = False
-    try:
-        with app.app_context():
-            user = _make_user('sso_no_smtp', password=None, sso_provider='Drift', sso_subject=f'subj-{uuid.uuid4().hex[:6]}')
-            client = app.test_client()
-            with patch('src.api.auth.is_smtp_configured', return_value=False), \
-                 patch('src.api.auth.send_password_reset_email') as send_mail:
-                resp = client.post('/forgot-password', data={'email': user.email}, follow_redirects=False)
-                # Should redirect to login with a flash, not crash
-                assert resp.status_code == 302
-                send_mail.assert_not_called()
-            db.session.delete(user)
-            db.session.commit()
-    finally:
-        app.config['WTF_CSRF_ENABLED'] = saved_csrf
 
 
 def teardown_module(module):

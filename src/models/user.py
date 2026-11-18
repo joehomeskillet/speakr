@@ -12,11 +12,6 @@ from src.database import db
 
 
 
-def _current_release_key():
-    from src.config.version import release_key
-    return release_key()
-
-
 class User(db.Model, UserMixin):
     """User model for authentication and profile management."""
 
@@ -65,14 +60,7 @@ class User(db.Model, UserMixin):
     # Storage quota in megabytes (None = unlimited, #413)
     storage_quota_mb = db.Column(db.Integer, nullable=True)
 
-    # Email verification fields
     email_verified = db.Column(db.Boolean, default=False)
-    email_verification_token = db.Column(db.String(200), nullable=True, index=True)
-    email_verification_sent_at = db.Column(db.DateTime, nullable=True)
-
-    # Password reset fields
-    password_reset_token = db.Column(db.String(200), nullable=True, index=True)
-    password_reset_sent_at = db.Column(db.DateTime, nullable=True)
 
     # Email notifications for finished processing (#386). Opt-in: mail nobody
     # asked for is worse than no mail at all, so this defaults off and the
@@ -138,10 +126,6 @@ class User(db.Model, UserMixin):
     # The assistant's name in the interface (src/utils/assistant_name.py).
     # Null means the default, Ambrose.
     assistant_name = db.Column(db.String(40), nullable=True)
-    # Release whose "What's new" notes the user has seen (src.config.version
-    # release_key). NULL for accounts from before the column, so they see the
-    # current notes once; new accounts start at the current release.
-    whats_new_seen = db.Column(db.String(32), nullable=True, default=lambda: _current_release_key())
     # Audio player placement in the recording-detail view. 'bottom'
     # (default) keeps the player anchored under the content columns;
     # 'top' renders it above the columns so it sits closer to the

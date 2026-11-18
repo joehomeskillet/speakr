@@ -881,7 +881,6 @@
       "change": "Modifications",
       "share": "Partage",
       "admin": "Administration",
-      "incognito": "Incognito",
       "audit": "Journal d'audit"
     },
     "outcomes": {
@@ -1560,7 +1559,6 @@
     "noAudioTrackInScreenShare": "Le partage d'écran ne contient pas d'audio. Cochez « Partager l'audio du système » ou « Partager l'audio de l'onglet » lors du partage. Le guide d'aide qui vient de s'ouvrir donne les étapes pour chaque système.",
     "startRecordingFailed": "Impossible de démarrer l'enregistrement : {{error}}",
     "noRecordedAudioToUpload": "Aucun audio enregistré à envoyer.",
-    "incognitoResumedNotAllowed": "Un enregistrement repris ne peut pas être traité en mode incognito, car son audio antérieur est déjà sur le serveur. Utilisez l'envoi normal.",
     "addTagFailed": "Impossible d’ajouter l’étiquette",
     "addTagFailedDetail": "Impossible d’ajouter l’étiquette : {{error}}",
     "removeTagFailed": "Impossible de retirer l’étiquette",
@@ -2043,30 +2041,6 @@
     "newTag": "Nouveau tag",
     "autoIdentifyTooltip": "Les noms mentionnés dans la conversation sont trouvés avec le modèle de texte. Les correspondances vocales sont suggérées sans cela.",
     "autoIdentifyNoModel": "Un modèle de texte est nécessaire, et aucun n'est configuré. Les correspondances vocales sont suggérées sans lui."
-  },
-  "incognito": {
-    "audioNotStored": "Audio non stocké en mode incognito",
-    "discardConfirm": "Abandonner l'enregistrement incognito ? Il ne pourra pas être récupéré.",
-    "lostIfTabCloses": "Perdu si l'onglet ou le navigateur se ferme",
-    "mode": "Mode incognito",
-    "notSavedToAccount": "Non enregistré sur le compte",
-    "oneFileAtATime": "Un seul fichier à la fois en mode incognito",
-    "processInIncognito": "Traiter en incognito",
-    "processWithoutSaving": "Traiter sans enregistrer",
-    "processing": "Traitement en cours…",
-    "processingComplete": "Traitement terminé",
-    "processingInProgress": "Traitement en mode incognito…",
-    "recordingDiscarded": "Enregistrement incognito supprimé",
-    "recordingProcessed": "Enregistrement incognito traité. Il disparaît dès que vous fermez cet onglet.",
-    "recordingReady": "Enregistrement incognito prêt",
-    "recordingTitle": "Enregistrement incognito",
-    "selectExactlyOneFile": "Sélectionnez exactement 1 fichier",
-    "sessionOnly": "Session uniquement",
-    "uploadingFile": "Envoi du fichier pour traitement incognito…",
-    "uploadingRecording": "Envoi de l'enregistrement pour traitement incognito…",
-    "processingFailed": "Échec du traitement incognito : {{error}}",
-    "badge": "Incognito",
-    "switchDiscardConfirm": "Ouvrir un autre enregistrement et abandonner l'enregistrement incognito ?"
   },
   "initialPromptTemplates": {
     "tabTitle": "Indications de transcription",
@@ -2798,7 +2772,6 @@
     "colorRepeats": "Couleur répétée",
     "editText": "Modifier le texte",
     "hideVideo": "Masquer la vidéo",
-    "incognitoAudio": "L’audio n’est pas conservé pour les enregistrements en mode incognito.",
     "mergeAllInto": "Tout fusionner avec…",
     "mergeInto": "Fusionner avec…",
     "mergedSpeakers": "{{count}} intervenant fusionné avec {{name}}. Enregistrez pour conserver la modification.",
@@ -3002,7 +2975,6 @@
     "recordingPaused": "Enregistrement en pause",
     "recordingResumed": "Enregistrement repris",
     "recordingMaxDurationApproaching": "L'enregistrement s'arrêtera dans environ {{minutes}} minutes, à la durée maximale.",
-    "resumedRecordingNotIncognito": "Mode incognito désactivé. Cet enregistrement repris était déjà sur le serveur.",
     "recordingMaxDurationReached": "L'enregistrement s'est arrêté à la durée maximale.",
     "recordingResumeFound": "Un enregistrement inachevé de ce navigateur a été trouvé. Le reprendre ?",
     "recordingSizeSoftWarning": "L'enregistrement fait {{size}}. Arrêtez-le bientôt si possible.",
@@ -3032,7 +3004,6 @@
     "clearChat": "Effacer le chat",
     "copyTranscript": "Copier la transcription",
     "deleteTeam": "Supprimer le groupe",
-    "discardIncognito": "Supprimer l'enregistrement incognito",
     "dockBottom": "Déplacer en bas",
     "dockLeft": "Déplacer vers la colonne de gauche",
     "dockRight": "Déplacer vers la colonne de droite",
@@ -3095,7 +3066,6 @@
     "tagDragToReorder": "{{name}} (glissez pour réorganiser)",
     "translateTranscript": "Traduire la transcription",
     "reprocessTranslation": "Retraiter la traduction",
-    "translateTranscriptIncognito": "La traduction n'est pas disponible pour les enregistrements incognito.",
     "editTranslation": "Modifier la traduction"
   },
   "transcriptTemplates": {
@@ -3121,7 +3091,6 @@
     "template": "Modèle",
     "templateName": "Nom du modèle",
     "title": "Modèles de transcription",
-    "viewGuide": "Voir le guide des modèles",
     "format": "Format"
   },
   "transcription": {
@@ -3309,42 +3278,16 @@
     "email": {
       "common": {
         "contactAdmin": "Pour toute question, contactez votre administrateur.",
-        "copyLink": "Ou copiez et collez ce lien dans votre navigateur :",
         "footer": "Envoyé par Speakr. Pour toute question, contactez votre administrateur.",
-        "greeting": "Bonjour {{name}},",
         "tagline": "Transcription audio et notes",
         "textFooter": "Envoyé par Speakr ({{tagline}})."
-      },
-      "reset": {
-        "button": "Réinitialiser le mot de passe",
-        "expiry": "Le lien expire dans 1 heure.",
-        "heading": "Réinitialisez votre mot de passe",
-        "ignore": "Si vous n'avez pas fait cette demande, ignorez cet e-mail. Votre mot de passe reste inchangé.",
-        "intro": "Quelqu'un a demandé la réinitialisation du mot de passe de votre compte Speakr. Cliquez sur le bouton pour en choisir un nouveau.",
-        "subject": "Réinitialisez votre mot de passe Speakr",
-        "textIntro": "Quelqu'un a demandé la réinitialisation du mot de passe de votre compte Speakr. Ouvrez le lien ci-dessous pour en choisir un nouveau :"
-      },
-      "verify": {
-        "button": "Vérifier l'adresse e-mail",
-        "expiry": "Le lien expire dans 24 heures.",
-        "heading": "Vérifiez votre adresse e-mail",
-        "ignore": "Si vous n'avez pas créé de compte Speakr, ignorez cet e-mail.",
-        "intro": "Bienvenue sur Speakr. Vérifiez votre adresse e-mail pour terminer votre inscription.",
-        "subject": "Vérifiez votre adresse e-mail pour Speakr",
-        "textLink": "Ouvrez ce lien pour vérifier :"
       }
     },
     "flash": {
-      "accountCreated": "Compte créé. Vous pouvez maintenant vous connecter.",
-      "accountCreatedVerificationFailed": "Compte créé, mais l'e-mail de vérification n'a pas pu être envoyé. Contactez le support.",
       "accountUpdated": "Informations du compte enregistrées",
       "adminAccessDenied": "Vous ne pouvez pas ouvrir la page d'administration.",
       "currentPasswordIncorrect": "Le mot de passe actuel est incorrect.",
       "currentPasswordRequired": "Le mot de passe actuel est requis.",
-      "emailAlreadyVerified": "Votre adresse e-mail a déjà été vérifiée.",
-      "emailRequired": "L'adresse e-mail est requise.",
-      "emailServiceNotConfigured": "Le service d'e-mail n'est pas configuré.",
-      "emailVerificationDisabled": "La vérification de l'adresse e-mail n'est pas activée.",
       "exportTemplateSeparators": "Le modèle de nom de fichier ne peut pas contenir de séparateurs de chemin (/ ou \\).",
       "groupAccessDenied": "Vous ne pouvez pas gérer les groupes.",
       "inquireDisabled": "La recherche dans la bibliothèque n'est pas activée sur ce serveur.",
@@ -3352,18 +3295,10 @@
       "loginRequired": "Connectez-vous pour voir cette page.",
       "newPasswordMismatch": "Le nouveau mot de passe et sa confirmation ne correspondent pas.",
       "newPasswordRequired": "Le nouveau mot de passe et sa confirmation sont requis.",
-      "noLocalPassword": "Ce compte n'a pas de mot de passe. Pour en définir un, utilisez « Mot de passe oublié » sur la page de connexion.",
-      "passwordFieldsRequired": "Les deux champs de mot de passe sont requis.",
+      "noLocalPassword": "Ce compte n'a pas de mot de passe. Demandez à votre administrateur d'en définir un.",
       "passwordLoginDisabled": "Connectez-vous avec le SSO. La connexion par mot de passe est désactivée.",
       "passwordManagementDisabled": "Les mots de passe ne peuvent pas être modifiés ici. Connectez-vous avec le SSO.",
-      "passwordResetDone": "Mot de passe réinitialisé. Connectez-vous avec votre nouveau mot de passe.",
-      "passwordResetSentIfExists": "Si un compte existe avec cette adresse e-mail, un lien de réinitialisation du mot de passe a été envoyé.",
-      "passwordResetUnavailable": "La réinitialisation du mot de passe est désactivée. Contactez votre administrateur.",
       "passwordUpdated": "Mot de passe modifié",
-      "passwordsDoNotMatch": "Les mots de passe ne correspondent pas.",
-      "registrationDisabled": "Les inscriptions sont fermées. Contactez votre administrateur.",
-      "registrationRestricted": "Les inscriptions sont restreintes. Contactez votre administrateur.",
-      "resetLinkInvalid": "Le lien de réinitialisation du mot de passe est invalide ou a expiré.",
       "ssoAlreadyLinked": "Ce compte SSO est déjà lié à un autre utilisateur.",
       "ssoClientFailed": "Impossible de démarrer le SSO. Consultez les journaux du serveur.",
       "ssoLinkUserNotFound": "Impossible de lier le compte : utilisateur introuvable.",
@@ -3373,14 +3308,8 @@
       "ssoMissingSubject": "La réponse SSO ne contenait pas d'identifiant de sujet.",
       "ssoNotConfigured": "Le SSO n'est pas configuré. Contactez l'administrateur.",
       "ssoNotLinked": "Votre compte n'est pas lié au SSO.",
-      "ssoUnlinkNoPassword": "Vous ne pouvez pas dissocier le SSO sans mot de passe. Utilisez « Mot de passe oublié » sur la page de connexion pour en définir un.",
+      "ssoUnlinkNoPassword": "Vous ne pouvez pas dissocier le SSO sans mot de passe. Demandez à votre administrateur d'en définir un.",
       "ssoUnlinked": "Compte SSO dissocié.",
-      "userNotFound": "Utilisateur introuvable.",
-      "verificationCooldown": "Patientez {{seconds}} secondes avant de demander un nouvel e-mail de vérification.",
-      "verificationLinkInvalid": "Le lien de vérification est invalide ou a expiré.",
-      "verificationResent": "Un nouvel e-mail de vérification a été envoyé.",
-      "verificationSendFailed": "Impossible d'envoyer l'e-mail de vérification. Réessayez plus tard.",
-      "verificationSentIfExists": "Si un compte existe avec cette adresse e-mail, un lien de vérification a été envoyé.",
       "pageExpired": "La page avait expiré. Réessayez."
     },
     "password": {
@@ -3429,7 +3358,6 @@
       "cannot_delete_self": "Impossible de supprimer votre propre compte",
       "chat_blocked_transcription_failed": "La transcription a échoué. Retraitez d'abord l'enregistrement.",
       "chat_client_not_configured": "Le service de chat n'est pas disponible (client de chat non configuré)",
-      "chat_error": "Une erreur s'est produite pendant le chat",
       "chat_failed": "Échec du chat",
       "chat_openrouter_not_configured": "Le service de chat n'est pas disponible (client OpenRouter non configuré)",
       "chat_unavailable": "Service de chat non disponible",
@@ -3505,7 +3433,6 @@
       "group_tags_members_only": "Seuls les membres du groupe peuvent voir les étiquettes du groupe",
       "group_tags_require_internal_sharing": "Les étiquettes de groupe nécessitent l'activation du partage interne. Définissez ENABLE_INTERNAL_SHARING=true dans votre configuration.",
       "groups_require_internal_sharing": "Les groupes nécessitent l'activation du partage interne. Définissez ENABLE_INTERNAL_SHARING=true dans votre configuration.",
-      "incognito_disabled": "Le mode incognito n'est pas activé sur ce serveur",
       "inquire_agent_off": "Le mode agent de la recherche dans la bibliothèque est désactivé sur ce serveur",
       "inquire_disabled": "La recherche dans la bibliothèque n'est pas activée",
       "inquire_off": "La recherche dans la bibliothèque est désactivée sur ce serveur",
@@ -3623,7 +3550,6 @@
       "no_transcription_for_recording": "Aucune transcription pour cet enregistrement",
       "no_transcription_for_summary": "Aucune transcription à résumer",
       "no_transcription_for_title": "Aucune transcription à partir de laquelle générer un titre",
-      "no_transcription_provided": "Aucune transcription fournie",
       "no_translation": "Aucune traduction pour cet enregistrement",
       "not_found": "Introuvable",
       "notes_field_required": "Le champ notes est requis",
@@ -3705,7 +3631,6 @@
       "summary_blocked_transcription_failed": "La transcription a échoué ; il n'y a donc rien à résumer. Retraitez d'abord l'enregistrement.",
       "summary_field_required": "Le champ summary est requis",
       "summary_generate_denied": "Vous n'avez pas l'autorisation de générer un résumé pour cet enregistrement",
-      "summary_generation_failed": "Impossible de générer le résumé. Vérifiez que le service du modèle de langage est en cours d'exécution.",
       "summary_llm_not_configured": "Le service de résumé n'est pas disponible (client LLM non configuré)",
       "summary_openrouter_not_configured": "Le service de résumé n'est pas disponible (client OpenRouter non configuré)",
       "system_info_unavailable": "Impossible de récupérer les informations système",
@@ -3742,7 +3667,6 @@
       "unexpected_error": "Une erreur s'est produite.",
       "unexpected_error_deleting": "Une erreur s'est produite lors de la suppression.",
       "unexpected_error_detail": "Une erreur s'est produite : {{detail}}",
-      "unexpected_error_processing": "Une erreur s'est produite pendant le traitement.",
       "unexpected_error_saving": "Une erreur s'est produite lors de l'enregistrement.",
       "unexpected_error_updating_transcription": "Une erreur s'est produite lors de l'enregistrement de la transcription.",
       "unexpected_error_upload": "Une erreur s'est produite pendant l'envoi.",
@@ -3847,11 +3771,7 @@
     },
     "form": {
       "required": "Ce champ est obligatoire.",
-      "invalidEmail": "Adresse e-mail invalide.",
-      "usernameLength": "Le nom d'utilisateur doit contenir entre {{min}} et {{max}} caractères.",
-      "passwordsMustMatch": "Les mots de passe doivent correspondre.",
-      "usernameTaken": "Ce nom d'utilisateur est déjà pris.",
-      "emailTaken": "Cette adresse e-mail est déjà enregistrée."
+      "invalidEmail": "Adresse e-mail invalide."
     },
     "assistant": {
       "step": {
@@ -4021,39 +3941,7 @@
     "rememberMe": "Se souvenir de moi",
     "adminLogin": "Connexion administrateur",
     "adminEmailPlaceholder": "E-mail de l'administrateur",
-    "signIn": "Se connecter",
-    "forgotPasswordLink": "Mot de passe oublié ?",
-    "noAccount": "Vous n'avez pas de compte ?",
-    "registerHere": "Créer un compte",
-    "registerTitle": "Créer un compte",
-    "createAccount": "Créer un compte",
-    "signUp": "S'inscrire",
-    "haveAccount": "Vous avez déjà un compte ?",
-    "loginHere": "Se connecter",
-    "checkEmailTitle": "Vérifiez vos e-mails",
-    "verificationSentTo": "Lien de vérification envoyé à :",
-    "verificationLinkHelp": "Cliquez sur le lien de l'e-mail pour vérifier votre compte. Il expire dans 24 heures.",
-    "verificationRequiredTitle": "Vérification de l'e-mail requise",
-    "pleaseVerify": "Vérifiez votre adresse e-mail :",
-    "verificationRequiredHelp": "Cherchez l'e-mail de vérification dans votre boîte de réception, ou demandez-en un nouveau.",
-    "resetSentTo": "Si un compte existe avec cette adresse e-mail :",
-    "resetLinkHelp": "Si c'est le cas, un lien de réinitialisation a été envoyé. Il expire dans 1 heure.",
-    "resendVerification": "Renvoyer l'e-mail de vérification",
-    "backToLogin": "Retour à la connexion",
-    "forgotPasswordTitle": "Mot de passe oublié",
-    "forgotPasswordHelp": "Saisissez votre adresse e-mail pour recevoir un lien de réinitialisation du mot de passe.",
-    "emailAddress": "Adresse e-mail",
-    "emailPlaceholder": "Saisissez votre adresse e-mail",
-    "sendResetLink": "Envoyer le lien de réinitialisation",
-    "rememberPassword": "Vous vous souvenez de votre mot de passe ?",
-    "resetPasswordTitle": "Réinitialiser le mot de passe",
-    "resetPasswordHelp": "Choisissez un nouveau mot de passe.",
-    "newPasswordPlaceholder": "Saisissez votre nouveau mot de passe",
-    "confirmPasswordPlaceholder": "Confirmez votre nouveau mot de passe",
-    "emailVerifiedTitle": "E-mail vérifié",
-    "emailVerifiedHeading": "E-mail vérifié",
-    "emailVerifiedHelp": "Votre adresse e-mail est vérifiée. Vous pouvez maintenant vous connecter.",
-    "continueToLogin": "Se connecter"
+    "signIn": "Se connecter"
   },
   "translation": {
     "title": "Traduction",
@@ -4064,7 +3952,6 @@
     "targetLanguage": "Langue cible",
     "preferences": "Préférences de traduction",
     "toggle": "Afficher ou masquer la traduction",
-    "incognitoUnavailable": "La traduction n'est pas disponible pour les enregistrements incognito.",
     "progress": "Traduction · {{done}} sur {{total}}",
     "alreadyInLanguage": "La transcription est déjà en {{language}}."
   },
@@ -4072,39 +3959,6 @@
     "library": "Bibliothèque",
     "recordings": "Enregistrements",
     "share": "Partager"
-  },
-  "whatsNew": {
-    "title": "Nouveautés de Speakr {{version}}",
-    "titleSince": "Nouveautés depuis votre dernière visite",
-    "releaseHeading": "Speakr {{version}}",
-    "dismiss": "Compris",
-    "releases": {
-      "0_10_20": {
-        "1": "Choisissez une nouvelle apparence : six thèmes de l'interface dans Paramètres du compte → Préférences → Apparence, chacun avec votre schéma de couleurs et le mode sombre.",
-        "2": "Le chat et Inquire deviennent Ambrose, un assistant que vous pouvez renommer. Cliquez sur un numéro de citation pour lire ce passage.",
-        "3": "Chaque enregistrement garde sa propre discussion jusqu'à la fermeture de l'onglet.",
-        "4": "Les dossiers peuvent contenir des sous-dossiers. Choisissez un dossier parent lorsque vous créez ou modifiez un dossier.",
-        "5": "Dans Régénérer le résumé, vous voyez le prompt qui sera exécuté et pouvez le modifier avant.",
-        "6": "Suivez la progression d'une traduction dans la file de traitement et dans l'onglet Traduction.",
-        "7": "Téléchargez un résumé en Markdown, et une réponse seule ou toute une conversation Demander à Ambrose en document Word."
-      },
-      "0_10_21": {
-        "1": "Vous pouvez connecter Speakr à des applications comme Open WebUI grâce à l'authentification unique.",
-        "2": "Ambrose dispose d'un outil pour rechercher des personnes par leur nom."
-      },
-      "0_10_22": {
-        "1": "Les notifications sont affichées dans les couleurs de votre thème. Les messages d'erreur restent affichés jusqu'à ce que vous les fermiez, et chaque notification a un bouton de fermeture."
-      },
-      "0_10_23": {
-        "1": "L'éditeur de transcription a une chronologie avec la forme d'onde. Les segments peuvent être déplacés ou redimensionnés par cliquer-glisser.",
-        "2": "La recherche dans les longues transcriptions se fait avec le raccourci Ctrl+F."
-      },
-      "0_11_0": {
-        "1": "La mise en page pour téléphone est refaite, avec une seule mise en page dans tous les thèmes.",
-        "2": "La file de traitement affiche les tâches actives, en attente et en échec. Les tâches et les envois peuvent être annulés.",
-        "3": "Des raccourcis clavier sont disponibles sur ordinateur. Les touches sont listées avec ?."
-      }
-    }
   },
   "assistant": {
     "ask": "Demander à {{name}}",

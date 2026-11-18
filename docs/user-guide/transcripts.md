@@ -269,7 +269,7 @@ Ambrose is Speakr's assistant (formerly "Chat with Transcription"). Open the ass
 
 Ambrose is the default name. You can give the assistant another name under Account → Preferences → **Assistant** (see [Settings](settings.md#assistant)). To ask about many recordings at once, use the [Ask Ambrose](inquire-mode.md) page.
 
-Each recording keeps its own chat until you close the browser tab, and answers cite the transcript with numbers you can click to play that moment. See [Ambrose](ambrose.md) for chats per recording, incognito recordings, citations and searches of your library.
+Each recording keeps its own chat until you close the browser tab, and answers cite the transcript with numbers you can click to play that moment. See [Ambrose](ambrose.md) for chats per recording, citations and searches of your library.
 
 ![The assistant panel of a recording, next to its notes](../assets/images/screenshots/main-view-chat-notes.png)
 

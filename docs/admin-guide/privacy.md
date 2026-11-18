@@ -6,7 +6,7 @@ This page is written for an administrator who plans a deployment for regulated d
 
 No compliance with FERPA, HIPAA or any other law or regulation is claimed for Speakr, and Speakr is not certified under any of them. A deployment is not made compliant by software alone. Compliance depends on the configuration, the hosting, the contracts with every service to which data is sent, and the practices of the people involved, and it is assessed by the compliance office of the institution.
 
-The features that support a deployment with regulated data are local transcription and language models, incognito mode, automatic retention, the [audit log](audit-log.md), and the settings for sessions, API tokens and webhooks. Their configuration, and everything outside the application, remains the responsibility of the operator. Nothing on this page is legal advice.
+The features that support a deployment with regulated data are local transcription and language models, automatic retention, the [audit log](audit-log.md), and the settings for sessions, API tokens and webhooks. Their configuration, and everything outside the application, remains the responsibility of the operator. Nothing on this page is legal advice.
 
 ## Stored data
 
@@ -31,9 +31,9 @@ All text is kept in the application database (SQLite by default, PostgreSQL as a
 | The [audit log](audit-log.md): sign-ins, access to recordings, changes, shares and administrative actions, each with time, account, client address and user agent. Ids and codes only; no title, file name or content. | `audit_event` |
 | Changes of internal shares recorded by earlier releases, with the client address and a note. The table is no longer written. Its rows were copied to `audit_event` without the note. | `share_audit_log` |
 | Webhook addresses and signing secrets in plain text. For every delivery: the payload, the first 2000 characters of the answer of the receiver, and error text. | `webhook`, `webhook_delivery` |
-| Token and audio-second counts per user and day. The counts of incognito requests are included and are not marked as such. | `token_usage`, `transcription_usage` |
+| Token and audio-second counts per user and day. | `token_usage`, `transcription_usage` |
 | API tokens as SHA-256 hashes, with name, scopes, expiry and time of last use | `api_token` |
-| Accounts: username, email address, bcrypt password hash, SSO subject, name, job title and company when entered, prompts, hotwords and preferences, a pending token for email verification or password reset, and the time of the last use of the account | `user` |
+| Accounts: username, email address, bcrypt password hash, SSO subject, name, job title and company when entered, prompts, hotwords and preferences, and the time of the last use of the account | `user` |
 | Failed sign-in counters per account and client address. An IPv6 address is stored as its `/64` network. | `login_failure` |
 | Id of each deleted recording with the user id, the time and the reason, for the changes feed of the API | `recording_tombstone` |
 | Notices shown in the interface, as a message key with parameters | `notification` |
@@ -41,7 +41,7 @@ All text is kept in the application database (SQLite by default, PostgreSQL as a
 | System settings, among them the default prompts set by an administrator | `system_setting` |
 | Fingerprint of the voice embedding model and the embedding of a bundled test clip. No user data. | `voice_embedding_space` |
 
-For the last use of an account, only the time of the last request is kept, in one column of the `user` table. The time is updated at most once every five minutes, and no history of requests, addresses or routes is stored for it. Requests that are sent on a timer from an open tab are not counted. The time is shown to site administrators in the [user list](user-management.md#monitoring-usage-patterns), and it is stored in the same way for requests in incognito mode.
+For the last use of an account, only the time of the last request is kept, in one column of the `user` table. The time is updated at most once every five minutes, and no history of requests, addresses or routes is stored for it. Requests that are sent on a timer from an open tab are not counted. The time is shown to site administrators in the [user list](user-management.md#monitoring-usage-patterns).
 
 Service keys (LLM, transcription, embeddings, SMTP, SSO) are read from environment variables and are not written to the database.
 
@@ -77,7 +77,6 @@ python scripts/generic_speakers_dry_run.py --database-uri sqlite:////path/to/cop
 | `UPLOAD_FOLDER/_peaks/` | Waveform data per recording, removed together with the audio |
 | `UPLOAD_FOLDER/_staging/` (or `FILE_STORAGE_STAGING_DIR`) | Files in conversion before they are moved to the storage backend |
 | The temporary folder of the container (`/tmp`) | Converted audio and chunks of ordinary recordings during processing. The files are deleted when a job ends. After a crash or a kill of the process, files can remain until the container is recreated. The result of a transcription service is processed in memory and is not written to a file by any connector. |
-| `INCOGNITO_TEMP_DIR` (default `speakr-incognito` in the temporary folder) | The files of incognito requests in progress (see [Incognito mode](#incognito-mode)) |
 | `AUTO_EXPORT_DIR` (default `/data/exports`), only with `ENABLE_AUTO_EXPORT=true` | Transcript and summary of each recording as a file |
 | `AUTO_PROCESS_WATCH_DIR`, only with `ENABLE_AUTO_PROCESSING=true` | Audio placed there for automatic import |
 | `HF_HOME` (`/data/instance/huggingface`) | The local embedding model, no user data |
@@ -113,7 +112,7 @@ A session that has ended without a deletion of its recording keeps its row with 
 
 In earlier releases the text stayed in the row after the end of the session and after the deletion of the recording. At the first start after the upgrade, it is cleared once in every session that is finalized, canceled or expired, in every failed upload in slices, and in every failed session whose recording no longer exists (migration `0010_clear_ended_session_text`). No row is deleted by this step, and the log line holds a count only.
 
-Tombstones, webhook delivery rows, abandoned recording sessions and leftover files of incognito requests are removed by one hourly cleanup. With `RECORDING_SESSION_CLEANUP_INTERVAL_SECONDS=0` that cleanup is off, and none of the four is removed. Audit log rows are removed by a separate daily run.
+Tombstones, webhook delivery rows, and abandoned recording sessions are removed by one hourly cleanup. With `RECORDING_SESSION_CLEANUP_INTERVAL_SECONDS=0` that cleanup is off, and none of the three is removed. Audit log rows are removed by a separate daily run.
 
 Automatic retention is off by default. An administrator enables it with `ENABLE_AUTO_DELETION=true` and `GLOBAL_RETENTION_DAYS`, and selects with `DELETION_MODE` whether the whole recording (`full_recording`) or only its audio (`audio_only`) is removed. Details are given in [Retention](retention.md).
 
@@ -162,23 +161,19 @@ A repetition of fewer than 20 characters outside quotation marks is not detected
 
 An audit event that cannot be written to the database after four further attempts, or for which the queue of the writer is full, is written to the log as one line that begins with `AUDIT-FALLBACK`, at the level `ERROR`. The line holds the values of the audit row: event name, time, ids, outcome, the user agent and, unless `audit_log_store_ip` is `off`, the client address. It holds no title, file name or content. See [Failures](audit-log.md#failures).
 
-### Incognito requests
-
-During an incognito request, only metadata is logged at every level, including `DEBUG`: user id, sizes, lengths, durations, language code, connector name and status codes. Every other log record created during the request, including the records of the HTTP and LLM client libraries, is replaced by a line with its length and source location. An error of a provider is logged as its class, status code and message length, without the message. The lines of the audit log, among them an `AUDIT-FALLBACK` line, are written unchanged; for an incognito upload such a line holds the account, the time and the outcome.
-
 ## Outbound connections
 
 No telemetry, analytics or update check is contained in the application. The following connections are made by the server.
 
 | Destination | Data sent | Control |
 |---|---|---|
-| Transcription service | Audio, language, initial prompt, hotwords, speaker count, and voice samples of earlier chunks for some connectors. With asynchronous jobs of a WhisperX service, also a key built from the recording id, or from the account id for an incognito request, and a hash of the audio. | Required. The address is set with `ASR_BASE_URL` or `TRANSCRIPTION_BASE_URL` and the connector with `TRANSCRIPTION_CONNECTOR`. With a local service, the audio stays on the network of the institution. For a hosted connector, the address of its vendor is the default. |
+| Transcription service | Audio, language, initial prompt, hotwords, speaker count, and voice samples of earlier chunks for some connectors. With asynchronous jobs of a WhisperX service, also a key built from the recording id, and a hash of the audio. | Required. The address is set with `ASR_BASE_URL` or `TRANSCRIPTION_BASE_URL` and the connector with `TRANSCRIPTION_CONNECTOR`. With a local service, the audio stays on the network of the institution. For a hosted connector, the address of its vendor is the default. |
 | LLM for titles, summaries and speaker identification | Transcript and prompts, with recording details such as participants and notes where the prompt includes them | `TEXT_MODEL_BASE_URL`. The default of the variable is `https://openrouter.ai/api/v1`. Without a text model, these features are unavailable. |
 | LLM for chat and for translation | Transcript, question, chat history; text to translate | `CHAT_MODEL_BASE_URL` and `TRANSLATION_MODEL_BASE_URL`. When unset, the text model is used. |
 | Embedding API | Transcript passages and search queries | Only with `ENABLE_INQUIRE_MODE=true` and `EMBEDDING_BASE_URL` set. Without `EMBEDDING_BASE_URL`, embeddings are computed inside the container. |
 | Hugging Face Hub | No user data. The local embedding model is downloaded on first use. | Only with Ask Ambrose and local embeddings. The model can be placed in `HF_HOME` in advance, and the download is prevented with `HF_HUB_OFFLINE=1`. |
 | Webhook addresses of users | Recording id, title, original file name, language, durations and error text, depending on the event. No transcript or summary. | All deliveries are stopped with `WEBHOOK_GLOBAL_ENABLED=false`. With `webhook_omit_titles=true`, the title and the original file name are left out. |
-| SMTP server | Verification and password reset messages. For users with the completion email enabled: a message with the recording title in the subject, and a shortened error text after a failure. | No mail is sent without `SMTP_HOST`. |
+| SMTP server | For users with the completion email enabled: a message with the recording title in the subject, and a shortened error text after a failure. | No mail is sent without `SMTP_HOST`. |
 | SSO provider (OIDC) | Discovery, token and user information requests during sign-in | `ENABLE_SSO` |
 | S3 storage | Audio and video, under a key that ends with the original file name | Only with `FILE_STORAGE_BACKEND=s3` |
 | Transcription service, at startup | A bundled test clip for the check of voice embeddings. No user data. | Sent only to the configured transcription service. The check is turned off with `DISABLE_VOICE_EMBEDDING_CHECK=true`. |
@@ -197,10 +192,10 @@ Push subscriptions of browsers can be stored through the API, but no push messag
 |---|---|---|
 | Session cookie, and a remember cookie after "Remember me" | Signed session data, with the time of the last request when an idle timeout is set | The session cookie ends with the browser session, or earlier through an idle timeout (see [Access control](#access-control)). The remember cookie lasts `REMEMBER_COOKIE_DAYS` (default 30) and is not accepted while an idle timeout is set. |
 | `localStorage` | Interface preferences, the id of the last selected recording, and the defaults of the upload dialog. For an ordinary upload in slices that has not finished: the file name, size and modification time of the file with the id of its session, for at most 24 hours. The id of a recording session in progress. | Until cleared in the browser. The entry of an upload is removed when the upload ends, and at sign-out. |
-| `sessionStorage` | Chat threads of the open recordings, and the result of an incognito recording | Until the tab is closed, or until sign-out |
-| IndexedDB `SpeakrRecordings` | Audio chunks and notes of an ordinary recording in progress, for recovery after a crash. Nothing of an incognito recording is written. | Until the recording is uploaded or discarded, or until sign-out |
-| IndexedDB `SpeakrFailedUploads` | The file of an ordinary upload that failed, for a later retry. An incognito upload is never stored. | Until the retry succeeds or the entry is removed, or until sign-out |
-| Cache Storage of the service worker (`speakr-static-<version>`) | The application files under `/static/` only: scripts, styles, fonts, images and translation files. No page, no response of `/api/`, `/audio/`, `/recording/`, `/share/` or `/admin`, and nothing of an incognito request is stored. | Until the next release is opened, until sign-out, or until the site data is cleared |
+| `sessionStorage` | Chat threads of the open recordings | Until the tab is closed, or until sign-out |
+| IndexedDB `SpeakrRecordings` | Audio chunks and notes of an ordinary recording in progress, for recovery after a crash. | Until the recording is uploaded or discarded, or until sign-out |
+| IndexedDB `SpeakrFailedUploads` | The file of an ordinary upload that failed, for a later retry. | Until the retry succeeds or the entry is removed, or until sign-out |
+| Cache Storage of the service worker (`speakr-static-<version>`) | The application files under `/static/` only: scripts, styles, fonts, images and translation files. No page, no response of `/api/`, `/audio/`, `/recording/`, `/share/` or `/admin`. | Until the next release is opened, until sign-out, or until the site data is cleared |
 | Cookie `speakr_signed_out` | The value `1`, without user data. It is set by the server in the answer to a sign-out and is removed by the sign-in page once the browser has been cleared. | Seconds; at most the browser session |
 
 ### Service worker
@@ -215,45 +210,11 @@ The service worker is served at `/sw.js` and is registered on the signed-in page
 
 ### Sign-out
 
-At sign-out, the following is removed from the browser: every entry in Cache Storage, the whole `sessionStorage` of the tab, with the result of an incognito recording and its file name, the content of the IndexedDB stores `SpeakrRecordings` and `SpeakrFailedUploads`, and the `localStorage` entry of uploads in slices that have not finished, with their file names, sizes and modification times. The removal is carried out on the sign-in page that follows the sign-out, so nothing is removed when a sign-out is canceled.
+At sign-out, the following is removed from the browser: every entry in Cache Storage, the whole `sessionStorage` of the tab, the content of the IndexedDB stores `SpeakrRecordings` and `SpeakrFailedUploads`, and the `localStorage` entry of uploads in slices that have not finished, with their file names, sizes and modification times. The removal is carried out on the sign-in page that follows the sign-out, so nothing is removed when a sign-out is canceled.
 
 When the browser holds a recording that was not finished, uploads that failed, or an upload in slices that has not finished and can still be resumed, a question is shown before the sign-out. The recording and the failed uploads exist nowhere else, and an unfinished upload in slices cannot be resumed after the sign-out. With **Cancel**, the copies and the session are kept. The slices already received by the server are discarded by the hourly cleanup once the session of the upload has expired (see [Files](#files)).
 
 Not removed at sign-out: the other content of `localStorage`, which is the interface preferences, the defaults of the upload dialog, the id of the last selected recording and the id of a recording session in progress, and the `sessionStorage` of other open tabs of the same browser. The end of a session through an idle timeout is not a sign-out, and nothing is removed from the browser then. On a shared computer, every person must sign out after use and close the other tabs, or a separate browser profile must be used for each person.
-
-## Incognito mode
-
-Incognito mode is off by default and is enabled with `ENABLE_INCOGNITO_MODE=true`.
-
-1. The audio is sent to `POST /api/recordings/incognito`. For a user over the monthly transcription budget, the request is refused with `403` before anything is saved. Otherwise the audio is written to a temporary file with a random name, in a folder of its own under `INCOGNITO_TEMP_DIR` that only the service account can read. Of the file name given by the user, only the extension is used on the server. The name is not written to disk or to the log, and it is returned to the browser with the result.
-2. The file is converted when another format is required for the transcription service, and it is sent to the transcription service. With a WhisperX service with asynchronous jobs, the job and its result are deleted on the service after the result is fetched and after every failure.
-3. A title is generated by the text model. A summary is generated when the user asks for one.
-4. The folder of the request, with the temporary file, every converted copy and the chunks, is removed before the response is sent, also after an error. The copies of the audio that are written for a transcription with the VibeVoice and Tencent connectors are placed in the same folder and are deleted when the transcription ends.
-5. Transcript, title and summary are returned in the response and are kept in the `sessionStorage` of the browser tab, with the file name and the file size. They are gone when the tab is closed.
-6. Chat questions are sent to `/api/recordings/incognito/chat` together with the transcript, and a new summary is requested from `/api/recordings/incognito/summary` in the same way.
-
-The text of an incognito result can be copied in the interface. The download buttons for the transcript, the summary, the notes and the chat are not shown for an incognito recording. A person who copies text from an incognito result is responsible for the place where that text is kept afterwards.
-
-No webhook, email or notification is produced. Only metadata is logged, as described under [Logs](#incognito-requests). An error response contains a fixed message, or the standard explanation of a known kind of error, without the text of the provider.
-
-The audio and the text are still sent to the transcription service and the LLM. The data on those services is not protected by incognito mode, so regulated data requires local services or services under a suitable agreement.
-
-### Database rows of an incognito request
-
-No content of an incognito request is stored on the server, and no recording row exists. The following is written to the database:
-
-- **Usage rows.** An incognito request is counted against the monthly budgets of the user. The same rows as for an ordinary request are written to `token_usage` and `transcription_usage`: user, date, kind of operation or connector, model name, token and second counts, request count and cost. These rows hold no title, no file name, no content and no recording id, and requests in incognito mode are not marked in them.
-- **One audit row.** For each incognito upload, also one that is refused or fails, one `incognito.used` row is written to the [audit log](audit-log.md). The row holds the account, the time and the outcome (`success`, `denied` or `failed`). The client address, the user agent and the id of an API token are not stored in this row, whatever the value of `audit_log_store_ip`. Nothing about the file, its size, its duration or its content is part of the row, and no row is written for an incognito chat or summary request. The row is subject to the master switch of the audit log: with `audit_log_enabled=false` it is not written.
-- **Last use of the account.** The time of the last use is updated as for any other request and has no mark of incognito mode (see [Database](#database)).
-
-The budget checks of an ordinary request apply. For a user over the monthly token budget, no title, summary or chat answer is requested from the LLM: the transcript is returned with the default title and without a summary, and a chat or summary request is refused.
-
-### Limits of incognito mode
-
-- A recording made in the browser in incognito mode is held in the memory of the tab only. It is lost when the tab or the browser is closed, when the page is reloaded, or after a browser crash before processing. This is stated in a notice under the incognito switch of the recorder. The limit of 200 MB for a recording held in the browser applies as before.
-- When incognito is turned on for a recording that started as an ordinary one, during the recording or in the review pane, the copy saved in IndexedDB up to that moment is deleted, and nothing more is written, also after the switch is turned off again. A copy saved by an earlier release of Speakr stays in the browser until the recovery dialog is answered.
-- After a crash or a kill of the server process during the request, the folder of the request remains until it is removed at the next start or by the hourly cleanup, once nothing was written to it for `incognito_temp_max_age_hours` (default 6). The value must be longer than the longest incognito request.
-- A result whose deletion failed stays on the transcription service until its expiry there. In the log, such a failure appears only as a replaced record without the job id.
 
 ## Access control
 
@@ -278,7 +239,7 @@ The budget checks of an ordinary request apply. For a user over the monthly toke
 9. Place the data volume (`/data/uploads`, `/data/instance`), the database and the backups on encrypted disks or volumes. No data is encrypted by the application.
 10. Keep `LOG_LEVEL` at `INFO` or higher, and set a size limit and a retention period for the container logs. At `INFO`, a file is named without its original file name; the remaining case, the text of a system error, is described under [Logs](#logs).
 11. Set `ENABLE_PUBLIC_SHARING=false`. Existing public links are then answered with `404`.
-12. Set `ALLOW_REGISTRATION=false`. Use `ENABLE_SSO=true` with `SSO_DISABLE_PASSWORD_LOGIN=true` when the institution has an identity provider.
+12. Use `ENABLE_SSO=true` with `SSO_DISABLE_PASSWORD_LOGIN=true` when the institution has an identity provider.
 13. Define retention with `ENABLE_AUTO_DELETION`, `GLOBAL_RETENTION_DAYS` and `DELETION_MODE`, in line with the records policy of the institution.
 14. Leave `ENABLE_AUTO_EXPORT`, `ENABLE_AUTO_PROCESSING` and `PRESERVE_TEMP_AUDIO` unset unless their folders are covered by the same protection. With automatic export in use, set `auto_export_delete_with_recording=true`.
 15. Apply the retention and the encryption of the live system to its backups. Recordings deleted later are still present in an older backup.
@@ -298,4 +259,3 @@ The budget checks of an ordinary request apply. For a user over the monthly toke
 - **Short repetitions in error text shown to the user.** See [Error text shown to the user](#error-text-shown-to-the-user).
 - **No idle timeout by default** for sessions, and no expiry for API tokens without a date. An idle timeout is set with `session_idle_timeout_minutes`.
 - **Tokens in the URL by default.** The `?token=` query parameter is accepted until `api_query_tokens_enabled` is set to `false`.
-- **Database rows of incognito requests.** The usage counts and one audit row per upload are stored, as listed under [Database rows of an incognito request](#database-rows-of-an-incognito-request).

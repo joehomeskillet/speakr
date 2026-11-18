@@ -25,7 +25,7 @@ describe('getFriendlyError', () => {
         expect(getFriendlyError(ffmpeg, t).title).toBe('errors.invalidAudioFormat');
     });
 
-    it('names an incognito transcription error by its server type', () => {
+    it('names a transcription error by its server type', () => {
         expect(getFriendlyError('The transcription service rejected the API credentials.', t, undefined, 'auth'))
             .toEqual({ title: 'errors.authenticationError', guidance: 'errors.checkApiKeyGuidance' });
         expect(getFriendlyError('Too many requests', t, undefined, 'unknown').title).toBe('errors.rateLimitExceeded');

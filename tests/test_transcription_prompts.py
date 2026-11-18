@@ -125,17 +125,3 @@ def test_transcript_prompt_marks_the_shared_prefix_for_cache_breakpoints():
         prompts.shared_user_prefix(TRANSCRIPT) + suffix
     )
 
-
-def test_incognito_summary_keeps_the_upstream_layout():
-    system_message, user_message = prompts.build_incognito_summary_prompt(
-        TRANSCRIPT, "Summarize.", "French"
-    )
-
-    assert "Respond only with the summary in Markdown format." in system_message
-    assert "entire summary in French" in system_message
-    assert user_message.startswith("Transcription:\n\"\"\"\n")
-    assert "Summarization Instructions:\nSummarize." in user_message
-    assert user_message.rstrip().endswith(
-        "IMPORTANT: You MUST provide the summary in French."
-    )
-

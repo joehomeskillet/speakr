@@ -183,6 +183,6 @@ def test_public_routes_are_the_minimal_set():
     public = {e for e, r in ROUTE_POLICY.items() if r.kind == PUBLIC}
     assert public == {
         'static', 'robots_txt', 'service_worker', 'auth.login', 'auth.sso_login',
-        'auth.sso_callback', 'auth.forgot_password', 'auth.reset_password',
+        'auth.sso_callback',
         'api_v1.get_sso_status', 'system.get_csrf_token',
     }

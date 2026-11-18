@@ -314,23 +314,6 @@ def test_a_request_refused_for_its_scope_still_counts(accounts):
         assert _stored_last_seen(user) is not None
 
 
-def test_an_incognito_request_counts_and_stores_only_the_time(accounts):
-    with app.app_context():
-        user = _user(accounts, 'private')
-        before = db.session.get(User, user.id)
-        columns = [c.name for c in User.__table__.columns if c.name != 'last_seen_at']
-        snapshot = {name: getattr(before, name) for name in columns}
-
-        # Refused (no file, or the mode is off), which does not matter here:
-        # the request was made by the account on an incognito route.
-        resp = _client_for(user).post('/api/recordings/incognito', data={})
-        assert resp.status_code in (400, 403)
-
-        assert _stored_last_seen(user) is not None
-        after = db.session.get(User, user.id)
-        assert {name: getattr(after, name) for name in columns} == snapshot
-
-
 def test_an_anonymous_request_records_nothing(accounts):
     with app.app_context():
         user = _user(accounts, 'member')

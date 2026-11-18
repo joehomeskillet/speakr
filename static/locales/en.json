@@ -881,7 +881,6 @@
       "change": "Changes",
       "share": "Sharing",
       "admin": "Administration",
-      "incognito": "Incognito",
       "audit": "Audit log"
     },
     "outcomes": {
@@ -1560,7 +1559,6 @@
     "noAudioTrackInScreenShare": "The screen share has no audio. Check \"Share system audio\" or \"Share tab audio\" when you share. The help guide that just opened has steps for each system.",
     "startRecordingFailed": "Couldn't start recording: {{error}}",
     "noRecordedAudioToUpload": "No recorded audio to upload.",
-    "incognitoResumedNotAllowed": "A resumed recording can't be processed in incognito mode, because its earlier audio is already on the server. Use the normal upload.",
     "addTagFailed": "Couldn't add tag",
     "addTagFailedDetail": "Couldn't add tag: {{error}}",
     "removeTagFailed": "Couldn't remove tag",
@@ -2043,30 +2041,6 @@
     "newTag": "New tag",
     "autoIdentifyTooltip": "Names mentioned in the conversation are found with the text model. Voice matches are suggested without this.",
     "autoIdentifyNoModel": "A text model is needed, and none is configured. Voice matches are suggested without it."
-  },
-  "incognito": {
-    "audioNotStored": "Audio not stored in incognito mode",
-    "discardConfirm": "Discard the incognito recording? It can't be recovered.",
-    "lostIfTabCloses": "Lost if the tab or browser closes",
-    "mode": "Incognito mode",
-    "notSavedToAccount": "Not saved to account",
-    "oneFileAtATime": "One file at a time in incognito mode",
-    "processInIncognito": "Process in incognito",
-    "processWithoutSaving": "Process without saving",
-    "processing": "Processing…",
-    "processingComplete": "Processing complete",
-    "processingInProgress": "Processing in incognito mode…",
-    "recordingDiscarded": "Incognito recording discarded",
-    "recordingProcessed": "Incognito recording processed. It is gone once you close this tab.",
-    "recordingReady": "Incognito recording ready",
-    "recordingTitle": "Incognito recording",
-    "selectExactlyOneFile": "Select exactly 1 file",
-    "sessionOnly": "Session only",
-    "uploadingFile": "Uploading file for incognito processing…",
-    "uploadingRecording": "Uploading recording for incognito processing…",
-    "processingFailed": "Incognito processing failed: {{error}}",
-    "badge": "Incognito",
-    "switchDiscardConfirm": "Open another recording and discard the incognito one?"
   },
   "initialPromptTemplates": {
     "tabTitle": "Transcription hints",
@@ -2798,7 +2772,6 @@
     "colorRepeats": "Color repeats",
     "editText": "Edit text",
     "hideVideo": "Hide video",
-    "incognitoAudio": "Audio is not stored for incognito recordings.",
     "mergeAllInto": "Merge all into…",
     "mergeInto": "Merge into…",
     "mergedSpeakers": "Merged {{count}} speaker into {{name}}. Save to keep the change.",
@@ -3002,7 +2975,6 @@
     "recordingPaused": "Recording paused",
     "recordingResumed": "Recording resumed",
     "recordingMaxDurationApproaching": "Recording stops in about {{minutes}} minutes, at the maximum length.",
-    "resumedRecordingNotIncognito": "Incognito turned off. This resumed recording was already on the server.",
     "recordingMaxDurationReached": "Recording stopped at the maximum length.",
     "recordingResumeFound": "An unfinished recording from this browser was found. Resume it?",
     "recordingSizeSoftWarning": "Recording is {{size}}. Stop soon if you can.",
@@ -3032,7 +3004,6 @@
     "clearChat": "Clear chat",
     "copyTranscript": "Copy transcript",
     "deleteTeam": "Delete group",
-    "discardIncognito": "Discard incognito recording",
     "dockBottom": "Move to bottom",
     "dockLeft": "Move to left column",
     "dockRight": "Move to right column",
@@ -3095,7 +3066,6 @@
     "tagDragToReorder": "{{name}} (drag to reorder)",
     "translateTranscript": "Translate transcript",
     "reprocessTranslation": "Reprocess translation",
-    "translateTranscriptIncognito": "Translation is unavailable for incognito recordings.",
     "editTranslation": "Edit translation"
   },
   "transcriptTemplates": {
@@ -3121,7 +3091,6 @@
     "template": "Template",
     "templateName": "Template name",
     "title": "Transcript templates",
-    "viewGuide": "View template guide",
     "format": "Format"
   },
   "transcription": {
@@ -3309,42 +3278,16 @@
     "email": {
       "common": {
         "contactAdmin": "If you have questions, contact your administrator.",
-        "copyLink": "Or copy and paste this link into your browser:",
         "footer": "Sent by Speakr. If you have questions, contact your administrator.",
-        "greeting": "Hi {{name}},",
         "tagline": "Audio transcription and notes",
         "textFooter": "Sent by Speakr ({{tagline}})."
-      },
-      "reset": {
-        "button": "Reset password",
-        "expiry": "The link expires in 1 hour.",
-        "heading": "Reset your password",
-        "ignore": "If you didn't ask for this, ignore this email. Your password stays the same.",
-        "intro": "Someone asked to reset the password for your Speakr account. Click the button to choose a new one.",
-        "subject": "Reset your Speakr password",
-        "textIntro": "Someone asked to reset the password for your Speakr account. Open the link below to choose a new one:"
-      },
-      "verify": {
-        "button": "Verify email address",
-        "expiry": "The link expires in 24 hours.",
-        "heading": "Verify your email address",
-        "ignore": "If you didn't create a Speakr account, ignore this email.",
-        "intro": "Welcome to Speakr. Verify your email address to finish signing up.",
-        "subject": "Verify your email for Speakr",
-        "textLink": "Open this link to verify:"
       }
     },
     "flash": {
-      "accountCreated": "Account created. You can sign in now.",
-      "accountCreatedVerificationFailed": "Account created, but the verification email couldn't be sent. Contact support.",
       "accountUpdated": "Account details saved",
       "adminAccessDenied": "You can't open the admin page.",
       "currentPasswordIncorrect": "Current password is incorrect.",
       "currentPasswordRequired": "Current password is required.",
-      "emailAlreadyVerified": "Your email has already been verified.",
-      "emailRequired": "Email address is required.",
-      "emailServiceNotConfigured": "Email service is not configured.",
-      "emailVerificationDisabled": "Email verification is not enabled.",
       "exportTemplateSeparators": "The filename template cannot contain path separators (/ or \\).",
       "groupAccessDenied": "You can't manage groups.",
       "inquireDisabled": "Library search is not enabled on this server.",
@@ -3352,18 +3295,10 @@
       "loginRequired": "Sign in to see this page.",
       "newPasswordMismatch": "New password and confirmation do not match.",
       "newPasswordRequired": "New password and confirmation are required.",
-      "noLocalPassword": "This account has no password. To set one, use Forgot password on the sign-in page.",
-      "passwordFieldsRequired": "Both password fields are required.",
+      "noLocalPassword": "This account has no password. Ask your administrator to set one.",
       "passwordLoginDisabled": "Sign in with SSO. Password sign-in is turned off.",
       "passwordManagementDisabled": "Passwords can't be changed here. Sign in with SSO.",
-      "passwordResetDone": "Password reset. Sign in with your new password.",
-      "passwordResetSentIfExists": "If an account exists with this email, a password reset link has been sent.",
-      "passwordResetUnavailable": "Password reset is turned off. Contact your administrator.",
       "passwordUpdated": "Password changed",
-      "passwordsDoNotMatch": "Passwords do not match.",
-      "registrationDisabled": "Sign-up is closed. Contact your administrator.",
-      "registrationRestricted": "Sign-up is restricted. Contact your administrator.",
-      "resetLinkInvalid": "The password reset link is invalid or has expired.",
       "ssoAlreadyLinked": "This SSO account is already linked to another user.",
       "ssoClientFailed": "Couldn't start SSO. Check the server logs.",
       "ssoLinkUserNotFound": "Couldn't link account: user not found.",
@@ -3373,14 +3308,8 @@
       "ssoMissingSubject": "SSO response did not include a subject identifier.",
       "ssoNotConfigured": "SSO is not configured. Contact the administrator.",
       "ssoNotLinked": "Your account is not linked to SSO.",
-      "ssoUnlinkNoPassword": "You can't unlink SSO without a password. Use Forgot password on the sign-in page to set one.",
+      "ssoUnlinkNoPassword": "You can't unlink SSO without a password. Ask your administrator to set one.",
       "ssoUnlinked": "SSO account unlinked.",
-      "userNotFound": "User not found.",
-      "verificationCooldown": "Wait {{seconds}} seconds before requesting another verification email.",
-      "verificationLinkInvalid": "The verification link is invalid or has expired.",
-      "verificationResent": "A new verification email has been sent.",
-      "verificationSendFailed": "Couldn't send verification email. Try again later.",
-      "verificationSentIfExists": "If an account exists with this email, a verification link has been sent.",
       "pageExpired": "The page had expired. Try again."
     },
     "password": {
@@ -3429,7 +3358,6 @@
       "cannot_delete_self": "Cannot delete your own account",
       "chat_blocked_transcription_failed": "The transcription failed. Reprocess the recording first.",
       "chat_client_not_configured": "Chat service is not available (chat client not configured)",
-      "chat_error": "An error occurred during chat",
       "chat_failed": "Chat failed",
       "chat_openrouter_not_configured": "Chat service is not available (OpenRouter client not configured)",
       "chat_unavailable": "Chat service not available",
@@ -3505,7 +3433,6 @@
       "group_tags_members_only": "Only group members can see group tags",
       "group_tags_require_internal_sharing": "Group tags require internal sharing to be enabled. Set ENABLE_INTERNAL_SHARING=true in your configuration.",
       "groups_require_internal_sharing": "Groups require internal sharing to be enabled. Set ENABLE_INTERNAL_SHARING=true in your configuration.",
-      "incognito_disabled": "Incognito mode is not enabled on this server",
       "inquire_agent_off": "Agent mode for library search is turned off on this server",
       "inquire_disabled": "Library search is not enabled",
       "inquire_off": "Library search is turned off on this server",
@@ -3623,7 +3550,6 @@
       "no_transcription_for_recording": "No transcript for this recording",
       "no_transcription_for_summary": "No transcript to summarize",
       "no_transcription_for_title": "No transcript to generate a title from",
-      "no_transcription_provided": "No transcription provided",
       "no_translation": "No translation for this recording",
       "not_found": "Not found",
       "notes_field_required": "notes field required",
@@ -3705,7 +3631,6 @@
       "summary_blocked_transcription_failed": "Transcription failed, so there is nothing to summarize. Reprocess the recording first.",
       "summary_field_required": "summary field required",
       "summary_generate_denied": "You do not have permission to generate summary for this recording",
-      "summary_generation_failed": "Couldn't generate the summary. Check that the language model service is running.",
       "summary_llm_not_configured": "Summary service is not available (LLM client not configured)",
       "summary_openrouter_not_configured": "Summary service is not available (OpenRouter client not configured)",
       "system_info_unavailable": "Unable to retrieve system information",
@@ -3742,7 +3667,6 @@
       "unexpected_error": "Something went wrong.",
       "unexpected_error_deleting": "Something went wrong while deleting.",
       "unexpected_error_detail": "Something went wrong: {{detail}}",
-      "unexpected_error_processing": "Something went wrong while processing.",
       "unexpected_error_saving": "Something went wrong while saving.",
       "unexpected_error_updating_transcription": "Something went wrong while saving the transcript.",
       "unexpected_error_upload": "Something went wrong while uploading.",
@@ -3847,11 +3771,7 @@
     },
     "form": {
       "required": "This field is required.",
-      "invalidEmail": "Invalid email address.",
-      "usernameLength": "Username must be between {{min}} and {{max}} characters long.",
-      "passwordsMustMatch": "Passwords must match.",
-      "usernameTaken": "That username is taken.",
-      "emailTaken": "That email is already registered."
+      "invalidEmail": "Invalid email address."
     },
     "assistant": {
       "step": {
@@ -4021,39 +3941,7 @@
     "rememberMe": "Remember me",
     "adminLogin": "Administrator sign-in",
     "adminEmailPlaceholder": "Admin email",
-    "signIn": "Sign in",
-    "forgotPasswordLink": "Forgot password?",
-    "noAccount": "Don't have an account?",
-    "registerHere": "Create an account",
-    "registerTitle": "Create an account",
-    "createAccount": "Create an account",
-    "signUp": "Sign up",
-    "haveAccount": "Already have an account?",
-    "loginHere": "Sign in",
-    "checkEmailTitle": "Check your email",
-    "verificationSentTo": "Verification link sent to:",
-    "verificationLinkHelp": "Click the link in the email to verify your account. It expires in 24 hours.",
-    "verificationRequiredTitle": "Email verification required",
-    "pleaseVerify": "Verify your email address:",
-    "verificationRequiredHelp": "Check your inbox for the verification email, or request a new one.",
-    "resetSentTo": "If an account exists with this email:",
-    "resetLinkHelp": "If so, a reset link was sent. It expires in 1 hour.",
-    "resendVerification": "Resend verification email",
-    "backToLogin": "Back to sign-in",
-    "forgotPasswordTitle": "Forgot password",
-    "forgotPasswordHelp": "Enter your email address to get a password reset link.",
-    "emailAddress": "Email address",
-    "emailPlaceholder": "Enter your email address",
-    "sendResetLink": "Send reset link",
-    "rememberPassword": "Remember your password?",
-    "resetPasswordTitle": "Reset password",
-    "resetPasswordHelp": "Choose a new password.",
-    "newPasswordPlaceholder": "Enter your new password",
-    "confirmPasswordPlaceholder": "Confirm your new password",
-    "emailVerifiedTitle": "Email verified",
-    "emailVerifiedHeading": "Email verified",
-    "emailVerifiedHelp": "Your email is verified. You can sign in now.",
-    "continueToLogin": "Sign in"
+    "signIn": "Sign in"
   },
   "translation": {
     "title": "Translation",
@@ -4064,7 +3952,6 @@
     "targetLanguage": "Target language",
     "preferences": "Translation preferences",
     "toggle": "Toggle translation",
-    "incognitoUnavailable": "Translation is unavailable for incognito recordings.",
     "progress": "Translating · {{done}} of {{total}}",
     "alreadyInLanguage": "The transcript is already in {{language}}."
   },
@@ -4072,39 +3959,6 @@
     "library": "Library",
     "recordings": "Recordings",
     "share": "Share"
-  },
-  "whatsNew": {
-    "title": "What's new in Speakr {{version}}",
-    "titleSince": "What's new since your last visit",
-    "releaseHeading": "Speakr {{version}}",
-    "dismiss": "Got it",
-    "releases": {
-      "0_10_20": {
-        "1": "Choose a new look: six interface themes under Account settings → Preferences → Appearance, each with your color scheme and dark mode.",
-        "2": "The chat and Inquire are now Ambrose, an assistant you can rename. Click a citation number to play that moment.",
-        "3": "Each recording keeps its own chat until you close the tab.",
-        "4": "Folders can hold subfolders. Choose a parent folder when you create or edit a folder.",
-        "5": "In Regenerate summary, you see the prompt that will run and can edit it first.",
-        "6": "Follow a translation's progress in the processing queue and the Translation tab.",
-        "7": "Download a summary as Markdown, and single answers or whole Ask Ambrose conversations as Word documents."
-      },
-      "0_10_21": {
-        "1": "You can connect Speakr to apps such as Open WebUI through single sign-on.",
-        "2": "Ambrose has a tool to search for people by name."
-      },
-      "0_10_22": {
-        "1": "Notifications are shown in the colors of your theme. Error messages are kept on screen until you close them, and every notification has a close button."
-      },
-      "0_10_23": {
-        "1": "The transcript editor has a timeline with the waveform. Segments can be moved or resized by clicking and dragging.",
-        "2": "Long transcripts can be searched using the Ctrl+F shortcut."
-      },
-      "0_11_0": {
-        "1": "The phone layout is rebuilt, with one layout in every theme.",
-        "2": "The processing queue shows active, waiting and failed jobs. Jobs and uploads can be canceled.",
-        "3": "Keyboard shortcuts are available on the desktop. The keys are listed with ?."
-      }
-    }
   },
   "assistant": {
     "ask": "Ask {{name}}",

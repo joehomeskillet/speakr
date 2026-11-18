@@ -126,8 +126,8 @@ def test_a_rejected_request_names_the_setting(monkeypatch, text_model, caplog):
     assert "TEXT_MODEL_EXTRA_BODY adds reasoning" in caplog.text
 
 
-def test_incognito_requests_use_the_shared_helpers():
-    """Incognito title, summary and chat go through call_llm_completion and
+def test_all_requests_use_the_shared_helpers():
+    """Title, summary and chat go through call_llm_completion and
     call_chat_completion, so they get the GPT-5 handling and these settings."""
     import ast, os
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

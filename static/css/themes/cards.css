@@ -127,7 +127,6 @@ html[data-ui-theme="cards"] {
     --tint-danger: var(--c-bad-c);      --tint-danger-fg: var(--c-on-bad-c);      --tint-danger-border: transparent;
     --tint-processing: var(--c-primary-c); --tint-processing-fg: var(--c-on-primary-c); --tint-processing-border: transparent;
     --tint-pending: var(--c-wait-c);    --tint-pending-fg: var(--c-on-wait-c);    --tint-pending-border: transparent;
-    --tint-incognito: var(--c-wait-c);  --tint-incognito-fg: var(--c-on-wait-c);  --tint-incognito-border: transparent;
 }
 
 html[data-ui-theme="cards"].dark {

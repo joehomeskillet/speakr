@@ -10,7 +10,7 @@ service by tests/contract/test_whisperx_contract.py).
 
 Every path that sends audio to the service runs for real: the voice
 embedding check (startup, Check now, re-baseline), upload, reprocess, bulk
-reprocess, API v1 upload and transcribe, incognito and joining two uploads.
+reprocess, API v1 upload and transcribe and joining two uploads.
 
 The matrix, and the outcome expected in each cell:
 
@@ -390,19 +390,5 @@ def test_every_recording_path(service, admin_default):
             _drain([joined])
             _assert_requests(asr, "upload join", works, admin_default)
             _assert_outcome(db.session.get(Recording, joined), "upload join", works)
-
-            # Incognito (not enabled by the example; switched on for this step).
-            asr.reset()
-            with patch("src.api.recordings.ENABLE_INCOGNITO_MODE", True):
-                r = client.post("/api/recordings/incognito",
-                                data={"file": (io.BytesIO(_wav_bytes()), "private.wav")},
-                                content_type="multipart/form-data")
-            _assert_requests(asr, "incognito", works, admin_default)
-            if works:
-                assert r.status_code == 200, r.get_data(as_text=True)
-                assert "Hello from the test service" in r.get_data(as_text=True)
-            else:
-                assert r.status_code >= 400
-                assert "model" in r.get_data(as_text=True).lower()
         finally:
             _cleanup([user.id])

@@ -309,8 +309,8 @@ export function useAssistantChat(opts) {
         if (!chip) return;
         const seconds = parseInt(chip.dataset.seek, 10);
         if (!isFinite(seconds)) return;
-        // The detail view's player streams from /audio/; incognito uses a
-        // blob URL, so fall back to any media element on the page.
+        // The detail view's player streams from /audio/; fall back to any
+        // media element on the page.
         const all = [...document.querySelectorAll('audio, video')];
         const media = all.find((el) => ((el.currentSrc || el.src || '').includes('/audio/')))
             || all.find((el) => (el.currentSrc || el.src));

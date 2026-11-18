@@ -1198,7 +1198,7 @@ def test_cleanup_of_old_jobs_tries_the_remote_job_once_more(audio, remote):
     assert 'job0037' in remote.cancelled
 
 
-# --- a job nothing saved (chunks, incognito mode, the voice check) --------------
+# --- a job nothing saved (chunks, the voice check) --------------
 #
 # Without save_provider_task no retry can resume the job and no processing
 # job removes it later, so the connector deletes it on every failure. The
@@ -1351,31 +1351,6 @@ def test_chunked_calls_without_a_scope_do_not_share_keys(clock, tmp_path, monkey
     _chunked(fake, tmp_path, monkeypatch, [b'same bytes'])
     keys = _submit_keys(fake)
     assert all(keys) and keys[0] != keys[1]
-
-
-def test_incognito_mode_sends_a_key_for_the_user_and_the_audio(clock, tmp_path, monkeypatch):
-    fake = FakeWhisperX()
-    path = tmp_path / 'incognito.wav'
-    path.write_bytes(b'incognito audio')
-
-    def passthrough(filepath, **kwargs):
-        return Mock(output_path=filepath, mime_type='audio/wav', was_converted=False, was_compressed=False)
-
-    chunker = MagicMock()
-    chunker.needs_chunking.return_value = False
-    chunker.get_audio_duration.return_value = 1
-    monkeypatch.setattr(proc, 'chunking_service', chunker)
-    monkeypatch.setattr(proc, 'convert_if_needed', passthrough)
-    monkeypatch.setattr(proc, 'is_video_file', lambda *a, **k: False)
-    user = Mock(id=77, transcription_language=None)
-    with app.app_context(), patch('src.services.transcription.get_registry') as registry:
-        registry.return_value.get_active_connector.return_value = _connector(fake)
-        for _ in range(2):
-            result = proc.transcribe_incognito(str(path), 'incognito.wav', language='en', user=user)
-            assert not result.get('error'), result
-    keys = _submit_keys(fake)
-    assert len(keys) == 2 and keys[0] == keys[1] and keys[0].startswith('speakr-incognito-77-')
-    assert fake.jobs == {}
 
 
 def test_the_voice_check_sends_a_key(clock):

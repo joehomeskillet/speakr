@@ -21,7 +21,7 @@
            class="ph-bar__input" dir="auto"
            :aria-label="t('common.rename')"
            :placeholder="t('help.untitled')">
-    <button v-if="!selectedRecording.incognito && !editingTitle" type="button" class="ph-ib ph-star" data-phone-star
+    <button v-if="!editingTitle" type="button" class="ph-ib ph-star" data-phone-star
             @click="toggleHighlight(selectedRecording)"
             :aria-pressed="selectedRecording.is_highlighted ? 'true' : 'false'"
             :aria-label="selectedRecording.is_highlighted ? t('tooltips.removeHighlight') : t('tooltips.highlight')"

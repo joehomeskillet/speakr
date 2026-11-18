@@ -1,7 +1,7 @@
         <!-- DETAIL VIEW: action icons inline in the header bar. Hidden
              on narrow screens; mobile-header.html surfaces them in the
              expanded meta panel. -->
-        <template v-if="currentView === 'detail' && selectedRecording && !selectedRecording.incognito">
+        <template v-if="currentView === 'detail' && selectedRecording">
             <!-- Action groups (#394): organize (inbox, star, archive), then
                  place (folder, tags), then process (a Reprocess menu and
                  speakers), then share and a More menu holding both deletes.
@@ -87,7 +87,7 @@
                         <i class="fas fa-sync-alt w-4 text-center text-[var(--text-muted)]"></i>
                         <span v-text="t('buttons.reprocessSummary')" data-i18n="buttons.reprocessSummary"></span>
                     </button>
-                    <button v-if="selectedRecording.can_edit !== false && (selectedRecording.status === 'COMPLETED' || selectedRecording.status === 'FAILED') && selectedRecording.transcription && !selectedRecording.incognito"
+                    <button v-if="selectedRecording.can_edit !== false && (selectedRecording.status === 'COMPLETED' || selectedRecording.status === 'FAILED') && selectedRecording.transcription"
                             role="menuitem" @click="showHeaderReprocessMenu = false; openTranslationModal()"
                             class="w-full flex items-center gap-2 px-3 py-2 text-left text-sm hover:bg-[var(--bg-tertiary)] transition-colors whitespace-nowrap">
                         <i class="fas fa-language w-4 text-center text-[var(--text-muted)]"></i>

@@ -326,7 +326,7 @@ describe('after a sign-out', () => {
         await api.ready;
         expect(local).toEqual({ darkMode: 'true', lastSelectedRecordingId: '42' });
         expect(localStorage.removeItem.mock.calls).toEqual([['speakr.slicedUploads']]);
-        // The result of an incognito recording, with its file name and size, is in sessionStorage.
+        // Transient session state is in sessionStorage.
         expect(sessionStorage.clear).toHaveBeenCalledTimes(1);
     });
 
@@ -336,8 +336,6 @@ describe('after a sign-out', () => {
         expect(upload).toContain('const RESUME_TTL_MS = 24 * 60 * 60 * 1000;');
         expect(SOURCE).toContain("const SLICED_UPLOADS_KEY = 'speakr.slicedUploads';");
         expect(SOURCE).toContain('const SLICED_UPLOADS_TTL_MS = 24 * 60 * 60 * 1000;');
-        const incognito = readFileSync(fileURLToPath(new URL('./modules/db/incognito-storage.js', import.meta.url)), 'utf8');
-        expect(incognito).not.toContain('localStorage');
     });
 
     it('still clears the rest where localStorage is refused', async () => {

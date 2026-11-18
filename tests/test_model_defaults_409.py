@@ -2,8 +2,7 @@
 
 whisperx-asr-service falls back to its own default model when a request names
 none, and that default is empty when PRELOAD_MODEL is empty. Speakr's startup
-voice embedding check sent no model at all, incognito mode ignored the admin
-default, and bulk reprocessing skipped the model, hotword and speaker hints
+voice embedding check sent no model at all, and bulk reprocessing skipped the model, hotword and speaker hints
 entirely. These tests pin that every path resolves the model the same way an
 ordinary upload does, and that an empty or whitespace name is never sent.
 
@@ -17,7 +16,6 @@ import logging
 import os
 import sys
 import uuid
-import wave
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
@@ -220,57 +218,11 @@ def test_the_check_logs_the_explanatory_warning(ctx, caplog):
                for r in caplog.records)
 
 
-# ------------------------------------------------------------ incognito
-
-def _wav(tmp_path):
-    path = os.path.join(str(tmp_path), 'incognito.wav')
-    with wave.open(path, 'wb') as w:
-        w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)
-        w.writeframes(b'\x00\x00' * 1600)
-    return path
-
-
 def _passthrough(filepath, **kwargs):
     r = MagicMock()
     r.output_path = filepath
     r.was_converted = r.was_compressed = False
     return r
-
-
-@pytest.mark.parametrize("chunked", [False, True])
-def test_incognito_uses_the_admin_default_model(ctx, tmp_path, chunked):
-    from src.tasks import processing
-    _set_default('large-v3')
-    seen = {}
-
-    class _Resp:
-        segments = []
-        text = 'hello'
-        def has_diarization(self):
-            return False
-
-    class _Conn:
-        specifications = MagicMock()
-        supports_diarization = False
-        def transcribe(self, request):
-            seen['model'] = request.model
-            return _Resp()
-
-    def _chunks(*args, **kwargs):
-        seen['model'] = kwargs.get('transcription_model')
-        return _Resp()
-
-    chunker = MagicMock()
-    chunker.needs_chunking.return_value = chunked
-    chunker.get_audio_duration.return_value = 1
-    with patch('src.services.transcription.get_registry') as reg, \
-         patch.object(processing, 'convert_if_needed', side_effect=_passthrough), \
-         patch.object(processing, 'is_video_file', return_value=False), \
-         patch.object(processing, 'chunking_service', chunker), \
-         patch.object(processing, 'transcribe_chunks_with_connector', side_effect=_chunks):
-        reg.return_value.get_active_connector.return_value = _Conn()
-        processing.transcribe_incognito(_wav(tmp_path), 'incognito.wav', language='en')
-    assert seen.get('model') == 'large-v3'
 
 
 # ------------------------------------------------------------ bulk reprocess
