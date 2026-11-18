@@ -8,10 +8,12 @@ immutability triggers on clinic_original_version are switched off only for this
 clean-up and put back right after.
 """
 
+import fcntl
 import secrets
 
 import pytest
 from sqlalchemy import inspect, text
+
 from sqlalchemy.sql.ddl import sort_tables
 
 from src.app import app, db
@@ -29,6 +31,30 @@ from src.models import (
 from src.utils.token_auth import hash_token
 
 from clinic_support import SECRET_MARKER
+
+# The queue tests share the one test database across xdist processes: a sweep
+# or claim in one process mutates rows another process asserts on. These
+# modules therefore run serialized against each other (and only against each
+# other) through one file lock; everything else keeps full parallelism.
+_QUEUE_DB_MODULES = (
+    'test_job_lease', 'test_job_queue_owner', 'test_llm_decoupling',
+    'test_job_failed_on_recording_failed',
+)
+
+
+@pytest.fixture(scope='module', autouse=True)
+def _queue_db_serialized(request):
+    name = request.module.__name__.rsplit('.', 1)[-1]
+    if name not in _QUEUE_DB_MODULES:
+        yield
+        return
+    handle = open('/tmp/speakr-queue-tests.lock', 'a')
+    fcntl.flock(handle, fcntl.LOCK_EX)
+    try:
+        yield
+    finally:
+        fcntl.flock(handle, fcntl.LOCK_UN)
+        handle.close()
 
 
 @pytest.fixture
