@@ -177,6 +177,35 @@ def _view(intent):
 
 # --- user side ------------------------------------------------------------------------
 
+def _may_import(actor_user_id):
+    """Active site admin, or an explicit central-policy grant of the action ``import``."""
+    from dataclasses import replace
+
+    from . import policy
+    from .identity import ClinicAccountPolicy
+
+    actor = db.session.get(User, actor_user_id, populate_existing=True) if type(actor_user_id) is int else None
+    if actor is None:
+        raise AgentChannelError("forbidden", "unknown user")
+    if not clinic_mode_enabled():
+        return  # upstream behaviour is unchanged with clinic mode off
+    account = db.session.get(ClinicAccountPolicy, actor.id, populate_existing=True)
+    if account is not None and account.status != "active":
+        raise AgentChannelError("forbidden", "inactive account")
+    if actor.is_admin:
+        return
+    subject = policy.build_subject(actor.id)
+    grants = tuple(
+        replace(grant, actions=frozenset({"release"})) for grant in subject.grants
+        if "import" in grant.actions
+    )
+    if grants and policy.decide(
+        replace(subject, grants=grants), "release", policy.RecordingFacts(recording_id=0, owner_id=actor.id),
+    ).allowed:
+        return
+    raise AgentChannelError("forbidden", "import required")
+
+
 @transactional
 def create_import_intent(
     *, actor_user_id, source_kind, source_ref, expected_files=(), target_author_user_id=None,
@@ -185,8 +214,7 @@ def create_import_intent(
 ):
     """A signed-in user announces an import. The author is the user unless ``may_assign_author`` allows another."""
     now = aware(now) or utcnow()
-    if db.session.get(User, actor_user_id) is None:
-        raise AgentChannelError("forbidden", "unknown user")
+    _may_import(actor_user_id)
     if source_kind not in SOURCE_KINDS:
         raise AgentChannelError("invalid", "source_kind")
     if not isinstance(source_ref, str) or not _REF.match(source_ref):
