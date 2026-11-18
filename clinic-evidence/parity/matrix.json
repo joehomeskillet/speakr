@@ -210,16 +210,22 @@
  {
   "id": "PAR-REC-007",
   "title": "Autarker Recorder und lokales Speichern",
-  "status": "missing",
-  "evidence": [],
-  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+  "status": "partial",
+  "evidence": [
+   "src/clinic/sdict_bundle.py",
+   "tests/clinic/test_sdict_bundle.py"
+  ],
+  "note": "sdict-Bundle-Parsing mit Archivvalidierung als Service getestet; Recorder-/Routen-Wiring fehlt."
  },
  {
   "id": "PAR-REC-008",
   "title": "Audio-Text-Sitzungen und Textdateien speichern/laden",
-  "status": "missing",
-  "evidence": [],
-  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+  "status": "partial",
+  "evidence": [
+   "src/clinic/sdict_bundle.py",
+   "tests/clinic/test_sdict_bundle.py"
+  ],
+  "note": "Bundle-Dokumentteil als Service getestet; Versand-Wiring fehlt."
  },
  {
   "id": "PAR-LIVE-001",
@@ -906,5 +912,49 @@
   "status": "missing",
   "evidence": [],
   "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+ },
+ {
+  "id": "OWN-SPK-001",
+  "title": "Stimmprofil-Einwilligung (Owner-Erweiterung 2026-11-18)",
+  "status": "partial",
+  "evidence": [
+   "src/clinic/voice_consent.py",
+   "tests/clinic/test_voice_consent.py"
+  ],
+  "note": "Opt-in append-only, Widerruf löscht Enrolment-Embeddings; Upstream-Sprecherdaten-Purge und UI sind Wiring-Pflicht (nie Patientenprofile)."
+ },
+ {
+  "id": "OWN-SPK-002",
+  "title": "Autor-Vorschlag aus Stimmvergleich (Owner-Erweiterung)",
+  "status": "partial",
+  "evidence": [
+   "src/clinic/author_suggestion.py",
+   "tests/clinic/test_author_suggestion.py"
+  ],
+  "note": "Bänder 0.75/0.10/0.60, Kurzdiktat-Sperre; nur Vorschlag, Mensch bestätigt; synthetisch kalibriert. Klärlisten-UI fehlt."
+ },
+ {
+  "id": "OWN-SPK-003",
+  "title": "Sprecher-Dienst und Pipeline-Client (Owner-Erweiterung)",
+  "status": "partial",
+  "evidence": [
+   "deployment/speaker-service/",
+   "src/clinic/speaker_client.py",
+   "tests/clinic/test_speaker_service_contract.py",
+   "tests/clinic/test_speaker_client.py"
+  ],
+  "note": "sherpa-onnx-Container (Modelle hash-gepinnt) + HTTP-Client mit Space-pro-Modell; Contract-Tests; echter GPU/CPU-Smoke und Pipeline-Wiring offen."
+ },
+ {
+  "id": "OWN-ASR-001",
+  "title": "GPU-ASR-Dienst mit CPU-Fallback (Owner-Erweiterung W9)",
+  "status": "partial",
+  "evidence": [
+   "deployment/gpu-asr-service/",
+   "src/clinic/asr_fallback.py",
+   "tests/clinic/test_gpu_asr_service_contract.py",
+   "tests/clinic/test_asr_fallback.py"
+  ],
+  "note": "OpenVINO turbo-Dienst (Prompts default aus, Cap 55 Wörter) + CLINIC_MODE-Fallback; Deploy/Smoke/Default-Umschaltung offen; klinische Genauigkeit unbelegt (offener Qualitätspunkt)."
  }
 ]
