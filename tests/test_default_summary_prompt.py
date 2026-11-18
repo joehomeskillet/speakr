@@ -20,7 +20,9 @@ def test_default_summary_prompt_is_meaningful():
     an accidental empty/garbled edit is caught."""
     assert isinstance(DEFAULT_SUMMARY_PROMPT, str)
     assert DEFAULT_SUMMARY_PROMPT.strip(), "default summary prompt must not be empty"
-    for section in ("Minutes", "Key Issues Discussed", "next steps", "responsible party"):
+    for section in ("Anlass / Fragestellung", "Suchtanamnese", "Aktueller Befund",
+                    "Diagnosen", "Medikation / Entzugsbehandlung",
+                    "Procedere / Nächste Schritte", "Offene Punkte / Unklarheiten"):
         assert section in DEFAULT_SUMMARY_PROMPT, f"missing expected section: {section}"
 
 

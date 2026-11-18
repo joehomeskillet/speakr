@@ -582,7 +582,9 @@ Respond with only a JSON array of strings: ["term1", "term2", ...]"""
             yield create_status_response('responding', 'Generating response...')
             
             # Prepare system prompt
-            language_instruction = f"Please provide all your responses in {user_output_language}." if user_output_language else ""
+            from src.clinic.output_language import effective_output_language
+            chat_language = effective_output_language(user_output_language)
+            language_instruction = f"Please provide all your responses in {chat_language}." if chat_language else ""
             
             # Build filter description for context
             filter_description = []

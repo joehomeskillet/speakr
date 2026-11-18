@@ -195,7 +195,7 @@ def test_default_instructions_keep_the_previous_prompt(ctx):
     rec = _recording(_user())
     with admin_title_prompt(''):
         _, messages = _title_messages(rec, False)
-    assert '- Maximum 8 words' in messages["user"]
+    assert '- Höchstens 8 Wörter' in messages["user"]
 
 
 def test_incognito_titles_use_the_user_level(ctx):
