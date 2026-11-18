@@ -318,9 +318,7 @@ Common uses for notes include:
 - Links to related documents or resources mentioned in the recording
 - Questions you want to research or clarify later
 
-Your notes are fully searchable alongside transcriptions, making them valuable for future reference. You can search for a specific term and find it whether it appears in a transcription or in your personal notes. The search will only find results in your own personal notes - you cannot search through other users' notes on shared recordings since notes are always private. Notes are auto-saved as you type, ensuring you never lose your thoughts.
-
-When viewing a shared recording, you can always add and edit your own notes without needing any special permissions. This allows you to annotate shared content with your own thoughts, action items, and follow-ups while keeping them completely private from the recording owner and other users.
+Your notes are fully searchable alongside transcriptions, making them valuable for future reference. You can search for a specific term and find it whether it appears in a transcription or in your personal notes. The search finds notes only on recordings you own. Notes are private to the owner. Notes are auto-saved as you type, ensuring you never lose your thoughts.
 
 ## Copying and Exporting
 

@@ -1,6 +1,6 @@
 # Keyboard Shortcuts
 
-Speakr can be used from the keyboard on a computer. A key stands for a button of the page. The same action is carried out under the same conditions. Where the button is absent or disabled, for example on a shared recording without the right to edit, the key has no effect.
+Speakr can be used from the keyboard on a computer. A key stands for a button of the page. The same action is carried out under the same conditions. Where the button is absent or disabled, the key has no effect.
 
 The list of keys for the current page is opened with `?`, or with **Keyboard shortcuts** in the account menu. The list is closed with `Esc`.
 
