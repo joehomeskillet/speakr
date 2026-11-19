@@ -16,6 +16,13 @@ public static class ImportJson
     };
 }
 
+public sealed class CredentialPolicy
+{
+    public IReadOnlyCollection<string> RevokedClientThumbprints { get; init; } = [];
+    public string? PinnedServerKeySha256 { get; init; }
+    public DateTime? UtcNow { get; init; }
+}
+
 public sealed class HttpImportServer : IImportServer
 {
     private readonly HttpClient _http;
@@ -25,7 +32,12 @@ public sealed class HttpImportServer : IImportServer
         _http = http;
     }
 
-    public static HttpMessageHandler CreateHandler(MachineCredential credential)
+    public static HttpMessageHandler CreateHandler(MachineCredential credential) =>
+        CreateHandler(credential, new CredentialPolicy());
+
+    // Rotation and revocation: the policy names replaced/revoked client certificates (by SHA-256 thumbprint)
+    // and an optional pinned server public key. Every refusal throws; there is no anonymous or insecure fallback.
+    public static HttpMessageHandler CreateHandler(MachineCredential credential, CredentialPolicy policy)
     {
         if (credential.ClientCertificatePfx is not { Length: > 0 })
             throw new InvalidOperationException("A machine client certificate is required.");
@@ -34,9 +46,18 @@ public sealed class HttpImportServer : IImportServer
             credential.ClientCertificatePfx,
             credential.PfxPassword,
             X509KeyStorageFlags.EphemeralKeySet);
-        var now = DateTime.UtcNow;
+        var now = (policy.UtcNow ?? DateTime.UtcNow).ToUniversalTime();
         if (now < certificate.NotBefore.ToUniversalTime() || now > certificate.NotAfter.ToUniversalTime())
             throw new InvalidOperationException("The machine client certificate is outside its validity period.");
+        var thumbprint = certificate.GetCertHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+        foreach (var revoked in policy.RevokedClientThumbprints)
+        {
+            if (string.Equals(revoked, Convert.ToHexString(thumbprint), StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("The machine client certificate was revoked or replaced.");
+        }
+        var pin = policy.PinnedServerKeySha256;
+        if (pin is { Length: > 0 } && (pin.Length != 64 || !pin.All(Uri.IsHexDigit)))
+            throw new InvalidOperationException("The pinned server key must be a SHA-256 hex digest.");
         var handler = new HttpClientHandler
         {
             ClientCertificateOptions = ClientCertificateOption.Manual,
@@ -44,6 +65,19 @@ public sealed class HttpImportServer : IImportServer
             AllowAutoRedirect = false,
             SslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13
         };
+        if (pin is { Length: > 0 })
+        {
+            // The pinned public key is the trust anchor; a host name mismatch is never accepted.
+            handler.ServerCertificateCustomValidationCallback = (_, serverCertificate, _, errors) =>
+            {
+                if (serverCertificate is null
+                    || (errors & System.Net.Security.SslPolicyErrors.RemoteCertificateNameMismatch) != 0
+                    || (errors & System.Net.Security.SslPolicyErrors.RemoteCertificateNotAvailable) != 0)
+                    return false;
+                var key = System.Security.Cryptography.SHA256.HashData(serverCertificate.GetPublicKey());
+                return string.Equals(Convert.ToHexString(key), pin, StringComparison.OrdinalIgnoreCase);
+            };
+        }
         handler.ClientCertificates.Add(certificate);
         return handler;
     }
