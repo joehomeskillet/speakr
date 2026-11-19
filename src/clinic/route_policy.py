@@ -120,6 +120,24 @@ _CLINIC_RESOURCES = _split("""
     clinic_commands.get_pronunciation_capabilities clinic_commands.execute_command_endpoint
 """)
 
+# Worklist, workflow, history, template, category, regex and column handlers, mounted
+# by register_clinic_worklist in src/app.py only in clinic mode. Their URLs carry a
+# clinic dictation id (not a recording id), so the guard cannot resolve an object:
+# each handler authenticates the session, checks CSRF on writes and then decides the
+# object through the central policy (pool_policy.decide), failing closed.
+_CLINIC_WORKLIST = _split("""
+    clinic_worklist.rows clinic_worklist.own_filters clinic_worklist.own_filter
+    clinic_worklist.create_filter clinic_worklist.update_filter clinic_worklist.delete_filter
+    clinic_worklist.own_layout clinic_columns.own_layout
+    clinic_workflow.metadata clinic_workflow.release clinic_workflow.archive
+    clinic_history.get_history clinic_history.review_lease
+    clinic_templates.list_templates clinic_templates.get_template
+    clinic_templates.get_template_content clinic_templates.save_template
+    clinic_templates.assign_template_route clinic_templates.delete_template
+    clinic_categories.list_categories clinic_categories.check_categories
+    clinic_regex.preview clinic_regex.apply
+""")
+
 _ADMIN = _split("""
     admin.admin admin.admin_add_user admin.admin_audit_log admin.admin_audit_log_export
     admin.admin_get_auto_process_status admin.admin_get_daily_token_stats
@@ -256,7 +274,7 @@ def _build() -> dict[str, RouteRule]:
 
     for endpoint in _PUBLIC:
         add(endpoint, RouteRule(PUBLIC))
-    for endpoint in _AUTH + (_CLINIC_RESOURCES if clinic_mode_enabled() else ()):
+    for endpoint in _AUTH + ((_CLINIC_RESOURCES + _CLINIC_WORKLIST) if clinic_mode_enabled() else ()):
         add(endpoint, RouteRule(AUTH))
     for endpoint in _ADMIN:
         add(endpoint, RouteRule(ADMIN))
