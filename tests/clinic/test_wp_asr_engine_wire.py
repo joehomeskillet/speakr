@@ -220,3 +220,19 @@ def test_gap4_without_a_human_revision_the_existing_path_stays(ctx):
     db.session.expire_all()
     assert db.session.get(Recording, rec.id).transcription == "Neuer Entwurf."
     assert [row.body for row in history(dictation)] == ["Erster Entwurf"]
+
+
+@pytest.mark.parametrize("unhealthy, expected", [(None, "gpu"), ("unhealthy: test", "cpu")])
+def test_gap3_real_fallback_connector_reports_the_engine_that_ran(ctx, unhealthy, expected):
+    from src.clinic.asr_fallback import FallbackTranscriptionConnector
+    rec = _recording(ctx)
+    job = _job(rec, {"clinic_asr": {"engine": PLAN_GPU}})
+    gpu, cpu = _connector(text="GPU Entwurf."), _connector(text="CPU Entwurf.")
+    cpu.config = {"base_url": "http://cpu.test"}
+    fallback = FallbackTranscriptionConnector(cpu, gpu, "http://gpu.test")
+    with patch.object(FallbackTranscriptionConnector, "_gpu_healthy", return_value=unhealthy):
+        _run(rec, fallback, job)
+    assert fallback.last_engine == expected
+    assert _actual(job) == expected
+    assert (gpu if expected == "gpu" else cpu).transcribe.call_count == 1
+    assert (cpu if expected == "gpu" else gpu).transcribe.call_count == 0

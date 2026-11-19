@@ -86,6 +86,7 @@ class FallbackTranscriptionConnector(BaseTranscriptionConnector):
         self._cpu = cpu
         self._gpu = gpu
         self._gpu_url = gpu_url
+        self.last_engine: Optional[str] = None
         self._cpu_url = cpu_url or str(getattr(cpu, 'config', {}).get('base_url') or 'cpu')
         self.config = cpu.config
         self.CAPABILITIES = cpu.CAPABILITIES
@@ -135,18 +136,23 @@ class FallbackTranscriptionConnector(BaseTranscriptionConnector):
         return request
 
     def transcribe(self, request: TranscriptionRequest) -> TranscriptionResponse:
+        self.last_engine = None
         reason = self._gpu_healthy()
         if reason is None:
             logger.info('ASR: sending job to GPU target %s', self._gpu_url)
             try:
-                return self._gpu.transcribe(self._gpu_request(request))
+                response = self._gpu.transcribe(self._gpu_request(request))
+                self.last_engine = 'gpu'
+                return response
             except TranscriptionError as exc:
                 reason = _fallback_reason(exc)
                 if reason is None:
                     raise
         self._log_fallback(reason)
         self._rewind(request)
-        return self._cpu.transcribe(request)
+        response = self._cpu.transcribe(request)
+        self.last_engine = 'cpu'
+        return response
 
     def list_models(self):
         return self._cpu.list_models()
