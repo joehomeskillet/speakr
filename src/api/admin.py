@@ -84,6 +84,7 @@ def admin():
                          inquire_mode_enabled=ENABLE_INQUIRE_MODE,
                          global_retention_days=_self.GLOBAL_RETENTION_DAYS,
                          is_group_admin_only=False,
+                         clinic_mode=clinic_mode_enabled(),
                          user_language=user_language)
 
 
@@ -112,6 +113,7 @@ def group_management():
                          title='Group Management',
                          groups_title=translate('nav.groupManagement', user_language),
                          global_retention_days=_self.GLOBAL_RETENTION_DAYS,
+                         clinic_mode=clinic_mode_enabled(),
                          user_language=user_language)
 
 
