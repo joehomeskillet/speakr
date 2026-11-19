@@ -1,0 +1,333 @@
+/**
+ * Source and live/batch ASR profile selection with explicit fallback state (w175).
+ *
+ * PAR-ASR-001, PAR-ASR-002, PAR-ASR-003, PAR-ASR-006, PAR-ASR-007, OWN-ASR-001.
+ * Reuses the clinic api client (static/js/clinic/api-client.js) and the status
+ * tokens (static/js/clinic/tokens.js). Server state lives only in memory:
+ * nothing is written to browser storage. The server revalidates every save;
+ * a stale version is reported and the state is reloaded on request.
+ *
+ * Server read shape (GET /asr-profiles), field names as assumed for the
+ * w104 route contract:
+ *   { version, profile: {id, name, version}, source: 'headset'|'recorder',
+ *     sources: [...], live_profile_id, batch_profile_id, profiles: [{id, name, mode}],
+ *     output_format: {container, codec, sample_rate},
+ *     engine: {configured: 'gpu'|'cpu', actual: 'gpu'|'cpu', reason},
+ *     prompts_enabled, wait: {offer_manual_after_s},
+ *     capabilities: {configured: [...], proven: [...]} }
+ *
+ * German labels go through the injected `t` (existing i18n mechanism, keys
+ * `clinic.asr.*`); the German default applies when a key is missing.
+ */
+
+import { surfaceFor } from './tokens.js';
+
+const BASE = '/asr-profiles';
+
+export const SOURCES = Object.freeze(['headset', 'recorder']);
+export const ENGINES = Object.freeze(['gpu', 'cpu']);
+const DEFAULT_OFFER_MANUAL_AFTER_S = 120;
+
+const LABELS = Object.freeze({
+    'clinic.asr.title': 'Spracherkennung',
+    'clinic.asr.profile': 'Serverprofil',
+    'clinic.asr.source': 'Quelle',
+    'clinic.asr.source.headset': 'Headset',
+    'clinic.asr.source.recorder': 'Recorder',
+    'clinic.asr.live': 'Live-Profil',
+    'clinic.asr.batch': 'Batch-Profil',
+    'clinic.asr.format': 'Ausgabeformat',
+    'clinic.asr.engine': 'Verwendete Erkennung',
+    'clinic.asr.engine.gpu': 'GPU',
+    'clinic.asr.engine.cpu': 'CPU',
+    'clinic.asr.fallback': 'Ausweichlösung aktiv: CPU statt GPU.',
+    'clinic.asr.prompts': 'Eingabehinweise (Prompts)',
+    'clinic.asr.prompts.off': 'Aus',
+    'clinic.asr.prompts.on': 'Ein',
+    'clinic.asr.configured': 'Konfiguriert',
+    'clinic.asr.proven': 'Nachgewiesen',
+    'clinic.asr.unproven': 'Nicht nachgewiesen',
+    'clinic.asr.manual': 'Manuell schreiben',
+    'clinic.asr.save': 'Übernehmen',
+    'clinic.asr.cancel': 'Abbrechen',
+    'clinic.asr.retry': 'Erneut versuchen',
+    'clinic.asr.reload': 'Neu laden',
+    'clinic.asr.saved': 'Gespeichert.',
+    'clinic.asr.removed': 'Die gewählte Auswahl ist nicht mehr verfügbar.',
+});
+
+const SERVER_MESSAGES = Object.freeze({
+    stale_version: 'Der Stand ist veraltet. Bitte neu laden.',
+    profile_not_found: 'Das Profil ist nicht mehr verfügbar.',
+});
+
+function str(value) {
+    return typeof value === 'string' ? value : '';
+}
+
+/**
+ * @param {{client: {request: Function, switchContext: Function},
+ *          t?: (key: string) => string}} deps
+ */
+export function createAsrProfilesController(deps) {
+    const client = deps.client;
+    const translate = typeof deps.t === 'function' ? deps.t : null;
+    const listeners = new Set();
+
+    function label(key) {
+        const text = translate ? translate(key) : key;
+        return text && text !== key ? text : (LABELS[key] || key);
+    }
+
+    function emptyServer() {
+        return {
+            version: 0, profile: null, source: 'headset', liveProfileId: null, batchProfileId: null,
+            profiles: [], output: null, engine: { configured: 'gpu', actual: 'gpu', reason: '' },
+            promptsEnabled: false, offerManualAfterS: DEFAULT_OFFER_MANUAL_AFTER_S,
+            configured: [], proven: [],
+        };
+    }
+
+    const state = {
+        loading: false,
+        busy: false,
+        error: null, // { outcome, code, message, retryable }
+        notice: null,
+        server: emptyServer(),
+        draft: { source: 'headset', liveProfileId: null, batchProfileId: null },
+    };
+
+    function emit() {
+        for (const fn of listeners) fn(state);
+    }
+
+    function fail(res) {
+        const code = res.code || null;
+        state.error = {
+            outcome: res.outcome, code,
+            message: SERVER_MESSAGES[code] || res.message,
+            retryable: res.outcome === 'network' || res.outcome === 'UNKNOWN',
+        };
+        return false;
+    }
+
+    function offered(mode) {
+        return state.server.profiles.filter((p) => p.mode === mode || p.mode === 'both').map((p) => p.id);
+    }
+
+    // Selections the server no longer offers are dropped from the draft.
+    function revalidate() {
+        const d = state.draft;
+        let removed = false;
+        if (d.liveProfileId !== null && !offered('live').includes(d.liveProfileId)) {
+            d.liveProfileId = null;
+            removed = true;
+        }
+        if (d.batchProfileId !== null && !offered('batch').includes(d.batchProfileId)) {
+            d.batchProfileId = null;
+            removed = true;
+        }
+        if (removed) state.notice = label('clinic.asr.removed');
+    }
+
+    async function load() {
+        state.loading = true;
+        state.error = null;
+        state.notice = null;
+        emit();
+        const res = await client.request(BASE);
+        state.loading = false;
+        if (res.outcome !== 'ok') {
+            fail(res);
+            emit();
+            return false;
+        }
+        const d = res.data || {};
+        const engine = d.engine || {};
+        const caps = d.capabilities || {};
+        const wait = d.wait || {};
+        const base = emptyServer();
+        state.server = {
+            version: d.version || 0,
+            profile: d.profile && typeof d.profile === 'object' ? d.profile : null,
+            source: SOURCES.includes(d.source) ? d.source : base.source,
+            liveProfileId: d.live_profile_id == null ? null : String(d.live_profile_id),
+            batchProfileId: d.batch_profile_id == null ? null : String(d.batch_profile_id),
+            profiles: Array.isArray(d.profiles)
+                ? d.profiles.map((p) => ({ id: String(p.id), name: str(p.name), mode: str(p.mode) })) : [],
+            output: d.output_format && typeof d.output_format === 'object' ? d.output_format : null,
+            engine: {
+                configured: ENGINES.includes(engine.configured) ? engine.configured : base.engine.configured,
+                actual: ENGINES.includes(engine.actual) ? engine.actual : base.engine.actual,
+                reason: str(engine.reason),
+            },
+            // Prompts stay off unless the server says otherwise.
+            promptsEnabled: d.prompts_enabled === true,
+            offerManualAfterS: Number.isInteger(wait.offer_manual_after_s) && wait.offer_manual_after_s >= 0
+                ? wait.offer_manual_after_s : DEFAULT_OFFER_MANUAL_AFTER_S,
+            configured: Array.isArray(caps.configured) ? caps.configured.map(String) : [],
+            proven: Array.isArray(caps.proven) ? caps.proven.map(String) : [],
+        };
+        state.draft = {
+            source: state.server.source,
+            liveProfileId: state.server.liveProfileId,
+            batchProfileId: state.server.batchProfileId,
+        };
+        revalidate();
+        emit();
+        return true;
+    }
+
+    function setSource(source) {
+        if (!SOURCES.includes(source)) return false;
+        state.draft.source = source;
+        emit();
+        return true;
+    }
+
+    function setProfile(mode, id) {
+        if (mode !== 'live' && mode !== 'batch') return false;
+        if (id !== null && !offered(mode).includes(String(id))) return false;
+        state.draft[mode === 'live' ? 'liveProfileId' : 'batchProfileId'] = id === null ? null : String(id);
+        emit();
+        return true;
+    }
+
+    async function save() {
+        const d = state.draft;
+        state.busy = true;
+        state.error = null;
+        emit();
+        const res = await client.request(BASE + '/selection', {
+            method: 'PUT',
+            body: {
+                source: d.source, live_profile_id: d.liveProfileId, batch_profile_id: d.batchProfileId,
+                expected_version: state.server.version,
+            },
+        });
+        state.busy = false;
+        if (res.outcome !== 'ok') {
+            fail(res);
+            emit();
+            return false;
+        }
+        const loaded = await load();
+        if (loaded) { state.notice = label('clinic.asr.saved'); emit(); }
+        return loaded;
+    }
+
+    function cancel() {
+        const s = state.server;
+        state.draft = { source: s.source, liveProfileId: s.liveProfileId, batchProfileId: s.batchProfileId };
+        state.error = null;
+        emit();
+    }
+
+    // Account or dictation change: abort in-flight calls, drop all state, reload.
+    async function switchContext(next) {
+        const n = next || {};
+        client.switchContext({ accountId: n.accountId, dictationId: n.dictationId });
+        state.server = emptyServer();
+        state.draft = { source: 'headset', liveProfileId: null, batchProfileId: null };
+        return load();
+    }
+
+    // The manual-correction action appears after the configured wait, or at
+    // once when ASR failed or was skipped. It never depends on ASR finishing.
+    function manualAction(asrStatus, waitedS) {
+        const failed = asrStatus === 'failed' || asrStatus === 'skipped';
+        const waiting = asrStatus === 'pending' || asrStatus === 'running';
+        const waited = Number.isInteger(waitedS) && waitedS >= state.server.offerManualAfterS;
+        return { visible: failed || (waiting && waited), label: label('clinic.asr.manual') };
+    }
+
+    function view(asrStatus, waitedS) {
+        const s = state.server;
+        const d = state.draft;
+        const fallback = s.engine.configured === 'gpu' && s.engine.actual === 'cpu';
+        const provenSet = new Set(s.proven);
+        const dirty = d.source !== s.source || d.liveProfileId !== s.liveProfileId || d.batchProfileId !== s.batchProfileId;
+        const choices = (mode) => offered(mode).map((id) => ({
+            value: id,
+            label: (s.profiles.find((p) => p.id === id) || {}).name || id,
+            selected: d[mode === 'live' ? 'liveProfileId' : 'batchProfileId'] === id,
+        }));
+        return {
+            title: label('clinic.asr.title'),
+            dirty,
+            profile: s.profile ? { id: str(s.profile.id), name: str(s.profile.name), version: s.profile.version } : null,
+            sources: SOURCES.map((v) => ({ value: v, label: label('clinic.asr.source.' + v), selected: d.source === v })),
+            live: choices('live'),
+            batch: choices('batch'),
+            output: s.output ? {
+                container: str(s.output.container), codec: str(s.output.codec), sampleRate: s.output.sample_rate,
+            } : null,
+            engine: {
+                configured: s.engine.configured,
+                actual: s.engine.actual,
+                label: label('clinic.asr.engine.' + s.engine.actual),
+                fallback,
+                fallbackLabel: fallback ? label('clinic.asr.fallback') : '',
+                reason: s.engine.reason,
+                surface: fallback ? surfaceFor('warning') : surfaceFor('success'),
+            },
+            prompts: { enabled: s.promptsEnabled, label: label('clinic.asr.prompts.' + (s.promptsEnabled ? 'on' : 'off')) },
+            capabilities: s.configured.map((name) => ({
+                name,
+                proven: provenSet.has(name),
+                label: provenSet.has(name) ? label('clinic.asr.proven') : label('clinic.asr.unproven'),
+            })),
+            manual: manualAction(asrStatus, waitedS),
+            error: state.error,
+            errorSurface: state.error ? surfaceFor('error') : null,
+            notice: state.notice,
+            a11y: {
+                role: 'form',
+                sourceGroup: { role: 'radiogroup', label: label('clinic.asr.source') },
+                alert: { role: 'alert', live: 'assertive' },
+                status: { role: 'status', live: 'polite' },
+                keys: { select: ['Enter', ' '], move: ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'], cancel: ['Escape'] },
+            },
+            labels: {
+                profile: label('clinic.asr.profile'), source: label('clinic.asr.source'),
+                live: label('clinic.asr.live'), batch: label('clinic.asr.batch'),
+                format: label('clinic.asr.format'), engine: label('clinic.asr.engine'),
+                prompts: label('clinic.asr.prompts'),
+                configured: label('clinic.asr.configured'), proven: label('clinic.asr.proven'),
+                save: label('clinic.asr.save'), cancel: label('clinic.asr.cancel'),
+                retry: label('clinic.asr.retry'), reload: label('clinic.asr.reload'),
+            },
+        };
+    }
+
+    // Arrow keys move within the source radio group (wraps); Escape cancels.
+    function onKeydown(event) {
+        const key = event && event.key;
+        if (key === 'Escape') {
+            cancel();
+            return true;
+        }
+        if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) return false;
+        const step = key === 'ArrowUp' || key === 'ArrowLeft' ? -1 : 1;
+        const next = SOURCES[(SOURCES.indexOf(state.draft.source) + step + SOURCES.length) % SOURCES.length];
+        return setSource(next);
+    }
+
+    return {
+        state, view, load, setSource, setProfile, save, cancel, switchContext, onKeydown,
+        subscribe(fn) {
+            listeners.add(fn);
+            return () => listeners.delete(fn);
+        },
+    };
+}
+
+/** Vue composable: reactive snapshot of the controller view (needs window.Vue). */
+export function useAsrProfiles(deps) {
+    const controller = createAsrProfilesController(deps);
+    const Vue = typeof window !== 'undefined' ? window.Vue : null;
+    if (!Vue) return { controller, view: null };
+    const view = Vue.shallowRef(controller.view());
+    controller.subscribe(() => { view.value = controller.view(); });
+    return { controller, view };
+}
