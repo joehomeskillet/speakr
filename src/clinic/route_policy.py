@@ -163,7 +163,7 @@ _CLINIC_IDENTITY = _split("""
     clinic_grants.read
     clinic_preferences.recipient_default clinic_preferences.recipient_resolve
     clinic_preferences.last_selection clinic_preferences.workstation_issue
-    clinic_preferences.workstation
+    clinic_preferences.workstation clinic_preferences.correction_mode
 """)
 
 _CLINIC_IDENTITY_ADMIN = _split("""

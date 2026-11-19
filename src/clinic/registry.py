@@ -42,6 +42,7 @@ MODEL_MODULES = (
     "archive_policy",
     "worklist_layout",
     "worklist_filters",
+    "correction_modes",
 )
 
 

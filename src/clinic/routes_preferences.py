@@ -22,7 +22,7 @@ from flask_login import current_user
 from flask_wtf.csrf import CSRFError, validate_csrf
 from wtforms.validators import ValidationError
 
-from src.clinic import pools, recipient_defaults as rd
+from src.clinic import correction_modes, pools, recipient_defaults as rd
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.last_selection import (
     Allowed,
@@ -48,7 +48,7 @@ _STATUS = {
     "unauthorized": 403, "untrusted_workstation": 403, "recipient_not_eligible": 403,
     "choice_disabled": 403, "person_not_allowed": 403, "capability_forbidden": 403,
     "stale_version": 409, "conflict": 409,
-    "selection_not_allowed": 422, "not_author_pool": 422,
+    "selection_not_allowed": 422, "not_author_pool": 422, "invalid_mode": 422, "bad_version": 422,
     "preference_read_failed": 503, "preference_write_failed": 503,
 }
 _TITLES = {400: "Ungültige Anfrage", 401: "Anmeldung erforderlich", 403: "Zugriff verweigert",
@@ -97,6 +97,7 @@ class PreferenceRoutes:
             ("/last-selection", "last_selection", self._last_selection, ("GET", "PUT")),
             ("/workstations", "workstation_issue", self._workstation_issue, ("POST",)),
             ("/workstations/<workstation_id>", "workstation", self._workstation, ("GET", "PUT")),
+            ("/correction-mode", "correction_mode", self._correction_mode, ("GET", "PUT")),
         ):
             bp.add_url_rule(PREFIX + rule, name, self._wrap(view), methods=list(methods))
 
@@ -122,6 +123,8 @@ class PreferenceRoutes:
             except StaleVersion as error:
                 return _problem("stale_version", current_version=error.version)
             except (rd.RecipientDefaultError, PreferenceError, LastSelectionError) as error:
+                return _problem(error.code)
+            except correction_modes.ModeError as error:
                 return _problem(error.code)
 
         run.__name__ = view.__name__
@@ -208,3 +211,14 @@ class PreferenceRoutes:
             current_user, workstation_id, body.get("changes"), expected_version=body.get("expected_version"),
         )
         return jsonify(version=version)
+
+    # -- correction playback mode (W6) --------------------------------------
+    def _correction_mode(self):
+        """Only the signed-in user's own row is read or written."""
+        actor = current_user.id
+        if request.method == "GET":
+            mode, version = correction_modes.get_mode(actor)
+            return jsonify(mode=mode, version=version)
+        body = _body()
+        mode, version = correction_modes.set_mode(actor, body.get("mode"), body.get("expected_version"))
+        return jsonify(mode=mode, version=version)
