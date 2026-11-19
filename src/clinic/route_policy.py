@@ -20,6 +20,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
+from src.clinic.config import clinic_mode_enabled
+
 PUBLIC = 'public'
 AUTH = 'auth'
 ADMIN = 'admin'
@@ -101,6 +103,46 @@ _AUTH = _split("""
     templates.create_default_templates templates.create_transcript_template
     templates.delete_transcript_template templates.get_transcript_templates
     templates.update_transcript_template
+""")
+
+# Registered by src/app.py only in clinic mode (register_clinic_resources), so they
+# are classified only then; the table never lists a route the app does not have.
+# Each handler acts on the caller's own or pool-scoped data; a body or query that
+# names a recording is decided by the guard like a view before the handler runs.
+_CLINIC_RESOURCES = _split("""
+    clinic_parity.execute
+    clinic_vocabulary.search clinic_vocabulary.export clinic_vocabulary.import_text
+    clinic_vocabulary.additions clinic_vocabulary.suppress clinic_vocabulary.reactivate
+    clinic_vocabulary_review.list_resource_vocabulary_reviews
+    clinic_vocabulary_review.undo_resource_vocabulary_review
+    clinic_commands.list_commands clinic_commands.list_pronunciations
+    clinic_commands.save_pronunciation_hint_endpoint
+    clinic_commands.get_pronunciation_capabilities clinic_commands.execute_command_endpoint
+""")
+
+# Worklist, workflow, history, template, category, regex and column handlers, mounted
+# by register_clinic_worklist in src/app.py only in clinic mode. Their URLs carry a
+# clinic dictation id (not a recording id), so the guard cannot resolve an object:
+# each handler authenticates the session, checks CSRF on writes and then decides the
+# object through the central policy (pool_policy.decide), failing closed.
+_CLINIC_WORKLIST = _split("""
+    clinic_worklist.rows clinic_worklist.own_filters clinic_worklist.own_filter
+    clinic_worklist.create_filter clinic_worklist.update_filter clinic_worklist.delete_filter
+    clinic_worklist.own_layout clinic_columns.own_layout
+    clinic_workflow.metadata clinic_workflow.release clinic_workflow.archive
+    clinic_history.get_history clinic_history.review_lease
+    clinic_templates.list_templates clinic_templates.get_template
+    clinic_templates.get_template_content clinic_templates.save_template
+    clinic_templates.assign_template_route clinic_templates.delete_template
+    clinic_categories.list_categories clinic_categories.check_categories
+    clinic_regex.preview clinic_regex.apply
+""")
+
+# ASR profile handlers (w104s), mounted by register_clinic_resources in clinic mode only.
+# The blueprint guard authenticates the session and checks CSRF on writes; each handler
+# acts on the caller's own profile only.
+_CLINIC_ASR = _split("""
+    clinic_asr_profiles.show clinic_asr_profiles.select
 """)
 
 _ADMIN = _split("""
@@ -239,7 +281,7 @@ def _build() -> dict[str, RouteRule]:
 
     for endpoint in _PUBLIC:
         add(endpoint, RouteRule(PUBLIC))
-    for endpoint in _AUTH:
+    for endpoint in _AUTH + ((_CLINIC_RESOURCES + _CLINIC_ASR + _CLINIC_WORKLIST) if clinic_mode_enabled() else ()):
         add(endpoint, RouteRule(AUTH))
     for endpoint in _ADMIN:
         add(endpoint, RouteRule(ADMIN))

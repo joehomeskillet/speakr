@@ -1116,6 +1116,171 @@ app.register_blueprint(recording_sessions_bp)
 app.register_blueprint(webhooks_bp)
 csrf.exempt(webhooks_bp)
 
+
+def register_clinic_resources(flask_app):
+    """Mount the clinic resource handlers (vocabulary, review, commands, parity).
+
+    Called at startup only in clinic mode, so upstream URL rules are unchanged
+    with it off. Every endpoint is classified in src/clinic/route_policy.py and
+    the handlers keep their own CSRF and session checks behind the clinic guard.
+    The parity dispatcher is mounted once; modules only register adapters.
+    """
+    from src.clinic import routes_asr_profiles, routes_commands, routes_vocabulary, routes_vocabulary_review
+    from src.clinic.parity_dispatch import ParityDispatch
+    from src.clinic.parity_receipts import run_once
+
+    dispatch = ParityDispatch(run_once)
+    routes_vocabulary_review.register_parity_review_handlers(dispatch)
+    routes_commands.register_commands_adapters(dispatch)
+    flask_app.register_blueprint(dispatch.blueprint)
+    flask_app.register_blueprint(routes_vocabulary.VocabularyApi(
+        lambda user_id, pool_id: routes_vocabulary_review.can_review_pool(user_id, pool_id)).blueprint)
+    flask_app.register_blueprint(routes_vocabulary_review.vocabulary_review_bp)
+    flask_app.register_blueprint(routes_commands.commands_blueprint)
+    flask_app.register_blueprint(routes_asr_profiles.create_asr_profiles_blueprint())
+    flask_app.extensions['clinic_parity_dispatch'] = dispatch
+    flask_app.extensions['clinic_run_once'] = run_once
+
+
+def register_clinic_worklist(flask_app):
+    """Mount the worklist, workflow, history, template, category, regex and column handlers.
+
+    Called at startup only in clinic mode, after register_clinic_resources, and reuses its
+    parity dispatcher and receipt runner. Object decisions go through pool_policy.decide.
+    Stores are process-local; release stays fail-closed until a trusted-context source and
+    the review-flag count (W11) exist, and the acceptance ledger starts as "required, no approver".
+    """
+    from datetime import datetime, timezone
+
+    from sqlalchemy import or_
+
+    from src.clinic import (policy, pool_policy, routes_categories, routes_columns, routes_history,
+                            routes_regex, routes_templates, routes_workflow, routes_worklist,
+                            workflow, workflow_metadata)
+    from src.clinic.acceptance_policy import SCOPE_DICTATION, AcceptanceLedger, PolicyError
+    from src.clinic.archive_policy import ArchiveBook
+    from src.clinic.metadata_changes import ChangeError
+    from src.clinic.models import ClinicDictation
+    from src.clinic.parity_dispatch import CommandProblem
+    from src.clinic.worklist_filters import WorklistFilterStore
+    from src.clinic.worklist_layout import LayoutStore
+    from src.models import Recording
+    from src.services import audit
+
+    dispatch = flask_app.extensions['clinic_parity_dispatch']
+    run_once = flask_app.extensions['clinic_run_once']
+    # Permission or action name -> central policy actions that must all be allowed.
+    needs = {
+        'clinic.metadata': ('edit',), 'clinic.archive': ('edit',), 'clinic.release': ('release',),
+        'clinic.review': ('edit', 'release'), 'clinic.accept': ('release',),
+        'clinic.reopen': ('release',), 'clinic.dictate': ('edit',), 'history': ('view',),
+        'review': ('edit', 'release'), 'regex_preview': ('edit',), 'regex_apply': ('edit',),
+        'rename': ('edit',), 'priority': ('edit',), 'reassign': ('edit', 'release'),
+    }
+
+    def may(user_id, name, dictation):
+        actions = needs.get(name)
+        if not actions or dictation is None:
+            return False
+        subject = policy.build_subject(user_id)
+        return all(pool_policy.decide(subject, action, dictation).allowed for action in actions)
+
+    def allowed_actions(user_id, dictation):
+        return {name for name in ('rename', 'priority', 'reassign') if may(user_id, name, dictation)}
+
+    def record_audit(rows):
+        changed = {}
+        for row in rows:
+            changed.setdefault((row['dictation_id'], row['actor_id']), []).append(row['field'])
+        for (dictation_id, actor), fields in changed.items():
+            dictation = db.session.get(ClinicDictation, dictation_id)
+            audit.record_in_tx('recording.edited', recording_id=dictation.recording_id,
+                               actor_kind='session', actor_user_id=actor, details={'fields': fields})
+
+    ledger = AcceptanceLedger()
+
+    def acceptance_policy(dictation):
+        try:
+            return ledger.current(SCOPE_DICTATION, dictation.id)
+        except PolicyError:
+            return ledger.publish(SCOPE_DICTATION, dictation.id, required=True,
+                                  approver_user_ids=(), now=datetime.now(timezone.utc))
+
+    def stamp(value):
+        if value is None:
+            return None
+        value = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc).isoformat().replace('+00:00', 'Z')
+
+    def load_entries(actor):
+        # Narrowed to the actor's own and assigned dictations; the live view policy still
+        # decides every row. Pool-lead and admin visibility (W12/W13) belongs to the admin overview.
+        item = workflow.ClinicWorkflowDictation
+        query = (db.session.query(ClinicDictation, item, Recording)
+                 .join(item, item.id == ClinicDictation.id)
+                 .join(Recording, Recording.id == ClinicDictation.recording_id)
+                 .filter(or_(ClinicDictation.author_user_id == actor, item.assignee_user_id == actor)))
+        return [routes_worklist.WorklistEntry(rec, dict(
+            dictation_id=dictation.id, title=rec.title or '', status=row.status,
+            author_user_id=dictation.author_user_id, priority=row.priority,
+            deadline_at=stamp(row.deadline_at), assignee_user_id=row.assignee_user_id,
+            assigned_at=None, notes=rec.notes or '', created_at=stamp(row.created_at),
+            duration_seconds=row.audio_seconds, recipient=None, source_kind='audio',
+            open_mode='author_case', revision=dictation.version_counter), dictation.pool_id)
+            for dictation, row, rec in query]
+
+    def assign_regex(actor, dictation_id, fields):
+        dictation = db.session.query(ClinicDictation).filter_by(id=dictation_id).with_for_update().first()
+        try:
+            applied = workflow_metadata.apply_metadata(
+                dictation_id=dictation.id, workflow_id=dictation.id, actor_user_id=actor,
+                expected_version=dictation.version_counter,
+                lease_generation=routes_workflow._generation(dictation.id), requested=fields,
+                allowed_actions=allowed_actions(actor, dictation), now=datetime.now(timezone.utc))
+            record_audit(applied.audit_rows)
+            db.session.commit()
+        except ChangeError as error:
+            db.session.rollback()
+            code = str(error)
+            raise CommandProblem('POLICY_DENIED' if code == 'forbidden'
+                                 else 'REVISION_CONFLICT' if code == 'stale_version' or code.startswith('lease_')
+                                 else 'INVALID_PAYLOAD') from error
+        except BaseException:
+            db.session.rollback()
+            raise
+        return {'dictation_id': dictation.id, 'version': applied.version}
+
+    layouts, filters = LayoutStore(), WorklistFilterStore()
+
+    def workflow_authorize(actor, permission, dictation):
+        return may(actor, permission, dictation)
+
+    routes_workflow.register_commands(dispatch, workflow_authorize, acceptance_policy)
+    routes_worklist.register_save_filter(dispatch, filters.create)
+    flask_app.register_blueprint(routes_worklist.create_blueprint(load_entries, filters, layouts))
+    flask_app.register_blueprint(routes_columns.create_columns_blueprint(
+        layouts, lambda _actor: (routes_worklist._DEFAULT_LAYOUT, routes_worklist.COLUMNS), run_once))
+    flask_app.register_blueprint(routes_workflow.create_blueprint(
+        authorize=workflow_authorize, run_once=run_once, allowed_actions=allowed_actions,
+        record_audit=record_audit, trusted_context=lambda _context: False,
+        open_review_flags=lambda _dictation, _head: 1, acceptance_policy=acceptance_policy,
+        job_type='clinic_finalize', book=ArchiveBook()))
+    flask_app.register_blueprint(routes_history.create_blueprint(
+        authorize=lambda user, action, dictation: may(user.id, action, dictation), run_once=run_once,
+        dictation_snapshot=lambda d: {'dictation_id': d.id, 'author_user_id': str(d.author_user_id),
+                                      'pool_id': d.pool_id}))
+    flask_app.register_blueprint(routes_templates.blueprint)
+    flask_app.register_blueprint(routes_categories.blueprint)
+    flask_app.register_blueprint(routes_regex.RegexApi(
+        lambda actor, action, dictation_id: may(actor, action, db.session.get(ClinicDictation, dictation_id)),
+        assign_regex).blueprint)
+
+
+from src.clinic.config import clinic_mode_enabled as _clinic_mode_enabled
+if _clinic_mode_enabled():
+    register_clinic_resources(app)
+    register_clinic_worklist(app)
+
 # PWA Web Share Target (issue #285): the native share sheet cannot round-trip
 # a CSRF token, so the share-target endpoint is exempted. Authentication still
 # happens via the session cookie carried by the browser; @login_required
