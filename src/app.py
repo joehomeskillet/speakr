@@ -1156,7 +1156,7 @@ def register_clinic_worklist(flask_app):
 
     from src.clinic import (policy, pool_policy, routes_categories, routes_columns, routes_history,
                             routes_regex, routes_templates, routes_workflow, routes_worklist,
-                            workflow, workflow_metadata)
+                            workflow, workflow_metadata, worklist_entries)
     from src.clinic.acceptance_policy import SCOPE_DICTATION, AcceptanceLedger, PolicyError
     from src.clinic.archive_policy import ArchiveBook
     from src.clinic.metadata_changes import ChangeError
@@ -1213,21 +1213,7 @@ def register_clinic_worklist(flask_app):
         return value.astimezone(timezone.utc).isoformat().replace('+00:00', 'Z')
 
     def load_entries(actor):
-        # Narrowed to the actor's own and assigned dictations; the live view policy still
-        # decides every row. Pool-lead and admin visibility (W12/W13) belongs to the admin overview.
-        item = workflow.ClinicWorkflowDictation
-        query = (db.session.query(ClinicDictation, item, Recording)
-                 .join(item, item.id == ClinicDictation.id)
-                 .join(Recording, Recording.id == ClinicDictation.recording_id)
-                 .filter(or_(ClinicDictation.author_user_id == actor, item.assignee_user_id == actor)))
-        return [routes_worklist.WorklistEntry(rec, dict(
-            dictation_id=dictation.id, title=rec.title or '', status=row.status,
-            author_user_id=dictation.author_user_id, priority=row.priority,
-            deadline_at=stamp(row.deadline_at), assignee_user_id=row.assignee_user_id,
-            assigned_at=None, notes=rec.notes or '', created_at=stamp(row.created_at),
-            duration_seconds=row.audio_seconds, recipient=None, source_kind='audio',
-            open_mode='author_case', revision=dictation.version_counter), dictation.pool_id)
-            for dictation, row, rec in query]
+        return worklist_entries.load_entries(actor)
 
     def assign_regex(actor, dictation_id, fields):
         dictation = db.session.query(ClinicDictation).filter_by(id=dictation_id).with_for_update().first()
@@ -1267,8 +1253,7 @@ def register_clinic_worklist(flask_app):
         job_type='clinic_finalize', book=ArchiveBook()))
     flask_app.register_blueprint(routes_history.create_blueprint(
         authorize=lambda user, action, dictation: may(user.id, action, dictation), run_once=run_once,
-        dictation_snapshot=lambda d: {'dictation_id': d.id, 'author_user_id': str(d.author_user_id),
-                                      'pool_id': d.pool_id}))
+        dictation_snapshot=worklist_entries.dictation_snapshot))
     flask_app.register_blueprint(routes_templates.blueprint)
     flask_app.register_blueprint(routes_categories.blueprint)
     flask_app.register_blueprint(routes_regex.RegexApi(
