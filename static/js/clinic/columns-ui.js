@@ -1,17 +1,12 @@
 /**
  * Metadata column definition editor and preview (PAR-CFG-005).
  *
- * SERVER DEPENDENCY (not part of this WP): on this branch the server exposes
- * neither GET /api/clinic/v1/metadata-fields nor a parity command
- * save_metadata_field (routes_columns.py serves only the worklist layout, and
- * ClinicMetadataField in presets.py has no route or command). The request and
- * payload shapes below (field_type, xml_path, version/expected_revision) are the
- * contract this UI expects, see SERVER_CONTRACT; w226 or another server WP must
- * provide it. Until then load() returns code "endpoint_missing" instead of
- * failing generically, and save() is unreachable because nothing loads.
- *
- * Definitions come from GET /api/clinic/v1/metadata-fields and are saved through
- * the parity command channel with the field version as expected revision.
+ * Server contract (src/clinic/routes_metadata_fields.py, registered by x29):
+ * definitions come from GET /api/clinic/v1/metadata-fields and are saved with
+ * PUT /api/clinic/v1/metadata-fields/<name> through api-client (no parity
+ * command). The version is an opaque content hash sent back as
+ * expected_version; HTTP 409 (stale_version) marks the row stale. If the
+ * endpoint is not registered yet, load() returns code "endpoint_missing".
  * Drafts apply the same bounds as src/clinic/routes_columns.py: display types
  * from DISPLAY_TYPES, field names matching the server identifier rule, and an
  * XML path restricted to plain element names (no DOCTYPE/entity, no axis,
@@ -26,12 +21,12 @@ import { surfaceFor } from './tokens.js';
 
 const FIELDS = '/metadata-fields';
 
-// Expected server contract; unimplemented on this branch (see header).
+// Server contract provided by src/clinic/routes_metadata_fields.py (x28).
 export const SERVER_CONTRACT = Object.freeze({
-    implemented: false,
-    dependency: 'w226',
+    implemented: true,
+    provider: 'x28',
     list: Object.freeze({ method: 'GET', path: '/api/clinic/v1' + FIELDS, item: Object.freeze(['name', 'label', 'field_type', 'xml_path', 'version']) }),
-    save: Object.freeze({ command: 'save_metadata_field', payload: Object.freeze(['name', 'label', 'field_type', 'xml_path']), expected_revision: 'version' }),
+    save: Object.freeze({ method: 'PUT', path: '/api/clinic/v1' + FIELDS + '/<name>', payload: Object.freeze(['label', 'field_type', 'xml_path']), expected: 'expected_version' }),
 });
 
 export const DISPLAY_TYPES = Object.freeze(['string', 'integer', 'decimal', 'boolean', 'date', 'datetime']);
@@ -73,6 +68,7 @@ const REASONS = Object.freeze({
     unauthorized: 'Keine Berechtigung für diese Spalte.',
     stale_version: 'Der Stand ist veraltet. Bitte neu laden.',
     permission: 'Keine Berechtigung für diese Aktion.',
+    validation: 'Die Eingabe wurde vom Server abgelehnt.',
     failure: 'Das Speichern ist fehlgeschlagen.',
     endpoint_missing: 'Die Spaltendefinitionen sind serverseitig noch nicht verfügbar.',
 });
@@ -88,12 +84,6 @@ export function escapeHtml(value) {
 
 function refuse(code) {
     return { ok: false, code: code, message: REASONS[code] || REASONS.failure };
-}
-
-function newKey() {
-    const c = globalThis.crypto;
-    if (c && typeof c.randomUUID === 'function') return c.randomUUID();
-    return 'col-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
 }
 
 /**
@@ -222,24 +212,18 @@ export function createColumnsEditor(options) {
         if (refusal) return refusal;
         if (row.stale) return refuse('stale_version');
         setStatus('processing');
-        const key = newKey();
-        const result = await client.command(
-            {
-                command: 'save_metadata_field',
-                request_id: key,
-                expected_revision: row.version,
-                payload: {
-                    name: row.name,
-                    label: row.label,
-                    field_type: row.displayType,
-                    xml_path: row.xmlPath || null,
-                },
+        const result = await client.request(FIELDS + '/' + row.name, {
+            method: 'PUT',
+            body: {
+                label: row.label,
+                field_type: row.displayType,
+                xml_path: row.xmlPath || null,
+                expected_version: row.version,
             },
-            { idempotencyKey: key, ifMatch: '"' + row.version + '"' },
-        );
+        });
         if (result.outcome === 'ok') {
             const data = result.data || {};
-            if (Number.isInteger(data.revision)) row.version = data.revision;
+            if (typeof data.version === 'string') row.version = data.version;
             row.saved = { label: row.label, displayType: row.displayType, xmlPath: row.xmlPath };
             setStatus('success');
             return { ok: true };
@@ -248,6 +232,10 @@ export function createColumnsEditor(options) {
             row.stale = true;
             setStatus('warning');
             return refuse('stale_version');
+        }
+        if (result.outcome === 'validation') {
+            setStatus('error');
+            return refuse('validation');
         }
         setStatus(result.outcome === 'permission' ? 'warning' : 'error');
         return refuse(result.outcome === 'permission' ? 'permission' : 'failure');
