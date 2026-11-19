@@ -81,8 +81,9 @@ SPEAKER_MAP = {'SPEAKER_00': {'name': 'Synthetic Author'}}
 def test_create_speaker_snippets_writes_nothing_in_clinic_mode(clinic_on, saved_recording):
     rec_id, old_id = saved_recording
     assert create_speaker_snippets(rec_id, SPEAKER_MAP) == 0
-    # No new row, and the old row is kept (cleanup is w055/w123, not this package).
-    assert [s.id for s in SpeakerSnippet.query.all()] == [old_id]
+    # No new row; the recording's stale row is dropped (w122 path, owner-approved 2026-11-18).
+    assert old_id is not None
+    assert [s.id for s in SpeakerSnippet.query.all()] == []
     assert Speaker.query.count() == 1
 
 

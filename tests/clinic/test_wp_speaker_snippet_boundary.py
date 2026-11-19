@@ -110,7 +110,8 @@ def test_save_and_queued_paths_recreate_nothing_after_purge(env, clinic_on, monk
     rec.transcription = json.dumps([dict(t, speaker='SPEAKER_00') if t['speaker'] == NAME else t for t in TURNS])
     db.session.commit()
     monkeypatch.setattr(sid, 'identify_speakers_from_transcript', lambda *a, **k: {'SPEAKER_00': NAME})
-    assert sid.apply_contextual_auto_labels(rec, user) == {'SPEAKER_00': NAME}
+    # x10 (owner rule): in clinic mode contextual naming names nobody.
+    assert sid.apply_contextual_auto_labels(rec, user) == {}
 
     assert SpeakerSnippet.query.count() == 0
     assert purge.purge_upstream_voice(actor_user_id=admin_id).counts['speaker_snippet'] == 0
