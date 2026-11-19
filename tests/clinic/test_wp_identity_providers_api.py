@@ -300,7 +300,12 @@ def test_link_request_authorization_and_retry_cases(world, config, key):
         patch.setattr(intents, "approve_link", lambda *a, **k: (_ for _ in ()).throw(TimeoutError("down")))
         failed = admin_client.post(url % target, headers=admin_headers, json=body)
     assert (failed.status_code, failed.json["code"]) == (503, "DEPENDENCY_UNAVAILABLE")
+    with main_app.app_context():
+        assert AuditEvent.query.filter_by(event="auth.sso.link_requested", target_user_id=target).count() == 0  # refused paths leave no row
     assert admin_client.post(url % target, headers=admin_headers, json=body).status_code == 201
+    with main_app.app_context():
+        rows = AuditEvent.query.filter_by(event="auth.sso.link_requested", target_user_id=target).all()
+        assert [(r.actor_user_id, r.target_user_id) for r in rows] == [(admin, target)]
     monkeypatch.setenv("CLINIC_MODE", "0")
     assert client.get(BASE).status_code == 404
 

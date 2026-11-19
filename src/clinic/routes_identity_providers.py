@@ -195,6 +195,8 @@ class IdentityProvidersApi:
                 raise entra.LinkError("not_authorized")  # x07: no web path onto another admin
             request_id = intents.approve_link(self._entra, user_id=user_id, requested_by=actor.id,
                                               object_id=object_id, expected_version=version)
+            audit.record_in_tx('auth.sso.link_requested', actor_user_id=actor.id, target_user_id=user_id)
+            db.session.commit()
         except identity.AuthenticationFailed:
             return _problem("FORBIDDEN")
         except Exception as error:

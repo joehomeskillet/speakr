@@ -35,6 +35,7 @@ A row has no link to the recording, the account or the group it names. The rows 
 | `auth.logout` | A signed-in user signed out | |
 | `auth.password.changed` | A user changed the password of the own account | |
 | `auth.sso.linked`, `auth.sso.unlinked` | An account was linked to, or unlinked from, the SSO provider | |
+| `auth.sso.link_requested` | An identity admin approved a one-time request to link an account to the SSO provider | |
 | `token.created`, `token.changed`, `token.revoked` | An API token was created, renamed or narrowed, or revoked | `token_id`, `scopes`, `expires`, `sso_client_id` |
 | `token.first_used` | An API token was used for the first time | `token_id` |
 
