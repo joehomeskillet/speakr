@@ -11,7 +11,6 @@ live in the tables declared here (``src/models/user.py`` is untouched).
   voided by a newer code, a password change or a disable.
 * No password, code or hash in a log line or an exception message.
 
-Login routes, audit events and the login lock are wired in a later package.
 Call ``create_tables`` (or import this module before ``db.create_all()``).
 """
 
@@ -28,12 +27,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 import bcrypt as _bcrypt
-from sqlalchemy import CheckConstraint, update
+from sqlalchemy import CheckConstraint, select, update
 from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from src.database import db
 from src.models import User
+from src.services import audit, login_lock
 
 logger = logging.getLogger(__name__)
 
@@ -309,14 +309,16 @@ def _hash_code(code):
     return hashlib.sha256(code.encode("utf-8")).hexdigest()
 
 
-def _checked_email(username, email):
+def _checked_email(username, email, *, user_id=None):
     """Normalised email; IdentityConflict for invalid or taken username/email."""
-    if not isinstance(username, str) or not 2 <= len(username) <= 20:
+    if not isinstance(username, str) or len(username) > 20 or len(username.strip()) < 2 or '\x00' in username:
         raise IdentityConflict("invalid_username")
-    email = User.normalize_email(email)
-    if not email or len(email) > 120 or not _EMAIL_RE.match(email):
+    email = User.normalize_email(email) if isinstance(email, str) else None
+    if not email or len(email) > 120 or '\x00' in email or not _EMAIL_RE.fullmatch(email):
         raise IdentityConflict("invalid_email")
-    if User.query.filter_by(username=username).first() or User.find_by_email(email):
+    if any(existing is not None and existing.id != user_id for existing in (
+        User.query.filter_by(username=username).first(), User.find_by_email(email),
+    )):
         raise IdentityConflict("duplicate")
     return email
 
@@ -334,20 +336,29 @@ def _new_user(username, email, name, password_hash, is_admin):
 
 # --- user lifecycle ---
 
-def create_local_user(username, email, *, name=None, actor_id=None, now=None):
+def create_local_user(username, email, *, name=None, actor_id=None, now=None, profile=None,
+                      actor_security_version=None):
     """Administrator creates a user: pending_activation, local_only, no password.
 
     Activation runs through ``issue_recovery`` and ``complete_recovery``.
     Raises IdentityConflict for invalid or duplicate username/email.
     """
     now = now or _utcnow()
+    if actor_security_version is not None:
+        _locked_account(actor_id)
+        _authorize_admin(actor_id, actor_security_version)
     email = _checked_email(username, email)
     try:
         user = _new_user(username, email, name, None, False)
+        for field, value in (profile or {}).items():
+            if field in _PROFILE_FIELDS:
+                setattr(user, field, value)
         db.session.add(ClinicAccountPolicy(
             user_id=user.id, status="pending_activation", login_policy="local_only",
             created_at=now, updated_at=now,
         ))
+        audit.record_in_tx('admin.user.created', actor_user_id=actor_id, target_user_id=user.id,
+                           details={'username': user.username, 'is_admin': False})
         db.session.commit()
     except IntegrityError:
         db.session.rollback()
@@ -363,7 +374,49 @@ def _other_local_admins(user_id):
         .filter(ClinicAccountPolicy.is_identity_admin.is_(True), ClinicAccountPolicy.user_id != user_id)
         .all()
     )
-    return [u.id for p, u in rows if _local_eligible(p, u)]
+    return [u.id for p, u in rows if _local_eligible(p, u) and not p.must_change_password]
+
+
+def _locked_account(user_id, *, protect_admins=False, actor_id=None):
+    """Serialize policy writers; admin-removal paths lock in the same order as Entra linking."""
+    target = ClinicAccountPolicy.user_id == user_id
+    if actor_id is not None:
+        target |= ClinicAccountPolicy.user_id == actor_id
+    constraint = target | ClinicAccountPolicy.is_identity_admin.is_(True) if protect_admins else target
+    rows = db.session.scalars(select(ClinicAccountPolicy).where(constraint)
+                              .order_by(ClinicAccountPolicy.user_id).with_for_update()
+                              .execution_options(populate_existing=True)).all()
+    policy = next((row for row in rows if row.user_id == user_id), None)
+    user = db.session.get(User, user_id, populate_existing=True)
+    if not policy or not user:
+        raise IdentityDenied('no_account_policy')
+    return user, policy
+
+
+def _authorize_admin(actor_id, security_version):
+    policy = db.session.get(ClinicAccountPolicy, actor_id, populate_existing=True)
+    user = db.session.get(User, actor_id, populate_existing=True)
+    if (not _local_eligible(policy, user) or not policy.is_identity_admin or not user.is_admin
+            or policy.must_change_password or policy.security_version != security_version):
+        raise IdentityDenied('unauthorized')
+
+
+def _protect_last_admin(user, policy):
+    if policy.is_identity_admin and _local_eligible(policy, user) and not _other_local_admins(user.id):
+        raise LastAdminProtected('last_local_identity_admin')
+
+
+def _apply_status(user, policy, status, now):
+    if status == 'disabled':
+        if policy.status != 'disabled':
+            policy.status = 'disabled'
+            _revoke_open_codes(user.id, now)
+    elif status == 'active':
+        if policy.status != 'disabled':
+            raise IdentityDenied('not_disabled')
+        policy.status = 'active' if user.password or policy.login_policy not in LOCAL_POLICIES else 'pending_activation'
+    else:
+        raise IdentityDenied('invalid_status')
 
 
 def set_status(user_id, new_status, *, actor_id=None, expected_version=None, now=None):
@@ -376,29 +429,102 @@ def set_status(user_id, new_status, *, actor_id=None, expected_version=None, now
     if new_status not in ("active", "disabled"):
         raise IdentityDenied("invalid_status")
     now = now or _utcnow()
-    user, policy = _account(user_id)
+    user, policy = _locked_account(user_id, protect_admins=True)
     _check_version(policy, expected_version)
-    if new_status == "disabled":
-        if policy.status == "disabled":
-            return policy
-        if policy.is_identity_admin and _local_eligible(policy, user) and not _other_local_admins(user_id):
-            raise LastAdminProtected("last_local_identity_admin")
-        policy.status = "disabled"
-        _revoke_open_codes(user_id, now)
+    _save_account(user, policy, actor_id=actor_id, status=new_status, now=now)
+    return policy
+
+
+_PROFILE_FIELDS = frozenset({'name', 'storage_quota_mb', 'monthly_token_budget',
+                             'monthly_transcription_budget'})
+
+
+def update_local_account(user_id, *, actor_id, expected_version, changes, actor_security_version=None):
+    """Apply one validated edit, including role changes and verified Entra conversion."""
+    if type(expected_version) is not int:
+        raise VersionConflict('version_conflict')
+    try:
+        user, policy = _locked_account(user_id, protect_admins=True, actor_id=actor_id)
+        if actor_security_version is not None:
+            _authorize_admin(actor_id, actor_security_version)
+        _check_version(policy, expected_version)
+        _save_account(user, policy, actor_id=actor_id, now=_utcnow(), **changes)
+    except IdentityError:
+        db.session.rollback()
+        raise
+    except IntegrityError:
+        db.session.rollback()
+        raise IdentityConflict('duplicate') from None
+    return user, policy
+
+
+def _save_account(user, policy, *, actor_id, now, status=None, is_admin=None, is_identity_admin=None,
+                  login_policy=None, profile=None, unlock_login=False, create_groups_granted=None):
+    changed = []
+    revoke = False
+    if status == 'disabled' or is_identity_admin is False or is_admin is False \
+            or (login_policy == 'entra_only' and policy.login_policy != login_policy):
+        _protect_last_admin(user, policy)
+    if login_policy is not None and login_policy != policy.login_policy:
+        from src.clinic.entra import ClinicExternalIdentity
+
+        if (login_policy != 'entra_only' or policy.status != 'active' or status == 'disabled'
+                or not ClinicExternalIdentity.query.filter_by(user_id=user.id, status='active').first()):
+            raise IdentityDenied('login_policy_not_permitted')
+        policy.login_policy = login_policy
+        user.password = None
+        policy.must_change_password = False
+        _revoke_open_codes(user.id, now)
+        changed.append('login_policy')
+        revoke = True
+    if status is not None:
+        previous = policy.status
+        _apply_status(user, policy, status, now)
+        if previous != policy.status:
+            changed.append('status')
+            revoke = revoke or status == 'disabled'
+    if is_admin is not None:
+        if is_admin is False and is_identity_admin is None:
+            is_identity_admin = False
+        if user.is_admin != is_admin:
+            audit.record_in_tx('admin.user.role_changed', actor_user_id=actor_id, target_user_id=user.id,
+                               details={'old': bool(user.is_admin), 'new': is_admin})
+            user.is_admin = is_admin
+            changed.append('is_admin')
+            revoke = True
+    if is_identity_admin is not None and policy.is_identity_admin != is_identity_admin:
+        policy.is_identity_admin = is_identity_admin
+        changed.append('is_identity_admin')
+        revoke = True
+    if profile:
+        username = profile.get('username', user.username)
+        email = _checked_email(username, profile.get('email', user.email), user_id=user.id)
+        for field, value in (profile | {'username': username, 'email': email}).items():
+            if field in _PROFILE_FIELDS | {'username', 'email'} and value != getattr(user, field):
+                setattr(user, field, value)
+                changed.append(field)
+    if create_groups_granted is not None:
+        from src.auth.permissions import CREATE_GROUPS, set_user_grant, user_has_grant
+
+        if create_groups_granted != user_has_grant(CREATE_GROUPS, user.id):
+            set_user_grant(CREATE_GROUPS, user.id, create_groups_granted)
+            changed.append('create_groups_granted')
+    if unlock_login:
+        login_lock.clear_failures(user.id)
+        audit.record_in_tx('admin.user.unlocked', actor_user_id=actor_id, target_user_id=user.id)
+    if changed:
+        audit.record_in_tx('admin.user.changed', actor_user_id=actor_id, target_user_id=user.id,
+                           details={'fields': sorted(changed)})
+    if revoke:
         _bump_security(user, policy)
-    else:
-        if policy.status != "disabled":
-            raise IdentityDenied("not_disabled")
-        policy.status = "active" if user.password else "pending_activation"
+    elif changed or unlock_login:
         policy.version += 1
     db.session.commit()
-    logger.info("clinic identity: user %s set to %s by %s", user_id, policy.status, actor_id)
-    return policy
 
 
 def revoke_sessions(user_id, *, actor_id=None, expected_version=None):
     """Raise the security version; later session checks compare against it."""
-    user, policy = _account(user_id)
+    user, policy = _locked_account(user_id)
     _check_version(policy, expected_version)
     _bump_security(user, policy)
     db.session.commit()
@@ -423,7 +549,7 @@ class IssuedCode:
     expires_at: datetime
 
 
-def issue_recovery(user_id, *, issued_by, expected_version=None, now=None):
+def issue_recovery(user_id, *, issued_by, expected_version=None, now=None, actor_security_version=None):
     """One-time code for a pending (activate_local) or active local (reset_local) user.
 
     Status and login policy never change; disabled, entra_only and
@@ -432,7 +558,18 @@ def issue_recovery(user_id, *, issued_by, expected_version=None, now=None):
     become void.
     """
     now = now or _utcnow()
-    user, policy = _account(user_id)
+    user, policy = _locked_account(user_id, protect_admins=actor_security_version is not None,
+                                   actor_id=issued_by if actor_security_version is not None else None)
+    if actor_security_version is not None:
+        _authorize_admin(issued_by, actor_security_version)
+        if user_id != issued_by and (policy.is_identity_admin or user.is_admin):
+            # Peer takeover guard: admin accounts are recovered only via the server operator CLI.
+            audit.record_in_tx('admin.user.changed', actor_user_id=issued_by, target_user_id=user_id,
+                               details={'fields': ['recovery_refused']})
+            db.session.commit()
+            raise IdentityDenied('admin_recovery_forbidden')
+        if policy.status == 'active':
+            _protect_last_admin(user, policy)
     if policy.login_policy not in LOCAL_POLICIES or policy.status not in ("pending_activation", "active"):
         raise IdentityDenied("recovery_not_permitted")
     _check_version(policy, expected_version)
@@ -448,9 +585,44 @@ def issue_recovery(user_id, *, issued_by, expected_version=None, now=None):
         _bump_security(user, policy)
     else:
         policy.version += 1
+    audit.record_in_tx('admin.user.changed', actor_user_id=issued_by, target_user_id=user_id,
+                       details={'fields': [purpose]})
     db.session.commit()
     logger.info("clinic identity: %s code issued for user %s by %s", purpose, user_id, issued_by)
     return IssuedCode(code=code, purpose=purpose, expires_at=now + RECOVERY_TTL)
+
+
+ACCOUNT_LOCK_KEY = 'account-wide'  # login_lock address for failures from any client
+ACCOUNT_LOCK_FACTOR = 4  # account-wide threshold = factor * per-client threshold
+
+
+def _client_lock_key():
+    from flask import has_request_context, request
+
+    return login_lock.client_key(request.remote_addr) if has_request_context() else 'internal'
+
+
+def account_locked(user_id, client=None):
+    """True while the account is locked for this client or account-wide."""
+    maximum, _ = login_lock.lock_settings()
+    client = client or _client_lock_key()
+    return bool(maximum) and (login_lock.is_locked(user_id, client)
+                              or login_lock.is_locked(user_id, ACCOUNT_LOCK_KEY))
+
+
+def record_account_failure(user_id, client=None):
+    """Count one wrong secret per client and account-wide (higher threshold)."""
+    maximum, minutes = login_lock.lock_settings()
+    if not maximum:
+        return
+    login_lock.record_failure(user_id, client or _client_lock_key(), maximum, minutes)
+    login_lock.record_failure(user_id, ACCOUNT_LOCK_KEY, maximum * ACCOUNT_LOCK_FACTOR, minutes)
+
+
+def clear_account_failures(user_id, client=None):
+    """Forget this client's failures and the account-wide count. The caller commits."""
+    login_lock.clear_failures(user_id, client or _client_lock_key())
+    login_lock.clear_failures(user_id, ACCOUNT_LOCK_KEY)
 
 
 def _apply_new_password(user, policy, password, now):
@@ -462,7 +634,7 @@ def _apply_new_password(user, policy, password, now):
     _bump_security(user, policy)
 
 
-def complete_recovery(code, new_password, *, now=None):
+def complete_recovery(code, new_password, *, purpose=None, now=None):
     """Redeem a code and set the password: no login, no re-enabling, no policy change.
 
     Consuming is one conditional UPDATE, so of two parallel redemptions only
@@ -473,8 +645,13 @@ def complete_recovery(code, new_password, *, now=None):
     if not isinstance(code, str) or not 20 <= len(code) <= 128:
         raise InvalidRecoveryCode()
     row = ClinicLocalRecovery.query.filter_by(token_hash=_hash_code(code)).first()
-    if row is None:
+    if row is None or (purpose is not None and row.purpose != purpose):
         raise InvalidRecoveryCode()
+    try:
+        user, policy = _locked_account(row.user_id)
+    except IdentityDenied:
+        db.session.rollback()
+        raise InvalidRecoveryCode() from None
     consumed = db.session.execute(
         update(ClinicLocalRecovery)
         .where(
@@ -486,7 +663,6 @@ def complete_recovery(code, new_password, *, now=None):
         .values(consumed_at=now),
         execution_options={"synchronize_session": False},
     ).rowcount
-    policy, user = _policy(row.user_id), db.session.get(User, row.user_id)
     wanted = {"activate_local": "pending_activation", "reset_local": "active"}[row.purpose]
     if consumed != 1 or policy is None or user is None or policy.status != wanted \
             or policy.login_policy not in LOCAL_POLICIES:
@@ -499,21 +675,36 @@ def complete_recovery(code, new_password, *, now=None):
         raise
     if row.purpose == "activate_local":
         policy.status = "active"
+    login_lock.clear_failures(user.id)
+    audit.record_in_tx('auth.password.changed', target_user_id=user.id)
     db.session.commit()
     logger.info("clinic identity: %s completed for user %s", row.purpose, user.id)
 
 
-def change_password(user_id, current_password, new_password, *, now=None):
+def change_password(user_id, current_password, new_password, *, now=None, expected_security_version=None):
     """Self service change: needs the current password; voids codes, ends sessions."""
     now = now or _utcnow()
-    user, policy = db.session.get(User, user_id), _policy(user_id)
-    if not _local_eligible(policy, user):
+    try:
+        user, policy = _locked_account(user_id)
+    except IdentityDenied:
+        raise AuthenticationFailed() from None
+    if (not _local_eligible(policy, user) or (expected_security_version is not None
+            and (policy.must_change_password or policy.security_version != expected_security_version))):
+        raise AuthenticationFailed()
+    if account_locked(user.id):
         raise AuthenticationFailed()
     if not verify_password(user.password, current_password)[0]:
+        audit.record_in_tx('auth.login.failed', actor_user_id=user.id, target_user_id=user.id, outcome='failed',
+                           details={'reason': 'bad_current_password', 'method': 'password_change'})
+        db.session.commit()
+        record_account_failure(user.id)
         raise AuthenticationFailed()
     _apply_new_password(user, policy, new_password, now)
+    audit.record_in_tx('auth.password.changed', target_user_id=user.id)
+    security_version = policy.security_version
     db.session.commit()
     logger.info("clinic identity: password changed for user %s", user_id)
+    return security_version
 
 
 # --- authentication ---
@@ -525,10 +716,12 @@ class AuthResult:
     must_change_password: bool
 
 
-def _find_user(login_id):
-    if not isinstance(login_id, str) or not login_id or len(login_id) > 120:
+def find_login_user(login_id):
+    if not isinstance(login_id, str) or not login_id or len(login_id) > 120 or '\x00' in login_id:
         return None
-    return User.query.filter_by(username=login_id).first() or User.find_by_email(login_id)
+    by_name = User.query.filter_by(username=login_id).first()
+    by_email = User.find_by_email(login_id) if '@' in login_id else None
+    return None if by_name and by_email and by_name.id != by_email.id else by_name or by_email
 
 
 def authenticate_local(login_id, password):
@@ -539,8 +732,13 @@ def authenticate_local(login_id, password):
     ends in the same exception. A legacy or weaker hash is replaced by the
     current scheme after a successful check.
     """
-    user = _find_user(login_id)
-    policy = _policy(user.id) if user else None
+    user = find_login_user(login_id)
+    policy = None
+    if user is not None:
+        try:
+            user, policy = _locked_account(user.id)
+        except IdentityDenied:
+            pass
     if (
         not _local_eligible(policy, user)
         or not isinstance(password, str)
@@ -551,10 +749,11 @@ def authenticate_local(login_id, password):
     ok, needs_rehash = verify_password(user.password, password)
     if not ok:
         raise AuthenticationFailed()
+    result = AuthResult(user.id, policy.security_version, bool(policy.must_change_password))
     if needs_rehash:
         user.password = hash_password(password)
         db.session.commit()
-    return AuthResult(user.id, policy.security_version, bool(policy.must_change_password))
+    return result
 
 
 # --- bootstrap ---
