@@ -1242,6 +1242,17 @@ def register_clinic_worklist(flask_app):
     def workflow_authorize(actor, permission, dictation):
         return may(actor, permission, dictation)
 
+    def context_is_trusted(context):
+        # Configured adapter: app.extensions['clinic_kis_adapter'] if set, MockKIS (synthetic)
+        # on the staging profile, else DisabledAdapter (production keeps finalize closed).
+        from src.clinic.kis import DisabledAdapter, MockKisAdapter
+        adapter = flask_app.extensions.get('clinic_kis_adapter')
+        if adapter is None:
+            staging = os.environ.get('CLINIC_PROFILE', '').strip().lower() == 'staging'
+            adapter = flask_app.extensions.setdefault(
+                'clinic_kis_adapter', MockKisAdapter() if staging else DisabledAdapter())
+        return finalize_gates.trusted_context(context, adapter)
+
     routes_workflow.register_commands(dispatch, workflow_authorize, acceptance_policy)
     routes_worklist.register_save_filter(dispatch, filters.create)
     flask_app.register_blueprint(routes_worklist.create_blueprint(load_entries, filters, layouts))
@@ -1249,7 +1260,7 @@ def register_clinic_worklist(flask_app):
         layouts, lambda _actor: (routes_worklist._DEFAULT_LAYOUT, routes_worklist.COLUMNS), run_once))
     flask_app.register_blueprint(routes_workflow.create_blueprint(
         authorize=workflow_authorize, run_once=run_once, allowed_actions=allowed_actions,
-        record_audit=record_audit, trusted_context=lambda _context: False,
+        record_audit=record_audit, trusted_context=context_is_trusted,
         open_review_flags=finalize_gates.open_review_flags, acceptance_policy=acceptance_policy,
         job_type='clinic_finalize', book=ArchiveBook()))
     flask_app.register_blueprint(routes_history.create_blueprint(
@@ -1275,6 +1286,7 @@ def register_clinic_identity(flask_app):
     from src.clinic import (entra, pool_policy, routes_admin_dictations, routes_directory, routes_grants,
                             routes_identity_providers, routes_pools, routes_preferences)
     from src.clinic.last_selection import Allowed, SelectionStore
+    from src.clinic.routes_metadata_fields import create_metadata_fields_blueprint
     from src.clinic.workstation_preferences import WorkstationPreferences
 
     assert 'clinic_parity_dispatch' in flask_app.extensions, 'register_clinic_resources must run first'
@@ -1299,6 +1311,7 @@ def register_clinic_identity(flask_app):
     flask_app.register_blueprint(routes_admin_dictations.blueprint)
     flask_app.register_blueprint(routes_pools.blueprint)
     flask_app.register_blueprint(routes_grants.GrantsApi().blueprint)
+    flask_app.register_blueprint(create_metadata_fields_blueprint())
     flask_app.register_blueprint(routes_preferences.PreferenceRoutes(
         allowed_for=allowed_for, author_pool_for=author_pool_for,
         selections=SelectionStore(), workstations=WorkstationPreferences()).blueprint)
