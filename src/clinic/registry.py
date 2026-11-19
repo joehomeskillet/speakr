@@ -37,6 +37,7 @@ MODEL_MODULES = (
     "import_source_config",
     "context_grants",
     "audio_invalidation",
+    "parity_receipts",
 )
 
 

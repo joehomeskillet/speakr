@@ -1125,29 +1125,9 @@ def register_clinic_resources(flask_app):
     the handlers keep their own CSRF and session checks behind the clinic guard.
     The parity dispatcher is mounted once; modules only register adapters.
     """
-    import threading
-
-    from src.clinic import routes_commands, routes_vocabulary, routes_vocabulary_review
-    from src.clinic.parity_dispatch import CommandProblem, ParityDispatch
-
-    receipts, lock = {}, threading.RLock()
-
-    def run_once(scope, digest, operation):
-        # Process-local receipts; a durable shared store is a later package.
-        with lock:
-            saved = receipts.get(scope)
-            if saved is not None:
-                if saved[0] != digest:
-                    raise CommandProblem('IDEMPOTENCY_CONFLICT')
-                return saved[1]
-            try:
-                result = operation()
-                db.session.commit()
-            except BaseException:
-                db.session.rollback()
-                raise
-            receipts[scope] = (digest, result)
-            return result
+    from src.clinic import routes_asr_profiles, routes_commands, routes_vocabulary, routes_vocabulary_review
+    from src.clinic.parity_dispatch import ParityDispatch
+    from src.clinic.parity_receipts import run_once
 
     dispatch = ParityDispatch(run_once)
     routes_vocabulary_review.register_parity_review_handlers(dispatch)
@@ -1157,6 +1137,7 @@ def register_clinic_resources(flask_app):
         lambda user_id, pool_id: routes_vocabulary_review.can_review_pool(user_id, pool_id)).blueprint)
     flask_app.register_blueprint(routes_vocabulary_review.vocabulary_review_bp)
     flask_app.register_blueprint(routes_commands.commands_blueprint)
+    flask_app.register_blueprint(routes_asr_profiles.create_asr_profiles_blueprint())
     flask_app.extensions['clinic_parity_dispatch'] = dispatch
     flask_app.extensions['clinic_run_once'] = run_once
 

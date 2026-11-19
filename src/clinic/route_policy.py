@@ -138,6 +138,13 @@ _CLINIC_WORKLIST = _split("""
     clinic_regex.preview clinic_regex.apply
 """)
 
+# ASR profile handlers (w104s), mounted by register_clinic_resources in clinic mode only.
+# The blueprint guard authenticates the session and checks CSRF on writes; each handler
+# acts on the caller's own profile only.
+_CLINIC_ASR = _split("""
+    clinic_asr_profiles.show clinic_asr_profiles.select
+""")
+
 _ADMIN = _split("""
     admin.admin admin.admin_add_user admin.admin_audit_log admin.admin_audit_log_export
     admin.admin_get_auto_process_status admin.admin_get_daily_token_stats
@@ -274,7 +281,7 @@ def _build() -> dict[str, RouteRule]:
 
     for endpoint in _PUBLIC:
         add(endpoint, RouteRule(PUBLIC))
-    for endpoint in _AUTH + ((_CLINIC_RESOURCES + _CLINIC_WORKLIST) if clinic_mode_enabled() else ()):
+    for endpoint in _AUTH + ((_CLINIC_RESOURCES + _CLINIC_ASR + _CLINIC_WORKLIST) if clinic_mode_enabled() else ()):
         add(endpoint, RouteRule(AUTH))
     for endpoint in _ADMIN:
         add(endpoint, RouteRule(ADMIN))
