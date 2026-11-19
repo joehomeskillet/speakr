@@ -1276,9 +1276,51 @@ def register_clinic_worklist(flask_app):
         assign_regex).blueprint)
 
 
+def register_clinic_identity(flask_app):
+    """Mount the identity, directory, pool, grant and preference handlers.
+
+    Called at startup only in clinic mode, right after register_clinic_resources. None of
+    these modules registers a parity command, so the stored ParityDispatch is only checked
+    to be present (one dispatcher, mounted once). Identity providers stay disabled (default
+    EntraConfig, IWA off): their routes answer the inert 422 and the exchange never runs.
+    The directory has no provider, so it answers its capability-unavailable problem.
+    Preference stores are process-local; a durable store is a later package.
+    """
+    from src.clinic import (entra, pool_policy, routes_directory, routes_grants,
+                            routes_identity_providers, routes_pools, routes_preferences)
+    from src.clinic.last_selection import Allowed, SelectionStore
+    from src.clinic.workstation_preferences import WorkstationPreferences
+
+    assert 'clinic_parity_dispatch' in flask_app.extensions, 'register_clinic_resources must run first'
+
+    def disabled_exchange(_pending, _code):
+        raise entra.EntraDisabled()
+
+    def author_pool_for(user_id):
+        # One author pool per user is the clinic rule; a user in none has no author recipient default.
+        ids = sorted(pool_policy.author_pool_ids(user_id))
+        return ids[0] if ids else None
+
+    def allowed_for(user_id):
+        pool_ids = pool_policy.author_pool_ids(user_id)
+        return Allowed(roles=frozenset({'author'}) if pool_ids else frozenset(),
+                       author_ids=frozenset({user_id}) if pool_ids else frozenset(),
+                       pool_ids=pool_ids, own_author_id=user_id if pool_ids else None)
+
+    flask_app.register_blueprint(
+        routes_identity_providers.IdentityProvidersApi(entra.EntraConfig(), disabled_exchange).blueprint)
+    flask_app.register_blueprint(routes_directory.blueprint)
+    flask_app.register_blueprint(routes_pools.blueprint)
+    flask_app.register_blueprint(routes_grants.GrantsApi().blueprint)
+    flask_app.register_blueprint(routes_preferences.PreferenceRoutes(
+        allowed_for=allowed_for, author_pool_for=author_pool_for,
+        selections=SelectionStore(), workstations=WorkstationPreferences()).blueprint)
+
+
 from src.clinic.config import clinic_mode_enabled as _clinic_mode_enabled
 if _clinic_mode_enabled():
     register_clinic_resources(app)
+    register_clinic_identity(app)
     register_clinic_worklist(app)
 
 # PWA Web Share Target (issue #285): the native share sheet cannot round-trip

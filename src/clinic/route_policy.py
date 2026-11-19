@@ -145,6 +145,32 @@ _CLINIC_ASR = _split("""
     clinic_asr_profiles.show clinic_asr_profiles.select
 """)
 
+# Identity, directory, pool, grant and preference handlers, mounted by
+# register_clinic_identity in src/app.py only in clinic mode. The provider sign-in
+# endpoints run before a session exists, so they are PUBLIC (disabled providers answer
+# an inert 422; the handlers check CSRF, state and browser binding themselves). Pool
+# writes are AUTH: the handler admits an active site admin or a manage_pools holder,
+# who need not be a stock admin. Directory and grant changes need an active site admin.
+_CLINIC_IDENTITY_PUBLIC = _split("""
+    clinic_identity_providers.discovery clinic_identity_providers.entra_login
+    clinic_identity_providers.entra_callback clinic_identity_providers.iwa_login
+""")
+
+_CLINIC_IDENTITY = _split("""
+    clinic_identity_providers.entra_link_start clinic_identity_providers.link_request
+    clinic_identity_providers.unlink
+    clinic_pools.list_pools clinic_pools.put_pool
+    clinic_grants.read
+    clinic_preferences.recipient_default clinic_preferences.recipient_resolve
+    clinic_preferences.last_selection clinic_preferences.workstation_issue
+    clinic_preferences.workstation
+""")
+
+_CLINIC_IDENTITY_ADMIN = _split("""
+    clinic_directory.capability clinic_directory.preview clinic_directory.apply
+    clinic_grants.change
+""")
+
 _ADMIN = _split("""
     admin.admin admin.admin_add_user admin.admin_audit_log admin.admin_audit_log_export
     admin.admin_get_auto_process_status admin.admin_get_daily_token_stats
@@ -279,11 +305,12 @@ def _build() -> dict[str, RouteRule]:
             raise ValueError(f'route-policy: {endpoint} is classified twice')
         table[endpoint] = rule
 
-    for endpoint in _PUBLIC:
+    clinic = clinic_mode_enabled()
+    for endpoint in _PUBLIC + (_CLINIC_IDENTITY_PUBLIC if clinic else ()):
         add(endpoint, RouteRule(PUBLIC))
-    for endpoint in _AUTH + ((_CLINIC_RESOURCES + _CLINIC_ASR + _CLINIC_WORKLIST) if clinic_mode_enabled() else ()):
+    for endpoint in _AUTH + ((_CLINIC_RESOURCES + _CLINIC_ASR + _CLINIC_WORKLIST + _CLINIC_IDENTITY) if clinic else ()):
         add(endpoint, RouteRule(AUTH))
-    for endpoint in _ADMIN:
+    for endpoint in _ADMIN + (_CLINIC_IDENTITY_ADMIN if clinic else ()):
         add(endpoint, RouteRule(ADMIN))
     for feature, endpoints in _DISABLED.items():
         for endpoint in _split(endpoints):
