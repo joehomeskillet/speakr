@@ -6,16 +6,26 @@ Public API:
 - ModeError (ValueError subclass with stable ``code``)
 - CorrectionModeEngine(mode, *, rewind_ms=2000, resume_idle_ms=1500)
 
-Non-scope: no Flask, no database, no routes, no persistence. Pure Python
-service module; time is supplied by the caller as ``now_ms`` (milliseconds).
+Persistence (W6): ``get_mode`` / ``set_mode`` store one durable row per user in
+``clinic_correction_mode``. The engine itself stays pure Python; time is supplied
+by the caller as ``now_ms`` (milliseconds).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
+
+from sqlalchemy import update
+from sqlalchemy.exc import IntegrityError
+
+from src.database import db
 
 MODE_STOP_ON_TYPING = "stop_on_typing"
 MODE_TYPE_WHILE_PLAYING = "type_while_playing"
+MODES = (MODE_STOP_ON_TYPING, MODE_TYPE_WHILE_PLAYING)
+# Owner decision W6: "Auf zu hörendes Wort zeigen" is the default.
+DEFAULT_MODE = MODE_STOP_ON_TYPING
 
 
 class ModeError(ValueError):
@@ -145,3 +155,61 @@ class CorrectionModeEngine:
             raise ModeError("negative_time", "time values must be non-negative")
         if self._last_key_ms is not None and now_ms < self._last_key_ms:
             raise ModeError("time_travel", "now_ms must not go backwards")
+
+
+class ClinicCorrectionMode(db.Model):
+    """One correction playback mode per user. version guards stale writes."""
+
+    __tablename__ = "clinic_correction_mode"
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), primary_key=True)
+    mode = db.Column(db.String(32), nullable=False)
+    version = db.Column(db.Integer, nullable=False)
+    updated_at = db.Column(db.DateTime, nullable=False)
+
+
+def get_mode(user_id: int) -> tuple[str, int]:
+    """Return the user's (mode, version); the W6 default with version 0 when unset."""
+    row = db.session.execute(
+        db.select(ClinicCorrectionMode.mode, ClinicCorrectionMode.version).where(
+            ClinicCorrectionMode.user_id == user_id)
+    ).first()
+    return (DEFAULT_MODE, 0) if row is None else (row[0], row[1])
+
+
+def set_mode(user_id: int, mode: object, expected_version: object = None) -> tuple[str, int]:
+    """Store the user's own mode and return (mode, version).
+
+    Raises ModeError: invalid_mode, bad_version, stale_version.
+    """
+    if not isinstance(mode, str) or mode not in MODES:
+        raise ModeError("invalid_mode", f"unknown mode: {mode!r}")
+    if expected_version is not None and (
+        type(expected_version) is not int or expected_version < 0
+    ):
+        raise ModeError("bad_version")
+    _, current = get_mode(user_id)
+    if expected_version is not None and expected_version != current:
+        raise ModeError("stale_version")
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    try:
+        if current == 0:
+            db.session.add(ClinicCorrectionMode(
+                user_id=user_id, mode=mode, version=1, updated_at=now))
+            db.session.flush()
+        else:
+            result = db.session.execute(
+                update(ClinicCorrectionMode)
+                .where(ClinicCorrectionMode.user_id == user_id,
+                       ClinicCorrectionMode.version == current)
+                .values(mode=mode, version=current + 1, updated_at=now)
+            )
+            if result.rowcount != 1:
+                raise ModeError("stale_version")
+        db.session.commit()
+    except IntegrityError as exc:
+        db.session.rollback()
+        raise ModeError("stale_version") from exc
+    except BaseException:
+        db.session.rollback()
+        raise
+    return mode, current + 1
