@@ -12,6 +12,8 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import login_required, current_user, login_user
 from werkzeug.utils import secure_filename
 
+from src.clinic import identity
+from src.clinic.config import clinic_mode_enabled
 from src.database import db
 from src.models import *
 from src.utils import *
@@ -360,6 +362,13 @@ def admin_get_users():
             user_data[-1]['last_seen_at'] = (
                 user.last_seen_at.isoformat() + 'Z' if user.last_seen_at else None)
 
+    if clinic_mode_enabled() and current_user.is_admin and page_ids:
+        policies = {p.user_id: p for p in identity.ClinicAccountPolicy.query
+                    .filter(identity.ClinicAccountPolicy.user_id.in_(page_ids)).all()}
+        for row in user_data:
+            if policy := policies.get(row['id']):
+                row.update(_clinic_account_fields(policy))
+
     has_next = page < total_pages
     has_prev = page > 1
 
@@ -381,9 +390,138 @@ def admin_get_users():
 
 
 
+def _clinic_account_fields(policy):
+    return {'status': policy.status, 'login_policy': policy.login_policy,
+            'is_identity_admin': policy.is_identity_admin, 'version': policy.version}
+
+
+def _clinic_identity_error(code, message, status):
+    db.session.rollback()
+    return jsonify(code=code, error=message), status
+
+
+def _clinic_identity_denied(exc):
+    if str(exc) == 'unauthorized':
+        return _clinic_identity_error('unauthorized', 'Identitätsadministration erforderlich.', 403)
+    if isinstance(exc, identity.VersionConflict):
+        return _clinic_identity_error('version_conflict', 'Bitte die aktuelle Kontoversion neu laden.', 409)
+    if isinstance(exc, identity.LastAdminProtected):
+        return _clinic_identity_error('last_local_identity_admin',
+                                      'Zuerst eine weitere lokale Identitätsadministration aktivieren.', 409)
+    if isinstance(exc, identity.IdentityConflict):
+        if str(exc) == 'duplicate':
+            return _clinic_identity_error('duplicate', 'Benutzername oder E-Mail-Adresse ist bereits vergeben.', 409)
+        return _clinic_identity_error(str(exc), 'Bitte Benutzername und E-Mail-Adresse prüfen.', 400)
+    if str(exc) == 'no_account_policy':
+        return _clinic_identity_error('no_account_policy', 'Für dieses Konto fehlt eine Anmelderichtlinie.', 404)
+    if str(exc) == 'admin_recovery_forbidden':
+        return _clinic_identity_error(str(exc), 'Administratorkonten werden nur über die Serverkonsole wiederhergestellt.', 403)
+    if str(exc) == 'recovery_not_permitted':
+        return _clinic_identity_error(str(exc), 'Für dieses Konto ist kein lokaler Einmalcode möglich.', 403)
+    return _clinic_identity_error(str(exc), 'Diese Änderung ist im aktuellen Kontozustand nicht möglich.', 409)
+
+
+def _clinic_admin_actor():
+    from src.api.auth import clinic_session_matches
+
+    policy = db.session.get(identity.ClinicAccountPolicy, current_user.id)
+    if (not current_user.is_admin or not policy or not policy.is_identity_admin or policy.status != 'active'
+            or policy.must_change_password or not clinic_session_matches(policy)):
+        raise identity.IdentityDenied('unauthorized')
+    return policy
+
+
+def _clinic_profile(data):
+    profile = {key: data[key] for key in ('username', 'email', 'name') if key in data}
+    if 'name' in profile and profile['name'] is not None and (
+            not isinstance(profile['name'], str) or len(profile['name']) > 100 or '\x00' in profile['name']):
+        raise ValueError('invalid_name')
+    if 'storage_quota_mb' in data:
+        profile['storage_quota_mb'] = _quota_mb(data['storage_quota_mb'])
+    for key in ('monthly_token_budget', 'monthly_transcription_budget'):
+        if key in data:
+            value = data[key]
+            if type(value) not in (int, str, type(None)):
+                raise ValueError('invalid_budget')
+            value = int(value) if value not in (None, '') else 0
+            if not 0 <= value <= 2**31 - 1:
+                raise ValueError('invalid_budget')
+            profile[key] = value or None
+    return profile
+
+
+_CLINIC_ADMIN_OPTIONS = ('status', 'login_policy', 'is_admin', 'is_identity_admin',
+                         'unlock_login', 'create_groups_granted')
+
+
+def _clinic_user_command(user_id=None, *, toggle=False):
+    csrf.protect()
+    try:
+        actor = _clinic_admin_actor()
+    except identity.IdentityDenied:
+        return _clinic_identity_error('unauthorized', 'Identitätsadministration erforderlich.', 403)
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or not data:
+        return _clinic_identity_error('invalid_request', 'Bitte gültige Kontodaten übermitteln.', 400)
+    if set(data) & {'roles', 'pools', 'clinical_roles', 'clinical_grants'}:
+        return _clinic_identity_error('explicit_grant_required', 'Fachrechte müssen separat erteilt werden.', 403)
+    if data.get('password'):
+        return _clinic_identity_error('use_recovery_code', 'Bitte einen lokalen Einmalcode ausstellen.', 400)
+    try:
+        profile = _clinic_profile(data)
+        from src.api.auth import clinic_recent_auth
+
+        if not clinic_recent_auth(actor):
+            return _clinic_identity_error('reauth_required', 'Bitte erneut anmelden und nochmals versuchen.', 403)
+        if user_id is None:
+            if any(key in data and data[key] not in (False, None) for key in _CLINIC_ADMIN_OPTIONS):
+                return _clinic_identity_error('pending_activation', 'Konto zuerst anlegen und aktivieren.', 409)
+            profile.setdefault('storage_quota_mb', default_quota_mb())
+            user = identity.create_local_user(profile.get('username'), profile.get('email'),
+                                              name=profile.get('name'), actor_id=actor.user_id, profile=profile,
+                                              actor_security_version=actor.security_version)
+            policy = db.session.get(identity.ClinicAccountPolicy, user.id)
+        else:
+            version = data.get('expected_version')
+            if type(version) is not int or version < 1:
+                return _clinic_identity_error('expected_version_required', 'Bitte die aktuelle Kontoversion angeben.', 400)
+            options = {key: data[key] for key in _CLINIC_ADMIN_OPTIONS if key in data}
+            if any(type(options[key]) is not bool for key in options if key not in ('status', 'login_policy')):
+                return _clinic_identity_error('invalid_request', 'Bitte gültige Rollen und Optionen angeben.', 400)
+            if options.get('status', 'active') not in ('active', 'disabled') or (
+                    'login_policy' in options and not isinstance(options['login_policy'], str)):
+                return _clinic_identity_error('invalid_request', 'Bitte einen gültigen Kontostatus angeben.', 400)
+            if toggle:
+                target = db.session.get(User, user_id)
+                if not target or user_id == actor.user_id:
+                    return _clinic_identity_error('invalid_role_target', 'Bitte ein anderes vorhandenes Konto wählen.', 400)
+                options = {'is_admin': not target.is_admin}
+                profile = {}
+            if data.get('issue_recovery') is True:
+                if options or profile:
+                    return _clinic_identity_error('invalid_request', 'Bitte den Einmalcode separat ausstellen.', 400)
+                issued = identity.issue_recovery(user_id, issued_by=actor.user_id, expected_version=version,
+                                                 actor_security_version=actor.security_version)
+                response = jsonify(code=issued.code, purpose=issued.purpose, expires_at=issued.expires_at.isoformat(),
+                                   version=version + 1)
+                response.headers['Cache-Control'] = 'no-store'
+                return response, 201
+            user, policy = identity.update_local_account(user_id, actor_id=actor.user_id, expected_version=version,
+                                                         changes=dict(options, profile=profile),
+                                                         actor_security_version=actor.security_version)
+    except identity.IdentityError as exc:
+        return _clinic_identity_denied(exc)
+    except ValueError:
+        return _clinic_identity_error('invalid_profile', 'Bitte die angegebenen Profilwerte prüfen.', 400)
+    return jsonify(id=user.id, username=user.username, email=user.email, name=user.name,
+                   is_admin=user.is_admin, **_clinic_account_fields(policy)), 201 if user_id is None else 200
+
+
 @admin_bp.route('/admin/users', methods=['POST'])
 @login_required
 def admin_add_user():
+    if clinic_mode_enabled():
+        return _clinic_user_command()
     # Check if user is admin
     if not current_user.is_admin:
         return jsonify(api_error('unauthorized')), 403
@@ -461,6 +599,8 @@ def admin_add_user():
 @admin_bp.route('/admin/users/<int:user_id>', methods=['PUT'])
 @login_required
 def admin_update_user(user_id):
+    if clinic_mode_enabled():
+        return _clinic_user_command(user_id)
     # Check if user is admin
     if not current_user.is_admin:
         return jsonify(api_error('unauthorized')), 403
@@ -600,6 +740,8 @@ def admin_update_user(user_id):
 @login_required
 @audit.emits('admin.user.deleted', 'recording.deleted')
 def admin_delete_user(user_id):
+    if clinic_mode_enabled():
+        return _clinic_identity_error('disable_instead', 'Bitte das Konto deaktivieren.', 403)
     # Check if user is admin
     if not current_user.is_admin:
         return jsonify(api_error('unauthorized')), 403
@@ -654,6 +796,8 @@ def admin_delete_user(user_id):
 @admin_bp.route('/admin/users/<int:user_id>/toggle-admin', methods=['POST'])
 @login_required
 def admin_toggle_admin(user_id):
+    if clinic_mode_enabled():
+        return _clinic_user_command(user_id, toggle=True)
     # Check if user is admin
     if not current_user.is_admin:
         return jsonify(api_error('unauthorized')), 403

@@ -19,6 +19,7 @@ from src.services.audit import record_in_tx
 
 _COMMANDS = {
     "submit": ("clinic.review", "complete"),
+    "accept": ("clinic.accept", "accept"),
     "reject": ("clinic.accept", "reject"),
     "reopen": ("clinic.reopen", "reopen"),
 }
@@ -30,6 +31,7 @@ class ActionResult:
     version: int
     text_revision_id: str | None
     rejection: acceptance_rules.AcceptanceDecision | None
+    acceptance: acceptance_rules.AcceptanceDecision | None = None
 
 
 def apply_action(
@@ -84,7 +86,7 @@ def apply_action(
             raise workflow.WorkflowError("not_found")
 
         head = revisions.current_revision(dictation)
-        rejection = None
+        rejection = acceptance = None
         if action != "reopen" and (head is None or head.id != text_revision_id):
             raise workflow.WorkflowError("stale_revision")
         if action == "submit" and (head is None or head.kind != revisions.KIND_HUMAN):
@@ -97,6 +99,20 @@ def apply_action(
                 actor_pool_ids=author_pool_ids(actor_user_id), revision_id=head.id,
                 reason=reason, previous_assignee_id=item.assignee_user_id, now=now,
             )
+
+        if action == "accept":
+            # Acceptance only moves the row to ACCEPTED; completion stays with
+            # workflow_finalize, which also refuses while review flags are open.
+            if acceptance_policy is None or head is None:
+                raise workflow.WorkflowError("forbidden")
+            try:
+                acceptance = acceptance_rules.decide(
+                    acceptance_policy(dictation).as_rule(), kind="accept", actor_id=actor_user_id,
+                    actor_pool_ids=author_pool_ids(actor_user_id), revision_id=head.id,
+                    reason=None, previous_assignee_id=item.assignee_user_id, now=now,
+                )
+            except acceptance_rules.AcceptanceError as error:
+                raise workflow.WorkflowError("forbidden") from error
 
         advance = db.update(ClinicDictation).where(
             ClinicDictation.id == dictation_id, ClinicDictation.version_counter == expected_version,
@@ -123,4 +139,4 @@ def apply_action(
             details={"fields": ["workflow_status", f"workflow_{action}"]},
         ) is None:
             raise workflow.WorkflowError("audit_unavailable")
-        return ActionResult(item.status, expected_version + 1, head.id if head else None, rejection)
+        return ActionResult(item.status, expected_version + 1, head.id if head else None, rejection, acceptance)

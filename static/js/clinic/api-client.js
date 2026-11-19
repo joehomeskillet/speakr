@@ -35,7 +35,7 @@ const CODE_OUTCOME = {
     DEPENDENCY_UNAVAILABLE: 'network',
 };
 
-const SAFE_CODE = /^[A-Z0-9_]{1,80}$/;
+const SAFE_CODE = /^(?:[A-Z0-9_]{1,80}|[a-z][a-z0-9_]{0,63})$/;
 const SAFE_CORRELATION = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function result(outcome, fields) {
@@ -68,7 +68,7 @@ function safeCorrelation(value) {
 }
 
 function outcomeFor(status, code) {
-    if (code && CODE_OUTCOME[code]) return CODE_OUTCOME[code];
+    if (code && Object.prototype.hasOwnProperty.call(CODE_OUTCOME, code)) return CODE_OUTCOME[code];
     if (status === 401 || status === 403) return 'permission';
     if (status === 409 || status === 412) return 'conflict';
     if (status === 400 || status === 415 || status === 422 || status === 428) return 'validation';
