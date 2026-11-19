@@ -130,6 +130,29 @@
                 <!-- Custom Banner -->
                 {% include 'components/banner.html' %}
 
+                {% if clinic_mode %}
+                <!-- Clinic navigation and worklist (CLINIC_MODE only; no patient data is shown) -->
+                <nav v-if="clinicWorklistEnabled" aria-label="Klinik"
+                     class="flex items-center gap-2 px-3 py-2 border-b border-[var(--border-primary)] bg-[var(--bg-secondary)] flex-shrink-0">
+                    <button type="button" data-testid="nav-clinic-worklist"
+                            class="px-3 py-2 rounded border border-[var(--border-primary)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
+                            style="min-height: 2.75rem"
+                            :class="{ 'font-semibold': currentView === 'clinic-worklist' }"
+                            :aria-current="currentView === 'clinic-worklist' ? 'page' : null"
+                            @click="currentView = 'clinic-worklist'">Arbeitsliste</button>
+                    <button type="button" data-testid="nav-recordings"
+                            class="px-3 py-2 rounded border border-[var(--border-primary)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
+                            style="min-height: 2.75rem"
+                            :class="{ 'font-semibold': currentView !== 'clinic-worklist' }"
+                            :aria-current="currentView !== 'clinic-worklist' ? 'page' : null"
+                            @click="currentView = null">Aufnahmen</button>
+                </nav>
+                <div v-if="clinicWorklistEnabled && currentView === 'clinic-worklist'"
+                     class="flex-1 overflow-y-auto p-3 md:p-6 bg-[var(--bg-primary)] text-[var(--text-primary)]">
+                    <clinic-worklist-view :client="clinicClient" :current-user="clinicUser"></clinic-worklist-view>
+                </div>
+                {% endif %}
+
                 <!-- Recording View -->
                 {% include 'components/recording-view.html' %}
 
