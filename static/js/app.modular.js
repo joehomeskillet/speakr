@@ -277,12 +277,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     const appRootElement = document.getElementById('app');
     if (appRootElement?.dataset?.clinicMode === 'True') {
         try {
-            const [{ createClinicApiClient }, { registerWorklistView }] = await Promise.all([
+            const [{ createClinicApiClient }, { registerWorklistView }, { registerResourcesView }] = await Promise.all([
                 import('./clinic/api-client.js'),
                 import('./clinic/compose-worklist.js'),
+                import('./clinic/compose-resources.js'),
             ]);
             clinicWorklist = {
                 registerWorklistView,
+                registerResourcesView,
                 client: createClinicApiClient(),
                 user: { id: appRootElement.dataset.currentUserId },
             };
@@ -5058,7 +5060,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Its timeline (templates/components/asr-editor-timeline.html).
     app.component('asr-editor-timeline', createAsrEditorTimeline());
 
-    if (clinicWorklist) clinicWorklist.registerWorklistView(app);
+    if (clinicWorklist) {
+        clinicWorklist.registerWorklistView(app);
+        clinicWorklist.registerResourcesView(app);
+    }
 
     app.mount('#app');
 });

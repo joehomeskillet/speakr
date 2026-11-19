@@ -140,16 +140,27 @@
                             :class="{ 'font-semibold': currentView === 'clinic-worklist' }"
                             :aria-current="currentView === 'clinic-worklist' ? 'page' : null"
                             @click="currentView = 'clinic-worklist'">Arbeitsliste</button>
+                    <button type="button" data-testid="nav-clinic-resources"
+                            class="px-3 py-2 rounded border border-[var(--border-primary)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
+                            style="min-height: 2.75rem"
+                            :class="{ 'font-semibold': currentView === 'clinic-resources' }"
+                            :aria-current="currentView === 'clinic-resources' ? 'page' : null"
+                            @click="currentView = 'clinic-resources'">Ressourcen</button>
                     <button type="button" data-testid="nav-recordings"
                             class="px-3 py-2 rounded border border-[var(--border-primary)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
                             style="min-height: 2.75rem"
-                            :class="{ 'font-semibold': currentView !== 'clinic-worklist' }"
-                            :aria-current="currentView !== 'clinic-worklist' ? 'page' : null"
+                            :class="{ 'font-semibold': currentView !== 'clinic-worklist' && currentView !== 'clinic-resources' }"
+                            :aria-current="currentView !== 'clinic-worklist' && currentView !== 'clinic-resources' ? 'page' : null"
                             @click="currentView = null">Aufnahmen</button>
                 </nav>
                 <div v-if="clinicWorklistEnabled && currentView === 'clinic-worklist'"
                      class="flex-1 overflow-y-auto p-3 md:p-6 bg-[var(--bg-primary)] text-[var(--text-primary)]">
                     <clinic-worklist-view :client="clinicClient" :current-user="clinicUser"></clinic-worklist-view>
+                </div>
+                <div v-if="clinicWorklistEnabled && currentView === 'clinic-resources'"
+                     data-testid="clinic-resources-mount"
+                     class="flex-1 overflow-y-auto p-3 md:p-6 bg-[var(--bg-primary)] text-[var(--text-primary)]">
+                    <clinic-resources-view :client="clinicClient" :current-user="clinicUser"></clinic-resources-view>
                 </div>
                 {% endif %}
 
