@@ -172,7 +172,9 @@ def _can_read_template(actor_id: int, row: presets.ClinicTemplate) -> bool:
     if not row.is_active:
         return False
     user = db.session.get(User, actor_id)
-    if user and getattr(user, "is_admin", False):
+    if user is None or not user.is_active:
+        return False
+    if user.is_admin:
         return True
     if row.scope == "system":
         return True
