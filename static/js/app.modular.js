@@ -284,7 +284,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             clinicWorklist = {
                 registerWorklistView,
                 client: createClinicApiClient(),
-                user: { id: appRootElement.dataset.currentUserId },
+                user: { id: appRootElement.dataset.currentUserId, role: appRootElement.dataset.clinicRole || 'author' },
             };
         } catch (error) {
             console.error('[Clinic] Worklist view could not be loaded:', error);

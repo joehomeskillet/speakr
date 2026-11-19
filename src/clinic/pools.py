@@ -664,6 +664,36 @@ def _staff_link_id(user_id, author_pool_id):
     return None if row is None else row[0]
 
 
+def ui_role(user_id) -> str:
+    """UI hint for the clinic frontend: ``admin``, ``typist`` or ``author``.
+
+    Display only. It never grants access; the server narrows rows and checks
+    permissions on its own. Unknown or inactive users get ``author``. A user who
+    is both author and typist gets ``typist``.
+    """
+    from src.clinic.admin_dictation_access import _is_active_site_admin  # lazy: avoids an import cycle
+    from src.clinic.identity import ClinicAccountPolicy
+
+    try:
+        user = db.session.get(User, int(user_id))
+    except (TypeError, ValueError):
+        return "author"
+    if user is None:
+        return "author"
+    account = db.session.get(ClinicAccountPolicy, user.id)
+    if account is None or account.status != "active":
+        return "author"
+    if _is_active_site_admin(db.session, user):
+        return "admin"
+    is_typist = (
+        db.session.query(ClinicStaffPool.id)
+        .join(GroupMembership, GroupMembership.group_id == ClinicStaffPool.group_id)
+        .filter(GroupMembership.user_id == user.id)
+        .first()
+    )
+    return "typist" if is_typist else "author"
+
+
 def grants_for(user_id: int, dictation) -> dict:
     """Allowed actions plus matching denies. Most specific reason wins; denies win.
 
