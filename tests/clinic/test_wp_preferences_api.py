@@ -44,7 +44,7 @@ class FlakyPreferences:
 @pytest.fixture
 def world(monkeypatch):
     monkeypatch.setenv("CLINIC_MODE", "1")
-    actor, author, first, second, other = (_user() for _ in range(5))
+    actor, author, first, second, other = (_user(admin=(i == 0)) for i in range(5))
     authors = pools.create_author_pool("A-" + _suffix(), actor_id=actor.id)
     staff = pools.create_staff_pool("S-" + _suffix(), actor_id=actor.id)
     foreign = pools.create_staff_pool("F-" + _suffix(), actor_id=actor.id)

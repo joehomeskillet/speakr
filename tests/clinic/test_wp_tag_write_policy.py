@@ -88,12 +88,12 @@ def test_clinic_rejects_non_integer_group_ids(clinic_on, world):
 
 
 def test_regroup_uses_central_edit_right(clinic_on, world):
-    _, team_admin, _, team, _, _, mine = world
+    _, team_admin, site_admin, team, _, _, mine = world
     admin = db.session.get(User, team_admin)
     target = _dictation(admin, None)
     db.session.add(RecordingTag(recording_id=target.recording_id, tag_id=mine))
     db.session.commit()
-    pools.deny(team_admin, 'own', actor_id=team_admin, actions=['edit'])
+    pools.deny(team_admin, 'own', actor_id=site_admin, actions=['edit'])
     response = _call(team_admin, 'put', f'/api/tags/{mine}', {'group_id': team})
     assert response.status_code == 403
     assert db.session.get(Tag, mine).group_id is None

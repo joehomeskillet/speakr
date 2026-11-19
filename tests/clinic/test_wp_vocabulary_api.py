@@ -22,7 +22,7 @@ from test_pools import _suffix, _user, pool_db as pool_db
 def world(pool_db, monkeypatch):
     monkeypatch.setenv("CLINIC_MODE", "1")
     vocabulary.create_tables()
-    admin, author, other = _user(), _user(), _user()
+    admin, author, other = _user(admin=True), _user(), _user()
     pool = pools.create_author_pool("V-" + _suffix(), actor_id=admin.id)
     foreign = pools.create_author_pool("W-" + _suffix(), actor_id=admin.id)
     pools.add_author_member(pool.id, author.id, actor_id=admin.id)

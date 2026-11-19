@@ -64,9 +64,9 @@ def clinic_db(clinic_on):
             db.engine.dispose()
 
 
-def _user():
+def _user(admin=False):
     suffix = uuid.uuid4().hex[:10]
-    user = User(username="tm" + suffix, email=suffix + "@example.invalid", password="x")
+    user = User(username="tm" + suffix, email=suffix + "@example.invalid", password="x", is_admin=admin)
     db.session.add(user)
     db.session.flush()
     return user
@@ -162,8 +162,9 @@ def _reason(manifest, revision_id):
 def _corpus():
     author = _user()
     other = _user()
-    pool = create_author_pool("Pool " + uuid.uuid4().hex[:8], actor_id=author.id)
-    add_author_member(pool.id, author.id, actor_id=author.id)
+    pool_admin = _user(admin=True)
+    pool = create_author_pool("Pool " + uuid.uuid4().hex[:8], actor_id=pool_admin.id)
+    add_author_member(pool.id, author.id, actor_id=pool_admin.id)
     aligned = _approved(author, ALIGNED, pool.id)
     inserted = _approved(author, INSERT, pool.id, link_end=len(ALIGNED))
     holdout = _approved(author, "Nur Auswertung", pool.id)

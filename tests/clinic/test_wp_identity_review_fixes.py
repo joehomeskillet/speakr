@@ -22,6 +22,8 @@ def clinic(monkeypatch):
     monkeypatch.setattr(login_lock, 'lock_settings', lambda: (2, 15))
     with app.app_context():  # user ids are reused between tests, lock rows are not reset by the fixtures
         LoginFailure.query.delete()
+        audit.flush()  # queued rows of earlier tests must land before they are cleared
+        AuditEvent.query.delete()  # rows of earlier tests keep user ids that this test reuses
         db.session.commit()
     yield
     with app.app_context():

@@ -22,7 +22,7 @@ from test_pools import _suffix, _user, pool_db as pool_db
 def world(pool_db, monkeypatch):
     monkeypatch.setenv("CLINIC_MODE", "1")
     presets.ClinicCategorySet.__table__.create(db.engine, checkfirst=True)
-    admin, author, other = _user(), _user(), _user()
+    admin, author, other = _user(admin=True), _user(), _user()
     own_pool = pools.create_author_pool("A-" + _suffix(), actor_id=admin.id)
     foreign_pool = pools.create_author_pool("F-" + _suffix(), actor_id=admin.id)
     pools.add_author_member(own_pool.id, author.id, actor_id=admin.id)

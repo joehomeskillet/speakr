@@ -7,6 +7,7 @@ import pytest
 from src.app import app, db
 from src.clinic import entra, identity
 from src.models import AuditEvent, Recording, User
+from src.services import audit
 
 PASSWORD = 'synthetic administration phrase 37'
 
@@ -16,6 +17,9 @@ def admin_client(monkeypatch):
     monkeypatch.setenv('CLINIC_MODE', '1')
     monkeypatch.setitem(app.config, 'WTF_CSRF_ENABLED', True)
     with app.app_context():
+        audit.flush()  # queued rows of earlier tests must land before they are cleared
+        AuditEvent.query.delete()  # rows of earlier tests keep user ids that this test reuses
+        db.session.commit()
         assert identity.bootstrap_first_admin('identity_admin', 'identity-admin@example.invalid', PASSWORD)
         uid = User.find_by_email('identity-admin@example.invalid').id
     client = app.test_client()
