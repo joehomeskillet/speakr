@@ -1,10 +1,13 @@
 """Per-user worklist sort, grouping and column layout.
 
 Column checks, stable sorting and schema merge live in ``list_layout``.
-This module stores one canonical JSON blob per user. It does not open the
-database, read another user's row, or copy a layout across accounts.
+This module stores one canonical JSON blob per user. It never reads another
+user's row or copies a layout across accounts.
 
-shortcut: in-memory store, move to a user-scoped table when a migration is owned.
+Inside a Flask app context with the database extension and without a
+``writer``, the blob lives in ``clinic_worklist_layout`` (durable, shared by
+all workers; a save is a compare-and-set on the version). Otherwise the store
+keeps the blob in process memory, as before.
 """
 
 from __future__ import annotations
@@ -13,6 +16,11 @@ import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
+from flask import current_app, has_app_context
+from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
+
+from src.database import db
 from src.clinic.list_layout import (
     Group,
     LayoutError,
@@ -77,17 +85,80 @@ def _canonical_text(text: str) -> str:
     return _canonical(spec)
 
 
+class ClinicWorklistLayout(db.Model):
+    """One canonical layout blob per user. ``version`` guards stale writes."""
+
+    __tablename__ = "clinic_worklist_layout"
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), primary_key=True)
+    version = db.Column(db.Integer, nullable=False)
+    layout_json = db.Column(db.Text, nullable=False)
+
+
+def _db_ready() -> bool:
+    return has_app_context() and "sqlalchemy" in current_app.extensions
+
+
+def _parse_stored(text: str) -> Mapping:
+    """Decode a stored blob; anything that is not a layout object is rejected."""
+    try:
+        spec = json.loads(text)
+    except (TypeError, ValueError, RecursionError) as exc:
+        raise LayoutError("bad_layout") from exc
+    if not isinstance(spec, Mapping):
+        raise LayoutError("bad_layout")
+    return spec
+
+
 class LayoutStore:
-    """One layout per user. ``writer`` runs before the row changes and may raise."""
+    """One layout per user. ``writer`` runs before the row changes and may raise.
+
+    With a ``writer`` (or outside an app context) the rows stay in memory.
+    """
 
     def __init__(self, writer: Callable[[int, int, str], None] | None = None) -> None:
         self._rows: dict[int, tuple[int, str]] = {}
         self._writer = writer
 
-    def _commit(self, user_id: int, version: int, text: str) -> None:
+    def _durable(self) -> bool:
+        return self._writer is None and _db_ready()
+
+    def _get(self, user_id: int) -> tuple[int, str] | None:
+        if not self._durable():
+            return self._rows.get(user_id)
+        # Column select: bypasses the identity map, so another worker's save is seen.
+        row = db.session.execute(
+            select(ClinicWorklistLayout.version, ClinicWorklistLayout.layout_json).where(
+                ClinicWorklistLayout.user_id == user_id
+            )
+        ).first()
+        return None if row is None else (row[0], row[1])
+
+    def _commit(self, user_id: int, version: int, text: str, previous: int | None) -> None:
         if self._writer is not None:
             self._writer(user_id, version, text)
-        self._rows[user_id] = (version, text)
+        if not self._durable():
+            self._rows[user_id] = (version, text)
+            return
+        try:
+            if previous is None:
+                db.session.add(ClinicWorklistLayout(user_id=user_id, version=version, layout_json=text))
+                db.session.flush()
+            else:
+                result = db.session.execute(
+                    update(ClinicWorklistLayout)
+                    .where(ClinicWorklistLayout.user_id == user_id,
+                           ClinicWorklistLayout.version == previous)
+                    .values(version=version, layout_json=text)
+                )
+                if result.rowcount != 1:
+                    raise WorklistLayoutError("stale_version")
+            db.session.commit()
+        except IntegrityError as exc:
+            db.session.rollback()
+            raise WorklistLayoutError("stale_version") from exc
+        except BaseException:
+            db.session.rollback()
+            raise
 
     def save(
         self,
@@ -102,12 +173,12 @@ class LayoutStore:
         if type(expected_version) is not int or expected_version < 0:
             raise WorklistLayoutError("bad_version")
         text = _canonical(validate_layout(spec, allowed_columns))
-        current = self._rows.get(owner)
+        current = self._get(owner)
         version = 0 if current is None else current[0]
         if expected_version != version:
             raise WorklistLayoutError("stale_version")
         new_version = version + 1
-        self._commit(owner, new_version, text)
+        self._commit(owner, new_version, text, None if current is None else version)
         return StoredLayout(owner, new_version, json.loads(text))
 
     def load(
@@ -119,13 +190,13 @@ class LayoutStore:
     ) -> StoredLayout:
         """Return the user's layout merged with the columns that exist now."""
         owner = _own(actor_id, user_id)
-        current = self._rows.get(owner)
+        current = self._get(owner)
         if current is None:
             layout = validate_layout(default, allowed_columns)
             return StoredLayout(owner, 0, layout)
         version, text = current
         # layout_from_json rejects retired names; merge_layout drops them.
-        layout = merge_layout(default, json.loads(text), allowed_columns)
+        layout = merge_layout(default, _parse_stored(text), allowed_columns)
         return StoredLayout(owner, version, layout)
 
     def refresh(
@@ -159,7 +230,7 @@ class LayoutStore:
     def snapshot(self, actor_id: int, user_id: int) -> tuple[int, str] | None:
         """Return the stored version and canonical JSON, or None."""
         owner = _own(actor_id, user_id)
-        return self._rows.get(owner)
+        return self._get(owner)
 
     def restore_snapshot(self, actor_id: int, user_id: int, version: int, text: str) -> None:
         """Load a blob into an empty slot. The same blob again is a no-op."""
@@ -167,9 +238,9 @@ class LayoutStore:
         if type(version) is not int or version < 1:
             raise WorklistLayoutError("bad_version")
         canonical = _canonical_text(text)
-        current = self._rows.get(owner)
+        current = self._get(owner)
         if current == (version, canonical):
             return
         if current is not None:
             raise WorklistLayoutError("stale_version")
-        self._commit(owner, version, canonical)
+        self._commit(owner, version, canonical, None)

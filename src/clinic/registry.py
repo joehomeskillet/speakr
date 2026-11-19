@@ -40,6 +40,8 @@ MODEL_MODULES = (
     "parity_receipts",
     "acceptance_policy",
     "archive_policy",
+    "worklist_layout",
+    "worklist_filters",
 )
 
 

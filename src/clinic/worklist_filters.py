@@ -6,7 +6,12 @@ creates cannot pass that cap, optimistic versions, and the work-list query
 order: central visibility (``policy.decide``), then the saved filter and
 metadata search, then the total, then the page.
 
-No Flask routes and no clinic tables. The snapshot is JSON the caller stores.
+No Flask routes. The snapshot is JSON the caller stores. Inside a Flask app
+context with the database extension and without a ``path`` or ``writer``, each
+user's filters live in ``clinic_worklist_filter`` instead (durable, shared by
+all workers): every call reloads that user's rows, replays them through
+``FilterStore`` so the validators run on stored data, and writes the change
+back with a compare-and-set on the row version.
 """
 
 from __future__ import annotations
@@ -20,6 +25,11 @@ from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 
+from flask import current_app, has_app_context
+from sqlalchemy import UniqueConstraint, delete, select, update
+from sqlalchemy.exc import IntegrityError
+
+from src.database import db
 from src.clinic.policy import RecordingFacts, Subject, decide
 from src.clinic.saved_filters import FilterError, FilterStore, apply_filter, search_metadata, validate_filter
 
@@ -79,8 +89,26 @@ def query_worklist(
     )
 
 
+class ClinicWorklistFilter(db.Model):
+    """One named filter of one user. ``version`` guards stale writes."""
+
+    __tablename__ = "clinic_worklist_filter"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True)
+    filter_id = db.Column(db.String(16), nullable=False)
+    name = db.Column(db.String(200), nullable=False)
+    spec_json = db.Column(db.Text, nullable=False)
+    version = db.Column(db.Integer, nullable=False, default=1)
+
+    __table_args__ = (UniqueConstraint("user_id", "filter_id", name="uq_clinic_worklist_filter_user_filter"),)
+
+
+def _db_ready() -> bool:
+    return has_app_context() and "sqlalchemy" in current_app.extensions
+
+
 class WorklistFilterStore:
-    """Process-local store. The lock covers the cap check and the snapshot write."""
+    """The lock covers the cap check and the write; the database is the cross-worker guard."""
 
     def __init__(
         self,
@@ -93,12 +121,15 @@ class WorklistFilterStore:
         self._store = FilterStore()
         self._versions: dict[tuple[int, str], int] = {}
         self._users: set[int] = set()
+        self._db_user: int | None = None
+        self._loaded: dict[str, tuple[str, str, int]] = {}
         if self._path is not None and self._path.is_file():
             self._swap(*_materialise(self._path.read_text(encoding="utf-8")))
 
     def create(self, user_id: int, name: str, spec: Mapping) -> SavedFilter:
         """Save one filter. The 21st raises ``limit_reached`` and changes nothing."""
         with self._lock:
+            self._open(user_id)
             holder: dict[str, str] = {}
 
             def change() -> None:
@@ -111,6 +142,7 @@ class WorklistFilterStore:
 
     def rename(self, user_id: int, filter_id: str, name: str, *, expected_version: int) -> SavedFilter:
         with self._lock:
+            self._open(user_id)
             self._expect(user_id, filter_id, expected_version)
 
             def change() -> None:
@@ -125,6 +157,7 @@ class WorklistFilterStore:
     ) -> SavedFilter:
         """Replace the spec. A wrong version or a failed write leaves the old spec."""
         with self._lock:
+            self._open(user_id)
             self._expect(user_id, filter_id, expected_version)
             validated = validate_filter(spec)
             payload = json.loads(self._dump())
@@ -138,12 +171,23 @@ class WorklistFilterStore:
                 raise FilterError("not_found", "filter not found")
             text = _encode(payload)
             loaded = _materialise(text)
-            self._publish(text)
-            self._swap(*loaded)
+            if self._durable():
+                # The database write diffs the in-memory state, so swap first.
+                previous = _materialise(self._dump())
+                self._swap(*loaded)
+                try:
+                    self._publish(text)
+                except Exception:
+                    self._swap(*previous)
+                    raise
+            else:
+                self._publish(text)
+                self._swap(*loaded)
             return self._saved(user_id, filter_id)
 
     def delete(self, user_id: int, filter_id: str, *, expected_version: int) -> None:
         with self._lock:
+            self._open(user_id)
             self._expect(user_id, filter_id, expected_version)
 
             def change() -> None:
@@ -156,10 +200,12 @@ class WorklistFilterStore:
 
     def get(self, user_id: int, filter_id: str) -> SavedFilter:
         with self._lock:
+            self._open(user_id)
             return self._saved(user_id, filter_id)
 
     def list(self, user_id: int) -> list[SavedFilter]:
         with self._lock:
+            self._open(user_id)
             return [
                 self._to_saved(user_id, filter_id, name, spec)
                 for filter_id, name, spec in self._store.list(user_id)
@@ -184,6 +230,73 @@ class WorklistFilterStore:
         return query_worklist(
             rows, subject, spec=spec, query=query, keys=keys, page=page, page_size=page_size
         )
+
+    def _durable(self) -> bool:
+        return self._writer is None and self._path is None and _db_ready()
+
+    def _open(self, user_id: int) -> None:
+        """Durable mode: replace the in-memory state with this user's stored rows."""
+        if not self._durable() or isinstance(user_id, bool) or not isinstance(user_id, int):
+            return
+        rows = db.session.execute(
+            select(
+                ClinicWorklistFilter.filter_id,
+                ClinicWorklistFilter.name,
+                ClinicWorklistFilter.spec_json,
+                ClinicWorklistFilter.version,
+            ).where(ClinicWorklistFilter.user_id == user_id)
+        ).all()
+        items = []
+        for filter_id, name, spec_json, version in rows:
+            try:
+                spec = json.loads(spec_json)
+            except (TypeError, ValueError, RecursionError) as exc:
+                raise FilterError("bad_value", "stored spec is not json") from exc
+            items.append(_parse_item({"user_id": user_id, "id": filter_id, "name": name,
+                                      "spec": spec, "version": version}))
+        store = FilterStore()
+        versions: dict[tuple[int, str], int] = {}
+        if items:
+            _restore_user(store, user_id, items, versions)
+        self._swap(store, versions, {user_id} if items else set())
+        self._db_user = user_id
+        self._loaded = {row[0]: (row[1], row[2], row[3]) for row in rows}
+
+    def _persist(self) -> None:
+        """Write the opened user's change as inserts, deletes and version-guarded updates."""
+        user_id = self._db_user
+        current = {
+            filter_id: (name, _encode(spec), self._versions[(user_id, filter_id)])
+            for filter_id, name, spec in self._store.list(user_id)
+        }
+        table = ClinicWorklistFilter
+        try:
+            for filter_id, (_name, _spec, version) in self._loaded.items():
+                if filter_id not in current:
+                    result = db.session.execute(delete(table).where(
+                        table.user_id == user_id, table.filter_id == filter_id, table.version == version))
+                    if result.rowcount != 1:
+                        raise FilterError("stale_version", "filter version does not match")
+            for filter_id, (name, spec_json, version) in current.items():
+                before = self._loaded.get(filter_id)
+                if before is None:
+                    db.session.add(table(user_id=user_id, filter_id=filter_id, name=name,
+                                         spec_json=spec_json, version=version))
+                    db.session.flush()
+                elif before[2] != version:
+                    result = db.session.execute(update(table).where(
+                        table.user_id == user_id, table.filter_id == filter_id,
+                        table.version == before[2]).values(name=name, spec_json=spec_json, version=version))
+                    if result.rowcount != 1:
+                        raise FilterError("stale_version", "filter version does not match")
+            db.session.commit()
+        except IntegrityError as exc:
+            db.session.rollback()
+            raise FilterError("stale_version", "filter was changed concurrently") from exc
+        except BaseException:
+            db.session.rollback()
+            raise
+        self._loaded = dict(current)
 
     def _expect(self, user_id: int, filter_id: str, expected_version: int) -> None:
         current = self._saved(user_id, filter_id)
@@ -218,6 +331,8 @@ class WorklistFilterStore:
             self._writer(text)
         if self._path is not None:
             _atomic_write(self._path, text)
+        if self._durable():
+            self._persist()
 
     def _dump(self) -> str:
         filters = []
