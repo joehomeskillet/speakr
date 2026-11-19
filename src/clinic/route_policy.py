@@ -183,8 +183,13 @@ _ADMIN = _split("""
     admin.admin_toggle_admin admin.admin_update_setting admin.admin_update_user
     admin.admin_voice_embedding_check admin.admin_voice_embedding_rebaseline
     admin.admin_voice_embedding_status admin.get_auto_deletion_stats admin.run_auto_deletion
-    admin.admin_clinic_dictations admin.admin_clinic_dictation_audio
-    admin.admin_clinic_dictation_transcript
+    admin.admin_clinic_dictations
+""")
+
+# Admin dictation transcript and audio (w308): own blueprint, mounted by
+# register_clinic_identity in clinic mode only.
+_CLINIC_ADMIN_DICTATIONS = _split("""
+    clinic_admin_dictations.transcript clinic_admin_dictations.audio
 """)
 
 _DISABLED = {
@@ -310,7 +315,7 @@ def _build() -> dict[str, RouteRule]:
         add(endpoint, RouteRule(PUBLIC))
     for endpoint in _AUTH + ((_CLINIC_RESOURCES + _CLINIC_ASR + _CLINIC_WORKLIST + _CLINIC_IDENTITY) if clinic else ()):
         add(endpoint, RouteRule(AUTH))
-    for endpoint in _ADMIN + (_CLINIC_IDENTITY_ADMIN if clinic else ()):
+    for endpoint in _ADMIN + ((_CLINIC_IDENTITY_ADMIN + _CLINIC_ADMIN_DICTATIONS) if clinic else ()):
         add(endpoint, RouteRule(ADMIN))
     for feature, endpoints in _DISABLED.items():
         for endpoint in _split(endpoints):

@@ -24,9 +24,23 @@ SECRET = 'SECRET-TRANSCRIPT-TEXT'
 _BASELINE = [0]  # audit rows of earlier tests may name reused ids
 ENDPOINTS = (
     'admin.admin_clinic_dictations',
-    'admin.admin_clinic_dictation_audio',
-    'admin.admin_clinic_dictation_transcript',
+    'clinic_admin_dictations.audio',
+    'clinic_admin_dictations.transcript',
 )
+
+
+def _mount_clinic_admin_dictations():
+    """The app is imported with clinic mode off, so the blueprint that register_clinic_identity
+    mounts in clinic mode is mounted here (collection time, before any request) with its policy rows."""
+    from src.clinic import routes_admin_dictations
+    from src.clinic.route_policy import RouteRule
+    if routes_admin_dictations.blueprint.name not in app.blueprints:
+        app.register_blueprint(routes_admin_dictations.blueprint)
+    for endpoint in ENDPOINTS[1:]:
+        ROUTE_POLICY.setdefault(endpoint, RouteRule(ADMIN))
+
+
+_mount_clinic_admin_dictations()
 
 
 @pytest.fixture(autouse=True)
