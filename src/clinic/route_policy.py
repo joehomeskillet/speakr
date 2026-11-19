@@ -201,6 +201,23 @@ _CLINIC_METADATA_FIELDS_ADMIN = _split("""
     clinic_metadata_fields.save_field
 """)
 
+# Audio, dictation-property, bundle, live, correction and TTS handlers, mounted by
+# register_clinic_audio in src/app.py only in clinic mode (start/stop live session are
+# commands on clinic_parity.execute). Their URLs carry a clinic dictation id, so each
+# handler authenticates the session, checks CSRF on writes and decides the object through
+# the central policy (pool_policy.decide) before it reads or changes anything.
+_CLINIC_AUDIO = _split("""
+    clinic_audio.get_current clinic_audio.edit clinic_audio.derived
+    clinic_dictation_properties.validate clinic_dictation_properties.protection_state
+    clinic_dictation_properties.set_protection clinic_dictation_properties.unlock
+    clinic_bundle.export clinic_bundle.import_session
+    clinic_live.pause clinic_live.resume_recording clinic_live.append_phrase
+    clinic_live.resume clinic_live.switch_draft
+    clinic_correction.get_correction clinic_correction.save clinic_correction.add_marker
+    clinic_correction.change_marker
+    clinic_tts.capability clinic_tts.speak
+""")
+
 _DISABLED = {
     'internal_sharing': """
         groups.add_team_member groups.create_team
@@ -323,7 +340,7 @@ def _build() -> dict[str, RouteRule]:
     for endpoint in _PUBLIC + (_CLINIC_IDENTITY_PUBLIC if clinic else ()):
         add(endpoint, RouteRule(PUBLIC))
     for endpoint in _AUTH + ((_CLINIC_RESOURCES + _CLINIC_ASR + _CLINIC_WORKLIST + _CLINIC_IDENTITY
-                                       + _CLINIC_METADATA_FIELDS_AUTH) if clinic else ()):
+                                       + _CLINIC_METADATA_FIELDS_AUTH + _CLINIC_AUDIO) if clinic else ()):
         add(endpoint, RouteRule(AUTH))
     for endpoint in _ADMIN + ((_CLINIC_IDENTITY_ADMIN + _CLINIC_ADMIN_DICTATIONS
                                     + _CLINIC_METADATA_FIELDS_ADMIN) if clinic else ()):
