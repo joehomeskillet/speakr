@@ -197,7 +197,7 @@ def test_acceptance_commands_dispatch_with_revision_and_policy(world):
     assert done.status_code == 200 and done.json['revision'] == 2
     assert w['item'].status == workflow.TO_ACCEPT
     decide = {'text_revision_id': w['head'].id, 'decision': 'accept'}
-    assert _command(w, 'decide_acceptance', decide, 2).json['code'] == 'CAPABILITY_UNAVAILABLE'
+    assert _command(w, 'decide_acceptance', dict(decide, text_revision_id=str(uuid4())), 2).json['code'] == 'REVISION_CONFLICT'
     returned = _command(w, 'decide_acceptance', dict(decide, decision='return', reason='Bitte prüfen'), 2)
     assert returned.status_code == 200 and returned.json['revision'] == 3
     assert w['item'].status == workflow.TO_CORRECT

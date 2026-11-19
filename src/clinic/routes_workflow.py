@@ -10,7 +10,7 @@ never create a second release (``finalize`` is itself keyed on the exact
 binding).
 
 Parity commands ``request_acceptance`` (submit), ``decide_acceptance``
-(``return`` = reject) and ``reopen_dictation`` are registered on the shared
+(``accept``, ``return`` = reject) and ``reopen_dictation`` are registered on the shared
 ``ParityDispatch`` by ``register_commands``. Their ``expected_revision`` is
 ``ClinicDictation.version_counter + 1`` because parity revisions start at 1.
 """
@@ -131,7 +131,7 @@ def register_commands(
         dispatch.register(command, authorize=gate, revision=revision, execute=execute)
 
     bind('request_acceptance', lambda _payload: 'submit')
-    bind('decide_acceptance', lambda payload: 'reject' if payload['decision'] == 'return' else None)
+    bind('decide_acceptance', lambda payload: {'accept': 'accept', 'return': 'reject'}.get(payload['decision']))
     bind('reopen_dictation', lambda _payload: 'reopen')
 
 
