@@ -196,6 +196,10 @@ def unlink(link_id: int, *, user_id: int, revoked_by: int,
         entra._identity_admin(revoked_by)
         policy = db.session.get(identity.ClinicAccountPolicy, user_id, with_for_update=True,
                                 populate_existing=True)
+        if user_id != revoked_by:
+            target = db.session.get(User, user_id)
+            if target is not None and (target.is_admin or (policy is not None and policy.is_identity_admin)):
+                raise entra.LinkError("not_authorized")  # x07: no web path onto another admin
         link = db.session.get(entra.ClinicExternalIdentity, link_id, populate_existing=True)
         if link is None or link.user_id != user_id or not policy:
             raise entra.LinkError("link_not_active")
