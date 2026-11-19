@@ -1468,6 +1468,121 @@ def _remove_derived_temp_files(filepath, *derived):
                 pass
 
 
+def _clinic_job_params():
+    """Params of the running job as a dict; {} outside a job or when unreadable."""
+    job_id = job_control.current().job_id
+    if job_id is None:
+        return {}
+    try:
+        from sqlalchemy import select
+        from src.models import ProcessingJob
+        with db.engine.connect() as conn:
+            row = conn.execute(select(ProcessingJob.params).where(ProcessingJob.id == job_id)).first()
+        params = json.loads(row[0]) if row and row[0] else {}
+    except Exception as err:
+        current_app.logger.warning(f"Could not read the params of job {job_id}: {type(err).__name__}")
+        return {}
+    return params if isinstance(params, dict) else {}
+
+
+def _clinic_asr_record():
+    """The ``clinic_asr`` record of the running job; CLINIC_MODE only, else None."""
+    from src.clinic.config import clinic_mode_enabled
+    if not clinic_mode_enabled():
+        return None
+    from src.clinic.asr_job_profile import CLINIC_ASR_PARAM
+    record = _clinic_job_params().get(CLINIC_ASR_PARAM)
+    return record if isinstance(record, dict) else None
+
+
+def _actual_engine(connector, record):
+    """Which engine ran: 'gpu' or 'cpu', or None when the connector does not say.
+
+    A GPU/CPU fallback wrapper reports it as ``last_engine``. A plain connector
+    is the CPU target when no GPU fallback was planned. Nothing else is guessed.
+    """
+    reported = getattr(connector, 'last_engine', None)
+    if reported in ('gpu', 'cpu'):
+        return reported
+    from src.clinic.asr_fallback import FallbackTranscriptionConnector
+    engine = record.get('engine') if isinstance(record.get('engine'), dict) else {}
+    if not isinstance(connector, FallbackTranscriptionConnector) and engine.get('selected') == 'cpu' \
+            and not engine.get('fallback'):
+        return 'cpu'
+    return None
+
+
+def _record_actual_engine(connector, record):
+    """Write ``engine.actual`` into the job's ``clinic_asr`` record (display only)."""
+    job_id = job_control.current().job_id
+    actual = _actual_engine(connector, record)
+    if job_id is None or actual is None:
+        return
+    try:
+        from sqlalchemy import update
+        from src.clinic.asr_job_profile import CLINIC_ASR_PARAM
+        from src.models import ProcessingJob
+        params = _clinic_job_params()
+        stored = params.get(CLINIC_ASR_PARAM)
+        if not isinstance(stored, dict):
+            return
+        engine = stored.get('engine') if isinstance(stored.get('engine'), dict) else {}
+        engine['actual'] = actual
+        stored['engine'] = engine
+        with db.engine.begin() as conn:
+            conn.execute(update(ProcessingJob).where(ProcessingJob.id == job_id).values(
+                params=json.dumps(params, sort_keys=True, ensure_ascii=False)))
+    except Exception as err:
+        current_app.logger.warning(f"Could not record the ASR engine of job {job_id}: {type(err).__name__}")
+
+
+def _plain_transcript_text(stored):
+    """Plain text of a stored transcript (plain string or JSON segment list)."""
+    if not isinstance(stored, str):
+        return ''
+    text = stored.strip()
+    if text.startswith('['):
+        try:
+            segments = json.loads(text)
+        except ValueError:
+            return stored
+        if isinstance(segments, list):
+            return '\n'.join(
+                str(seg.get('sentence') or seg.get('text') or '').strip()
+                for seg in segments if isinstance(seg, dict)
+            )
+    return stored
+
+
+_TRANSCRIPT_STATE_FIELDS = (
+    'transcription', 'transcription_language', 'speaker_embeddings', 'speaker_embeddings_space_id',
+)
+
+
+def _handle_late_asr(recording, prior, model_ref):
+    """CLINIC_MODE: an ASR result that arrives after a human revision is a side revision.
+
+    With a human head the visible transcript fields go back to what they were
+    before this run and the result is appended through ``add_asr_revision``.
+    Without a human head nothing changes.
+    """
+    from src.clinic.models import ClinicDictation, ClinicOriginal
+    from src.clinic.revisions import KIND_HUMAN, add_asr_revision, current_revision
+    dictation = ClinicDictation.query.filter_by(recording_id=recording.id).first()
+    if dictation is None:
+        return
+    head = current_revision(dictation)
+    if head is None or head.kind != KIND_HUMAN:
+        return
+    original = db.session.get(ClinicOriginal, head.original_version_id)
+    asr_text = _plain_transcript_text(recording.transcription)
+    for field, value in prior.items():
+        setattr(recording, field, value)
+    if original is not None and asr_text.strip():
+        add_asr_revision(dictation, original, asr_text, model_ref)
+        current_app.logger.info(f"Late ASR result of recording {recording.id} kept as a side revision")
+
+
 def transcribe_with_connector(app_context, recording_id, filepath, original_filename, start_time, mime_type=None, language=None, diarize=None, min_speakers=None, max_speakers=None, tag_id=None, hotwords=None, initial_prompt=None, transcription_model=None):
     """
     Transcribe audio using the new connector-based architecture.
@@ -1535,23 +1650,29 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
             connector_name = connector.PROVIDER_NAME
             current_app.logger.info(f"Using transcription connector: {connector_name}")
 
-            # Fall back to admin default hotwords if none provided
-            resolved_hotwords = resolve_hotwords(
-                hotwords, SystemSetting.get_setting('admin_default_hotwords', '')
-            )
-            if resolved_hotwords != hotwords:
-                hotwords = resolved_hotwords
-                current_app.logger.debug(f"Using admin default hotwords: {hotwords}")
+            # Clinic mode: the job's resolver already settled prompt and hotwords
+            # (off by default, one 55-word cap). Its values stay as they are,
+            # None included; the admin defaults are not added back.
+            clinic_asr = _clinic_asr_record()
 
-            # Fall back to admin default initial prompt if none provided (mirrors
-            # the hotwords fallback above; resolve_hotwords is a generic
-            # "explicit value wins, else admin default" helper).
-            resolved_initial_prompt = resolve_hotwords(
-                initial_prompt, SystemSetting.get_setting('admin_default_initial_prompt', '')
-            )
-            if resolved_initial_prompt != initial_prompt:
-                initial_prompt = resolved_initial_prompt
-                current_app.logger.debug("Using admin default initial prompt")
+            if clinic_asr is None:
+                # Fall back to admin default hotwords if none provided
+                resolved_hotwords = resolve_hotwords(
+                    hotwords, SystemSetting.get_setting('admin_default_hotwords', '')
+                )
+                if resolved_hotwords != hotwords:
+                    hotwords = resolved_hotwords
+                    current_app.logger.debug(f"Using admin default hotwords: {hotwords}")
+
+                # Fall back to admin default initial prompt if none provided (mirrors
+                # the hotwords fallback above; resolve_hotwords is a generic
+                # "explicit value wins, else admin default" helper).
+                resolved_initial_prompt = resolve_hotwords(
+                    initial_prompt, SystemSetting.get_setting('admin_default_initial_prompt', '')
+                )
+                if resolved_initial_prompt != initial_prompt:
+                    initial_prompt = resolved_initial_prompt
+                    current_app.logger.debug("Using admin default initial prompt")
 
             # Persist the effective hints actually used for this transcription so
             # the UI can surface them and pre-fill them on reprocess (issue #309).
@@ -1809,6 +1930,12 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
             # 'transcribing' is the stage of a transcription job until its
             # worker reports another one, so nothing is written here.
             job = job_control.current()
+            # Clinic mode: what the visible transcript looked like before this run,
+            # so a late result can leave it alone behind a human revision.
+            clinic_prior = None
+            from src.clinic.config import clinic_mode_enabled
+            if clinic_mode_enabled():
+                clinic_prior = {field: getattr(recording, field) for field in _TRANSCRIPT_STATE_FIELDS}
             for attempt in range(max_attempts):
                 try:
                     # A safe point: nothing was sent to the service yet.
@@ -1987,6 +2114,11 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
                     # Not a format error or already retried - propagate the error
                     raise
 
+            if clinic_prior is not None:
+                _handle_late_asr(
+                    recording, clinic_prior,
+                    f"{connector_name}:{transcription_model or getattr(connector, 'model', None) or 'default'}")
+
             # Persist/correct audio duration cache when we have local access during processing.
             # Prefer the original job input path for billing consistency, but fall back to the
             # actual processed file (e.g., extracted audio from video) when needed. This runs
@@ -2057,6 +2189,11 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
 
             db.session.commit()
             current_app.logger.info(f"Transcription completed in {recording.transcription_duration_seconds}s")
+
+            # A run that reached this point succeeded: record the engine that ran
+            # (after the commit above, so the short write does not wait on this session).
+            if clinic_asr is not None:
+                _record_actual_engine(connector, clinic_asr)
 
             # Record transcription usage for billing/budgeting
             try:
