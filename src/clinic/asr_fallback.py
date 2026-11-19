@@ -17,6 +17,7 @@ from __future__ import annotations
 import dataclasses
 import logging
 import os
+import threading
 from typing import Any, Optional
 from urllib.parse import urlsplit
 
@@ -86,7 +87,7 @@ class FallbackTranscriptionConnector(BaseTranscriptionConnector):
         self._cpu = cpu
         self._gpu = gpu
         self._gpu_url = gpu_url
-        self.last_engine: Optional[str] = None
+        self._local = threading.local()
         self._cpu_url = cpu_url or str(getattr(cpu, 'config', {}).get('base_url') or 'cpu')
         self.config = cpu.config
         self.CAPABILITIES = cpu.CAPABILITIES
@@ -135,24 +136,36 @@ class FallbackTranscriptionConnector(BaseTranscriptionConnector):
             return dataclasses.replace(request, model=model)
         return request
 
+    @property
+    def last_engine(self) -> Optional[str]:
+        """Engine of the last call made on the calling thread; kept for display
+        code that has no response at hand. The response's ``engine_actual`` is
+        the per-call source of truth."""
+        return getattr(self._local, 'engine', None)
+
+    def _set_engine(self, response: TranscriptionResponse, engine: Optional[str]):
+        self._local.engine = engine
+        if response is not None and engine is not None:
+            try:
+                response.engine_actual = engine
+            except AttributeError:
+                pass
+        return response
+
     def transcribe(self, request: TranscriptionRequest) -> TranscriptionResponse:
-        self.last_engine = None
+        self._local.engine = None
         reason = self._gpu_healthy()
         if reason is None:
             logger.info('ASR: sending job to GPU target %s', self._gpu_url)
             try:
-                response = self._gpu.transcribe(self._gpu_request(request))
-                self.last_engine = 'gpu'
-                return response
+                return self._set_engine(self._gpu.transcribe(self._gpu_request(request)), 'gpu')
             except TranscriptionError as exc:
                 reason = _fallback_reason(exc)
                 if reason is None:
                     raise
         self._log_fallback(reason)
         self._rewind(request)
-        response = self._cpu.transcribe(request)
-        self.last_engine = 'cpu'
-        return response
+        return self._set_engine(self._cpu.transcribe(request), 'cpu')
 
     def list_models(self):
         return self._cpu.list_models()

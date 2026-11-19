@@ -1211,7 +1211,7 @@ def merge_diarized_chunks(chunk_results):
     return merged_text, merged_segments, sorted(list(all_speakers))
 
 
-def transcribe_chunks_with_connector(connector, filepath, filename, mime_type, language, diarize=False, hotwords=None, initial_prompt=None, transcription_model=None, task_scope=None):
+def transcribe_chunks_with_connector(connector, filepath, filename, mime_type, language, diarize=False, hotwords=None, initial_prompt=None, transcription_model=None, task_scope=None, engines=None):
     """
     Transcribe a large audio file using chunking with the connector architecture.
 
@@ -1236,6 +1236,7 @@ def transcribe_chunks_with_connector(connector, filepath, filename, mime_type, l
         task_scope: Names the caller (a recording, the voice check) in each
             chunk's TranscriptionRequest.task_key. A scope for this call
             alone is used when it is empty.
+        engines: Optional list; each chunk's ``engine_actual`` is appended.
 
     Returns:
         Merged transcription text (with speaker labels if diarization enabled)
@@ -1332,6 +1333,8 @@ def transcribe_chunks_with_connector(connector, filepath, filename, mime_type, l
                             # Chunks are the long ASR calls: no transaction across them.
                             _end_transaction_in_clinic_mode()
                             response = connector.transcribe(request)
+                            if engines is not None:
+                                engines.append(getattr(response, 'engine_actual', None))
 
                         # For the first diarized chunk, extract speaker samples for subsequent chunks
                         if use_diarization and i == 0 and response.segments:
@@ -1495,12 +1498,16 @@ def _clinic_asr_record():
     return record if isinstance(record, dict) else None
 
 
-def _actual_engine(connector, record):
+def _actual_engine(connector, record, ran=None):
     """Which engine ran: 'gpu' or 'cpu', or None when the connector does not say.
 
-    A GPU/CPU fallback wrapper reports it as ``last_engine``. A plain connector
-    is the CPU target when no GPU fallback was planned. Nothing else is guessed.
+    ``ran`` is the engine the call's own response reported (per call, so
+    parallel jobs on one shared connector do not mix). Without it the
+    connector's ``last_engine`` is read. A plain connector is the CPU target
+    when no GPU fallback was planned. Nothing else is guessed.
     """
+    if ran in ('gpu', 'cpu'):
+        return ran
     reported = getattr(connector, 'last_engine', None)
     if reported in ('gpu', 'cpu'):
         return reported
@@ -1512,10 +1519,10 @@ def _actual_engine(connector, record):
     return None
 
 
-def _record_actual_engine(connector, record):
+def _record_actual_engine(connector, record, ran=None):
     """Write ``engine.actual`` into the job's ``clinic_asr`` record (display only)."""
     job_id = job_control.current().job_id
-    actual = _actual_engine(connector, record)
+    actual = _actual_engine(connector, record, ran)
     if job_id is None or actual is None:
         return
     try:
@@ -1534,6 +1541,12 @@ def _record_actual_engine(connector, record):
                 params=json.dumps(params, sort_keys=True, ensure_ascii=False)))
     except Exception as err:
         current_app.logger.warning(f"Could not record the ASR engine of job {job_id}: {type(err).__name__}")
+
+
+def _single_engine(engines):
+    """The one engine all calls of a run reported; None when none or mixed."""
+    found = {engine for engine in engines if engine in ('gpu', 'cpu')}
+    return next(iter(found)) if len(found) == 1 else None
 
 
 def _plain_transcript_text(stored):
@@ -1654,8 +1667,14 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
             # (off by default, one 55-word cap). Its values stay as they are,
             # None included; the admin defaults are not added back.
             clinic_asr = _clinic_asr_record()
+            ran_engines = []
 
-            if clinic_asr is None:
+            from src.clinic.config import clinic_mode_enabled as _clinic_on
+            if clinic_asr is None and _clinic_on():
+                # No job record (direct caller): prompts and hotwords stay OFF.
+                hotwords = None
+                initial_prompt = None
+            elif clinic_asr is None:
                 # Fall back to admin default hotwords if none provided
                 resolved_hotwords = resolve_hotwords(
                     hotwords, SystemSetting.get_setting('admin_default_hotwords', '')
@@ -1952,6 +1971,7 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
                             initial_prompt=initial_prompt,
                             transcription_model=transcription_model,
                             task_scope=f"speakr-{recording.id}" if recording else None,
+                            engines=ran_engines,
                         )
                         # A safe point: the result is dropped, nothing of it is stored.
                         job.check_cancel()
@@ -2007,6 +2027,7 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
                             )
                             _end_transaction_before_external_call(recording)
                             response = connector.transcribe(request)
+                            ran_engines.append(getattr(response, 'engine_actual', None))
 
                         # A safe point: the result is dropped, nothing of it is stored.
                         job.check_cancel()
@@ -2193,7 +2214,7 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
             # A run that reached this point succeeded: record the engine that ran
             # (after the commit above, so the short write does not wait on this session).
             if clinic_asr is not None:
-                _record_actual_engine(connector, clinic_asr)
+                _record_actual_engine(connector, clinic_asr, _single_engine(ran_engines))
 
             # Record transcription usage for billing/budgeting
             try:
