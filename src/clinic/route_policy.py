@@ -115,6 +115,8 @@ _ADMIN = _split("""
     admin.admin_toggle_admin admin.admin_update_setting admin.admin_update_user
     admin.admin_voice_embedding_check admin.admin_voice_embedding_rebaseline
     admin.admin_voice_embedding_status admin.get_auto_deletion_stats admin.run_auto_deletion
+    admin.admin_clinic_dictations admin.admin_clinic_dictation_audio
+    admin.admin_clinic_dictation_transcript
 """)
 
 _DISABLED = {
