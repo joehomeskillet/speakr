@@ -1272,7 +1272,7 @@ def register_clinic_identity(flask_app):
     The directory has no provider, so it answers its capability-unavailable problem.
     Preference stores are process-local; a durable store is a later package.
     """
-    from src.clinic import (entra, pool_policy, routes_directory, routes_grants,
+    from src.clinic import (entra, pool_policy, routes_admin_dictations, routes_directory, routes_grants,
                             routes_identity_providers, routes_pools, routes_preferences)
     from src.clinic.last_selection import Allowed, SelectionStore
     from src.clinic.workstation_preferences import WorkstationPreferences
@@ -1296,6 +1296,7 @@ def register_clinic_identity(flask_app):
     flask_app.register_blueprint(
         routes_identity_providers.IdentityProvidersApi(entra.EntraConfig(), disabled_exchange).blueprint)
     flask_app.register_blueprint(routes_directory.blueprint)
+    flask_app.register_blueprint(routes_admin_dictations.blueprint)
     flask_app.register_blueprint(routes_pools.blueprint)
     flask_app.register_blueprint(routes_grants.GrantsApi().blueprint)
     flask_app.register_blueprint(routes_preferences.PreferenceRoutes(
