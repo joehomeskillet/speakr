@@ -1,23 +1,19 @@
 /**
  * Acceptance policy editor (PAR-WF-009, PAR-WF-010).
  *
- * The policy of one dictation comes from GET /dictations/<id>/acceptance-policy:
- * { version, required, approver_user_ids, eligible: [{user_id, name}],
- *   decisions: [{kind, actor_id, actor_name, revision_id, reason, policy_version}] }.
- * Edits stay in memory until saved through the parity command channel with the
- * policy version as expected revision. Author and admin are never approvers by
- * label: only explicitly selected, eligible participants count. Participants
- * that are no longer eligible are flagged removed and block the save until they
- * are deselected. Clinical data is never written to browser storage. Status
+ * Server contract (src/clinic/routes_acceptance_policy.py, x15):
+ *   GET dictations/<id>/acceptance-policy -> { version, acceptance_required, approver_ids }
+ *   PUT same path, If-Match: <version>, body { acceptance_required, approver_ids }
+ *   409 STALE_VERSION { version } | 422 INVALID_APPROVER | 428 missing If-Match
+ *   | 503 AUDIT_UNAVAILABLE.
+ * Edits stay in memory until saved. Author and admin are never approvers by
+ * label: only explicitly selected approvers count; the server validates
+ * membership (422). Optional `eligible` [{user_id, name}] and `decisions`
+ * [{kind, actor_id, actor_name, revision_id, reason, policy_version}] are shown
+ * when a response carries them; x15 does not serve them yet, so without
+ * `eligible` the client cannot flag removed participants and relies on the
+ * server check. Clinical data is never written to browser storage. Status
  * colours come from tokens.js only.
- *
- * OPEN BACKEND GAP (not closed by this package): neither the policy read
- * GET /dictations/<id>/acceptance-policy nor the command 'save_acceptance_policy'
- * exists in src/ or clinic-spec/contracts. routes_workflow.py (w091) only exposes
- * request_acceptance and decide_acceptance. Persisting the required flag and the
- * approvers is therefore proven only against mock clients; AC1 is NOT met.
- * Proposed backend WP: policy read + save endpoint with expected-version check,
- * plus the clinic-spec contract entry.
  */
 
 import { createClinicApiClient } from './api-client.js';
@@ -46,20 +42,17 @@ const REASONS = Object.freeze({
     not_loaded: 'Die Richtlinie ist nicht geladen.',
     stale_version: 'Der Stand ist veraltet. Bitte neu laden.',
     permission: 'Keine Berechtigung für diese Aktion.',
+    invalid_approver: 'Eine ausgewählte Person ist nicht freigabeberechtigt.',
+    audit_unavailable: 'Das Protokoll ist nicht verfügbar. Bitte später erneut versuchen.',
     failure: 'Das Speichern ist fehlgeschlagen.',
 });
 
-// Keyboard states: Space/Enter toggles the focused participant.
+// Keyboard states: Space/Enter toggle a participant. Native checkboxes toggle
+// themselves via @change; onKey is for non-native rows only (never both).
 export const KEYS = Object.freeze({ toggle: [' ', 'Enter'] });
 
 function refuse(code) {
     return { ok: false, code: code, message: REASONS[code] || REASONS.failure };
-}
-
-function newKey() {
-    const c = globalThis.crypto;
-    if (c && typeof c.randomUUID === 'function') return c.randomUUID();
-    return 'acc-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
 }
 
 function decisionState(kind) {
@@ -81,6 +74,7 @@ export function createAcceptancePolicyEditor(options) {
         required: false,
         approvers: [], // selected user ids
         eligible: [], // { userId, name }
+        eligibleKnown: false,
         decisions: [], // { state, label, actorId, actorName, revisionId, reason }
         stale: false,
         status: 'normal',
@@ -91,6 +85,7 @@ export function createAcceptancePolicyEditor(options) {
     }
 
     function isEligible(userId) {
+        if (!state.eligibleKnown) return true;
         return state.eligible.some((row) => row.userId === userId);
     }
 
@@ -110,8 +105,9 @@ export function createAcceptancePolicyEditor(options) {
         }
         const data = row.data || {};
         state.version = Number.isInteger(data.version) ? data.version : 0;
-        state.required = !!data.required;
-        state.approvers = (data.approver_user_ids || []).slice();
+        state.required = !!data.acceptance_required;
+        state.approvers = (data.approver_ids || []).slice();
+        state.eligibleKnown = Array.isArray(data.eligible);
         state.eligible = (data.eligible || []).map((p) => ({ userId: p.user_id, name: p.name }));
         state.decisions = (data.decisions || []).map((d) => {
             const s = decisionState(d.kind);
@@ -158,6 +154,11 @@ export function createAcceptancePolicyEditor(options) {
             removed: false,
             ariaLabel: p.name,
         }));
+        if (!state.eligibleKnown) {
+            for (const id of state.approvers) {
+                rows.push({ userId: id, name: String(id), checked: true, removed: false, ariaLabel: String(id) });
+            }
+        }
         for (const id of removed()) {
             rows.push({
                 userId: id,
@@ -176,30 +177,32 @@ export function createAcceptancePolicyEditor(options) {
         if (removed().length > 0) return refuse('removed_participant');
         if (state.required && state.approvers.length === 0) return refuse('no_approver');
         setStatus('processing');
-        const key = newKey();
-        const result = await client.command(
+        const result = await client.request(
+            '/dictations/' + encodeURIComponent(state.dictationId) + '/acceptance-policy',
             {
-                command: 'save_acceptance_policy',
-                request_id: key,
-                expected_revision: state.version,
-                payload: {
-                    dictation_id: state.dictationId,
-                    required: state.required,
-                    approver_user_ids: state.approvers.slice(),
-                },
+                method: 'PUT',
+                ifMatch: String(state.version),
+                body: { acceptance_required: state.required, approver_ids: state.approvers.slice() },
             },
-            { idempotencyKey: key, ifMatch: '"' + state.version + '"' },
         );
         if (result.outcome === 'ok') {
             const data = result.data || {};
-            if (Number.isInteger(data.revision)) state.version = data.revision;
+            if (Number.isInteger(data.version)) state.version = data.version;
             setStatus('success');
             return { ok: true };
         }
-        if (result.outcome === 'conflict') {
+        if (result.outcome === 'conflict' || result.code === 'STALE_VERSION') {
             state.stale = true;
             setStatus('warning');
             return refuse('stale_version');
+        }
+        if (result.code === 'INVALID_APPROVER') {
+            setStatus('warning');
+            return refuse('invalid_approver');
+        }
+        if (result.code === 'AUDIT_UNAVAILABLE') {
+            setStatus('error');
+            return refuse('audit_unavailable');
         }
         setStatus(result.outcome === 'permission' ? 'warning' : 'error');
         return refuse(result.outcome === 'permission' ? 'permission' : 'failure');
@@ -219,6 +222,7 @@ export function createAcceptancePolicyEditor(options) {
         state.required = false;
         state.approvers = [];
         state.eligible = [];
+        state.eligibleKnown = false;
         state.decisions = [];
         state.stale = false;
         state.status = 'normal';
@@ -252,7 +256,7 @@ export function acceptancePolicyComponent(vue, options) {
     <legend>${LABELS.approvers}</legend>
     <ul role="list">
       <li v-for="p in editor.participants()" :key="p.userId">
-        <label><input type="checkbox" :checked="p.checked" :aria-label="p.ariaLabel" @change="editor.toggle(p.userId)" @keydown="editor.onKey(p.userId, $event)"> {{ p.name }}<span v-if="p.removed"> (${LABELS.removed})</span></label>
+        <label><input type="checkbox" :checked="p.checked" :aria-label="p.ariaLabel" @change="editor.toggle(p.userId)"> {{ p.name }}<span v-if="p.removed"> (${LABELS.removed})</span></label>
       </li>
     </ul>
   </fieldset>

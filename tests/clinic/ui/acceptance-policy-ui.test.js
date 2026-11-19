@@ -6,8 +6,8 @@ import {
 
 const POLICY = {
     version: 2,
-    required: true,
-    approver_user_ids: [1, 9],
+    acceptance_required: true,
+    approver_ids: [1, 9],
     eligible: [{ user_id: 1, name: 'Dr. A' }, { user_id: 2, name: 'Dr. B' }],
     decisions: [
         { kind: 'accept', actor_id: 1, actor_name: 'Dr. A', revision_id: 'r1', policy_version: 2 },
@@ -20,16 +20,22 @@ function ok(data) {
     return { outcome: 'ok', data: data, message: '' };
 }
 
-function fakeClient(overrides) {
-    return Object.assign({
-        request: vi.fn(async () => ok(POLICY)),
-        command: vi.fn(async () => ok({ revision: 3 })),
+// GET returns the policy; PUT goes to `put` (default: success with version 3).
+function fakeClient(put, policy) {
+    const putFn = put || vi.fn(async () => ok({ version: 3, acceptance_required: true, approver_ids: [] }));
+    const client = {
+        put: putFn,
+        request: vi.fn(async (path, opts) => {
+            if (opts && opts.method === 'PUT') return putFn(path, opts);
+            return ok(policy || POLICY);
+        }),
         switchContext: vi.fn(),
-    }, overrides || {});
+    };
+    return client;
 }
 
-async function loaded(overrides) {
-    const client = fakeClient(overrides);
+async function loaded(put, policy) {
+    const client = fakeClient(put, policy);
     const editor = createAcceptancePolicyEditor({ client: client });
     await editor.load('d1');
     return { client, editor };
@@ -51,7 +57,7 @@ describe('acceptance policy ui', () => {
         const rows = editor.participants();
         expect(rows.find((r) => r.userId === 9)).toMatchObject({ removed: true, checked: true });
         expect((await editor.save()).code).toBe('removed_participant');
-        expect(client.command).not.toHaveBeenCalled();
+        expect(client.put).not.toHaveBeenCalled();
         editor.toggle(9);
         expect((await editor.save()).ok).toBe(true);
     });
@@ -66,49 +72,73 @@ describe('acceptance policy ui', () => {
         expect((await editor.save()).ok).toBe(true);
     });
 
-    it('saves with the version as expected revision and idempotency key', async () => {
+    it('saves with PUT, If-Match version and the exact server body', async () => {
         const { client, editor } = await loaded();
         editor.toggle(9);
         editor.toggle(2);
         expect((await editor.save()).ok).toBe(true);
-        const [body, opts] = client.command.mock.calls[0];
-        expect(body).toMatchObject({ command: 'save_acceptance_policy', expected_revision: 2 });
-        expect(body.payload).toEqual({ dictation_id: 'd1', required: true, approver_user_ids: [1, 2] });
-        expect(opts.ifMatch).toBe('"2"');
-        expect(opts.idempotencyKey).toBe(body.request_id);
+        const [path, opts] = client.put.mock.calls[0];
+        expect(path).toBe('/dictations/d1/acceptance-policy');
+        expect(opts.method).toBe('PUT');
+        expect(opts.ifMatch).toBe('2');
+        expect(opts.body).toEqual({ acceptance_required: true, approver_ids: [1, 2] });
         expect(editor.state.version).toBe(3);
     });
 
-    it('marks a stale version and refuses further saves until reload', async () => {
-        const { client, editor } = await loaded({ command: vi.fn(async () => ({ outcome: 'conflict', message: 'x' })) });
+    it('marks a stale version (409 STALE_VERSION) and refuses saves until reload', async () => {
+        const { client, editor } = await loaded(vi.fn(async () => ({ outcome: 'conflict', code: 'STALE_VERSION', message: 'x' })));
         editor.toggle(9);
         expect((await editor.save()).code).toBe('stale_version');
         expect(editor.state.status).toBe('warning');
         expect((await editor.save()).code).toBe('stale_version');
-        expect(client.command).toHaveBeenCalledTimes(1);
+        expect(client.put).toHaveBeenCalledTimes(1);
         await editor.load('d1');
         expect(editor.state.stale).toBe(false);
     });
 
+    it('maps 422 INVALID_APPROVER, 503 AUDIT_UNAVAILABLE and 428', async () => {
+        const bad = await loaded(vi.fn(async () => ({ outcome: 'validation', code: 'INVALID_APPROVER', message: 'x' })));
+        bad.editor.toggle(9);
+        expect((await bad.editor.save()).code).toBe('invalid_approver');
+        const audit = await loaded(vi.fn(async () => ({ outcome: 'network', code: 'AUDIT_UNAVAILABLE', message: 'x' })));
+        audit.editor.toggle(9);
+        expect((await audit.editor.save()).code).toBe('audit_unavailable');
+        expect(audit.editor.state.status).toBe('error');
+        const missing = await loaded(vi.fn(async () => ({ outcome: 'validation', code: 'ERROR', message: 'x' })));
+        missing.editor.toggle(9);
+        expect((await missing.editor.save()).code).toBe('failure');
+    });
+
     it('reports unauthorized, failure and retry outcomes', async () => {
-        const denied = await loaded({ command: vi.fn(async () => ({ outcome: 'permission', message: 'x' })) });
+        const denied = await loaded(vi.fn(async () => ({ outcome: 'permission', message: 'x' })));
         denied.editor.toggle(9);
         expect((await denied.editor.save()).code).toBe('permission');
-        const broken = await loaded({ command: vi.fn(async () => ({ outcome: 'network', message: 'x' })) });
+        const broken = await loaded(vi.fn(async () => ({ outcome: 'network', message: 'x' })));
         broken.editor.toggle(9);
         expect((await broken.editor.save()).code).toBe('failure');
         expect(broken.editor.state.status).toBe('error');
-        const flaky = await loaded({
-            command: vi.fn()
-                .mockResolvedValueOnce({ outcome: 'network', message: 'x' })
-                .mockResolvedValueOnce(ok({ revision: 3 })),
-        });
+        const flaky = await loaded(vi.fn()
+            .mockResolvedValueOnce({ outcome: 'network', message: 'x' })
+            .mockResolvedValueOnce(ok({ version: 3, acceptance_required: true, approver_ids: [1] })));
         flaky.editor.toggle(9);
         expect((await flaky.editor.save()).ok).toBe(false);
         expect((await flaky.editor.save()).ok).toBe(true);
-        const noLoad = createAcceptancePolicyEditor({ client: fakeClient({ request: vi.fn(async () => ({ outcome: 'permission', message: 'x' })) }) });
+        const noLoad = createAcceptancePolicyEditor({ client: { request: vi.fn(async () => ({ outcome: 'permission', message: 'x' })), switchContext: vi.fn() } });
         expect((await noLoad.load('d1')).code).toBe('permission');
         expect((await noLoad.save()).code).toBe('not_loaded');
+    });
+
+    it('works with the x15 response shape that has no eligible list', async () => {
+        const { client, editor } = await loaded(undefined, { version: 1, acceptance_required: true, approver_ids: [4, 5] });
+        expect(editor.participants().map((r) => [r.userId, r.checked, r.removed])).toEqual([[4, true, false], [5, true, false]]);
+        expect((await editor.save()).ok).toBe(true);
+        expect(client.put.mock.calls[0][1].body).toEqual({ acceptance_required: true, approver_ids: [4, 5] });
+    });
+
+    it('does not double-toggle: native checkbox has no keydown handler', () => {
+        const comp = acceptancePolicyComponent({ reactive: (v) => v }, { client: fakeClient() });
+        expect(comp.template).toContain('@change="editor.toggle(p.userId)"');
+        expect(comp.template).not.toContain('@keydown');
     });
 
     it('handles keyboard states', async () => {
