@@ -1,0 +1,261 @@
+"""HTTP surface for directory preview and confirmed application (PAR-ADM-009).
+
+A thin layer over ``directory_diff``. The actor is always ``current_user`` and
+must be an active identity administrator with a matching clinic session; a body
+never names an actor, user or role. ``preview`` reads the configured directory
+snapshot and returns the changes plus a version and hash. ``apply`` rebuilds the
+preview from the current snapshot and local state and refuses unless both match,
+then persists only the selected changes through the existing pool and identity
+services. Local account management never depends on the provider: without one,
+the routes answer ``ldap_capability_unavailable``. Reading local Windows accounts
+stays open (WG-ADM-009).
+
+Mounting ``blueprint``, a provider and the creation of linked accounts for
+``create_pending_user`` (explicit linking) are left to the consumers
+(w167, w196).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from typing import Any, Callable
+
+from flask import Blueprint, abort, jsonify, request
+from flask_login import current_user
+from flask_wtf.csrf import CSRFError, validate_csrf
+from wtforms.validators import ValidationError
+
+from src.clinic import directory_diff as dd
+from src.clinic import identity, ldap_profile, pools
+from src.clinic.config import clinic_mode_enabled
+from src.clinic.directory_reconcile import Action, DirectoryReconcileError, LocalUser
+from src.clinic.entra import ClinicExternalIdentity
+from src.database import db
+from src.models import GroupMembership, User
+
+PREFIX = "/api/clinic/v1/directory"
+# Identity and authority come from the session, never from the request.
+_FORBIDDEN_KEYS = frozenset({
+    "actor", "actor_id", "user", "user_id", "role", "roles", "is_admin", "is_identity_admin",
+})
+_STATUS = {
+    "unauthenticated": 401, "unauthorized": 403, "invalid_payload": 400,
+    "stale_version": 409, "stale_state": 409, "invalid_selection": 400,
+    "explicit_link_required": 422, "ldap_capability_unavailable": 503, "apply_failed": 409,
+}
+_TITLES = {400: "Ungültige Anfrage", 401: "Anmeldung erforderlich", 403: "Zugriff verweigert",
+           409: "Versionskonflikt", 422: "Verknüpfung erforderlich",
+           503: "Verzeichnis nicht verfügbar"}
+
+_provider: Callable[[], dd.DirectorySnapshot | None] | None = None
+
+
+def set_provider(provider: Callable[[], dd.DirectorySnapshot | None] | None) -> None:
+    """Register the configured directory read; ``None`` removes it."""
+    global _provider
+    _provider = provider
+
+
+def _snapshot() -> dd.DirectorySnapshot:
+    snapshot = None
+    if _provider is not None:
+        try:
+            snapshot = _provider()
+        except ldap_profile.LdapCapabilityError:
+            snapshot = None
+    if snapshot is None:
+        raise dd.DirectoryDiffError("ldap_capability_unavailable", "Directory unavailable")
+    return snapshot
+
+
+def _local_state() -> tuple[list[LocalUser], list[dd.LocalMembership]]:
+    links = {row.user_id: row.object_id for row in ClinicExternalIdentity.query.filter_by(status="active")}
+    users = []
+    for user, policy in (db.session.query(User, identity.ClinicAccountPolicy)
+                         .join(identity.ClinicAccountPolicy, identity.ClinicAccountPolicy.user_id == User.id)
+                         .order_by(User.id)):
+        users.append(LocalUser(user.id, user.username, links.get(user.id),
+                               user.name or user.username, policy.status == "active"))
+    members = [dd.LocalMembership(r.user_id, "author", r.pool_id)
+               for r in pools.ClinicAuthorPoolMember.query.all()]
+    members += [dd.LocalMembership(r.user_id, "staff", sp.id)
+                for r, sp in (db.session.query(GroupMembership, pools.ClinicStaffPool)
+                              .join(pools.ClinicStaffPool, pools.ClinicStaffPool.group_id == GroupMembership.group_id))]
+    return users, members
+
+
+def _managed(body: dict) -> list[tuple[str, str]]:
+    raw = body.get("managed_pools", [])
+    if not isinstance(raw, list) or not all(
+            isinstance(p, dict) and isinstance(p.get("kind"), str) and isinstance(p.get("id"), str) for p in raw):
+        raise dd.DirectoryDiffError("invalid_payload", "managed_pools")
+    return [(p["kind"], p["id"]) for p in raw]
+
+
+def _action_json(a: Action) -> dict[str, Any]:
+    return {"kind": a.kind, "object_id": a.object_id, "local_user_id": a.local_user_id, "detail": a.detail}
+
+
+def _change_json(c: dd.MembershipChange) -> dict[str, Any]:
+    return {"kind": c.kind, "subject_id": c.subject_id, "user_id": c.user_id,
+            "pool_kind": c.pool_kind, "pool_id": c.pool_id}
+
+
+def preview_hash(preview: dd.DirectoryPreview) -> str:
+    """Digest over everything the application depends on, source and local state alike."""
+    canonical = json.dumps({
+        "source": preview.snapshot.source, "version": preview.source_version,
+        "actions": [_action_json(a) for a in preview.actions],
+        "changes": [_change_json(c) for c in preview.membership_changes],
+        "users": [[u.id, u.username, u.external_id, u.display_name, u.active] for u in preview.local_users],
+        "members": sorted([m.user_id, m.pool_kind, m.pool_id] for m in preview.local_memberships),
+        "managed": sorted(preview.managed_pools),
+    }, sort_keys=True, ensure_ascii=True)
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def _preview_json(preview: dd.DirectoryPreview) -> dict[str, Any]:
+    return {
+        "source": preview.snapshot.source, "version": preview.source_version, "hash": preview_hash(preview),
+        "changed_fields": [{"user_id": local.id, "object_id": entry.object_id, "fields": list(fields)}
+                           for local, entry, fields in preview.differences.changed],
+        "actions": [_action_json(a) for a in preview.actions],
+        "membership_changes": [_change_json(c) for c in preview.membership_changes],
+        "ambiguous": len(preview.differences.ambiguous),
+        "unmatchable": len(preview.differences.unmatchable),
+    }
+
+
+def _build(body: dict) -> tuple[dd.DirectorySnapshot, list, list, dd.DirectoryPreview]:
+    snapshot = _snapshot()
+    users, members = _local_state()
+    preview = dd.build_preview(snapshot, users, members, _managed(body), enabled=True)
+    return snapshot, users, members, preview
+
+
+def _actor() -> identity.ClinicAccountPolicy:
+    from src.api.auth import clinic_session_matches
+
+    policy = db.session.get(identity.ClinicAccountPolicy, current_user.id)
+    if (not current_user.is_admin or policy is None or not policy.is_identity_admin
+            or policy.status != "active" or policy.must_change_password
+            or not clinic_session_matches(policy)):
+        raise dd.DirectoryDiffError("unauthorized", "Identity administration required")
+    return policy
+
+
+def _authorize(actor_id: int, change: Action | dd.MembershipChange) -> bool:
+    """Per-object policy: administrators never deactivate or re-pool their own account."""
+    if isinstance(change, Action):
+        return change.kind == "update_display_name" or (
+            change.kind == "deactivate" and change.local_user_id != actor_id)
+    return change.user_id != actor_id
+
+
+def _select(rows: Any, keys: tuple[str, ...], universe: tuple) -> list:
+    if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
+        raise dd.DirectoryDiffError("invalid_selection", "Selection must be a list of objects")
+    index = {tuple(getattr(item, k) for k in keys): item for item in universe}
+    picked = []
+    for row in rows:
+        item = index.get(tuple(row.get(k) for k in keys))
+        if item is None:
+            raise dd.DirectoryDiffError("invalid_selection", "Selected change is absent from preview")
+        picked.append(item)
+    return picked
+
+
+def _persist(applied: dd.AppliedDirectoryDiff, actor: identity.ClinicAccountPolicy, entries: dict) -> None:
+    for action in applied.actions:
+        policy = db.session.get(identity.ClinicAccountPolicy, action.local_user_id, populate_existing=True)
+        if action.kind == "update_display_name":
+            identity.update_local_account(
+                action.local_user_id, actor_id=actor.user_id, expected_version=policy.version,
+                changes={"profile": {"name": entries[action.object_id].display_name}},
+                actor_security_version=actor.security_version)
+        elif action.kind == "deactivate":
+            identity.set_status(action.local_user_id, "disabled", actor_id=actor.user_id,
+                                expected_version=policy.version)
+    for change in applied.membership_changes:
+        add, remove = ((pools.add_author_member, pools.remove_author_member) if change.pool_kind == "author"
+                       else (pools.add_staff_member, pools.remove_staff_member))
+        (add if change.kind == "add" else remove)(change.pool_id, change.user_id, actor_id=actor.user_id)
+
+
+def _problem(code: str, status: int | None = None, **extra: Any):
+    status = status or _STATUS.get(code, 400)
+    response = jsonify(type="about:blank", title=_TITLES[status], status=status, code=code, **extra)
+    response.mimetype = "application/problem+json"
+    return response, status
+
+
+blueprint = Blueprint("clinic_directory", __name__)
+
+
+@blueprint.before_request
+def _guard():
+    if not clinic_mode_enabled():
+        abort(404)
+    if not (current_user.is_authenticated and current_user.is_active):
+        return _problem("unauthenticated")
+    try:
+        _actor()
+    except dd.DirectoryDiffError:
+        return _problem("unauthorized")
+    if request.method != "GET":
+        try:
+            validate_csrf(request.headers.get("X-CSRF-Token"))
+        except ValidationError:
+            return _problem("unauthorized")
+
+
+blueprint.register_error_handler(CSRFError, lambda _e: _problem("unauthorized"))
+blueprint.register_error_handler(
+    DirectoryReconcileError,
+    lambda e: _problem(e.code if e.code in _STATUS else "invalid_payload"))
+
+
+def _body() -> dict:
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or _FORBIDDEN_KEYS & body.keys():
+        raise dd.DirectoryDiffError("invalid_payload", "Invalid body")
+    return body
+
+
+@blueprint.get(PREFIX + "/capability")
+def capability():
+    return jsonify(directory_available=_provider is not None, local_accounts=True,
+                   local_windows_accounts="unavailable", gap="WG-ADM-009")
+
+
+@blueprint.post(PREFIX + "/preview")
+def preview():
+    return jsonify(_preview_json(_build(_body())[3]))
+
+
+@blueprint.post(PREFIX + "/apply")
+def apply():
+    body = _body()
+    if not isinstance(body.get("version"), str) or not isinstance(body.get("hash"), str):
+        raise dd.DirectoryDiffError("invalid_payload", "version and hash are required")
+    snapshot, users, members, built = _build(body)
+    if snapshot.version != body["version"]:
+        raise dd.DirectoryDiffError("stale_version", "Directory version changed")
+    if built.source_version != body["version"] or preview_hash(built) != body["hash"]:
+        raise dd.DirectoryDiffError("stale_state", "Preview no longer matches current state")
+    actions = _select(body.get("actions", []), ("kind", "object_id"), built.actions)
+    changes = _select(body.get("memberships", []), ("kind", "subject_id", "pool_kind", "pool_id"),
+                      built.membership_changes)
+    if any(a.kind == "create_pending_user" for a in actions):
+        raise dd.DirectoryDiffError("explicit_link_required", "Linked accounts are created explicitly")
+    actor = _actor()
+    applied = dd.apply_preview(built, snapshot, users, members, selected_actions=actions,
+                               selected_memberships=changes, actor_id=actor.user_id,
+                               authorize=_authorize, enabled=True)
+    try:
+        _persist(applied, actor, {e.object_id: e for e in snapshot.entries})
+    except (identity.IdentityError, pools.PoolError) as exc:
+        db.session.rollback()
+        raise dd.DirectoryDiffError("apply_failed", str(exc)) from exc
+    return jsonify(ok=True, applied_actions=len(applied.actions), applied_memberships=len(applied.membership_changes))
