@@ -1304,11 +1304,125 @@ def register_clinic_identity(flask_app):
         selections=SelectionStore(), workstations=WorkstationPreferences()).blueprint)
 
 
+def register_clinic_audio(flask_app):
+    """Mount the audio, dictation-property, bundle, live, correction and TTS handlers.
+
+    Called at startup only in clinic mode, after register_clinic_worklist, and reuses the one
+    ParityDispatch (start/stop live session are registered on it). Object decisions go through
+    pool_policy.decide; an active site admin may open audio of any user (W12, audited by the
+    audio handler). Capabilities that do not exist yet answer "unavailable" and are never faked:
+    no durable audio source for the derived rendering (503), no bundle persistence (503), no local
+    TTS engine or declared capability (CAPABILITY_UNAVAILABLE), no live-draft coordinator
+    (CAPABILITY_UNAVAILABLE). The protection store is process-local.
+    """
+    import threading
+
+    from src.clinic import (audio_revisions, config, local_tts, policy, pool_policy, revisions, routes_audio,
+                            routes_bundle, routes_correction, routes_dictation_properties, routes_live,
+                            routes_tts, startup)
+    from src.clinic.admin_dictation_access import can_open_content
+    from src.clinic.ingest import IngestService
+    from src.clinic.models import ClinicDictation, ClinicTranscriptRevision
+
+    dispatch = flask_app.extensions['clinic_parity_dispatch']
+    run_once = flask_app.extensions['clinic_run_once']
+    # Handler action name -> central policy actions that must all be allowed.
+    needs = {
+        'play': ('play',), 'edit': ('edit',), 'export': ('export',), 'import': ('edit',),
+        'correction_read': ('view',), 'correction_edit': ('edit',),
+    }
+
+    def may(user_id, name, dictation):
+        actions = needs.get(name)
+        if not actions or dictation is None:
+            return False
+        subject = policy.build_subject(user_id)
+        return all(pool_policy.decide(subject, action, dictation).allowed for action in actions)
+
+    def authorize(user, name, dictation):
+        # W12: an active admin opens audio of any user; the handler writes the audit row.
+        if name == 'play' and can_open_content(db.session, user, dictation.recording_id, 'audio').reason == 'admin_full':
+            return True
+        return may(user.id, name, dictation)
+
+    def text_version(dictation):
+        return db.session.query(ClinicTranscriptRevision).filter_by(dictation_id=dictation.id).count()
+
+    def load_sources(_dictation, _edl):
+        raise audio_revisions.AudioRevisionError('no durable audio source is wired yet')
+
+    class ProcessProtectionStore:
+        """Protection records of this process; a durable store is a later package."""
+
+        def __init__(self):
+            self._rows, self._lock = {}, threading.Lock()
+
+        def acl_allows(self, user_id, dictation_id):
+            return may(user_id, 'play', db.session.get(ClinicDictation, dictation_id))
+
+        def can_manage(self, user_id, dictation_id):
+            return may(user_id, 'edit', db.session.get(ClinicDictation, dictation_id))
+
+        def get(self, dictation_id):
+            if db.session.get(ClinicDictation, dictation_id) is None:
+                return None
+            with self._lock:
+                return self._rows.get(dictation_id, (None, 1))
+
+        def put(self, dictation_id, record, expected_version):
+            with self._lock:
+                version = self._rows.get(dictation_id, (None, 1))[1]
+                if expected_version != version:
+                    return None
+                self._rows[dictation_id] = (record, version + 1)
+                return version + 1
+
+    def bundle_load(actor, dictation_id):
+        dictation = db.session.get(ClinicDictation, dictation_id)
+        head = None if dictation is None else revisions.current_revision(dictation)
+        if head is None:
+            return None
+        return routes_bundle.BundleSession(
+            doc=routes_bundle.text_to_document(head.body.encode('utf-8')), audio=b'',
+            version=text_version(dictation))
+
+    def bundle_persist(_actor, _dictation_id, _doc, _audio, _expected):
+        raise OSError('no durable bundle store is wired yet')
+
+    def managed_client():
+        return config.client_capabilities()['profiles'][config.client_profile()].get('document_export') is not False
+
+    def tts_load(actor, kind, object_id):
+        dictation = db.session.get(ClinicDictation, object_id) if kind == routes_tts.SELECTION_KIND else None
+        head = None if dictation is None else revisions.current_revision(dictation)
+        if head is None or not may(actor, 'play', dictation):
+            return None
+        return routes_tts.Loaded(
+            document=local_tts.CanonicalText(text=head.body, version=text_version(dictation)),
+            subject=policy.build_subject(actor),
+            recording=policy.build_facts(dictation.recording_id, dictation.author_user_id))
+
+    routes_live.register_live_commands(
+        dispatch, lambda actor, dictation_id: may(actor, 'edit', db.session.get(ClinicDictation, dictation_id)))
+    flask_app.register_blueprint(routes_audio.create_blueprint(
+        authorize=authorize, run_once=run_once, load_sources=load_sources))
+    flask_app.register_blueprint(routes_dictation_properties.DictationPropertyRoutes(ProcessProtectionStore()).blueprint())
+    flask_app.register_blueprint(routes_bundle.create_blueprint(
+        bundle_load, lambda actor, dictation_id, action: may(actor, action, db.session.get(ClinicDictation, dictation_id)),
+        bundle_persist, run_once, managed_client))
+    flask_app.register_blueprint(routes_live.create_blueprint(
+        lambda actor, dictation_id: may(actor, 'edit', db.session.get(ClinicDictation, dictation_id)),
+        IngestService(startup.originals_root(flask_app))))
+    flask_app.register_blueprint(routes_correction.create_blueprint(authorize=lambda user, name, dictation: may(user.id, name, dictation), run_once=run_once))
+    flask_app.register_blueprint(routes_tts.TtsApi(tts_load, lambda: None, None).blueprint)
+
+
 from src.clinic.config import clinic_mode_enabled as _clinic_mode_enabled
 if _clinic_mode_enabled():
     register_clinic_resources(app)
     register_clinic_identity(app)
     register_clinic_worklist(app)
+    register_clinic_audio(app)
 
 # PWA Web Share Target (issue #285): the native share sheet cannot round-trip
 # a CSRF token, so the share-target endpoint is exempted. Authentication still
