@@ -107,6 +107,10 @@ export function useRecordings(state, utils, reprocessComposable) {
                 // Consume the one-shot flag so later loads behave normally.
                 if (labelDeepLinkPending && labelDeepLinkPending.value) {
                     labelDeepLinkPending.value = false;
+                } else if (typeof document !== 'undefined'
+                    && document.getElementById?.('app')?.dataset?.clinicMode === 'True') {
+                    // Clinic mode: the start page is the overview. Never open
+                    // the last viewed dictation on load (wrong patient context).
                 } else {
                     const lastRecordingId = localStorage.getItem('lastSelectedRecordingId');
                     // On a phone the list is a screen of its own: a search or a

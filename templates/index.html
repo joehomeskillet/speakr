@@ -95,6 +95,7 @@
 <body class="h-full bg-[var(--bg-primary)] text-[var(--text-primary)] transition-colors duration-300">
     <div id="app" v-cloak
          data-use-asr-endpoint="{{ use_asr_endpoint }}"
+         data-clinic-mode="{{ 'True' if clinic_mode else 'False' }}"
          data-connector-supports-diarization="{{ connector_supports_diarization }}"
          data-connector-supports-speaker-count="{{ connector_supports_speaker_count }}"
          data-connector-supports-exact-speaker-count="{{ connector_supports_exact_speaker_count }}"

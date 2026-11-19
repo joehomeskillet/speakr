@@ -1140,7 +1140,9 @@ def index(recording_id=None, label_name=None):
         recording_video_kbps = 2500
     recording_video_kbps = max(100, min(50000, recording_video_kbps))
 
+    from src.clinic.config import clinic_mode_enabled
     return render_template('index.html',
+                         clinic_mode=clinic_mode_enabled(),
                          use_asr_endpoint=USE_ASR_ENDPOINT,  # Backwards compat
                          connector_supports_diarization=connector_supports_diarization,
                          connector_supports_speaker_count=connector_supports_speaker_count,
