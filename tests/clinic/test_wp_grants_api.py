@@ -67,7 +67,7 @@ def _allowed(user, action, target):
 
 def test_admin_change_is_audited_and_live_on_next_request(grants_app):
     admin, typist, author = _account(_user(admin=True)), _user(), _user()
-    pool = pools.create_author_pool(f'A-{_suffix()}', actor_id=author.id)
+    pool = pools.create_author_pool(f'A-{_suffix()}', actor_id=admin.id)
     target = _dictation(author, pool.id)
     client, headers = _login(grants_app, admin)
 
