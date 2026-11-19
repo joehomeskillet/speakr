@@ -1,0 +1,97 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Speakr clinic voice enrollment web extension",
+    "version": "0.1.0-proposal",
+    "description": "Additive own-platform contract for opt-in user voice enrollment. No routes are deployed by this document. Manufacturer interfaces and real-device evidence remain unresolved."
+  },
+  "security": [{"browserSession": []}],
+  "x-new-speakr-extension-contract": true,
+  "x-par-ids": ["OWN-SPK-001", "OWN-SPK-003"],
+  "x-requirements": ["R-039", "R-042"],
+  "x-manufacturer-interfaces": "unresolved",
+  "x-existing-contract-mapping": [{
+    "method": "POST",
+    "path": "/api/clinic/v1/parity/commands",
+    "operationId": "executeParityCommand",
+    "parityCommandId": "save_profile",
+    "requestSchema": "../../clinic-spec/contracts/parity-api.openapi.json#/components/schemas/SaveProfile",
+    "handler": "parity typed-command dispatcher (specified, not yet implemented)",
+    "scope": "Existing ASR profile settings only; no consent or voice-embedding mutation."
+  }],
+  "x-contract-rules": {
+    "authorization": "Authenticated browser session; derive subject from the internal User.id in the session. Every read and write is self-only, including for admins. No patient, arbitrary user_id, service or machine principal.",
+    "csrf": "Require valid X-CSRFToken on each unsafe browser request before any side effect; 403 on missing or invalid token.",
+    "revision": "GET returns ETag \"voice-consent:<latest-id>\" (0 when absent). Require strong If-Match on every write, parse latest-id into voice_consent.expected_consent_id; mismatches yield 412, missing header 428. Check inside the consent write transaction.",
+    "idempotency": "Reuse clinic Idempotency-Key UUID contract. Atomically scope key and payload digest to actor User.id, operation and own enrollment aggregate. Resolve completed identical-key replays before checking If-Match; return the original status/result without repeating an action even when its original revision is now stale. Same key with a different payload is 409. A new key with a stale revision is 412. Concurrent in-flight replays must not repeat side effects.",
+    "data": "Keep consent declaration SHA-256 and audit history; persist embeddings only, never enrollment WAV. No vector bytes, raw audio or patient data in responses, URLs, logs or idempotency records. Revocation atomically removes every own enrollment embedding across spaces.",
+    "failure": "Refusals never change consent or embedding state. No automatic retry of an uncertain embedding computation; replay requires a durable idempotency result. On ambiguous outcome, return 503 and reconcile before accepting replay. Cache-Control: no-store on every response.",
+    "response_limit": "Every JSON success or error response is bounded to 4096 bytes; never serialize raw audio, vectors, declaration text or patient data."
+  },
+  "paths": {
+    "/api/clinic/v1/voice/enrollment": {
+      "get": {
+        "operationId": "getOwnVoiceEnrollment",
+        "summary": "Read own consent revision and enrollment count",
+        "x-handler": ["src.clinic.voice_consent.consent_state", "src.clinic.voice_consent.consent_history", "src.clinic.voice_consent.embedding_count"],
+        "x-object-permission": "own session User.id only; deny foreign subjects",
+        "x-max-response-bytes": 4096,
+        "responses": {
+          "200": {"description": "Own enrollment status; no embeddings", "headers": {"ETag": {"schema": {"type": "string"}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EnrollmentState"}}}},
+          "401": {"$ref": "../../clinic-spec/contracts/clinic-api.openapi.json#/components/responses/401"},
+          "403": {"$ref": "../../clinic-spec/contracts/clinic-api.openapi.json#/components/responses/403"}
+        }
+      },
+      "post": {
+        "operationId": "enrollOwnVoiceSample",
+        "summary": "Enrol one own voice embedding from a transient web WAV sample",
+        "description": "Enrollment requires active voice consent. Use grantOwnVoiceConsent and revokeOwnVoiceConsent in import-web.openapi.json to manage it.",
+        "x-handler": ["src.clinic.speaker_client.embed_with_space", "src.clinic.voice_consent.enrol"],
+        "x-object-permission": "own internal user and active consent at commit; never speaker or patient enrollment",
+        "x-max-body-bytes": 2000000,
+        "x-max-response-bytes": 4096,
+        "x-audio-constraints": {"sample_rate_hz": 16000, "channels": 1, "sample_width_bits": 16, "min_duration_seconds": 3, "max_duration_seconds": 30},
+        "x-audio-limits": "WAV, 16 kHz mono PCM, 3-30 seconds; reject out-of-range before embedding. Process transiently, then discard raw bytes.",
+        "parameters": [{"$ref": "#/components/parameters/Csrf"}, {"$ref": "../../clinic-spec/contracts/clinic-api.openapi.json#/components/parameters/IfMatch"}, {"$ref": "../../clinic-spec/contracts/clinic-api.openapi.json#/components/parameters/Idempotency"}],
+        "requestBody": {"required": true, "content": {"audio/wav": {"schema": {"type": "string", "format": "binary", "maxLength": 2000000}}}},
+        "responses": {
+          "201": {"description": "Stored embedding count; original result on an exact replay", "headers": {"ETag": {"schema": {"type": "string"}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EnrollmentState"}}}},
+          "400": {"$ref": "../../clinic-spec/contracts/clinic-api.openapi.json#/components/responses/400"},
+          "401": {"$ref": "../../clinic-spec/contracts/clinic-api.openapi.json#/components/responses/401"},
+          "403": {"$ref": "../../clinic-spec/contracts/clinic-api.openapi.json#/components/responses/403"},
+          "409": {"$ref": "../../clinic-spec/contracts/clinic-api.openapi.json#/components/responses/409"},
+          "412": {"$ref": "../../clinic-spec/contracts/clinic-api.openapi.json#/components/responses/412"},
+          "413": {"$ref": "../../clinic-spec/contracts/clinic-api.openapi.json#/components/responses/413"},
+          "415": {"$ref": "../../clinic-spec/contracts/clinic-api.openapi.json#/components/responses/415"},
+          "422": {"$ref": "../../clinic-spec/contracts/clinic-api.openapi.json#/components/responses/422"},
+          "428": {"$ref": "../../clinic-spec/contracts/clinic-api.openapi.json#/components/responses/428"},
+          "429": {"$ref": "../../clinic-spec/contracts/clinic-api.openapi.json#/components/responses/429"},
+          "503": {"$ref": "../../clinic-spec/contracts/clinic-api.openapi.json#/components/responses/503"}
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {"browserSession": {"$ref": "../../clinic-spec/contracts/clinic-api.openapi.json#/components/securitySchemes/browserSession"}},
+    "parameters": {"Csrf": {
+      "name": "X-CSRFToken", "in": "header", "required": true,
+      "description": "Same browser CSRF header as clinic-api Csrf, mandatory here for every POST.",
+      "schema": {"type": "string", "minLength": 1, "maxLength": 512}
+    }},
+    "schemas": {
+      "EnrollmentState": {"type": "object", "additionalProperties": false, "required": ["consent_revision", "state", "embedding_count"], "properties": {
+        "consent_revision": {"type": "integer", "minimum": 0, "description": "Latest consent history id; 0 without history."},
+        "state": {"type": "string", "enum": ["none", "granted", "revoked"]},
+        "embedding_count": {"type": "integer", "minimum": 0},
+        "granted_at": {"type": "string", "nullable": true, "format": "date-time"},
+        "revoked_at": {"type": "string", "nullable": true, "format": "date-time"}
+      }},
+      "GrantConsent": {"type": "object", "additionalProperties": false, "required": ["statement_text"], "properties": {
+        "statement_text": {"type": "string", "minLength": 1, "maxLength": 20000, "description": "Nonblank declaration shown to the user; persist only SHA-256."}
+      }},
+      "RevokeConsent": {"type": "object", "additionalProperties": false, "required": ["confirm"], "properties": {
+        "confirm": {"type": "boolean", "enum": [true]}
+      }}
+    }
+  }
+}

@@ -1,0 +1,166 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Speakr clinic web worklist extensions (additive proposal)",
+    "version": "0.1.0-proposal",
+    "description": "New own-platform Speakr extension contracts, gated by CLINIC_MODE. These operations are proposed HTTP adapters over existing clinic services, not registered endpoints or manufacturer interfaces. Manufacturer integration remains unresolved. No external API behavior is assumed; BT-CFG-002 and BT-WF-001 remain unexecuted. All responses are private with Cache-Control: no-store."
+  },
+  "servers": [{"url": "/"}],
+  "security": [{"browserSession": []}],
+  "x-parity-ids": ["PAR-WF-001", "PAR-CFG-002"],
+  "x-reused-operations": {
+    "worklist-api": [
+      {"source": "clinic-api", "method": "GET", "path": "/api/clinic/v1/dictations", "operationId": "listDictations", "schema": "DictationList", "handler": "src.clinic.worklist_filters.query_worklist"},
+      {"source": "clinic-api", "method": "GET", "path": "/api/clinic/v1/dictations/{dictation_id}", "operationId": "getDictation", "schema": "Dictation", "handler": "src.clinic.policy.decide"},
+      {"source": "parity-api", "method": "POST", "path": "/parity/commands", "operationId": "executeParityCommand", "commandId": "save_filter", "schema": "SaveFilter", "handler": "src.clinic.worklist_filters.WorklistFilterStore.create"}
+    ],
+    "workflow-api": [
+      {"source": "clinic-api", "method": "POST", "path": "/api/clinic/v1/dictations/{dictation_id}/submit", "operationId": "submitDictation", "schema": "Submit", "handler": "src.clinic.workflow.transition"},
+      {"source": "clinic-api", "method": "POST", "path": "/api/clinic/v1/dictations/{dictation_id}/releases", "operationId": "releaseVersion", "schema": "ReleaseRequest", "handler": "src.clinic.release.create_release"},
+      {"source": "parity-api", "method": "POST", "path": "/parity/commands", "operationId": "executeParityCommand", "commandId": "request_acceptance", "schema": "RequestAcceptance", "handler": "src.clinic.acceptance_rules.can_decide"},
+      {"source": "parity-api", "method": "POST", "path": "/parity/commands", "operationId": "executeParityCommand", "commandId": "decide_acceptance", "schema": "DecideAcceptance", "handler": "src.clinic.acceptance_rules.decide"},
+      {"source": "parity-api", "method": "POST", "path": "/parity/commands", "operationId": "executeParityCommand", "commandId": "reopen_dictation", "schema": "ReopenDictation", "handler": "src.clinic.workflow.transition"}
+    ],
+    "history-api": [
+      {"source": "clinic-api", "method": "GET", "path": "/api/clinic/v1/dictations/{dictation_id}/revisions/{revision_id}", "operationId": "getRevisionContent", "schema": "TranscriptContent", "handler": "src.clinic.revisions.history"},
+      {"source": "clinic-api", "method": "POST", "path": "/api/clinic/v1/dictations/{dictation_id}/revisions", "operationId": "saveRevision", "schema": "SaveRevision", "handler": "src.clinic.revisions.add_human_revision"}
+    ],
+    "templates-api": [],
+    "categories-api": [],
+    "regex-api": [],
+    "columns-api": []
+  },
+  "x-reuse-note": "Existing operationIds and parity commands above remain owned by their source specifications. Handler values identify reusable Python service entry points, not registered HTTP handlers. The parity save_filter payload requires translation into the existing filter specification. getRevisionContent selects the requested revision by id from authorized history; current_revision returns only the head. On every saveRevision, automatic text/audio synchronization preserves unchanged word timestamps, assigns changed spans neighboring timestamps and leaves newly typed words unanchored. HTTP adapters must enforce policy, open review markers and leases before calling services. No new operation replaces an existing method/path.",
+  "x-write-policy": "All writes require an authenticated browser session, valid X-CSRFToken, Idempotency-Key UUID and strong If-Match revision tag. Creation uses If-Match: \"0\" for an absent scope/name resource. Compare the current object or scope revision in the same atomic transaction as the change and immutable audit. Missing precondition 428; stale 412; same actor+operation+object+key and identical request hash replays the original status/body; altered payload 409; ambiguous failure must be reconciled before retrying. Permission and current action-specific denies are checked on every request, including replays. 401 unauthenticated, 403 forbidden, 404 hidden objects, 422 unsupported capability, 503 local dependency failure with no fabricated success.",
+  "x-read-policy": "Authenticate and authorize per object and per action before projection, filtering, pagination or count. Active administrators may directly read any user's dictation, transcript and audio, with access auditing and no reason prompt. Unassigned dictations are visible only to administrators and the relevant typist-pool leads; those roles may assign to any author with audit. Ordinary typists see only their assignments; authors see their permitted own work. This is target behavior: current policy.decide does not grant access from is_admin alone and workflow.worklist currently includes unassigned cases for ordinary typists. HTTP adapters require explicit role checks and audit before exposing these views; service changes belong to their implementation packages.",
+  "paths": {
+    "/api/clinic/v1/worklist/rows": {
+      "get": {
+        "operationId": "getWorklistRows", "tags": ["worklist-api"], "x-handler": "src.clinic.worklist_filters.query_worklist", "summary": "Berechtigte Arbeitsliste mit Pflichtspalten und Öffnungsmodus",
+        "parameters": [{"$ref": "#/components/parameters/Page"}, {"$ref": "#/components/parameters/PageSize"}, {"name": "search", "in": "query", "schema": {"type": "string", "maxLength": 200}}],
+        "responses": {"200": {"description": "Policy-filtered page; ETag is for read cache validation only", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WorklistPage"}}}}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/clinic/v1/worklist/filters": {
+      "get": {
+        "operationId": "listOwnWorklistFilters", "tags": ["worklist-api"], "x-handler": "src.clinic.worklist_filters.WorklistFilterStore.list", "summary": "Eigene gespeicherte Filter",
+        "responses": {"200": {"description": "At most 20 own filters", "content": {"application/json": {"schema": {"type": "object", "additionalProperties": false, "properties": {"items": {"type": "array", "maxItems": 20, "items": {"$ref": "#/components/schemas/SavedFilterSummary"}}}, "required": ["items"]}}}}, "401": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/clinic/v1/dictations/{dictation_id}/workflow": {
+      "parameters": [{"$ref": "#/components/parameters/DictationId"}],
+      "post": {
+        "operationId": "transitionClinicWorkflow", "tags": ["workflow-api"], "x-handler": "src.clinic.workflow.transition", "summary": "Zustandswechsel mit aktueller Bearbeitungsberechtigung",
+        "description": "Only open, close and complete are additive here. Existing submit, release, acceptance and reopen operations remain authoritative. Enforce current holder/edit lease. A finalizing complete transition is refused while review markers remain open or the final clinical release is not bound to reviewed versions.",
+        "parameters": [{"$ref": "#/components/parameters/Csrf"}, {"$ref": "#/components/parameters/Idempotency"}, {"$ref": "#/components/parameters/IfMatch"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "additionalProperties": false, "required": ["trigger"], "properties": {"trigger": {"type": "string", "enum": ["open", "close", "complete"]}}}}}},
+        "responses": {"200": {"description": "Committed workflow state", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WorkflowResult"}}}}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}, "412": {"$ref": "#/components/responses/Problem"}, "428": {"$ref": "#/components/responses/Problem"}, "503": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/clinic/v1/dictations/{dictation_id}/history": {
+      "parameters": [{"$ref": "#/components/parameters/DictationId"}],
+      "get": {
+        "operationId": "listClinicRevisionHistory", "tags": ["history-api"], "x-handler": "src.clinic.revisions.history", "summary": "Versionsverlauf ohne Inhaltsduplikate",
+        "parameters": [{"$ref": "#/components/parameters/Page"}, {"$ref": "#/components/parameters/PageSize"}],
+        "responses": {"200": {"description": "Authorized revision metadata in parent-before-child history order, paged after authorization", "content": {"application/json": {"schema": {"type": "object", "additionalProperties": false, "properties": {"items": {"type": "array", "maxItems": 100, "items": {"$ref": "../../clinic-spec/contracts/clinic-api.openapi.json#/components/schemas/Revision"}}, "total": {"type": "integer", "minimum": 0}, "page": {"type": "integer", "minimum": 1}, "page_size": {"type": "integer", "minimum": 1, "maximum": 100}}, "required": ["items", "total", "page", "page_size"]}}}}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}, "404": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/clinic/v1/templates": {
+      "get": {
+        "operationId": "listClinicTemplates", "tags": ["templates-api"], "x-handler": "src.clinic.presets.list_templates", "summary": "Berechtigte serverseitige Vorlagen",
+        "description": "System, own user and authorized pool scopes only; metadata without source paths or file bytes.",
+        "responses": {"200": {"description": "Bounded template catalog", "content": {"application/json": {"schema": {"type": "object", "additionalProperties": false, "properties": {"items": {"type": "array", "maxItems": 100, "items": {"$ref": "#/components/schemas/TemplateSummary"}}}, "required": ["items"]}}}}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}}
+      },
+      "post": {
+        "operationId": "saveClinicTemplate", "tags": ["templates-api"], "x-handler": "src.clinic.presets.save_template", "summary": "DOCX-/ODT-Vorlage als Serverkopie speichern",
+        "description": "Validate MIME, decoded byte size <= 2 MiB and SHA-256. Scope user is bound to the actor; pool requires membership and edit permission; system requires settings admin. Name/scope revision is checked before append-only template versioning. Insertion mark is stored; file content remains accessible after the original disappears.",
+        "parameters": [{"$ref": "#/components/parameters/Csrf"}, {"$ref": "#/components/parameters/Idempotency"}, {"$ref": "#/components/parameters/IfMatch"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TemplateWrite"}}}},
+        "responses": {"201": {"description": "Stored version", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TemplateSummary"}}}}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}, "412": {"$ref": "#/components/responses/Problem"}, "413": {"$ref": "#/components/responses/Problem"}, "428": {"$ref": "#/components/responses/Problem"}, "503": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/clinic/v1/templates/{template_id}/content": {
+      "parameters": [{"name": "template_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
+      "get": {
+        "operationId": "getClinicTemplateContent", "tags": ["templates-api"], "x-handler": "src.clinic.presets.list_templates", "summary": "Autorisierte Serverkopie abrufen",
+        "description": "Select the requested id only from list_templates results for authorized system/user/pool scopes. Exact stored version after current permission check. Binary content is never cached or logged.",
+        "responses": {"200": {"description": "Stored DOCX or ODT, <= 2 MiB", "content": {"application/octet-stream": {"schema": {"type": "string", "format": "binary", "maxLength": 2097152}}}}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}, "404": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/clinic/v1/category-sets": {
+      "get": {
+        "operationId": "listClinicCategorySets", "tags": ["categories-api"], "x-handler": "src.clinic.presets.ClinicCategorySet", "summary": "Berechtigte Kategorienlisten",
+        "responses": {"200": {"description": "At most 100 visible category sets", "content": {"application/json": {"schema": {"type": "object", "additionalProperties": false, "properties": {"items": {"type": "array", "maxItems": 100, "items": {"$ref": "#/components/schemas/CategorySet"}}}, "required": ["items"]}}}}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}}
+      },
+      "post": {
+        "operationId": "saveClinicCategorySet", "tags": ["categories-api"], "x-handler": "src.clinic.presets.save_category_set", "summary": "Versionierte Kategorienliste speichern",
+        "parameters": [{"$ref": "#/components/parameters/Csrf"}, {"$ref": "#/components/parameters/Idempotency"}, {"$ref": "#/components/parameters/IfMatch"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CategoryWrite"}}}},
+        "responses": {"201": {"description": "Stored category set", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CategorySet"}}}}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}, "412": {"$ref": "#/components/responses/Problem"}, "428": {"$ref": "#/components/responses/Problem"}, "503": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/clinic/v1/regex-rules": {
+      "get": {
+        "operationId": "listClinicRegexRules", "tags": ["regex-api"], "x-handler": "src.clinic.presets.ClinicRegexRule", "summary": "Berechtigte Metadatenregeln",
+        "responses": {"200": {"description": "At most 100 rules", "content": {"application/json": {"schema": {"type": "object", "additionalProperties": false, "properties": {"items": {"type": "array", "maxItems": 100, "items": {"$ref": "#/components/schemas/RegexRule"}}}, "required": ["items"]}}}}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}}
+      },
+      "post": {
+        "operationId": "saveClinicRegexRule", "tags": ["regex-api"], "x-handler": "src.clinic.presets.save_regex_rule", "summary": "Metadatenregel speichern",
+        "parameters": [{"$ref": "#/components/parameters/Csrf"}, {"$ref": "#/components/parameters/Idempotency"}, {"$ref": "#/components/parameters/IfMatch"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RegexWrite"}}}},
+        "responses": {"201": {"description": "Stored rule", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RegexRule"}}}}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}, "412": {"$ref": "#/components/responses/Problem"}, "428": {"$ref": "#/components/responses/Problem"}, "503": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/clinic/v1/regex-rules/preview": {
+      "post": {
+        "operationId": "previewClinicRegexRules", "tags": ["regex-api"], "x-handler": "src.clinic.presets.preview_regex_rules", "summary": "Metadatenregeln ohne Schreibzugriff prüfen",
+        "description": "Side-effect-free preview. CSRF required because request body contains text; no If-Match or idempotency needed. Restrict preview to authorized rule scopes and redact protected targets.",
+        "parameters": [{"$ref": "#/components/parameters/Csrf"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "additionalProperties": false, "properties": {"sample_text": {"type": "string", "minLength": 1, "maxLength": 10000}}, "required": ["sample_text"]}}}},
+        "responses": {"200": {"description": "Preview, never persisted", "content": {"application/json": {"schema": {"type": "object", "additionalProperties": false, "properties": {"resulting_fields": {"type": "object", "maxProperties": 8, "additionalProperties": {"type": ["string", "integer", "null"]}}, "matches": {"type": "array", "maxItems": 100, "items": {"type": "object"}}, "truncated": {"type": "boolean"}}, "required": ["resulting_fields", "matches", "truncated"]}}}}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/clinic/v1/worklist/layout": {
+      "get": {
+        "operationId": "getOwnWorklistLayout", "tags": ["columns-api"], "x-handler": "src.clinic.worklist_layout.LayoutStore.load", "summary": "Eigene Spaltenansicht",
+        "responses": {"200": {"description": "Own layout with current version", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/StoredLayout"}}}}, "401": {"$ref": "#/components/responses/Problem"}}
+      },
+      "put": {
+        "operationId": "saveOwnWorklistLayout", "tags": ["columns-api"], "x-handler": "src.clinic.worklist_layout.LayoutStore.save", "summary": "Eigene Spaltenansicht speichern",
+        "description": "Only authenticated user's layout; validate with list_layout.validate_layout. Maximum 30 columns, 3 grouping levels, 8 KiB canonical UTF-8. If-Match is the current layout version (0 on first save).",
+        "parameters": [{"$ref": "#/components/parameters/Csrf"}, {"$ref": "#/components/parameters/Idempotency"}, {"$ref": "#/components/parameters/IfMatch"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LayoutWrite"}}}},
+        "responses": {"200": {"description": "Committed own layout", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/StoredLayout"}}}}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}, "412": {"$ref": "#/components/responses/Problem"}, "428": {"$ref": "#/components/responses/Problem"}, "503": {"$ref": "#/components/responses/Problem"}}
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {"browserSession": {"type": "apiKey", "in": "cookie", "name": "session"}},
+    "parameters": {
+      "DictationId": {"name": "dictation_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
+      "Page": {"name": "page", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 100000, "default": 1}},
+      "PageSize": {"name": "page_size", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20}},
+      "Csrf": {"name": "X-CSRFToken", "in": "header", "required": true, "schema": {"type": "string", "minLength": 1, "maxLength": 512}},
+      "Idempotency": {"name": "Idempotency-Key", "in": "header", "required": true, "schema": {"type": "string", "format": "uuid"}},
+      "IfMatch": {"name": "If-Match", "in": "header", "required": true, "schema": {"type": "string", "minLength": 1, "maxLength": 128}}
+    },
+    "responses": {"Problem": {"description": "401 unauthenticated; 403 forbidden; 404 inaccessible; 409 conflicting idempotency; 412 stale; 428 missing version; 503 dependency failure", "content": {"application/problem+json": {"schema": {"$ref": "../../clinic-spec/contracts/clinic-api.openapi.json#/components/schemas/Problem"}}}}},
+    "schemas": {
+      "WorklistRow": {"type": "object", "additionalProperties": false, "required": ["dictation_id", "title", "status", "author_user_id", "priority", "deadline_at", "assignee_user_id", "assigned_at", "notes", "created_at", "duration_seconds", "recipient", "source_kind", "open_mode", "revision"], "properties": {
+        "dictation_id": {"type": "string", "format": "uuid"}, "title": {"type": "string", "maxLength": 256}, "status": {"type": "string", "maxLength": 64}, "author_user_id": {"type": "integer", "minimum": 1}, "priority": {"type": "integer", "enum": [0, 1, 128]}, "deadline_at": {"type": ["string", "null"], "format": "date-time"}, "assignee_user_id": {"type": ["integer", "null"], "minimum": 1}, "assigned_at": {"type": ["string", "null"], "format": "date-time"}, "notes": {"type": ["string", "null"], "maxLength": 4000}, "created_at": {"type": "string", "format": "date-time"}, "duration_seconds": {"type": "integer", "minimum": 0}, "recipient": {"type": ["string", "null"], "maxLength": 256}, "source_kind": {"type": "string", "enum": ["audio", "recognized", "document"]}, "open_mode": {"type": "string", "enum": ["author_case", "typist_editor", "document_editor"]}, "revision": {"type": "integer", "minimum": 0}
+      }},
+      "WorklistPage": {"type": "object", "additionalProperties": false, "required": ["items", "total", "page", "page_size"], "properties": {"items": {"type": "array", "maxItems": 100, "items": {"$ref": "#/components/schemas/WorklistRow"}}, "total": {"type": "integer", "minimum": 0}, "page": {"type": "integer", "minimum": 1}, "page_size": {"type": "integer", "minimum": 1, "maximum": 100}}},
+      "SavedFilterSummary": {"type": "object", "additionalProperties": false, "required": ["id", "name", "version"], "properties": {"id": {"type": "string", "maxLength": 32}, "name": {"type": "string", "maxLength": 60}, "version": {"type": "integer", "minimum": 1}}},
+      "WorkflowResult": {"type": "object", "additionalProperties": false, "required": ["dictation_id", "status", "revision"], "properties": {"dictation_id": {"type": "string", "format": "uuid"}, "status": {"type": "string", "maxLength": 64}, "revision": {"type": "integer", "minimum": 1}}},
+      "Scope": {"type": "object", "additionalProperties": false, "required": ["scope"], "properties": {"scope": {"type": "string", "enum": ["system", "pool", "user"]}, "scope_id": {"type": "string", "maxLength": 36, "description": "Server validates user=actor, pool membership or system admin. Cannot be used to elevate rights."}}},
+      "TemplateWrite": {"type": "object", "additionalProperties": false, "required": ["scope", "name", "mime_type", "content_base64", "content_sha256"], "properties": {"scope": {"$ref": "#/components/schemas/Scope"}, "name": {"type": "string", "minLength": 1, "maxLength": 128}, "notes": {"type": ["string", "null"], "maxLength": 4000}, "insertion_mark": {"type": ["string", "null"], "maxLength": 128}, "mime_type": {"type": "string", "enum": ["application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.oasis.opendocument.text"]}, "content_base64": {"type": "string", "contentEncoding": "base64", "maxLength": 2796204}, "content_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}},
+      "TemplateSummary": {"type": "object", "additionalProperties": false, "required": ["id", "name", "scope", "version", "mime_type", "content_sha256"], "properties": {"id": {"type": "string", "format": "uuid"}, "name": {"type": "string", "maxLength": 128}, "scope": {"type": "string", "enum": ["system", "pool", "user"]}, "version": {"type": "integer", "minimum": 1}, "mime_type": {"type": "string", "maxLength": 128}, "content_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}},
+      "CategoryWrite": {"type": "object", "additionalProperties": false, "required": ["scope", "name", "categories", "is_required", "target_field"], "properties": {"scope": {"$ref": "#/components/schemas/Scope"}, "name": {"type": "string", "minLength": 1, "maxLength": 128}, "categories": {"type": "array", "minItems": 1, "maxItems": 100, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 128}}, "is_required": {"type": "boolean"}, "target_field": {"type": "string", "maxLength": 64}}},
+      "CategorySet": {"type": "object", "additionalProperties": false, "required": ["id", "version", "value"], "properties": {"id": {"type": "string", "format": "uuid"}, "version": {"type": "integer", "minimum": 1}, "value": {"$ref": "#/components/schemas/CategoryWrite"}}},
+      "RegexWrite": {"type": "object", "additionalProperties": false, "required": ["scope", "name", "pattern", "target_field"], "properties": {"scope": {"$ref": "#/components/schemas/Scope"}, "name": {"type": "string", "minLength": 1, "maxLength": 128}, "pattern": {"type": "string", "minLength": 1, "maxLength": 512}, "target_field": {"type": "string", "enum": ["title", "dictation_name", "remarks", "notes", "priority", "urgency", "deadline", "due_date"]}, "replacement": {"type": ["string", "null"], "maxLength": 256}, "priority_order": {"type": "integer", "minimum": 0, "maximum": 10000}, "max_input_length": {"type": "integer", "minimum": 1, "maximum": 10000}}},
+      "RegexRule": {"type": "object", "additionalProperties": false, "required": ["id", "value"], "properties": {"id": {"type": "string", "format": "uuid"}, "value": {"$ref": "#/components/schemas/RegexWrite"}}},
+      "LayoutWrite": {"type": "object", "additionalProperties": false, "required": ["version", "columns", "sort", "group_by"], "properties": {"version": {"type": "integer", "const": 1}, "columns": {"type": "array", "maxItems": 30, "items": {"type": "object", "additionalProperties": false, "required": ["key", "width", "visible"], "properties": {"key": {"type": "string", "minLength": 1, "maxLength": 64}, "width": {"type": "integer", "minimum": 40, "maximum": 800}, "visible": {"type": "boolean"}}}}, "sort": {"type": "array", "maxItems": 30, "items": {"type": "array", "minItems": 2, "maxItems": 2, "prefixItems": [{"type": "string", "maxLength": 64}, {"type": "string", "enum": ["asc", "desc"]}]}}, "group_by": {"type": "array", "maxItems": 3, "items": {"type": "string", "maxLength": 64}}}},
+      "StoredLayout": {"type": "object", "additionalProperties": false, "required": ["version", "layout"], "properties": {"version": {"type": "integer", "minimum": 0}, "layout": {"$ref": "#/components/schemas/LayoutWrite"}}}
+    }
+  }
+}

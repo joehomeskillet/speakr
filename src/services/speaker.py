@@ -120,7 +120,10 @@ def update_voice_profiles(recording, label_to_name, user, seconds_by_key=None, s
     snippets_created = 0
     # Runs even when nothing was named: a save that only merged speakers
     # away must still drop the merged labels' samples.
-    if recording.speaker_embeddings:
+    # Clinic mode: no reliable own-consent signal ties a named label to the
+    # saving user's consented profile, so no sample or embedding is stored here.
+    from src.clinic.config import clinic_mode_enabled
+    if recording.speaker_embeddings and not clinic_mode_enabled():
         db.session.commit()
         try:
             stats = apply_names_to_profiles(recording, label_to_name or {}, seconds_by_key, user,

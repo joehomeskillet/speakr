@@ -1046,6 +1046,11 @@ def extract_speaker_samples(
     Returns:
         Dict mapping speaker label (e.g., "A", "B") to path of extracted audio sample
     """
+    # Clinic mode: never cut per-speaker voice samples out of a dictation.
+    from src.clinic.config import clinic_mode_enabled
+    if clinic_mode_enabled():
+        return {}
+
     # OpenAI's actual limits
     OPENAI_MIN_DURATION = 1.2
     OPENAI_MAX_DURATION = 10.0

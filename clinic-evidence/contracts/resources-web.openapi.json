@@ -1,0 +1,135 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Clinic own-platform resource reads (proposed Speakr extension)",
+    "version": "0.1.0-proposal",
+    "description": "Additive CLINIC_MODE web contract for PAR-VOC-001 and PAR-ASR-002. Manufacturer interfaces remain unresolved. No deployed route or device compatibility is asserted."
+  },
+  "servers": [{"url": "/api/clinic/v1"}],
+  "security": [{"ClinicSession": []}],
+  "x-contract-status": "proposed-own-platform-extension",
+  "x-manufacturer-interfaces": "unresolved",
+  "x-original-behavior-tests": ["BT-VOC-001", "BT-ASR-002"],
+  "x-reused-operations": [
+    {"resource": "vocabulary-api", "method": "POST", "path": "/parity/commands", "operationId": "executeParityCommand", "command": "propose_vocabulary_change", "schema": "ProposeVocabularyChange", "permission": "clinic.vocabulary.propose", "service_handlers": ["src.clinic.vocabulary.submit_review_item"]},
+    {"resource": "vocabulary-review-api", "method": "POST", "path": "/parity/commands", "operationId": "executeParityCommand", "command": "review_resource_change", "schema": "ReviewResourceChange", "permission": "clinic.vocabulary.review", "service_handlers": ["src.clinic.vocabulary.accept_to_user", "src.clinic.vocabulary.accept_to_pool", "src.clinic.vocabulary.reject_item", "src.clinic.vocabulary.defer_item"]},
+    {"resource": "commands-api", "method": "POST", "path": "/parity/commands", "operationId": "executeParityCommand", "command": "save_command", "schema": "SaveCommand", "permission": "clinic.commands.manage", "service_handlers": ["src.clinic.vocabulary.add_voice_command"]},
+    {"resource": "asr-profiles-api", "method": "POST", "path": "/parity/commands", "operationId": "executeParityCommand", "command": "save_profile", "schema": "SaveProfile", "permission": "clinic.profile.manage", "service_handlers": ["src.clinic.asr_profiles.set_profile"]}
+  ],
+  "x-write-semantics": {
+    "source": "clinic-spec/contracts/parity-api.openapi.json#/paths/~1parity~1commands/post",
+    "csrf": "X-CSRF-Token required for every write",
+    "revision": "expected_revision must match the current authorized object revision; mismatch returns 409 before any mutation",
+    "idempotency": "Idempotency-Key 8..128 and request_id bind actor, object, command and canonical payload. Same request replay returns original result; key reused with different payload returns 409",
+    "failure": "401 unauthenticated, 403 denied or foreign object, 422 invalid command, 429 rate-limited, 503 capability unavailable. Never report unproven ASR training as completed",
+    "adapter_note": "Parity payloads and existing service signatures differ; consumer adapters translate and validate them without changing the shared command schemas"
+  },
+  "x-read-semantics": {
+    "csrf": "GET is side-effect-free and does not require X-CSRF-Token",
+    "revision": "Snapshot-consistent integer revision is returned with an opaque ETag; If-None-Match returns 304 only for the same authorized scope and filters",
+    "pagination": "Stable sort and opaque snapshot-bound cursor. A stale or changed-filter cursor returns 409. Never silently restart a page",
+    "idempotency": "GET is safely repeatable; no Idempotency-Key is required. Replay within the same revision and cursor yields the same page",
+    "retry": "429 and 503 may be retried with bounded backoff, honoring Retry-After. No partial result is treated as success",
+    "authorization": "Resolve actor from ClinicSession, apply current object-specific denies first, validate author-pool membership and per-object read rights before calling service functions or returning ETag/304; never infer a pool from staff routing",
+    "scope_revision": "For lists, consumers create monotonic scope revisions and snapshot cursors transactionally; ASR profile version is persisted separately from any training evidence changes"
+  },
+  "paths": {
+    "/resources/vocabulary": {
+      "get": {
+        "operationId": "listResourceVocabulary",
+        "summary": "Read authorized personal or author-pool vocabulary",
+        "x-handler": "src.clinic.vocabulary.search_vocabulary",
+        "x-object-permission": "scope_type=user requires scope_id=current actor id; scope_type=author_pool requires current membership and read grant; translate author_pool to service scope pool; filter before pagination",
+        "x-csrf-required": false,
+        "parameters": [
+          {"$ref": "#/components/parameters/ScopeType"}, {"$ref": "#/components/parameters/ScopeId"},
+          {"name": "q", "in": "query", "schema": {"type": "string", "maxLength": 255, "default": ""}},
+          {"name": "status", "in": "query", "schema": {"type": "string", "enum": ["active", "suppressed"], "default": "active"}},
+          {"$ref": "#/components/parameters/Limit"}, {"$ref": "#/components/parameters/Cursor"}, {"$ref": "#/components/parameters/IfNoneMatch"}
+        ],
+        "responses": {"200": {"description": "Authorized vocabulary page", "headers": {"ETag": {"$ref": "#/components/headers/ETag"}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/VocabularyPage"}}}}, "304": {"$ref": "#/components/responses/NotModified"}, "400": {"$ref": "#/components/responses/Invalid"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "403": {"$ref": "#/components/responses/Forbidden"}, "409": {"$ref": "#/components/responses/Stale"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+      }
+    },
+    "/resources/vocabulary/reviews": {
+      "get": {
+        "operationId": "listResourceVocabularyReviews",
+        "summary": "Read authorized vocabulary review queue",
+        "x-handler": "src.clinic.vocabulary.list_review_items",
+        "x-object-permission": "clinic.vocabulary.review and explicit user/pool review entitlement; require one scope, filter in service query before pagination; no cross-pool fallback",
+        "x-csrf-required": false,
+        "parameters": [
+          {"$ref": "#/components/parameters/ScopeType"}, {"$ref": "#/components/parameters/ScopeId"},
+          {"name": "status", "in": "query", "schema": {"type": "string", "enum": ["PENDING", "ACCEPTED_USER", "ACCEPTED_POOL", "REJECTED", "DEFERRED"], "default": "PENDING"}},
+          {"$ref": "#/components/parameters/Limit"}, {"$ref": "#/components/parameters/Cursor"}, {"$ref": "#/components/parameters/IfNoneMatch"}
+        ],
+        "responses": {"200": {"description": "Authorized review page", "headers": {"ETag": {"$ref": "#/components/headers/ETag"}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReviewPage"}}}}, "304": {"$ref": "#/components/responses/NotModified"}, "400": {"$ref": "#/components/responses/Invalid"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "403": {"$ref": "#/components/responses/Forbidden"}, "409": {"$ref": "#/components/responses/Stale"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+      }
+    },
+    "/resources/commands": {
+      "get": {
+        "operationId": "listResourceCommands",
+        "summary": "Read effective voice commands for signed-in author",
+        "x-handler": "src.clinic.vocabulary.get_effective_voice_commands",
+        "x-object-permission": "Use current actor id and only authorized author-pool ids in deterministic precedence order; do not accept caller-provided user/pool ids",
+        "x-csrf-required": false,
+        "parameters": [{"$ref": "#/components/parameters/Limit"}, {"$ref": "#/components/parameters/Cursor"}, {"$ref": "#/components/parameters/IfNoneMatch"}],
+        "responses": {"200": {"description": "Effective command page", "headers": {"ETag": {"$ref": "#/components/headers/ETag"}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CommandPage"}}}}, "304": {"$ref": "#/components/responses/NotModified"}, "400": {"$ref": "#/components/responses/Invalid"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "403": {"$ref": "#/components/responses/Forbidden"}, "409": {"$ref": "#/components/responses/Stale"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+      }
+    },
+    "/resources/asr-profiles/me": {
+      "get": {
+        "operationId": "getResourceAsrProfile",
+        "summary": "Read own ASR configuration and verified-training status",
+        "x-handler": "src.clinic.asr_profiles.asr_status",
+        "x-related-service": "src.clinic.asr_profiles.profile_history (latest immutable snapshot supplies configuration; asr_status supplies actual training evidence)",
+        "x-object-permission": "Resolve user_id exclusively from current ClinicSession; author-only profile and status; profile_version is the persisted configuration version, separate from training proof",
+        "x-csrf-required": false,
+        "parameters": [{"$ref": "#/components/parameters/IfNoneMatch"}],
+        "responses": {"200": {"description": "Own ASR profile and training status", "headers": {"ETag": {"$ref": "#/components/headers/ETag"}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AsrProfileView"}}}}, "304": {"$ref": "#/components/responses/NotModified"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "403": {"$ref": "#/components/responses/Forbidden"}, "409": {"$ref": "#/components/responses/Stale"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+      },
+      "patch": {
+        "operationId": "configureOwnAsrSource",
+        "summary": "Configure own headset/recorder source and offline profile split",
+        "x-handler": "src.clinic.asr_profiles.set_profile",
+        "x-object-permission": "clinic.profile.manage on current ClinicSession author only; translate changed source fields into existing options, preserve all unspecified options, check current object-specific denies",
+        "x-csrf-required": true,
+        "x-revision": "expected_revision must equal persisted ClinicAsrProfile.version (or zero if absent); reject stale update with 409 before invoking set_profile",
+        "x-idempotency": "Keyed by actor id, own profile id, request_id, Idempotency-Key and canonical payload; identical retries return original result, conflicting reuse returns 409, failed transactions commit no result",
+        "parameters": [{"$ref": "#/components/parameters/CsrfToken"}, {"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SourceConfigurationChange"}}}},
+        "responses": {"200": {"description": "Current authorized configuration after commit", "headers": {"ETag": {"$ref": "#/components/headers/ETag"}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AsrProfileView"}}}}, "400": {"$ref": "#/components/responses/Invalid"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "403": {"$ref": "#/components/responses/Forbidden"}, "409": {"$ref": "#/components/responses/Stale"}, "422": {"$ref": "#/components/responses/Invalid"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {"ClinicSession": {"type": "apiKey", "in": "cookie", "name": "clinic_session"}},
+    "parameters": {
+      "ScopeType": {"name": "scope_type", "in": "query", "required": true, "schema": {"type": "string", "enum": ["user", "author_pool"]}},
+      "ScopeId": {"name": "scope_id", "in": "query", "required": true, "schema": {"type": "string", "minLength": 1, "maxLength": 256}},
+      "Limit": {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50}},
+      "Cursor": {"name": "cursor", "in": "query", "schema": {"type": "string", "minLength": 1, "maxLength": 512}},
+      "IfNoneMatch": {"name": "If-None-Match", "in": "header", "schema": {"type": "string", "maxLength": 256}},
+      "CsrfToken": {"name": "X-CSRF-Token", "in": "header", "required": true, "schema": {"type": "string", "minLength": 1, "maxLength": 512}},
+      "IdempotencyKey": {"name": "Idempotency-Key", "in": "header", "required": true, "schema": {"type": "string", "minLength": 8, "maxLength": 128}}
+    },
+    "headers": {"ETag": {"description": "Opaque, scope-specific revision validator", "schema": {"type": "string", "maxLength": 256}}},
+    "schemas": {
+      "Problem": {"type": "object", "additionalProperties": false, "required": ["code", "message"], "properties": {"code": {"type": "string", "maxLength": 64}, "message": {"type": "string", "maxLength": 500}}},
+      "PageState": {"type": "object", "required": ["revision", "next_cursor"], "properties": {"revision": {"type": "integer", "minimum": 0}, "next_cursor": {"type": ["string", "null"], "maxLength": 512}}},
+      "VocabularyPage": {"allOf": [{"$ref": "#/components/schemas/PageState"}, {"type": "object", "required": ["items"], "properties": {"items": {"type": "array", "maxItems": 100, "items": {"type": "object", "additionalProperties": false, "required": ["id", "written_form", "status"], "properties": {"id": {"type": "string", "format": "uuid"}, "written_form": {"type": "string", "maxLength": 255}, "spoken_form": {"type": ["string", "null"], "maxLength": 255}, "status": {"enum": ["active", "suppressed"]}}}}}}]},
+      "ReviewPage": {"allOf": [{"$ref": "#/components/schemas/PageState"}, {"type": "object", "required": ["items"], "properties": {"items": {"type": "array", "maxItems": 100, "items": {"type": "object", "additionalProperties": false, "required": ["id", "written_form", "operation", "status"], "properties": {"id": {"type": "string", "format": "uuid"}, "written_form": {"type": "string", "maxLength": 255}, "spoken_form": {"type": ["string", "null"], "maxLength": 255}, "operation": {"enum": ["ADD", "DELETE", "MODIFY"]}, "status": {"enum": ["PENDING", "ACCEPTED_USER", "ACCEPTED_POOL", "REJECTED", "DEFERRED"]}}}}}}]},
+      "CommandPage": {"allOf": [{"$ref": "#/components/schemas/PageState"}, {"type": "object", "required": ["items"], "properties": {"items": {"type": "array", "maxItems": 100, "items": {"type": "object", "additionalProperties": false, "required": ["id", "trigger_phrase", "action_type"], "properties": {"id": {"type": "string", "format": "uuid"}, "trigger_phrase": {"type": "string", "maxLength": 255}, "action_type": {"type": "string", "maxLength": 32}, "description": {"type": ["string", "null"], "maxLength": 255}}}}}}]},
+      "SourceConfigurationChange": {"type": "object", "additionalProperties": false, "required": ["request_id", "expected_revision"], "anyOf": [{"required": ["source"]}, {"required": ["separate_offline_profile"]}], "properties": {"request_id": {"type": "string", "format": "uuid"}, "expected_revision": {"type": "integer", "minimum": 0}, "source": {"enum": ["headset", "recorder"]}, "separate_offline_profile": {"type": "boolean"}}},
+      "AsrProfileView": {"type": "object", "additionalProperties": false, "required": ["revision", "profile_configured", "profile_version", "training_proven", "training_runs"], "properties": {"revision": {"type": "integer", "minimum": 0}, "profile_configured": {"type": "boolean"}, "profile_version": {"type": ["integer", "null"], "minimum": 1}, "training_proven": {"type": "boolean"}, "training_runs": {"type": "integer", "minimum": 0}, "last_training_at": {"type": ["string", "null"], "format": "date-time"}, "language": {"type": ["string", "null"], "maxLength": 16}, "model": {"type": ["string", "null"], "maxLength": 200}, "options": {"type": "object", "additionalProperties": false, "maxProperties": 4, "properties": {"source": {"enum": ["headset", "recorder"]}, "save_rule": {"enum": ["never", "ask", "always"]}, "separate_offline_profile": {"type": "boolean"}, "skip_wait_minutes": {"type": ["integer", "null"], "minimum": 1}}}}}
+    },
+    "responses": {
+      "NotModified": {"description": "Matching authorized representation (empty body)"},
+      "Invalid": {"description": "Invalid bounded query", "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}},
+      "Unauthorized": {"description": "Authentication required", "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}},
+      "Forbidden": {"description": "Object or scope denied", "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}},
+      "Stale": {"description": "Stale snapshot, cursor or object revision", "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}},
+      "RateLimited": {"description": "Retry after rate limit", "headers": {"Retry-After": {"schema": {"type": "integer", "minimum": 1, "maximum": 3600}}}, "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}},
+      "Unavailable": {"description": "Capability unavailable or dependency failure", "headers": {"Retry-After": {"schema": {"type": "integer", "minimum": 1, "maximum": 3600}}}, "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}}
+    }
+  }
+}

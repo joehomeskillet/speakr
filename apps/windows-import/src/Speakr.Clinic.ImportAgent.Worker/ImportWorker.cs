@@ -17,21 +17,163 @@ public sealed class ImportWorker : BackgroundService
         _log = log;
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    public ImportWorker(ImportOrchestrator orchestrator, AgentOptions options, IImportLog log)
+        : this(orchestrator, Options.Create(options), log)
+    {
+    }
+
+    public async Task<RunResult?> RunPassAsync(DateTimeOffset now, CancellationToken cancellationToken = default)
     {
         var gap = TimeSpan.FromSeconds(Math.Max(0, _options.StabilityIntervalSeconds));
-        var poll = TimeSpan.FromSeconds(Math.Max(1, _options.PollIntervalSeconds));
         var samples = Math.Max(1, _options.StabilitySamples);
+        RunResult? lastResult = null;
+        for (var sample = 0; sample < samples; sample++)
+        {
+            if (sample > 0 && gap > TimeSpan.Zero)
+                await Task.Delay(gap, cancellationToken);
+            lastResult = await _orchestrator.RunOnceAsync(now, cancellationToken);
+        }
+
+        try
+        {
+            MaintainBackup(now);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _log.Error("retention failed " + ex.GetType().Name + " " + LogText.Clean(ex.Message));
+        }
+
+        return lastResult;
+    }
+
+    public int MaintainBackup(DateTimeOffset now)
+    {
+        if (!_options.IsBackupRetentionActive)
+            return 0;
+        if (string.IsNullOrWhiteSpace(_options.BackupFolder) || !Directory.Exists(_options.BackupFolder))
+            return 0;
+
+        var days = _options.EffectiveBackupRetentionDays;
+        if (days <= 0)
+            return 0;
+
+        var cutoff = now - TimeSpan.FromDays(days);
+        string rootFull;
+        try
+        {
+            rootFull = PathGuard.Normalize(_options.BackupFolder);
+        }
+        catch (Exception ex)
+        {
+            _log.Error("retention failed " + ex.GetType().Name + " " + LogText.Clean(ex.Message));
+            return 0;
+        }
+
+        var files = EnumerateBackupFiles(rootFull);
+
+        var candidates = new List<(string Path, DateTimeOffset Mtime)>();
+        foreach (var file in files)
+        {
+            if (file.EndsWith(".part", StringComparison.Ordinal) || file.Contains(".import-hold-", StringComparison.Ordinal))
+                continue;
+
+            if (!PathGuard.TryAdmit(rootFull, file, out var safePath))
+            {
+                _log.Error("retention failed SecurityException unsafe backup path " + LogText.Clean(file));
+                continue;
+            }
+
+            DateTimeOffset mtime;
+            try
+            {
+                var info = new FileInfo(safePath);
+                mtime = new DateTimeOffset(info.LastWriteTimeUtc, TimeSpan.Zero);
+            }
+            catch (Exception ex)
+            {
+                _log.Error("retention failed " + ex.GetType().Name + " " + LogText.Clean(ex.Message));
+                continue;
+            }
+
+            if (mtime > now)
+                continue;
+
+            if (mtime <= cutoff)
+                candidates.Add((safePath, mtime));
+        }
+
+        candidates.Sort((a, b) =>
+        {
+            var cmp = a.Mtime.CompareTo(b.Mtime);
+            return cmp != 0 ? cmp : string.Compare(a.Path, b.Path, StringComparison.Ordinal);
+        });
+
+        var maxBatch = _options.BackupRetentionMaxBatch > 0
+            ? _options.BackupRetentionMaxBatch
+            : AgentOptions.DefaultBackupRetentionMaxBatch;
+
+        var toDelete = candidates.Take(maxBatch).ToList();
+        var deleted = 0;
+
+        foreach (var item in toDelete)
+        {
+            try
+            {
+                File.Delete(item.Path);
+                deleted++;
+                _log.Info("retention deleted " + LogText.Clean(Path.GetRelativePath(rootFull, item.Path)));
+            }
+            catch (Exception ex)
+            {
+                _log.Error("retention failed " + ex.GetType().Name + " " + LogText.Clean(ex.Message));
+            }
+        }
+
+        return deleted;
+    }
+
+    // Walks the backup tree one directory at a time so an unreadable directory is logged and skipped
+    // instead of being silently ignored or aborting the whole pass. Linked directories are not followed.
+    private List<string> EnumerateBackupFiles(string rootFull)
+    {
+        var found = new List<string>();
+        var options = new EnumerationOptions { IgnoreInaccessible = false, RecurseSubdirectories = false };
+        var pending = new Stack<string>();
+        pending.Push(rootFull);
+        while (pending.Count > 0)
+        {
+            var dir = pending.Pop();
+            try
+            {
+                foreach (var file in Directory.EnumerateFiles(dir, "*", options))
+                    found.Add(file);
+                foreach (var sub in Directory.EnumerateDirectories(dir, "*", options))
+                {
+                    if ((File.GetAttributes(sub) & FileAttributes.ReparsePoint) != 0)
+                        continue;
+                    pending.Push(sub);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _log.Error("retention failed " + ex.GetType().Name + " " + LogText.Clean(ex.Message));
+            }
+        }
+        return found;
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        var poll = TimeSpan.FromSeconds(Math.Max(1, _options.PollIntervalSeconds));
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                for (var sample = 0; sample < samples; sample++)
-                {
-                    if (sample > 0 && gap > TimeSpan.Zero)
-                        await Task.Delay(gap, stoppingToken);
-                    await _orchestrator.RunOnceAsync(DateTimeOffset.UtcNow, stoppingToken);
-                }
+                await RunPassAsync(DateTimeOffset.UtcNow, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
