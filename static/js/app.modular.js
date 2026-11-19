@@ -277,14 +277,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     const appRootElement = document.getElementById('app');
     if (appRootElement?.dataset?.clinicMode === 'True') {
         try {
-            const [{ createClinicApiClient }, { registerWorklistView }, { registerResourcesView }] = await Promise.all([
+            const [{ createClinicApiClient }, { registerWorklistView }, { registerResourcesView }, { registerCorrectionView }] = await Promise.all([
                 import('./clinic/api-client.js'),
                 import('./clinic/compose-worklist.js'),
                 import('./clinic/compose-resources.js'),
+                import('./clinic/compose-correction.js'),
             ]);
             clinicWorklist = {
                 registerWorklistView,
                 registerResourcesView,
+                registerCorrectionView,
                 client: createClinicApiClient(),
                 user: { id: appRootElement.dataset.currentUserId, role: appRootElement.dataset.clinicRole || 'author' },
             };
@@ -325,6 +327,28 @@ document.addEventListener('DOMContentLoaded', async () => {
             // the modal explicitly via the New Recording button.
             // In clinic mode the worklist ('clinic-worklist') is the landing view.
             const currentView = ref(clinicWorklist ? 'clinic-worklist' : null);
+            // Clinic correction view ('clinic-correction'): the dictation it shows.
+            const clinicCorrectionId = ref(null);
+            const clinicCorrectionMount = ref(null);
+            // The worklist reports { dictationId, mode }; author_case keeps its current behaviour.
+            const openClinicDictation = (payload) => {
+                if (!payload || (payload.mode !== 'correction' && payload.mode !== 'player')) return;
+                if (payload.dictationId === undefined || payload.dictationId === null) return;
+                clinicCorrectionId.value = String(payload.dictationId);
+                currentView.value = 'clinic-correction';
+            };
+            // The view emits `close` only after it saved; it stays open when the save fails.
+            const closeClinicCorrection = () => {
+                clinicCorrectionId.value = null;
+                currentView.value = 'clinic-worklist';
+            };
+            // Page-level back control: goes through the view's own close so unsaved text is saved first.
+            const requestClinicCorrectionClose = () => {
+                const button = clinicCorrectionMount.value?.querySelector('[data-testid="close"]');
+                if (button) button.click(); else closeClinicCorrection();
+            };
+            const createClinicAudioContext = () => new (window.AudioContext || window.webkitAudioContext)();
+            const clinicAudioContextFactory = (window.AudioContext || window.webkitAudioContext) ? createClinicAudioContext : undefined;
             // Upload visibility is a modal flag, not a currentView value,
             // so the underlying list / detail stays mounted behind the
             // overlay. Set true on switchToUploadView / opened paths;
@@ -5033,7 +5057,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // Clinic worklist (null client and user with CLINIC_MODE off)
                 clinicWorklistEnabled: !!clinicWorklist,
                 clinicClient: clinicWorklist ? clinicWorklist.client : null,
-                clinicUser: clinicWorklist ? clinicWorklist.user : null
+                clinicUser: clinicWorklist ? clinicWorklist.user : null,
+                clinicCorrectionId, clinicCorrectionMount, openClinicDictation, closeClinicCorrection,
+                requestClinicCorrectionClose, clinicAudioContextFactory
             };
         },
         delimiters: ['${', '}']
@@ -5063,6 +5089,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (clinicWorklist) {
         clinicWorklist.registerWorklistView(app);
         clinicWorklist.registerResourcesView(app);
+        clinicWorklist.registerCorrectionView(app);
     }
 
     app.mount('#app');
