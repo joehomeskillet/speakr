@@ -4749,6 +4749,7 @@ Summarization Instructions:
         import { categoriesComponent } from "{{ url_for('static', filename='js/clinic/categories-ui.js', v=app_version) }}";
         import { columnsComponent } from "{{ url_for('static', filename='js/clinic/columns-ui.js', v=app_version) }}";
         import { createRegexRulesComponent } from "{{ url_for('static', filename='js/clinic/regex-ui.js', v=app_version) }}";
+        import { createPreferencesComponent } from "{{ url_for('static', filename='js/clinic/preferences-ui.js', v=app_version) }}";
 
         const { createApp, reactive, ref, computed, markRaw, onMounted } = window.Vue;
         const root = document.getElementById('clinic-admin-root');
@@ -4820,6 +4821,7 @@ Summarization Instructions:
             { id: 'categories', label: 'Kategorien', probe: '/categories', comp: categoriesComponent(window.Vue, { client }), props: {} },
             { id: 'regex', label: 'Regeln', probe: null, comp: RegexHost, props: {} },
             { id: 'columns', label: 'Spalten', probe: '/metadata-fields', comp: columnsComponent(window.Vue, { client }), props: {} },
+            { id: 'preferences', label: 'Vorgaben', probe: '/preferences/recipient-default', comp: createPreferencesComponent(window.Vue, client, {}), props: {} },
         ].map((d) => Object.assign(d, { comp: typeof d.comp === 'string' ? d.comp : markRaw(d.comp) }));
 
         const Root = {
