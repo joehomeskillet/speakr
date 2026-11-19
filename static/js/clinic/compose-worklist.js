@@ -18,7 +18,7 @@
  */
 
 import { TOKEN_CONTRACT_VERSION, TokenContractError, surfaceFor } from './tokens.js';
-import { ROLE_AUTHOR, STATUS_LABELS, formatAudioDuration, formatPriority, resolveStatusSurface } from './worklist-ui.js';
+import { ROLE_AUTHOR, STATUS_LABELS, formatAudioDuration, formatPriority, getOpenMode, resolveStatusSurface } from './worklist-ui.js';
 import { fetchRecordingChanges, formatLastUpdate, useWorklistRefresh } from './worklist-refresh-ui.js';
 import { WorklistFiltersPanel, createWorklistFilters } from './worklist-filters-ui.js';
 import { WorklistLayoutControls, useWorklistLayout } from './worklist-layout-ui.js';
@@ -42,7 +42,8 @@ export const TEXT = Object.freeze({
     failed: 'Die Arbeitsliste konnte nicht geladen werden.',
     prev: 'Vorherige Seite',
     next: 'Nächste Seite',
-    keys: 'Tastatur: Pfeil hoch und runter wählt ein Diktat, Esc schliesst die Details.',
+    keys: 'Tastatur: Pfeil hoch und runter wählt ein Diktat, Eingabetaste öffnet es, Esc schliesst die Details.',
+    open: 'Öffnen',
     detail: 'Diktat',
     protection: 'Schutz',
     acceptance: 'Pflichtfreigabe',
@@ -279,6 +280,25 @@ export function createWorklistViewController(options) {
         syncDetail();
     }
 
+    // Open is blocked while the lease is held by someone else or was lost.
+    const leaseBlocksOpen = () => {
+        const status = leaseState.value && leaseState.value.status;
+        return status === 'foreign' || status === 'lost';
+    };
+    const canOpen = computed(() => Boolean(worklist.selectedRow.value) && !leaseBlocksOpen());
+
+    /** Activates a row (or the current selection) and reports it to the page; selection and lease are unchanged otherwise. */
+    function open(row) {
+        if (disposed) return false;
+        if (row && rowKey(row) !== selectedId.value) select(row);
+        const target = worklist.selectedRow.value;
+        if (!target || leaseBlocksOpen()) return false;
+        if (typeof options.onOpen === 'function') {
+            options.onOpen({ dictationId: rowKey(target), mode: getOpenMode(target, user.role) });
+        }
+        return true;
+    }
+
     function onRowKey(event, row) {
         if (!event) return;
         const list = displayed.value.filter((i) => i.kind === 'row').map((i) => i.row);
@@ -286,7 +306,8 @@ export function createWorklistViewController(options) {
         let target;
         if (event.key === 'ArrowDown') target = neighborRow(list, row, 1) || row;
         else if (event.key === 'ArrowUp') target = neighborRow(list, row, -1) || row;
-        else if (event.key === 'Enter' || event.key === ' ') { stop(); select(row); return; }
+        else if (event.key === ' ') { stop(); select(row); return; }
+        else if (event.key === 'Enter') { stop(); open(row); return; }
         else if (event.key === 'Escape') { stop(); select(null); return; }
         else return;
         stop();
@@ -393,7 +414,7 @@ export function createWorklistViewController(options) {
     return {
         vue: V, view, panels, selectedId, selectedRow: worklist.selectedRow, leaseState, leaseRun, paused,
         worklist, refresh, filters, layout, workflow, detailClient, displayed, columns, headerAttrs,
-        start, dispose, reload, select, onRowKey, goto, pages, hasNext, applyFilter,
+        start, dispose, reload, select, open, canOpen, onRowKey, goto, pages, hasNext, applyFilter,
         key: rowKey, cell: cellText, badge: statusBadge, text: TEXT,
         pageLabel: () => 'Seite ' + view.page + (pages() === null ? '' : ' von ' + pages()),
         errorStyle: surfaceStyle('error', (s) => ({ border: '1px solid ' + s.border })),
@@ -415,6 +436,7 @@ function buildParts(V, detailClient) {
 export const WorklistView = {
     name: 'ClinicWorklistView',
     components: { WorklistFiltersPanel },
+    emits: ['open'],
     props: {
         client: { type: Object, required: true },
         currentUser: { type: Object, required: true },
@@ -423,8 +445,9 @@ export const WorklistView = {
         intervalMs: { type: Number, default: undefined },
         autoStart: { type: Boolean, default: true },
     },
-    setup(props) {
+    setup(props, ctx) {
         const c = createWorklistViewController({
+            onOpen: (payload) => { if (ctx && typeof ctx.emit === 'function') ctx.emit('open', payload); },
             client: props.client,
             currentUser: props.currentUser,
             vue: props.vue || undefined,
@@ -489,7 +512,7 @@ export const WorklistView = {
               <tr v-else tabindex="0" data-row :data-id="c.key(item.row)"
                   :aria-selected="c.selectedId.value === c.key(item.row) ? 'true' : 'false'"
                   :style="c.selectedId.value === c.key(item.row) ? c.selectedStyle : null"
-                  @click="c.select(item.row)" @keydown="c.onRowKey($event, item.row)">
+                  @click="c.select(item.row)" @dblclick="c.open(item.row)" @keydown="c.onRowKey($event, item.row)">
                 <td v-for="col in c.columns()" :key="col.key">
                   <span v-if="col.key === 'status'" class="px-2 py-1 rounded text-xs" :style="c.badge(item.row).style">{{ c.badge(item.row).label }}</span>
                   <template v-else>{{ c.cell(item.row, col.key) }}</template>
@@ -508,6 +531,8 @@ export const WorklistView = {
         <p v-if="!c.selectedId.value" id="cwv-detail-title">{{ c.text.noSelection }}</p>
         <div v-else :key="c.selectedId.value">
           <h2 id="cwv-detail-title" class="font-semibold">{{ c.text.detail }}</h2>
+          <button type="button" class="px-3 py-2 border rounded mt-2" style="min-height: 2.75rem" data-testid="open-dictation"
+                  :disabled="!c.canOpen.value" @click="c.open()">{{ c.text.open }}</button>
           <component :is="parts.Lease" v-if="c.leaseState.value" :state="c.leaseState.value" :run="c.leaseRun" />
           <component :is="parts.Workflow" :wf="c.workflow" />
           <details :open="c.panels.protection" @toggle="c.panels.protection = $event.target.open">
