@@ -36,7 +36,7 @@ PASSWORD = "Synthetic-pass-226!"
 ADMIN_EMAIL = "w226admin@local.test"
 LEAD_EMAIL = "w226lead@local.test"
 TEAM_PAGE = "/__w226/group-management"  # test-only route, see HARNESS
-PANELS = ["Konten", "Pools", "Fachrechte", "Verzeichnis", "Vorlagen", "Kategorien", "Spalten"]
+PANELS = ["Konten", "Pools", "Fachrechte", "Verzeichnis", "Vorlagen", "Kategorien", "Regeln", "Spalten"]
 
 SERVER = r'''
 import json, sys
@@ -269,6 +269,7 @@ def test_clinic_pages_carry_the_mount(tmp_path):
     for out in (admin, team):
         assert 'id="clinic-admin-root"' in out
         assert 'type="module"' in out and "/static/js/clinic/accounts-ui.js" in out
+        assert "/static/js/clinic/regex-ui.js" in out
 
 
 def test_clinic_mode_off_pages_have_no_clinic_markup(tmp_path):

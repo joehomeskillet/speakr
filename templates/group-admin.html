@@ -1472,6 +1472,7 @@
         import { templatesComponent } from "{{ url_for('static', filename='js/clinic/templates-ui.js', v=app_version) }}";
         import { categoriesComponent } from "{{ url_for('static', filename='js/clinic/categories-ui.js', v=app_version) }}";
         import { columnsComponent } from "{{ url_for('static', filename='js/clinic/columns-ui.js', v=app_version) }}";
+        import { createRegexRulesComponent } from "{{ url_for('static', filename='js/clinic/regex-ui.js', v=app_version) }}";
 
         const { createApp, reactive, ref, computed, markRaw, onMounted } = window.Vue;
         const root = document.getElementById('clinic-admin-root');
@@ -1507,6 +1508,32 @@
 </div>`,
         };
 
+        // Regex rules act on one dictation: the panel needs its id. The API authorises preview and apply.
+        const RegexHost = {
+            name: 'ClinicRegexHost',
+            setup() {
+                const draft = ref('');
+                const panel = ref(null);
+                const dictationId = ref('');
+                const regexComponent = markRaw(createRegexRulesComponent(window.Vue));
+                function open() {
+                    const id = draft.value.trim();
+                    dictationId.value = id;
+                    panel.value = id ? regexComponent : null;
+                }
+                return { draft, panel, dictationId, open, client };
+            },
+            template: `
+<div>
+  <form class="mb-3 flex flex-wrap items-end gap-2" @submit.prevent="open">
+    <label for="clinic-regex-dictation">Diktat-ID</label>
+    <input id="clinic-regex-dictation" class="field field--sm" type="text" autocomplete="off" v-model="draft">
+    <button type="submit" class="btn btn--sm btn--ghost">Regeln laden</button>
+  </form>
+  <component :is="panel" v-if="panel" :key="dictationId" :client="client" :dictation-id="dictationId"></component>
+</div>`,
+        };
+
         // probe: GET that decides, on the team page, whether the API authorises the panel for this account.
         const defs = [
             { id: 'accounts', label: 'Konten', probe: '/admin/users', comp: AccountsAdminPanel, props: { controller: createAccountsAdmin({ client, reactive }) } },
@@ -1515,6 +1542,7 @@
             { id: 'directory', label: 'Verzeichnis', probe: '/directory/capability', comp: 'clinic-directory-review', props: { client, currentUser: { is_admin: !team } } },
             { id: 'templates', label: 'Vorlagen', probe: '/templates', comp: templatesComponent(window.Vue, { client }), props: {} },
             { id: 'categories', label: 'Kategorien', probe: '/categories', comp: categoriesComponent(window.Vue, { client }), props: {} },
+            { id: 'regex', label: 'Regeln', probe: null, comp: RegexHost, props: {} },
             { id: 'columns', label: 'Spalten', probe: '/metadata-fields', comp: columnsComponent(window.Vue, { client }), props: {} },
         ].map((d) => Object.assign(d, { comp: typeof d.comp === 'string' ? d.comp : markRaw(d.comp) }));
 
@@ -1527,7 +1555,7 @@
                 const active = computed(() => defs.find((d) => d.id === activeId.value) || null);
                 const withheldText = computed(() => 'Für dieses Konto nicht freigegeben: ' + withheld.value.join(', ') + '.');
                 async function probe() {
-                    const results = await Promise.all(defs.map((d) => client.request(d.probe)));
+                    const results = await Promise.all(defs.map((d) => (d.probe ? client.request(d.probe) : Promise.resolve({ outcome: 'ok' }))));
                     shown.value = defs.filter((d, i) => results[i].outcome === 'ok');
                     withheld.value = defs.filter((d, i) => results[i].outcome !== 'ok').map((d) => d.label);
                     activeId.value = shown.value.length ? shown.value[0].id : null;
