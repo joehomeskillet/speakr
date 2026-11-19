@@ -155,6 +155,24 @@ describe('correction modes ui', () => {
         expect(modes.mode.value).toBe(DEFAULT_MODE);
     });
 
+    it('treats a missing preferences route (404/405) as session-only, not as an error alert', async () => {
+        for (const status of [404, 405]) {
+            const { modes, client } = make();
+            client.request.mockResolvedValueOnce(fail('UNKNOWN', status));
+            const res = await modes.setMode('type_while_playing');
+            expect(res).toMatchObject({ ok: false, code: 'unsupported', message: LABELS.unsupported });
+            expect(modes.mode.value).toBe('type_while_playing');
+            expect(modes.status.value).toBe('local');
+            expect(modes.error.value).toBeNull();
+            expect(modes.announcement.value).toBe(LABELS.unsupported);
+        }
+        const { modes, client } = make();
+        client.request.mockResolvedValueOnce(fail('UNKNOWN', 404));
+        expect(await modes.load()).toMatchObject({ ok: false, code: 'unsupported' });
+        expect(modes.mode.value).toBe(DEFAULT_MODE);
+        expect(modes.status.value).toBe('local');
+    });
+
     it('drives ticks with an injected timer and stops after dispose', () => {
         const timer = { set: vi.fn(() => 7), clear: vi.fn() };
         const { modes } = make({ timer, tickMs: 100 });

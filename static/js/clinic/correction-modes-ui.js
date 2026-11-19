@@ -10,6 +10,13 @@
  * the rewind is in milliseconds only (no word-count rewind without stored anchors).
  * The mode is saved per user through the injected api-client (`PREFERENCE_PATH`);
  * a failed or refused save keeps the mode for this session and shows a message.
+ *
+ * Persistence contract (server side not yet built; follow-up WP needs route, authz, audit):
+ *   GET  /api/clinic/v1/preferences/correction-mode  -> 200 { mode: <mode id> | null }
+ *   PUT  /api/clinic/v1/preferences/correction-mode  body { mode: <mode id> } -> 200
+ * until the route exists the server answers 404/405; the client then treats persistence
+ * as unavailable (code `unsupported`, status 'local'): the mode applies to this session
+ * only and a neutral note is shown instead of an error alert.
  * Clinical text and audio never touch browser storage; colours come from tokens.js.
  *
  * Exports (consumed by w212, w286):
@@ -18,10 +25,10 @@
  *                        now?, timer?, persist?, vue? })
  *     `audio` adapter: { play(), pause(), seek(seconds), position() -> seconds, isPlaying() -> bool }.
  *     `alignment` is the useCorrectionAlignment() result of w150 (selection is forwarded).
- *     state refs  mode, status ('idle'|'saving'|'error'), error, waiting, announcement, options
+ *     state refs  mode, status ('idle'|'saving'|'error'|'local'), error, waiting, announcement, options
  *     methods     load(), setMode(mode), onKey(), onSelectionChange(start, end), tick(),
  *                 start(), stop(), dispose()
- *     setMode / load return { ok, code?, message }; codes: invalid, denied, stale, failed.
+ *     setMode / load return { ok, code?, message }; codes: invalid, denied, stale, unsupported, failed.
  *   CorrectionModes: Vue options object, props audio, alignment, client, vue.
  *   registerCorrectionModes(app): app.component('clinic-correction-modes', ...).
  *
@@ -59,6 +66,7 @@ export const LABELS = Object.freeze({
     invalid: 'Unbekannter Korrekturmodus.',
     denied: 'Keine Berechtigung, den Modus zu speichern. Er gilt nur für diese Sitzung.',
     stale: 'Die gespeicherte Einstellung ist veraltet. Der Modus gilt nur für diese Sitzung.',
+    unsupported: 'Das Speichern pro Benutzer ist noch nicht verfügbar. Der Modus gilt nur für diese Sitzung.',
     failed: 'Der Modus konnte nicht gespeichert werden. Er gilt nur für diese Sitzung.',
     retry: 'Erneut speichern',
 });
@@ -72,6 +80,7 @@ function fail(code) { return { ok: false, code, message: LABELS[code] || LABELS.
 function errorFor(res) {
     if (res.outcome === 'permission') return fail('denied');
     if (res.outcome === 'conflict') return fail('stale');
+    if (res.status === 404 || res.status === 405) return fail('unsupported');
     return fail('failed');
 }
 
@@ -162,6 +171,19 @@ export function useCorrectionModes(options) {
         return alignment.setSelection(start, end);
     }
 
+    /** Persistence missing on the server is a neutral note ('local'); real failures raise the alert. */
+    function report(problem) {
+        if (problem.code === 'unsupported') {
+            status.value = 'local';
+            error.value = null;
+        } else {
+            status.value = 'error';
+            error.value = problem;
+        }
+        say(problem.message);
+        return problem;
+    }
+
     async function save(next) {
         const mine = ++version;
         status.value = 'saving';
@@ -169,11 +191,7 @@ export function useCorrectionModes(options) {
         const res = await client.request(PREFERENCE_PATH, { method: 'PUT', body: { mode: next } });
         if (mine !== version || disposed || res.outcome === 'cancelled') return { ok: true, message: '' };
         if (res.outcome !== 'ok') {
-            const problem = errorFor(res);
-            status.value = 'error';
-            error.value = problem;
-            say(problem.message);
-            return problem;
+            return report(errorFor(res));
         }
         status.value = 'idle';
         error.value = null;
@@ -199,11 +217,7 @@ export function useCorrectionModes(options) {
         const res = await client.request(PREFERENCE_PATH);
         if (mine !== version || disposed || res.outcome === 'cancelled') return { ok: true, message: '' };
         if (res.outcome !== 'ok') {
-            const problem = errorFor(res);
-            status.value = 'error';
-            error.value = problem;
-            say(problem.message);
-            return problem;
+            return report(errorFor(res));
         }
         const stored = res.data && res.data.mode;
         if (isMode(stored)) mode.value = stored;
