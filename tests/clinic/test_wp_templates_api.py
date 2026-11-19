@@ -446,3 +446,36 @@ def test_assign_template_and_delete_template(world):
     assert deleted_row.is_active is False
     c_list = c.get(PREFIX).json["items"]
     assert world["user_tmpl"].id not in {item["id"] for item in c_list}
+
+
+def test_can_read_template_object_level_rules(world):
+    from src.clinic.routes_templates import _can_read_template
+
+    author, other, admin = world["author"], world["other"], world["admin"]
+    # own user scope readable, foreign user's user-scope template denied
+    assert _can_read_template(author.id, world["user_tmpl"]) is True
+    assert _can_read_template(other.id, world["user_tmpl"]) is False
+    # pool membership decides pool scope
+    assert _can_read_template(author.id, world["pool_tmpl"]) is True
+    assert _can_read_template(other.id, world["pool_tmpl"]) is False
+    # system scope readable by any active user
+    assert _can_read_template(other.id, world["sys_tmpl"]) is True
+    assert _can_read_template(admin.id, world["foreign_tmpl"]) is True
+
+
+def test_can_read_template_denies_inactive_template_unknown_and_deactivated_actor(world, monkeypatch):
+    from src.clinic.routes_templates import _can_read_template
+
+    author = world["author"]
+    row = world["sys_tmpl"]
+    row.is_active = False
+    assert _can_read_template(author.id, row) is False
+    row.is_active = True
+    assert _can_read_template(author.id, row) is True
+
+    assert _can_read_template(2_000_000_000, row) is False
+
+    author_id = author.id
+    monkeypatch.setattr(User, "is_active", property(lambda self: self.id != author_id))
+    assert _can_read_template(author.id, row) is False
+    assert _can_read_template(author.id, world["user_tmpl"]) is False
