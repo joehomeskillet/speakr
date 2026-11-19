@@ -1116,6 +1116,54 @@ app.register_blueprint(recording_sessions_bp)
 app.register_blueprint(webhooks_bp)
 csrf.exempt(webhooks_bp)
 
+
+def register_clinic_resources(flask_app):
+    """Mount the clinic resource handlers (vocabulary, review, commands, parity).
+
+    Called at startup only in clinic mode, so upstream URL rules are unchanged
+    with it off. Every endpoint is classified in src/clinic/route_policy.py and
+    the handlers keep their own CSRF and session checks behind the clinic guard.
+    The parity dispatcher is mounted once; modules only register adapters.
+    """
+    import threading
+
+    from src.clinic import routes_commands, routes_vocabulary, routes_vocabulary_review
+    from src.clinic.parity_dispatch import CommandProblem, ParityDispatch
+
+    receipts, lock = {}, threading.RLock()
+
+    def run_once(scope, digest, operation):
+        # Process-local receipts; a durable shared store is a later package.
+        with lock:
+            saved = receipts.get(scope)
+            if saved is not None:
+                if saved[0] != digest:
+                    raise CommandProblem('IDEMPOTENCY_CONFLICT')
+                return saved[1]
+            try:
+                result = operation()
+                db.session.commit()
+            except BaseException:
+                db.session.rollback()
+                raise
+            receipts[scope] = (digest, result)
+            return result
+
+    dispatch = ParityDispatch(run_once)
+    routes_vocabulary_review.register_parity_review_handlers(dispatch)
+    routes_commands.register_commands_adapters(dispatch)
+    flask_app.register_blueprint(dispatch.blueprint)
+    flask_app.register_blueprint(routes_vocabulary.VocabularyApi(
+        lambda user_id, pool_id: routes_vocabulary_review.can_review_pool(user_id, pool_id)).blueprint)
+    flask_app.register_blueprint(routes_vocabulary_review.vocabulary_review_bp)
+    flask_app.register_blueprint(routes_commands.commands_blueprint)
+    flask_app.extensions['clinic_parity_dispatch'] = dispatch
+
+
+from src.clinic.config import clinic_mode_enabled as _clinic_mode_enabled
+if _clinic_mode_enabled():
+    register_clinic_resources(app)
+
 # PWA Web Share Target (issue #285): the native share sheet cannot round-trip
 # a CSRF token, so the share-target endpoint is exempted. Authentication still
 # happens via the session cookie carried by the browser; @login_required

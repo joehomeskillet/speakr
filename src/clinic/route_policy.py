@@ -20,6 +20,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
+from src.clinic.config import clinic_mode_enabled
+
 PUBLIC = 'public'
 AUTH = 'auth'
 ADMIN = 'admin'
@@ -101,6 +103,21 @@ _AUTH = _split("""
     templates.create_default_templates templates.create_transcript_template
     templates.delete_transcript_template templates.get_transcript_templates
     templates.update_transcript_template
+""")
+
+# Registered by src/app.py only in clinic mode (register_clinic_resources), so they
+# are classified only then; the table never lists a route the app does not have.
+# Each handler acts on the caller's own or pool-scoped data; a body or query that
+# names a recording is decided by the guard like a view before the handler runs.
+_CLINIC_RESOURCES = _split("""
+    clinic_parity.execute
+    clinic_vocabulary.search clinic_vocabulary.export clinic_vocabulary.import_text
+    clinic_vocabulary.additions clinic_vocabulary.suppress clinic_vocabulary.reactivate
+    clinic_vocabulary_review.list_resource_vocabulary_reviews
+    clinic_vocabulary_review.undo_resource_vocabulary_review
+    clinic_commands.list_commands clinic_commands.list_pronunciations
+    clinic_commands.save_pronunciation_hint_endpoint
+    clinic_commands.get_pronunciation_capabilities clinic_commands.execute_command_endpoint
 """)
 
 _ADMIN = _split("""
@@ -239,7 +256,7 @@ def _build() -> dict[str, RouteRule]:
 
     for endpoint in _PUBLIC:
         add(endpoint, RouteRule(PUBLIC))
-    for endpoint in _AUTH:
+    for endpoint in _AUTH + (_CLINIC_RESOURCES if clinic_mode_enabled() else ()):
         add(endpoint, RouteRule(AUTH))
     for endpoint in _ADMIN:
         add(endpoint, RouteRule(ADMIN))
