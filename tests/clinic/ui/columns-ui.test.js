@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import {
-    createColumnsEditor, useColumnsEditor, columnsComponent, escapeHtml, KEYS, DISPLAY_TYPES,
+    createColumnsEditor, useColumnsEditor, columnsComponent, escapeHtml, KEYS, DISPLAY_TYPES, SERVER_CONTRACT,
 } from '../../../static/js/clinic/columns-ui.js';
 
 const FIELDS = [
@@ -153,6 +153,18 @@ describe('columns ui', () => {
         expect(comp.template).toContain('aria-labelledby');
         expect(comp.template).toContain('<label>');
         expect(typeof comp.setup).toBe('function');
+    });
+
+    it('reports a missing server endpoint explicitly and documents the contract', async () => {
+        const client = fakeClient({ request: vi.fn(async () => ({ outcome: 'UNKNOWN', status: 404, message: '' })) });
+        const editor = createColumnsEditor({ client: client });
+        const result = await editor.load();
+        expect(result.ok).toBe(false);
+        expect(result.code).toBe('endpoint_missing');
+        expect(SERVER_CONTRACT.implemented).toBe(false);
+        expect(SERVER_CONTRACT.dependency).toBe('w226');
+        expect(SERVER_CONTRACT.list.path).toBe('/api/clinic/v1/metadata-fields');
+        expect(SERVER_CONTRACT.save.command).toBe('save_metadata_field');
     });
 
     it('uses no hard colours', () => {

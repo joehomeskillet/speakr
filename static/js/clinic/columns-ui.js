@@ -1,6 +1,15 @@
 /**
  * Metadata column definition editor and preview (PAR-CFG-005).
  *
+ * SERVER DEPENDENCY (not part of this WP): on this branch the server exposes
+ * neither GET /api/clinic/v1/metadata-fields nor a parity command
+ * save_metadata_field (routes_columns.py serves only the worklist layout, and
+ * ClinicMetadataField in presets.py has no route or command). The request and
+ * payload shapes below (field_type, xml_path, version/expected_revision) are the
+ * contract this UI expects, see SERVER_CONTRACT; w226 or another server WP must
+ * provide it. Until then load() returns code "endpoint_missing" instead of
+ * failing generically, and save() is unreachable because nothing loads.
+ *
  * Definitions come from GET /api/clinic/v1/metadata-fields and are saved through
  * the parity command channel with the field version as expected revision.
  * Drafts apply the same bounds as src/clinic/routes_columns.py: display types
@@ -16,6 +25,14 @@ import { createClinicApiClient } from './api-client.js';
 import { surfaceFor } from './tokens.js';
 
 const FIELDS = '/metadata-fields';
+
+// Expected server contract; unimplemented on this branch (see header).
+export const SERVER_CONTRACT = Object.freeze({
+    implemented: false,
+    dependency: 'w226',
+    list: Object.freeze({ method: 'GET', path: '/api/clinic/v1' + FIELDS, item: Object.freeze(['name', 'label', 'field_type', 'xml_path', 'version']) }),
+    save: Object.freeze({ command: 'save_metadata_field', payload: Object.freeze(['name', 'label', 'field_type', 'xml_path']), expected_revision: 'version' }),
+});
 
 export const DISPLAY_TYPES = Object.freeze(['string', 'integer', 'decimal', 'boolean', 'date', 'datetime']);
 export const MAX_XML_PATH = 256;
@@ -57,6 +74,7 @@ const REASONS = Object.freeze({
     stale_version: 'Der Stand ist veraltet. Bitte neu laden.',
     permission: 'Keine Berechtigung für diese Aktion.',
     failure: 'Das Speichern ist fehlgeschlagen.',
+    endpoint_missing: 'Die Spaltendefinitionen sind serverseitig noch nicht verfügbar.',
 });
 
 // Keyboard states: Enter saves the focused row, Escape reverts it.
@@ -102,6 +120,10 @@ export function createColumnsEditor(options) {
         setStatus('processing');
         const row = await client.request(FIELDS);
         if (row.outcome !== 'ok') {
+            if (row.status === 404 || row.status === 405) {
+                setStatus('warning');
+                return refuse('endpoint_missing');
+            }
             setStatus(row.outcome === 'permission' ? 'warning' : 'error');
             return { ok: false, code: row.outcome === 'permission' ? 'permission' : 'failure', message: row.message };
         }
