@@ -227,7 +227,7 @@ def resolve_transcription_params(recording=None, overrides=None, *, tags=None, f
     if tag_id is _UNSET:
         tag_id = first_tag.id if first_tag else None
 
-    return {
+    result = {
         'language': language,
         'min_speakers': min_speakers,
         'max_speakers': max_speakers,
@@ -236,3 +236,132 @@ def resolve_transcription_params(recording=None, overrides=None, *, tags=None, f
         'initial_prompt': initial_prompt,
         'transcription_model': transcription_model,
     }
+    from src.clinic.config import clinic_mode_enabled
+    if clinic_mode_enabled():
+        _apply_clinic_profile(
+            result, overrides, owner, force_auto_language=force_auto_language,
+        )
+    return result
+
+
+# --- Clinic mode (CLINIC_MODE on only; upstream behaviour is unchanged off) ---
+
+CLINIC_PROMPTS_ENV = 'CLINIC_ASR_PROMPTS_ENABLED'
+# Shared by prompt and hotwords; same ceiling as the GPU ASR service.
+CLINIC_PROMPT_WORD_CAP = 55
+CLINIC_LANG_ID_DE = 1031
+CLINIC_DEFAULT_LANGUAGE = 'de'
+# Ingestion only needs a valid pick; the stored file format is not chosen here.
+_JOB_FORMATS = ('audio/webm;codecs=opus', 'audio/wav')
+_TRUE = ('1', 'true', 'yes', 'on')
+
+
+def _prompts_enabled():
+    import os
+    return os.environ.get(CLINIC_PROMPTS_ENV, '').strip().lower() in _TRUE
+
+
+def _cap_words(text, budget):
+    """Keep the first ``budget`` whitespace-separated words of ``text``.
+
+    Returns (text or None, words used). Original spacing is kept.
+    """
+    import re
+    if not isinstance(text, str) or budget <= 0:
+        return None, 0
+    count = 0
+    for match in re.finditer(r'\S+', text):
+        count += 1
+        if count == budget:
+            return text[:match.end()], count
+    return (text.strip() or None), count
+
+
+def _engine_plan():
+    """Planned engine order. The task records what actually ran."""
+    from src.clinic.asr_fallback import fallback_enabled
+    if fallback_enabled():
+        return {'selected': 'gpu', 'fallback': 'cpu', 'actual': None}
+    return {'selected': 'cpu', 'fallback': None, 'actual': None}
+
+
+def _capability_extras(registry, user_id, target, record):
+    """Negative lexicon and checkpoint adapter, only when proven."""
+    from src.clinic.asr_capabilities import (
+        CAPABILITY_UNAVAILABLE, AsrCapability, CapabilityEvidence,
+    )
+    proof = registry.check(AsrCapability.NEGATIVE_LEXICON.value, target)
+    if isinstance(proof, CapabilityEvidence):
+        from src.clinic.negative_lexicon import lexicon_version, resolve_negative_terms
+        from src.database import db
+        terms = resolve_negative_terms(user_id, [], db.session)
+        record['negative_lexicon'] = {
+            'terms': list(terms), 'lexicon_version': lexicon_version(terms),
+            'evidence_ref': proof.evidence_ref,
+        }
+    else:
+        record['negative_lexicon'] = {'status': CAPABILITY_UNAVAILABLE}
+    proof = registry.check(AsrCapability.CHECKPOINT.value, target)
+    if isinstance(proof, CapabilityEvidence):
+        record['checkpoint'] = {'evidence_ref': proof.evidence_ref}
+    else:
+        record['checkpoint'] = {'status': CAPABILITY_UNAVAILABLE}
+
+
+def _apply_clinic_profile(result, overrides, owner, *, force_auto_language):
+    """Apply the clinic ASR defaults and the owner's server profile in place.
+
+    Never raises for a missing, stale or unproven profile: core local GPU/CPU
+    jobs keep working with the German defaults and the reason is recorded under
+    ``clinic_asr``. A profile value never beats an explicit per-request value.
+    """
+    from flask import current_app
+    from src.clinic.asr_capabilities import AsrCapabilityRegistry
+    from src.clinic.asr_job_profile import (
+        AsrJobProfileError, asr_capability_target, resolve_asr_job_profile,
+    )
+
+    if not result['language'] and not force_auto_language:
+        result['language'] = CLINIC_DEFAULT_LANGUAGE
+
+    record = {'engine': _engine_plan(), 'profile': None, 'profile_version': None,
+              'status': 'defaults'}
+    owner_id = getattr(owner, 'id', None)
+    if owner_id is not None:
+        registry = current_app.extensions.get('clinic_capability_registry') or AsrCapabilityRegistry()
+        try:
+            resolved = resolve_asr_job_profile(owner_id, 'batch', _JOB_FORMATS, registry)
+        except AsrJobProfileError as exc:
+            record['status'] = exc.code
+        else:
+            run = resolved.as_run()
+            record.update(
+                status='profile', profile=run['profile_id'],
+                profile_version=run['profile_version'],
+                model=run['model'], model_revision=run['model_revision'],
+                engine_revision=run['engine_revision'], decoder=run['decoder'],
+                hotwords=run['hotwords'],
+            )
+            if not (overrides or {}).get('language'):
+                result['language'] = run['language']
+            if not (overrides or {}).get('transcription_model'):
+                result['transcription_model'] = run['model']
+            _capability_extras(
+                registry, owner_id,
+                asr_capability_target(run['language'], run['model']), record,
+            )
+
+    record['language'] = result['language']
+    record['lang_id'] = CLINIC_LANG_ID_DE if result['language'] == CLINIC_DEFAULT_LANGUAGE else None
+
+    # Prompts off unless expressly enabled; prompt and hotwords share one cap.
+    if _prompts_enabled():
+        result['initial_prompt'], used = _cap_words(
+            result['initial_prompt'], CLINIC_PROMPT_WORD_CAP)
+        result['hotwords'], _ = _cap_words(
+            result['hotwords'], CLINIC_PROMPT_WORD_CAP - used)
+    else:
+        result['initial_prompt'] = None
+        result['hotwords'] = None
+    record['prompts_enabled'] = _prompts_enabled()
+    result['clinic_asr'] = record
