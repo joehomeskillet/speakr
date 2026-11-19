@@ -9,36 +9,32 @@ import { TokenContractError, surfaceFor } from './tokens.js';
 export const PAGE_SIZE = 20;
 
 const TEXT = {
-    'clinic.history.title': 'Verlauf',
-    'clinic.history.empty': 'Keine Ereignisse vorhanden.',
-    'clinic.history.loading': 'Verlauf wird geladen …',
-    'clinic.history.retry': 'Erneut versuchen',
-    'clinic.history.prev': 'Vorherige Seite',
-    'clinic.history.next': 'Nächste Seite',
-    'clinic.history.page': 'Seite {page} von {pages}',
-    'clinic.history.actor': 'Akteur',
-    'clinic.history.time': 'Zeit',
-    'clinic.history.version': 'Version',
-    'clinic.history.unavailable': 'Nicht verfügbar',
-    'clinic.history.stale': 'Der Stand ist veraltet. Bitte neu laden.',
-    'clinic.history.denied': 'Keine Berechtigung für diesen Verlauf.',
-    'clinic.history.failed': 'Der Verlauf konnte nicht geladen werden.',
-    'clinic.history.kind.routing': 'Weiterleitung',
-    'clinic.history.kind.revision': 'Korrektur',
-    'clinic.history.kind.workflow': 'Ablauf',
-    'clinic.history.kind.release': 'Freigabe',
-    'clinic.history.kind.output': 'Ausgabe',
-    'clinic.history.kind.acceptance': 'Abnahme',
+    'history_title': 'Verlauf',
+    'history_empty': 'Keine Ereignisse vorhanden.',
+    'history_loading': 'Verlauf wird geladen …',
+    'history_retry': 'Erneut versuchen',
+    'history_prev': 'Vorherige Seite',
+    'history_next': 'Nächste Seite',
+    'history_page': 'Seite {page} von {pages}',
+    'history_actor': 'Akteur',
+    'history_time': 'Zeit',
+    'history_version': 'Version',
+    'history_unavailable': 'Nicht verfügbar',
+    'history_stale': 'Der Stand ist veraltet. Bitte neu laden.',
+    'history_denied': 'Keine Berechtigung für diesen Verlauf.',
+    'history_failed': 'Der Verlauf konnte nicht geladen werden.',
+    'history_kind_routing': 'Weiterleitung',
+    'history_kind_revision': 'Korrektur',
+    'history_kind_workflow': 'Ablauf',
+    'history_kind_release': 'Freigabe',
+    'history_kind_output': 'Ausgabe',
+    'history_kind_acceptance': 'Abnahme',
 };
 
 const LINKS = ['parent_revision_id', 'audio_revision_id', 'transcript_revision_id', 'context_revision_id', 'release_id'];
 
 export function translate(key, params) {
     let text = TEXT[key] || key;
-    if (typeof window !== 'undefined' && window.i18n && typeof window.i18n.t === 'function') {
-        const value = window.i18n.t(key, params || {});
-        if (value && value !== key) return value;
-    }
     for (const name of Object.keys(params || {})) text = text.split('{' + name + '}').join(String(params[name]));
     return text;
 }
@@ -72,7 +68,7 @@ function row(event, index, t) {
         index: index,
         key: String(event.kind) + ':' + String(event.id ?? index),
         kind: event.kind,
-        kindLabel: t('clinic.history.kind.' + event.kind),
+        kindLabel: t('history_kind_' + event.kind),
         action: event.action || event.revision_kind || null,
         actor: hidden ? null : (event.actor_label ?? event.actor ?? null),
         at: event.at || null,
@@ -101,8 +97,8 @@ export function buildPage(events, page, options) {
 }
 
 const STATE_MESSAGE = {
-    permission: 'clinic.history.denied',
-    conflict: 'clinic.history.stale',
+    permission: 'history_denied',
+    conflict: 'history_stale',
 };
 
 /**
@@ -138,7 +134,7 @@ export function useDictationHistory(client, dictationId, vue, t) {
         if (res.outcome === 'permission') status.value = 'denied';
         else if (res.outcome === 'conflict' || res.outcome === 'ok') status.value = 'stale';
         else status.value = 'error';
-        message.value = tr(STATE_MESSAGE[res.outcome] || (res.outcome === 'ok' ? 'clinic.history.stale' : 'clinic.history.failed'));
+        message.value = tr(STATE_MESSAGE[res.outcome] || (res.outcome === 'ok' ? 'history_stale' : 'history_failed'));
         return res;
     }
 
@@ -167,29 +163,29 @@ export function createHistoryComponent(vue) {
             return Object.assign({ t: translate }, h);
         },
         template: `
-<section class="clinic-history" :aria-label="t('clinic.history.title')" :aria-busy="status === 'loading'">
-  <h2>{{ t('clinic.history.title') }}</h2>
-  <p v-if="status === 'loading'" role="status">{{ t('clinic.history.loading') }}</p>
+<section class="clinic-history" :aria-label="t('history_title')" :aria-busy="status === 'loading'">
+  <h2>{{ t('history_title') }}</h2>
+  <p v-if="status === 'loading'" role="status">{{ t('history_loading') }}</p>
   <div v-else-if="status !== 'ready' && status !== 'idle'" role="alert">
     <p>{{ message }}</p>
-    <button v-if="status !== 'denied'" type="button" @click="retry">{{ t('clinic.history.retry') }}</button>
+    <button v-if="status !== 'denied'" type="button" @click="retry">{{ t('history_retry') }}</button>
   </div>
-  <p v-else-if="view.total === 0" role="status">{{ t('clinic.history.empty') }}</p>
+  <p v-else-if="view.total === 0" role="status">{{ t('history_empty') }}</p>
   <ol v-else class="clinic-history-list">
     <li v-for="r in view.rows" :key="r.key" tabindex="0" :style="r.style" class="clinic-history-item">
       <strong>{{ r.kindLabel }}</strong><span v-if="r.action"> · {{ r.action }}</span>
       <dl>
-        <dt>{{ t('clinic.history.actor') }}</dt><dd>{{ r.actor || t('clinic.history.unavailable') }}</dd>
-        <dt>{{ t('clinic.history.time') }}</dt><dd><time :datetime="r.at">{{ r.at || t('clinic.history.unavailable') }}</time></dd>
-        <dt>{{ t('clinic.history.version') }}</dt><dd>{{ r.version || t('clinic.history.unavailable') }}</dd>
-        <template v-for="l in r.links" :key="l.key"><dt>{{ l.key }}</dt><dd>{{ l.available ? l.value : t('clinic.history.unavailable') }}</dd></template>
+        <dt>{{ t('history_actor') }}</dt><dd>{{ r.actor || t('history_unavailable') }}</dd>
+        <dt>{{ t('history_time') }}</dt><dd><time :datetime="r.at">{{ r.at || t('history_unavailable') }}</time></dd>
+        <dt>{{ t('history_version') }}</dt><dd>{{ r.version || t('history_unavailable') }}</dd>
+        <template v-for="l in r.links" :key="l.key"><dt>{{ l.key }}</dt><dd>{{ l.available ? l.value : t('history_unavailable') }}</dd></template>
       </dl>
     </li>
   </ol>
-  <nav v-if="status === 'ready' && view.pages > 1" :aria-label="t('clinic.history.title')">
-    <button type="button" :disabled="view.page <= 1" @click="prev">{{ t('clinic.history.prev') }}</button>
-    <span aria-live="polite">{{ t('clinic.history.page', { page: view.page, pages: view.pages }) }}</span>
-    <button type="button" :disabled="view.page >= view.pages" @click="next">{{ t('clinic.history.next') }}</button>
+  <nav v-if="status === 'ready' && view.pages > 1" :aria-label="t('history_title')">
+    <button type="button" :disabled="view.page <= 1" @click="prev">{{ t('history_prev') }}</button>
+    <span aria-live="polite">{{ t('history_page', { page: view.page, pages: view.pages }) }}</span>
+    <button type="button" :disabled="view.page >= view.pages" @click="next">{{ t('history_next') }}</button>
   </nav>
 </section>`,
     };

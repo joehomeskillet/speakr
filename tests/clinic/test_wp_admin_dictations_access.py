@@ -111,7 +111,7 @@ def test_admin_metadata_list_includes_foreign_recording():
         _policy(author)
         foreign = _recording(author, "Foreign dictation")
 
-        page = list_dictations(db.session, admin, AdminDictationsQuery(page_size=50))
+        page = list_dictations(db.session, admin, AdminDictationsQuery(author_user_id=author.id, page_size=50))
         recording_ids = {row.recording_id for row in page.items}
         assert foreign.id in recording_ids
         # The metadata allowlist must not carry clinical text or filenames.

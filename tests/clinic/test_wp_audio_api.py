@@ -67,6 +67,8 @@ def make_dictation(author, helper=None):
 def scene(monkeypatch):
     monkeypatch.setenv('CLINIC_MODE', '1')
     with app.app_context():
+        from src.clinic import live_session as live_tables
+        live_tables.ClinicLiveSession.__table__.create(db.engine, checkfirst=True)
         author, other = make_user('author'), make_user('other')
         dictation, original = make_dictation(author)
         foreign, foreign_original = make_dictation(other)

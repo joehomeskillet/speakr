@@ -95,7 +95,8 @@ public sealed class AgentOptions
             foreach (var root in AllowedRoots)
             {
                 var rootFull = PathGuard.Normalize(root.Path);
-                if (PathGuard.IsUnder(backup, rootFull) || PathGuard.IsUnder(rootFull, backup))
+                if (string.Equals(backup, rootFull, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
+                    || PathGuard.IsUnder(backup, rootFull) || PathGuard.IsUnder(rootFull, backup))
                     throw new InvalidOperationException("BackupFolder must not overlap an allowed root.");
             }
         }

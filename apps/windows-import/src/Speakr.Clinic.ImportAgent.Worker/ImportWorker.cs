@@ -73,16 +73,7 @@ public sealed class ImportWorker : BackgroundService
             return 0;
         }
 
-        IEnumerable<string> files;
-        try
-        {
-            files = Directory.EnumerateFiles(rootFull, "*", SearchOption.AllDirectories);
-        }
-        catch (Exception ex)
-        {
-            _log.Error("retention failed " + ex.GetType().Name + " " + LogText.Clean(ex.Message));
-            return 0;
-        }
+        var files = EnumerateBackupFiles(rootFull);
 
         var candidates = new List<(string Path, DateTimeOffset Mtime)>();
         foreach (var file in files)
@@ -143,6 +134,36 @@ public sealed class ImportWorker : BackgroundService
         }
 
         return deleted;
+    }
+
+    // Walks the backup tree one directory at a time so an unreadable directory is logged and skipped
+    // instead of being silently ignored or aborting the whole pass. Linked directories are not followed.
+    private List<string> EnumerateBackupFiles(string rootFull)
+    {
+        var found = new List<string>();
+        var options = new EnumerationOptions { IgnoreInaccessible = false, RecurseSubdirectories = false };
+        var pending = new Stack<string>();
+        pending.Push(rootFull);
+        while (pending.Count > 0)
+        {
+            var dir = pending.Pop();
+            try
+            {
+                foreach (var file in Directory.EnumerateFiles(dir, "*", options))
+                    found.Add(file);
+                foreach (var sub in Directory.EnumerateDirectories(dir, "*", options))
+                {
+                    if ((File.GetAttributes(sub) & FileAttributes.ReparsePoint) != 0)
+                        continue;
+                    pending.Push(sub);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _log.Error("retention failed " + ex.GetType().Name + " " + LogText.Clean(ex.Message));
+            }
+        }
+        return found;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
