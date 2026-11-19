@@ -37,6 +37,8 @@ MODEL_MODULES = (
     "import_source_config",
     "context_grants",
     "audio_invalidation",
+    "acceptance_policy",
+    "archive_policy",
 )
 
 

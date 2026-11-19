@@ -43,7 +43,7 @@ def test_ineligible_actor_is_refused_and_nothing_written(world):
     w['state']['grant'] = True
     from src.clinic.acceptance_policy import SCOPE_DICTATION, AcceptanceLedger
 
-    other = AcceptanceLedger().publish(SCOPE_DICTATION, w['item'].id, required=True,
+    other = AcceptanceLedger().publish(SCOPE_DICTATION, w['item'].id + ':other', required=True,
                                        approver_user_ids=[w['user'].id + 1000], now=NOW)
     w['rules'][True] = other
     before = _audit_count()

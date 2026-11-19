@@ -61,7 +61,7 @@ def world(monkeypatch):
         context = add(ClinicContextRevision(dictation_id=item.id, source_system='test',
                                             tenant_scope='test', case_ref='c', patient_ref='p'))
         held = lease.acquire(item.id, user.id, NOW)
-        rules = {flag: AcceptanceLedger().publish(SCOPE_DICTATION, item.id, required=flag,
+        rules = {flag: AcceptanceLedger().publish(SCOPE_DICTATION, f'{item.id}:{flag}', required=flag,
                                       approver_user_ids=[user.id], now=NOW) for flag in (True, False)}
         db.session.commit()
         state = {'grant': True, 'flags': 0, 'required': True, 'audit': []}
