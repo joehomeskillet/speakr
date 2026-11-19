@@ -5,8 +5,8 @@ from datetime import timedelta
 
 import pytest
 from sqlalchemy.exc import OperationalError
+
 from src.clinic import import_centre as ic, import_visibility as visibility, policy as central_policy, pools
-from src.clinic import import_centre as ic, import_visibility as visibility, pools
 from src.clinic.agent_channel import AgentChannelError
 from src.clinic.identity import ClinicAccountPolicy
 from src.clinic.models import ClinicDictation
