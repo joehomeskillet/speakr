@@ -25,7 +25,9 @@ def clinic(monkeypatch):
         db.session.commit()
     yield
     with app.app_context():
+        audit.flush()
         LoginFailure.query.delete()
+        AuditEvent.query.filter_by(event='admin.user.changed').delete()  # ids are reused by later test files
         db.session.commit()
 
 
@@ -116,3 +118,82 @@ def test_failed_recovery_redemption_is_audited_and_counted():
         assert all(issued.code not in str(r.details) for r in rows)
         assert db.session.query(LoginFailure).filter_by(user_id=uid, address='10.4.0.1').one().failed_count == 1
     assert redeem(issued.code, 'reset_local').status_code == 204  # still works
+
+
+def _admin_policy(uid):
+    return db.session.get(identity.ClinicAccountPolicy, uid, populate_existing=True)
+
+
+def _second_account(actor_id, actor_sv, name, *, admin):
+    """Active local account created through the service; optionally made identity/site admin directly."""
+    user = identity.create_local_user(name, f'{name}@example.invalid', actor_id=actor_id,
+                                      actor_security_version=actor_sv)
+    uid = user.id
+    user = db.session.get(User, uid)
+    policy = _admin_policy(uid)
+    user.password = identity.hash_password(PASSWORD)
+    policy.status = 'active'
+    policy.is_identity_admin = admin
+    user.is_admin = admin
+    db.session.commit()
+    return uid
+
+
+def test_admin_cannot_recover_peer_admin_but_can_recover_user_and_self():
+    a = make_admin('rec_a')
+    with app.app_context():
+        sv = _admin_policy(a).security_version
+        b = _second_account(a, sv, 'rec_b', admin=True)
+        normal = _second_account(a, sv, 'rec_user', admin=False)
+        b_before = (_admin_policy(b).version, _admin_policy(b).security_version,
+                    _admin_policy(b).must_change_password, db.session.get(User, b).password)
+        with pytest.raises(identity.IdentityDenied, match='admin_recovery_forbidden'):
+            identity.issue_recovery(b, issued_by=a, expected_version=b_before[0], actor_security_version=sv)
+        assert (_admin_policy(b).version, _admin_policy(b).security_version,
+                _admin_policy(b).must_change_password, db.session.get(User, b).password) == b_before
+        assert identity.ClinicLocalRecovery.query.filter_by(user_id=b).count() == 0
+        refusals = [r for r in events(b, 'admin.user.changed') if r.details == {'fields': ['recovery_refused']}]
+        assert len(refusals) == 1
+        assert refusals[0].actor_user_id == a
+        # a normal user can still be recovered by the admin
+        issued = identity.issue_recovery(normal, issued_by=a, expected_version=_admin_policy(normal).version,
+                                         actor_security_version=sv)
+        assert issued.purpose == 'reset_local'
+        # self-service is unaffected (B exists as a second admin, so A is not the last one)
+        sv = _admin_policy(a).security_version
+        assert identity.issue_recovery(a, issued_by=a, actor_security_version=sv).purpose == 'reset_local'
+
+
+def test_admin_recovery_endpoint_returns_forbidden_code():
+    a = make_admin('rec_api_a')
+    with app.app_context():
+        sv = _admin_policy(a).security_version
+        b = _second_account(a, sv, 'rec_api_b', admin=True)
+        version = _admin_policy(b).version
+    client = app.test_client()
+    assert sign_in(client, 'rec_api_a').status_code == 302
+    with client.session_transaction() as state:
+        state['clinic_reauth_at'] = time.time()
+    resp = client.put(f'/admin/users/{b}', json={'issue_recovery': True, 'expected_version': version},
+                       headers={'X-CSRFToken': csrf(client)})
+    assert resp.status_code == 403 and resp.json['code'] == 'admin_recovery_forbidden'
+
+
+def test_operator_cli_still_recovers_an_admin(monkeypatch):
+    from src.clinic import identity_cli
+
+    a = make_admin('rec_cli_a')
+    with app.app_context():
+        sv = _admin_policy(a).security_version
+        b = _second_account(a, sv, 'rec_cli_b', admin=True)
+        version = _admin_policy(b).version
+    monkeypatch.setattr(identity_cli, '_require_terminal', lambda: None)
+    monkeypatch.setattr(identity_cli, '_password', lambda prompt: PASSWORD)
+    result = app.test_cli_runner().invoke(identity_cli.identity_commands, [
+        'recovery', '--operator', 'rec_cli_a', '--user-id', str(b), '--expected-version', str(version)])
+    assert result.exit_code == 0, result.output
+    code = result.output.strip()
+    with app.app_context():
+        row = identity.ClinicLocalRecovery.query.filter_by(user_id=b, purpose='reset_local').one()
+        assert row.issued_by == a and row.token_hash == identity._hash_code(code)
+        assert [e for e in events(b, 'admin.user.changed') if e.details.get('fields') == ['reset_local']]

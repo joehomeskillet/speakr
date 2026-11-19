@@ -562,6 +562,12 @@ def issue_recovery(user_id, *, issued_by, expected_version=None, now=None, actor
                                    actor_id=issued_by if actor_security_version is not None else None)
     if actor_security_version is not None:
         _authorize_admin(issued_by, actor_security_version)
+        if user_id != issued_by and (policy.is_identity_admin or user.is_admin):
+            # Peer takeover guard: admin accounts are recovered only via the server operator CLI.
+            audit.record_in_tx('admin.user.changed', actor_user_id=issued_by, target_user_id=user_id,
+                               details={'fields': ['recovery_refused']})
+            db.session.commit()
+            raise IdentityDenied('admin_recovery_forbidden')
         if policy.status == 'active':
             _protect_last_admin(user, policy)
     if policy.login_policy not in LOCAL_POLICIES or policy.status not in ("pending_activation", "active"):

@@ -414,6 +414,8 @@ def _clinic_identity_denied(exc):
         return _clinic_identity_error(str(exc), 'Bitte Benutzername und E-Mail-Adresse prüfen.', 400)
     if str(exc) == 'no_account_policy':
         return _clinic_identity_error('no_account_policy', 'Für dieses Konto fehlt eine Anmelderichtlinie.', 404)
+    if str(exc) == 'admin_recovery_forbidden':
+        return _clinic_identity_error(str(exc), 'Administratorkonten werden nur über die Serverkonsole wiederhergestellt.', 403)
     if str(exc) == 'recovery_not_permitted':
         return _clinic_identity_error(str(exc), 'Für dieses Konto ist kein lokaler Einmalcode möglich.', 403)
     return _clinic_identity_error(str(exc), 'Diese Änderung ist im aktuellen Kontozustand nicht möglich.', 409)
