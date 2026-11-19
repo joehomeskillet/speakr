@@ -270,6 +270,18 @@ def _clinic_password_error(exc):
     return 'invalid_recovery_code', 'Der Einmalcode ist ungültig, abgelaufen oder wurde bereits verwendet.', 400
 
 
+def _clinic_recovery_failed(code):
+    """Audit a failed redemption and count it against the account the code belongs to, if any."""
+    owner = None
+    if isinstance(code, str) and 20 <= len(code) <= 128:
+        row = identity.ClinicLocalRecovery.query.filter_by(token_hash=identity._hash_code(code)).first()
+        owner = row.user_id if row else None
+    audit.record('auth.login.failed', outcome='failed', target_user_id=owner,
+                 details={'reason': 'bad_recovery_code', 'method': 'recovery'}, dedup=audit.DEDUP_LOGIN_FAILED)
+    if owner is not None and not identity.account_locked(owner):
+        identity.record_account_failure(owner)
+
+
 def _clinic_redeem(data):
     password = data.get('new_password')
     if not password or password != data.get('confirmation', data.get('confirm_password')):
@@ -278,6 +290,8 @@ def _clinic_redeem(data):
         identity.complete_recovery(data.get('code'), password, purpose=data.get('purpose'))
     except identity.IdentityError as exc:
         db.session.rollback()
+        if isinstance(exc, identity.InvalidRecoveryCode):
+            _clinic_recovery_failed(data.get('code'))
         code, message, status = _clinic_password_error(exc)
         return jsonify(code=code, error=message), status
     _clear_clinic_session()
@@ -304,21 +318,20 @@ def _clinic_login():
     if form.validate_on_submit():
         login_id = request.form.get('login_id', form.email.data or '').strip()
         candidate = identity.find_login_user(login_id)
-        client = login_lock.client_key(request.remote_addr)
         maximum, minutes = login_lock.lock_settings()
-        locked = candidate is not None and maximum and login_lock.is_locked(candidate.id, client)
+        locked = candidate is not None and identity.account_locked(candidate.id)
         try:
             result = identity.authenticate_local(login_id, form.password.data)
         except identity.AuthenticationFailed:
             db.session.rollback()
-            if candidate is not None and maximum and not locked:
-                login_lock.record_failure(candidate.id, client, maximum, minutes)
+            if candidate is not None and not locked:
+                identity.record_account_failure(candidate.id)
             result = None
         except identity.HashBusy:
             return jsonify(code='hash_busy', error='Bitte später erneut versuchen.'), 503
         if result is not None and not locked and not result.must_change_password:
             if maximum:
-                login_lock.clear_failures(result.user_id, client)
+                identity.clear_account_failures(result.user_id)
                 db.session.commit()
             user = db.session.get(User, result.user_id, populate_existing=True)
             policy = db.session.get(identity.ClinicAccountPolicy, result.user_id, populate_existing=True)

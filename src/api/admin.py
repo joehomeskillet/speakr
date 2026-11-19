@@ -467,6 +467,10 @@ def _clinic_user_command(user_id=None, *, toggle=False):
         return _clinic_identity_error('use_recovery_code', 'Bitte einen lokalen Einmalcode ausstellen.', 400)
     try:
         profile = _clinic_profile(data)
+        from src.api.auth import clinic_recent_auth
+
+        if not clinic_recent_auth(actor):
+            return _clinic_identity_error('reauth_required', 'Bitte erneut anmelden und nochmals versuchen.', 403)
         if user_id is None:
             if any(key in data and data[key] not in (False, None) for key in _CLINIC_ADMIN_OPTIONS):
                 return _clinic_identity_error('pending_activation', 'Konto zuerst anlegen und aktivieren.', 409)
@@ -476,10 +480,6 @@ def _clinic_user_command(user_id=None, *, toggle=False):
                                               actor_security_version=actor.security_version)
             policy = db.session.get(identity.ClinicAccountPolicy, user.id)
         else:
-            from src.api.auth import clinic_recent_auth
-
-            if not clinic_recent_auth(actor):
-                return _clinic_identity_error('reauth_required', 'Bitte erneut anmelden und nochmals versuchen.', 403)
             version = data.get('expected_version')
             if type(version) is not int or version < 1:
                 return _clinic_identity_error('expected_version_required', 'Bitte die aktuelle Kontoversion angeben.', 400)

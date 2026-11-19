@@ -586,6 +586,39 @@ def issue_recovery(user_id, *, issued_by, expected_version=None, now=None, actor
     return IssuedCode(code=code, purpose=purpose, expires_at=now + RECOVERY_TTL)
 
 
+ACCOUNT_LOCK_KEY = 'account-wide'  # login_lock address for failures from any client
+ACCOUNT_LOCK_FACTOR = 4  # account-wide threshold = factor * per-client threshold
+
+
+def _client_lock_key():
+    from flask import has_request_context, request
+
+    return login_lock.client_key(request.remote_addr) if has_request_context() else 'internal'
+
+
+def account_locked(user_id, client=None):
+    """True while the account is locked for this client or account-wide."""
+    maximum, _ = login_lock.lock_settings()
+    client = client or _client_lock_key()
+    return bool(maximum) and (login_lock.is_locked(user_id, client)
+                              or login_lock.is_locked(user_id, ACCOUNT_LOCK_KEY))
+
+
+def record_account_failure(user_id, client=None):
+    """Count one wrong secret per client and account-wide (higher threshold)."""
+    maximum, minutes = login_lock.lock_settings()
+    if not maximum:
+        return
+    login_lock.record_failure(user_id, client or _client_lock_key(), maximum, minutes)
+    login_lock.record_failure(user_id, ACCOUNT_LOCK_KEY, maximum * ACCOUNT_LOCK_FACTOR, minutes)
+
+
+def clear_account_failures(user_id, client=None):
+    """Forget this client's failures and the account-wide count. The caller commits."""
+    login_lock.clear_failures(user_id, client or _client_lock_key())
+    login_lock.clear_failures(user_id, ACCOUNT_LOCK_KEY)
+
+
 def _apply_new_password(user, policy, password, now):
     validate_password(password)
     user.password = hash_password(password)
@@ -652,7 +685,13 @@ def change_password(user_id, current_password, new_password, *, now=None, expect
     if (not _local_eligible(policy, user) or (expected_security_version is not None
             and (policy.must_change_password or policy.security_version != expected_security_version))):
         raise AuthenticationFailed()
+    if account_locked(user.id):
+        raise AuthenticationFailed()
     if not verify_password(user.password, current_password)[0]:
+        audit.record_in_tx('auth.login.failed', actor_user_id=user.id, target_user_id=user.id, outcome='failed',
+                           details={'reason': 'bad_current_password', 'method': 'password_change'})
+        db.session.commit()
+        record_account_failure(user.id)
         raise AuthenticationFailed()
     _apply_new_password(user, policy, new_password, now)
     audit.record_in_tx('auth.password.changed', target_user_id=user.id)
