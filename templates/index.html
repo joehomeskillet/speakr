@@ -96,6 +96,7 @@
     <div id="app" v-cloak
          data-use-asr-endpoint="{{ use_asr_endpoint }}"
          data-clinic-mode="{{ 'True' if clinic_mode else 'False' }}"
+         {% if clinic_mode %}data-clinic-role="{{ clinic_role or 'author' }}"{% endif %}
          data-connector-supports-diarization="{{ connector_supports_diarization }}"
          data-connector-supports-speaker-count="{{ connector_supports_speaker_count }}"
          data-connector-supports-exact-speaker-count="{{ connector_supports_exact_speaker_count }}"

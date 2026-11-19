@@ -1141,8 +1141,13 @@ def index(recording_id=None, label_name=None):
     recording_video_kbps = max(100, min(50000, recording_video_kbps))
 
     from src.clinic.config import clinic_mode_enabled
+    clinic_role = None
+    if clinic_mode_enabled():
+        from src.clinic.pools import ui_role
+        clinic_role = ui_role(current_user.id)  # UI hint only, never a permission input
     return render_template('index.html',
                          clinic_mode=clinic_mode_enabled(),
+                         clinic_role=clinic_role,
                          use_asr_endpoint=USE_ASR_ENDPOINT,  # Backwards compat
                          connector_supports_diarization=connector_supports_diarization,
                          connector_supports_speaker_count=connector_supports_speaker_count,
