@@ -192,6 +192,15 @@ _CLINIC_ADMIN_DICTATIONS = _split("""
     clinic_admin_dictations.transcript clinic_admin_dictations.audio
 """)
 
+# Metadata field definitions (x28), mounted by register_clinic_identity in clinic mode only.
+# Reading is for any signed-in user; the handler lists inactive fields to admins only.
+_CLINIC_METADATA_FIELDS_AUTH = _split("""
+    clinic_metadata_fields.list_fields
+""")
+_CLINIC_METADATA_FIELDS_ADMIN = _split("""
+    clinic_metadata_fields.save_field
+""")
+
 _DISABLED = {
     'internal_sharing': """
         groups.add_team_member groups.create_team
@@ -313,9 +322,11 @@ def _build() -> dict[str, RouteRule]:
     clinic = clinic_mode_enabled()
     for endpoint in _PUBLIC + (_CLINIC_IDENTITY_PUBLIC if clinic else ()):
         add(endpoint, RouteRule(PUBLIC))
-    for endpoint in _AUTH + ((_CLINIC_RESOURCES + _CLINIC_ASR + _CLINIC_WORKLIST + _CLINIC_IDENTITY) if clinic else ()):
+    for endpoint in _AUTH + ((_CLINIC_RESOURCES + _CLINIC_ASR + _CLINIC_WORKLIST + _CLINIC_IDENTITY
+                                       + _CLINIC_METADATA_FIELDS_AUTH) if clinic else ()):
         add(endpoint, RouteRule(AUTH))
-    for endpoint in _ADMIN + ((_CLINIC_IDENTITY_ADMIN + _CLINIC_ADMIN_DICTATIONS) if clinic else ()):
+    for endpoint in _ADMIN + ((_CLINIC_IDENTITY_ADMIN + _CLINIC_ADMIN_DICTATIONS
+                                    + _CLINIC_METADATA_FIELDS_ADMIN) if clinic else ()):
         add(endpoint, RouteRule(ADMIN))
     for feature, endpoints in _DISABLED.items():
         for endpoint in _split(endpoints):

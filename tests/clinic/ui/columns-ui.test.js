@@ -5,23 +5,27 @@ import {
 } from '../../../static/js/clinic/columns-ui.js';
 
 const FIELDS = [
-    { name: 'station', label: 'Station', field_type: 'string', xml_path: 'patient/station', version: 2 },
-    { name: 'age', label: 'Alter', field_type: 'integer', xml_path: 'patient/age', version: 1 },
-    { name: 'secret', label: 'Geheim', field_type: 'string', xml_path: 'patient/secret', version: 1, readable: false },
-    { name: 'gone', label: 'Alt', field_type: 'string', xml_path: 'old', version: 1, available: false },
-    { name: 'off', label: 'Inaktiv', field_type: 'string', xml_path: 'off', version: 1, is_active: false },
+    { name: 'station', label: 'Station', field_type: 'string', xml_path: 'patient/station', version: 'v2' },
+    { name: 'age', label: 'Alter', field_type: 'integer', xml_path: 'patient/age', version: 'v1' },
+    { name: 'secret', label: 'Geheim', field_type: 'string', xml_path: 'patient/secret', version: 'v1', readable: false },
+    { name: 'gone', label: 'Alt', field_type: 'string', xml_path: 'old', version: 'v1', available: false },
+    { name: 'off', label: 'Inaktiv', field_type: 'string', xml_path: 'off', version: 'v1', is_active: false },
 ];
 
 function ok(data) {
     return { outcome: 'ok', data: data, message: '' };
 }
 
+// `put` answers PUT saves; GET returns the definitions. `request` overrides both.
 function fakeClient(overrides) {
+    const extra = Object.assign({}, overrides || {});
+    const put = extra.put || vi.fn(async () => ok({ version: 'v3' }));
+    delete extra.put;
     return Object.assign({
-        request: vi.fn(async () => ok({ fields: FIELDS })),
-        command: vi.fn(async () => ok({ revision: 3 })),
+        put: put,
+        request: vi.fn(async (path, opts) => (opts && opts.method === 'PUT' ? put(path, opts) : ok({ fields: FIELDS }))),
         switchContext: vi.fn(),
-    }, overrides || {});
+    }, extra);
 }
 
 async function loaded(overrides) {
@@ -62,7 +66,7 @@ describe('columns ui', () => {
         expect(editor.setDisplayType('gone', 'date').code).toBe('unavailable');
         expect(editor.setXmlPath('off', 'a').code).toBe('unavailable');
         expect((await editor.save('secret')).code).toBe('unauthorized');
-        expect(client.command).not.toHaveBeenCalled();
+        expect(client.put).not.toHaveBeenCalled();
     });
 
     it('previews escaped values and rejects unavailable or unauthorized columns', async () => {
@@ -84,33 +88,35 @@ describe('columns ui', () => {
         expect(escapeHtml(`&"'`)).toBe('&amp;&quot;&#39;');
     });
 
-    it('saves with the version as expected revision and an idempotency key', async () => {
+    it('saves through PUT with the version as expected_version', async () => {
         const { client, editor } = await loaded();
         editor.setDisplayType('station', 'date');
         expect((await editor.save('station')).ok).toBe(true);
-        const [body, opts] = client.command.mock.calls[0];
-        expect(body).toMatchObject({ command: 'save_metadata_field', expected_revision: 2 });
-        expect(body.payload).toEqual({ name: 'station', label: 'Station', field_type: 'date', xml_path: 'patient/station' });
-        expect(opts.ifMatch).toBe('"2"');
-        expect(opts.idempotencyKey).toBe(body.request_id);
-        expect(editor.state.fields[0].version).toBe(3);
+        const [path, opts] = client.put.mock.calls[0];
+        expect(path).toBe('/metadata-fields/station');
+        expect(opts.method).toBe('PUT');
+        expect(opts.body).toEqual({ label: 'Station', field_type: 'date', xml_path: 'patient/station', expected_version: 'v2' });
+        expect(editor.state.fields[0].version).toBe('v3');
     });
 
     it('marks a stale version and refuses further saves until reload', async () => {
-        const { client, editor } = await loaded({ command: vi.fn(async () => ({ outcome: 'conflict', message: 'x' })) });
+        const { client, editor } = await loaded({ put: vi.fn(async () => ({ outcome: 'conflict', status: 409, message: 'x' })) });
         expect((await editor.save('station')).code).toBe('stale_version');
         expect(editor.state.status).toBe('warning');
         expect((await editor.save('station')).code).toBe('stale_version');
-        expect(client.command).toHaveBeenCalledTimes(1);
+        expect(client.put).toHaveBeenCalledTimes(1);
     });
 
     it('reports unauthorized and failure outcomes, and allows retry after failure', async () => {
-        const denied = await loaded({ command: vi.fn(async () => ({ outcome: 'permission', message: 'x' })) });
+        const denied = await loaded({ put: vi.fn(async () => ({ outcome: 'permission', status: 403, message: 'x' })) });
         expect((await denied.editor.save('station')).code).toBe('permission');
+        const invalid = await loaded({ put: vi.fn(async () => ({ outcome: 'validation', status: 400, message: 'x' })) });
+        expect((await invalid.editor.save('station')).code).toBe('validation');
+        expect(invalid.editor.state.status).toBe('error');
         const command = vi.fn()
             .mockResolvedValueOnce({ outcome: 'network', message: 'x' })
-            .mockResolvedValueOnce(ok({ revision: 3 }));
-        const flaky = await loaded({ command: command });
+            .mockResolvedValueOnce(ok({ version: 'v3' }));
+        const flaky = await loaded({ put: command });
         expect((await flaky.editor.save('station')).code).toBe('failure');
         expect(flaky.editor.state.status).toBe('error');
         expect((await flaky.editor.save('station')).ok).toBe(true);
@@ -128,7 +134,7 @@ describe('columns ui', () => {
         expect((await editor.onKey('station', { key: 'Escape' })).ok).toBe(true);
         expect(editor.state.fields[0].label).toBe('Station');
         expect((await editor.onKey('station', { key: 'Enter' })).ok).toBe(true);
-        expect(client.command).toHaveBeenCalledTimes(1);
+        expect(client.put).toHaveBeenCalledTimes(1);
         expect((await editor.onKey('station', { key: 'a' })).ok).toBe(false);
     });
 
@@ -161,10 +167,10 @@ describe('columns ui', () => {
         const result = await editor.load();
         expect(result.ok).toBe(false);
         expect(result.code).toBe('endpoint_missing');
-        expect(SERVER_CONTRACT.implemented).toBe(false);
-        expect(SERVER_CONTRACT.dependency).toBe('w226');
+        expect(SERVER_CONTRACT.implemented).toBe(true);
         expect(SERVER_CONTRACT.list.path).toBe('/api/clinic/v1/metadata-fields');
-        expect(SERVER_CONTRACT.save.command).toBe('save_metadata_field');
+        expect(SERVER_CONTRACT.save.method).toBe('PUT');
+        expect(SERVER_CONTRACT.save.expected).toBe('expected_version');
     });
 
     it('uses no hard colours', () => {
