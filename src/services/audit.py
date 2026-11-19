@@ -73,6 +73,7 @@ EVENTS = {
     'auth.password.changed': ('auth', _NONE),
     'auth.sso.linked': ('auth', _NONE),
     'auth.sso.unlinked': ('auth', _NONE),
+    'auth.sso.link_requested': ('auth', _NONE),
     'token.created': ('auth', frozenset({'token_id', 'scopes', 'expires', 'sso_client_id'})),
     'token.changed': ('auth', frozenset({'token_id', 'scopes'})),
     'token.revoked': ('auth', frozenset({'token_id'})),
