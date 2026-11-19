@@ -186,7 +186,7 @@ def test_required_acceptance_needs_a_current_accept(case):
     item, dictation, head, user, _, state, run = case
     workflow.set_acceptance(db.session(), item.id, True)
     state["rule"] = AcceptanceLedger().publish(
-        SCOPE_DICTATION, item.id, required=True, approver_user_ids=[user.id], now=NOW)
+        SCOPE_DICTATION, item.id + ":required", required=True, approver_user_ids=[user.id], now=NOW)
     for trigger in ("complete", "accept"):
         workflow.transition(db.session(), item.id, trigger)
     db.session.commit()

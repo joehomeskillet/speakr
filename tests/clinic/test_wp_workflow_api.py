@@ -62,7 +62,7 @@ def world(monkeypatch):
                                             tenant_scope='test', case_ref='c', patient_ref='p'))
         fresh = datetime.now(timezone.utc)  # NOW is fixed at import; a long serial run outlives the lease
         held = lease.acquire(item.id, user.id, fresh)
-        rules = {flag: AcceptanceLedger().publish(SCOPE_DICTATION, item.id, required=flag,
+        rules = {flag: AcceptanceLedger().publish(SCOPE_DICTATION, f'{item.id}:{flag}', required=flag,
                                       approver_user_ids=[user.id], now=fresh) for flag in (True, False)}
         db.session.commit()
         state = {'grant': True, 'flags': 0, 'required': True, 'audit': []}

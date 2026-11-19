@@ -38,6 +38,8 @@ MODEL_MODULES = (
     "context_grants",
     "audio_invalidation",
     "parity_receipts",
+    "acceptance_policy",
+    "archive_policy",
 )
 
 

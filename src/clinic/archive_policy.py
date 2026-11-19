@@ -10,16 +10,28 @@ or a file.
 mode off it stays ``report_delete``, so the two requests stay distinct.
 ``policy.ACTIONS`` has no archive token; ``authorize`` reuses ``decide``
 with an export stand-in of the same scope, which is not an owner default.
+
+With an application context the book is durable: entries and request results
+live in ``clinic_archive_*`` tables and writes join the caller's transaction
+(savepoint, no commit). Primary keys resolve concurrent duplicates. There is
+no delete path. Without an application context the book keeps its state in
+process memory, as before.
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+from flask import has_app_context
+from sqlalchemy import event, update
+from sqlalchemy.exc import IntegrityError
+
 from src.clinic import archive, policy, workflow
 from src.clinic.config import clinic_mode_enabled
+from src.database import db
 from src.services import retention
 
 _ZONE = ZoneInfo(workflow.CLINIC_ZONE)
@@ -178,12 +190,187 @@ def evaluate(
     return DryRun(eligible=True, reason="eligible", **fields)
 
 
+class ClinicArchiveEntry(db.Model):  # type: ignore[name-defined]
+    """Links, retention facts and version of one registered dictation."""
+
+    __tablename__ = "clinic_archive_entry"
+
+    dictation_id = db.Column(db.String(64), primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False)
+    original_id = db.Column(db.String(64), nullable=False)
+    audio_revision_id = db.Column(db.String(64), nullable=False)
+    transcript_revision_id = db.Column(db.String(64), nullable=False)
+    context_revision_id = db.Column(db.String(64), nullable=False)
+    release_id = db.Column(db.String(64))
+    data_class = db.Column(db.String(64), nullable=False)
+    finished_at = db.Column(db.DateTime(timezone=True))
+    retention_days = db.Column(db.Integer)
+    legal_hold = db.Column(db.Boolean, nullable=False, default=False)
+    version = db.Column(db.Integer, nullable=False, default=1)
+    archived_at = db.Column(db.DateTime(timezone=True))
+
+
+class ClinicArchiveResult(db.Model):  # type: ignore[name-defined]
+    """Stored success per request id; the retry answer. Append-only."""
+
+    __tablename__ = "clinic_archive_result"
+
+    request_id = db.Column(db.String(128), primary_key=True)
+    dictation_id = db.Column(db.String(64), nullable=False)
+    payload = db.Column(db.Text, nullable=False)
+
+
+def _no_delete(_mapper, _connection, _row) -> None:
+    raise ArchivePolicyError("append_only")
+
+
+def _no_update(_mapper, _connection, _row) -> None:
+    raise ArchivePolicyError("append_only")
+
+
+event.listen(ClinicArchiveEntry, "before_delete", _no_delete)
+event.listen(ClinicArchiveResult, "before_delete", _no_delete)
+event.listen(ClinicArchiveResult, "before_update", _no_update)
+
+
+def _utc(value: datetime | None) -> datetime | None:
+    if value is not None and value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
+def _encode(result: ApplyResult) -> str:
+    def links(item: Links) -> dict:
+        return dict(vars(item))
+
+    dry = dict(vars(result.dry_run))
+    dry["links"] = links(result.dry_run.links)
+    body = dict(vars(result))
+    body["links"] = links(result.links)
+    body["dry_run"] = dry
+    return json.dumps(body)
+
+
+def _decode(text: str) -> ApplyResult:
+    body = json.loads(text)
+    dry = body.pop("dry_run")
+    dry["links"] = Links(**dry["links"])
+    body["links"] = Links(**body["links"])
+    return ApplyResult(dry_run=DryRun(**dry), **body)
+
+
+class _MemoryStore:
+    """Process-local state for use without an application context."""
+
+    def __init__(self) -> None:
+        self._rows: dict[str, dict] = {}
+        self._done: dict[str, ApplyResult] = {}
+
+    def get_row(self, dictation_id):
+        return self._rows.get(dictation_id)
+
+    def insert_row(self, dictation_id, row) -> bool:
+        if dictation_id in self._rows:
+            return False
+        self._rows[dictation_id] = row
+        return True
+
+    def bump(self, dictation_id, expected: int, archived_at) -> bool:
+        row = self._rows[dictation_id]
+        if row["version"] != expected:
+            return False
+        row["version"] += 1
+        row["archived_at"] = archived_at
+        return True
+
+    def get_done(self, request_id):
+        return self._done.get(request_id)
+
+    def put_done(self, result: ApplyResult) -> None:
+        self._done[result.request_id] = result
+
+    def archived(self):
+        return [(ident, row) for ident, row in self._rows.items() if row["archived_at"] is not None]
+
+
+class _DbStore:
+    """Rows in the application database, written through the caller's session."""
+
+    def __init__(self, session) -> None:
+        self._session = session
+
+    def get_row(self, dictation_id):
+        r = self._session.get(ClinicArchiveEntry, dictation_id)
+        return None if r is None else _row_dict(r)
+
+    def insert_row(self, dictation_id, row) -> bool:
+        links = row["links"]
+        entry = ClinicArchiveEntry(
+            dictation_id=dictation_id, user_id=row["user_id"], original_id=links.original_id,
+            audio_revision_id=links.audio_revision_id,
+            transcript_revision_id=links.transcript_revision_id,
+            context_revision_id=links.context_revision_id, release_id=links.release_id,
+            data_class=row["data_class"], finished_at=row["finished_at"],
+            retention_days=row["retention_days"], legal_hold=row["legal_hold"],
+            version=row["version"], archived_at=row["archived_at"])
+        try:
+            with self._session.begin_nested():
+                self._session.add(entry)
+        except IntegrityError:
+            return False
+        return True
+
+    def bump(self, dictation_id, expected: int, archived_at) -> bool:
+        # Guarded by the version column, so two workers cannot both win.
+        done = self._session.execute(
+            update(ClinicArchiveEntry)
+            .where(ClinicArchiveEntry.dictation_id == dictation_id,
+                   ClinicArchiveEntry.version == expected)
+            .values(version=expected + 1, archived_at=archived_at)
+            .execution_options(synchronize_session="fetch"))
+        return done.rowcount == 1
+
+    def get_done(self, request_id):
+        r = self._session.get(ClinicArchiveResult, request_id)
+        return None if r is None else _decode(r.payload)
+
+    def put_done(self, result: ApplyResult) -> None:
+        try:
+            with self._session.begin_nested():
+                self._session.add(ClinicArchiveResult(
+                    request_id=result.request_id, dictation_id=result.dictation_id,
+                    payload=_encode(result)))
+        except IntegrityError:
+            pass
+
+    def archived(self):
+        rows = self._session.query(ClinicArchiveEntry).filter(
+            ClinicArchiveEntry.archived_at.isnot(None)).all()
+        return [(r.dictation_id, _row_dict(r)) for r in rows]
+
+
+def _row_dict(r: ClinicArchiveEntry) -> dict:
+    return {
+        "user_id": r.user_id,
+        "links": Links(r.original_id, r.audio_revision_id, r.transcript_revision_id,
+                       r.context_revision_id, r.release_id),
+        "data_class": r.data_class,
+        "finished_at": _utc(r.finished_at),
+        "retention_days": r.retention_days,
+        "legal_hold": bool(r.legal_hold),
+        "version": r.version,
+        "archived_at": _utc(r.archived_at),
+    }
+
+
 class ArchiveBook:
     """Versions, links and idempotent results for workflow archive requests."""
 
     def __init__(self):
-        self._rows: dict[str, dict] = {}
-        self._done: dict[str, ApplyResult] = {}
+        self._memory = _MemoryStore()
+
+    def _store(self, session=None):
+        return _DbStore(session or db.session) if has_app_context() else self._memory
 
     def register(
         self,
@@ -199,7 +386,7 @@ class ArchiveBook:
         """Store links at version 1. A second register of the same id is refused."""
         if not isinstance(dictation_id, str) or not dictation_id:
             raise ArchivePolicyError("not_found")
-        if dictation_id in self._rows:
+        if self._store().get_row(dictation_id) is not None:
             raise ArchivePolicyError("duplicate")
         if not isinstance(data_class, str) or not data_class.strip():
             raise ArchivePolicyError("data_class")
@@ -211,7 +398,7 @@ class ArchiveBook:
         _links(links)
         if finished_at is not None:
             finished_at = _aware(finished_at)
-        self._rows[dictation_id] = {
+        row = {
             "user_id": user_id,
             "links": links,
             "data_class": data_class,
@@ -221,10 +408,12 @@ class ArchiveBook:
             "version": 1,
             "archived_at": None,
         }
+        if not self._store().insert_row(dictation_id, row):
+            raise ArchivePolicyError("duplicate")
         return 1
 
-    def dry_run(self, dictation_id: str, now: datetime, recording=None) -> DryRun:
-        row = self._require(dictation_id)
+    def dry_run(self, dictation_id: str, now: datetime, recording=None, store=None) -> DryRun:
+        row = self._require(dictation_id, store)
         return evaluate(
             data_class=row["data_class"],
             links=row["links"],
@@ -260,12 +449,13 @@ class ArchiveBook:
             raise ArchivePolicyError("request_id")
         if not isinstance(confirm, bool):
             raise ArchivePolicyError("invalid_confirm")
-        prior = self._done.get(request_id)
+        store = self._store(session)
+        prior = store.get_done(request_id)
         if prior is not None:
             if prior.dictation_id != dictation_id:
                 raise ArchivePolicyError("request_id")
             return prior
-        row = self._require(dictation_id)
+        row = self._require(dictation_id, store)
         if row["version"] != expected_version:
             raise StaleVersion(row["version"])
         decision = authorize(subject, facts, action)
@@ -274,7 +464,7 @@ class ArchiveBook:
         item = session.get(workflow.ClinicWorkflowDictation, dictation_id)
         if item is None:
             raise ArchivePolicyError("not_found")
-        dry = self.dry_run(dictation_id, now, recording=recording)
+        dry = self.dry_run(dictation_id, now, recording=recording, store=store)
         if not confirm:
             return self._result(dictation_id, action, None, item.status, row, dry, False, request_id, False)
         if recording is not None and expected_archive_revision is not None:
@@ -295,12 +485,13 @@ class ArchiveBook:
             workflow.transition(session, dictation_id, trigger)
         except workflow.WorkflowTransitionError as exc:
             raise ArchivePolicyError("transition_failed") from exc
-        row["version"] += 1
-        row["archived_at"] = _aware(now)
+        if not store.bump(dictation_id, expected_version, _aware(now)):
+            raise StaleVersion(self._require(dictation_id, store)["version"])
+        row = self._require(dictation_id, store)
         result = self._result(
             dictation_id, action, trigger, item.status, row, dry, True, request_id, changed,
         )
-        self._done[request_id] = result
+        store.put_done(result)
         return result
 
     def active_groups(self, session, *, role: str, user_id: int, pool_id: str) -> list[workflow.WorkGroup]:
@@ -312,15 +503,13 @@ class ArchiveBook:
     def archive_index(self) -> dict[str, tuple[str, ...]]:
         """Archived dictation ids by ``user-id/YYYY-MM``."""
         buckets: dict[str, list[str]] = {}
-        for ident, row in self._rows.items():
+        for ident, row in self._store().archived():
             when = row["archived_at"]
-            if when is None:
-                continue
             buckets.setdefault(archive_slot(row["user_id"], when), []).append(ident)
         return {key: tuple(sorted(ids)) for key, ids in sorted(buckets.items())}
 
-    def _require(self, dictation_id: str) -> dict:
-        row = self._rows.get(dictation_id)
+    def _require(self, dictation_id: str, store=None) -> dict:
+        row = (store or self._store()).get_row(dictation_id)
         if row is None:
             raise ArchivePolicyError("not_found")
         return row
