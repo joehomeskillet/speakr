@@ -40,6 +40,7 @@ const LABELS = Object.freeze({
     'clinic.preferences.reload': 'Neu laden',
     'clinic.preferences.removed': 'Die gewählte Auswahl ist nicht mehr verfügbar.',
     'clinic.preferences.saved': 'Gespeichert.',
+    'clinic.preferences.loading': 'Wird geladen …',
 });
 
 const SERVER_MESSAGES = Object.freeze({
@@ -88,7 +89,7 @@ export function createPreferencesController(deps) {
 
     function fail(res, fallbackCode) {
         const code = res.code || fallbackCode || null;
-        const message = SERVER_MESSAGES[code] || res.message;
+        const message = SERVER_MESSAGES[String(code).toLowerCase()] || res.message;
         state.error = {
             outcome: res.outcome, code, message,
             retryable: res.outcome === 'network' || res.outcome === 'UNKNOWN',
@@ -321,6 +322,7 @@ export function createPreferencesController(deps) {
                 reload: label('clinic.preferences.reload'),
                 target: label('clinic.preferences.target'),
                 workstation: label('clinic.preferences.workstation'),
+                loading: label('clinic.preferences.loading'),
             },
         };
     }
@@ -352,11 +354,122 @@ export function createPreferencesController(deps) {
 }
 
 /** Vue composable: reactive snapshot of the controller view (needs window.Vue). */
-export function usePreferences(deps) {
+export function usePreferences(deps, VueArg) {
     const controller = createPreferencesController(deps);
-    const Vue = typeof window !== 'undefined' ? window.Vue : null;
+    const Vue = VueArg || (typeof window !== 'undefined' ? window.Vue : null);
     if (!Vue) return { controller, view: null };
     const view = Vue.shallowRef(controller.view());
-    controller.subscribe(() => { view.value = controller.view(); });
-    return { controller, view };
+    const unsubscribe = controller.subscribe(() => { view.value = controller.view(); });
+    return { controller, view, unsubscribe };
+}
+
+const PANEL_TEMPLATE = `
+<section class="clinic-preferences" :aria-label="view.title" data-testid="clinic-preferences" @keydown="onKeydown">
+  <h2 class="text-lg font-medium mb-3">{{ view.title }}</h2>
+  <p v-if="view.error" role="alert" aria-live="assertive" class="mb-3 p-2 border rounded" :style="errorStyle"
+     data-testid="clinic-preferences-error">{{ view.error.message }}</p>
+  <p v-if="view.notice" role="status" aria-live="polite" class="mb-3 p-2 border rounded" :style="noticeStyle"
+     data-testid="clinic-preferences-notice">{{ view.notice }}</p>
+  <p v-if="loading" role="status" aria-live="polite">{{ view.labels.loading }}</p>
+  <form v-else @submit.prevent="onSave" :aria-busy="busy ? 'true' : 'false'" novalidate>
+    <fieldset class="mb-4" :aria-label="view.a11y.modeGroup.label" role="radiogroup">
+      <legend class="font-medium mb-1">{{ view.a11y.modeGroup.label }}</legend>
+      <label v-for="m in view.modes" :key="m.value" class="block py-1">
+        <input type="radio" name="clinic-preferences-mode" :value="m.value" :checked="m.selected" :disabled="m.disabled || busy"
+               :data-testid="'clinic-preferences-mode-' + m.value" @change="controller.setMode(m.value)">
+        {{ m.label }}
+      </label>
+    </fieldset>
+    <div v-if="view.targets.length" class="mb-4">
+      <label for="clinic-preferences-target" class="block mb-1">{{ view.labels.target }}</label>
+      <select id="clinic-preferences-target" class="field field--sm" :disabled="busy" data-testid="clinic-preferences-target"
+              @change="controller.setTarget($event.target.value)">
+        <option value="" :selected="!view.targets.some((x) => x.selected)">–</option>
+        <option v-for="x in view.targets" :key="x.value" :value="x.value" :selected="x.selected">{{ x.value }}</option>
+      </select>
+    </div>
+    <fieldset class="mb-4" :aria-label="view.a11y.choiceGroup.label" role="radiogroup">
+      <legend class="font-medium mb-1">{{ view.a11y.choiceGroup.label }}</legend>
+      <label v-for="c in view.choices" :key="c.value" class="block py-1">
+        <input type="radio" name="clinic-preferences-choice" :value="c.value" :checked="c.selected" :disabled="c.disabled || busy"
+               :data-testid="'clinic-preferences-choice-' + c.value" @change="controller.setChoice(c.value)">
+        {{ c.label }}
+      </label>
+    </fieldset>
+    <fieldset v-if="view.settings.length" class="mb-4">
+      <legend class="font-medium mb-1">{{ view.labels.workstation }}</legend>
+      <div v-for="s in view.settings" :key="s.key" class="py-1" :data-testid="'clinic-preferences-setting-' + s.key">
+        <template v-if="s.locked">
+          <span>{{ s.key }}: </span>
+          <output :data-testid="'clinic-preferences-locked-' + s.key">{{ String(s.value) }}</output>
+          <span class="text-sm"> ({{ s.lockedLabel }})</span>
+        </template>
+        <label v-else-if="typeof s.value === 'boolean'">
+          <input type="checkbox" :checked="s.value" :disabled="busy" @change="controller.setWorkstationValue(s.key, $event.target.checked)">
+          {{ s.key }}
+        </label>
+        <label v-else>{{ s.key }}
+          <input type="text" class="field field--sm" :value="s.value" :disabled="busy" @input="controller.setWorkstationValue(s.key, $event.target.value)">
+        </label>
+      </div>
+    </fieldset>
+    <div class="flex flex-wrap gap-2">
+      <button type="submit" class="btn btn--sm" :disabled="!view.dirty || busy" data-testid="clinic-preferences-save">{{ view.labels.save }}</button>
+      <button type="button" class="btn btn--sm btn--ghost" :disabled="!view.dirty || busy" data-testid="clinic-preferences-cancel"
+              @click="controller.cancel()">{{ view.labels.cancel }}</button>
+      <button type="button" class="btn btn--sm btn--ghost" :disabled="busy" data-testid="clinic-preferences-reload"
+              @click="controller.load()">{{ view.labels.reload }}</button>
+      <button v-if="view.error && view.error.retryable" type="button" class="btn btn--sm btn--ghost" data-testid="clinic-preferences-retry"
+              @click="onSave">{{ view.labels.retry }}</button>
+    </div>
+  </form>
+</section>`;
+
+function sameDefault(draft, state) {
+    return draft.mode === state.mode && draft.choice === state.choice && sameList(draft.targetIds, state.targetIds);
+}
+
+/**
+ * Vue options component for the admin pages. `props` carries the optional `workstationId` and `t`; the shared api
+ * client is the only authority: a refused or stale save keeps the draft and shows the server message.
+ */
+export function createPreferencesComponent(Vue, client, props = {}) {
+    return {
+        name: 'ClinicPreferences',
+        template: PANEL_TEMPLATE,
+        setup() {
+            const { controller, view, unsubscribe } = usePreferences(
+                { client, workstationId: props.workstationId || null, t: props.t },
+                Vue,
+            );
+            const loading = Vue.ref(true);
+            const busy = Vue.ref(false);
+            const syncFlags = () => { loading.value = controller.state.loading; busy.value = controller.state.busy; };
+            controller.subscribe(syncFlags);
+            const errorStyle = Vue.computed(() => {
+                const s = view.value.errorSurface;
+                return s ? { background: s.background, color: s.color, borderColor: s.border } : {};
+            });
+            const success = surfaceFor('success');
+            const noticeStyle = { background: success.background, color: success.color, borderColor: success.border };
+
+            // Default first: a successful save reloads and drops workstation edits, so those are re-applied.
+            async function onSave() {
+                const st = controller.state;
+                const changes = Object.assign({}, st.draft.changes);
+                if (!sameDefault(st.draft, st)) {
+                    if (!(await controller.saveDefault())) return false;
+                    for (const key of Object.keys(changes)) controller.setWorkstationValue(key, changes[key]);
+                }
+                if (Object.keys(changes).length) return controller.saveWorkstation();
+                return true;
+            }
+            function onKeydown(event) {
+                if (event && event.key === 'Escape') controller.cancel();
+            }
+            Vue.onMounted(async () => { await controller.load(); syncFlags(); });
+            Vue.onBeforeUnmount(() => { if (unsubscribe) unsubscribe(); });
+            return { controller, view, loading, busy, errorStyle, noticeStyle, onSave, onKeydown };
+        },
+    };
 }
