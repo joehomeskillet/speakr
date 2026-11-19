@@ -2356,6 +2356,127 @@ def admin_voice_embedding_rebaseline():
     return jsonify(result)
 
 
+# --- Clinic: guarded admin dictation list and content (w308) ---
+
+_CLINIC_INT_FILTERS = frozenset({'author_user_id', 'typist_user_id', 'priority', 'page', 'page_size'})
+_CLINIC_DATE_FILTERS = frozenset({'deadline_on', 'created_on', 'updated_on'})
+_CLINIC_AUDIT_EVENTS = ('recording.media.played', 'recording.content.read')
+
+
+def _clinic_response(response, status=200):
+    response.status_code = status
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+def _clinic_refuse(status, code):
+    return _clinic_response(jsonify({'error': code.replace('_', ' '), 'code': code}), status)
+
+
+def _clinic_filters():
+    """Typed filter mapping from the query string; a bad value raises AdminQueryError."""
+    from src.clinic.admin_dictations import AdminQueryError
+    raw = {}
+    for key in request.args:
+        value = request.args.get(key)
+        try:
+            if key in _CLINIC_INT_FILTERS:
+                raw[key] = int(value)
+            elif key in _CLINIC_DATE_FILTERS:
+                raw[key] = datetime.strptime(value, '%Y-%m-%d').date()
+            else:
+                raw[key] = value
+        except ValueError:
+            raise AdminQueryError('invalid_pagination' if key in ('page', 'page_size') else 'invalid_filter') from None
+    return raw
+
+
+@admin_bp.route('/api/admin/clinic/dictations', methods=['GET'])
+@login_required
+def admin_clinic_dictations():
+    """All-user dictation metadata for the admin overview; never content."""
+    from src.clinic.admin_dictation_access import AdminDictationAccessError, list_dictations
+    from src.clinic.admin_dictations import AdminQueryError, parse_query
+    if not clinic_mode_enabled():
+        return _clinic_refuse(404, 'not_found')
+    try:
+        page = list_dictations(db.session, current_user, parse_query(_clinic_filters()))
+    except AdminDictationAccessError as exc:
+        return _clinic_refuse(404 if exc.code == 'clinic_mode_off' else 403, exc.code)
+    except AdminQueryError as exc:
+        return _clinic_refuse(400, exc.code)
+    return _clinic_response(jsonify(page.as_dict()))
+
+
+def _clinic_open(recording_id, part):
+    """(recording, None) once the opening is allowed and its audit row is stored, else (None, refusal)."""
+    from src.clinic.admin_dictation_access import can_open_content, open_content
+    decision = can_open_content(db.session, current_user, recording_id, part)
+    if not decision.allowed:
+        return None, _clinic_refuse(404 if decision.reason == 'not_found' else 403, decision.reason)
+    recording = db.session.get(Recording, recording_id)
+    if part == 'audio' and not recording.audio_path:
+        return None, _clinic_refuse(404, 'audio_not_found')
+    if part == 'transcript' and recording.transcription is None:
+        return None, _clinic_refuse(404, 'transcript_not_found')
+    baseline = db.session.query(db.func.max(AuditEvent.id)).scalar() or 0
+    try:
+        decision, _ = open_content(db.session, current_user, recording_id, part)
+        stored = decision.allowed and audit.flush() and db.session.query(AuditEvent.id).filter(
+            AuditEvent.id > baseline, AuditEvent.actor_user_id == current_user.id,
+            AuditEvent.recording_id == recording_id, AuditEvent.event.in_(_CLINIC_AUDIT_EVENTS),
+        ).first() is not None
+    except Exception as exc:  # noqa: BLE001 - nothing is delivered without its audit row
+        current_app.logger.error('Admin opening of recording %s not audited: %s', recording_id, type(exc).__name__)
+        return None, _clinic_refuse(503, 'audit_unavailable')
+    if not stored:
+        return None, _clinic_refuse(503, 'audit_unavailable')
+    return recording, None
+
+
+@admin_bp.route('/api/admin/clinic/dictations/<int:dictation_ref>/transcript', methods=['GET'])
+@login_required
+def admin_clinic_dictation_transcript(dictation_ref):
+    """Transcript of any user's dictation for an active site admin; audit row first."""
+    if not clinic_mode_enabled():
+        return _clinic_refuse(404, 'not_found')
+    recording, refusal = _clinic_open(dictation_ref, 'transcript')
+    if refusal is not None:
+        return refusal
+    return _clinic_response(jsonify({'recording_id': recording.id, 'transcription': recording.transcription}))
+
+
+@admin_bp.route('/api/admin/clinic/dictations/<int:dictation_ref>/audio', methods=['GET'])
+@login_required
+def admin_clinic_dictation_audio(dictation_ref):
+    """Audio of any user's dictation for an active site admin; audit row first."""
+    from src.services.storage import get_storage_service
+    from src.utils.mime import served_media_mime, sandbox_media_response
+    if not clinic_mode_enabled():
+        return _clinic_refuse(404, 'not_found')
+    recording, refusal = _clinic_open(dictation_ref, 'audio')
+    if refusal is not None:
+        return refusal
+    try:
+        serve_mime = served_media_mime(recording.mime_type, recording.audio_path)
+        delivery = get_storage_service().get_audio_delivery(
+            recording.audio_path, download=False, mime_type=serve_mime, download_name=None, is_public=False)
+        if delivery.mode == 'redirect_url':
+            return _clinic_response(redirect(delivery.url, code=302), 302)
+        if not delivery.local_path or not os.path.exists(delivery.local_path):
+            return _clinic_refuse(404, 'audio_file_missing')
+        from src.clinic import dictation_playback
+        path = dictation_playback.ensure_playback(delivery.local_path)
+        if path:
+            serve_mime = dictation_playback.PLAYBACK_MIME
+        response = sandbox_media_response(send_file(path or delivery.local_path, mimetype=serve_mime, conditional=True))
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+    except Exception as exc:  # noqa: BLE001
+        current_app.logger.error('Admin audio delivery for recording %s failed: %s', dictation_ref, type(exc).__name__)
+        return _clinic_refuse(500, 'unexpected_error')
+
+
 # Hot-applied System Settings (high priority) with environment fallback.
 from src.utils.system_settings import apply_hot_settings
 _SYSTEM_SETTING_MAP = {
