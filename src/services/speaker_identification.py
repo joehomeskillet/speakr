@@ -320,6 +320,47 @@ def _sanitize_identified_map(identified_map, speaker_labels, candidate_names=Non
     return sanitized
 
 
+def _no_suggestion(reason, speech_seconds=0.0):
+    """Suggestion payload without candidates; shape matches ``AuthorSuggestion.to_dict``."""
+    return {
+        "band": "none",
+        "reason": reason,
+        "suggestions": [],
+        "top_score": None,
+        "gap": None,
+        "speech_seconds": speech_seconds,
+        "requires_confirmation": True,
+    }
+
+
+def identify_author_suggestions(wav_path, speech_seconds, actor_user_id):
+    """Clinic voice-based author suggestions for one dictation WAV.
+
+    Delegates to ``speaker_pipeline`` (consented users only, same embedding
+    space). Returns a JSON-ready suggestion with scores and
+    ``requires_confirmation`` True; it never assigns an author, never returns
+    embedding data and never raises, so a failure cannot block import.
+    Outside clinic mode the upstream behaviour is unchanged: None.
+    """
+    from src.clinic.config import clinic_mode_enabled
+    if not clinic_mode_enabled():
+        return None
+
+    seconds = speech_seconds if isinstance(speech_seconds, (int, float)) and not isinstance(speech_seconds, bool) else 0.0
+    if not isinstance(actor_user_id, int) or isinstance(actor_user_id, bool) or actor_user_id <= 0:
+        return _no_suggestion("unauthorized", seconds)
+
+    from src.clinic import speaker_pipeline
+    try:
+        return speaker_pipeline.suggest_author_for_wav(wav_path, speech_seconds)
+    except speaker_pipeline.SpeakerPipelineError as error:
+        current_app.logger.warning("[Auto-Identify] Speaker service unavailable: %s", error.code)
+        return _no_suggestion(error.code, seconds)
+    except Exception as error:
+        current_app.logger.warning("[Auto-Identify] Author suggestion failed: %s", type(error).__name__)
+        return _no_suggestion("suggestion_failed", seconds)
+
+
 def apply_contextual_auto_labels(recording, user):
     """Opt-in contextual speaker labelling for recordings without embeddings.
 
