@@ -1158,6 +1158,7 @@ def register_clinic_worklist(flask_app):
                             routes_regex, routes_templates, routes_workflow, routes_worklist,
                             workflow, workflow_metadata, worklist_entries)
     from src.clinic.acceptance_policy import SCOPE_DICTATION, AcceptanceLedger, PolicyError
+    from src.clinic import finalize_gates
     from src.clinic.archive_policy import ArchiveBook
     from src.clinic.metadata_changes import ChangeError
     from src.clinic.models import ClinicDictation
@@ -1249,7 +1250,7 @@ def register_clinic_worklist(flask_app):
     flask_app.register_blueprint(routes_workflow.create_blueprint(
         authorize=workflow_authorize, run_once=run_once, allowed_actions=allowed_actions,
         record_audit=record_audit, trusted_context=lambda _context: False,
-        open_review_flags=lambda _dictation, _head: 1, acceptance_policy=acceptance_policy,
+        open_review_flags=finalize_gates.open_review_flags, acceptance_policy=acceptance_policy,
         job_type='clinic_finalize', book=ArchiveBook()))
     flask_app.register_blueprint(routes_history.create_blueprint(
         authorize=lambda user, action, dictation: may(user.id, action, dictation), run_once=run_once,
