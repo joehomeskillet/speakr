@@ -1,0 +1,535 @@
+/**
+ * Composed clinic worklist view (PAR-WF-001, PAR-REC-006).
+ *
+ * List area: worklist-ui (rows, selection), worklist-refresh-ui (refresh and
+ * change polling), worklist-filters-ui (named filters, metadata search) and
+ * worklist-layout-ui (columns, sort, grouping). Detail area for the selected
+ * dictation: lease, workflow actions, protection, acceptance policy and
+ * history. Nothing from those modules is re-implemented here.
+ *
+ * Owner decision W16: patients are referenced by Fall-ID only. The contract has
+ * no Fall-ID field on Dictation yet, so this view shows no Fall-ID column or
+ * filter and renders no patient name, title, notes or recipient. The
+ * dictation-properties-ui panel is not mounted: it is a validate-only form with
+ * title and recipient inputs and is not bound to the selected dictation.
+ * Clinical data stays in memory; the only browser storage is the last filter
+ * id kept by worklist-filters-ui. Colours come from tokens.js, requests from
+ * api-client.js.
+ */
+
+import { TOKEN_CONTRACT_VERSION, TokenContractError, surfaceFor } from './tokens.js';
+import { ROLE_AUTHOR, STATUS_LABELS, formatAudioDuration, formatPriority, resolveStatusSurface } from './worklist-ui.js';
+import { fetchRecordingChanges, formatLastUpdate, useWorklistRefresh } from './worklist-refresh-ui.js';
+import { WorklistFiltersPanel, createWorklistFilters } from './worklist-filters-ui.js';
+import { WorklistLayoutControls, useWorklistLayout } from './worklist-layout-ui.js';
+import { DictationProtectionComponent } from './dictation-protection-ui.js';
+import { WORKFLOW_ACTIONS_TEMPLATE, createWorkflowActions } from './workflow-actions-ui.js';
+import { acceptancePolicyComponent } from './acceptance-policy-ui.js';
+import { createHistoryComponent } from './history-ui.js';
+import { createLeaseController, createLeaseStatusComponent } from './lease-ui.js';
+
+export const COMPOSE_WORKLIST_VERSION = 1;
+export const PAGE_SIZE = 20;
+
+export const TEXT = Object.freeze({
+    title: 'Arbeitsliste',
+    refresh: 'Aktualisieren',
+    retry: 'Erneut versuchen',
+    paused: 'Die automatische Aktualisierung ist pausiert, solange ein Filter aktiv ist oder eine andere Seite angezeigt wird.',
+    loading: 'Laden …',
+    empty: 'Keine Diktate vorhanden.',
+    denied: 'Keine Berechtigung für diese Aktion.',
+    failed: 'Die Arbeitsliste konnte nicht geladen werden.',
+    prev: 'Vorherige Seite',
+    next: 'Nächste Seite',
+    keys: 'Tastatur: Pfeil hoch und runter wählt ein Diktat, Esc schliesst die Details.',
+    detail: 'Diktat',
+    protection: 'Schutz',
+    acceptance: 'Pflichtfreigabe',
+    history: 'Verlauf',
+    noSelection: 'Wählen Sie ein Diktat aus der Liste, um Details zu sehen.',
+});
+
+// Columns the layout may order, sort and group. Title, notes and recipient are
+// left out on purpose (W16); no Fall-ID column until the contract provides one.
+export const LIST_COLUMNS = Object.freeze([
+    { key: 'status', label: 'Status' },
+    { key: 'priority', label: 'Priorität' },
+    { key: 'deadline_at', label: 'Frist' },
+    { key: 'author_user_id', label: 'Autor' },
+    { key: 'assignee_user_id', label: 'Zuständig' },
+    { key: 'assigned_at', label: 'Zugewiesen' },
+    { key: 'created_at', label: 'Erstellt' },
+    { key: 'duration_seconds', label: 'Dauer' },
+    { key: 'source_kind', label: 'Quelle' },
+].map((c) => Object.freeze(c)));
+
+export function rowKey(row) {
+    const id = row && (row.dictation_id != null ? row.dictation_id : row.id);
+    return id == null ? null : String(id);
+}
+
+/** Next row in display order; no wrap-around. An unknown current row gives the first row. */
+export function neighborRow(rows, current, delta) {
+    if (!rows.length) return null;
+    const at = rows.findIndex((r) => rowKey(r) === rowKey(current));
+    return at === -1 ? rows[0] : rows[at + delta] || null;
+}
+
+function groupLabel(key, value) {
+    const name = (LIST_COLUMNS.find((c) => c.key === key) || {}).label || key;
+    if (value === null || value === undefined || value === '') return name + ': –';
+    if (key === 'status') return name + ': ' + (STATUS_LABELS[value] || value);
+    return name + ': ' + (key === 'priority' ? formatPriority(value) : value);
+}
+
+/** Flattens layout groups into display items: group headings and rows in order. */
+export function flattenGroups(groups, groupBy) {
+    const items = [];
+    const walk = (list) => {
+        for (const group of list) {
+            const level = group.path.length - 1;
+            if (level >= 0) {
+                items.push({ kind: 'group', depth: level, key: 'g:' + JSON.stringify(group.path), label: groupLabel(groupBy[level], group.path[level]) });
+            }
+            if (group.children.length) walk(group.children);
+            else for (const row of group.rows) items.push({ kind: 'row', key: 'r:' + rowKey(row), row });
+        }
+    };
+    walk(groups);
+    return items;
+}
+
+export function statusBadge(row) {
+    try {
+        const s = resolveStatusSurface(row.status, { version: TOKEN_CONTRACT_VERSION });
+        return { label: s.label, style: { background: s.background, color: s.color, border: '1px solid ' + s.border } };
+    } catch (error) {
+        if (!(error instanceof TokenContractError)) throw error;
+        const s = surfaceFor('normal');
+        const key = String(row.status || '').toLowerCase();
+        return { label: STATUS_LABELS[key] || key || '–', style: { background: s.background, color: s.color, border: '1px solid ' + s.border } };
+    }
+}
+
+/** Cell text for one layout column. */
+export function cellText(row, key) {
+    const value = row[key];
+    if (key === 'status') return statusBadge(row).label;
+    if (key === 'priority') return formatPriority(value);
+    if (key === 'duration_seconds') return formatAudioDuration(value);
+    return value === null || value === undefined || value === '' ? '–' : String(value);
+}
+
+/**
+ * Client for the detail modules. Context switches are ignored so a detail
+ * module cannot abort the list requests that share the real client, and a
+ * successful write is reported to `onWrite`.
+ */
+export function createDetailClient(client, onWrite) {
+    const after = (res, isWrite) => {
+        if (isWrite && res && res.outcome === 'ok' && typeof onWrite === 'function') onWrite(res);
+        return res;
+    };
+    return {
+        async request(path, options) {
+            const method = String((options && options.method) || 'GET').toUpperCase();
+            return after(await client.request(path, options), method !== 'GET' && method !== 'HEAD');
+        },
+        async command(body, options) {
+            return after(await client.command(body, options), true);
+        },
+        switchContext() {},
+    };
+}
+
+const plainRef = (init) => {
+    let value = init;
+    return { get value() { return value; }, set value(next) { value = next; } };
+};
+
+/**
+ * Controller behind WorklistView. `vue` supplies ref, reactive, shallowRef,
+ * computed and optionally watch; without it plain (non-reactive) holders are
+ * used, which is what the unit tests rely on.
+ */
+export function createWorklistViewController(options) {
+    const client = options && options.client;
+    const user = (options && options.currentUser) || {};
+    if (!client || typeof client.request !== 'function') throw new Error('client is required');
+    if (user.id === undefined || user.id === null) throw new Error('currentUser.id is required');
+    const V = options.vue || (typeof window !== 'undefined' ? window.Vue : null) || null;
+    const ref = (V && V.ref) || plainRef;
+    const shallowRef = (V && V.shallowRef) || ref;
+    const reactive = (V && V.reactive) || ((o) => o);
+    const computed = (V && V.computed) || ((fn) => ({ get value() { return fn(); } }));
+
+    const view = reactive({ page: 1, filterId: null, search: '', total: null });
+    const panels = reactive({ protection: false, acceptance: false, history: false });
+    const selectedId = ref(null);
+    const leaseState = shallowRef(null);
+    let started = false;
+    let disposed = false;
+    let detailId = null;
+    let detailKey = null; // `${id}|${revision}|${etag}` of the loaded detail
+    let lease = null; // { ctrl, unsubscribe }
+    let reloadQueued = false;
+
+    // --- list modules -------------------------------------------------------
+    let refresh = null;
+    const mapRecording = (recording) => {
+        // A change-feed recording carries no workflow metadata: keep the row
+        // the worklist already has; a new id gets a minimal row and one reload.
+        if (recording && recording.dictation_id != null) return recording;
+        const id = recording && recording.id;
+        const known = refresh.rows.value.find((r) => rowKey(r) === String(id));
+        if (known) return known;
+        if (!reloadQueued) {
+            reloadQueued = true;
+            setTimeout(() => { reloadQueued = false; if (!disposed) reload(); }, 0);
+        }
+        return { dictation_id: id, author_user_id: recording && recording.user_id != null ? recording.user_id : null, status: 'aufgabe' };
+    };
+    refresh = useWorklistRefresh({
+        apiClient: client,
+        role: user.role || ROLE_AUTHOR,
+        userId: user.id,
+        tokenVersion: TOKEN_CONTRACT_VERSION,
+        intervalMs: options.intervalMs,
+        fetchChanges: options.fetchChanges || fetchRecordingChanges,
+        mapRecording,
+        now: options.now,
+        Vue: V || undefined,
+        ref,
+        computed,
+    });
+    const worklist = refresh; // the refresh controller spreads the worklist state and actions
+
+    const filters = createWorklistFilters({
+        client,
+        userId: user.id,
+        reactive,
+        ...(options.storage !== undefined ? { storage: options.storage } : {}),
+        onApply: ({ filterId, query }) => applyFilter(filterId, query),
+    });
+    const layout = useWorklistLayout({ client, columns: LIST_COLUMNS, reactive });
+
+    const paused = computed(() => Boolean(view.filterId || view.search) || view.page > 1);
+
+    // --- loading ------------------------------------------------------------
+    async function reload() {
+        let response;
+        if (!paused.value) {
+            response = await refresh.refresh();
+        } else {
+            refresh.stop();
+            response = await worklist.loadWorklist({ page: view.page, pageSize: PAGE_SIZE, filterId: view.filterId, search: view.search });
+            if (response && response.outcome === 'ok') {
+                const at = new Date();
+                refresh.lastUpdate.value = at;
+                refresh.lastUpdateLabel.value = formatLastUpdate(at);
+                refresh.refreshError.value = null;
+            } else if (response && !worklist.isPermissionLost.value) {
+                refresh.refreshError.value = response.message || TEXT.failed;
+            }
+        }
+        if (response && response.outcome === 'ok') {
+            view.total = response.data && Number.isInteger(response.data.total) ? response.data.total : null;
+        }
+        if (!paused.value && started && !disposed && !refresh.isRunning.value && !worklist.isPermissionLost.value) {
+            refresh.start();
+        }
+        syncDetail();
+        return response;
+    }
+
+    function applyFilter(filterId, query) {
+        const id = filterId || null;
+        const search = String(query || '');
+        if (id === view.filterId && search === view.search) return null;
+        Object.assign(view, { filterId: id, search, page: 1 });
+        layout.setFilters({ filter_id: id, search });
+        return reload();
+    }
+
+    function goto(page) {
+        if (!Number.isInteger(page) || page < 1 || page === view.page) return null;
+        view.page = page;
+        layout.setPage(page);
+        return reload();
+    }
+
+    const pages = () => (Number.isInteger(view.total) ? Math.max(1, Math.ceil(view.total / PAGE_SIZE)) : null);
+    const hasNext = () => (pages() !== null ? view.page < pages() : worklist.rows.value.length >= PAGE_SIZE);
+
+    // --- display ------------------------------------------------------------
+    const displayed = computed(() => flattenGroups(
+        layout.applyToRows(worklist.rows.value),
+        layout.state.layout.group_by,
+    ));
+    const columns = () => layout.orderedColumns();
+    const headerAttrs = (key) => {
+        const { style, ...rest } = layout.headerProps(key); // drop outline:none, the global :focus-visible ring stays
+        return rest;
+    };
+
+    // --- selection and detail ----------------------------------------------
+    function select(row) {
+        worklist.selectRow(row || null);
+        syncDetail();
+    }
+
+    function onRowKey(event, row) {
+        if (!event) return;
+        const list = displayed.value.filter((i) => i.kind === 'row').map((i) => i.row);
+        const stop = () => { if (typeof event.preventDefault === 'function') event.preventDefault(); };
+        let target;
+        if (event.key === 'ArrowDown') target = neighborRow(list, row, 1) || row;
+        else if (event.key === 'ArrowUp') target = neighborRow(list, row, -1) || row;
+        else if (event.key === 'Enter' || event.key === ' ') { stop(); select(row); return; }
+        else if (event.key === 'Escape') { stop(); select(null); return; }
+        else return;
+        stop();
+        select(target);
+        const body = event.currentTarget && event.currentTarget.parentElement;
+        const node = body && typeof body.querySelectorAll === 'function'
+            ? Array.from(body.querySelectorAll('[data-row]')).find((n) => n.getAttribute('data-id') === rowKey(target)) : null;
+        if (node && typeof node.focus === 'function') node.focus();
+    }
+
+    const workflow = createWorkflowActions({
+        client: createDetailClient(client, () => { if (!disposed) reload(); }),
+        reactive,
+    });
+    const detailClient = createDetailClient(client);
+
+    function loadWorkflow(row) {
+        // Only what the API supplies is shown; a row without capabilities offers no action.
+        workflow.load({
+            dictationId: rowKey(row),
+            etag: row.etag || null,
+            revision: Number.isInteger(row.revision) ? row.revision : null,
+            allowedActions: Array.isArray(row.allowed_actions) ? row.allowed_actions : [],
+            transitions: row.transitions || {},
+            asrStatus: row.asr_status || null,
+            workState: row.status || null,
+            binding: row.binding || {},
+        });
+    }
+
+    function openLease(id) {
+        const ctrl = createLeaseController({
+            client: detailClient,
+            dictationId: id,
+            mayTakeOver: user.mayTakeOver === true,
+            heartbeatMs: options.heartbeatMs,
+        });
+        leaseState.value = ctrl.getState();
+        lease = { ctrl, unsubscribe: ctrl.subscribe((snap) => { leaseState.value = snap; }) };
+    }
+
+    function closeLease() {
+        if (!lease) return;
+        const { ctrl, unsubscribe } = lease;
+        lease = null;
+        unsubscribe();
+        const done = ctrl.release(); // stops writes and the heartbeat first, then tells the server
+        ctrl.dispose();
+        Promise.resolve(done).catch(() => {});
+        leaseState.value = null;
+    }
+
+    function syncDetail() {
+        if (disposed) return;
+        const row = worklist.selectedRow.value;
+        const id = row ? rowKey(row) : null;
+        const key = row ? [id, row.revision, row.etag].join('|') : null;
+        if (id !== detailId) {
+            closeLease();
+            workflow.cancel();
+            detailId = id;
+            selectedId.value = id;
+            detailKey = key;
+            if (row) { loadWorkflow(row); openLease(id); } else workflow.load(null);
+        } else if (row && key !== detailKey) {
+            detailKey = key;
+            loadWorkflow(row);
+        }
+    }
+    if (V && typeof V.watch === 'function') V.watch(() => worklist.selectedRow.value, syncDetail);
+
+    const leaseRun = {
+        acquire: () => (lease ? lease.ctrl.acquire() : null),
+        release: () => (lease ? lease.ctrl.release() : null),
+        takeOver: () => (lease ? lease.ctrl.takeOver() : null),
+        discard: () => (lease ? lease.ctrl.resolveConflict('discard') : null),
+        reapply: () => (lease ? lease.ctrl.resolveConflict('reapply') : null),
+    };
+
+    // --- lifecycle ----------------------------------------------------------
+    async function start() {
+        if (started || disposed) return;
+        started = true;
+        await Promise.all([layout.load(), refresh.start()]);
+        syncDetail();
+    }
+
+    /** Releases timers, lease heartbeat, requests and all clinical data held in memory. */
+    function dispose() {
+        if (disposed) return;
+        disposed = true;
+        closeLease();
+        workflow.cancel();
+        refresh.logout();
+        selectedId.value = null;
+        detailId = null;
+    }
+
+    const surfaceStyle = (name, extra) => {
+        const s = surfaceFor(name);
+        return { background: s.background, color: s.color, ...extra(s) };
+    };
+
+    return {
+        vue: V, view, panels, selectedId, selectedRow: worklist.selectedRow, leaseState, leaseRun, paused,
+        worklist, refresh, filters, layout, workflow, detailClient, displayed, columns, headerAttrs,
+        start, dispose, reload, select, onRowKey, goto, pages, hasNext, applyFilter,
+        key: rowKey, cell: cellText, badge: statusBadge, text: TEXT,
+        pageLabel: () => 'Seite ' + view.page + (pages() === null ? '' : ' von ' + pages()),
+        errorStyle: surfaceStyle('error', (s) => ({ border: '1px solid ' + s.border })),
+        selectedStyle: surfaceStyle('normal', () => ({ borderLeft: '4px solid var(--border-focus)' })),
+    };
+}
+
+function buildParts(V, detailClient) {
+    return {
+        Layout: WorklistLayoutControls(V),
+        Lease: createLeaseStatusComponent(V),
+        Workflow: { name: 'ClinicWorkflowPanel', props: { wf: { type: Object, required: true } }, template: WORKFLOW_ACTIONS_TEMPLATE },
+        Protection: { ...DictationProtectionComponent(V), mounted() { this.model.load(); } },
+        Acceptance: acceptancePolicyComponent(V, { client: detailClient }),
+        History: createHistoryComponent(V),
+    };
+}
+
+export const WorklistView = {
+    name: 'ClinicWorklistView',
+    components: { WorklistFiltersPanel },
+    props: {
+        client: { type: Object, required: true },
+        currentUser: { type: Object, required: true },
+        vue: { type: Object, default: null },
+        fetchChanges: { type: Function, default: null },
+        intervalMs: { type: Number, default: undefined },
+        autoStart: { type: Boolean, default: true },
+    },
+    setup(props) {
+        const c = createWorklistViewController({
+            client: props.client,
+            currentUser: props.currentUser,
+            vue: props.vue || undefined,
+            fetchChanges: props.fetchChanges || undefined,
+            intervalMs: props.intervalMs,
+        });
+        const V = c.vue;
+        if (!V) throw new Error('Vue is required to mount the worklist view');
+        const parts = buildParts(V, c.detailClient);
+        if (typeof V.onMounted === 'function' && props.autoStart) V.onMounted(() => c.start());
+        if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => c.dispose());
+        return { c, parts };
+    },
+    template: `
+<section class="clinic-worklist-view" data-testid="clinic-worklist-view" aria-labelledby="cwv-title">
+  <h1 id="cwv-title" class="text-lg font-semibold">{{ c.text.title }}</h1>
+  <div class="flex flex-wrap items-center gap-2 mt-2" data-testid="refresh-bar">
+    <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem"
+            :disabled="c.refresh.isRefreshing.value" :aria-busy="c.refresh.isRefreshing.value ? 'true' : 'false'"
+            @click="c.reload()">{{ c.text.refresh }}</button>
+    <span role="status" aria-live="polite" data-testid="last-update">{{ c.refresh.lastUpdateLabel.value }}</span>
+    <span v-if="c.paused.value" class="text-sm" style="color: var(--text-secondary)">{{ c.text.paused }}</span>
+  </div>
+  <div v-if="c.refresh.refreshError.value || (c.worklist.errorMessage.value && !c.worklist.isPermissionLost.value)"
+       role="alert" class="mt-2 p-2 rounded" :style="c.errorStyle" data-testid="load-error">
+    {{ c.refresh.refreshError.value || c.worklist.errorMessage.value }}
+    <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" @click="c.reload()">{{ c.text.retry }}</button>
+  </div>
+  <div v-if="c.worklist.isPermissionLost.value" role="alert" class="mt-2 p-2 rounded" :style="c.errorStyle" data-testid="permission-loss-state">
+    {{ c.worklist.errorMessage.value || c.text.denied }}
+  </div>
+  <template v-else>
+    <div class="mt-3">
+      <WorklistFiltersPanel :controller="c.filters" />
+    </div>
+    <component :is="parts.Layout" :layout="c.layout" />
+    <header class="flex flex-wrap gap-2 mt-3" role="region" aria-label="Statusübersicht" data-testid="status-totals">
+      <span>{{ c.worklist.totals.value.totalCount }} Diktate ({{ c.worklist.totals.value.formattedTotalDuration }})</span>
+      <span v-for="g in c.worklist.totals.value.groups" :key="g.status" class="px-2 py-1 rounded text-xs"
+            :style="{ background: g.surface.background, color: g.surface.color, border: '1px solid ' + g.surface.border }">
+        {{ g.label }}: {{ g.count }} ({{ g.formattedDuration }})
+      </span>
+    </header>
+    <div class="grid gap-4 lg:grid-cols-2 mt-3">
+      <div class="overflow-x-auto">
+        <p class="sr-only" id="cwv-keys">{{ c.text.keys }}</p>
+        <div v-if="c.worklist.isLoading.value" role="status" aria-live="polite" data-testid="loading-state">{{ c.text.loading }}</div>
+        <p v-else-if="!c.worklist.rows.value.length" data-testid="empty-state">{{ c.text.empty }}</p>
+        <table v-else class="w-full" role="grid" aria-label="Arbeitsliste" aria-describedby="cwv-keys">
+          <thead>
+            <tr>
+              <th v-for="col in c.columns()" :key="col.key" scope="col" v-bind="c.headerAttrs(col.key)"
+                  @keydown="c.layout.onKeydown(col.key, $event)" @click="c.layout.cycleSort(col.key)">{{ col.label }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template v-for="item in c.displayed.value" :key="item.key">
+              <tr v-if="item.kind === 'group'">
+                <th scope="rowgroup" :colspan="c.columns().length" style="text-align: left"
+                    :style="{ paddingLeft: item.depth + 'rem' }">{{ item.label }}</th>
+              </tr>
+              <tr v-else tabindex="0" data-row :data-id="c.key(item.row)"
+                  :aria-selected="c.selectedId.value === c.key(item.row) ? 'true' : 'false'"
+                  :style="c.selectedId.value === c.key(item.row) ? c.selectedStyle : null"
+                  @click="c.select(item.row)" @keydown="c.onRowKey($event, item.row)">
+                <td v-for="col in c.columns()" :key="col.key">
+                  <span v-if="col.key === 'status'" class="px-2 py-1 rounded text-xs" :style="c.badge(item.row).style">{{ c.badge(item.row).label }}</span>
+                  <template v-else>{{ c.cell(item.row, col.key) }}</template>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <nav class="flex items-center gap-2 mt-2" aria-label="Seiten">
+          <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :disabled="c.view.page <= 1" @click="c.goto(c.view.page - 1)">{{ c.text.prev }}</button>
+          <span aria-live="polite">{{ c.pageLabel() }}</span>
+          <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :disabled="!c.hasNext()" @click="c.goto(c.view.page + 1)">{{ c.text.next }}</button>
+        </nav>
+      </div>
+      <aside aria-labelledby="cwv-detail-title" data-testid="detail-panel">
+        <p v-if="!c.selectedId.value" id="cwv-detail-title">{{ c.text.noSelection }}</p>
+        <div v-else :key="c.selectedId.value">
+          <h2 id="cwv-detail-title" class="font-semibold">{{ c.text.detail }}</h2>
+          <component :is="parts.Lease" v-if="c.leaseState.value" :state="c.leaseState.value" :run="c.leaseRun" />
+          <component :is="parts.Workflow" :wf="c.workflow" />
+          <details :open="c.panels.protection" @toggle="c.panels.protection = $event.target.open">
+            <summary>{{ c.text.protection }}</summary>
+            <component :is="parts.Protection" v-if="c.panels.protection" :client="c.detailClient" :dictation-id="c.selectedId.value" />
+          </details>
+          <details :open="c.panels.acceptance" @toggle="c.panels.acceptance = $event.target.open">
+            <summary>{{ c.text.acceptance }}</summary>
+            <component :is="parts.Acceptance" v-if="c.panels.acceptance" :dictation-id="c.selectedId.value" />
+          </details>
+          <details :open="c.panels.history" @toggle="c.panels.history = $event.target.open">
+            <summary>{{ c.text.history }}</summary>
+            <component :is="parts.History" v-if="c.panels.history" :client="c.detailClient" :dictation-id="c.selectedId.value" />
+          </details>
+        </div>
+      </aside>
+    </div>
+  </template>
+</section>`,
+};
+
+export function registerWorklistView(app) {
+    app.component('clinic-worklist-view', WorklistView);
+    return app;
+}

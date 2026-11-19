@@ -270,6 +270,27 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Continue anyway with fallback translations
     }
 
+    // Clinic worklist (CLINIC_MODE only). The flag is the data-clinic-mode
+    // attribute on #app; with it off nothing from static/js/clinic/ is loaded.
+    // One api-client is shared by every clinic view on this page.
+    let clinicWorklist = null;
+    const appRootElement = document.getElementById('app');
+    if (appRootElement?.dataset?.clinicMode === 'True') {
+        try {
+            const [{ createClinicApiClient }, { registerWorklistView }] = await Promise.all([
+                import('./clinic/api-client.js'),
+                import('./clinic/compose-worklist.js'),
+            ]);
+            clinicWorklist = {
+                registerWorklistView,
+                client: createClinicApiClient(),
+                user: { id: appRootElement.dataset.currentUserId },
+            };
+        } catch (error) {
+            console.error('[Clinic] Worklist view could not be loaded:', error);
+        }
+    }
+
     // CSRF Token Integration with Vue.js
     const csrfToken = ref(document.querySelector('meta[name="csrf-token"]')?.getAttribute('content'));
 
@@ -300,7 +321,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             // landing surface; now that upload is a modal, defaulting to
             // null lets the user land on their recordings list and open
             // the modal explicitly via the New Recording button.
-            const currentView = ref(null);
+            // In clinic mode the worklist ('clinic-worklist') is the landing view.
+            const currentView = ref(clinicWorklist ? 'clinic-worklist' : null);
             // Upload visibility is a modal flag, not a currentView value,
             // so the underlying list / detail stays mounted behind the
             // overlay. Set true on switchToUploadView / opened paths;
@@ -5004,7 +5026,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 // Speaker count entry (#362)
                 exactSpeakerEntry, setSpeakerCountMode,
-                uploadSpeakersExact, asrSpeakersExact, reprocessSpeakersExact
+                uploadSpeakersExact, asrSpeakersExact, reprocessSpeakersExact,
+
+                // Clinic worklist (null client and user with CLINIC_MODE off)
+                clinicWorklistEnabled: !!clinicWorklist,
+                clinicClient: clinicWorklist ? clinicWorklist.client : null,
+                clinicUser: clinicWorklist ? clinicWorklist.user : null
             };
         },
         delimiters: ['${', '}']
@@ -5030,6 +5057,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     app.component('asr-editor-pane', createAsrEditorPane());
     // Its timeline (templates/components/asr-editor-timeline.html).
     app.component('asr-editor-timeline', createAsrEditorTimeline());
+
+    if (clinicWorklist) clinicWorklist.registerWorklistView(app);
 
     app.mount('#app');
 });
