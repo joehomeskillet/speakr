@@ -88,8 +88,8 @@
     },
     {
       "path": "contracts/clinic-api.openapi.json",
-      "bytes": 98542,
-      "sha256": "0006486392cbb9fcb0dc683fad4bc799884d504f30e5f6b46ecf3e58544586a3"
+      "bytes": 98748,
+      "sha256": "ccb21eac80b872e54c489bab3328cc73668c95d8a04bb6ae471fd80f8bbbd551"
     },
     {
       "path": "contracts/data-model.md",

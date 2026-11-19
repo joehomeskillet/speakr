@@ -56,6 +56,13 @@ def _led_author_pools(actor: int) -> list[str]:
     return [pool_id for (pool_id,) in rows]
 
 
+def _open_mode(actor: int, dictation: ClinicDictation, status: str) -> str:
+    """Per-actor open mode: author opens the case, others the player (to-write) or correction."""
+    if actor == dictation.author_user_id:
+        return "author_case"
+    return "player" if status == workflow.TO_WRITE else "correction"
+
+
 def load_entries(actor: int) -> list[routes_worklist.WorklistEntry]:
     """Entries the actor may see (W12/W13); the live view policy still decides every row."""
     item = workflow.ClinicWorkflowDictation
@@ -82,7 +89,7 @@ def load_entries(actor: int) -> list[routes_worklist.WorklistEntry]:
             deadline_at=stamp(row.deadline_at), assignee_user_id=row.assignee_user_id,
             assigned_at=None, notes=rec.notes or "", created_at=stamp(row.created_at),
             duration_seconds=row.audio_seconds, recipient=None, source_kind="audio",
-            open_mode="author_case", revision=dictation.version_counter), dictation.pool_id))
+            open_mode=_open_mode(actor, dictation, row.status), revision=dictation.version_counter), dictation.pool_id))
     return entries
 
 
@@ -129,13 +136,15 @@ def dictation_snapshot(dictation: ClinicDictation) -> dict:
         .first()
     )
     active = release.active_release(dictation)
+    verified = context is not None and bool(context.case_ref)
     return {
         "dictation_id": dictation.id,
         "author_user_id": str(dictation.author_user_id),
         "pool_id": dictation.pool_id,
         "ingest_state": "STORED",
         "submission_state": "DRAFT" if status == workflow.DRAFT else "SUBMITTED",
-        "context_state": "VERIFIED" if context is not None and context.case_ref else "CASE_UNRESOLVED",
+        "context_state": "VERIFIED" if verified else "CASE_UNRESOLVED",
+        "case_display": context.case_ref if verified else None,
         "asr_state": _asr_state(status, revisions.history(dictation)),
         "review_state": _review_state(status, head),
         "current_original_version_id": None if original is None else original[0],

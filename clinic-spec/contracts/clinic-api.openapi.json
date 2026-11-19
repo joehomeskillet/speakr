@@ -3059,6 +3059,14 @@
               "VERIFIED"
             ]
           },
+          "case_display": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 256
+          },
           "asr_state": {
             "type": "string",
             "enum": [
@@ -3121,6 +3129,7 @@
           "ingest_state",
           "submission_state",
           "context_state",
+          "case_display",
           "asr_state",
           "review_state",
           "current_original_version_id",
