@@ -8,8 +8,6 @@ import {
     WorklistView,
     createDetailClient,
     createWorklistViewController,
-    fallIdOf,
-    filterByFallId,
     flattenGroups,
     neighborRow,
     registerWorklistView,
@@ -20,7 +18,6 @@ const source = readFileSync(join(__dirname, '../../../static/js/clinic/compose-w
 
 const row = (id, extra = {}) => ({
     dictation_id: id,
-    fall_id: `F-${id}`,
     title: `Mustermann ${id}`,
     notes: 'Notiz',
     recipient: 'Empfaenger',
@@ -93,25 +90,25 @@ describe('compose-worklist contract', () => {
         expect(typeof WorklistView.setup).toBe('function');
     });
 
-    it('composes all ten child modules and uses German labels, tokens and the api client', () => {
+    it('composes the child modules (all but the unbound properties panel) and uses German labels, tokens and the api client', () => {
         for (const mod of [
             'worklist-ui', 'worklist-refresh-ui', 'worklist-filters-ui', 'worklist-layout-ui',
-            'dictation-properties-ui', 'dictation-protection-ui', 'workflow-actions-ui',
+            'dictation-protection-ui', 'workflow-actions-ui',
             'acceptance-policy-ui', 'history-ui', 'lease-ui',
         ]) expect(source).toContain(`./${mod}.js`);
         expect(source).toContain("from './tokens.js'");
         expect(WorklistView.template).toContain('Arbeitsliste');
-        expect(WorklistView.template).toContain('Fall-ID');
+        expect(WorklistView.template).not.toContain('Fall-ID');
+        expect(WorklistView.template).not.toContain('fall-id-filter');
         expect(WorklistView.template).toMatch(/aria-labelledby/);
         expect(WorklistView.template).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
     });
 
-    it('never renders title, notes or recipient (Fall-ID rule)', () => {
+    it('renders no title, notes, recipient or Fall-ID (W16) and does not mount the properties panel', () => {
         expect(WorklistView.template).not.toMatch(/row\.(title|notes|recipient)\b/);
         expect(LIST_COLUMNS.map((c) => c.key)).not.toEqual(expect.arrayContaining(['title']));
-        expect(fallIdOf(row('1'))).toBe('F-1');
-        expect(fallIdOf({ case_id: 'C9' })).toBe('C9');
-        expect(fallIdOf({ title: 'x' })).toBeNull();
+        expect(source).not.toContain("./dictation-properties-ui.js");
+        expect(WorklistView.template).not.toMatch(/Titel|Empf/);
     });
 
     it('requires a client and a current user id', () => {
@@ -121,18 +118,15 @@ describe('compose-worklist contract', () => {
 });
 
 describe('list behaviour', () => {
-    it('loads rows through the injected change feed and filters by Fall-ID', async () => {
-        const client = fakeClient(base([row('1'), row('2'), row('3', { fall_id: 'X-77' })]));
+    it('loads rows through the injected change feed', async () => {
+        const client = fakeClient(base([row('1'), row('2'), row('3')]));
         const fetchChanges = feed();
         const c = controllerFor(client, { fetchChanges });
         await c.start();
         expect(fetchChanges).toHaveBeenCalled();
         expect(c.worklist.rows.value).toHaveLength(3);
-        c.view.fallId = 'x-7';
-        const shown = c.displayed.value.filter((i) => i.kind === 'row').map((i) => c.fallId(i.row));
-        expect(shown).toEqual(['X-77']);
+        expect(c.displayed.value.filter((i) => i.kind === 'row')).toHaveLength(3);
         expect(c.cell(row('1'), 'status')).toBe('Zu schreiben');
-        expect(filterByFallId([row('1')], '')).toHaveLength(1);
         c.dispose();
     });
 
@@ -224,14 +218,13 @@ describe('detail scoping and teardown', () => {
         c.dispose();
     });
 
-    it('a lost lease makes the properties read-only; a foreign lease (423) is shown as foreign', async () => {
+    it('a foreign lease (423) is shown as foreign', async () => {
         const client = fakeClient({ ...base([row('1')]), 'POST /dictations/1/leases': fail('UNKNOWN', 423, 'gesperrt') });
         const c = controllerFor(client);
         await c.start();
         c.select(c.worklist.rows.value[0]);
         await c.leaseRun.acquire();
         expect(c.leaseState.value.status).toBe('foreign');
-        expect(c.writeBlocked.value).toBe(true);
         c.dispose();
     });
 
@@ -384,7 +377,7 @@ describe('Vue wiring', () => {
         const state = WorklistView.setup({
             client, currentUser: user, vue, fetchChanges: feed(), intervalMs: 0, autoStart: true,
         });
-        expect(Object.keys(state.parts)).toEqual(expect.arrayContaining(['Layout', 'Lease', 'Workflow', 'Properties', 'Protection', 'Acceptance', 'History']));
+        expect(Object.keys(state.parts)).toEqual(expect.arrayContaining(['Layout', 'Lease', 'Workflow', 'Protection', 'Acceptance', 'History']));
         await Promise.all(mounted.map((fn) => fn()));
         expect(state.c.worklist.rows.value).toHaveLength(1);
         unmounting.forEach((fn) => fn());

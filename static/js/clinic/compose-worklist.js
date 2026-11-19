@@ -4,11 +4,14 @@
  * List area: worklist-ui (rows, selection), worklist-refresh-ui (refresh and
  * change polling), worklist-filters-ui (named filters, metadata search) and
  * worklist-layout-ui (columns, sort, grouping). Detail area for the selected
- * dictation: lease, workflow actions, properties, protection, acceptance
- * policy and history. Nothing from those modules is re-implemented here.
+ * dictation: lease, workflow actions, protection, acceptance policy and
+ * history. Nothing from those modules is re-implemented here.
  *
- * Owner decision W16: patients are referenced by Fall-ID only. The view shows
- * and filters by Fall-ID and never renders title, notes or recipient.
+ * Owner decision W16: patients are referenced by Fall-ID only. The contract has
+ * no Fall-ID field on Dictation yet, so this view shows no Fall-ID column or
+ * filter and renders no patient name, title, notes or recipient. The
+ * dictation-properties-ui panel is not mounted: it is a validate-only form with
+ * title and recipient inputs and is not bound to the selected dictation.
  * Clinical data stays in memory; the only browser storage is the last filter
  * id kept by worklist-filters-ui. Colours come from tokens.js, requests from
  * api-client.js.
@@ -19,7 +22,6 @@ import { ROLE_AUTHOR, STATUS_LABELS, formatAudioDuration, formatPriority, resolv
 import { fetchRecordingChanges, formatLastUpdate, useWorklistRefresh } from './worklist-refresh-ui.js';
 import { WorklistFiltersPanel, createWorklistFilters } from './worklist-filters-ui.js';
 import { WorklistLayoutControls, useWorklistLayout } from './worklist-layout-ui.js';
-import { DictationPropertiesComponent } from './dictation-properties-ui.js';
 import { DictationProtectionComponent } from './dictation-protection-ui.js';
 import { WORKFLOW_ACTIONS_TEMPLATE, createWorkflowActions } from './workflow-actions-ui.js';
 import { acceptancePolicyComponent } from './acceptance-policy-ui.js';
@@ -31,30 +33,25 @@ export const PAGE_SIZE = 20;
 
 export const TEXT = Object.freeze({
     title: 'Arbeitsliste',
-    fallId: 'Fall-ID',
-    fallIdFilter: 'Nach Fall-ID filtern',
     refresh: 'Aktualisieren',
     retry: 'Erneut versuchen',
     paused: 'Die automatische Aktualisierung ist pausiert, solange ein Filter aktiv ist oder eine andere Seite angezeigt wird.',
     loading: 'Laden …',
     empty: 'Keine Diktate vorhanden.',
-    noMatch: 'Keine Diktate zu dieser Fall-ID.',
     denied: 'Keine Berechtigung für diese Aktion.',
     failed: 'Die Arbeitsliste konnte nicht geladen werden.',
     prev: 'Vorherige Seite',
     next: 'Nächste Seite',
     keys: 'Tastatur: Pfeil hoch und runter wählt ein Diktat, Esc schliesst die Details.',
     detail: 'Diktat',
-    properties: 'Eigenschaften',
     protection: 'Schutz',
     acceptance: 'Pflichtfreigabe',
     history: 'Verlauf',
-    readOnly: 'Die Bearbeitung ist gesperrt. Eigenschaften sind schreibgeschützt.',
     noSelection: 'Wählen Sie ein Diktat aus der Liste, um Details zu sehen.',
 });
 
 // Columns the layout may order, sort and group. Title, notes and recipient are
-// left out on purpose (W16); the Fall-ID column is fixed and always first.
+// left out on purpose (W16); no Fall-ID column until the contract provides one.
 export const LIST_COLUMNS = Object.freeze([
     { key: 'status', label: 'Status' },
     { key: 'priority', label: 'Priorität' },
@@ -70,18 +67,6 @@ export const LIST_COLUMNS = Object.freeze([
 export function rowKey(row) {
     const id = row && (row.dictation_id != null ? row.dictation_id : row.id);
     return id == null ? null : String(id);
-}
-
-/** Fall-ID of a row, or null. The server field name is not fixed yet, so both spellings are read. */
-export function fallIdOf(row) {
-    const value = row && (row.fall_id != null ? row.fall_id : row.case_id);
-    return value == null || value === '' ? null : String(value);
-}
-
-export function filterByFallId(rows, query) {
-    const needle = String(query || '').trim().toLowerCase();
-    if (!needle) return rows;
-    return rows.filter((row) => (fallIdOf(row) || '').toLowerCase().includes(needle));
 }
 
 /** Next row in display order; no wrap-around. An unknown current row gives the first row. */
@@ -179,8 +164,8 @@ export function createWorklistViewController(options) {
     const reactive = (V && V.reactive) || ((o) => o);
     const computed = (V && V.computed) || ((fn) => ({ get value() { return fn(); } }));
 
-    const view = reactive({ page: 1, fallId: '', filterId: null, search: '', total: null });
-    const panels = reactive({ properties: false, protection: false, acceptance: false, history: false });
+    const view = reactive({ page: 1, filterId: null, search: '', total: null });
+    const panels = reactive({ protection: false, acceptance: false, history: false });
     const selectedId = ref(null);
     const leaseState = shallowRef(null);
     let started = false;
@@ -279,7 +264,7 @@ export function createWorklistViewController(options) {
 
     // --- display ------------------------------------------------------------
     const displayed = computed(() => flattenGroups(
-        layout.applyToRows(filterByFallId(worklist.rows.value, view.fallId)),
+        layout.applyToRows(worklist.rows.value),
         layout.state.layout.group_by,
     ));
     const columns = () => layout.orderedColumns();
@@ -380,7 +365,6 @@ export function createWorklistViewController(options) {
         discard: () => (lease ? lease.ctrl.resolveConflict('discard') : null),
         reapply: () => (lease ? lease.ctrl.resolveConflict('reapply') : null),
     };
-    const writeBlocked = computed(() => Boolean(leaseState.value && ['lost', 'foreign'].includes(leaseState.value.status)));
 
     // --- lifecycle ----------------------------------------------------------
     async function start() {
@@ -407,10 +391,10 @@ export function createWorklistViewController(options) {
     };
 
     return {
-        vue: V, view, panels, selectedId, selectedRow: worklist.selectedRow, leaseState, leaseRun, writeBlocked, paused,
+        vue: V, view, panels, selectedId, selectedRow: worklist.selectedRow, leaseState, leaseRun, paused,
         worklist, refresh, filters, layout, workflow, detailClient, displayed, columns, headerAttrs,
         start, dispose, reload, select, onRowKey, goto, pages, hasNext, applyFilter,
-        fallId: fallIdOf, key: rowKey, cell: cellText, badge: statusBadge, text: TEXT,
+        key: rowKey, cell: cellText, badge: statusBadge, text: TEXT,
         pageLabel: () => 'Seite ' + view.page + (pages() === null ? '' : ' von ' + pages()),
         errorStyle: surfaceStyle('error', (s) => ({ border: '1px solid ' + s.border })),
         selectedStyle: surfaceStyle('normal', () => ({ borderLeft: '4px solid var(--border-focus)' })),
@@ -422,7 +406,6 @@ function buildParts(V, detailClient) {
         Layout: WorklistLayoutControls(V),
         Lease: createLeaseStatusComponent(V),
         Workflow: { name: 'ClinicWorkflowPanel', props: { wf: { type: Object, required: true } }, template: WORKFLOW_ACTIONS_TEMPLATE },
-        Properties: DictationPropertiesComponent(V),
         Protection: { ...DictationProtectionComponent(V), mounted() { this.model.load(); } },
         Acceptance: acceptancePolicyComponent(V, { client: detailClient }),
         History: createHistoryComponent(V),
@@ -436,9 +419,6 @@ export const WorklistView = {
         client: { type: Object, required: true },
         currentUser: { type: Object, required: true },
         vue: { type: Object, default: null },
-        categorySets: { type: Array, default: () => [] },
-        recipients: { type: Array, default: () => [] },
-        sources: { type: Array, default: () => [] },
         fetchChanges: { type: Function, default: null },
         intervalMs: { type: Number, default: undefined },
         autoStart: { type: Boolean, default: true },
@@ -479,9 +459,6 @@ export const WorklistView = {
   <template v-else>
     <div class="mt-3">
       <WorklistFiltersPanel :controller="c.filters" />
-      <label for="cwv-fall" class="block mt-2">{{ c.text.fallIdFilter }}</label>
-      <input id="cwv-fall" type="search" autocomplete="off" maxlength="64" class="border rounded px-2 py-1"
-             v-model.trim="c.view.fallId" data-testid="fall-id-filter">
     </div>
     <component :is="parts.Layout" :layout="c.layout" />
     <header class="flex flex-wrap gap-2 mt-3" role="region" aria-label="Statusübersicht" data-testid="status-totals">
@@ -496,11 +473,9 @@ export const WorklistView = {
         <p class="sr-only" id="cwv-keys">{{ c.text.keys }}</p>
         <div v-if="c.worklist.isLoading.value" role="status" aria-live="polite" data-testid="loading-state">{{ c.text.loading }}</div>
         <p v-else-if="!c.worklist.rows.value.length" data-testid="empty-state">{{ c.text.empty }}</p>
-        <p v-else-if="!c.displayed.value.length" data-testid="no-match-state">{{ c.text.noMatch }}</p>
-        <table v-else class="w-full" role="grid" aria-label="Arbeitsliste nach Fall-ID" aria-describedby="cwv-keys">
+        <table v-else class="w-full" role="grid" aria-label="Arbeitsliste" aria-describedby="cwv-keys">
           <thead>
             <tr>
-              <th scope="col">{{ c.text.fallId }}</th>
               <th v-for="col in c.columns()" :key="col.key" scope="col" v-bind="c.headerAttrs(col.key)"
                   @keydown="c.layout.onKeydown(col.key, $event)" @click="c.layout.cycleSort(col.key)">{{ col.label }}</th>
             </tr>
@@ -508,14 +483,13 @@ export const WorklistView = {
           <tbody>
             <template v-for="item in c.displayed.value" :key="item.key">
               <tr v-if="item.kind === 'group'">
-                <th scope="rowgroup" :colspan="c.columns().length + 1" style="text-align: left"
+                <th scope="rowgroup" :colspan="c.columns().length" style="text-align: left"
                     :style="{ paddingLeft: item.depth + 'rem' }">{{ item.label }}</th>
               </tr>
               <tr v-else tabindex="0" data-row :data-id="c.key(item.row)"
                   :aria-selected="c.selectedId.value === c.key(item.row) ? 'true' : 'false'"
                   :style="c.selectedId.value === c.key(item.row) ? c.selectedStyle : null"
                   @click="c.select(item.row)" @keydown="c.onRowKey($event, item.row)">
-                <th scope="row">{{ c.fallId(item.row) || '–' }}</th>
                 <td v-for="col in c.columns()" :key="col.key">
                   <span v-if="col.key === 'status'" class="px-2 py-1 rounded text-xs" :style="c.badge(item.row).style">{{ c.badge(item.row).label }}</span>
                   <template v-else>{{ c.cell(item.row, col.key) }}</template>
@@ -533,16 +507,9 @@ export const WorklistView = {
       <aside aria-labelledby="cwv-detail-title" data-testid="detail-panel">
         <p v-if="!c.selectedId.value" id="cwv-detail-title">{{ c.text.noSelection }}</p>
         <div v-else :key="c.selectedId.value">
-          <h2 id="cwv-detail-title" class="font-semibold">{{ c.text.detail }} {{ c.text.fallId }} {{ c.fallId(c.selectedRow.value) || '–' }}</h2>
+          <h2 id="cwv-detail-title" class="font-semibold">{{ c.text.detail }}</h2>
           <component :is="parts.Lease" v-if="c.leaseState.value" :state="c.leaseState.value" :run="c.leaseRun" />
           <component :is="parts.Workflow" :wf="c.workflow" />
-          <details :open="c.panels.properties" @toggle="c.panels.properties = $event.target.open">
-            <summary>{{ c.text.properties }}</summary>
-            <p v-if="c.writeBlocked.value" role="status">{{ c.text.readOnly }}</p>
-            <fieldset v-if="c.panels.properties" :disabled="c.writeBlocked.value" style="border: 0; padding: 0">
-              <component :is="parts.Properties" :client="c.detailClient" :category-sets="categorySets" :recipients="recipients" :sources="sources" />
-            </fieldset>
-          </details>
           <details :open="c.panels.protection" @toggle="c.panels.protection = $event.target.open">
             <summary>{{ c.text.protection }}</summary>
             <component :is="parts.Protection" v-if="c.panels.protection" :client="c.detailClient" :dictation-id="c.selectedId.value" />
