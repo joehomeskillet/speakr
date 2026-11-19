@@ -26,12 +26,16 @@ from src.models import Group, GroupMembership, User
 logger = logging.getLogger(__name__)
 
 ACTIONS = ("view", "play", "edit", "export", "release")
+# Separately grantable actions (PAR-ADM-005). A grant without ``actions`` allows
+# only ``ACTIONS``; these must be named. A deny without ``actions`` blocks all.
+SEPARATE_ACTIONS = ("delete", "archive", "rename", "priority", "audio_export", "reassign", "reopen")
+GRANTABLE_ACTIONS = ACTIONS + SEPARATE_ACTIONS
 OWN_ACTIONS = ("view", "play")  # safe own default; other actions need a grant
 STAFF_LINK_ACTIONS = ("view",)  # derived from a route plus a current membership
 SCOPES = ("own", "pool", "all")
 EFFECTS = ("allow", "deny")
 RESOURCE_KINDS = ("vocabulary", "template")
-_ACTION_SET = frozenset(ACTIONS)
+_ACTION_SET = frozenset(GRANTABLE_ACTIONS)
 _SCOPE_RANK = {"own": 3, "pool": 2, "all": 1}
 _NAME_MAX = 100
 
@@ -183,6 +187,28 @@ class ClinicVisibilityGrant(db.Model):
     )
 
 
+class ClinicGrantAuthor(db.Model):
+    """Author user ids a grant is limited to. A grant without rows covers every author of its scope."""
+
+    __tablename__ = "clinic_visibility_grant_author"
+    id = db.Column(db.String(36), primary_key=True, default=_new_id)
+    grant_id = db.Column(
+        db.String(36), db.ForeignKey("clinic_visibility_grant.id"), nullable=False, index=True
+    )
+    author_user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    __table_args__ = (
+        UniqueConstraint("grant_id", "author_user_id", name="uq_clinic_grant_author"),
+    )
+
+
+class ClinicGrantVersion(db.Model):
+    """Stored counter for 409 stale checks; one row, bumped on every allow, deny and revoke."""
+
+    __tablename__ = "clinic_grant_version"
+    id = db.Column(db.Integer, primary_key=True)
+    version = db.Column(db.Integer, nullable=False, default=0)
+
+
 class ClinicPoolHistory(db.Model):
     __tablename__ = "clinic_pool_history"
     id = db.Column(db.String(36), primary_key=True, default=_new_id)
@@ -207,6 +233,8 @@ POOL_TABLES = (
     ClinicPoolRoute,
     ClinicPoolResource,
     ClinicVisibilityGrant,
+    ClinicGrantAuthor,
+    ClinicGrantVersion,
     ClinicPoolHistory,
 )
 
@@ -220,10 +248,36 @@ def create_tables(bind=None) -> None:
     )
 
 
-def _actor(actor_id):
-    if db.session.get(User, actor_id) is None:
+def _actor(actor_id, action="manage_pools"):
+    """Authorise a mutation: active site admin or an explicit central-policy grant of ``action``."""
+    from dataclasses import replace
+
+    from . import policy
+    from .config import clinic_mode_enabled
+    from .identity import ClinicAccountPolicy
+
+    user = db.session.get(User, actor_id, populate_existing=True) if type(actor_id) is int else None
+    if user is None:
         raise PoolError("unknown_actor")
-    return actor_id
+    if not clinic_mode_enabled():
+        return actor_id  # upstream behaviour is unchanged with clinic mode off
+    account = db.session.get(ClinicAccountPolicy, user.id, populate_existing=True)
+    if account is not None and account.status != "active":
+        raise PoolError("forbidden")
+    if user.is_admin:
+        return actor_id
+    # Project explicit grants of this action onto a grant-only action on a synthetic
+    # actor-owned resource, so central scope and deny rules still apply.
+    subject = policy.build_subject(user.id)
+    grants = tuple(
+        replace(grant, actions=frozenset({"release"})) for grant in subject.grants
+        if action in grant.actions
+    )
+    if grants and policy.decide(
+        replace(subject, grants=grants), "release", policy.RecordingFacts(recording_id=0, owner_id=user.id),
+    ).allowed:
+        return actor_id
+    raise PoolError("forbidden")
 
 
 def _known_user(user_id):
@@ -440,8 +494,38 @@ def _normalise_actions(actions):
     return ",".join(picked)
 
 
-def _grant(user_id, effect, scope, *, actor_id, pool_id, actions):
-    actor_id = _actor(actor_id)
+def _bump_version() -> int:
+    row = db.session.get(ClinicGrantVersion, 1)
+    if row is None:
+        row = ClinicGrantVersion(id=1, version=0)
+        db.session.add(row)
+    row.version = row.version + 1
+    db.session.flush()
+    return row.version
+
+
+def grant_version() -> int:
+    """Current stored grant version (0 before any change)."""
+    row = db.session.get(ClinicGrantVersion, 1, populate_existing=True)
+    return 0 if row is None else row.version
+
+
+def _authors(authors, scope):
+    if authors is None:
+        return ()
+    if isinstance(authors, (str, bytes)) or not hasattr(authors, "__iter__"):
+        raise PoolError("authors_type")
+    if any(type(a) is not int for a in authors):
+        raise PoolError("authors_type")
+    picked = sorted({_known_user(a) for a in authors})
+    if picked and scope == "own":
+        raise PoolError("authors_forbidden")
+    return tuple(picked)
+
+
+def _add_grant(user_id, effect, scope, *, actor_id, pool_id, actions, authors=None):
+    """Stage one grant, its author rows, history and a version bump. Does not commit."""
+    actor_id = _actor(actor_id, "manage_grants")
     user_id = _known_user(user_id)
     if scope not in SCOPES:
         raise PoolError("unknown_scope")
@@ -454,6 +538,7 @@ def _grant(user_id, effect, scope, *, actor_id, pool_id, actions):
     else:
         pool_id = None
     stored = _normalise_actions(actions)
+    author_ids = _authors(authors, scope)
     row = ClinicVisibilityGrant(
         user_id=user_id,
         effect=effect,
@@ -464,22 +549,30 @@ def _grant(user_id, effect, scope, *, actor_id, pool_id, actions):
     )
     db.session.add(row)
     db.session.flush()
-    _history(
-        actor_id, "grant", row.id, "added",
-        {
-            "user_id": user_id,
-            "effect": effect,
-            "scope": scope,
-            "pool_id": pool_id,
-            "actions": stored,
-        },
-    )
+    for author_id in author_ids:
+        db.session.add(ClinicGrantAuthor(grant_id=row.id, author_user_id=author_id))
+    detail = {
+        "user_id": user_id,
+        "effect": effect,
+        "scope": scope,
+        "pool_id": pool_id,
+        "actions": stored,
+    }
+    if author_ids:
+        detail["author_user_ids"] = list(author_ids)
+    _history(actor_id, "grant", row.id, "added", detail)
+    _bump_version()
+    return row
+
+
+def _grant(user_id, effect, scope, *, actor_id, pool_id, actions):
+    row = _add_grant(user_id, effect, scope, actor_id=actor_id, pool_id=pool_id, actions=actions)
     _commit()
     return row
 
 
 def allow(user_id: int, scope: str, *, actor_id: int, pool_id: str | None = None, actions=None) -> ClinicVisibilityGrant:
-    """Grant actions. ``actions`` None means all of ``ACTIONS``."""
+    """Grant actions. ``actions`` None means all of ``ACTIONS`` (not ``SEPARATE_ACTIONS``)."""
     return _grant(user_id, "allow", scope, actor_id=actor_id, pool_id=pool_id, actions=actions)
 
 
@@ -488,14 +581,65 @@ def deny(user_id: int, scope: str, *, actor_id: int, pool_id: str | None = None,
     return _grant(user_id, "deny", scope, actor_id=actor_id, pool_id=pool_id, actions=actions)
 
 
+def set_author_scope(
+    user_id: int, *, actor_id: int, explicit_users=(), deny_user_ids=(),
+    pool_id: str | None = None, actions=None,
+) -> list[ClinicVisibilityGrant]:
+    """Per-author scope on top of all authors (or one pool when ``pool_id`` is given).
+
+    ``explicit_users`` get an allow limited to exactly those authors; ``deny_user_ids``
+    get a deny for those authors, which wins over every allow ("pool A except Beta").
+    Both rows and the version bump commit together.
+    """
+    scope = "all" if pool_id is None else "pool"
+    explicit, denied = tuple(explicit_users), tuple(deny_user_ids)
+    if not explicit and not denied:
+        raise PoolError("authors_empty")
+    rows = []
+    for effect, authors in (("allow", explicit), ("deny", denied)):
+        if authors:
+            rows.append(_add_grant(
+                user_id, effect, scope, actor_id=actor_id, pool_id=pool_id,
+                actions=actions, authors=authors,
+            ))
+    _commit()
+    return rows
+
+
+def revoke(grant_id: str, *, actor_id: int) -> None:
+    """Remove an allow or deny. Writes a history row and bumps the stored version."""
+    actor_id = _actor(actor_id, "manage_grants")
+    row = db.session.get(ClinicVisibilityGrant, grant_id)
+    if row is None:
+        raise PoolError("unknown_grant")
+    author_rows = ClinicGrantAuthor.query.filter_by(grant_id=row.id).order_by(ClinicGrantAuthor.author_user_id).all()
+    detail = {
+        "user_id": row.user_id,
+        "effect": row.effect,
+        "scope": row.scope,
+        "pool_id": row.pool_id,
+        "actions": row.actions,
+    }
+    if author_rows:
+        detail["author_user_ids"] = [a.author_user_id for a in author_rows]
+    for author in author_rows:
+        db.session.delete(author)
+    db.session.delete(row)
+    _history(actor_id, "grant", grant_id, "revoked", detail)
+    _bump_version()
+    _commit()
+
+
 def _actions_of(grant):
     if not grant.actions:
-        return ACTIONS
+        return GRANTABLE_ACTIONS if grant.effect == "deny" else ACTIONS
     have = set(grant.actions.split(","))
-    return tuple(action for action in ACTIONS if action in have)
+    return tuple(action for action in GRANTABLE_ACTIONS if action in have)
 
 
-def _covers(grant, user_id, author_id, pool_id):
+def _covers(grant, user_id, author_id, pool_id, authors=frozenset()):
+    if authors and author_id not in authors:
+        return False
     if grant.scope == "all":
         return True
     if grant.scope == "own":
@@ -546,10 +690,16 @@ def grants_for(user_id: int, dictation) -> dict:
         .order_by(ClinicVisibilityGrant.id)
         .all()
     )
+    limits = {}
+    if grants:
+        for link in ClinicGrantAuthor.query.filter(
+            ClinicGrantAuthor.grant_id.in_([g.id for g in grants])
+        ):
+            limits.setdefault(link.grant_id, set()).add(link.author_user_id)
     denies = []
     denied = set()
     for grant in grants:
-        if not _covers(grant, user_id, author_id, pool_id):
+        if not _covers(grant, user_id, author_id, pool_id, limits.get(grant.id, frozenset())):
             continue
         actions = _actions_of(grant)
         if grant.effect == "deny":
@@ -572,7 +722,7 @@ def grants_for(user_id: int, dictation) -> dict:
                 consider(action, {"reason": "staff_link", "link_id": link_id}, 0)
 
     allowed = {}
-    for action in ACTIONS:
+    for action in GRANTABLE_ACTIONS:
         if action in chosen and action not in denied:
             allowed[action] = chosen[action][1]
     return {"allowed": allowed, "denies": denies}

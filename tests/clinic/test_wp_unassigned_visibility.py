@@ -5,7 +5,7 @@ from datetime import timedelta
 
 import pytest
 from sqlalchemy.exc import OperationalError
-
+from src.clinic import import_centre as ic, import_visibility as visibility, policy as central_policy, pools
 from src.clinic import import_centre as ic, import_visibility as visibility, pools
 from src.clinic.agent_channel import AgentChannelError
 from src.clinic.identity import ClinicAccountPolicy
@@ -28,8 +28,11 @@ def _assign_unassigned(policy, **kwargs):
 
 
 @pytest.fixture
-def scene(env, clinic_on):
+def scene(env, clinic_on, monkeypatch):
     admin, lead, author = (env[key].id for key in ("admin", "other", "author"))
+    monkeypatch.setattr(central_policy, "_grant_providers", [
+        lambda uid: (central_policy.Grant("all", frozenset({"manage_pools", "import"})),) if uid in {admin, lead, author} else (),
+    ])
     pool = pools.create_staff_pool(f"Synthetic typists {env['admin'].username}", actor_id=admin)
     pools.add_staff_member(pool.id, author, actor_id=admin)
     db.session.add(ClinicAccountPolicy(user_id=author, status="active", login_policy="device_only",

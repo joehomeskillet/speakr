@@ -21,9 +21,9 @@ def tagged(pool_db):
         GroupMembership(group_id=team.id, user_id=member.id, role='member'),
         GroupMembership(group_id=team.id, user_id=team_admin.id, role='admin'),
     ])
-    author_pool = pools.create_author_pool(f'Authors-{_suffix()}', actor_id=team_admin.id)
-    staff_pool = pools.create_staff_pool(f'Staff-{_suffix()}', actor_id=team_admin.id)
-    pools.add_staff_member(staff_pool.id, outsider.id, actor_id=team_admin.id)
+    author_pool = pools.create_author_pool(f'Authors-{_suffix()}', actor_id=outsider.id)
+    staff_pool = pools.create_staff_pool(f'Staff-{_suffix()}', actor_id=outsider.id)
+    pools.add_staff_member(staff_pool.id, outsider.id, actor_id=outsider.id)
     own, foreign = _dictation(member, None), _dictation(team_admin, author_pool.id)
     personal = Tag(name='Personal', user_id=member.id)
     shared = Tag(name='Team', user_id=team_admin.id, group_id=team.id)
@@ -74,22 +74,22 @@ def test_clinic_counts_and_group_roles(clinic_on, tagged, group_handler):
     assert _read(member, detail).status_code == 404
     assert _read(outsider, detail).status_code == 404
 
-    pools.allow(member, 'pool', actor_id=team_admin, pool_id=pool, actions=['view'])
+    pools.allow(member, 'pool', actor_id=outsider, pool_id=pool, actions=['view'])
     assert _tag_rows(_read(member))[-1] == ('Team', 2, False, 'member')
-    pools.deny(member, 'pool', actor_id=team_admin, pool_id=pool, actions=['view'])
+    pools.deny(member, 'pool', actor_id=outsider, pool_id=pool, actions=['view'])
     assert _read(member, group_url).json['tags'][0]['recording_count'] == 1
-    pools.deny(member, 'own', actor_id=team_admin, actions=['view'])
+    pools.deny(member, 'own', actor_id=outsider, actions=['view'])
     assert _tag_rows(_read(member)) == [('Personal', 0, True, None), ('Team', 0, False, 'member')]
 
     # Even an explicit dictation grant is not a team tag grant.
-    pools.allow(outsider, 'all', actor_id=team_admin, actions=['view'])
+    pools.allow(outsider, 'all', actor_id=outsider, actions=['view'])
     assert _tag_rows(_read(outsider)) == []
     assert _read(outsider, group_url).status_code == 403
 
 
 def test_retry_reads_current_scope_after_provider_failure(clinic_on, tagged, monkeypatch):
-    member, team_admin, _, _, pool, target_id = tagged
-    pools.allow(member, 'pool', actor_id=team_admin, pool_id=pool, actions=['view'])
+    member, team_admin, outsider, _, pool, target_id = tagged
+    pools.allow(member, 'pool', actor_id=outsider, pool_id=pool, actions=['view'])
     client = login(member)
     assert _tag_rows(client.get('/api/tags'))[-1][1] == 2
 
