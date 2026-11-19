@@ -6,7 +6,7 @@ from datetime import timedelta
 import pytest
 from sqlalchemy.exc import OperationalError
 
-from src.clinic import import_visibility as visibility, pools
+from src.clinic import import_centre as ic, import_visibility as visibility, pools
 from src.clinic.agent_channel import AgentChannelError
 from src.clinic.identity import ClinicAccountPolicy
 from src.clinic.models import ClinicDictation
@@ -15,6 +15,16 @@ from src.database import db
 from src.models.audit import AuditEvent
 
 from test_import_centre import NOW, _data, _env as _env, _finalize, _intent, _upload, env as env
+
+
+def _list_unassigned(policy, *, actor_user_id):
+    """List through the import-centre entry point: in clinic mode it requires actor and policy (w116)."""
+    rows = ic.list_unassigned(actor_user_id=actor_user_id, policy=policy)
+    return {"items": rows, "count": len(rows)}
+
+
+def _assign_unassigned(policy, **kwargs):
+    return ic.assign_unassigned(policy=policy, **kwargs)
 
 
 @pytest.fixture
@@ -40,7 +50,7 @@ def test_delivery_inventory_and_counts_use_the_same_scopes(env, scene):
     policy, admin, lead, author, ids, _ = scene
     empty = {"items": [], "count": 0}
     for actor, expected in ((admin, ids), (lead, ids[:1]), (author, [])):
-        deliveries = visibility.list_unassigned(policy, actor_user_id=actor)
+        deliveries = _list_unassigned(policy, actor_user_id=actor)
         inventory = visibility.list_inventory(policy, env["policy"], actor_user_id=actor, agent_id=env["agent_id"])
         assert {row["id"] for row in deliveries["items"]} == set(expected)
         assert deliveries["count"] == inventory["count"] == len(expected)
@@ -48,7 +58,7 @@ def test_delivery_inventory_and_counts_use_the_same_scopes(env, scene):
             row["snapshot_version"] for row in inventory["items"]
         }
         assert all("storage_key" not in row for row in deliveries["items"])
-    assert visibility.list_unassigned(visibility.ClarificationPolicy(), actor_user_id=admin) == empty
+    assert _list_unassigned(visibility.ClarificationPolicy(), actor_user_id=admin) == empty
     assert visibility.list_inventory(policy, env["policy"], actor_user_id=author, agent_id=env["agent_id"]) == empty
 
 
@@ -78,7 +88,7 @@ def test_suggestions_use_only_authorized_consented_candidates(scene):
 
 def test_assignment_checks_both_scopes_and_audits_only_a_committed_claim(env, scene, monkeypatch):
     policy, _, lead, author, ids, upload = scene
-    version = visibility.list_unassigned(policy, actor_user_id=lead)["items"][0]["snapshot_version"]
+    version = _list_unassigned(policy, actor_user_id=lead)["items"][0]["snapshot_version"]
     foreign = _intent(env, actor_user_id=author)
     wrong_author = _intent(env, actor_user_id=lead)
     wrong_scope = _intent(env, actor_user_id=lead, source_ref="usb-2", target_author_user_id=author,
@@ -94,7 +104,7 @@ def test_assignment_checks_both_scopes_and_audits_only_a_committed_claim(env, sc
         ({"expected_snapshot_version": "stale"}, "conflict"), ({"now": NOW + timedelta(days=1)}, "conflict"),
     ):
         with pytest.raises(AgentChannelError, match=error):
-            visibility.assign_unassigned(policy, **(kwargs | changes))
+            _assign_unassigned(policy, **(kwargs | changes))
 
     def events():
         return [row for row in AuditEvent.query.filter_by(event="recording.edited", actor_user_id=lead)
@@ -106,14 +116,14 @@ def test_assignment_checks_both_scopes_and_audits_only_a_committed_claim(env, sc
     with monkeypatch.context() as patch:
         patch.setattr(db.session, "commit", unavailable)
         with pytest.raises(OperationalError, match="synthetic commit failure"):
-            visibility.assign_unassigned(policy, **kwargs)
+            _assign_unassigned(policy, **kwargs)
     assert events() == []
-    assert visibility.list_unassigned(policy, actor_user_id=lead)["count"] == 1
-    assert visibility.assign_unassigned(policy, **kwargs) == ids[0]
+    assert _list_unassigned(policy, actor_user_id=lead)["count"] == 1
+    assert _assign_unassigned(policy, **kwargs) == ids[0]
     with pytest.raises(AgentChannelError, match="conflict"):
-        visibility.assign_unassigned(policy, **kwargs)
+        _assign_unassigned(policy, **kwargs)
     assert len(events()) == 1 and events()[0].target_user_id == author
-    assert visibility.list_unassigned(policy, actor_user_id=lead)["count"] == 0
+    assert _list_unassigned(policy, actor_user_id=lead)["count"] == 0
     receipt = _finalize(env, *upload[:2])
     assert receipt["state"] == "STORED"
     assert db.session.get(ClinicDictation, receipt["dictation_id"]).author_user_id == author

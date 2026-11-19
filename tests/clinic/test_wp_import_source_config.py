@@ -13,15 +13,18 @@ from src.clinic.agent_channel import AgentChannelError
 from src.models import User
 
 
-def _user(prefix="isc"):
-    row = User(username=prefix + uuid.uuid4().hex[:8], email=uuid.uuid4().hex[:8] + "@example.invalid", password="x")
+def _user(prefix="isc", admin=False):
+    row = User(username=prefix + uuid.uuid4().hex[:8], email=uuid.uuid4().hex[:8] + "@example.invalid",
+               password="x", is_admin=admin)
     db.session.add(row)
     db.session.commit()
     return row
 
 
 @pytest.fixture(autouse=True)
-def _env():
+def _env(monkeypatch):
+    # Approved roots are server-owned: only paths under the allowlist may be approved (x03).
+    monkeypatch.setenv("CLINIC_IMPORT_ROOT_ALLOWLIST", "/srv/in;/srv/dropfolders")
     with app.app_context():
         isc.create_tables()
         yield
@@ -30,17 +33,20 @@ def _env():
 @pytest.fixture
 def world():
     with app.app_context():
-        admin = _user("adm")
+        admin = _user("adm", admin=True)
         author = _user("aut")
         other = _user("oth")
         yield {"admin": admin, "author": author, "other": other}
+
+
+DEVICE_ROOT = "/srv/in/usb-1"
 
 
 def _create(actor, author=None, **kwargs):
     target = author if author is not None else actor
     base = dict(
         actor_user_id=actor.id, source_kind="device", source_ref="usb-1",
-        approved_root="usb-1", target_author_user_id=target.id,
+        approved_root=DEVICE_ROOT, target_author_user_id=target.id,
     )
     base.update(kwargs)
     return isc.create_source_config(**base)
@@ -52,7 +58,7 @@ def test_create_defaults(world):
     cfg = _create(world["admin"])
     assert cfg["source_kind"] == "device"
     assert cfg["source_ref"] == "usb-1"
-    assert cfg["approved_root"] == "usb-1"
+    assert cfg["approved_root"] == DEVICE_ROOT
     assert cfg["target_author_user_id"] == world["admin"].id
     assert cfg["autosend_enabled"] is False
     assert cfg["eol_filter_enabled"] is True
