@@ -29,6 +29,7 @@
  *   createCorrectionViewController(options)  the controller behind the view.
  */
 
+import { formatDictationReference } from './worklist-ui.js';
 import { createClinicApiClient } from './api-client.js';
 import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
 import { createCorrectionToolbar, useCorrectionEditor, vTip } from './correction-editor-ui.js';
@@ -842,6 +843,7 @@ export const CorrectionBody = {
         const pickTemplate = (id) => { templatesOpen.value = false; if (id) e.applyTemplate(id); };
         const toolStatus = () => tbState.value.readOnlyReason || tbState.value.message || '';
         return {
+            formatDictationReference,
             c, FOCUS, MODES, box, styleFor, TEXT, showDiff,
             tb, tbState, textEl, setTextEl, fontPx, focusMode, shortcutsOpen, highlightOn, followOn, onTextInput, onTextKeydown, onFindKeydown,
             onQuery, onReplacement, onCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, toggleDrawer, unsavedSuffix,
@@ -888,7 +890,10 @@ export const CorrectionBody = {
       <div class="document-title">
         <UiIcon name="snippet" />
         <h2 style="font-weight: 700; color: var(--v8-text)">{{ TEXT.dictation }}</h2>
-        <span class="document-id" :title="dictationId">#{{ dictationId }}</span>
+        <details class="document-id">
+          <summary :title="dictationId"><span aria-hidden="true">{{ formatDictationReference(dictationId) }}</span><span class="sr-only">Vollständige Diktatkennung {{ dictationId }}</span></summary>
+          <span class="document-id-full">{{ dictationId }}</span>
+        </details>
       </div>
       <div class="context-tools">
         <span class="tool-wrap" v-tip="{ label: TEXT.ctxAssignment }">
