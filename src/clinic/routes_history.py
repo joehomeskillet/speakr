@@ -11,7 +11,7 @@ from flask_wtf.csrf import CSRFError, validate_csrf
 from werkzeug.exceptions import HTTPException
 from wtforms.validators import ValidationError
 
-from src.clinic import lease, live_session, revisions
+from src.clinic import lease, live_session, revisions, workflow
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.models import ClinicArchiveEvent, ClinicDictation, ClinicRelease
 from src.clinic.parity_dispatch import JSON, CommandProblem, RunOnce
@@ -106,6 +106,13 @@ def may_take_over(user: User, dictation: ClinicDictation) -> bool:
     return dictation.pool_id is not None and dictation.pool_id in worklist_entries._led_author_pools(user.id)
 
 
+def _transition_workflow(dictation_id: str, trigger: str) -> None:
+    item = db.session.get(workflow.ClinicWorkflowDictation, dictation_id,
+                          populate_existing=True, with_for_update=True)
+    if item is not None and (item.status, trigger) in workflow.TRANSITIONS:
+        workflow.transition(db.session, dictation_id, trigger)
+
+
 def create_blueprint(
     *, authorize: Callable[[User, str, ClinicDictation], bool], run_once: RunOnce,
     dictation_snapshot: Callable[[ClinicDictation], JSON],
@@ -193,7 +200,8 @@ def create_blueprint(
         if operation == 'get':
             dictation = object_for(dictation_id, 'history')
             now = datetime.now(timezone.utc)
-            return jsonify(dictation_id=dictation.id, **holder_fields(lease.current(dictation.id), now))
+            return jsonify(dictation_id=dictation.id, may_take_over=takeover_allowed(current_user, dictation),
+                           **holder_fields(lease.current(dictation.id), now))
         dictation = takeover_target(dictation_id) if operation == 'takeover' else object_for(dictation_id, 'review')
         actor, target = current_user.id, dictation.id
         request.max_content_length = min(4096, request.max_content_length or 4096)
@@ -243,9 +251,12 @@ def create_blueprint(
                     abort(409)
                 if operation == 'release':
                     lease.release(row, generation, now, user_id=actor)
+                    _transition_workflow(target, 'close')
                     lease.audit_operation('release', row, actor, locked)
                     return dict(dictation_snapshot(locked), etag=dictation_etag(locked))
                 row = lease.heartbeat(row, generation, now, user_id=actor)
+            if operation in ('acquire', 'takeover'):
+                _transition_workflow(target, 'open')
             lease.audit_operation(operation, row, actor, locked, previous_holder=previous)
             result = dict(dictation_id=target, lease_id=row.id, generation=row.generation,
                           holder_user_id=row.holder_user_id, until=_utc(row.expires_at),
