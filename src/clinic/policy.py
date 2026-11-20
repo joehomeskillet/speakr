@@ -7,7 +7,7 @@ Flask guard only collects the inputs and calls it.
 Rules (secure defaults, R-011):
 
 * An author may view, play and edit their own recordings. Every other action on
-  them (download, audio_export, export, delete, release) needs an explicit grant.
+  them (download, audio_export, export, delete, archive, release) needs an explicit grant.
   Original-file routes require audio_export, separately from text export.
 * Access to someone else's recording needs an explicit grant that names the
   action. A grant by scope reaches only what its scope names:
@@ -33,7 +33,7 @@ from flask import Flask, current_app, has_app_context
 
 from src.clinic.config import clinic_mode_enabled
 
-ACTIONS = frozenset({'view', 'play', 'download', 'audio_export', 'edit', 'export', 'delete', 'release'})
+ACTIONS = frozenset({'view', 'play', 'download', 'audio_export', 'edit', 'export', 'delete', 'archive', 'release'})
 OWN_DEFAULT_ACTIONS = frozenset({'view', 'play', 'edit'})
 SCOPES = frozenset({'own', 'author', 'author_pool', 'all'})
 

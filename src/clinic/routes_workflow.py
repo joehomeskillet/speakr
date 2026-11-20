@@ -359,8 +359,8 @@ def create_blueprint(
                 apply: Callable[[ClinicDictation, int, str, datetime], JSON], *, created: int = 200,
                 author_only: bool = False):
         target, actor = str(dictation_id), current_user.id
-        # Serialize author sends before receipt lookup so overlapping retries replay.
-        if author_only:
+        # Serialize first archive registration and author sends with their receipts on SQLite.
+        if author_only or name == 'archive':
             connection = db.session.connection()
             if connection.dialect.name == 'sqlite' and not connection.connection.driver_connection.in_transaction:
                 connection.exec_driver_sql('BEGIN IMMEDIATE')
@@ -540,9 +540,11 @@ def create_blueprint(
                     subject=policy.build_subject(current_user.id),
                     facts=policy.build_facts(recording.id, recording.user_id),
                     expected_version=expected, request_id=key, now=now,
-                    confirm=body['confirm'], recording=recording)
+                    confirm=body['confirm'], recording=recording, dictation=row)
             except archive_policy.StaleVersion as stale:
                 raise workflow.WorkflowError('stale_version') from stale
+            if done.applied:
+                row.version_counter += 1
             return {'dictation_id': row.id, 'requested': done.requested, 'status': done.status,
                     'version': done.version, 'applied': done.applied,
                     'retention_changed': done.retention_changed,
@@ -551,6 +553,7 @@ def create_blueprint(
                                 'would_delete': done.dry_run.would_delete},
                     'etag': f'"{row.id}:{done.version}"'}
 
-        return command(dictation_id, 'archive', PERM_ARCHIVE, body, apply)
+        permission = PERM_ARCHIVE if body['action'] == archive_policy.ARCHIVE else 'clinic.delete'
+        return command(dictation_id, 'archive', permission, body, apply)
 
     return bp

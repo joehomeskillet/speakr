@@ -1159,7 +1159,7 @@ def register_clinic_worklist(flask_app):
                             workflow, workflow_metadata, worklist_entries)
     from src.clinic.acceptance_policy import SCOPE_DICTATION, AcceptanceLedger, PolicyError
     from src.clinic import finalize_gates
-    from src.clinic.archive_policy import ArchiveBook
+    from src.clinic.archive_policy import ArchiveBook, archive_available
     from src.clinic.metadata_changes import ChangeError
     from src.clinic.models import ClinicDictation
     from src.clinic.parity_dispatch import CommandProblem
@@ -1172,7 +1172,8 @@ def register_clinic_worklist(flask_app):
     run_once = flask_app.extensions['clinic_run_once']
     # Permission or action name -> central policy actions that must all be allowed.
     needs = {
-        'clinic.metadata': ('edit',), 'clinic.archive': ('edit',), 'clinic.release': ('release',),
+        'clinic.metadata': ('edit',), 'clinic.archive': ('archive',), 'clinic.delete': ('edit', 'delete'),
+        'clinic.release': ('release',),
         'clinic.review': ('edit', 'release'), 'clinic.accept': ('release',),
         'clinic.reopen': ('release',), 'clinic.dictate': ('edit',), 'history': ('view',),
         'review': ('edit',), 'listen': ('play',), 'regex_preview': ('edit',), 'regex_apply': ('edit',),
@@ -1184,7 +1185,8 @@ def register_clinic_worklist(flask_app):
         if not actions or dictation is None:
             return False
         subject = policy.build_subject(user_id)
-        return all(pool_policy.decide(subject, action, dictation).allowed for action in actions)
+        return (all(pool_policy.decide(subject, action, dictation).allowed for action in actions)
+                and (name != 'clinic.archive' or archive_available(dictation)))
 
     def allowed_actions(user_id, dictation):
         return {name for name in ('rename', 'priority', 'reassign') if may(user_id, name, dictation)}
