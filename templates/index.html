@@ -100,6 +100,7 @@
 </head>
 <body class="h-full bg-[var(--bg-primary)] text-[var(--text-primary)] transition-colors duration-300">
     <div id="app" v-cloak
+         data-current-user-name="{{ current_user.name or current_user.username }}"
          data-use-asr-endpoint="{{ use_asr_endpoint }}"
          data-clinic-mode="{{ 'True' if clinic_mode else 'False' }}"
          {% if clinic_mode %}data-clinic-role="{{ clinic_role or 'author' }}" data-clinic-admin="{{ 'True' if current_user.is_admin else 'False' }}"{% endif %}
@@ -255,17 +256,22 @@
                                            @open="openClinicMenuDictation" @worklist="goClinicView('clinic-worklist')"></clinic-recording-view>
                     <clinic-live-view v-else-if="currentView === 'clinic-live' && clinicLiveId" :client="clinicClient"
                                       :dictation-id="clinicLiveId"></clinic-live-view>
-                    <section v-else-if="currentView === 'clinic-live'" data-testid="clinic-live-picker" aria-labelledby="clinic-live-picker-title">
-                        <h1 id="clinic-live-picker-title" class="text-lg font-semibold">Live-Diktat</h1>
-                        <p class="mt-2">Live-Diktat läuft zu einem bestehenden Diktat. Geben Sie die Diktat-ID ein.</p>
+                    <section v-else-if="currentView === 'clinic-live'" class="v8-page panel" data-testid="clinic-live-picker" aria-labelledby="clinic-live-picker-title">
+                        <h1 id="clinic-live-picker-title" class="text-2xl font-semibold">Live-Diktat</h1>
+                        <p class="mt-2">Eigenes offenes Diktat nach Name, Fall-ID oder Datum auswählen. Eine bekannte Diktat-ID ist optional möglich.</p>
                         <form class="flex flex-wrap items-end gap-2 mt-3" @submit.prevent="openClinicLive()">
-                            <label class="flex flex-col text-sm">Diktat-ID
-                                <input type="text" v-model="clinicLiveDraft" data-testid="clinic-live-id" autocomplete="off"
-                                       class="px-2 py-2 border rounded" style="min-height: 2.75rem">
+                            <label class="flex flex-col flex-1 min-w-0 text-sm">Diktat suchen
+                                <input type="text" v-model="clinicLiveDraft" list="clinic-live-choices" data-testid="clinic-live-id" autocomplete="off"
+                                       class="w-full px-2 py-2 border rounded" style="min-height: 2.75rem">
                             </label>
-                            <button type="submit" data-testid="clinic-live-open" class="px-3 py-2 border rounded" style="min-height: 2.75rem"
-                                    :disabled="!clinicLiveDraft.trim()">Live-Diktat öffnen</button>
+                            <button type="submit" data-testid="clinic-live-open" class="primary px-3 py-2 border rounded" style="min-height: 2.75rem"
+                                    :disabled="!clinicLiveChoices.resolve(clinicLiveDraft)">Live-Diktat öffnen</button>
                         </form>
+                        <datalist id="clinic-live-choices"><option v-for="row in clinicLiveChoices.state.rows" :key="row.id" :value="row.label"></option></datalist>
+                        <p role="status" v-if="clinicLiveChoices.state.loading">Diktate werden geladen …</p>
+                        <p role="status" v-else>Suche in geladenen Diktaten. <span v-text="clinicLiveChoices.state.message"></span></p>
+                        <button type="button" :disabled="clinicLiveChoices.state.loading" @click="clinicLiveChoices.load()">Auswahl neu laden</button>
+                        <button v-if="clinicLiveChoices.state.cursor" type="button" :disabled="clinicLiveChoices.state.loading" @click="clinicLiveChoices.load(true)">Weitere Diktate laden</button>
                     </section>
                     <clinic-archive-view v-else-if="currentView === 'clinic-archive'" :client="clinicClient"
                                          @open="openClinicMenuDictation" @back="goClinicView('clinic-recordings')"></clinic-archive-view>

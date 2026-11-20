@@ -278,20 +278,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     const clinicMode = appRootElement?.dataset?.clinicMode === 'True';
     if (clinicMode) {
         try {
-            const [{ createClinicApiClient }, { registerWorklistView }, { registerResourcesView }, { registerCorrectionView }, { registerRecordingsView }] = await Promise.all([
+            const [{ createClinicApiClient }, { registerWorklistView }, { registerResourcesView }, { registerCorrectionView }, { registerRecordingsView }, { createDictationChoices }] = await Promise.all([
                 import('./clinic/api-client.js'),
                 import('./clinic/compose-worklist.js'),
                 import('./clinic/compose-resources.js'),
                 import('./clinic/compose-correction.js'),
                 import('./clinic/compose-recordings.js'),
+                import('./clinic/dictation-choices.js'),
             ]);
             clinicWorklist = {
                 registerWorklistView,
                 registerResourcesView,
                 registerCorrectionView,
                 registerRecordingsView,
+                createDictationChoices,
                 client: createClinicApiClient(),
-                user: { id: appRootElement.dataset.currentUserId, role: appRootElement.dataset.clinicRole || 'author' },
+                user: { id: appRootElement.dataset.currentUserId, name: appRootElement.dataset.currentUserName, role: appRootElement.dataset.clinicRole || 'author' },
             };
             // V8 dictation views (v8-70)
             const [{ registerDetailView }, { registerReviewView }, { registerOutputView }, { registerJobsView }, { registerActivityView }] = await Promise.all([
@@ -3105,9 +3107,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             const clinicInitialLiveId = new URLSearchParams(window.location.search).get('dictation');
             const clinicLiveId = ref(clinicInitialLiveId && CLINIC_ID_PATTERN.test(clinicInitialLiveId) ? clinicInitialLiveId : null);
             const clinicLiveDraft = ref('');
+            const clinicLiveChoices = clinicWorklist ? clinicWorklist.createDictationChoices({ client: clinicWorklist.client, makeState: reactive, authorId: clinicWorklist.user.id }) : null;
+            watch(currentView, (view) => {
+                clinicLiveChoices?.clear();
+                if (view === 'clinic-live' && !clinicLiveId.value) clinicLiveChoices?.load();
+            }, { immediate: true });
+            onUnmounted(() => clinicLiveChoices?.clear());
             const openClinicLive = () => {
-                const id = clinicLiveDraft.value.trim();
-                if (CLINIC_ID_PATTERN.test(id)) clinicLiveId.value = id;
+                const id = clinicLiveChoices?.resolve(clinicLiveDraft.value);
+                if (id && CLINIC_ID_PATTERN.test(id)) clinicLiveId.value = id;
             };
             // A view that creates or lists dictations hands over to the existing correction view; the archive is read only.
             const openClinicMenuDictation = (payload) => openClinicDictation({
@@ -5440,7 +5448,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // end V8 dictation views (v8-70)
                 // V8 menu views (v8-71)
                 clinicMenuViews, clinicMenuActions, clinicMenuToolbarVisible, clinicRecorder, clinicUploadFile,
-                clinicLiveId, clinicLiveDraft, openClinicLive, openClinicMenuDictation,
+                clinicLiveId, clinicLiveDraft, clinicLiveChoices, openClinicLive, openClinicMenuDictation,
                 // end V8 menu views (v8-71)
                 // V8 Verwaltung views (v8-114)
                 clinicAdminView, clinicAdminAllowed, clinicAdminAccess, clinicAdminProps
