@@ -79,6 +79,16 @@ def _fallback_reason(error: BaseException) -> Optional[str]:
     return None
 
 
+def served_gpu_model(health):
+    """Recognize the bundled OpenVINO service's single loaded model."""
+    if (isinstance(health, dict) and health.get('model_loaded') is True
+            and isinstance(health.get('versions'), dict) and 'openvino_genai' in health['versions']):
+        name = health.get('model')
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+    return None
+
+
 class FallbackTranscriptionConnector(BaseTranscriptionConnector):
     """Runs a request on the GPU connector and falls back once to the CPU one."""
 
@@ -119,11 +129,7 @@ class FallbackTranscriptionConnector(BaseTranscriptionConnector):
             health = response.json()
         except ValueError:
             return None
-        if (isinstance(health, dict) and health.get('model_loaded') is True
-                and isinstance(health.get('versions'), dict) and 'openvino_genai' in health['versions']):
-            served = health.get('model')
-            if isinstance(served, str) and served.strip():
-                self._local.served_model = served.strip()
+        self._local.served_model = served_gpu_model(health)
         return None
 
     def _log_fallback(self, reason: str) -> None:
@@ -138,10 +144,12 @@ class FallbackTranscriptionConnector(BaseTranscriptionConnector):
             pass
 
     @staticmethod
-    def _gpu_request(request: TranscriptionRequest, served_model: str | None = None) -> TranscriptionRequest:
+    def _gpu_request(request: TranscriptionRequest, served_model: str | None = None, saved=None) -> TranscriptionRequest:
         """A per-request model override (reprocess) names a CPU model; the GPU
         target honors an explicit name or alias. For the bundled single-model
         service an absent pin uses the name advertised by healthz."""
+        if saved:
+            return dataclasses.replace(request, model=saved)
         model = os.environ.get(GPU_MODEL_ENV, '').strip()
         if served_model and not model:
             # CPU profile/model overrides do not name the bundled GPU model.
@@ -173,7 +181,10 @@ class FallbackTranscriptionConnector(BaseTranscriptionConnector):
         if reason is None:
             logger.info('ASR: sending job to GPU target %s', self._gpu_url)
             try:
-                return self._set_engine(self._gpu.transcribe(self._gpu_request(request, self._local.served_model)), 'gpu')
+                from src.clinic.task_models import asr_is_local, override
+                saved = override('asr_gpu') if asr_is_local(self._gpu_url) else None
+                gpu_request = self._gpu_request(request, self._local.served_model, saved)
+                return self._set_engine(self._gpu.transcribe(gpu_request), 'gpu')
             except TranscriptionError as exc:
                 reason = _fallback_reason(exc)
                 if reason is None:
@@ -211,6 +222,7 @@ def wrap_with_gpu_fallback(cpu: BaseTranscriptionConnector) -> BaseTranscription
         'api_key': os.environ.get(GPU_KEY_ENV, '').strip() or cpu.config.get('api_key') or 'local',
         'base_url': url,
         'word_timestamps': cpu.config.get('word_timestamps', False),
+        'clinic_gpu_target': True,
         'model': os.environ.get(GPU_MODEL_ENV, '').strip() or cpu.config.get('model', 'whisper-1'),
     })
     # One attempt only: the fallback is the retry.

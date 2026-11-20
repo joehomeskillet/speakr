@@ -1370,6 +1370,8 @@ def register_clinic_identity(flask_app):
     flask_app.register_blueprint(routes_admin_dictations.blueprint)
     flask_app.register_blueprint(routes_pools.blueprint)
     flask_app.register_blueprint(routes_pool_admin.blueprint)
+    from src.clinic import routes_task_models
+    flask_app.register_blueprint(routes_task_models.blueprint)
     flask_app.register_blueprint(routes_grants.GrantsApi().blueprint)
     flask_app.register_blueprint(create_metadata_fields_blueprint())
     flask_app.register_blueprint(routes_preferences.PreferenceRoutes(

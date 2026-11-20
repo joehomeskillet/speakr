@@ -188,6 +188,7 @@ def _authorized_input(job, params, *, lock=False):
 
 
 def run_summary(job, params, current_attempt):
+    from src.clinic.task_models import override
     from src.tasks import processing
     from src.services.llm_settings import get_temperature
     from src.transcription_prompts import build_summary_prompt, build_user_content, clean_llm_response
@@ -204,6 +205,7 @@ def run_summary(job, params, current_attempt):
     messages = [{'role': 'system', 'content': system},
                 {'role': 'user', 'content': build_user_content(prompt, text, optimized, breaks)}]
     temperature = get_temperature('summary')
+    model_name = override('summary')
     db.session.rollback()
     job_control.current().check_cancel()
     try:
@@ -212,7 +214,7 @@ def run_summary(job, params, current_attempt):
             client = llm.client.with_options(http_client=transport)
             reply = llm.call_llm_completion(
                 messages, temperature=temperature, max_tokens=int(os.environ.get('SUMMARY_MAX_TOKENS', '3000')),
-                user_id=user_id, operation_type='summarization', model_client=client)
+                user_id=user_id, operation_type='summarization', model_client=client, model_name=model_name)
     except Exception:
         # Provider errors can quote the corrected transcript, which isn't in Recording.transcription.
         raise RuntimeError('Summary provider failed') from None

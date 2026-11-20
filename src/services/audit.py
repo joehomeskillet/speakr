@@ -1058,7 +1058,7 @@ _DEFINED_SETTING_KEYS = frozenset({
     'disable_auto_summarization', 'disable_auto_translation', 'embedding_identifier', 'enable_folders',
     'login_lockout_minutes', 'login_max_failed_attempts', 'max_audio_only_video_size_mb',
     'max_file_size_mb', 'recording_disclaimer', 'transcript_length_limit',
-    'upload_disclaimer', 'transcription_models_visible_json', 'transcription_default_model',
+    'upload_disclaimer', 'transcription_models_visible_json', 'transcription_default_model', 'clinic_task_models',
 })
 
 

@@ -1473,6 +1473,8 @@ def admin_get_settings():
     settings = SystemSetting.query.order_by(func.lower(SystemSetting.key)).all()
     result = []
     for setting in settings:
+        if setting.key == 'clinic_task_models':
+            continue
         data = setting.to_dict()
         if setting.key in ENV_BACKED_SETTINGS:
             data['env_backed'] = True
@@ -1497,6 +1499,8 @@ def admin_update_setting():
         return jsonify(api_error('no_data_provided')), 400
     
     key = data.get('key')
+    if key == 'clinic_task_models':
+        return jsonify(error='use_task_models_api'), 400
     value = data.get('value')
     description = data.get('description')
     setting_type = data.get('setting_type', 'string')
