@@ -1,7 +1,5 @@
 """Session-authenticated reads for the clinic import centre."""
 
-import json
-
 from flask import Blueprint, abort, jsonify, session
 from flask_login import current_user
 
@@ -57,17 +55,13 @@ def _can_import(actor):
     return True
 
 
-def _source_config(scope, relative_path):
-    if scope.root_id is None or relative_path is None:
+def _source_config(scope, relative_path, owners):
+    if scope.root_id is None or relative_path is None or owners.get(scope.root_id) != scope.agent_id:
         return None
     try:
-        matches = [
-            config for kind in import_centre.SOURCE_KINDS
-            if (config := import_source_config.resolve_source_config(kind, scope.root_id, relative_path)) is not None
-        ]
+        return import_source_config.delivery_config(scope.root_id, relative_path)
     except agent_channel.AgentChannelError:
-        return None  # Revoked or invalid roots confer no authority.
-    return matches[0] if len(matches) == 1 else None
+        return None
 
 
 @blueprint.get("/intents")
@@ -88,8 +82,8 @@ def inventory():
     if not (can_import or led_pools):
         return _problem("FORBIDDEN")
 
-    agents = agent_channel.ClinicAgent.query.filter_by(enabled=True).order_by(agent_channel.ClinicAgent.id)
-    roots_by_agent = {agent.id: set(json.loads(agent.allowed_sources)) for agent in agents}
+    roots_by_agent = agent_channel.enabled_agent_roots()
+    owners = agent_channel.unique_root_owners(roots_by_agent)
 
     def may_read(uid, action, scope):
         if uid != actor or action != "read_inventory" or scope.root_id not in roots_by_agent.get(scope.agent_id, ()):
@@ -97,7 +91,7 @@ def inventory():
         if admin:
             return True
         item = agent_channel.inventory_row(scope.agent_id, scope.source_id, scope.snapshot_version)
-        config = _source_config(scope, item.relative_path) if item else None
+        config = _source_config(scope, item.relative_path, owners) if item else None
         return config is not None and (
             config["target_pool_id"] in led_pools or (can_import and config["target_author_user_id"] == uid)
         )
@@ -122,13 +116,15 @@ def unassigned():
     if not (admin or led_pools):
         return _problem("FORBIDDEN")
 
+    owners = {} if admin else agent_channel.unique_root_owners(agent_channel.enabled_agent_roots())
+
     def may_read(uid, action, scope):
         if uid != actor or action != "list_unassigned":
             return False
         if admin:
             return True
         delivery = db.session.get(import_centre.ClinicImportDelivery, scope.delivery_id)
-        config = _source_config(scope, delivery.relative_path) if delivery else None
+        config = _source_config(scope, delivery.relative_path, owners) if delivery else None
         return config is not None and config["target_pool_id"] in led_pools
 
     visibility = import_visibility.ClarificationPolicy(may_access=may_read)

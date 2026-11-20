@@ -367,6 +367,21 @@ def agent_of(principal):
 
 # --- inventory -------------------------------------------------------------------
 
+def enabled_agent_roots():
+    rows = db.session.query(ClinicAgent.id, ClinicAgent.allowed_sources).filter(
+        ClinicAgent.enabled.is_(True)).order_by(ClinicAgent.id)
+    return {agent_id: set(json.loads(roots)) for agent_id, roots in rows}
+
+
+def unique_root_owners(registry):
+    """Local aliases may be reused. Only one currently enabled registrant identifies a source."""
+    owners = {}
+    for agent_id, roots in registry.items():
+        for root in roots:
+            owners[root] = None if root in owners else agent_id
+    return owners
+
+
 def _parse_mtime(value):
     try:
         return aware(datetime.fromisoformat(re.sub(r"(\.\d{6})\d+", r"\1", str(value))))

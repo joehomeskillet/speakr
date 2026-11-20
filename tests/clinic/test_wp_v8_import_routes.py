@@ -137,3 +137,21 @@ def test_clinic_routes_in_a_fresh_app_process():
         capture_output=True, text=True, timeout=60, check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+@clinic_routes
+def test_ambiguous_registered_source_is_visible_only_for_admin_clarification(scene):
+    from src.clinic import agent_channel
+
+    lead, admin = scene["other"], scene["admin"]
+    peer = agent_channel.register_agent(scene["policy"], actor_user_id=admin.id, display_name="Second lab station",
+                                        allowed_sources=["usb-1"], credential_fingerprint="bb" * 20)
+    def roots(user, path):
+        return {row["root_id"] for row in _items(_client(user), path)}
+
+    for path in ("inventory", "unassigned"):
+        assert "usb-1" not in roots(lead, path)
+        assert "usb-1" in roots(admin, path)
+    agent_channel.set_agent_enabled(scene["policy"], actor_user_id=admin.id, agent_id=peer["agent_id"], enabled=False)
+    for path in ("inventory", "unassigned"):
+        assert roots(lead, path) == {"usb-1"}

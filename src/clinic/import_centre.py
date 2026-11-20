@@ -31,6 +31,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from src.database import db
 from src.models import User
 
+from . import agent_channel
 from .agent_channel import (
     AgentChannelError, ClinicAgentIngest, agent_of, aware, inventory_row, transactional, utcnow,
 )
@@ -444,6 +445,10 @@ def _clinic_delivery_intent(item, session_row, now, device_map, alias_map, embed
         config = import_source_config.delivery_config(item.root_id, item.relative_path) or {}
     except AgentChannelError:
         return None
+    if config:
+        owners = agent_channel.unique_root_owners(agent_channel.enabled_agent_roots())
+        if owners.get(item.root_id) != session_row.agent_id:
+            return None
     if config.get("source_kind") == "device":
         device = item.root_id.strip().upper()
         configured_author = config["target_author_user_id"]
