@@ -1,5 +1,15 @@
 # Speakr V8: geprüfte Änderungen im Klinik-Webclient
 
+## Nachweis vom 20. November um 16:16 Uhr
+
+Auf Staging öffnete ein normal angemeldetes QA-Konto die eigene Aufnahme per Mausklick bei 1440 Pixeln und per Touch bei 390 Pixeln. In der Arbeitsliste wählte der Titeldruck die passende Zeile. Die vollständige Kennung ließ sich getrennt aufklappen. Beim Abspielen von 9,505 Sekunden echtem Testaudio markierte der Schreibplatz zwei aufeinanderfolgende Wörter im Transkript bei 0,209 und 0,344 Sekunden. Der lokale GPU-Dienst lieferte für 22 von 24 Wörtern passende Zeiten.
+
+Ein QA-Autor speicherte und öffnete seine erste manuelle Korrektur. In einem separaten Fall speicherte die zugewiesene Schreibkraft eine Änderung und gab die Bearbeitung an den Schreibdienst zurück. Dafür verwendete sie ein auf den synthetischen Testpool beschränktes Recht. Der technische Site-Administrator übernahm die Sperre im selben Testdiktat. Das Audit verzeichnete den Halterwechsel. Die temporären Fachrechte wurden nach dem Test widerrufen.
+
+Die endgültige Freigabe eines weiteren synthetischen Diktats antwortete mit HTTP 201. Das KIS-Simulationssystem quittierte genau eine Zustellung. Die anschließende Archivierung meldete auf diesem Stagingstand HTTP 404. Der lokale Reparaturtest verwendet eine reguläre Freigabe, die explizite Archivberechtigung, Widerruf und eine bestätigte Archivierung ohne vorheriges Anlegen eines Archivdatensatzes von Hand.
+
+User 1 besitzt seine bestehende Site-Admin-Sicht auf fremde Klinikdiktate einschließlich Wiedergabe. Die gesonderten Fachrechte für Dokumentexport und Freigabe gelten für eigene Diktate. Alle 13 bisherigen Diktate sind weiterhin User 1 zugeordnet. Die Browserbelege stammen von neu angelegten QA-Konten. Für die Aufnahme ohne decodierbare Samples fehlt ein intaktes Original. Der physische Windows-Import und die Abnahme mit realer Hardware stehen aus.
+
 ## Staging und Teststand am 20. November 2026
 
 | Bereich | Stand und Prüfumfang |
