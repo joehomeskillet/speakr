@@ -9,6 +9,11 @@ on:
       - 'scripts/handbook_language.py'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
+    inputs:
+      verified_commit:
+        description: Full commit ID of the independently verified handbook
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -21,7 +26,10 @@ concurrency:
 
 jobs:
   build:
-    if: github.ref == 'refs/heads/main'
+    if: >-
+      github.ref == 'refs/heads/main' ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev' &&
+       github.repository == 'joehomeskillet/speakr' && github.sha == inputs.verified_commit)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
