@@ -12,6 +12,10 @@
  * filter and renders no patient name, title, notes or recipient. The
  * dictation-properties-ui panel is not mounted: it is a validate-only form with
  * title and recipient inputs and is not bound to the selected dictation.
+ * Role separation (V8 P02): "Diktiert von", "Schreibkräfte-Pool" and "Übernommen
+ * von" are three separate columns fed by the additive row fields dictated_by,
+ * staff_pools and lease_holder (staff display names only). The detail panel is
+ * rendered only while a row is selected; without a selection no column is reserved.
  * Clinical data stays in memory; the only browser storage is the last filter
  * id kept by worklist-filters-ui. Colours come from tokens.js, requests from
  * api-client.js.
@@ -48,7 +52,8 @@ export const TEXT = Object.freeze({
     protection: 'Schutz',
     acceptance: 'Pflichtfreigabe',
     history: 'Verlauf',
-    noSelection: 'Wählen Sie ein Diktat aus der Liste, um Details zu sehen.',
+    close: 'Details schliessen',
+    noPool: 'Kein Pool zugewiesen',
 });
 
 // Columns the layout may order, sort and group. Title, notes and recipient are
@@ -57,13 +62,28 @@ export const LIST_COLUMNS = Object.freeze([
     { key: 'status', label: 'Status' },
     { key: 'priority', label: 'Priorität' },
     { key: 'deadline_at', label: 'Frist' },
-    { key: 'author_user_id', label: 'Autor' },
-    { key: 'assignee_user_id', label: 'Zuständig' },
+    { key: 'dictated_by', label: 'Diktiert von' },
+    { key: 'staff_pools', label: 'Schreibkräfte-Pool' },
+    { key: 'lease_holder', label: 'Übernommen von' },
+    { key: 'assignee_user_id', label: 'Zugewiesen an' },
     { key: 'assigned_at', label: 'Zugewiesen' },
     { key: 'created_at', label: 'Erstellt' },
     { key: 'duration_seconds', label: 'Dauer' },
     { key: 'source_kind', label: 'Quelle' },
 ].map((c) => Object.freeze(c)));
+
+export const ROLE_KEYS = Object.freeze(['dictated_by', 'staff_pools', 'lease_holder']);
+
+/** Text of a role value: a person shows the staff display name (else the ID), pools show their names. */
+export function roleText(key, value) {
+    if (key === 'staff_pools') {
+        const names = Array.isArray(value) ? value.map((p) => (p && (p.name || p.id)) || '').filter(Boolean) : [];
+        return names.length ? names.join(', ') : TEXT.noPool;
+    }
+    if (value === null || value === undefined || value === '') return '–';
+    if (typeof value === 'object') return String(value.display_name || value.id || '–');
+    return String(value);
+}
 
 export function rowKey(row) {
     const id = row && (row.dictation_id != null ? row.dictation_id : row.id);
@@ -79,6 +99,7 @@ export function neighborRow(rows, current, delta) {
 
 function groupLabel(key, value) {
     const name = (LIST_COLUMNS.find((c) => c.key === key) || {}).label || key;
+    if (ROLE_KEYS.includes(key)) return name + ': ' + roleText(key, value);
     if (value === null || value === undefined || value === '') return name + ': –';
     if (key === 'status') return name + ': ' + (STATUS_LABELS[value] || value);
     return name + ': ' + (key === 'priority' ? formatPriority(value) : value);
@@ -119,6 +140,7 @@ export function cellText(row, key) {
     if (key === 'status') return statusBadge(row).label;
     if (key === 'priority') return formatPriority(value);
     if (key === 'duration_seconds') return formatAudioDuration(value);
+    if (ROLE_KEYS.includes(key)) return roleText(key, value);
     return value === null || value === undefined || value === '' ? '–' : String(value);
 }
 
@@ -268,7 +290,22 @@ export function createWorklistViewController(options) {
         layout.applyToRows(worklist.rows.value),
         layout.state.layout.group_by,
     ));
-    const columns = () => layout.orderedColumns();
+    // The legacy author column is replaced by the three role columns; a layout that
+    // does not list them yet gets them at the author column's place.
+    const columns = () => {
+        const stored = new Set(layout.state.layout.columns.map((c) => c.key));
+        const roles = () => ROLE_KEYS.filter((k) => !stored.has(k))
+            .map((key) => ({ key, width: 140, visible: true, label: layout.labelOf(key) }));
+        const out = [];
+        let placed = false;
+        for (const col of layout.orderedColumns()) {
+            if (col.key !== 'author_user_id') { out.push(col); continue; }
+            out.push(...roles());
+            placed = true;
+        }
+        if (!placed) out.push(...roles());
+        return out;
+    };
     const headerAttrs = (key) => {
         const { style, ...rest } = layout.headerProps(key); // drop outline:none, the global :focus-visible ring stays
         return rest;
@@ -491,7 +528,7 @@ export const WorklistView = {
         {{ g.label }}: {{ g.count }} ({{ g.formattedDuration }})
       </span>
     </header>
-    <div class="grid gap-4 lg:grid-cols-2 mt-3">
+    <div class="grid gap-4 mt-3" :class="c.selectedId.value ? 'lg:grid-cols-2' : ''">
       <div class="overflow-x-auto">
         <p class="sr-only" id="cwv-keys">{{ c.text.keys }}</p>
         <div v-if="c.worklist.isLoading.value" role="status" aria-live="polite" data-testid="loading-state">{{ c.text.loading }}</div>
@@ -527,10 +564,12 @@ export const WorklistView = {
           <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :disabled="!c.hasNext()" @click="c.goto(c.view.page + 1)">{{ c.text.next }}</button>
         </nav>
       </div>
-      <aside aria-labelledby="cwv-detail-title" data-testid="detail-panel">
-        <p v-if="!c.selectedId.value" id="cwv-detail-title">{{ c.text.noSelection }}</p>
-        <div v-else :key="c.selectedId.value">
+      <aside v-if="c.selectedId.value" aria-labelledby="cwv-detail-title" data-testid="detail-panel"
+             @keydown.esc="c.select(null)">
+        <div :key="c.selectedId.value">
           <h2 id="cwv-detail-title" class="font-semibold">{{ c.text.detail }}</h2>
+          <button type="button" class="px-3 py-2 border rounded mt-2" style="min-height: 2.75rem" data-testid="close-detail"
+                  @click="c.select(null)">{{ c.text.close }}</button>
           <button type="button" class="px-3 py-2 border rounded mt-2" style="min-height: 2.75rem" data-testid="open-dictation"
                   :disabled="!c.canOpen.value" @click="c.open()">{{ c.text.open }}</button>
           <component :is="parts.Lease" v-if="c.leaseState.value" :state="c.leaseState.value" :run="c.leaseRun" />

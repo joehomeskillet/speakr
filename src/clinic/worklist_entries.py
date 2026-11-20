@@ -3,6 +3,9 @@
 ``load_entries`` narrows which dictations an actor may see before the worklist
 applies its live view policy:
 
+Each entry also carries the additive role fields `dictated_by`, `staff_pools` and
+`lease_holder` from `dictation_roles.project_roles` (staff data only, no patient data).
+
 * ordinary users: dictations they authored or that are assigned to them;
 * typist-pool leads (W13): additionally the unassigned dictations (Klärliste)
   of the author pools routed to a staff pool they lead, i.e. the group
@@ -78,8 +81,12 @@ def load_entries(actor: int) -> list[routes_worklist.WorklistEntry]:
         if led:
             conditions.append(and_(item.assignee_user_id.is_(None), ClinicDictation.pool_id.in_(led)))
         query = query.filter(or_(*conditions))
+    from src.clinic.dictation_roles import project_roles  # lazy: dictation_roles imports stamp from here
+
+    found = list(query)
+    roles = project_roles(dictation for dictation, _row, _rec in found)
     entries = []
-    for dictation, row, rec in query:
+    for dictation, row, rec in found:
         if admin and actor not in (dictation.author_user_id, rec.user_id):
             audit.record("recording.content.read", recording=rec, details={"part": "worklist"},
                          actor_kind="session", actor_user_id=actor)
@@ -89,7 +96,8 @@ def load_entries(actor: int) -> list[routes_worklist.WorklistEntry]:
             deadline_at=stamp(row.deadline_at), assignee_user_id=row.assignee_user_id,
             assigned_at=None, notes=rec.notes or "", created_at=stamp(row.created_at),
             duration_seconds=row.audio_seconds, recipient=None, source_kind="audio",
-            open_mode=_open_mode(actor, dictation, row.status), revision=dictation.version_counter), dictation.pool_id))
+            open_mode=_open_mode(actor, dictation, row.status), revision=dictation.version_counter,
+            **roles[dictation.id]), dictation.pool_id))
     return entries
 
 
