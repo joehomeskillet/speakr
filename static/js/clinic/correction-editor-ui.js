@@ -228,6 +228,7 @@ export function useCorrectionEditor(options) {
         text, textRevisionId, etag, dirty, manual, loading, error, audio, template,
         templates: manager.state, templatesError, lease: leaseState, canEdit, announcement,
         load, applyTemplate, setText, dispose, audioSource,
+        availableLeaseActions: () => leaseActions(leaseState.value),
         ...(opts.exposeLeaseController === true ? { leaseController: lease } : {}),
         acquire: lease.acquire, release: lease.release, takeOver: lease.takeOver,
     };
@@ -253,7 +254,7 @@ export const CorrectionEditor = {
         });
         if (V && typeof V.onMounted === 'function') V.onMounted(() => { editor.load(); });
         if (V && typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(editor.dispose);
-        const actions = V && V.computed ? V.computed(() => leaseActions(editor.lease.value)) : { value: [] };
+        const actions = V && V.computed ? V.computed(editor.availableLeaseActions) : { value: [] };
         const surface = V && V.computed
             ? V.computed(() => surfaceFor(editor.error.value ? 'error' : (editor.loading.value ? 'processing' : 'normal')))
             : { value: surfaceFor('normal') };
