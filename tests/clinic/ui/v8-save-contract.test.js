@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createCorrectionViewController, scopedClient } from '../../../static/js/clinic/compose-correction.js';
+import { CorrectionBody, createCorrectionViewController, scopedClient } from '../../../static/js/clinic/compose-correction.js';
 import { useCorrectionEditor } from '../../../static/js/clinic/correction-editor-ui.js';
 import {
     AUTOSAVE_MS_DEFAULT, LABELS, diffLines, useCorrectionSave,
@@ -380,6 +380,52 @@ describe('V8 controller wiring', () => {
         expect(aborted.filter((p) => p.endsWith('/leases/release'))).toEqual([]);
         expect(two.ready.value).toBe(true);
         two.dispose();
+    });
+
+    it('close() keeps saving after a lost ACK until the newer text is on the server', async () => {
+        const server = makeServer({ dropAck: true });
+        const onClose = vi.fn();
+        const c = createCorrectionViewController({ client: server.client, dictationId: D, currentUser: user, contract: 'v8', onClose, autosaveMs: 600000 });
+        await c.start();
+        await c.editor.acquire();
+        c.editor.setText('eins');
+        await c.save();
+        c.editor.setText('eins zwei');
+        server.dropAck = false;
+        const closed = await c.close();
+        expect(closed).toBe(true);
+        expect(server.text).toBe('eins zwei');
+        expect(c.editor.dirty.value).toBe(false);
+        expect(onClose).toHaveBeenCalledTimes(1);
+        c.dispose();
+    });
+
+    it('close() stays open and reports a failure when the text is still dirty after the bounded passes', async () => {
+        const server = makeServer();
+        const onClose = vi.fn();
+        const c = createCorrectionViewController({ client: server.client, dictationId: D, currentUser: user, contract: 'v8', onClose, autosaveMs: 600000 });
+        await c.start();
+        await c.editor.acquire();
+        c.editor.setText('eins');
+        let n = 0;
+        const realSave = c.saver.save;
+        c.saver.save = async (...a) => { const res = await realSave(...a); n += 1; c.editor.setText('weiter ' + n); return res; };
+        expect(await c.close()).toBe(false);
+        expect(onClose).not.toHaveBeenCalled();
+        expect(c.closeMessage.value).not.toBe('');
+        c.dispose();
+    });
+
+    it('the mounted body runs the V8 contract: 5 s step and a lease controller', () => {
+        const V = {
+            ref: (value) => ({ value }), shallowRef: (value) => ({ value }),
+            computed: (fn) => ({ get value() { return fn(); } }),
+            onMounted: () => {}, onBeforeUnmount: () => {},
+        };
+        const out = CorrectionBody.setup({ client: makeServer().client, dictationId: D, currentUser: user, vue: V }, { emit: () => {} });
+        expect(out.c.stepSeconds).toBe(5);
+        expect(typeof out.c.editor.leaseController.getState).toBe('function');
+        out.c.dispose();
     });
 
     it('scopedClient forwards the context switch at once when no release is pending', () => {

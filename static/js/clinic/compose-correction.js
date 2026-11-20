@@ -48,6 +48,8 @@ export const STEP_SECONDS = 3;
 
 /** V8 editor contract (UI8-004): skip and rewind step in seconds. Used when the controller runs with contract 'v8'. */
 export const STEP_SECONDS_V8 = 5;
+/** Extra save passes close() may run after the first one while edits are still dirty. */
+const CLOSE_EXTRA_SAVES = 2;
 
 export const TEXT = Object.freeze({
     title: 'Korrektur',
@@ -411,8 +413,11 @@ export function createCorrectionViewController(options) {
     /** Unsaved edits are saved before the page is told to close; a failed save keeps the view open. */
     async function close() {
         if (disposed) return false;
-        if (editor.dirty.value) {
-            const res = await save();
+        // A save can settle an older pending operation and leave newer text dirty (reconcile first),
+        // or the text can change while the save is awaited: save again, bounded, until nothing is dirty.
+        for (let pass = 0; editor.dirty.value; pass += 1) {
+            const res = pass > CLOSE_EXTRA_SAVES ? null : await save();
+            if (disposed) return false;
             if (!res || !res.ok) {
                 closeMessage.value = TEXT.closeFailed;
                 return false;
@@ -468,7 +473,7 @@ const BODY_PROPS = {
 };
 
 /** Inner body: one instance per dictation. The outer view re-keys it, which disposes everything. */
-const CorrectionBody = {
+export const CorrectionBody = {
     name: 'ClinicCorrectionBody',
     components: { CorrectionWaveform, AudioMarkers, PlaybackTempo, PlaybackGain },
     props: BODY_PROPS,
@@ -481,6 +486,7 @@ const CorrectionBody = {
             dictationId: props.dictationId,
             currentUser: props.currentUser,
             vue: props.vue || undefined,
+            contract: 'v8', // the mounted view runs the V8 save contract: lease controller, reconcile first, +-5 s step
             recordingId: props.recordingId || undefined,
             createAudioContext: props.createAudioContext || undefined,
             onClose: () => { if (ctx && typeof ctx.emit === 'function') ctx.emit('close'); },
@@ -627,9 +633,7 @@ const CorrectionBody = {
               :disabled="saveState === 'saving' || saveState === 'saved'" data-testid="save" @click="c.save()">{{ TEXT.save }}</button>
       <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS"
               :disabled="c.saver.resumePosition.value === null" data-testid="resume" @click="c.seekToResume()">{{ TEXT.resume }}</button>
-      <button v-if="saveState === 'conflict'" type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS"
-              data-testid="reload-latest" @click="c.reloadLatest()">{{ TEXT.reload }}</button>
-      <div v-if="saveState === 'conflict'" role="group" :aria-label="TEXT.conflictChoice" data-testid="conflict-choice">
+            <div v-if="saveState === 'conflict'" role="group" :aria-label="TEXT.conflictChoice" data-testid="conflict-choice">
         <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" data-testid="keep-mine" @click="c.keepMine()">{{ TEXT.keepMine }}</button>
         <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" data-testid="take-server" @click="c.takeServer()">{{ TEXT.takeServer }}</button>
         <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" data-testid="compare" :aria-expanded="String(showDiff)" @click="showDiff = !showDiff">{{ TEXT.compare }}</button>

@@ -1,6 +1,6 @@
 """V8 autosave contract on the correction save path (UI8-004).
 
-Synthetic data only. The real blueprint runs with ``require_if_match=True``, the real lease
+Synthetic data only. The test builds the real blueprint with ``require_if_match=True`` (the flag defaults to False; the app mount must still pass it), the real lease
 service and the real correction transaction; only the receipt store is a small in-memory stand-in.
 """
 

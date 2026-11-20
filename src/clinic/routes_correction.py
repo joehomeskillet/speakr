@@ -165,8 +165,8 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
     """Mount with the trusted session channel and current object policy.
 
     ``require_if_match`` is the V8 autosave contract: a save without ``If-Match`` answers 428
-    PRECONDITION_REQUIRED. The default keeps the pre-V8 behaviour (header optional); the mount passes
-    True. A header that is sent is always enforced: a stale revision or lease generation answers 409.
+    PRECONDITION_REQUIRED. The default (False) keeps the pre-V8 behaviour (header optional); the app mount
+    must still pass ``require_if_match=True`` (handover: src/app.py registers it without the flag). A header that is sent is always enforced: a stale revision or lease generation answers 409.
 
     ``run_once`` is the parity dispatcher transaction/receipt protocol keyed by
     (actor, operation, dictation, Idempotency-Key); it commits on success and

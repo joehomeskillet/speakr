@@ -61,7 +61,7 @@ export const LABELS = Object.freeze({
     readOnly: 'Schreibgeschützt: Bearbeitung zuerst anfordern.',
     timeout: 'Verbindung unterbrochen. Speichern wird wiederholt.',
     failed: 'Das Speichern ist fehlgeschlagen.',
-    leaseStale: 'Die Bearbeitung wurde in einem anderen Tab übernommen. Änderungen sind nicht gespeichert.',
+    leaseStale: 'Die Bearbeitungssperre gilt nicht mehr (abgelaufen oder übernommen). Änderungen sind nicht gespeichert.',
     precondition: 'Der Stand ist nicht bestätigt. Bitte aktuellen Stand laden.',
     serverUnavailable: 'Der aktuelle Serverstand konnte nicht geladen werden.',
     conflictChoice: 'Eigenen Text und Serverstand vergleichen und bewusst wählen.',
@@ -527,7 +527,6 @@ export const CorrectionSave = {
   <button type="button" :style="focusStyle" :disabled="state === 'saving' || state === 'saved'" @click="save()">
     {{ retries > 0 ? LABELS.retry : LABELS.save }}
   </button>
-  <button v-if="state === 'conflict'" type="button" :style="focusStyle" @click="reloadLatest()">{{ LABELS.reload }}</button>
   <div v-if="state === 'conflict'" role="group" :aria-label="LABELS.conflictChoice" data-testid="conflict-choice">
     <button type="button" :style="focusStyle" data-testid="keep-mine" @click="keepMine()">{{ LABELS.keepMine }}</button>
     <button type="button" :style="focusStyle" data-testid="take-server" @click="takeServer()">{{ LABELS.takeServer }}</button>
