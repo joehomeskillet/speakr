@@ -41,20 +41,12 @@ HIDDEN = {
     },
 }
 
-HARNESS = r'''
-# The account view does not pass clinic_mode to its template yet (src/api/auth.py is not owned by this package):
-# this context processor stands in for that one-line wiring so the template is rendered as it will be.
-from src.clinic.config import clinic_mode_enabled
-app.context_processor(lambda: {"clinic_mode": clinic_mode_enabled()})
-'''
-
 RENDER = r'''
 import json, sys
 from src.app import app, db
 from src.init_db import initialize_database
 from src.models import User
 
-#HARNESS#
 with app.app_context():
     initialize_database(app)
     admin = User(username="v806a", email="v806a@local.test", password="x", is_admin=True)
@@ -68,7 +60,7 @@ for path in ("/account", "/admin"):
     resp = client.get(path)
     out[path] = [resp.status_code, resp.get_data(as_text=True)]
 sys.stdout.write("BODY:" + json.dumps(out))
-'''.replace("#HARNESS#", HARNESS)
+'''
 
 
 def _render(tmp_path: Path, clinic: bool) -> dict:
@@ -125,6 +117,10 @@ def test_clinic_mode_off_renders_every_entry_as_before(upstream_pages, page, ent
 def test_clinic_mode_keeps_the_functional_entries(clinic_pages, upstream_pages):
     for marker in ('id="tab-account"', 'id="tab-preferences"', 'id="tab-organize"', 'id="tab-templates"', 'id="tab-about"'):
         assert marker in clinic_pages["/account"], marker
+    # stats, settings and the audit tab stay: their routes (admin.admin_get_stats, admin.admin_get_settings,
+    # admin.admin_audit_log) are in route_policy._ADMIN (lines 175-181), not in _DISABLED
+    for marker in ("activeTab = 'stats'", "activeTab = 'settings'", "activeTab = 'audit'"):
+        assert marker in clinic_pages["/admin"], marker
     assert 'data-testid="admin-tab-clinic"' in clinic_pages["/admin"]
     assert "admin-tab-clinic" not in upstream_pages["/admin"]
 

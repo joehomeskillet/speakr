@@ -1,3 +1,5 @@
+{#- The account view does not pass clinic_mode (src/api/auth.py); derive it from the app: the clinic blueprints exist only in CLINIC_MODE. -#}
+{%- set clinic_mode = clinic_mode if clinic_mode is defined else ('clinic_worklist' in url_for.__self__.blueprints) -%}
 <!DOCTYPE html>
 <html lang="{{ user_language or 'en' }}" class="h-full">
 <head>
