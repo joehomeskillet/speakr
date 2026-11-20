@@ -268,7 +268,9 @@ export const VOCABULARY_TEMPLATE = `
       <th scope="col"><span class="sr-only">Aktion</span></th>
     </tr></thead>
     <tbody>
-      <tr v-if="!state.entries.length"><td colspan="4">{{ label('clinic.vocabulary.empty') }}</td></tr>
+      <tr v-if="!state.entries.length && state.status === 'ready'"><td colspan="4" role="status">
+        <slot name="empty" :scope="state.scope" :query="state.query">{{ label('clinic.vocabulary.empty') }}</slot>
+      </td></tr>
       <tr v-for="e in state.entries" :key="e.id">
         <td>{{ e.written }}</td><td>{{ e.spoken }}</td><td>{{ e.status }}</td>
         <td>
