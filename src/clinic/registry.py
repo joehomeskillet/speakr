@@ -44,6 +44,7 @@ MODEL_MODULES = (
     "worklist_filters",
     "correction_modes",
     "app_wiring",
+    "alignment_tokens", "alignment",
 )
 
 
