@@ -348,6 +348,7 @@ export function createWorklistViewController(options) {
     let started = false;
     let disposed = false;
     let detailId = null;
+    let pendingDetail;
     let detailKey = null; // `${id}|${revision}|${etag}` of the loaded detail
     let lease = null; // { ctrl, unsubscribe }
     let reloadQueued = false;
@@ -604,7 +605,8 @@ export function createWorklistViewController(options) {
     }
 
     async function loadWorkflowDetail(id, key) {
-        const result = await detailClient.request('/api/clinic/v1/dictations/' + encodeURIComponent(id) + '/detail');
+        pendingDetail = detailClient.request('/api/clinic/v1/dictations/' + encodeURIComponent(id) + '/detail');
+        const result = await pendingDetail;
         if (disposed || detailId !== id || detailKey !== key) return;
         if (result?.outcome === 'ok' && Array.isArray(result.data?.allowed_actions)) {
             loadWorkflow({ ...result.data, dictation_id: id,
@@ -695,6 +697,7 @@ export function createWorklistViewController(options) {
     return {
         vue: V, view, panels, selectedId, selectedRow: worklist.selectedRow, leaseState, leaseRun, paused,
         worklist, refresh, filters, layout, workflow, detailClient, displayed, columns, headerAttrs,
+        detailRequest: (id) => id === detailId ? pendingDetail : null,
         start, dispose, reload, assignmentDone, select, open, canOpen, listenOnly, onRowKey, goto, pages, hasNext, applyFilter,
         key: rowKey, cell: cellText, badge: statusBadge, dictationLabel, entryCount, text: TEXT,
         referenceLabel: (row) => 'Diktat ' + formatDictationReference(rowKey(row)),
@@ -765,10 +768,18 @@ export const WorklistView = {
             const row = c.worklist.selectedRow.value;
             if (!row || rowKey(row) !== id) return null;
             const visible = c.columns().map((col) => col.key);
-            return {
+            const context = V.reactive({
                 dictator: visible.includes('dictated_by') && row.dictated_by ? cellText(row, 'dictated_by') : null,
                 pool: visible.includes('staff_pools') ? cellText(row, 'staff_pools') : null,
-            };
+            });
+            // An unavailable detail cannot confirm this row's current staff assignment.
+            c.detailRequest(id)?.then(result => {
+                if (result?.status >= 500 || result?.outcome === 'permission') {
+                    context.dictator = 'Nicht verfügbar';
+                    context.pool = 'Nicht verfügbar';
+                }
+            });
+            return context;
         }
         return { c, parts, rowContext };
     },

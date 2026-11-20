@@ -412,6 +412,7 @@ export const AccountsAdminPanel = {
         return {
             query: filters.search || '',
             role: filters.role || '',
+            status: filters.status || '',
             sortOrder: (filters.sort || 'username') + ':' + (filters.order || 'asc'),
             opener: null,
             filtersOpen: false,
@@ -425,6 +426,7 @@ export const AccountsAdminPanel = {
         };
     },
     computed: {
+        filterActive() { return Boolean(this.query || this.role || this.status || this.source || this.sortOrder !== 'username:asc'); },
         availablePolicies() {
             const values = this.s.accounts.map(account => account.login_policy || MISSING_POLICY_FILTER);
             if (this.source) values.push(this.source);
@@ -451,8 +453,13 @@ export const AccountsAdminPanel = {
         browse(page = 1) {
             const [sort, order] = this.sortOrder.split(':');
             return this.controller.browse(page, {
-                search: this.query.trim(), role: this.role, source: this.source, sort, order,
+                search: this.query.trim(), role: this.role, status: this.status, source: this.source, sort, order,
             });
+        },
+        resetFilters() {
+            this.query = this.role = this.status = this.source = '';
+            this.sortOrder = 'username:asc';
+            return this.browse();
         },
         policyLabel(policy) { return LABELS.policies[policy || MISSING_POLICY_FILTER] || policy; },
         seen(value) { return value ? new Date(value).toLocaleString('de-CH') : 'Noch nie'; },
@@ -487,12 +494,15 @@ export const AccountsAdminPanel = {
   <div v-if="s.loaded" class="filterbar cadm-account-filters" :class="{ 'filters-open': filtersOpen }">
     <label class="field search"><span>Suche</span><input type="search" :value="query" @input="query = $event.target.value; browse()" placeholder="Anmeldename oder E-Mail"></label>
     <button type="button" class="btn btn--ghost cadm-mobile-filter" :aria-expanded="filtersOpen"
-            aria-controls="acc-role-filter acc-source-filter acc-sort-filter" @click="filtersOpen = !filtersOpen">
-      <i class="fas fa-sliders" aria-hidden="true"></i>Filter und Sortierung<span v-if="role || source || sortOrder !== 'username:asc'"> · aktiv</span>
+            aria-controls="acc-role-filter acc-status-filter acc-source-filter acc-sort-filter" @click="filtersOpen = !filtersOpen">
+      <i class="fas fa-sliders" aria-hidden="true"></i>Filter und Sortierung<span v-if="role || status || source || sortOrder !== 'username:asc'"> · aktiv</span>
     </button>
     <label id="acc-role-filter" class="field"><span id="acc-role-label">Rolle</span><select aria-labelledby="acc-role-label" v-model="role" @change="browse()">
       <option value="">Alle Rollen</option><option value="is_admin">{{ labels.roleAdmin }}</option>
-      <option value="is_identity_admin">{{ labels.roleIdentity }}</option>
+      <option value="is_identity_admin">{{ labels.roleIdentity }}</option><option value="none">Keine Administrationsrolle</option>
+    </select></label>
+    <label id="acc-status-filter" class="field"><span id="acc-status-label">{{ labels.status }}</span><select aria-labelledby="acc-status-label" v-model="status" @change="browse()">
+      <option value="">Alle Status</option><option v-for="(title, key) in labels.statuses" :key="key" :value="key">{{ title }}</option>
     </select></label>
     <label id="acc-source-filter" class="field"><span id="acc-source-label">Anmelderichtlinie</span><select aria-labelledby="acc-source-label" v-model="source" @change="browse()">
       <option value="">Alle Richtlinien</option><option v-for="policy in availablePolicies" :key="policy" :value="policy">{{ policyLabel(policy) }}</option>
@@ -507,6 +517,7 @@ export const AccountsAdminPanel = {
       <optgroup label="Speicher"><option value="storage_used:desc">Grösster Speicherverbrauch</option><option value="storage_used:asc">Geringster Speicherverbrauch</option></optgroup>
     </select></label>
   </div>
+  <button v-if="s.loaded && filterActive" type="button" class="btn btn--sm btn--ghost" @click="resetFilters">Filter zurücksetzen</button>
   <p v-if="s.loaded" role="status" class="hint">{{ s.table.total }} {{ s.table.total === 1 ? 'Konto' : 'Konten' }}</p>
   <div v-if="rows.length" class="cadm-tablewrap cadm-tablewrap--stack">
     <table class="cadm-table cadm-table--stack cadm-account-table" :aria-label="labels.list">
@@ -557,8 +568,8 @@ export const AccountsAdminPanel = {
     <span aria-live="polite">Seite {{ s.table.page }} von {{ s.table.pages }}</span>
     <button type="button" class="btn btn--sm btn--ghost" :disabled="s.tableLoading || s.table.page >= s.table.pages" @click="browse(s.table.page + 1)">Weiter</button>
   </nav>
-  <form v-if="s.draft" class="cadm-editor" @submit.prevent="controller.confirm()" @keydown.esc.prevent="controller.cancel()" novalidate>
-    <h3 class="cadm-subtitle">{{ s.draft.mode === 'create' ? labels.createTitle : labels.editTitle }}</h3>
+  <form v-if="s.draft" class="cadm-editor" aria-labelledby="acc-editor-title" @submit.prevent="controller.confirm()" @keydown.esc.prevent="controller.cancel()" novalidate>
+    <h3 id="acc-editor-title" class="cadm-subtitle">{{ s.draft.mode === 'create' ? labels.createTitle : labels.editTitle + ': ' + s.base.username }}</h3>
     <div class="cadm-form">
       <div class="cadm-field">
         <label for="acc-username">{{ labels.username }}</label>
@@ -601,7 +612,7 @@ export const AccountsAdminPanel = {
         </fieldset>
       </template>
       <div class="cadm-form__actions">
-        <button type="submit" class="btn btn--primary" :disabled="s.busy">{{ labels.ok }}</button>
+        <button type="submit" class="btn btn--primary" :disabled="s.busy">{{ embedded ? 'Speichern und schließen' : labels.ok }}</button>
         <button type="button" class="btn btn--ghost" :disabled="s.busy" @click="controller.apply()">{{ labels.apply }}</button>
         <button type="button" class="btn btn--quiet" @click="controller.cancel()">{{ labels.cancel }}</button>
       </div>

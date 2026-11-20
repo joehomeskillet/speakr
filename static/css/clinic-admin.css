@@ -736,3 +736,20 @@
     .cadm .clinic-vocabulary-view .voc-list { grid-column: 1 / -1; }
     .cadm .clinic-vocabulary-view .voc-filters .search { grid-column: 1 / -1; }
 }
+
+.dark .cadm .note.burgundy, [data-theme="dark"] .cadm .note.burgundy {
+    background: var(--bg-danger-light);
+    border-color: var(--border-danger);
+    color: var(--v8-text);
+}
+
+/* Keep the refresh action beside the filter in the administration view. */
+.cadm .clinic-jobs-view .cadm-jobs-filter { align-items: flex-end; flex-wrap: nowrap; }
+.cadm .clinic-jobs-view .cadm-jobs-filter .field { min-width: 0; }
+.cadm .clinic-jobs-view .cadm-jobs-filter :is(select, button) {
+    box-sizing: border-box;
+    height: 38px;
+    min-height: 38px;
+}
+.cadm .clinic-jobs-view .cadm-jobs-filter select { appearance: none; font-weight: 400; }
+.cadm .clinic-jobs-view .cadm-jobs-filter button { font-size: 13px; }

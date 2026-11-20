@@ -7,6 +7,34 @@ from test_wp_mount_correction import TYPIST, _launch, _login, _open_from_worklis
 from test_wp_v8_shell_mount_dictation import VIEWS
 
 
+@pytest.mark.parametrize("unavailable", [False, True], ids=["seeded-staff", "detail-503"])
+def test_worklist_opens_correction_with_staff_and_navigation(live_server, unavailable):
+    base, dictation = live_server
+    detail = f"{base}/api/clinic/v1/dictations/{dictation}/detail"
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        try:
+            page = _login(browser, base, TYPIST)
+            if unavailable:
+                page.route(detail, lambda route: route.fulfill(status=503, json={}))
+            page.goto(base + "/")
+            page.get_by_test_id("nav-clinic-worklist").click()
+            worklist = page.get_by_test_id("clinic-worklist-view")
+            row = worklist.locator(f'[data-row][data-id="{dictation}"]')
+            with page.expect_response(detail) as read:
+                row.click()
+            assert read.value.status == (503 if unavailable else 200)
+            worklist.get_by_role("button", name="Öffnen", exact=True).click()
+            view = page.locator(".clinic-correction-view")
+            expect(view.locator("dd[data-dictator-name]")).to_have_text("Nicht verfügbar" if unavailable else "u213")
+            expect(view.locator("dd[data-pool-name]")).to_have_text("Nicht verfügbar" if unavailable else "Schreibdienst 213")
+            head = view.locator(".pagehead")
+            expect(head.get_by_test_id("clinic-correction-back")).to_be_visible()
+            expect(head.get_by_test_id("clinic-dictation-nav")).to_be_visible()
+        finally:
+            browser.close()
+
+
 @pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
 def test_navigation_stays_in_place_across_dictation_views(live_server, width, height):
     base, _ = live_server
