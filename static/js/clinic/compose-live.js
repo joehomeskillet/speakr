@@ -44,13 +44,6 @@ export const PHASES = Object.freeze([
 // base layer, loaded after it, resets those. These strings restate them where this page needs them.
 const H1 = 'font-size: clamp(26px, 4vw, 30px); line-height: 1.2; font-weight: 700; letter-spacing: -.8px; margin: 0 0 9px';
 const H2 = 'font-size: 16px; line-height: 1.35; font-weight: 700; letter-spacing: -.2px; margin: 0 0 14px';
-const H3 = 'font-size: 14px; line-height: 1.35; font-weight: 700; margin: 0 0 10px';
-const FIELD = 'display: grid; gap: 6px; margin: 0 0 16px; min-width: 0';
-const LABEL = 'font-size: 12px; font-weight: 650';
-const HELP = 'font-size: 11px; color: var(--v8-muted)';
-const INPUT = 'width: 100%; min-height: 40px; padding: 10px 11px; border: 1px solid var(--line); border-radius: 7px; background-color: var(--surface); color: var(--v8-text); font: inherit';
-const PRIMARY = { background: 'var(--ink)', borderColor: 'var(--ink)', color: 'white', fontSize: '13px', fontWeight: 600, padding: '9px 13px' };
-const TEXTAREA = 'width: 100%; min-height: 100px; padding: 10px 11px; border: 1px solid var(--line); border-radius: 7px; background-color: var(--surface); color: var(--v8-text); font: inherit; line-height: 1.65';
 
 export const TEXT = Object.freeze({
     title: 'Live-Diktat',
@@ -66,6 +59,7 @@ export const TEXT = Object.freeze({
     partial: 'Vorläufig',
     unsaved: 'Nicht gespeicherte Sätze sind noch nicht dauerhaft.',
     empty: 'Noch kein Text. Mit «Starten» beginnen.',
+    ready: 'Bereit zum Diktieren',
     eyebrow: 'Aufnahmen',
     subline: 'Live diktieren. Jeder Satz wird einzeln gespeichert und ist erst danach dauerhaft.',
     transcript: 'Live-Transkription',
@@ -90,6 +84,14 @@ const NOTES = Object.freeze({
     stopFailed: 'Beenden fehlgeschlagen. Bitte erneut versuchen.',
     denied: 'Keine Berechtigung für diese Live-Sitzung.',
     retry: 'Verbindung unterbrochen. Speichern wird wiederholt.',
+});
+
+/** Inline SVG paths (24x24) of the live actions shown as icon buttons. The other actions stay text buttons. */
+const ICON_PATHS = Object.freeze({
+    start: 'M12 5a7 7 0 1 0 0 14a7 7 0 0 0 0-14z',
+    pause: 'M7 5h3v14H7z M14 5h3v14h-3z',
+    continueRecording: 'M8 5l11 7-11 7z',
+    stop: 'M6 6h12v12H6z',
 });
 
 const LIVE = '/api/clinic/v1/live';
@@ -340,7 +342,7 @@ const LiveBody = {
         const stop = c.subscribe((snap) => { state.value = snap; });
         if (typeof V.onMounted === 'function') V.onMounted(() => { if (props.onReady) props.onReady(c); });
         if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => { stop(); c.dispose(); });
-        return { c, state, FOCUS, PRIMARY, box, TEXT };
+        return { c, state, FOCUS, box, TEXT, ICON_PATHS };
     },
     template: `
 <section class="clinic-live-view v8-page" data-testid="clinic-live-view" aria-labelledby="clv-title" :data-phase="state.phase">
@@ -361,12 +363,18 @@ const LiveBody = {
       </div>
       <span class="tag neutral dot">{{ TEXT.count(state.session.phrases.length) }}</span>
     </div>
-    <div class="recorder compact-recorder" :class="{ recording: state.phase === 'live' }" style="flex-wrap: wrap">
-      <div class="recorder-controls" style="flex-wrap: wrap; gap: 8px" role="group" :aria-label="TEXT.controls" data-testid="live-controls">
-        <button v-for="a in state.actions" :key="a.id" type="button" class="button" style="min-height: 2.75rem"
-                :style="[FOCUS, a.id === 'start' || a.id === 'continueRecording' ? PRIMARY : null]" :disabled="a.disabled" :data-action="a.id" @click="c[a.id]()">{{ a.label }}</button>
+    <div class="recorder compact-recorder" :class="{ recording: state.phase === 'live' }">
+      <div class="recorder-controls" role="group" :aria-label="TEXT.controls" data-testid="live-controls">
+        <template v-for="a in state.actions" :key="a.id">
+          <button v-if="ICON_PATHS[a.id]" type="button" class="icon-button" :class="{ 'record-button': a.id === 'start' }" :style="FOCUS"
+                  :disabled="a.disabled" :data-action="a.id" :aria-label="a.label" :title="a.label" @click="c[a.id]()">
+            <svg viewBox="0 0 24 24" width="19" height="19" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false"><path :d="ICON_PATHS[a.id]"></path></svg>
+          </button>
+          <button v-else type="button" class="button" style="min-height: 2.75rem" :style="FOCUS" :disabled="a.disabled" :data-action="a.id" @click="c[a.id]()">{{ a.label }}</button>
+        </template>
       </div>
       <div class="recorder-caption">
+        <strong v-if="!state.announcement" data-testid="live-caption">{{ TEXT.ready }}</strong>
         <span role="status" aria-live="polite" data-testid="live-announcement">{{ state.announcement }}</span>
         <small v-if="state.note" role="note" data-testid="live-note">{{ state.note }}</small>
       </div>
@@ -375,7 +383,8 @@ const LiveBody = {
     <div class="writing-surface">
       <div style="width: 100%; min-width: 0">
         <ol class="live-phrases" :aria-label="TEXT.phrases" aria-live="off" data-testid="live-phrases"
-            style="list-style: none; margin: 0; padding: 22px 28px; display: grid; gap: 4px; font-size: 16px; line-height: 1.75; min-height: 240px; align-content: start">
+            style="list-style: none; margin: 0; display: grid; gap: 4px; font-size: 16px; line-height: 1.75; align-content: start"
+            :style="state.session.phrases.length || state.session.partial ? { padding: '22px 28px', minHeight: '240px' } : null">
           <li v-for="p in state.session.phrases" :key="p.generation + '-' + p.sequence" :data-state="p.state"
               style="display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 14px; padding: 8px 0; border-bottom: 1px solid var(--v8-line-2)">
             <span style="flex: 1 1 320px; min-width: 0; overflow-wrap: anywhere">{{ p.text }}</span>
@@ -383,7 +392,7 @@ const LiveBody = {
           </li>
           <li v-if="state.session.partial" data-state="partial" style="padding: 8px 0; color: var(--v8-muted)"><em>{{ state.session.partial }}</em> <small class="tag neutral">{{ TEXT.partial }}</small></li>
         </ol>
-        <p v-if="!state.session.phrases.length && !state.session.partial" role="note" class="empty" style="margin: 0 28px 22px">{{ TEXT.empty }}</p>
+        <p v-if="!state.session.phrases.length && !state.session.partial" role="note" class="hint" style="margin: 0; padding: 22px 28px">{{ TEXT.empty }}</p>
       </div>
     </div>
     <div class="editor-status"><span>{{ TEXT.phrases }}: {{ state.session.phrases.length }}</span><span class="editor-status-right"><span>{{ state.announcement }}</span></span></div>

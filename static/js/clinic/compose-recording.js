@@ -36,13 +36,10 @@ export const COMPOSE_RECORDING_VERSION = 1;
 // base layer, loaded after it, resets those. These strings restate them where this page needs them.
 const H1 = 'font-size: clamp(26px, 4vw, 30px); line-height: 1.2; font-weight: 700; letter-spacing: -.8px; margin: 0 0 9px';
 const H2 = 'font-size: 16px; line-height: 1.35; font-weight: 700; letter-spacing: -.2px; margin: 0 0 14px';
-const H3 = 'font-size: 14px; line-height: 1.35; font-weight: 700; margin: 0 0 10px';
 const FIELD = 'display: grid; gap: 6px; margin: 0 0 16px; min-width: 0';
 const LABEL = 'font-size: 12px; font-weight: 650';
 const HELP = 'font-size: 11px; color: var(--v8-muted)';
 const INPUT = 'width: 100%; min-height: 40px; padding: 10px 11px; border: 1px solid var(--line); border-radius: 7px; background-color: var(--surface); color: var(--v8-text); font: inherit';
-const PRIMARY = { background: 'var(--ink)', borderColor: 'var(--ink)', color: 'white', fontSize: '13px', fontWeight: 600, padding: '9px 13px' };
-const TEXTAREA = 'width: 100%; min-height: 100px; padding: 10px 11px; border: 1px solid var(--line); border-radius: 7px; background-color: var(--surface); color: var(--v8-text); font: inherit; line-height: 1.65';
 
 export const TEXT = Object.freeze({
     title: 'Neue Aufnahme',
@@ -74,6 +71,7 @@ export const TEXT = Object.freeze({
     titleHint: 'Ein Titel ist erforderlich, bevor die Aufnahme startet.',
     storageNote: 'Ton und Titel bleiben im Arbeitsspeicher des Browsers. Es wird nichts lokal gespeichert, bis das Diktat gesendet ist.',
     state: 'Stand',
+    noValue: '–',
     cancel: 'Abbrechen',
 });
 
@@ -89,6 +87,16 @@ export const PHASE_CAPTIONS = Object.freeze({
     failed: 'Senden fehlgeschlagen',
     idle: 'Keine Datei gewählt',
     selected: 'Datei gewählt',
+});
+
+/** Inline SVG paths (24x24, filled with currentColor) of the recorder icon buttons. Shared with the live page. */
+export const ICON_PATHS = Object.freeze({
+    start: 'M12 5a7 7 0 1 0 0 14a7 7 0 0 0 0-14z',
+    pause: 'M7 5h3v14H7z M14 5h3v14h-3z',
+    resume: 'M8 5l11 7-11 7z',
+    play: 'M8 5l11 7-11 7z',
+    stop: 'M6 6h12v12H6z',
+    rewind: 'M6 5h2v14H6z M20 5v14L9 12z',
 });
 
 export const MODES = Object.freeze(['record', 'file']);
@@ -332,13 +340,13 @@ export const RECORDING_TEMPLATE = `
     <section class="panel" :aria-label="c.text.info">
       <h2 style="${H2}">{{ c.text.info }}</h2>
       <div class="field-grid">
-        <div style="${FIELD}" data-testid="author"><span style="${LABEL}">{{ c.text.author }}</span><strong>{{ m.author || m.authorId }}</strong><small style="${HELP}">{{ c.text.authorHint }}</small></div>
+        <div style="${FIELD}" data-testid="author"><span style="${LABEL}">{{ c.text.author }}</span><strong>{{ m.author || c.text.noValue }}</strong><small style="${HELP}">{{ c.text.authorHint }}</small></div>
         <div style="${FIELD}">
           <span style="${LABEL}">{{ c.text.modes }}</span>
           <div role="group" :aria-label="c.text.modes" class="actions">
-            <button type="button" class="button" style="min-height: 2.75rem" data-testid="mode-record" :style="m.mode === 'record' ? P : null"
+            <button type="button" class="button" style="min-height: 2.75rem" data-testid="mode-record" :class="{ primary: m.mode === 'record' }"
                     :aria-pressed="m.mode === 'record' ? 'true' : 'false'" :disabled="!m.canSwitchMode" @click="c.setMode('record')">{{ c.text.modeRecord }}</button>
-            <button type="button" class="button" style="min-height: 2.75rem" data-testid="mode-file" :style="m.mode === 'file' ? P : null"
+            <button type="button" class="button" style="min-height: 2.75rem" data-testid="mode-file" :class="{ primary: m.mode === 'file' }"
                     :aria-pressed="m.mode === 'file' ? 'true' : 'false'" :disabled="!m.canSwitchMode" @click="c.setMode('file')">{{ c.text.modeFile }}</button>
           </div>
         </div>
@@ -362,16 +370,24 @@ export const RECORDING_TEMPLATE = `
       <section class="panel" :aria-label="m.mode === 'record' ? c.text.recordingControls : c.text.modeFile">
         <h2 style="${H2}">{{ m.mode === 'record' ? c.text.recordingControls : c.text.modeFile }}</h2>
         <template v-if="!m.created">
-          <div v-if="m.mode === 'record'" class="recorder compact-recorder" :class="{ recording: m.phase === 'recording' }" style="flex-wrap: wrap">
-            <div role="group" :aria-label="c.text.recordingControls" class="recorder-controls" style="flex-wrap: wrap; gap: 8px">
-              <button v-for="b in m.controls" :key="b.id" type="button" class="button" :style="b.id === 'start' || b.id === 'send' ? P : null" style="min-height: 2.75rem"
+          <div v-if="m.mode === 'record'">
+            <div class="recorder compact-recorder" :class="{ recording: m.phase === 'recording' }">
+              <div role="group" :aria-label="c.text.recordingControls" class="recorder-controls">
+                <button v-for="b in iconControls(m.controls)" :key="b.id" type="button" class="icon-button" :class="{ 'record-button': b.id === 'start' }"
+                        :data-testid="'rec-' + b.id" :disabled="b.disabled" :aria-disabled="b.disabled ? 'true' : 'false'" :aria-label="b.label" :title="b.label" @click="act(b.id)">
+                  <svg viewBox="0 0 24 24" width="19" height="19" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false"><path :d="icons[b.id]"></path></svg>
+                </button>
+              </div>
+              <div class="recorder-caption"><strong>{{ captions[m.phase] || m.phase }}</strong></div>
+            </div>
+            <div class="actions" style="margin-top: 12px">
+              <button v-for="b in textControls(m.controls)" :key="b.id" type="button" class="button" :class="{ primary: b.id === 'send' }" style="min-height: 2.75rem"
                       :data-testid="'rec-' + b.id" :disabled="b.disabled" :aria-disabled="b.disabled ? 'true' : 'false'" @click="act(b.id)">{{ b.label }}</button>
             </div>
-            <div class="recorder-caption" style="flex-basis: 100%"><strong>{{ captions[m.phase] || m.phase }}</strong></div>
           </div>
           <div v-else class="recorder compact-recorder" style="flex-wrap: wrap">
             <div class="recorder-controls" style="flex-wrap: wrap; gap: 8px">
-              <button type="button" class="button" :style="P" style="min-height: 2.75rem" data-testid="file-upload"
+              <button type="button" class="button primary" style="min-height: 2.75rem" data-testid="file-upload"
                       :disabled="!m.canUpload" @click="c.sendFile()">{{ m.uploadLabel }}</button>
               <button type="button" class="button" style="min-height: 2.75rem" data-testid="file-cancel"
                       :disabled="!m.canCancelFile" @click="c.cancelFile()">{{ c.text.cancel }}</button>
@@ -384,7 +400,7 @@ export const RECORDING_TEMPLATE = `
           <div class="note"><span class="tag neutral dot">{{ c.text.created }}</span> <strong data-testid="created-id">{{ m.created.dictationId }}</strong></div>
           <hr class="separator">
           <div class="actions">
-            <button type="button" class="button" :style="P" style="min-height: 2.75rem" data-testid="to-worklist" @click="c.toWorklist()">{{ c.text.toWorklist }}</button>
+            <button type="button" class="button primary" style="min-height: 2.75rem" data-testid="to-worklist" @click="c.toWorklist()">{{ c.text.toWorklist }}</button>
             <button type="button" class="button" style="min-height: 2.75rem" data-testid="open-created" @click="c.openCreated()">{{ c.text.open }}</button>
             <button type="button" class="button" style="min-height: 2.75rem" data-testid="another" @click="c.another()">{{ c.text.another }}</button>
           </div>
@@ -428,7 +444,9 @@ export const RecordingView = {
             c,
             m,
             captions: PHASE_CAPTIONS,
-            P: PRIMARY,
+            icons: ICON_PATHS,
+            iconControls: (list) => list.filter((b) => ICON_PATHS[b.id]),
+            textControls: (list) => list.filter((b) => !ICON_PATHS[b.id]),
             act: (id) => { if (RECORDER_ACTIONS.includes(id)) c[id](); },
             pick: (event) => {
                 const files = event && event.target && event.target.files;

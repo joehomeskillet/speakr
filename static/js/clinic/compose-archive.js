@@ -36,13 +36,9 @@ export const ZONE = 'Europe/Zurich';
 // base layer, loaded after it, resets those. These strings restate them where this page needs them.
 const H1 = 'font-size: clamp(26px, 4vw, 30px); line-height: 1.2; font-weight: 700; letter-spacing: -.8px; margin: 0 0 9px';
 const H2 = 'font-size: 16px; line-height: 1.35; font-weight: 700; letter-spacing: -.2px; margin: 0 0 14px';
-const H3 = 'font-size: 14px; line-height: 1.35; font-weight: 700; margin: 0 0 10px';
 const FIELD = 'display: grid; gap: 6px; margin: 0 0 16px; min-width: 0';
 const LABEL = 'font-size: 12px; font-weight: 650';
-const HELP = 'font-size: 11px; color: var(--v8-muted)';
 const INPUT = 'width: 100%; min-height: 40px; padding: 10px 11px; border: 1px solid var(--line); border-radius: 7px; background-color: var(--surface); color: var(--v8-text); font: inherit';
-const PRIMARY = 'background: var(--ink); border-color: var(--ink); color: white; font-size: 13px; font-weight: 600; padding: 9px 13px';
-const TEXTAREA = 'width: 100%; min-height: 100px; padding: 10px 11px; border: 1px solid var(--line); border-radius: 7px; background-color: var(--surface); color: var(--v8-text); font: inherit; line-height: 1.65';
 
 export const TEXT = Object.freeze({
     title: 'Archiv',
@@ -337,12 +333,14 @@ export const ArchiveView = {
   <section class="panel" :aria-label="c.text.listHeading">
     <h2 style="${H2}">{{ c.text.listHeading }}</h2>
     <form class="filterbar" role="search" :aria-label="c.text.filters" data-testid="archive-filters" @submit.prevent="c.load()">
-      <div style="${FIELD}; flex: 0 1 175px; margin: 0"><label style="${LABEL}" for="cav-from">{{ c.text.from }}</label><input style="${INPUT}" id="cav-from" type="date" v-model="c.filters.from" data-testid="filter-from"></div>
-      <div style="${FIELD}; flex: 0 1 175px; margin: 0"><label style="${LABEL}" for="cav-to">{{ c.text.to }}</label><input style="${INPUT}" id="cav-to" type="date" v-model="c.filters.to" data-testid="filter-to"></div>
-      <div style="${FIELD}; flex: 1 1 175px; margin: 0"><label style="${LABEL}" for="cav-author">{{ c.text.author }}</label><input style="${INPUT}" id="cav-author" type="text" v-model="c.filters.authorId" data-testid="filter-author" autocomplete="off"></div>
-      <div style="${FIELD}; flex: 1 1 175px; margin: 0"><label style="${LABEL}" for="cav-pool">{{ c.text.pool }}</label><input style="${INPUT}" id="cav-pool" type="text" v-model="c.filters.poolId" data-testid="filter-pool" autocomplete="off"></div>
-      <button type="submit" class="button" style="${PRIMARY}">{{ c.text.apply }}</button>
-      <button type="button" class="button" @click="c.resetFilters()">{{ c.text.reset }}</button>
+      <div style="${FIELD}; flex: 1 1 150px; margin: 0"><label style="${LABEL}" for="cav-from">{{ c.text.from }}</label><input style="${INPUT}" id="cav-from" type="date" v-model="c.filters.from" data-testid="filter-from"></div>
+      <div style="${FIELD}; flex: 1 1 150px; margin: 0"><label style="${LABEL}" for="cav-to">{{ c.text.to }}</label><input style="${INPUT}" id="cav-to" type="date" v-model="c.filters.to" data-testid="filter-to"></div>
+      <div style="${FIELD}; flex: 1 1 150px; margin: 0"><label style="${LABEL}" for="cav-author">{{ c.text.author }}</label><input style="${INPUT}" id="cav-author" type="text" v-model="c.filters.authorId" data-testid="filter-author" autocomplete="off"></div>
+      <div style="${FIELD}; flex: 1 1 150px; margin: 0"><label style="${LABEL}" for="cav-pool">{{ c.text.pool }}</label><input style="${INPUT}" id="cav-pool" type="text" v-model="c.filters.poolId" data-testid="filter-pool" autocomplete="off"></div>
+      <div class="actions">
+        <button type="submit" class="button primary">{{ c.text.apply }}</button>
+        <button type="button" class="button" @click="c.resetFilters()">{{ c.text.reset }}</button>
+      </div>
     </form>
     <div v-if="c.denied.value" role="alert" class="note warning" data-testid="archive-denied">{{ c.text.denied }}</div>
     <template v-else>
@@ -362,12 +360,12 @@ export const ArchiveView = {
                 <th scope="col">{{ c.text.pool }}</th>
                 <th scope="col">{{ c.text.archived }}</th>
                 <th scope="col">{{ c.text.retention }}</th>
-                <th scope="col"><span class="visually-hidden">{{ c.text.open }}</span></th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="row in c.rows.value" :key="c.key(row)" data-row :data-id="c.key(row)">
                 <td>
+                  <button type="button" class="button small" style="float: right; margin-left: 8px" data-testid="archive-open" @click="c.open(row)">{{ c.text.open }}</button>
                   <strong>{{ c.recorded(row).text }}</strong>
                   <small v-if="c.recorded(row).mark" :title="c.recorded(row).hint" :aria-label="c.recorded(row).mark + ': ' + c.recorded(row).hint">({{ c.recorded(row).mark }})</small>
                 </td>
@@ -375,7 +373,6 @@ export const ArchiveView = {
                 <td data-cell="pool">{{ c.pool(row) }}</td>
                 <td data-cell="archived">{{ c.archived(row) }}</td>
                 <td data-cell="retention"><span class="tag" :style="c.retentionStyle(row)">{{ c.retention(row) }}</span></td>
-                <td><button type="button" class="button small" data-testid="archive-open" @click="c.open(row)">{{ c.text.open }}</button></td>
               </tr>
             </tbody>
           </table>

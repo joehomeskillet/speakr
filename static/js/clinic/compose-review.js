@@ -54,9 +54,6 @@ const H2 = 'font-size: 16px; line-height: 1.35; font-weight: 700; letter-spacing
 const H3 = 'font-size: 14px; line-height: 1.35; font-weight: 700; margin: 0 0 10px';
 const FIELD = 'display: grid; gap: 6px; margin: 0 0 16px; min-width: 0';
 const LABEL = 'font-size: 12px; font-weight: 650';
-const HELP = 'font-size: 11px; color: var(--v8-muted)';
-const INPUT = 'width: 100%; min-height: 40px; padding: 10px 11px; border: 1px solid var(--line); border-radius: 7px; background-color: var(--surface); color: var(--v8-text); font: inherit';
-const PRIMARY = { background: 'var(--ink)', borderColor: 'var(--ink)', color: 'white', fontSize: '13px', fontWeight: 600, padding: '9px 13px' };
 const TEXTAREA = 'width: 100%; min-height: 100px; padding: 10px 11px; border: 1px solid var(--line); border-radius: 7px; background-color: var(--surface); color: var(--v8-text); font: inherit; line-height: 1.65';
 
 export const TEXT = Object.freeze({
@@ -92,6 +89,7 @@ export const TEXT = Object.freeze({
     textRevision: 'Text',
     audioRevision: 'Audio',
     contextRevision: 'Kontext',
+    noValue: '–',
     details: 'Revisionsdetails',
     text: 'Prüftext',
     player: 'Wiedergabe',
@@ -528,7 +526,7 @@ const ReviewBody = {
             return {};
         };
         return {
-            c, FOCUS, PRIMARY, box, styleFor, TEXT, wf: c.wf,
+            c, FOCUS, short: (v) => (typeof v === 'string' && v.length > 13 ? v.slice(0, 8) + '…' : v), box, styleFor, TEXT, wf: c.wf,
             toneBox: (tone) => box({ success: 'success', warn: 'warning', danger: 'error', info: 'pending' }[tone] || 'normal'),
             status: c.status, review: c.review, newer: c.newer, confirming: c.confirming, reason: c.reason, error: c.error,
             reasonInvalid: c.reasonInvalid, contentChecked: c.contentChecked, contextChecked: c.contextChecked,
@@ -548,7 +546,7 @@ const ReviewBody = {
     </div>
     <div class="head-actions">
       <span class="tag neutral" data-testid="dictation-id">{{ TEXT.dictation }} {{ c.dictationId }}</span>
-      <span v-if="status === 'ready'" class="tag burgundy">{{ TEXT.textShort }} {{ c.revisionSummary().text }}</span>
+      <span v-if="status === 'ready'" class="tag burgundy" :title="c.revisionSummary().text">{{ TEXT.textShort }} {{ short(c.revisionSummary().text) || TEXT.noValue }}</span>
       <button type="button" class="button" :style="FOCUS" data-testid="correct" @click="c.correct()">{{ TEXT.correct }}</button>
       <button type="button" class="button quiet" :style="FOCUS" data-testid="close" @click="c.close()">{{ TEXT.close }}</button>
     </div>
@@ -618,8 +616,8 @@ const ReviewBody = {
           </div>
           <p v-if="c.readOnly()" class="note" role="note" data-testid="read-only">{{ TEXT.readOnly }}</p>
           <div class="actions" style="margin-top: 14px">
-            <button v-for="a in c.actions()" :key="a.id" type="button" class="button" style="min-height: 2.75rem"
-                    :style="[FOCUS, a.id === 'accept' ? PRIMARY : null]" :disabled="a.disabled" :data-action="a.id" :aria-describedby="a.why ? 'crv-why-' + a.id : null"
+            <button v-for="a in c.actions()" :key="a.id" type="button" class="button" :class="{ primary: a.id === 'accept' }" style="min-height: 2.75rem"
+                    :style="FOCUS" :disabled="a.disabled" :data-action="a.id" :aria-describedby="a.why ? 'crv-why-' + a.id : null"
                     @click="c.request(a.id)">{{ a.label }}</button>
           </div>
           <template v-for="a in c.actions()" :key="'w' + a.id"><span v-if="a.why" :id="'crv-why-' + a.id" class="visually-hidden">{{ a.why }}</span></template>
@@ -637,7 +635,7 @@ const ReviewBody = {
               <label class="inline-label"><input type="checkbox" v-model="contextChecked"> {{ TEXT.contextChecked }}</label>
             </div>
             <div class="actions">
-              <button type="submit" class="button" style="min-height: 2.75rem" :style="[FOCUS, PRIMARY]" :disabled="wf.state.busy" data-testid="confirm">{{ TEXT.confirm }}</button>
+              <button type="submit" class="button primary" style="min-height: 2.75rem" :style="FOCUS" :disabled="wf.state.busy" data-testid="confirm">{{ TEXT.confirm }}</button>
               <button type="button" class="button" style="min-height: 2.75rem" :style="FOCUS" data-testid="cancel" @click="c.cancel()">{{ TEXT.cancel }}</button>
             </div>
           </form>
@@ -648,9 +646,9 @@ const ReviewBody = {
         <section class="panel" :aria-label="TEXT.evidence">
           <h2 style="${H2}">{{ TEXT.evidence }}</h2>
           <dl class="keyvalues" data-testid="revisions">
-            <div><dt>{{ TEXT.textRevision }}</dt><dd>{{ c.revisionSummary().text }}</dd></div>
-            <div><dt>{{ TEXT.audioRevision }}</dt><dd>{{ c.revisionSummary().audio }}</dd></div>
-            <div><dt>{{ TEXT.contextRevision }}</dt><dd>{{ c.revisionSummary().context }}</dd></div>
+            <div><dt>{{ TEXT.textRevision }}</dt><dd>{{ c.revisionSummary().text || TEXT.noValue }}</dd></div>
+            <div><dt>{{ TEXT.audioRevision }}</dt><dd>{{ c.revisionSummary().audio || TEXT.noValue }}</dd></div>
+            <div><dt>{{ TEXT.contextRevision }}</dt><dd>{{ c.revisionSummary().context || TEXT.noValue }}</dd></div>
             <div><dt>{{ TEXT.acceptance }}</dt><dd data-testid="rule">{{ c.policy.state.required ? TEXT.required : TEXT.notRequired }}</dd></div>
           </dl>
           <p class="hint" style="margin-top: 12px">{{ review.context_trusted ? TEXT.contextTrusted : TEXT.contextMissing }}</p>
