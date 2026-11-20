@@ -522,10 +522,11 @@ export function createWorklistViewController(options) {
         syncDetail();
     }
 
-    // Open is blocked while the lease is held by someone else or was lost.
+    // A confirmed listening capability allows the player to open behind another writer's lease.
+    const listenOnly = computed(() => leaseState.value?.status === 'foreign' && leaseState.value.mayListen === true);
     const leaseBlocksOpen = () => {
         const status = leaseState.value && leaseState.value.status;
-        return status === 'foreign' || status === 'lost';
+        return status === 'lost' || (status === 'foreign' && !listenOnly.value);
     };
     const canOpen = computed(() => Boolean(worklist.selectedRow.value) && !leaseBlocksOpen());
 
@@ -536,7 +537,7 @@ export function createWorklistViewController(options) {
         const target = worklist.selectedRow.value;
         if (!target || leaseBlocksOpen()) return false;
         if (typeof options.onOpen === 'function') {
-            options.onOpen({ dictationId: rowKey(target), mode: getOpenMode(target, user.role) });
+            options.onOpen({ dictationId: rowKey(target), mode: listenOnly.value ? 'player' : getOpenMode(target, user.role) });
         }
         return true;
     }
@@ -661,7 +662,7 @@ export function createWorklistViewController(options) {
     return {
         vue: V, view, panels, selectedId, selectedRow: worklist.selectedRow, leaseState, leaseRun, paused,
         worklist, refresh, filters, layout, workflow, detailClient, displayed, columns, headerAttrs,
-        start, dispose, reload, select, open, canOpen, onRowKey, goto, pages, hasNext, applyFilter,
+        start, dispose, reload, select, open, canOpen, listenOnly, onRowKey, goto, pages, hasNext, applyFilter,
         key: rowKey, cell: cellText, badge: statusBadge, dictationLabel, entryCount, text: TEXT,
         emptyCell: (row, key) => !ROLE_KEYS.includes(key) && key !== 'status' && cellText(row, key) === '–',
         priorityTone: priorityToneOf,
@@ -874,7 +875,7 @@ export const WorklistView = {
                 <div class="v8-hosted" style="margin-top: 17px">
                   <div class="detail-bottom" style="margin-top: 0">
                     <button type="button" class="primary" data-testid="open-dictation"
-                            :disabled="!c.canOpen.value" @click="c.open()">{{ c.text.open }}</button>
+                            :disabled="!c.canOpen.value" @click="c.open()">{{ c.listenOnly.value ? 'Anhören' : c.text.open }}</button>
                   </div>
                   <component :is="parts.Lease" v-if="c.leaseState.value" :state="c.leaseState.value" :run="c.leaseRun" />
                   <component :is="parts.Workflow" :wf="c.workflow" />

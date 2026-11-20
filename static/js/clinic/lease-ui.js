@@ -61,6 +61,8 @@ export function createLeaseController(options) {
     let note = '';
     const pendingKeys = { acquire: null, takeover: null };
     let mayTakeOver = options.mayTakeOver === true;
+    let mayListen = false;
+    let mayAcquire = null;
     let inspection = 0;
     let disposed = false;
 
@@ -82,6 +84,7 @@ export function createLeaseController(options) {
         return {
             status,
             writable: canWrite(),
+            mayListen, mayAcquire,
             holder: status === 'held' ? 'self' : (status === 'foreign' ? 'other' : null),
             message,
             surface: surfaceFor(key),
@@ -132,6 +135,8 @@ export function createLeaseController(options) {
         if (disposed || seen !== inspection || res.outcome !== 'ok' || !res.data) return;
         const { held, holder_user_id: holder, may_take_over: allowed } = res.data;
         mayTakeOver = typeof allowed === 'boolean' ? allowed : options.mayTakeOver === true;
+        mayListen = res.data.may_listen === true;
+        mayAcquire = typeof res.data.may_acquire === 'boolean' ? res.data.may_acquire : null;
         if (held === true && holder != null && String(holder) !== actor) drop('foreign');
         else if ((held === false || String(holder) === actor) && status === 'foreign') drop('idle');
         else emit();
@@ -172,6 +177,7 @@ export function createLeaseController(options) {
     }
 
     function acquire() {
+        if (mayAcquire === false) return Promise.resolve(snapshot());
         return requestLease('acquire');
     }
 
@@ -273,7 +279,7 @@ export function createLeaseController(options) {
 /** Buttons the banner offers, with labels and disabled state. */
 export function leaseActions(state) {
     const actions = [];
-    if (state.status === 'idle' || state.status === 'error') actions.push({ id: 'acquire', label: 'Bearbeiten', disabled: false });
+    if (state.mayAcquire !== false && (state.status === 'idle' || state.status === 'error')) actions.push({ id: 'acquire', label: 'Bearbeiten', disabled: false });
     if (state.status === 'acquiring') actions.push({ id: 'acquire', label: 'Bearbeiten', disabled: true });
     if (state.status === 'held') actions.push({ id: 'release', label: 'Freigeben', disabled: false });
     if (state.canTakeOver) actions.push({ id: 'takeOver', label: 'Übernehmen', disabled: false });

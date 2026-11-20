@@ -1175,7 +1175,7 @@ def register_clinic_worklist(flask_app):
         'clinic.metadata': ('edit',), 'clinic.archive': ('edit',), 'clinic.release': ('release',),
         'clinic.review': ('edit', 'release'), 'clinic.accept': ('release',),
         'clinic.reopen': ('release',), 'clinic.dictate': ('edit',), 'history': ('view',),
-        'review': ('edit',), 'regex_preview': ('edit',), 'regex_apply': ('edit',),
+        'review': ('edit',), 'listen': ('play',), 'regex_preview': ('edit',), 'regex_apply': ('edit',),
         'rename': ('edit',), 'priority': ('edit',), 'reassign': ('edit', 'release'),
     }
 
