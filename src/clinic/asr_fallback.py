@@ -210,6 +210,7 @@ def wrap_with_gpu_fallback(cpu: BaseTranscriptionConnector) -> BaseTranscription
     gpu = OpenAIWhisperConnector({
         'api_key': os.environ.get(GPU_KEY_ENV, '').strip() or cpu.config.get('api_key') or 'local',
         'base_url': url,
+        'word_timestamps': cpu.config.get('word_timestamps', False),
         'model': os.environ.get(GPU_MODEL_ENV, '').strip() or cpu.config.get('model', 'whisper-1'),
     })
     # One attempt only: the fallback is the retry.
