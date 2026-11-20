@@ -249,8 +249,8 @@ export function statusSurface(state) {
 export const VOCABULARY_TEMPLATE = `
 <section class="vocabulary-ui v8-page stack" aria-labelledby="voc-title" :aria-busy="state.status === 'loading'">
   <h2 id="voc-title">{{ label('clinic.vocabulary.title') }}</h2>
-  <div class="filterbar">
-    <div class="field" style="border:0;padding:0;box-shadow:none;background:none">
+  <form class="filterbar voc-filters" @submit.prevent="store.search()">
+    <div class="field voc-list" style="border:0;padding:0;box-shadow:none;background:none">
       <label for="voc-pool">Wortliste</label>
       <select id="voc-pool" class="select" :style="controlStyle" :value="state.scope.poolId || ''"
         @change="selectList($event.target.value)">
@@ -258,20 +258,6 @@ export const VOCABULARY_TEMPLATE = `
         <option v-for="pool in pools" :key="pool.id" :value="pool.id">{{ pool.name }}</option>
       </select>
     </div>
-    <span v-if="poolStatus === 'empty'" class="note" role="status">Keine zugeordneten Autorenpools.</span>
-    <template v-if="poolStatus === 'error'">
-      <span class="note" role="status">Autorenpools konnten nicht geladen werden.</span>
-      <button type="button" class="small" @click="loadPools">Autorenpools erneut laden</button>
-    </template>
-  </div>
-  <p role="status" aria-live="polite" class="note" :style="surfaceStyle">
-    {{ label('clinic.vocabulary.scope') }}:
-    <strong>{{ state.scope.kind === 'pool' ? selectedPoolName : label('clinic.vocabulary.ownList') }}</strong>
-    <span v-if="state.status === 'loading'">{{ label('clinic.vocabulary.loading') }}</span>
-    <span v-else-if="state.status === 'stale'">{{ label('clinic.vocabulary.stale') }}</span>
-    <span v-else>{{ state.message }}</span>
-  </p>
-  <form class="filterbar" @submit.prevent="store.search()">
     <div class="field search" style="border:0;padding:0;box-shadow:none;background:none">
       <label for="voc-q">{{ label('clinic.vocabulary.query') }}</label>
       <input id="voc-q" type="search" data-role="query" autocomplete="off" v-model="state.query.q">
@@ -285,7 +271,26 @@ export const VOCABULARY_TEMPLATE = `
       <select class="select" :style="controlStyle" id="voc-filter" v-model="state.query.filter"><option v-for="filter in filters" :key="filter" :value="filter">{{ enumLabel(filter) }}</option></select>
     </div>
     <button type="submit" class="primary">{{ label('clinic.vocabulary.search') }}</button>
+    <div v-if="poolStatus === 'empty' || poolStatus === 'error'" class="voc-pool-feedback">
+      <span v-if="poolStatus === 'empty'" role="status">Keine zugeordneten Autorenpools.</span>
+      <template v-else>
+        <span role="status">Autorenpools konnten nicht geladen werden.</span>
+        <button type="button" class="small" @click="loadPools">Autorenpools erneut laden</button>
+      </template>
+    </div>
   </form>
+  <p role="status" aria-live="polite" aria-atomic="true" class="note voc-feedback"
+    :class="{ 'voc-quiet': !state.message && !['error', 'denied', 'stale'].includes(state.status) }" :style="surfaceStyle">
+    <span class="voc-scope">{{ label('clinic.vocabulary.scope') }}:
+      <strong>{{ state.scope.kind === 'pool' ? selectedPoolName : label('clinic.vocabulary.ownList') }}</strong>
+    </span>
+    <span v-if="state.status === 'loading'">{{ label('clinic.vocabulary.loading') }}</span>
+    <span v-else-if="state.status === 'stale'">{{ label('clinic.vocabulary.stale') }}</span>
+    <span v-else-if="state.message">{{ state.message }}</span>
+    <span v-else-if="state.status === 'error' || state.status === 'denied'">Wortschatz konnte nicht geladen werden.</span>
+    <span v-else-if="state.status === 'ready'">{{ state.entries.length }} Einträge geladen.</span>
+  </p>
+  <p v-if="state.status === 'ready'" class="voc-result-count">{{ state.entries.length }} Einträge</p>
   <div class="table-wrap" v-if="state.entries.length">
     <table :aria-label="label('clinic.vocabulary.title')">
       <thead><tr>
