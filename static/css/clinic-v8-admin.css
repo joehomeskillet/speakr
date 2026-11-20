@@ -93,7 +93,8 @@ td small:where(.v8-admin-page *){display:block;font-size:10px;color:var(--v8-mut
 .v8-ui .users-form-only form label:not(:first-child){margin-top:6px}
 .v8-ui .users-form-only form label:has(input){display:flex;align-items:center;gap:8px}
 .v8-ui .users-form-only form input[type=checkbox]{accent-color:var(--ink)}
-.v8-ui .users-form-only form button:has(+ button[type=submit]){background:var(--ink);border-color:var(--ink);color:var(--ui-text-inverse,white)}
+.v8-ui .users-form-only .cadm-form__actions{display:flex;align-items:center;gap:8px}
+.v8-ui .users-form-only .cadm-form__actions .btn--ghost{background:var(--ink);border-color:var(--ink);color:var(--ui-text-inverse,white)}
 .v8-ui .users-form-only form button[type=submit]{display:none}
 .v8-ui .v8-admin-page .user-picker{max-width:320px}
 .v8-ui:is(#app,#global-header *) .v6-menu a[data-clinic-admin-link][aria-current=page]{background:var(--v8-s2);color:var(--v8-menu-hover-text)}
@@ -133,7 +134,8 @@ td small:where(.v8-admin-page *){display:block;font-size:10px;color:var(--v8-mut
 
 /* Benutzer und Rollen: the account table card is drawn by compose-users.js; of accounts-ui.js only the editor, the error line and the
    one-time code stay visible (its title, hint, create button and table repeat the card). The panel is hidden while it has nothing to show. */
-.v8-ui .v8-admin-page .users-form-only section[aria-labelledby=acc-title] > :is(h2,table,button,p:not([role])){display:none}
+.v8-ui .v8-admin-page .users-form-only .cadm-panel > :is(header,.cadm-tablewrap,p:not([role])),
+.v8-ui .v8-admin-page .users-form-only .cadm-editor > .cadm-subtitle{display:none}
 .v8-ui .v8-admin-page .users-form-only:not(:has(form,[role=alert],[role=status])){display:none}
 .v8-ui .v8-admin-page td.row-actions{white-space:nowrap}
 .v8-ui .v8-admin-page td.row-actions .icon-button{width:34px;height:34px;min-height:34px}
@@ -201,4 +203,6 @@ td small:where(.v8-admin-page *){display:block;font-size:10px;color:var(--v8-mut
 .v8-ui .v8-admin-plain .admin-plain-card [role=alert] + :is([role=alert],h2,h3,section){margin-top:12px}
 .v8-ui .v8-admin-plain .admin-plain-card dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 16px}
 .v8-ui .v8-admin-plain .admin-plain-card dd{margin:0}
+.v8-ui .clinic-jobs-view .filterbar:has(button){flex-wrap:nowrap}
+.v8-ui .clinic-jobs-view .filterbar:has(button) :is(select,button){height:38px}
 @media(max-width:760px){.v8-ui .v8-admin-plain .page-title{font-size:26px}.v8-ui .v8-admin-plain .admin-plain-card{padding:16px}}

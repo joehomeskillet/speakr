@@ -24,6 +24,9 @@ const ICON_REFRESH = '<svg class="ui-icon" viewBox="0 0 24 24" width="20" height
 export const COMPOSE_JOBS_VERSION = 1;
 export const FILTER_ALL = 'all';
 
+const REFRESH_BUTTON = `<button type="button" :disabled="c.state.value.loading" :aria-busy="c.state.value.loading ? 'true' : 'false'"
+    data-testid="reload" @click="c.load()">${ICON_REFRESH}<span>{{ c.text.refresh }}</span></button>`;
+
 export const TEXT = Object.freeze({
     title: 'Verarbeitung',
     eyebrow: 'Verwaltung',
@@ -194,6 +197,7 @@ export const JobsView = {
     props: {
         client: { type: Object, required: true },
         canRetry: { type: Boolean, default: false },
+        embedded: { type: Boolean, default: false },
         vue: { type: Object, default: null },
         onReconcile: { type: Function, default: null },
         autoStart: { type: Boolean, default: true },
@@ -214,22 +218,23 @@ export const JobsView = {
         return { c };
     },
     template: `
-<section class="${V8_PAGE} clinic-jobs-view" data-testid="clinic-jobs-view" aria-labelledby="cjv-title"
+<section class="${V8_PAGE} clinic-jobs-view" data-testid="clinic-jobs-view"
+         :aria-labelledby="embedded ? null : 'cjv-title'" :aria-label="embedded ? c.text.title : null"
          :data-scoped="c.scoped() ? 'true' : 'false'">
-  <div class="pagehead">
+  <div v-if="!embedded" class="pagehead">
     <div>
       <div class="eyebrow">{{ c.scoped() ? c.text.eyebrowScoped : c.text.eyebrow }}</div>
       <h1 id="cjv-title">{{ c.scoped() ? c.text.scopedTitle : c.text.title }}&nbsp;<span class="count-pill align-middle" data-testid="job-count">{{ c.rows.value.length }}</span></h1>
       <p class="subline">{{ c.scoped() ? c.text.sublineScoped : c.text.subline }}</p>
     </div>
     <div class="head-actions">
-      <button type="button" :disabled="c.state.value.loading" :aria-busy="c.state.value.loading ? 'true' : 'false'"
-              data-testid="reload" @click="c.load()">${ICON_REFRESH}<span>{{ c.text.refresh }}</span></button>
+      ${REFRESH_BUTTON}
     </div>
   </div>
   <div role="status" aria-live="polite" class="result-count" data-testid="status">{{ c.state.value.loading ? c.text.loading : c.state.value.notice }}</div>
   <div v-if="c.state.value.error" role="alert" class="note burgundy" data-testid="load-error"
        :data-denied="c.denied.value ? 'true' : 'false'">{{ c.errorText() }}</div>
+  <div v-if="embedded && c.denied.value" class="head-actions">${REFRESH_BUTTON}</div>
   <template v-if="!c.denied.value">
     <div v-if="!c.scoped()" class="stats" data-testid="health" role="region" :aria-label="c.text.health">
       <div class="stat"><span>{{ c.text.statDone }}</span><strong>{{ c.state.value.progress.completed }}/{{ c.state.value.progress.total }}</strong><small>{{ c.text.statDoneNote }}: {{ c.state.value.progress.total }}</small></div>
@@ -237,8 +242,8 @@ export const JobsView = {
       <div class="stat"><span>{{ c.text.stuckIds }}</span><strong>{{ c.state.value.stuckIds.length }}</strong><small>{{ c.text.statStuckNote }}</small></div>
       <div class="stat"><span>{{ c.text.statShown }}</span><strong>{{ c.rows.value.length }}</strong><small>{{ c.text.statShownNote }}</small></div>
     </div>
-    <section class="panel" aria-labelledby="cjv-list">
-      <h2 id="cjv-list">{{ c.text.list }}</h2>
+    <div class="panel" role="region" aria-labelledby="cjv-list">
+      <h2 id="cjv-list">{{ c.text.list }} <span v-if="embedded" class="count-pill align-middle" data-testid="job-count">{{ c.rows.value.length }}</span></h2>
       <div class="filterbar">
         <div class="field">
           <label for="cjv-filter">{{ c.text.filter }}</label>
@@ -246,6 +251,7 @@ export const JobsView = {
             <option v-for="key in c.filterOptions.value" :key="key" :value="key">{{ c.filterLabel(key) }}</option>
           </select>
         </div>
+        <template v-if="embedded">${REFRESH_BUTTON}</template>
       </div>
       <p v-if="!c.rows.value.length" class="empty" data-testid="empty-state">{{ c.scoped() ? c.text.scopedEmpty : (c.state.value.failures.length ? c.text.emptyFiltered : c.text.empty) }}</p>
       <div v-else class="table-wrap">
@@ -273,12 +279,12 @@ export const JobsView = {
           </tbody>
         </table>
       </div>
-    </section>
-    <section v-if="!c.scoped()" class="panel" aria-labelledby="cjv-rules" style="margin-top: 20px">
+    </div>
+    <div v-if="!c.scoped()" class="panel" role="region" aria-labelledby="cjv-rules" style="margin-top: 20px">
       <h2 id="cjv-rules">{{ c.text.rulesTitle }}</h2>
       <p class="hint">{{ c.text.rulesCorrected }}</p>
       <p class="hint">{{ c.text.rulesUnknown }}</p>
-    </section>
+    </div>
   </template>
 </section>`,
 };

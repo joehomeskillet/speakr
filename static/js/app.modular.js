@@ -3139,7 +3139,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (entry.view === 'clinic-admin-pools') return { client: clinicWorklist.client, userClient: clinicAdminClient };
                 if (entry.view === 'clinic-admin-authors') return { ...base, client: clinicAuthorsClient };
                 if (entry.view === 'clinic-admin-users' || entry.view === 'clinic-admin-asr') return { ...base, adminClient: clinicAdminClient };
-                if (entry.view === 'clinic-admin-jobs') return { client: clinicWorklist.client, canRetry: clinicIsAdmin };
+                if (entry.view === 'clinic-admin-jobs') return { client: clinicWorklist.client, canRetry: clinicIsAdmin, embedded: true };
                 return base;
             };
             if (clinicMenu) {
