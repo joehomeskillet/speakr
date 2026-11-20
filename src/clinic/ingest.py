@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import locale
 import logging
 import os
 import re
@@ -24,15 +25,15 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy.exc import SQLAlchemyError
-
-from src.clinic import decoder
+from src.clinic import batch_import_plan, decoder
 from src.clinic.audio_revisions import init_audio_revision
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.models import ClinicDictation, ClinicOriginal
 from src.database import db
-from src.models import Recording, User
+from src.models import ProcessingJob, Recording, User
+from src.services.storage import get_storage_service
 from src.services.storage.locator import local_path_from_key
+from src.services.transcription_defaults import resolve_transcription_params
 
 logger = logging.getLogger(__name__)
 
@@ -205,6 +206,7 @@ class IngestService:
         idempotency_key: str,
         now: datetime | None = None,
         commit: bool = True,
+        language_id: int | None = None,
     ) -> IngestReceipt:
         """Store ``stream`` and return the receipt for that delivery.
 
@@ -239,19 +241,23 @@ class IngestService:
         if db.session.get(User, author_user_id) is None:
             raise IngestError('invalid', 'author_user_id does not exist')
         duration_ms = None
+        import_path = None
         if clinic_mode_enabled():
             try:
                 duration_ms = probe_original_duration_ms(dest, digest)
             except IngestError as error:
                 # Keep the immutable receipt even when the media cannot yet be decoded.
                 logger.warning('clinic ingest: initial audio revision deferred (%s)', error.code)
-            # Decoding can take time. Recheck for a receipt published meanwhile.
-            existing = _existing(storage_key)
-            if existing is not None:
-                return _reuse(existing, digest, size, author_user_id)
+            if origin in ('agent', 'batch'):
+                import_path = dest
+            else:
+                # Decoding can take time. Recheck for a receipt published meanwhile.
+                existing = _existing(storage_key)
+                if existing is not None:
+                    return _reuse(existing, digest, size, author_user_id)
         return _insert_row(
             author_user_id, storage_key, digest, size, origin, origin_ref, key, moment,
-            duration_ms=duration_ms, commit=commit,
+            duration_ms=duration_ms, commit=commit, import_path=import_path, language_id=language_id,
         )
 
     def _publish(self, spool: Path, dest: Path, digest: str) -> None:
@@ -362,8 +368,49 @@ def _receipt_text(key: str, digest: str, size: int, origin: str, origin_ref: str
     }, sort_keys=True, separators=(',', ':'))
 
 
+def _lock_import(storage_key: str) -> None:
+    """Serialize the final receipt lookup and job insert for concurrent deliveries."""
+    connection = db.session.connection()
+    if connection.dialect.name == 'postgresql':
+        lock_id = int.from_bytes(bytes.fromhex(Path(storage_key).name)[:8], 'big', signed=True)
+        connection.execute(db.text('SELECT pg_advisory_xact_lock(:key)'), {'key': lock_id})
+    elif connection.dialect.name == 'sqlite' and not connection.connection.driver_connection.in_transaction:
+        connection.exec_driver_sql('BEGIN IMMEDIATE')
+
+
+def _queue_import(path: Path, author_user_id: int, size: int, language_id: int | None) -> str:
+    """Stage a worker-owned copy. Queue cleanup must never remove the clinic original."""
+    try:
+        with path.open('rb') as stream:
+            head = stream.read(16)
+        extension = decoder.detect_container(head)
+        if extension is None and batch_import_plan.classify('Diktat.flac', head)[0] == batch_import_plan.KIND_AUDIO:
+            extension = 'flac'
+        filename = f'Diktat.{extension or "bin"}'
+        # A retry after a failed commit reuses the same working key.
+        stored = get_storage_service().upload_local_file(
+            str(path), f'clinic/imports/asr/{path.name}/{filename}', delete_source=False)
+    except Exception as exc:
+        raise IngestError('storage_failed', 'could not stage the import for transcription') from exc
+    source = Recording(user_id=author_user_id, audio_path=stored.locator, file_size=size,
+                       original_filename=filename, status='QUEUED', processing_source='import',
+                       is_inbox=False, is_archived=True)
+    db.session.add(source)
+    db.session.flush()
+    # JobQueue.enqueue uses a separate transaction. Publish the stock job with its link instead.
+    language = locale.windows_locale.get(language_id or 0, '').partition('_')[0]
+    params = resolve_transcription_params(source, overrides={'language': language})
+    job = ProcessingJob(user_id=author_user_id, recording_id=source.id,
+                        job_type='transcribe', params=json.dumps(params))
+    if extension is None:
+        source.status, job.status = 'FAILED', 'failed'
+        source.error_message = job.error_message = 'Das Audioformat wird nicht unterstützt.'
+    db.session.add(job)
+    return f'upload:recording:{source.id}:time=upload'
+
+
 def _insert_row(author_user_id, storage_key, digest, size, origin, origin_ref, key, moment,
-                *, duration_ms, commit=True) -> IngestReceipt:
+                *, duration_ms, commit=True, import_path=None, language_id=None) -> IngestReceipt:
     recording = Recording(
         user_id=author_user_id,
         status='PENDING',
@@ -373,6 +420,14 @@ def _insert_row(author_user_id, storage_key, digest, size, origin, origin_ref, k
         file_size=size,
     )
     try:
+        if import_path is not None:
+            _lock_import(storage_key)
+            existing = _existing(storage_key)
+            if existing is not None:
+                receipt = _reuse(existing, digest, size, author_user_id)
+                if commit:
+                    _commit()
+                return receipt
         db.session.add(recording)
         db.session.flush()
         dictation = ClinicDictation(
@@ -382,13 +437,15 @@ def _insert_row(author_user_id, storage_key, digest, size, origin, origin_ref, k
         )
         db.session.add(dictation)
         db.session.flush()
+        # Keep the import provenance in the receipt and the ASR link on the original row.
+        link = origin_ref if import_path is None else _queue_import(import_path, author_user_id, size, language_id)
         original = ClinicOriginal(
             dictation_id=dictation.id,
             content_hash=digest,
             size_bytes=size,
             storage_key=storage_key,
             receipt=_receipt_text(key, digest, size, origin, origin_ref, storage_key),
-            origin_ref=origin_ref,
+            origin_ref=link,
             created_at=moment,
         )
         db.session.add(original)
@@ -398,10 +455,10 @@ def _insert_row(author_user_id, storage_key, digest, size, origin, origin_ref, k
         receipt = _receipt_of(original)
         if commit:
             _commit()
-    except SQLAlchemyError:
+    except Exception:
         db.session.rollback()
         logger.warning(
-            'clinic ingest %s: database write failed after the file was stored',
+            'clinic ingest %s: receipt transaction failed after the file was stored',
             storage_key, exc_info=True,
         )
         raise
