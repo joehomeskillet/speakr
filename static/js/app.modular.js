@@ -626,15 +626,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                     currentView.value = target;
                 });
-                // Keyboard focus follows the switch: it moves to the heading of the view that is shown.
-                watch(currentView, () => setTimeout(() => {
+                // Focus the destination as Vue finishes rendering it, before the next user interaction.
+                watch(currentView, () => {
                     const root = document.querySelector('[data-clinic-shell-view]:not([style*="display: none"])');
                     const heading = root && root.querySelector('h1, h2, [role="heading"]');
                     const target = heading || root;
                     if (!target) return;
                     if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
                     target.focus();
-                }, 50), { flush: 'post' });
+                }, { flush: 'post' });
             }
             const createClinicAudioContext = () => new (window.AudioContext || window.webkitAudioContext)();
             const clinicAudioContextFactory = (window.AudioContext || window.webkitAudioContext) ? createClinicAudioContext : undefined;
