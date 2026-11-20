@@ -4751,6 +4751,32 @@ Summarization Instructions:
     </script>{% if clinic_mode %}
     <!-- Clinic administration panels (CLINIC_MODE only): a separate small Vue app, one shared api client.
          No interpolation braces here: Jinja would evaluate them, so the template uses v-text. -->
+    <style>
+        /* Abnahme page of the clinic admin panel set: layout only, colours come from the theme variables. */
+        .acc-host { max-width: 44rem; display: flex; flex-direction: column; gap: var(--sp-3); }
+        .acc-lead { margin: 0; }
+        .acc-form { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+        .acc-form--inline { margin-top: var(--sp-3); }
+        .acc-id { flex: 1 1 18rem; min-width: 0; font-family: var(--font-mono, ui-monospace, monospace); }
+        .acc-num { width: 8rem; }
+        .acc-card { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-4); border: 1px solid var(--border-primary); border-radius: var(--radius-md, 8px); }
+        .acc-card__head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+        .acc-check { display: inline-flex; align-items: center; gap: var(--sp-2); min-height: 2.75rem; color: var(--text-primary); cursor: pointer; }
+        .acc-check input { width: 1.125rem; height: 1.125rem; accent-color: var(--bg-button); }
+        .acc-approvers { border: 0; margin: 0; padding: 0; min-width: 0; }
+        .acc-approvers legend { padding: 0; margin-bottom: var(--sp-2); }
+        .acc-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border-primary); border-radius: var(--radius-md, 8px); }
+        .acc-row { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); color: var(--text-primary); }
+        .acc-row + .acc-row { border-top: 1px solid var(--border-primary); }
+        .acc-row__name { overflow-wrap: anywhere; }
+        .acc-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); }
+        .acc-note { margin: 0; font-size: var(--fs-meta, 0.875rem); color: var(--text-secondary); }
+        .acc-note[data-kind="ok"] { color: var(--tint-success-fg, var(--text-primary)); }
+        .acc-note[data-kind="warn"] { color: var(--tint-warn-fg, var(--text-primary)); }
+        .acc-note[data-kind="error"] { color: var(--text-danger); }
+        .acc-decisions-title { margin: var(--sp-2) 0 0; }
+        .acc-host input:focus-visible, .acc-host button:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
+    </style>
     <script type="module">
         import { createClinicApiClient } from "{{ url_for('static', filename='js/clinic/api-client.js', v=app_version) }}";
         import { getUploadCsrfToken } from "{{ url_for('static', filename='js/modules/csrf.js', v=app_version) }}";
@@ -4772,6 +4798,7 @@ Summarization Instructions:
         import { registerImportView } from "{{ url_for('static', filename='js/clinic/compose-import.js', v=app_version) }}";
         import { registerJobsView } from "{{ url_for('static', filename='js/clinic/compose-jobs.js', v=app_version) }}";
         import { registerActivityView } from "{{ url_for('static', filename='js/clinic/compose-activity.js', v=app_version) }}";
+        import { useAcceptancePolicyEditor } from "{{ url_for('static', filename='js/clinic/acceptance-policy-ui.js', v=app_version) }}";
 
         const { createApp, reactive, ref, computed, markRaw, onMounted } = window.Vue;
         const root = document.getElementById('clinic-admin-root');
@@ -4871,6 +4898,90 @@ Summarization Instructions:
 </div>`,
         };
 
+
+        // Acceptance policy (P07, publication side): one dictation at a time. The page reuses the editor of acceptance-policy-ui.js
+        // (load, required flag, approver list, If-Match save); the API decides who may read and publish (an active site admin).
+        // The route serves no list of eligible people, so an approver is added by user id and the server checks membership (422).
+        const AcceptanceHost = {
+            name: 'ClinicAcceptanceHost',
+            setup() {
+                const editor = useAcceptancePolicyEditor(window.Vue, { client });
+                const draft = ref('');
+                const approverDraft = ref('');
+                const opened = ref(false);
+                const note = ref('');
+                const noteKind = ref('info');
+                function say(text, kind) { note.value = text; noteKind.value = kind || 'info'; }
+                async function open() {
+                    const id = draft.value.trim();
+                    opened.value = false;
+                    say('');
+                    if (!id) { say('Bitte eine Diktat-ID eingeben.', 'warn'); return; }
+                    editor.reset();
+                    const res = await editor.load(id);
+                    if (res.ok) { opened.value = true; return; }
+                    say(res.code === 'permission' ? res.message : 'Die Richtlinie dieses Diktats konnte nicht geladen werden.', 'error');
+                }
+                function addApprover() {
+                    const id = Number(approverDraft.value);
+                    if (!Number.isInteger(id) || id < 1) { say('Bitte eine gültige Benutzer-ID eingeben.', 'warn'); return; }
+                    if (editor.state.approvers.includes(id)) { say('Diese Person ist bereits ausgewählt.', 'warn'); return; }
+                    editor.toggle(id);
+                    approverDraft.value = '';
+                    say('');
+                }
+                function removeApprover(id) { editor.toggle(id); say(''); }
+                async function save() {
+                    const res = await editor.save();
+                    say(res.ok ? 'Gespeichert. Version ' + editor.state.version + '.' : res.message, res.ok ? 'ok' : 'error');
+                }
+                return { editor, draft, approverDraft, opened, note, noteKind, open, addApprover, removeApprover, save };
+            },
+            template: `
+<div class="acc-host" data-testid="clinic-acceptance">
+  <h3 class="t-heading" id="acc-title">Abnahme</h3>
+  <p class="t-meta acc-lead">Legt je Diktat fest, ob eine Freigabe erforderlich ist und wer freigeben darf.</p>
+  <form class="acc-form" @submit.prevent="open">
+    <label for="acc-dictation" class="t-label">Diktat-ID</label>
+    <input id="acc-dictation" class="field field--sm acc-id" type="text" autocomplete="off" spellcheck="false" v-model="draft">
+    <button type="submit" class="btn btn--sm btn--ghost" data-testid="acc-load">Richtlinie laden</button>
+  </form>
+  <p v-if="note && !opened" role="status" class="acc-note" :data-kind="noteKind" data-testid="acc-note" v-text="note"></p>
+  <p v-if="!opened && !note" class="t-meta" data-testid="acc-empty">Noch kein Diktat geöffnet.</p>
+  <section v-if="opened" class="surface acc-card" aria-labelledby="acc-card-title" data-testid="acc-card">
+    <div class="acc-card__head">
+      <h4 class="t-subhead" id="acc-card-title">Pflichtfreigabe</h4>
+      <span class="chip-meta" data-testid="acc-version" v-text="'Version ' + editor.state.version"></span>
+    </div>
+    <label class="acc-check"><input type="checkbox" data-testid="acc-required" :checked="editor.state.required" @change="editor.setRequired($event.target.checked)"> Freigabe erforderlich</label>
+    <fieldset class="acc-approvers">
+      <legend class="t-label">Berechtigte Freigebende</legend>
+      <ul v-if="editor.participants().length" class="acc-list" data-testid="acc-approvers">
+        <li v-for="p in editor.participants()" :key="p.userId" class="acc-row">
+          <span class="acc-row__name" v-text="'Benutzer ' + p.name"></span>
+          <button type="button" class="btn btn--sm btn--ghost" :aria-label="'Benutzer ' + p.name + ' entfernen'" @click="removeApprover(p.userId)">Entfernen</button>
+        </li>
+      </ul>
+      <p v-else class="t-meta" data-testid="acc-no-approvers">Keine freigebenden Personen ausgewählt.</p>
+      <div class="acc-form acc-form--inline">
+        <label for="acc-approver" class="t-label">Benutzer-ID</label>
+        <input id="acc-approver" class="field field--sm acc-num" type="number" min="1" step="1" inputmode="numeric" v-model="approverDraft" @keydown.enter.prevent="addApprover">
+        <button type="button" class="btn btn--sm btn--ghost" data-testid="acc-add" @click="addApprover">Hinzufügen</button>
+      </div>
+    </fieldset>
+    <div class="acc-actions">
+      <button type="button" class="btn btn--primary" data-testid="acc-save" :disabled="editor.state.status === 'processing'" @click="save">Speichern</button>
+      <p v-if="note" role="status" class="acc-note" :data-kind="noteKind" data-testid="acc-note" v-text="note"></p>
+    </div>
+    <h4 class="t-subhead acc-decisions-title">Entscheidungen</h4>
+    <ul v-if="editor.state.decisions.length" class="acc-list" data-testid="acc-decisions">
+      <li v-for="(d, i) in editor.state.decisions" :key="i" class="acc-row"><span v-text="d.label + ' - Verantwortlich: ' + d.actorName"></span></li>
+    </ul>
+    <p v-else class="t-meta" data-testid="acc-no-decisions">Keine Entscheidungen.</p>
+  </section>
+</div>`,
+        };
+
         // probe: GET that decides, on the team page, whether the API authorises the panel for this account.
         const defs = [
             { id: 'accounts', label: 'Konten', probe: '/admin/users', comp: AccountsAdminPanel, props: { controller: createAccountsAdmin({ client: adminClient, reactive }) } },
@@ -4898,29 +5009,35 @@ Summarization Instructions:
             { id: 'jobs', label: 'Verarbeitung', probe: '/jobs/health', comp: 'clinic-jobs-view', props: { client, canRetry: !team } },
             { id: 'activity', label: 'Aktivität und Audit', probe: '/statistics/aggregates', comp: 'clinic-activity-view', props: v8props },
         ].map((d) => Object.assign(d, { v8: true }));
-        const allDefs = defs.concat(v8defs);
+        // Policy pages (v8-92): own navigation row; the page is hidden for accounts the admin API refuses.
+        const policyDefs = [
+            { id: 'acceptance', label: 'Abnahme', probe: '/admin/users', probeVia: adminClient, comp: AcceptanceHost, props: {} },
+        ].map((d) => Object.assign(d, { policy: true, comp: markRaw(d.comp) }));
+        const allDefs = defs.concat(v8defs, policyDefs);
 
         const Root = {
             setup() {
                 const shown = ref(team ? [] : defs);
                 const shownV8 = ref(team ? [] : v8defs);
+                const shownPolicy = ref(team ? [] : policyDefs);
                 const withheld = ref([]);
                 const probing = ref(team);
                 const activeId = ref(team ? null : defs[0].id);
                 const active = computed(() => allDefs.find((d) => d.id === activeId.value) || null);
-                const viewTestId = computed(() => (active.value && active.value.v8 ? 'clinic-v8-view-' : 'clinic-view-') + (active.value ? active.value.id : ''));
+                const viewTestId = computed(() => (active.value && active.value.policy ? 'clinic-policy-view-' : active.value && active.value.v8 ? 'clinic-v8-view-' : 'clinic-view-') + (active.value ? active.value.id : ''));
                 const withheldText = computed(() => 'Für dieses Konto nicht freigegeben: ' + withheld.value.join(', ') + '.');
                 async function probe() {
                     const results = await Promise.all(allDefs.map((d) => (d.probe ? (d.probeVia || client).request(d.probe) : Promise.resolve({ outcome: 'ok' }))));
                     shown.value = defs.filter((d, i) => results[i].outcome === 'ok');
                     shownV8.value = v8defs.filter((d, i) => results[defs.length + i].outcome === 'ok');
+                    shownPolicy.value = policyDefs.filter((d, i) => results[defs.length + v8defs.length + i].outcome === 'ok');
                     withheld.value = defs.filter((d, i) => results[i].outcome !== 'ok').map((d) => d.label);
-                    const first = shown.value[0] || shownV8.value[0];
+                    const first = shown.value[0] || shownV8.value[0] || shownPolicy.value[0];
                     activeId.value = first ? first.id : null;
                     probing.value = false;
                 }
                 onMounted(() => { if (team) probe(); });
-                return { shown, shownV8, withheld, withheldText, probing, activeId, active, viewTestId };
+                return { shown, shownV8, shownPolicy, withheld, withheldText, probing, activeId, active, viewTestId };
             },
             template: `
 <section aria-labelledby="clinic-admin-title" data-testid="clinic-admin">
@@ -4936,6 +5053,11 @@ Summarization Instructions:
     <nav v-if="shownV8.length" class="tabs mb-4" aria-label="Klinik-Verwaltung, Seiten" data-testid="clinic-v8-nav">
       <button v-for="d in shownV8" :key="d.id" type="button" class="tab" :class="{ 'is-active': d.id === activeId }"
               :aria-current="d.id === activeId ? 'page' : null" :data-testid="'clinic-v8-panel-' + d.id"
+              @click="activeId = d.id"><span v-text="d.label"></span></button>
+    </nav>
+    <nav v-if="shownPolicy.length" class="tabs mb-4" aria-label="Klinik-Verwaltung, Richtlinien" data-testid="clinic-policy-nav">
+      <button v-for="d in shownPolicy" :key="d.id" type="button" class="tab" :class="{ 'is-active': d.id === activeId }"
+              :aria-current="d.id === activeId ? 'page' : null" :data-testid="'clinic-policy-panel-' + d.id"
               @click="activeId = d.id"><span v-text="d.label"></span></button>
     </nav>
     <div v-if="active" :key="active.id" :data-testid="viewTestId">
