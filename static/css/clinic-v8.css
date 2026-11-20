@@ -667,6 +667,17 @@
 .v8-ui .player-body .wave{height:48px;gap:3px}
 .v8-ui .player-body .wave i{background:#8eafa1}
 .v8-ui .player-time{display:flex;justify-content:space-between;margin-top:5px;font-size:10px;color:var(--v8-muted);font-variant-numeric:tabular-nums}
+/* P03 uses one transport: the waveform slider when there are peaks, native controls otherwise. */
+.v8-ui .p03-playback{display:flex;align-items:center;gap:clamp(15px,1.5vw,22px);min-width:0;width:100%}
+.v8-ui .p03-playback audio{display:block;width:100%;min-width:0}
+.v8-ui .p03-playback .large-play{display:grid;place-items:center;width:56px;height:56px;background:var(--ink);color:var(--v8-on-ink,var(--ui-surface))}
+.v8-ui .p03-wave{height:48px;position:relative;isolation:isolate}
+.v8-ui .p03-wave svg,.v8-ui .p03-wave input{position:absolute;inset:0;width:100%;height:100%;margin:0}
+.v8-ui .p03-wave input{opacity:0;cursor:pointer}
+.v8-ui .p03-wave:has(input:focus-visible){outline:2px solid var(--v8-text);outline-offset:3px;border-radius:3px}
+.v8-ui .p03-wave line{stroke:color-mix(in srgb,var(--v8-text-2) 63%,var(--surface));stroke-width:clamp(2px,.45vw,7px)}
+.v8-ui .p03-wave line.played{stroke:var(--v8-text)}
+.v8-ui .p03-playhead{position:absolute;top:0;bottom:0;width:2px;transform:translateX(-50%);background:var(--v8-text);pointer-events:none}
 .v8-ui .player-demo{font-size:10px;color:var(--v8-muted);max-width:94px;line-height:1.6}
 .v8-ui .record-detail-grid{display:grid;grid-template-columns:minmax(0,1fr) 292px;gap:22px}
 .v8-ui .transcript-panel,.v8-ui .record-metadata{background:var(--surface);border:1px solid var(--line);border-radius:12px;min-width:0;overflow:hidden;align-self:start}

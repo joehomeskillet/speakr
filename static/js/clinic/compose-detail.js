@@ -28,6 +28,7 @@ import { TokenContractError, surfaceFor } from './tokens.js';
 import { STATUS_LABELS, formatAudioDuration, formatPriority } from './worklist-ui.js';
 import { createDetailClient, ensureHostedStyles, statusTone } from './compose-worklist.js';
 import { WORKFLOW_ACTIONS_TEMPLATE, createWorkflowActions } from './workflow-actions-ui.js';
+import { DetailPlayback } from './detail-playback-ui.js';
 import { readAudioRevision } from './correction-editor-ui.js';
 import { createHistoryComponent } from './history-ui.js';
 import { createLeaseController, createLeaseStatusComponent } from './lease-ui.js';
@@ -370,6 +371,7 @@ const BODY_PROPS = {
 /** Inner body: one instance per dictation. The outer view re-keys it, which disposes the lease and clears all data. */
 const DetailBody = {
     name: 'ClinicDetailBody',
+    components: { DetailPlayback },
     props: BODY_PROPS,
     emits: ['back', 'open-editor'],
     setup(props, ctx) {
@@ -436,18 +438,15 @@ const DetailBody = {
       <span class="status" :class="tone(c.header().axes)">{{ axisText(c.header().axes) }}</span>
     </header>
 
+    <section v-if="status === 'ready'" class="record-player" :aria-label="TEXT.listen" data-testid="detail-playback">
+      <DetailPlayback v-if="c.audio.value?.src" :key="c.audio.value.src" :audio="c.audio.value" :vue="c.vue"
+                      :dictation-id="dictationId" @error="c.mediaFailed" />
+      <p v-else role="status" class="hint">{{ !c.audio.value ? TEXT.audioLoading :
+        (c.audio.value.status === 'unavailable' ? TEXT.noPlayback : c.audio.value.message) }}</p>
+    </section>
+
     <div class="record-detail-grid">
       <div style="display: grid; gap: 22px; align-content: start; min-width: 0">
-        <section v-if="status === 'ready'" class="panel" :aria-label="TEXT.listen" data-testid="detail-playback">
-          <h2>{{ TEXT.listen }}</h2>
-          <audio v-if="c.audio.value?.src" :key="c.audio.value.src" :src="c.audio.value.src"
-                 controls controlslist="nodownload noremoteplayback" disableremoteplayback preload="metadata"
-                 :aria-label="TEXT.listen" style="display: block; width: 100%; min-width: 0"
-                 @error="c.mediaFailed"></audio>
-          <p v-else role="status" class="hint">{{ !c.audio.value ? TEXT.audioLoading :
-            (c.audio.value.status === 'unavailable' ? TEXT.noPlayback : c.audio.value.message) }}</p>
-        </section>
-
         <section class="panel" :aria-label="TEXT.axes" data-testid="status-axes">
           <h2 style="font-weight: 700">{{ TEXT.axes }}</h2>
           <ul class="chiprow" style="list-style: none; margin: 0; padding: 0">
