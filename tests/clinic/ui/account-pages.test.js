@@ -39,6 +39,11 @@ describe('clinic account directory', () => {
     });
 
     it('opens the account table alphabetically using a paged read and retains its search when reopened', async () => {
+        for (const field of ['id', 'username', 'email', 'is_admin', 'last_active', 'recordings_count', 'storage_used']) {
+            for (const direction of ['asc', 'desc']) {
+                expect(AccountsAdminPanel.template).toContain('value="' + field + ':' + direction + '"');
+            }
+        }
         const { c, request } = fixture(32);
         const vm = { controller: c, s: c.state, ...AccountsAdminPanel.data.call({ controller: c }),
             browse: AccountsAdminPanel.methods.browse };

@@ -470,10 +470,13 @@ export const AccountsAdminPanel = {
       <option value="">Alle Richtlinien</option><option v-for="policy in policies" :key="policy" :value="policy">{{ labels.policies[policy] }}</option>
     </select></label>
     <label class="field"><span>Sortierung</span><select v-model="sortOrder" @change="browse()">
-      <option value="id:asc">Kontonummer</option><option value="username:asc">Benutzername A–Z</option>
-      <option value="username:desc">Benutzername Z–A</option><option value="email:asc">E-Mail A–Z</option>
-      <option value="last_active:desc">Zuletzt aktiv</option><option value="recordings_count:desc">Meiste Diktate</option>
-      <option value="storage_used:desc">Grösster Speicherverbrauch</option>
+      <optgroup label="Benutzername"><option value="username:asc">Benutzername A–Z</option><option value="username:desc">Benutzername Z–A</option></optgroup>
+      <optgroup label="E-Mail"><option value="email:asc">E-Mail A–Z</option><option value="email:desc">E-Mail Z–A</option></optgroup>
+      <optgroup label="Kontonummer"><option value="id:asc">Niedrigste Kontonummer</option><option value="id:desc">Höchste Kontonummer</option></optgroup>
+      <optgroup label="Administration"><option value="is_admin:desc">Administratoren zuerst</option><option value="is_admin:asc">Administratoren zuletzt</option></optgroup>
+      <optgroup label="Aktivität"><option value="last_active:desc">Zuletzt aktiv</option><option value="last_active:asc">Längste Inaktivität</option></optgroup>
+      <optgroup label="Diktate"><option value="recordings_count:desc">Meiste Diktate</option><option value="recordings_count:asc">Wenigste Diktate</option></optgroup>
+      <optgroup label="Speicher"><option value="storage_used:desc">Grösster Speicherverbrauch</option><option value="storage_used:asc">Geringster Speicherverbrauch</option></optgroup>
     </select></label>
   </div>
   <p v-if="s.loaded" role="status" class="hint">{{ s.table.total }} {{ s.table.total === 1 ? 'Konto' : 'Konten' }}</p>
