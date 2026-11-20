@@ -417,6 +417,8 @@ def _clinic_identity_denied(exc):
         if str(exc) == 'duplicate':
             return _clinic_identity_error('duplicate', 'Benutzername oder E-Mail-Adresse ist bereits vergeben.', 409)
         return _clinic_identity_error(str(exc), 'Bitte Benutzername und E-Mail-Adresse prüfen.', 400)
+    if str(exc) == 'user_not_found':
+        return _clinic_identity_error('user_not_found', 'Konto nicht gefunden.', 404)
     if str(exc) == 'no_account_policy':
         return _clinic_identity_error('no_account_policy', 'Für dieses Konto fehlt eine Anmelderichtlinie.', 404)
     if str(exc) == 'admin_recovery_forbidden':
@@ -478,6 +480,15 @@ def _clinic_user_command(user_id=None, *, toggle=False):
 
         if not clinic_recent_auth(actor):
             return _clinic_identity_error('reauth_required', 'Bitte erneut anmelden und nochmals versuchen.', 403)
+        if 'adopt_existing_local' in data:
+            if (user_id is None or not 0 < user_id <= 2**31 - 1 or toggle
+                    or set(data) != {'adopt_existing_local', 'expected_version'}
+                    or data['adopt_existing_local'] is not True or type(data['expected_version']) is not int
+                    or data['expected_version'] != 0):
+                return _clinic_identity_error('invalid_request', 'Bestandskonto mit fehlender Richtlinie angeben.', 400)
+            policy = identity.adopt_existing_local(user_id, actor_id=actor.user_id,
+                                                   actor_security_version=actor.security_version)
+            return jsonify(id=user_id, **_clinic_account_fields(policy))
         if user_id is None:
             if any(key in data and data[key] not in (False, None) for key in _CLINIC_ADMIN_OPTIONS):
                 return _clinic_identity_error('pending_activation', 'Konto zuerst anlegen und aktivieren.', 409)
@@ -617,6 +628,9 @@ def admin_update_user(user_id):
     data = request.json
     if not data:
         return jsonify(api_error('no_data_provided')), 400
+
+    if 'adopt_existing_local' in data:
+        return _clinic_identity_error('clinic_mode_required', 'Klinikmodus erforderlich.', 409)
 
     audited_fields = ('username', 'email', 'monthly_token_budget',
                       'monthly_transcription_budget', 'storage_quota_mb')
