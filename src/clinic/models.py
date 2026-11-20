@@ -155,6 +155,22 @@ class ClinicTranscriptRevision(db.Model):
     )
 
 
+class ClinicDictationSummary(db.Model):
+    """The last explicitly generated summary and the exact text it describes."""
+
+    __tablename__ = "clinic_dictation_summary"
+    dictation_id = db.Column(db.String(36), primary_key=True)
+    revision_id = db.Column(db.String(36), nullable=False)
+    body = db.Column(db.Text, nullable=False)
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["dictation_id", "revision_id"],
+            ["clinic_transcript_revision.dictation_id", "clinic_transcript_revision.id"],
+            ondelete="CASCADE",
+        ),
+    )
+
+
 class ClinicContextRevision(db.Model):
     """Checked case context. Case numbers only match inside source and tenant."""
 
