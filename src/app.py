@@ -1279,6 +1279,35 @@ def register_clinic_worklist(flask_app):
         lambda actor, action, dictation_id: may(actor, action, db.session.get(ClinicDictation, dictation_id)),
         assign_regex).blueprint)
 
+    # --- v8-74: acceptance policy publication (start) ---
+    # An active site admin publishes the approvers (W12: full access, no extra step); every other user
+    # is refused with an audited 403. Read needs the shared policy action 'view' or an active admin.
+    from src.clinic import routes_acceptance_policy
+    from src.clinic.admin_dictation_access import can_open_content
+    from src.clinic.identity import ClinicAccountPolicy
+    from src.models import User
+
+    def policy_admin(user_id, dictation):
+        user = db.session.get(User, user_id)
+        return (user is not None
+                and can_open_content(db.session, user, dictation.recording_id, 'audio').reason == 'admin_full')
+
+    def policy_authorize(user_id, permission, dictation):
+        if permission == routes_acceptance_policy.PERM_WRITE:
+            return policy_admin(user_id, dictation)
+        return policy_admin(user_id, dictation) or may(user_id, 'history', dictation)
+
+    def is_acceptance_member(user_id):
+        # An approver is an existing user with an active clinic account; what the approver may do
+        # to one dictation is still decided by the central policy when the accept command runs.
+        account = db.session.get(ClinicAccountPolicy, user_id)
+        return db.session.get(User, user_id) is not None and account is not None and account.status == 'active'
+
+    flask_app.register_blueprint(routes_acceptance_policy.create_blueprint(
+        authorize=policy_authorize, ledger=ledger, default_required=lambda _dictation: True,
+        is_acceptance_member=is_acceptance_member, record_audit=record_audit))
+    # --- v8-74: acceptance policy publication (end) ---
+
 
 def register_clinic_identity(flask_app):
     """Mount the identity, directory, pool, grant and preference handlers.

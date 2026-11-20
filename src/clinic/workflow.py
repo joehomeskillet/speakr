@@ -327,6 +327,21 @@ def transition(session: Session, dictation_id: str, trigger: str) -> ClinicWorkf
     return row
 
 
+def resubmit_for_acceptance(session: Session, dictation_id: str) -> ClinicWorkflowDictation | None:
+    """Wiedervorlage: an accepted dictation whose text head moved goes back to ``Abzunehmen``.
+
+    Kept apart from ``TRANSITIONS`` (the user-triggered table, pinned by test_workflow.py):
+    this move is made by the save path, never requested by a caller. Returns the moved row,
+    or None when the dictation is not in ``Abgenommen`` (nothing to resubmit).
+    """
+    row = _require(session, dictation_id)
+    if row.status != ACCEPTED:
+        return None
+    row.status, row.resume_status = TO_ACCEPT, None
+    session.flush()
+    return row
+
+
 def set_priority(session: Session, dictation_id: str, raw) -> ClinicWorkflowDictation:
     """Store a priority. Unknown raw values become Normal and set the flag."""
     row = _require(session, dictation_id)
