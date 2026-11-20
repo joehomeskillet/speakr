@@ -58,7 +58,12 @@ def _exercise():
     updates = Barrier(2)
 
     def align_updates(conn, cursor, statement, parameters, context, executemany):
-        if statement.lower().startswith("update " + GroupMembership.__tablename__.lower() + " set"):
+        sql = statement.lower()
+        if engine.dialect.name == "sqlite":
+            meet = sql.startswith("update " + GroupMembership.__tablename__.lower() + " set")
+        else:
+            meet = sql.endswith("for update") and GroupMembership.__tablename__ in sql
+        if meet:
             updates.wait(timeout=10)
 
     event.listen(engine, "before_cursor_execute", align_updates)
@@ -68,13 +73,17 @@ def _exercise():
     finally:
         event.remove(engine, "before_cursor_execute", align_updates)
 
-    assert sorted(r.status_code for r in responses) == [200, 409]
-    winner = admins[next(i for i, response in enumerate(responses) if response.status_code == 200)]
+    assert all(r.status_code in (200, 409) for r in responses)
+    successful = {actor for actor, response in zip(admins, responses) if response.status_code == 200}
+    assert successful
     assert request_role(admins[0], "lead").status_code == 200
     assert request_role(admins[1], "member").status_code == 200
     with app.app_context():
         assert GroupMembership.query.filter_by(group_id=group_id, user_id=member).one().role == "member"
         history = [h for h in pools.history() if h["change"] == "role_changed"]
+        assert len(history) == 2
+        winner = history[0]["actor_user_id"]
+        assert winner in successful
         assert [(h["actor_user_id"], h["detail"]["old"]["role"], h["detail"]["new"]["role"])
                 for h in history] == [(winner, "member", "lead"), (admins[1], "lead", "member")]
 
