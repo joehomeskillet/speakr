@@ -108,10 +108,11 @@ export const RecordingsView = {
         <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>
         <input type="search" style="border: 0; padding: 0; min-height: 0; height: auto; background: transparent; box-shadow: none; font-size: 13px" data-testid="filter-search" :aria-label="t.searchLabel" :placeholder="t.searchPlaceholder" autocomplete="off" v-model="c.state.query">
       </label>
-      <select class="record-select" style="appearance: auto; width: auto; font-size: 12px" data-testid="filter-scope" :aria-label="t.scopeLabel">
+      <select class="record-select max-[520px]:!basis-full" style="appearance: auto; width: auto; font-size: 12px; cursor: default"
+              data-testid="filter-scope" disabled :aria-label="t.scopeLabel" :title="t.scopeHint">
         <option value="">{{ t.scopeAll }}</option>
       </select>
-      <select class="record-select" style="appearance: auto; width: auto; font-size: 12px" data-testid="filter-status" :aria-label="t.statusLabel" v-model="c.state.draft.status" @change="c.applyFilters()">
+      <select class="record-select max-[520px]:!basis-full" style="appearance: auto; width: auto; font-size: 12px" data-testid="filter-status" :aria-label="t.statusLabel" v-model="c.state.draft.status" @change="c.applyFilters()">
         <option value="">{{ t.statusAny }}</option>
         <option v-for="(label, key) in c.statusOptions" :key="key" :value="key">{{ label }}</option>
       </select>
@@ -122,13 +123,13 @@ export const RecordingsView = {
     </div>
     <div class="record-role-filters">
       <label style="position: relative"><span>{{ t.poolId }}</span>
-        <input type="text" class="record-select" style="font-size: 12px" data-testid="filter-pool" list="crv-pools" autocomplete="off"
+        <input type="text" class="record-select" style="font-size: 12px; border-color: var(--line)" data-testid="filter-pool" list="crv-pools" autocomplete="off"
                :placeholder="t.poolAny" :value="c.picker.pool" @input="c.pick('pool', $event.target.value)">
         <svg style="position: absolute; right: 11px; bottom: 14px; pointer-events: none" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
         <datalist id="crv-pools"><option v-for="o in c.options.pools" :key="o.value" :value="o.label"></option></datalist>
       </label>
       <label style="position: relative"><span>{{ t.authorId }}</span>
-        <input type="text" class="record-select" style="font-size: 12px" data-testid="filter-author" list="crv-authors" autocomplete="off"
+        <input type="text" class="record-select" style="font-size: 12px; border-color: var(--line)" data-testid="filter-author" list="crv-authors" autocomplete="off"
                :placeholder="t.authorAny" :value="c.picker.author" @input="c.pick('author', $event.target.value)">
         <svg style="position: absolute; right: 11px; bottom: 14px; pointer-events: none" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
         <datalist id="crv-authors"><option v-for="o in c.options.authors" :key="o.value" :value="o.label"></option></datalist>
@@ -156,7 +157,7 @@ export const RecordingsView = {
     <div v-if="c.state.loaded && !c.state.error" class="record-list-meta">
       <p role="status" aria-live="polite" data-testid="result-count">{{ c.countLabel() }}</p>
       <div class="record-order"><span class="sort-label">{{ t.sortLabel }}</span>
-        <select class="record-select sort-select" style="appearance: auto; width: auto" data-testid="sort-select" :aria-label="t.sortSelect"><option value="newest">{{ t.sortNewest }}</option></select></div>
+        <select class="record-select sort-select" style="appearance: auto; width: auto; cursor: default" data-testid="sort-select" disabled :aria-label="t.sortSelect" :title="t.sortHint"><option value="newest">{{ t.sortNewest }}</option></select></div>
     </div>
     <p v-if="c.searchPartial()" class="sort-label" role="status" data-testid="search-hint">{{ t.searchLoadedHint }}</p>
     <div v-if="c.state.loading" class="record-empty" role="status" aria-live="polite" data-testid="loading-state">
@@ -165,9 +166,9 @@ export const RecordingsView = {
     </div>
     <div v-else-if="c.state.loaded && !c.visibleRows().length && !c.state.error" class="record-empty" data-testid="empty-state">
       <div class="empty-icon" aria-hidden="true">◉</div>
-      <h2>{{ c.searchPartial() ? t.noMatchLoaded : (c.hasFilters() || c.hasQuery() ? t.noMatch : t.empty) }}</h2>
+      <h2 class="font-bold">{{ c.searchPartial() ? t.noMatchLoaded : (c.hasFilters() || c.hasQuery() ? t.noMatch : t.empty) }}</h2>
       <p>{{ c.searchPartial() ? t.searchLoadedHint : (c.hasFilters() || c.hasQuery() ? t.noMatchHint : t.emptyHint) }}</p>
-      <button v-if="c.hasFilters() || c.hasQuery()" type="button" class="btn btn--ghost" @click="c.resetFilters()">{{ t.reset }}</button>
+      <button v-if="c.hasFilters() || c.hasQuery()" type="button" class="primary" @click="c.resetFilters()">{{ t.resetFilters }}</button>
     </div>
     <!-- One responsive list for desktop and phone: the grid of .recording-row changes at the prototype breakpoints.
          The former copies (table "hidden md:table" and cards) are gone; the role cells keep their data-cell markers. -->

@@ -615,7 +615,7 @@ export const vTip = {
         const hide = () => { tip.removeAttribute('data-visible'); tip.setAttribute('aria-hidden', 'true'); };
         el.addEventListener('mouseenter', show);
         el.addEventListener('mouseleave', hide);
-        el.addEventListener('focusin', show);
+        el.addEventListener('focusin', () => { if (button?.matches(':focus-visible')) show(); });
         el.addEventListener('focusout', hide);
         el.addEventListener('keydown', (event) => { if (event.key === 'Escape') hide(); });
         el._tip = { label, keys };

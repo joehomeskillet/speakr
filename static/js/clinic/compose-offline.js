@@ -25,7 +25,6 @@
  */
 
 import { createClinicApiClient } from './api-client.js';
-import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
 import { createOfflineCrypto } from './offline-crypto-ui.js';
 import { NAMESPACE, createOfflineStore } from './offline-store-ui.js';
 
@@ -41,6 +40,12 @@ export const PROFILE_LABELS = Object.freeze({
 
 export const TEXT = Object.freeze({
     title: 'Offline und Wiederherstellung',
+    eyebrow: 'Betrieb',
+    subline: 'Lokale Entwürfe, Sperrzustand und Verbindung sichtbar behandeln. Es gelten nur freigegebene Profile.',
+    draftsAndRecovery: 'Entwürfe und Wiederanlauf',
+    connectionAndCheck: 'Verbindung und Prüfung',
+    nextStep: 'Aktion',
+    unlockSection: 'Entsperren',
     profile: 'Profil',
     connection: 'Verbindung',
     online: 'Online',
@@ -51,6 +56,7 @@ export const TEXT = Object.freeze({
     denied: 'Offline-Speicherung ist nicht freigegeben. Es wird nichts lokal gespeichert und es gibt keine lokale Wiederherstellung. Bereits auf dem Server bestätigte Daten bleiben über die Arbeitsliste erreichbar.',
     noStorage: 'Kein lokaler Speicher bereitgestellt. Es wird nichts gespeichert.',
     drafts: 'Lokale Entwürfe',
+    draftsUnavailable: 'Lokale Entwürfe sind in diesem Zustand nicht verfügbar.',
     noDrafts: 'Keine lokalen Entwürfe gefunden. Das sagt nichts über Daten auf dem Server.',
     draft: 'Entwurf',
     sequence: 'Sequenz',
@@ -354,10 +360,15 @@ export function createOfflineViewController(options) {
     };
 }
 
-const box = (status) => {
-    const s = surfaceFor(status);
-    return { background: s.background, color: s.color, border: '1px solid ' + s.border };
-};
+// Class bundles for the V8 look: the app's utility reset wins over the element rules of clinic-v8.css, so headings and the
+// primary button carry their sizes here.
+const HEADINGS = '[&_h1]:[font-family:Inter,Segoe_UI,Arial,sans-serif] [&_h1]:text-[30px] [&_h1]:max-[760px]:text-[26px] [&_h1]:font-bold [&_h1]:leading-[1.2] [&_h1]:tracking-[-0.8px] [&_h1]:mb-[9px] [&_h1]:text-[color:var(--v8-text)] '
+    + '[&_h2]:text-[16px] [&_h2]:font-bold [&_h2]:leading-[1.35] [&_h2]:tracking-[-0.2px] [&_h2]:mb-[14px] [&_h2]:text-[color:var(--v8-text)] [&_button]:px-[13px]';
+const DANGER = 'danger max-[760px]:min-h-11 [.dark_&]:!text-[color:var(--v8-text)] [.dark_&]:!border-[color:var(--burgundy)] [[data-theme=dark]_&]:!text-[color:var(--v8-text)] [[data-theme=dark]_&]:!border-[color:var(--burgundy)]';
+const NOTE_BURGUNDY = 'note burgundy [.dark_&]:!text-[color:var(--v8-text)] [[data-theme=dark]_&]:!text-[color:var(--v8-text)]';
+const NOTE_WARNING = 'note warning [.dark_&]:!bg-[var(--v8-s2)] [.dark_&]:!border-[color:var(--line)] [.dark_&]:!text-[color:var(--v8-text)] '
+    + '[[data-theme=dark]_&]:!bg-[var(--v8-s2)] [[data-theme=dark]_&]:!border-[color:var(--line)] [[data-theme=dark]_&]:!text-[color:var(--v8-text)]';
+const PRIMARY = 'primary max-[760px]:min-h-11 !bg-[var(--ink)] !border-[color:var(--ink)] !text-[13px] !font-semibold !px-[13px] hover:!bg-[var(--brand2)]';
 
 export const OfflineView = {
     name: 'ClinicOfflineView',
@@ -392,49 +403,90 @@ export const OfflineView = {
         if (typeof V.onMounted === 'function') V.onMounted(() => { c.start(); });
         if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => c.dispose());
         const s = c.state;
-        const noticeStyle = () => box(s.noticeKind);
+        const noticeClass = () => (s.noticeKind === 'error' ? NOTE_BURGUNDY : s.noticeKind === 'warning' ? NOTE_WARNING : 'note');
         const profileLabel = () => PROFILE_LABELS[s.profile] || 'Nicht freigegebenes Profil';
         const contact = () => (s.lastContact ? s.lastContact.toLocaleTimeString('de-CH') : TEXT.noContact);
         const submit = () => c.unlock(props.getWrapped ? props.getWrapped() : null);
-        return { c, s, TEXT, FOCUS: FOCUS_INDICATOR, noticeStyle, profileLabel, contact, submit };
+        return { c, s, TEXT, HEADINGS, PRIMARY, DANGER, noticeClass, profileLabel, contact, submit };
     },
     template: `
-<section class="clinic-offline" aria-labelledby="clinic-offline-title">
-  <h2 id="clinic-offline-title">{{ TEXT.title }}</h2>
-  <p data-testid="profile">{{ TEXT.profile }}: {{ profileLabel() }}</p>
-  <p data-testid="connection">{{ TEXT.connection }}: {{ s.online ? TEXT.online : TEXT.offline }} · {{ TEXT.lastContact }}: {{ contact() }}</p>
-  <p role="status" aria-live="polite" data-testid="notice" :style="noticeStyle()">{{ s.phase === 'checking' ? TEXT.checking : s.notice }}</p>
-  <template v-if="s.phase === 'locked' || s.phase === 'unlocked'">
-    <section aria-labelledby="clinic-offline-drafts">
-      <h3 id="clinic-offline-drafts">{{ TEXT.drafts }}</h3>
-      <p v-if="!s.drafts.length" data-testid="no-drafts">{{ TEXT.noDrafts }}</p>
-      <ul v-else>
-        <li v-for="d in s.drafts" :key="d.key" data-testid="draft">
-          {{ TEXT.draft }} {{ d.dictationId }} · {{ TEXT.sequence }} {{ d.sequence }}
-          <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" data-testid="restore"
-                  :disabled="s.phase !== 'unlocked' || !s.online || s.busy" @click="c.restore(d.dictationId, d.sequence)">{{ TEXT.restore }}</button>
-          <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" data-testid="discard"
-                  @click="c.askDiscard(d.key)">{{ TEXT.discard }}</button>
-          <span v-if="s.pendingDiscard === d.key" role="alert" data-testid="discard-confirm">
-            {{ TEXT.discardWarn }}
-            <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" data-testid="discard-yes" @click="c.confirmDiscard()">{{ TEXT.discardConfirm }}</button>
-            <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" data-testid="discard-no" @click="c.cancelDiscard()">{{ TEXT.cancel }}</button>
-          </span>
-        </li>
-      </ul>
-    <p data-testid="usage">{{ TEXT.used }}: {{ s.usedBytes }} {{ TEXT.of }} {{ s.quotaBytes }} {{ TEXT.bytes }}</p>
+<section class="clinic-offline v8-page" :class="HEADINGS" aria-labelledby="clinic-offline-title">
+  <nav class="breadcrumb" aria-label="Brotkrumennavigation">
+    <a href="#/aufnahmen">Speakr</a><span aria-hidden="true">›</span><span>{{ TEXT.eyebrow }}</span><span aria-hidden="true">›</span><span aria-current="page">{{ TEXT.title }}</span>
+  </nav>
+  <div class="pagehead">
+    <div>
+      <div class="eyebrow">{{ TEXT.eyebrow }}</div>
+      <h1 id="clinic-offline-title">{{ TEXT.title }}</h1>
+      <p class="subline">{{ TEXT.subline }}</p>
+    </div>
+    <div class="head-actions"></div>
+  </div>
+  <div class="grid">
+    <section class="panel" aria-labelledby="clinic-offline-drafts">
+      <h2 id="clinic-offline-drafts">{{ TEXT.draftsAndRecovery }}</h2>
+      <template v-if="s.phase === 'locked' || s.phase === 'unlocked'">
+        <p v-if="!s.drafts.length" class="hint" data-testid="no-drafts">{{ TEXT.noDrafts }}</p>
+        <div v-else class="table-wrap">
+          <table :aria-label="TEXT.drafts">
+            <thead><tr><th scope="col">{{ TEXT.draft }}</th><th scope="col">{{ TEXT.nextStep }}</th></tr></thead>
+            <tbody>
+              <template v-for="d in s.drafts" :key="d.key">
+                <tr data-testid="draft">
+                  <td><strong>{{ TEXT.draft }} {{ d.dictationId }}</strong><small>{{ TEXT.sequence }} {{ d.sequence }}</small></td>
+                  <td class="whitespace-normal">
+                    <div class="actions">
+                      <button type="button" data-testid="restore"
+                              :disabled="s.phase !== 'unlocked' || !s.online || s.busy" @click="c.restore(d.dictationId, d.sequence)">{{ TEXT.restore }}</button>
+                      <button type="button" :class="DANGER" data-testid="discard" @click="c.askDiscard(d.key)">{{ TEXT.discard }}</button>
+                    </div>
+                  </td>
+                </tr>
+                <tr v-if="s.pendingDiscard === d.key">
+                  <td colspan="2" class="whitespace-normal">
+                    <div class="${NOTE_WARNING} !mt-0" role="alert" data-testid="discard-confirm">
+                      <p>{{ TEXT.discardWarn }}</p>
+                      <div class="actions">
+                        <button type="button" :class="DANGER" data-testid="discard-yes" @click="c.confirmDiscard()">{{ TEXT.discardConfirm }}</button>
+                        <button type="button" data-testid="discard-no" @click="c.cancelDiscard()">{{ TEXT.cancel }}</button>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+        <p class="text-status mt-3" data-testid="usage">{{ TEXT.used }}: {{ s.usedBytes }} {{ TEXT.of }} {{ s.quotaBytes }} {{ TEXT.bytes }}</p>
+      </template>
+      <p v-else class="hint" data-testid="drafts-unavailable">{{ TEXT.draftsUnavailable }}</p>
     </section>
-    <section v-if="s.phase === 'locked'" aria-label="Entsperren">
-      <label for="clinic-offline-pass">{{ TEXT.passphrase }}</label>
-      <input id="clinic-offline-pass" type="password" autocomplete="off" v-model="s.passphrase" :disabled="!s.online"
-             @keydown.enter.prevent="submit()">
-      <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" data-testid="unlock" :disabled="!s.online" @click="submit()">{{ TEXT.unlock }}</button>
+    <section class="panel" aria-labelledby="clinic-offline-connection">
+      <h2 id="clinic-offline-connection">{{ TEXT.connectionAndCheck }}</h2>
+      <dl class="keyvalues">
+        <div><dt>{{ TEXT.profile }}</dt><dd data-testid="profile">{{ profileLabel() }}</dd></div>
+        <div><dt>{{ TEXT.connection }}</dt><dd data-testid="connection"><span class="tag dot" :class="s.online ? 'neutral' : 'wait'">{{ s.online ? TEXT.online : TEXT.offline }}</span></dd></div>
+        <div><dt>{{ TEXT.lastContact }}</dt><dd>{{ contact() }}</dd></div>
+      </dl>
+      <p role="status" aria-live="polite" data-testid="notice" :class="noticeClass()">{{ s.phase === 'checking' ? TEXT.checking : s.notice }}</p>
+      <div class="actions mt-4">
+        <button type="button" :class="PRIMARY" data-testid="refresh" v-if="!s.loggedOut" :disabled="s.busy" @click="c.refresh()">{{ TEXT.refresh }}</button>
+        <button type="button" :class="DANGER" data-testid="logout" @click="c.logout()">{{ TEXT.logout }}</button>
+      </div>
+      <template v-if="s.phase === 'locked' || s.phase === 'unlocked'">
+        <div v-if="s.phase === 'locked'" class="mt-4" role="group" :aria-label="TEXT.unlockSection">
+          <div class="flex flex-col gap-1.5 mb-4 [&_label]:text-xs [&_label]:font-bold">
+            <label for="clinic-offline-pass">{{ TEXT.passphrase }}</label>
+            <input id="clinic-offline-pass" type="password" autocomplete="off" v-model="s.passphrase" :disabled="!s.online"
+                   @keydown.enter.prevent="submit()">
+          </div>
+          <div class="actions"><button type="button" :class="PRIMARY" data-testid="unlock" :disabled="!s.online" @click="submit()">{{ TEXT.unlock }}</button></div>
+        </div>
+        <div v-else class="actions mt-4"><button type="button" data-testid="lock" @click="c.lock()">{{ TEXT.lock }}</button></div>
+      </template>
+      <p class="hint mt-4">{{ TEXT.keys }}</p>
     </section>
-    <button v-else type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" data-testid="lock" @click="c.lock()">{{ TEXT.lock }}</button>
-  </template>
-  <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" data-testid="refresh" v-if="!s.loggedOut" :disabled="s.busy" @click="c.refresh()">{{ TEXT.refresh }}</button>
-  <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" data-testid="logout" @click="c.logout()">{{ TEXT.logout }}</button>
-  <p>{{ TEXT.keys }}</p>
+  </div>
 </section>`,
 };
 

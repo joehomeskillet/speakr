@@ -34,11 +34,14 @@ import { createLeaseController, createLeaseStatusComponent } from './lease-ui.js
 
 export const COMPOSE_WORKLIST_VERSION = 1;
 
-/** V8 look for the hosted lease and workflow components (their own templates are not owned here); scoped to .v8-hosted. */
+/** Page-specific additions to the shared V8 styles for the worklist and dictation detail. */
 export const HOSTED_CSS = [
     '.v8-ui .v8-hosted{display:grid;gap:12px;min-width:0}',
     '.v8-ui .v8-hosted .clinic-lease{display:grid;gap:8px;padding:12px 14px;border:1px solid var(--line);background:var(--v8-s1);border-radius:8px;font-size:12px;line-height:1.6}',
     '.v8-ui .v8-hosted .clinic-lease p{margin:0}',
+    '.v8-ui .v8-hosted .clinic-lease button{justify-self:start}',
+    '.v8-ui .detail .v8-hosted .clinic-lease button{justify-self:stretch}',
+    '.v8-ui .record-metadata .metadata-pair dd{margin-left:auto;text-align:right}',
     '.v8-ui .v8-hosted .clinic-lease button,.v8-ui .v8-hosted .clinic-workflow-actions button{background:var(--surface);color:var(--v8-text-2);border:1px solid var(--line);border-radius:8px;padding:9px 11px;font-size:11px;font-weight:750;min-height:40px;cursor:pointer}',
     '.v8-ui .v8-hosted .clinic-lease button:hover:not(:disabled),.v8-ui .v8-hosted .clinic-workflow-actions button:hover:not(:disabled){background:var(--v8-s1)}',
     '.v8-ui .v8-hosted .clinic-lease button:disabled,.v8-ui .v8-hosted .clinic-workflow-actions button:disabled{opacity:.55;cursor:not-allowed}',
@@ -50,6 +53,11 @@ export const HOSTED_CSS = [
     '.v8-ui .viewcontrols select,.v8-ui .toolbar-right select{font-weight:600;min-height:34px}',
     '@media (min-width:641px){.v8-ui .viewcontrols select,.v8-ui .toolbar-right select{font-size:12px}}',
     '.v8-ui .searchwrap input{font-weight:400}',
+    '.v8-ui .clinic-worklist-view .filter-pill.active:hover{background:var(--v8-s1);color:var(--v8-text)}',
+    '.v8-ui .worktable .prio{max-width:100%;vertical-align:middle}',
+    '.v8-ui .worktable .prio::before{flex-shrink:0}',
+    '.v8-ui .worktable .prio span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '.v8-ui .worktable th,.v8-ui .listhead span,.v8-ui .worktable .titletext small,.v8-ui .tablefooter span{color:var(--v8-text-2)}',
     '.v8-ui .v8-empty{border:0;border-radius:0;min-height:260px}',
     '.v8-ui .v8-empty h2{font-weight:750}',
     '.v8-ui .v8-empty p{color:var(--v8-muted)}',
@@ -105,6 +113,7 @@ export const TEXT = Object.freeze({
     clearSelection: 'Auswahl aufheben',
     pagerFor: 'Seite',
     hintSelect: 'Eintrag auswählen, um Details anzuzeigen',
+    updated: 'Zuletzt aktualisiert:',
     refreshing: 'Aktualisiere …',
     chips: 'Statusfilter',
     detailInfo: 'Eckdaten',
@@ -455,6 +464,7 @@ export function createWorklistViewController(options) {
 
     function setChip(chip) {
         view.chip = ['open', 'working', 'done'].includes(chip) ? chip : 'all';
+        if (selectedId.value && !chipRows.value.some((row) => rowKey(row) === selectedId.value)) select(null);
     }
 
     // Bulk selection by checkbox. Independent of the detail selection (the row click).
@@ -677,8 +687,15 @@ export function createWorklistViewController(options) {
         statusTone: (row) => statusTone(row.status),
         prioClass: (row) => ({ high: 'hoch', low: 'niedrig', normal: 'mittel' })[priorityToneOf(row)],
         sourceText: (row) => cellText(row, 'source_kind'),
+        updatedLabel: () => {
+            const at = refresh.lastUpdate.value;
+            return at instanceof Date && !Number.isNaN(at.getTime())
+                ? TEXT.updated + ' ' + String(at.getHours()).padStart(2, '0') + ':' + String(at.getMinutes()).padStart(2, '0')
+                : refresh.lastUpdateLabel.value;
+        },
         pagerInfo: () => 'Seite ' + view.page + (pages() === null ? '' : ' von ' + pages()) + ' · '
-            + entryCount(view.total ?? worklist.rows.value.length),
+            + (view.chip === 'all' ? entryCount(view.total ?? worklist.rows.value.length)
+                : chipRows.value.length + ' sichtbar'),
     };
 }
 
@@ -742,7 +759,7 @@ export const WorklistView = {
       <p class="subtitle">{{ c.text.subline }}</p>
     </div>
     <div class="page-actions">
-      <span role="status" aria-live="polite" class="last-update" data-testid="last-update">{{ c.refresh.lastUpdateLabel.value }}</span>
+      <span role="status" aria-live="polite" class="last-update" data-testid="last-update">{{ c.updatedLabel() }}</span>
       <button type="button" class="icon-btn" data-testid="refresh-button"
               :aria-label="c.text.refresh" :title="c.text.refresh"
               :disabled="c.refresh.isRefreshing.value" :aria-busy="c.refresh.isRefreshing.value ? 'true' : 'false'"
@@ -785,7 +802,7 @@ export const WorklistView = {
             <button type="button" class="filter-pill" :class="c.view.chip === 'done' ? 'active' : ''" data-chip="done" :aria-pressed="c.view.chip === 'done' ? 'true' : 'false'" @click="c.setChip('done')">{{ c.text.kpiDone }} <span class="num-circle">{{ c.counts.value.done }}</span></button>
           </div>
           <span class="toolbar-right">
-            <select class="select" style="width: auto; height: auto; min-height: 34px; appearance: auto" :aria-label="c.text.sortLabel" :value="c.sortValue()" @change="c.setSort($event.target.value)">
+            <select class="select" style="width: auto; height: auto; min-height: 34px; appearance: auto" :aria-label="c.text.sortLabel" :disabled="!c.layout.state.canEdit" :value="c.sortValue()" @change="c.setSort($event.target.value)">
               <option v-for="o in c.sortChoices" :key="o.value" :value="o.value">{{ o.label }}</option>
               <option v-if="!c.sortChoices.some((o) => o.value === c.sortValue())" :value="c.sortValue()">{{ c.sortNote() }}</option>
             </select>
@@ -793,7 +810,7 @@ export const WorklistView = {
         </template>
       </WorklistFiltersPanel>
       <p v-if="c.paused.value" class="sr-only cl-sr-only">{{ c.text.paused }}</p>
-      <div class="listhead">
+      <div v-if="c.chipRows.value.length" class="listhead">
         <strong data-testid="list-count">{{ c.shownRows().length }} von {{ c.counts.value.all }} auf dieser Seite ({{ c.worklist.totals.value.formattedTotalDuration }})</strong>
         <span>{{ c.text.hintSelect }}</span>
       </div>
@@ -805,10 +822,9 @@ export const WorklistView = {
               <div class="empty-icon" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 3a9 9 0 1 0 9 9"/></svg></div>
               <h2>{{ c.text.loading }}</h2>
             </div>
-            <div v-else-if="!c.worklist.rows.value.length" class="empty v8-empty" data-layout="cl-state" data-testid="empty-state">
+            <div v-else-if="!c.chipRows.value.length" class="empty v8-empty" data-layout="cl-state" data-testid="empty-state">
               <div class="empty-icon" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div>
-              <h2>{{ c.text.empty }}</h2>
-              <p v-if="c.view.filterId || c.view.search">{{ c.text.noMatch }}</p>
+              <h2>{{ c.view.filterId || c.view.search || c.worklist.rows.value.length ? c.text.noMatch : c.text.empty }}</h2>
             </div>
             <table v-else class="worktable" data-layout="cl-table" role="grid" aria-label="Arbeitsliste" aria-describedby="cwv-keys">
               <thead>
@@ -841,7 +857,7 @@ export const WorklistView = {
                     </td>
                     <td v-for="col in c.columns()" :key="col.key" :data-label="col.label" :class="c.emptyCell(item.row, col.key) ? 'cl-empty' : ''">
                       <span v-if="col.key === 'status'" class="status" data-layout="pill-status" :class="c.statusTone(item.row)">{{ c.badge(item.row).label }}</span>
-                      <span v-else-if="col.key === 'priority'" class="prio" :class="c.prioClass(item.row)">{{ c.cell(item.row, col.key) }}</span>
+                      <span v-else-if="col.key === 'priority'" class="prio" :class="c.prioClass(item.row)" :title="c.cell(item.row, col.key)"><span>{{ c.cell(item.row, col.key) }}</span></span>
                       <span v-else-if="col.key === 'staff_pools'" class="pool-pill" :title="c.cell(item.row, col.key)">{{ c.cell(item.row, col.key) }}</span>
                       <span v-else-if="col.key === 'dictated_by'" class="entity-name" :title="c.cell(item.row, col.key)">{{ c.cell(item.row, col.key) }}</span>
                       <template v-else>{{ c.cell(item.row, col.key) }}</template>

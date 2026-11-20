@@ -14,7 +14,7 @@
  */
 
 import { surfaceFor } from './tokens.js';
-import { V8_PAGE } from './compose-import.js';
+import { ACTION_TABLE, V8_PAGE } from './compose-import.js';
 import { LABELS as JOB_LABELS, TRAY_AUTOSTART_PARITY, useJobs } from './jobs-ui.js';
 
 export { TRAY_AUTOSTART_PARITY };
@@ -34,6 +34,7 @@ export const TEXT = Object.freeze({
     statDoneNote: 'Aufträge insgesamt',
     statFailedNote: 'Manueller Versuch möglich',
     statFailedNoteReadOnly: 'Nur Anzeige',
+    statStuckNote: 'Ohne Fortschritt',
     statFailed: 'Fehlgeschlagen',
     statShown: 'Angezeigt',
     statShownNote: 'Nach Filter',
@@ -218,7 +219,7 @@ export const JobsView = {
   <div class="pagehead">
     <div>
       <div class="eyebrow">{{ c.scoped() ? c.text.eyebrowScoped : c.text.eyebrow }}</div>
-      <h1 id="cjv-title">{{ c.scoped() ? c.text.scopedTitle : c.text.title }} <span class="count-pill align-middle ml-2" data-testid="job-count">{{ c.rows.value.length }}</span></h1>
+      <h1 id="cjv-title">{{ c.scoped() ? c.text.scopedTitle : c.text.title }}&nbsp;<span class="count-pill align-middle" data-testid="job-count">{{ c.rows.value.length }}</span></h1>
       <p class="subline">{{ c.scoped() ? c.text.sublineScoped : c.text.subline }}</p>
     </div>
     <div class="head-actions">
@@ -233,7 +234,7 @@ export const JobsView = {
     <div v-if="!c.scoped()" class="stats" data-testid="health" role="region" :aria-label="c.text.health">
       <div class="stat"><span>{{ c.text.statDone }}</span><strong>{{ c.state.value.progress.completed }}/{{ c.state.value.progress.total }}</strong><small>{{ c.text.statDoneNote }}: {{ c.state.value.progress.total }}</small></div>
       <div class="stat"><span>{{ c.text.statFailed }}</span><strong>{{ c.state.value.progress.failed }}</strong><small>{{ c.canRetry ? c.text.statFailedNote : c.text.statFailedNoteReadOnly }}</small></div>
-      <div class="stat"><span>{{ c.text.stuckIds }}</span><strong>{{ c.state.value.stuckIds.length }}</strong><small>Ohne Fortschritt</small></div>
+      <div class="stat"><span>{{ c.text.stuckIds }}</span><strong>{{ c.state.value.stuckIds.length }}</strong><small>{{ c.text.statStuckNote }}</small></div>
       <div class="stat"><span>{{ c.text.statShown }}</span><strong>{{ c.rows.value.length }}</strong><small>{{ c.text.statShownNote }}</small></div>
     </div>
     <section class="panel" aria-labelledby="cjv-list">
@@ -248,7 +249,7 @@ export const JobsView = {
       </div>
       <p v-if="!c.rows.value.length" class="empty" data-testid="empty-state">{{ c.scoped() ? c.text.scopedEmpty : (c.state.value.failures.length ? c.text.emptyFiltered : c.text.empty) }}</p>
       <div v-else class="table-wrap">
-        <table :aria-label="c.text.list" data-testid="job-list">
+        <table class="${ACTION_TABLE}" :aria-label="c.text.list" data-testid="job-list">
           <thead>
             <tr>
               <th scope="col">{{ c.text.colJob }}</th>
@@ -261,7 +262,7 @@ export const JobsView = {
             <tr v-for="f in c.rows.value" :key="f.id" :data-id="f.id">
               <td><strong>{{ f.id }}</strong></td>
               <td class="max-md:hidden">{{ f.jobType }}</td>
-              <td><span class="tag dot" :class="f.unknown ? 'wait' : 'error'">{{ c.surface(f).label }}: {{ f.errorClass }}</span></td>
+              <td><span class="tag dot max-md:[overflow-wrap:anywhere]" :class="f.unknown ? 'wait' : 'error'">{{ c.surface(f).label }}: {{ f.errorClass }}</span></td>
               <td>
                 <button v-if="f.unknown || c.canRetryJob(f)" type="button" class="small"
                         data-testid="retry" :disabled="c.state.value.busy === f.id"

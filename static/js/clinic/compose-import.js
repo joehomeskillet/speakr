@@ -58,6 +58,9 @@ export const ENDPOINTS = Object.freeze({
     retry: (id) => '/imports/intents/' + encodeURIComponent(id) + '/retry',
 });
 
+// Keep the action column readable on narrow screens, even with long source IDs or error codes.
+export const ACTION_TABLE = 'max-md:[&_th]:px-1.5 max-md:[&_td]:px-1.5 max-md:[&_td:first-child]:[overflow-wrap:anywhere]';
+
 export const TEXT = Object.freeze({
     title: 'Dateien und Geräteimport',
     eyebrow: 'Aufnahmen',
@@ -281,7 +284,7 @@ export const IMPORT_TEMPLATE = `
   <div class="pagehead">
     <div>
       <div class="eyebrow">{{ c.text.eyebrow }}</div>
-      <h1 id="civ-title">{{ c.text.title }} <span class="count-pill align-middle ml-2" data-testid="intent-count">{{ c.state.intents.length }}</span></h1>
+      <h1 id="civ-title">{{ c.text.title }}&nbsp;<span class="count-pill align-middle" data-testid="intent-count">{{ c.state.intents.length }}</span></h1>
       <p class="subline">{{ c.text.subline }}</p>
     </div>
     <div class="head-actions">
@@ -297,7 +300,7 @@ export const IMPORT_TEMPLATE = `
       <p v-if="c.state.intentsError" class="note warning" role="alert" data-testid="intents-error">{{ c.state.intentsError }}</p>
       <p v-else-if="!c.state.intents.length" class="empty" data-testid="intents-empty">{{ c.text.listEmpty }}</p>
       <div v-else class="table-wrap">
-        <table aria-label="Importaufträge" data-testid="intent-list">
+        <table class="${ACTION_TABLE}" aria-label="Importaufträge" data-testid="intent-list">
           <thead><tr><th scope="col">{{ c.text.colSource }}</th><th scope="col" class="max-md:hidden">{{ c.text.colFiles }}</th><th scope="col">{{ c.text.colStatus }}</th><th scope="col" class="max-md:hidden">{{ c.text.colCreated }}</th><th scope="col" :aria-label="c.text.colAction"></th></tr></thead>
           <tbody>
             <tr v-for="row in c.state.intents" :key="row.id" data-intent :data-id="row.id">
@@ -340,27 +343,31 @@ export const IMPORT_TEMPLATE = `
       <p v-else-if="c.state.unassignedError" class="note warning" role="alert">{{ c.state.unassignedError }}</p>
       <p v-else-if="!c.state.unassigned.length" class="empty" data-testid="clarification-empty">{{ c.text.clarificationEmpty }}</p>
       <div v-else class="table-wrap">
-        <table aria-label="Klärliste">
+        <table class="${ACTION_TABLE} max-md:table-fixed" aria-label="Klärliste">
           <thead><tr><th scope="col">{{ c.text.colFile }}</th><th scope="col">{{ c.text.colAction }}</th></tr></thead>
           <tbody>
-            <tr v-for="item in c.state.unassigned" :key="item.id" data-unassigned :data-id="item.id">
-              <td><strong>{{ item.relative_path }}</strong><small>{{ item.source_id }}</small></td>
-              <td>
-                <div class="actions">
-                  <template v-if="c.state.pending === item.id">
-                    <label class="inline-label">{{ c.text.intent }}
-                      <select v-model="choice[item.id]" style="width: auto; min-height: 32px; padding: 4px 8px">
+            <template v-for="item in c.state.unassigned" :key="item.id">
+              <tr data-unassigned :data-id="item.id">
+                <td><strong>{{ item.relative_path }}</strong><small>{{ item.source_id }}</small></td>
+                <td>
+                  <button v-if="c.state.pending !== item.id" type="button" class="small" data-testid="assign" @click="c.askAssign(item.id)">{{ c.text.assign }}</button>
+                </td>
+              </tr>
+              <tr v-if="c.state.pending === item.id">
+                <td colspan="2">
+                  <div class="actions">
+                    <label class="w-full md:w-auto md:flex md:items-center md:gap-2">{{ c.text.intent }}
+                      <select v-model="choice[item.id]" class="block min-w-0 md:w-auto">
                         <option v-for="i in c.state.intents.filter((r) => r.status === 'OPEN')" :key="i.id" :value="i.id">{{ i.source_ref }}</option>
                       </select>
                     </label>
                     <button type="button" class="small primary" data-testid="confirm-assign" :disabled="c.isBusy('assign', item.id) || !choice[item.id]"
                             @click="c.confirmAssign(item.id, choice[item.id], item.snapshot_version)">{{ c.text.confirm }}</button>
                     <button type="button" class="small" @click="c.cancelAssign()">{{ c.text.cancel }}</button>
-                  </template>
-                  <button v-else type="button" class="small" data-testid="assign" @click="c.askAssign(item.id)">{{ c.text.assign }}</button>
-                </div>
-              </td>
-            </tr>
+                  </div>
+                </td>
+              </tr>
+            </template>
           </tbody>
         </table>
       </div>

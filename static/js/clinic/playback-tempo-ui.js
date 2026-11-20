@@ -204,6 +204,7 @@ const MEDIA_EVENTS = Object.freeze(['timeupdate', 'durationchange', 'loadedmetad
  */
 export const PlaybackTempo = {
     name: 'PlaybackTempo',
+    directives: { tip: vTip },
     props: {
         audio: { type: Object, default: null },
         stepSeconds: { type: Number, required: true },

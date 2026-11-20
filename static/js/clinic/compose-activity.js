@@ -278,10 +278,7 @@ export function createActivityController(deps) {
     return { state, setUser, load, toggleGroup, openHistory, dispose };
 }
 
-function surfaceStyle(name) {
-    const s = surfaceFor(name);
-    return { background: s.background, color: s.color, borderColor: s.border };
-}
+const loadError = surfaceFor('error');
 
 export const ACTIVITY_TEMPLATE = `
 <div class="${V8_PAGE} clinic-activity-view">
@@ -350,7 +347,8 @@ export const ACTIVITY_TEMPLATE = `
       </form>
       <p v-if="state.status === 'loading'" class="result-count" role="status" style="margin-top: 14px">${LABELS.loading}</p>
       <p v-else-if="state.status === 'invalid'" class="note warning" role="alert">{{ state.message }}</p>
-      <div v-else-if="state.status === 'denied' || state.status === 'stale' || state.status === 'error'" class="note warning" role="alert">
+      <div v-else-if="state.status === 'denied' || state.status === 'stale' || state.status === 'error'" class="note" role="alert"
+           style="background: ${loadError.background}; color: ${loadError.color}; border-color: ${loadError.border}">
         <p>{{ state.message }}</p>
         <button v-if="state.status !== 'denied'" type="button" class="small" aria-label="${LABELS.retry}" @click="load()">${LABELS.retry}</button>
       </div>
@@ -419,8 +417,6 @@ export const ActivityView = {
             timeBases: TIME_BASES,
             grains: GRAINS,
             groups: GROUPS,
-            errorStyle: surfaceStyle('error'),
-            rowStyle: surfaceStyle,
         };
     },
 };

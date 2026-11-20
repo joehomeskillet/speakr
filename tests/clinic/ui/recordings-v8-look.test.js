@@ -142,6 +142,14 @@ describe('recordings review fixes (V8 P01)', () => {
         expect(tpl).toContain('class="dictator-name" data-cell="lease"');
     });
 
+    it('disables the fixed scope and sort choices and explains each one', () => {
+        for (const id of ['filter-scope', 'sort-select']) {
+            const select = tpl.match(new RegExp('<select\\b[^>]*data-testid="' + id + '"[^>]*>'))?.[0];
+            expect(select).toMatch(/\sdisabled\b/);
+            expect(select).toContain(':title=');
+        }
+    });
+
     it('maps workflow statuses to prototype tints and builds a label that starts with the visible heading', () => {
         expect(toViewRow(item(1, { workflow_status: 'in_bearbeitung' })).statusClass).toBe('in-arbeit');
         expect(toViewRow(item(1, { workflow_status: 'fertiggestellt' })).statusClass).toBe('erledigt');
