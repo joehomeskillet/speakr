@@ -42,9 +42,6 @@ document.addEventListener('DOMContentLoaded', function() {
   // Enhance search functionality
   const searchInput = document.querySelector('.md-search__input');
   if (searchInput) {
-    // Add keyboard shortcut hint
-    searchInput.setAttribute('placeholder', 'Search (Press "/" to focus)');
-    
     // Add "/" keyboard shortcut
     document.addEventListener('keydown', function(e) {
       if (e.key === '/' && !searchInput.matches(':focus')) {
