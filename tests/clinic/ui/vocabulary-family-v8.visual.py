@@ -17,6 +17,7 @@ HTML = '''<!doctype html><html lang="de-CH"><meta charset="utf-8">
 <link rel="stylesheet" href="/static/css/clinic-v8.css">
 <body class="v8-ui"><main id="app" style="padding:20px;max-width:1100px;margin:auto"></main>
 <script src="/static/vendor/js/vue.global.js"></script><script type="module">
+import { ResourcesView } from '/static/js/clinic/compose-resources.js';
 import { VocabularyView } from '/static/js/clinic/compose-vocabulary.js';
 import { createVoiceCommandsComponent } from '/static/js/clinic/voice-commands-ui.js';
 const ok = data => ({outcome:'ok', data});
@@ -41,7 +42,7 @@ const client = {
   }
 };
 const voice = location.search.includes('voice');
-const component = voice ? createVoiceCommandsComponent(Vue) : VocabularyView;
+const component = voice ? createVoiceCommandsComponent(Vue) : location.search.includes('resources') ? ResourcesView : VocabularyView;
 Vue.createApp(component, {client, currentUser:{id:7}, scope:{type:'user',id:7}}).mount('#app');
 </script></html>'''
 
@@ -85,7 +86,7 @@ def main():
                     page.locator('html').evaluate("(e) => e.style.zoom = ''")
                 page.evaluate('window.empty = true')
                 page.get_by_role('button', name='Aktuellen Stand laden', exact=True).click()
-                page.get_by_text('Keine Einträge für diese Auswahl.', exact=False).wait_for()
+                page.get_by_text('Keine passenden Wörter für diese Suche.', exact=True).wait_for()
                 page.screenshot(path=str(OUT / f'empty-{width}.png'), full_page=True, animations='disabled')
                 page.get_by_role('tab', name='Vorschläge', exact=True).click()
                 page.get_by_text('Teamnotiz', exact=True).wait_for()
@@ -96,6 +97,11 @@ def main():
                 assert 'Teamnotiz · Zurückgestellt · Zurückgestellt' in page.get_by_role('log').inner_text()
                 assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
                 page.screenshot(path=str(OUT / f'review-{width}.png'), full_page=True, animations='disabled')
+                page.goto(url + '?resources')
+                page.get_by_text('Frühdienstübergabe', exact=True).wait_for()
+                page.evaluate('window.empty = true')
+                page.get_by_role('button', name='Aktuellen Stand laden', exact=True).click()
+                page.get_by_text('Keine Einträge für diese Auswahl.', exact=False).wait_for()
                 page.goto(url + '?voice')
                 page.get_by_text('Aussprachetraining nicht verfügbar.', exact=False).wait_for()
                 page.locator('#vc-phrase').fill('Diktat freigeben')
