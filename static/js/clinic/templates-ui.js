@@ -317,20 +317,31 @@ export function templatesComponent(vue, options) {
             return { manager };
         },
         template: `
-<section role="region" aria-labelledby="clinic-tpl-title" :aria-busy="manager.state.status === 'processing'">
-  <h2 id="clinic-tpl-title">${LABELS.title}</h2>
-  <ul role="listbox" aria-label="${LABELS.list}" tabindex="0" @keydown="manager.onKey($event)">
-    <li v-for="row in manager.state.items" :key="row.id" role="option" :aria-selected="row.id === manager.state.selectedId" @click="manager.select(row.id)">
-      {{ row.name }} (v{{ row.version }}, ${LABELS.scope}: {{ row.scope }})
+<section role="region" aria-labelledby="clinic-tpl-title" :aria-busy="manager.state.status === 'processing'" class="space-y-4">
+  <header>
+    <h2 id="clinic-tpl-title" class="text-lg font-semibold text-[var(--text-primary)]">${LABELS.title}</h2>
+    <p class="mt-1 text-sm text-[var(--text-muted)]">Vorlagen mit Versionen und Einfügemarke. Jede Änderung legt eine neue Version an.</p>
+  </header>
+  <p v-if="manager.state.status === 'processing'" role="status" class="text-sm text-[var(--text-muted)]">{{ manager.state.loaded ? 'Wird verarbeitet …' : 'Vorlagen werden geladen.' }}</p>
+  <p v-else-if="manager.state.loaded && !manager.state.items.length" role="status" class="rounded-lg border border-dashed border-[var(--border-primary)] p-4 text-sm text-[var(--text-muted)]">Keine Vorlagen vorhanden.</p>
+  <ul role="listbox" aria-label="${LABELS.list}" tabindex="0" class="grid gap-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)]" @keydown="manager.onKey($event)">
+    <li v-for="row in manager.state.items" :key="row.id" role="option" :aria-selected="row.id === manager.state.selectedId"
+        class="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-4 py-3 text-sm hover:bg-[var(--bg-tertiary)] aria-selected:border-[var(--border-focus)] aria-selected:bg-[var(--bg-tertiary)]"
+        @click="manager.select(row.id)">
+      <span class="font-medium text-[var(--text-primary)]">{{ row.name }}</span>
+      <span class="inline-flex items-center rounded-full bg-[var(--bg-tertiary)] px-2.5 py-0.5 text-xs text-[var(--text-primary)]">v{{ row.version }}</span>
+      <span class="ml-auto text-xs text-[var(--text-muted)]">${LABELS.scope}: {{ row.scope }}</span>
     </li>
   </ul>
-  <div v-if="manager.state.selectedId" role="group" aria-label="${LABELS.history}">
-    <h3>${LABELS.history}</h3>
-    <ul role="list">
-      <li v-for="row in manager.history(manager.state.selectedId)" :key="row.id">v{{ row.version }} ${LABELS.marker}: {{ row.marker || '-' }}</li>
-    </ul>
-    <ul role="alert" aria-label="Hinweise">
-      <li v-for="issue in manager.issues(manager.state.selectedId)" :key="issue.code">{{ issue.message }}</li>
+  <div v-if="manager.state.selectedId" role="group" aria-label="${LABELS.history}" class="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4 space-y-3">
+    <h3 class="text-base font-semibold text-[var(--text-primary)]">${LABELS.history}</h3>
+    <div class="overflow-x-auto rounded-lg border border-[var(--border-primary)]">
+      <ul role="list" class="divide-y divide-[var(--border-primary)] text-sm">
+        <li v-for="row in manager.history(manager.state.selectedId)" :key="row.id" class="flex flex-wrap items-center gap-x-3 px-4 py-2 text-[var(--text-secondary)]"><span class="inline-flex items-center rounded-full bg-[var(--bg-tertiary)] px-2.5 py-0.5 text-xs text-[var(--text-primary)]">v{{ row.version }}</span><span>${LABELS.marker}:</span><code class="rounded bg-[var(--bg-tertiary)] px-1.5 text-[var(--text-primary)]">{{ row.marker || '-' }}</code></li>
+      </ul>
+    </div>
+    <ul role="alert" aria-label="Hinweise" class="space-y-2 empty:hidden">
+      <li v-for="issue in manager.issues(manager.state.selectedId)" :key="issue.code" class="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-tertiary)] p-3 text-sm text-[var(--text-secondary)]">{{ issue.message }}</li>
     </ul>
   </div>
 </section>`,

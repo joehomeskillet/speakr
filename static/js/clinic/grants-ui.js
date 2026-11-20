@@ -24,6 +24,7 @@ export const EFFECTS = Object.freeze(['allow', 'deny']);
 
 const LABELS = {
     'clinic.grants.title': 'Berechtigungen',
+    'clinic.grants.description': 'Fachrechte eines Benutzers: erlauben oder verweigern, je Geltungsbereich und Aktion. Eine Verweigerung gewinnt immer.',
     'clinic.grants.revision': 'Stand',
     'clinic.grants.scope': 'Geltungsbereich',
     'clinic.grants.scope.own': 'Eigene Diktate',
@@ -196,53 +197,75 @@ export function statusSurface(state) {
 }
 
 export const GRANTS_TEMPLATE = `
-<section class="grants-ui" aria-labelledby="grants-title">
-  <h2 id="grants-title">{{ label('clinic.grants.title') }}</h2>
-  <p role="status" aria-live="polite" :style="surfaceStyle">
-    {{ label('clinic.grants.revision') }}: {{ state.revision === null ? '–' : state.revision }}
+<section class="grants-ui cadm-panel" aria-labelledby="grants-title">
+  <header class="cadm-panel__head">
+    <div>
+      <h2 id="grants-title" class="cadm-title">{{ label('clinic.grants.title') }}</h2>
+      <p class="cadm-desc">{{ label('clinic.grants.description') }}</p>
+    </div>
+    <div class="cadm-panel__tools">
+      <button type="button" class="btn btn--ghost" @click="store.reload()"><i class="fas fa-sync-alt" aria-hidden="true"></i><span>{{ label('clinic.grants.reload') }}</span></button>
+      <button type="button" class="btn btn--primary" v-if="state.failedWrite" @click="store.retry()">{{ label('clinic.grants.retry') }}</button>
+    </div>
+  </header>
+  <p role="status" aria-live="polite" class="cadm-status" :style="surfaceStyle">
+    <span>{{ label('clinic.grants.revision') }}: {{ state.revision === null ? '–' : state.revision }}</span>
     <span v-if="state.status === 'stale'">{{ label('clinic.grants.stale') }}</span>
     <span v-else>{{ state.message }}</span>
   </p>
-  <button type="button" @click="store.reload()">{{ label('clinic.grants.reload') }}</button>
-  <button type="button" v-if="state.failedWrite" @click="store.retry()">{{ label('clinic.grants.retry') }}</button>
-  <h3 id="grants-existing">{{ label('clinic.grants.existing') }}</h3>
-  <ul aria-labelledby="grants-existing">
-    <li v-if="!state.items.length">{{ label('clinic.grants.empty') }}</li>
-    <li v-for="(item, i) in state.items" :key="i">
-      {{ label('clinic.grants.effect.' + item.effect) }} /
-      {{ label('clinic.grants.scope.' + item.scope) }}<span v-if="item.poolId"> ({{ item.poolId }})</span>:
-      {{ item.actions.map((a) => label('clinic.grants.action.' + a)).join(', ') }}
-    </li>
-  </ul>
-  <p v-if="!state.canEdit">{{ label('clinic.grants.readonly') }}</p>
-  <form v-else @submit.prevent="submit" novalidate>
-    <label for="grants-scope">{{ label('clinic.grants.scope') }}</label>
-    <select id="grants-scope" v-model="draft.scope">
-      <option v-for="s in scopes" :key="s" :value="s">{{ label('clinic.grants.scope.' + s) }}</option>
-    </select>
-    <label v-if="draft.scope === 'pool'" for="grants-pool">{{ label('clinic.grants.pool') }}</label>
-    <input v-if="draft.scope === 'pool'" id="grants-pool" type="text" autocomplete="off" v-model="draft.poolId">
-    <label for="grants-effect">{{ label('clinic.grants.effect') }}</label>
-    <select id="grants-effect" v-model="draft.effect">
-      <option v-for="e in effects" :key="e" :value="e">{{ label('clinic.grants.effect.' + e) }}</option>
-    </select>
-    <fieldset>
-      <legend>{{ label('clinic.grants.actions') }}</legend>
-      <label v-for="a in actions" :key="a">
-        <input type="checkbox" :value="a" v-model="draft.actions"> {{ label('clinic.grants.action.' + a) }}
-      </label>
-    </fieldset>
-    <div role="group" aria-labelledby="grants-effective">
-      <p id="grants-effective">{{ label('clinic.grants.effective') }}</p>
-      <ul>
-        <li v-for="row in preview" :key="row.action">
-          {{ label('clinic.grants.action.' + row.action) }}: {{ label('clinic.grants.effective.' + (row.result === 'allowed' ? 'allowed' : row.result === 'denied' ? 'denied' : 'none')) }}
-          <span v-if="row.overridden"> ({{ label('clinic.grants.effective.overridden') }})</span>
-        </li>
-      </ul>
+  <div class="cadm-section">
+    <h3 id="grants-existing" class="cadm-subtitle">{{ label('clinic.grants.existing') }}</h3>
+    <ul aria-labelledby="grants-existing" class="cadm-rows" :class="{ 'cadm-rows--empty': !state.items.length }">
+      <li v-if="!state.items.length">{{ label('clinic.grants.empty') }}</li>
+      <li v-for="(item, i) in state.items" :key="i">
+        <span class="pill-status" :class="item.effect === 'deny' ? 'pill-status--danger' : 'pill-status--success'">{{ label('clinic.grants.effect.' + item.effect) }}</span>
+        <span>{{ label('clinic.grants.scope.' + item.scope) }}<span v-if="item.poolId"> ({{ item.poolId }})</span></span>
+        <span class="cadm-badges">
+          <span v-for="a in item.actions" :key="a" class="pill-status pill-status--info">{{ label('clinic.grants.action.' + a) }}</span>
+        </span>
+      </li>
+    </ul>
+  </div>
+  <p v-if="!state.canEdit" class="banner banner--info"><i class="fas fa-eye" aria-hidden="true"></i><span>{{ label('clinic.grants.readonly') }}</span></p>
+  <form v-else class="cadm-editor" @submit.prevent="submit" novalidate>
+    <div class="cadm-form">
+      <div class="cadm-field">
+        <label for="grants-scope">{{ label('clinic.grants.scope') }}</label>
+        <select id="grants-scope" class="field" v-model="draft.scope">
+          <option v-for="s in scopes" :key="s" :value="s">{{ label('clinic.grants.scope.' + s) }}</option>
+        </select>
+      </div>
+      <div class="cadm-field" v-if="draft.scope === 'pool'">
+        <label for="grants-pool">{{ label('clinic.grants.pool') }}</label>
+        <input id="grants-pool" class="field" type="text" autocomplete="off" v-model="draft.poolId">
+      </div>
+      <div class="cadm-field">
+        <label for="grants-effect">{{ label('clinic.grants.effect') }}</label>
+        <select id="grants-effect" class="field" v-model="draft.effect">
+          <option v-for="e in effects" :key="e" :value="e">{{ label('clinic.grants.effect.' + e) }}</option>
+        </select>
+      </div>
+      <fieldset>
+        <legend>{{ label('clinic.grants.actions') }}</legend>
+        <label v-for="a in actions" :key="a" class="cadm-check">
+          <input type="checkbox" :value="a" v-model="draft.actions"> {{ label('clinic.grants.action.' + a) }}
+        </label>
+      </fieldset>
+      <div role="group" aria-labelledby="grants-effective" class="cadm-field cadm-field--wide">
+        <p id="grants-effective" class="cadm-subtitle">{{ label('clinic.grants.effective') }}</p>
+        <ul class="cadm-rows cadm-rows--grid">
+          <li v-for="row in preview" :key="row.action">
+            <span>{{ label('clinic.grants.action.' + row.action) }}:</span>
+            <span class="pill-status" :class="row.result === 'allowed' ? 'pill-status--success' : row.result === 'denied' ? 'pill-status--danger' : 'pill-status--pending'">{{ label('clinic.grants.effective.' + (row.result === 'allowed' ? 'allowed' : row.result === 'denied' ? 'denied' : 'none')) }}</span>
+            <span v-if="row.overridden" class="cadm-hint">({{ label('clinic.grants.effective.overridden') }})</span>
+          </li>
+        </ul>
+      </div>
+      <ul v-if="errors.length" role="alert" class="banner banner--danger cadm-errors cadm-field--wide"><li v-for="e in errors" :key="e">{{ label(e) }}</li></ul>
+      <div class="cadm-form__actions">
+        <button type="submit" class="btn btn--primary">{{ label('clinic.grants.save') }}</button>
+      </div>
     </div>
-    <ul v-if="errors.length" role="alert"><li v-for="e in errors" :key="e">{{ label(e) }}</li></ul>
-    <button type="submit">{{ label('clinic.grants.save') }}</button>
   </form>
 </section>`;
 
@@ -257,6 +280,7 @@ export function createGrantsComponent(Vue, client, props) {
             const errors = Vue.ref([]);
             const preview = Vue.computed(() => effectiveActions(state.items, validateDraft(draft).ok ? draft : null));
             const surfaceStyle = Vue.computed(() => {
+                if (state.status === 'ready') return {};
                 const s = statusSurface(state);
                 return { background: s.background, color: s.color, borderColor: s.border };
             });

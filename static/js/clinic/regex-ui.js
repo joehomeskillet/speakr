@@ -284,61 +284,73 @@ export function createRegexRulesComponent(Vue) {
             return { model, style, onApply, onKeydown };
         },
         template: `
-<section class="clinic-regex" :aria-label="model.label('title')" @keydown="onKeydown">
-  <h2>{{ model.label('title') }}</h2>
-  <fieldset v-for="(rule, i) in model.state.rules" :key="i">
-    <legend>{{ model.label('rule') }} {{ i + 1 }}</legend>
-    <label>{{ model.label('name') }}
-      <input type="text" :value="rule.name" @input="model.setRule(i, 'name', $event.target.value)">
-    </label>
-    <label>{{ model.label('pattern') }}
-      <input type="text" required :id="'clinic-regex-pattern-' + i" :aria-invalid="model.state.failure ? 'true' : null" :aria-describedby="model.state.failure ? 'clinic-regex-failure' : null" :value="rule.pattern" @input="model.setRule(i, 'pattern', $event.target.value)">
-    </label>
-    <label>{{ model.label('target') }}
-      <input type="text" required :id="'clinic-regex-target-' + i" :aria-invalid="model.state.failure ? 'true' : null" :aria-describedby="model.state.failure ? 'clinic-regex-failure' : null" :value="rule.target_field" @input="model.setRule(i, 'target_field', $event.target.value)">
-    </label>
-    <label>{{ model.label('replacement') }}
-      <input type="text" :value="rule.replacement" @input="model.setRule(i, 'replacement', $event.target.value)">
-    </label>
-    <button type="button" :disabled="model.state.rules.length < 2" @click="model.removeRule(i)">
+<section class="clinic-regex space-y-4" :aria-label="model.label('title')" @keydown="onKeydown">
+  <h2 class="text-lg font-semibold text-[var(--text-primary)]">{{ model.label('title') }}</h2>
+  <p class="mt-1 text-sm text-[var(--text-muted)]">Regeln zum Auslesen von Metadaten aus dem Diktattext festlegen und prüfen.</p>
+  <fieldset v-for="(rule, i) in model.state.rules" :key="i" class="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4">
+    <legend class="px-1 text-sm font-semibold text-[var(--text-primary)]">{{ model.label('rule') }} {{ i + 1 }}</legend>
+    <div class="grid gap-3 sm:grid-cols-2">
+      <label>
+        <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">{{ model.label('name') }}</span>
+        <input type="text" class="field" :value="rule.name" @input="model.setRule(i, 'name', $event.target.value)">
+      </label>
+      <label>
+        <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">{{ model.label('pattern') }}</span>
+        <input type="text" class="field font-mono" required :id="'clinic-regex-pattern-' + i" :aria-invalid="model.state.failure ? 'true' : null" :aria-describedby="model.state.failure ? 'clinic-regex-failure' : null" :value="rule.pattern" @input="model.setRule(i, 'pattern', $event.target.value)">
+      </label>
+      <label>
+        <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">{{ model.label('target') }}</span>
+        <input type="text" class="field" required :id="'clinic-regex-target-' + i" :aria-invalid="model.state.failure ? 'true' : null" :aria-describedby="model.state.failure ? 'clinic-regex-failure' : null" :value="rule.target_field" @input="model.setRule(i, 'target_field', $event.target.value)">
+      </label>
+      <label>
+        <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">{{ model.label('replacement') }}</span>
+        <input type="text" class="field font-mono" :value="rule.replacement" @input="model.setRule(i, 'replacement', $event.target.value)">
+      </label>
+    </div>
+    <button type="button" class="btn btn--sm btn--ghost mt-3" :disabled="model.state.rules.length < 2" @click="model.removeRule(i)">
       {{ model.label('removeRule') }}
     </button>
   </fieldset>
-  <button type="button" @click="model.addRule()">{{ model.label('addRule') }}</button>
-  <label>{{ model.label('text') }}
-    <textarea rows="4" :value="model.state.text" @input="model.setText($event.target.value)"></textarea>
+  <button type="button" class="btn btn--sm btn--ghost" @click="model.addRule()">{{ model.label('addRule') }}</button>
+  <label class="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4 block">
+    <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">{{ model.label('text') }}</span>
+    <textarea rows="4" class="field" :value="model.state.text" @input="model.setText($event.target.value)"></textarea>
   </label>
-  <button type="button" :disabled="!model.canPreview()" @click="model.preview()">{{ model.label('preview') }}</button>
-  <div role="status" aria-live="polite">
-    <p v-if="model.state.phase === 'previewing'">{{ model.label('previewing') }}</p>
-    <p v-if="model.state.phase === 'applying'">{{ model.label('applying') }}</p>
-    <p v-if="model.state.phase === 'applied'" :style="style(model.previewSurface())">{{ model.label('applied') }}</p>
+  <button type="button" class="btn btn--primary" :disabled="!model.canPreview()" @click="model.preview()">{{ model.label('preview') }}</button>
+  <div role="status" aria-live="polite" class="empty:hidden">
+    <p v-if="model.state.phase === 'previewing'" class="text-sm text-[var(--text-muted)]">{{ model.label('previewing') }}</p>
+    <p v-if="model.state.phase === 'applying'" class="text-sm text-[var(--text-muted)]">{{ model.label('applying') }}</p>
+    <p v-if="model.state.phase === 'applied'" :style="style(model.previewSurface())" class="rounded-lg border p-3 text-sm">{{ model.label('applied') }}</p>
   </div>
-  <div v-if="model.state.failure" id="clinic-regex-failure" role="alert" :style="style(model.failureSurface())">
+  <div v-if="model.state.failure" id="clinic-regex-failure" role="alert" :style="style(model.failureSurface())" class="rounded-lg border p-3 text-sm">
     <p>{{ model.state.failure.message }}</p>
-    <button v-if="model.state.failure.retryable" type="button" @click="model.retry()">{{ model.label('retry') }}</button>
+    <button v-if="model.state.failure.retryable" type="button" class="btn btn--sm btn--ghost mt-2" @click="model.retry()">{{ model.label('retry') }}</button>
   </div>
-  <div v-if="model.state.preview" role="region" :aria-label="model.label('preview')">
-    <table>
-      <caption>{{ model.label('preview') }}</caption>
-      <thead><tr>
-        <th scope="col">{{ model.label('field') }}</th>
-        <th scope="col">{{ model.label('oldValue') }}</th>
-        <th scope="col">{{ model.label('newValue') }}</th>
-      </tr></thead>
-      <tbody>
-        <tr v-for="row in model.state.preview.rows" :key="row.field">
-          <th scope="row">{{ row.field }}</th><td>{{ row.oldValue }}</td><td>{{ row.newValue }}</td>
-        </tr>
-      </tbody>
-    </table>
-    <p v-if="!model.state.preview.rows.length">{{ model.label('noMatch') }}</p>
-    <p v-if="model.state.preview.truncated">{{ model.label('truncated') }}</p>
-    <p>{{ model.label('ruleVersion') }}: <code>{{ model.state.preview.ruleVersion }}</code></p>
-    <p>{{ model.label('inputDigest') }}: <code>{{ model.state.preview.inputDigest }}</code></p>
-    <p>{{ model.label('applyHint') }}</p>
-    <button type="button" :disabled="!model.canApply()" @click="onApply">{{ model.label('apply') }}</button>
-    <button type="button" @click="model.discard()">{{ model.label('discard') }}</button>
+  <div v-if="model.state.preview" role="region" :aria-label="model.label('preview')" class="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4 space-y-3">
+    <div class="overflow-x-auto rounded-lg border border-[var(--border-primary)]">
+      <table class="min-w-full divide-y divide-[var(--border-primary)] text-sm">
+        <caption class="bg-[var(--bg-tertiary)] px-4 py-2 text-left text-sm font-semibold text-[var(--text-primary)]">{{ model.label('preview') }}</caption>
+        <thead class="bg-[var(--bg-tertiary)]"><tr>
+          <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">{{ model.label('field') }}</th>
+          <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">{{ model.label('oldValue') }}</th>
+          <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">{{ model.label('newValue') }}</th>
+        </tr></thead>
+        <tbody class="divide-y divide-[var(--border-primary)] bg-[var(--bg-secondary)]">
+          <tr v-for="row in model.state.preview.rows" :key="row.field">
+            <th scope="row" class="px-4 py-3 text-left text-sm font-medium text-[var(--text-primary)]">{{ row.field }}</th><td class="px-4 py-3 text-sm text-[var(--text-secondary)]">{{ row.oldValue }}</td><td class="px-4 py-3 text-sm text-[var(--text-secondary)]">{{ row.newValue }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p v-if="!model.state.preview.rows.length" class="rounded-lg border border-dashed border-[var(--border-primary)] p-4 text-sm text-[var(--text-muted)]">{{ model.label('noMatch') }}</p>
+    <p v-if="model.state.preview.truncated" class="text-sm text-[var(--text-muted)]">{{ model.label('truncated') }}</p>
+    <p class="text-sm text-[var(--text-secondary)]">{{ model.label('ruleVersion') }}: <code class="rounded bg-[var(--bg-tertiary)] px-1.5">{{ model.state.preview.ruleVersion }}</code></p>
+    <p class="break-all text-sm text-[var(--text-secondary)]">{{ model.label('inputDigest') }}: <code class="rounded bg-[var(--bg-tertiary)] px-1.5">{{ model.state.preview.inputDigest }}</code></p>
+    <p class="text-sm text-[var(--text-muted)]">{{ model.label('applyHint') }}</p>
+    <div class="flex flex-wrap gap-2">
+      <button type="button" class="btn btn--primary" :disabled="!model.canApply()" @click="onApply">{{ model.label('apply') }}</button>
+      <button type="button" class="btn btn--ghost" @click="model.discard()">{{ model.label('discard') }}</button>
+    </div>
   </div>
 </section>`,
     };

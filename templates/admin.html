@@ -145,6 +145,7 @@
          <head> so that, as with the former runtime build, they follow the page's
          own stylesheets in the cascade. -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.css', v=app_version) }}">
+    {% if clinic_mode %}<link rel="stylesheet" href="{{ url_for('static', filename='css/clinic-admin.css', v=app_version) }}">{% endif %}
     {% include 'includes/ui_theme.html' %}
 </head>
 <body class="bg-[var(--bg-primary)] text-[var(--text-primary)] h-full flex flex-col overflow-hidden">
@@ -4988,10 +4989,12 @@ Summarization Instructions:
             },
             template: `
 <div>
-  <form class="mb-3 flex flex-wrap items-end gap-2" @submit.prevent="open">
-    <label for="clinic-grants-user">Benutzer-ID</label>
-    <input id="clinic-grants-user" class="field field--sm" type="number" min="1" step="1" inputmode="numeric" v-model="draft">
-    <button type="submit" class="btn btn--sm btn--ghost">Fachrechte laden</button>
+  <form class="cadm-inline cadm-hostbar" @submit.prevent="open">
+    <div class="cadm-field">
+      <label for="clinic-grants-user">Benutzer-ID</label>
+      <input id="clinic-grants-user" class="field" type="number" min="1" step="1" inputmode="numeric" v-model="draft">
+    </div>
+    <button type="submit" class="btn btn--ghost">Fachrechte laden</button>
   </form>
   <component :is="panel" v-if="panel" :key="key"></component>
 </div>`,
@@ -5014,10 +5017,12 @@ Summarization Instructions:
             },
             template: `
 <div>
-  <form class="mb-3 flex flex-wrap items-end gap-2" @submit.prevent="open">
-    <label for="clinic-regex-dictation">Diktat-ID</label>
-    <input id="clinic-regex-dictation" class="field field--sm" type="text" autocomplete="off" v-model="draft">
-    <button type="submit" class="btn btn--sm btn--ghost">Regeln laden</button>
+  <form class="cadm-inline cadm-hostbar" @submit.prevent="open">
+    <div class="cadm-field">
+      <label for="clinic-regex-dictation">Diktat-ID</label>
+      <input id="clinic-regex-dictation" class="field" type="text" autocomplete="off" v-model="draft">
+    </div>
+    <button type="submit" class="btn btn--ghost">Regeln laden</button>
   </form>
   <component :is="panel" v-if="panel" :key="dictationId" :client="client" :dictation-id="dictationId"></component>
 </div>`,
@@ -5120,7 +5125,7 @@ Summarization Instructions:
             { id: 'preferences', label: 'Vorgaben', probe: '/preferences/recipient-default', comp: createPreferencesComponent(window.Vue, client, {}), props: {} },
         ].map((d) => Object.assign(d, { comp: typeof d.comp === 'string' ? d.comp : markRaw(d.comp) }));
 
-        // V8 administration pages (compose-*.js, registered on this app below). Own navigation row, same probe pattern:
+        // V8 administration pages (compose-*.js, registered on this app below). Same probe pattern:
         // the page stays hidden when the API answers 403/404. The component tag carries the module's registered name.
         const v8props = { client, currentUser: { id: userId, is_admin: !team } };
         const v8defs = [
@@ -5134,11 +5139,21 @@ Summarization Instructions:
             { id: 'jobs', label: 'Verarbeitung', probe: '/jobs/health', comp: 'clinic-jobs-view', props: { client, canRetry: !team } },
             { id: 'activity', label: 'Aktivität und Audit', probe: '/statistics/aggregates', comp: 'clinic-activity-view', props: v8props },
         ].map((d) => Object.assign(d, { v8: true }));
-        // Policy pages (v8-92): own navigation row; the page is hidden for accounts the admin API refuses.
+        // Policy pages (v8-92): the page is hidden for accounts the admin API refuses.
         const policyDefs = [
             { id: 'acceptance', label: 'Abnahme', probe: '/admin/users', probeVia: adminClient, comp: AcceptanceHost, props: {} },
         ].map((d) => Object.assign(d, { policy: true, comp: markRaw(d.comp) }));
         const allDefs = defs.concat(v8defs, policyDefs);
+
+        // One grouped navigation over all panel families. Inside a family the original order is kept (tests and focus order rely on it);
+        // an id that is in no group (a panel added later) lands in "Weitere".
+        // Konten / Benutzer und Rollen and Pools / Schreibkräfte-Pools / Diktierende und Autorenpools cover the same ground; both stay.
+        const NAV_GROUPS = [
+            { id: 'accounts-pools', label: 'Konten und Pools', ids: ['accounts', 'admin-pools', 'authors', 'pools'] },
+            { id: 'roles-rights', label: 'Rollen und Rechte', ids: ['users', 'grants', 'directory'] },
+            { id: 'content', label: 'Inhalte', ids: ['templates', 'categories', 'regex', 'columns', 'vocabulary', 'commands-templates'] },
+            { id: 'operations', label: 'Betrieb', ids: ['preferences', 'asr-profiles', 'import', 'jobs', 'activity', 'acceptance'] },
+        ];
 
         const Root = {
             setup() {
@@ -5151,6 +5166,22 @@ Summarization Instructions:
                 const active = computed(() => allDefs.find((d) => d.id === activeId.value) || null);
                 const viewTestId = computed(() => (active.value && active.value.policy ? 'clinic-policy-view-' : active.value && active.value.v8 ? 'clinic-v8-view-' : 'clinic-view-') + (active.value ? active.value.id : ''));
                 const withheldText = computed(() => 'Für dieses Konto nicht freigegeben: ' + withheld.value.join(', ') + '.');
+                const groups = computed(() => {
+                    const visible = shown.value.concat(shownV8.value, shownPolicy.value);
+                    const placed = new Set();
+                    const out = NAV_GROUPS.map((g) => {
+                        const items = g.ids.map((id) => visible.find((d) => d.id === id)).filter(Boolean);
+                        items.forEach((d) => placed.add(d.id));
+                        return { id: g.id, label: g.label, items };
+                    });
+                    const rest = visible.filter((d) => !placed.has(d.id));
+                    if (rest.length) out.push({ id: 'more', label: 'Weitere', items: rest });
+                    return out.filter((g) => g.items.length);
+                });
+                const groupOf = computed(() => {
+                    const found = groups.value.find((g) => g.items.some((d) => d.id === activeId.value));
+                    return found ? found.label : '';
+                });
                 async function probe() {
                     const results = await Promise.all(allDefs.map((d) => (d.probe ? (d.probeVia || client).request(d.probe) : Promise.resolve({ outcome: 'ok' }))));
                     shown.value = defs.filter((d, i) => results[i].outcome === 'ok');
@@ -5162,31 +5193,34 @@ Summarization Instructions:
                     probing.value = false;
                 }
                 onMounted(() => { if (team) probe(); });
-                return { shown, shownV8, shownPolicy, withheld, withheldText, probing, activeId, active, viewTestId };
+                return { shown, shownV8, withheld, withheldText, probing, activeId, active, viewTestId, groups, groupOf };
             },
             template: `
-<section aria-labelledby="clinic-admin-title" data-testid="clinic-admin">
-  <h2 id="clinic-admin-title" class="text-lg font-medium mb-3">Klinik-Verwaltung</h2>
-  <p v-if="probing" role="status">Berechtigungen werden geprüft …</p>
+<section class="cadm" aria-labelledby="clinic-admin-title" data-testid="clinic-admin">
+  <header class="cadm-head">
+    <h2 id="clinic-admin-title" class="cadm-head__title">Klinik-Verwaltung</h2>
+    <p class="cadm-head__lead">Konten, Pools, Rechte, Inhalte und Betrieb dieser Klinikinstanz.</p>
+  </header>
+  <p v-if="probing" role="status" class="cadm-state">Berechtigungen werden geprüft …</p>
   <template v-else>
-    <p v-if="withheld.length" role="status" class="text-sm mb-3" data-testid="clinic-admin-withheld" v-text="withheldText"></p>
-    <nav v-if="shown.length" class="tabs mb-4" aria-label="Klinik-Verwaltung">
-      <button v-for="d in shown" :key="d.id" type="button" class="tab" :class="{ 'is-active': d.id === activeId }"
-              :aria-current="d.id === activeId ? 'page' : null" :data-testid="'clinic-panel-' + d.id"
-              @click="activeId = d.id"><span v-text="d.label"></span></button>
-    </nav>
-    <nav v-if="shownV8.length" class="tabs mb-4" aria-label="Klinik-Verwaltung, Seiten" data-testid="clinic-v8-nav">
-      <button v-for="d in shownV8" :key="d.id" type="button" class="tab" :class="{ 'is-active': d.id === activeId }"
-              :aria-current="d.id === activeId ? 'page' : null" :data-testid="'clinic-v8-panel-' + d.id"
-              @click="activeId = d.id"><span v-text="d.label"></span></button>
-    </nav>
-    <nav v-if="shownPolicy.length" class="tabs mb-4" aria-label="Klinik-Verwaltung, Richtlinien" data-testid="clinic-policy-nav">
-      <button v-for="d in shownPolicy" :key="d.id" type="button" class="tab" :class="{ 'is-active': d.id === activeId }"
-              :aria-current="d.id === activeId ? 'page' : null" :data-testid="'clinic-policy-panel-' + d.id"
-              @click="activeId = d.id"><span v-text="d.label"></span></button>
-    </nav>
-    <div v-if="active" :key="active.id" :data-testid="viewTestId">
-      <component :is="active.comp" v-bind="active.props" @open-accounts="activeId = 'accounts'"></component>
+    <p v-if="withheld.length" role="status" class="banner banner--warn" data-testid="clinic-admin-withheld">
+      <i class="fas fa-lock" aria-hidden="true"></i><span v-text="withheldText"></span>
+    </p>
+    <div class="cadm-layout">
+      <nav v-if="groups.length" class="cadm-nav" aria-label="Klinik-Verwaltung" data-testid="clinic-v8-nav">
+        <div v-for="g in groups" :key="g.id" class="cadm-nav__group" role="group" :aria-labelledby="'cadm-group-' + g.id">
+          <p class="cadm-nav__label" :id="'cadm-group-' + g.id" v-text="g.label"></p>
+          <button v-for="d in g.items" :key="d.id" type="button" class="cadm-nav__item" :class="{ 'is-active': d.id === activeId }"
+                  :aria-current="d.id === activeId ? 'page' : null" :data-testid="(d.policy ? 'clinic-policy-panel-' : d.v8 ? 'clinic-v8-panel-' : 'clinic-panel-') + d.id"
+                  @click="activeId = d.id"><span v-text="d.label"></span></button>
+        </div>
+      </nav>
+      <div class="cadm-main">
+        <p v-if="active" class="cadm-crumb" v-text="groupOf + ' / ' + active.label"></p>
+        <div v-if="active" :key="active.id" :data-testid="viewTestId">
+          <component :is="active.comp" v-bind="active.props" @open-accounts="activeId = 'accounts'"></component>
+        </div>
+      </div>
     </div>
   </template>
 </section>`,
