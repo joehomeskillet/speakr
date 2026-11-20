@@ -21,6 +21,7 @@ const LABELS = {
     'clinic.vocabulary.title': 'Wörter und Vorschläge',
     'clinic.vocabulary.scope': 'Aktueller Bereich',
     'clinic.vocabulary.scopeUser': 'Persönlich',
+    'clinic.vocabulary.ownList': 'Eigene Liste',
     'clinic.vocabulary.scopePool': 'Autorenpool',
     'clinic.vocabulary.pool': 'Autorenpool wählen',
     'clinic.vocabulary.search': 'Suchen',
@@ -265,7 +266,7 @@ export const VOCABULARY_TEMPLATE = `
   </div>
   <p role="status" aria-live="polite" class="note" :style="surfaceStyle">
     {{ label('clinic.vocabulary.scope') }}:
-    <strong>{{ state.scope.kind === 'pool' ? selectedPoolName : label('clinic.vocabulary.scopeUser') }}</strong>
+    <strong>{{ state.scope.kind === 'pool' ? selectedPoolName : label('clinic.vocabulary.ownList') }}</strong>
     <span v-if="state.status === 'loading'">{{ label('clinic.vocabulary.loading') }}</span>
     <span v-else-if="state.status === 'stale'">{{ label('clinic.vocabulary.stale') }}</span>
     <span v-else>{{ state.message }}</span>
