@@ -13,8 +13,9 @@ policy itself:
 * KIS delivery goes through `kis.deliver`, whose delivery ledger is the
   idempotency record. A disabled adapter answers 503 `KIS_UNAVAILABLE`; no
   success is ever reported without an adapter answer.
-* The actor is always `current_user`. Permission is the injected per-object
-  policy, called with the action name `export`; an unknown action is a deny.
+* The actor is always `current_user`. The injected per-object policy allows
+  viewers to list disabled targets. Exportable revisions and jobs require
+  `export` permission.
 """
 
 import threading
@@ -145,16 +146,27 @@ def create_blueprint(
 
     @bp.get(BASE + '/output-targets')
     def targets(dictation_id: UUID) -> Response:
-        dictation = dictation_of(dictation_id)
-        active = release.active_release(dictation)
-        adapter = adapter_for()
-        gate = None if active is not None else 'not_released'
+        dictation = db.session.get(ClinicDictation, str(dictation_id))
+        if dictation is None:
+            abort(404)
+        can_export = authorize(current_user, ACTION, dictation)
+        # The app's audio and correction wiring maps correction_read to the shared view action.
+        if not can_export and not authorize(current_user, 'correction_read', dictation):
+            abort(404)
+
+        active = release.active_release(dictation) if can_export else None
+        gate = None
+        if not can_export:
+            gate = 'forbidden'
+        elif active is None:
+            gate = 'not_released'
         listed = [{'id': fmt, 'channel': 'file', 'available': gate is None, 'reason': gate}
                   for fmt in FILE_FORMATS]
-        kis_reason = gate or (None if adapter.enabled else 'kis_unavailable')
+        kis_reason = gate or (None if adapter_for().enabled else 'kis_unavailable')
         listed.append({'id': KIS_FORMAT, 'channel': 'kis', 'available': kis_reason is None,
                        'reason': kis_reason})
-        listed.append({'id': 'clipboard', 'channel': 'clipboard', 'available': True, 'reason': None})
+        listed.append({'id': 'clipboard', 'channel': 'clipboard', 'available': can_export,
+                       'reason': None if can_export else gate})
         return jsonify(dictation_id=dictation.id,
                        released_revision_id=None if active is None else active.transcript_revision_id,
                        targets=listed)
