@@ -63,6 +63,14 @@ export const TEXT = Object.freeze({
     pool: 'Schreibkräfte-Pool',
     correctedBy: 'Korrigiert durch',
     required: 'Zusatzabnahme erforderlich',
+    acceptance: 'Abnahmestand',
+    toAccept: 'Abzunehmen',
+    accepted: 'Abgenommen',
+    rejected: 'Zurückgewiesen',
+    noDecisionYet: 'Noch keine Entscheidung',
+    acceptedRevision: 'Abgenommene Revision',
+    movedSince: 'Seit der Abnahme hat sich Text, Audio oder Kontext geändert. Der Stand ist wieder abzunehmen.',
+    rejectReason: 'Begründung der Zurückweisung',
     notRequired: 'Zusatzabnahme nicht erforderlich',
     decisions: 'Bisherige Entscheidungen',
     noDecisions: 'Noch keine Entscheidung.',
@@ -178,6 +186,7 @@ export function createReviewViewController(options) {
     const status = ref('idle'); // idle | loading | ready | none | denied | error
     const review = ref(null); // last review state as served
     const reviewed = ref(null); // { text, audio, context } revisions the reviewer saw
+    const acceptance = ref(null); // GET acceptance-state as served (v8-74), or null when not supplied
     const newer = ref(null); // { revisionId } once a newer text revision or a conflict is known
     const confirming = ref(null);
     const reason = ref('');
@@ -233,6 +242,36 @@ export function createReviewViewController(options) {
             });
     }
 
+    /**
+     * Acceptance panel model from GET acceptance-state: { state: offen | angenommen | zurueckgegeben |
+     * wiedervorlage, label, current, reject_reason? }. "Required" comes from the acceptance policy.
+     * The accepted revision is only named when the server says the accepted stand is the current one.
+     */
+    function acceptanceView() {
+        const a = acceptance.value;
+        if (!a || typeof a.state !== 'string') return null;
+        const required = Boolean(policy.state.required);
+        const cur = isNode(a.current) ? a.current : {};
+        const view = { state: a.state, required, label: str(a.label), tone: 'info', acceptedRevision: null, moved: false, reason: null };
+        if (a.state === 'angenommen') {
+            view.label = TEXT.accepted;
+            view.tone = 'success';
+            view.acceptedRevision = str(cur.text_revision_id);
+        } else if (a.state === 'wiedervorlage') {
+            view.label = TEXT.toAccept;
+            view.tone = 'warn';
+            view.moved = true;
+        } else if (a.state === 'zurueckgegeben') {
+            view.label = TEXT.rejected;
+            view.tone = 'danger';
+            view.reason = str(a.reject_reason);
+        } else if (a.state === 'offen') {
+            view.label = required ? TEXT.toAccept : TEXT.noDecisionYet;
+            view.tone = required ? 'warn' : 'info';
+        }
+        return view;
+    }
+
     const readOnly = () => status.value === 'ready' && actions().length === 0;
 
     function revisionSummary() {
@@ -261,14 +300,22 @@ export function createReviewViewController(options) {
         status.value = 'loading';
         error.value = '';
         cancel();
-        const [res] = await Promise.all([scoped.request(path + '/review'), editor.load({ discard: true })]);
+        const [res, acc] = await Promise.all([
+            scoped.request(path + '/review'),
+            scoped.request(path + '/acceptance-state'),
+            editor.load({ discard: true }),
+        ]);
         if (disposed) return fail('cancelled', '');
+        acceptance.value = acc && acc.outcome === 'ok' && isNode(acc.data) ? acc.data : null;
+        // The acceptance state uses the same view right; a refusal there is the neutral denied state.
+        if (acc && acc.outcome === 'permission') res.outcome = 'permission';
         if (!res || res.outcome !== 'ok') {
             const denied = Boolean(res) && res.outcome === 'permission';
             const none = Boolean(res) && res.status === 404;
             status.value = denied ? 'denied' : (none ? 'none' : 'error');
             review.value = null;
             reviewed.value = null;
+            acceptance.value = null;
             wf.load(null);
             return fail(denied ? 'denied' : (none ? 'none' : 'failed'), denied ? TEXT.denied : (none ? TEXT.noReview : TEXT.failed));
         }
@@ -407,6 +454,7 @@ export function createReviewViewController(options) {
         policy.reset();
         review.value = null;
         reviewed.value = null;
+        acceptance.value = null;
         editor.text.value = '';
         reason.value = '';
         status.value = 'idle';
@@ -414,8 +462,8 @@ export function createReviewViewController(options) {
 
     return {
         vue: V, api, editor, alignment, wf, policy,
-        status, review, reviewed, newer, confirming, reason, contentChecked, contextChecked, error, reasonInvalid, audioEl,
-        dictationId, markers, isNewer, blockedReason, actions, readOnly, revisionSummary, confirmText,
+        status, review, reviewed, acceptance, newer, confirming, reason, contentChecked, contextChecked, error, reasonInvalid, audioEl,
+        dictationId, markers, isNewer, blockedReason, actions, acceptanceView, readOnly, revisionSummary, confirmText,
         start, load, checkNewer, request, confirm, cancel, bindAudio, close, correct, dispose,
         client: scoped, text: TEXT,
     };
@@ -492,6 +540,19 @@ const ReviewBody = {
       <strong>{{ TEXT.wiedervorlage }}</strong> {{ TEXT.newerRevision }}
       <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" data-testid="reload" @click="c.load()">{{ TEXT.reload }}</button>
     </div>
+
+    <section v-if="c.acceptanceView()" class="notice mt-3" :class="'notice--' + c.acceptanceView().tone"
+             :aria-label="TEXT.acceptance" data-testid="acceptance">
+      <div class="notice__body">
+        <h2 class="notice__title flex flex-wrap items-center gap-2">{{ TEXT.acceptance }}
+          <span class="pill-status" :class="'pill-status--' + c.acceptanceView().tone" data-testid="acceptance-state" :data-state="c.acceptanceView().state">{{ c.acceptanceView().label }}</span>
+        </h2>
+        <p class="notice__message mt-1" data-testid="acceptance-required">{{ c.acceptanceView().required ? TEXT.required : TEXT.notRequired }}</p>
+        <p v-if="c.acceptanceView().acceptedRevision" class="notice__message mt-1" data-testid="acceptance-revision">{{ TEXT.acceptedRevision }}: {{ TEXT.textRevision }} {{ c.acceptanceView().acceptedRevision }}</p>
+        <p v-if="c.acceptanceView().moved" class="notice__message mt-1" data-testid="acceptance-moved">{{ TEXT.movedSince }}</p>
+        <p v-if="c.acceptanceView().reason" class="notice__message mt-1" data-testid="acceptance-reason"><strong>{{ TEXT.rejectReason }}:</strong> {{ c.acceptanceView().reason }}</p>
+      </div>
+    </section>
 
     <section class="mt-3" :aria-label="TEXT.head" data-testid="head">
       <dl class="grid gap-1">
