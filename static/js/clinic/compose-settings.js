@@ -7,9 +7,9 @@
  *   SettingsView                   Vue options object, props client, currentUser, workstationId, t, vue (optional)
  *   registerSettingsView(app)      app.component('clinic-settings-view', SettingsView)
  *
- * The view adds only what the children do not show: the origin of each workstation value (system
- * default, pool default, personal, local, or centrally fixed). The origins are read from the
- * workstation answer the preferences child already requests (a tap on the shared client, no second
+ * The view adds only what the children do not show: the origin of each workstation value
+ * (personal, centrally fixed, or centrally limited; the API sends workstation, central, ceiling). The origins are
+ * read from the workstation answer the preferences child already requests (a tap on the shared client, no second
  * request). A refused request (403) hides the whole page content and shows only the denial, so no
  * system area is disclosed. A change of the current user switches the client context (aborting
  * in-flight calls) and remounts the children. Leaving the view aborts in-flight calls. The server is
@@ -23,10 +23,7 @@ import { surfaceFor } from './tokens.js';
 const WORKSTATION_PATH = /^\/preferences\/workstations\/[^/]+$/;
 
 export const ORIGIN_LABELS = Object.freeze({
-    system: 'Systemstandard',
-    pool: 'Poolvorgabe',
-    user: 'Persönlich',
-    local: 'Lokal',
+    workstation: 'Persönlich (Arbeitsplatz)',
     central: 'Zentral festgelegt',
     ceiling: 'Zentral begrenzt',
 });

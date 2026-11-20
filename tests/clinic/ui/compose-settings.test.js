@@ -12,8 +12,8 @@ const denied = { outcome: 'permission', status: 403, code: 'FORBIDDEN', message:
 // Shapes of routes_preferences.py (recipient-default, workstations/<id>, correction-mode).
 const DEFAULT = { version: 2, mode: 'person', target_ids: ['9'], choice: 'open', overrides: { person: ['9'], staff_pool: [] } };
 const WORKSTATION = {
-    values: { use_speech_recognition: true, language: 'de' },
-    origins: { use_speech_recognition: 'system', language: 'central' },
+    values: { use_speech_recognition: true, language: 'de', theme: 'light' },
+    origins: { use_speech_recognition: 'workstation', language: 'central', theme: 'ceiling' },
     version: 4,
 };
 
@@ -76,8 +76,9 @@ describe('settings view composition', () => {
             '/preferences/recipient-default', '/preferences/workstations/ws-1',
         ]);
         expect(view.rows()).toEqual([
-            { key: 'use_speech_recognition', origin: 'system', label: 'Systemstandard', locked: false },
+            { key: 'use_speech_recognition', origin: 'workstation', label: 'Persönlich (Arbeitsplatz)', locked: false },
             { key: 'language', origin: 'central', label: 'Zentral festgelegt', locked: true },
+            { key: 'theme', origin: 'ceiling', label: 'Zentral begrenzt', locked: true },
         ]);
         expect(child.view.value.settings.find((x) => x.key === 'language').locked).toBe(true);
         expect(view.state.forbidden).toBe(false);
@@ -137,7 +138,7 @@ describe('settings view composition', () => {
         const view = SettingsView.setup(props);
         view.preferences.setup();
         await Vue.hooks.mounted[0]();
-        expect(view.rows()).toHaveLength(2);
+        expect(view.rows()).toHaveLength(3);
         const epoch = view.state.epoch;
         props.currentUser = { id: 2 };
         const watcher = Vue.hooks.watchers[0];
@@ -166,9 +167,11 @@ describe('settings view composition', () => {
 
     it('labels every known origin in german and flags unknown ones', () => {
         expect(Object.values(ORIGIN_LABELS)).toEqual([
-            'Systemstandard', 'Poolvorgabe', 'Persönlich', 'Lokal', 'Zentral festgelegt', 'Zentral begrenzt',
+            'Persönlich (Arbeitsplatz)', 'Zentral festgelegt', 'Zentral begrenzt',
         ]);
-        expect(originLabel('pool')).toBe('Poolvorgabe');
+        expect(originLabel('workstation')).toBe('Persönlich (Arbeitsplatz)');
+        expect(originLabel('workstation')).not.toBe('Unbekannte Herkunft');
+        expect(originLabel('pool')).toBe('Unbekannte Herkunft');
         expect(originLabel('bogus')).toBe('Unbekannte Herkunft');
         expect(originLabel('toString')).toBe('Unbekannte Herkunft');
     });
