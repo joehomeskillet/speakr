@@ -53,14 +53,24 @@ def test_navigation_lists_every_function_once_and_lands_on_users(live_server, br
     page.locator("[data-testid=clinic-v8-view-users]").wait_for(state="visible", timeout=20000)
     labels = _nav_labels(page)
     assert sorted(labels) == sorted(set(labels)), labels  # no label twice
-    # The probe rule holds at this entry: the harness admin has no statistics grant and is no
-    # identity admin, so those two pages are withheld and announced instead of listed.
-    assert set(labels) == set(NAV_LABELS) - {"Aktivität und Audit", "Verzeichnis"}, labels
+    # Statistics requires a separate grant. Directory status remains available to
+    # explain the required identity permission without loading the directory preview.
+    assert set(labels) == set(NAV_LABELS) - {"Aktivität und Audit"}, labels
     assert not (set(labels) & MERGED), labels
     withheld = page.locator("[data-testid=clinic-admin-withheld]").inner_text()
-    assert "Aktivität und Audit" in withheld and "Verzeichnis" in withheld
+    assert "Aktivität und Audit" in withheld
     # Landing page is Benutzer und Rollen (it carries the former Konten panel).
     current = page.locator("[data-testid=clinic-v8-nav] [aria-current=page]")
+    assert current.count() == 1 and current.inner_text().strip() == "Benutzer und Rollen"
+    seen_requests = []
+    page.on("request", lambda request: seen_requests.append(request.url.removeprefix(base)))
+    page.get_by_role("button", name="Verzeichnis", exact=True).click()
+    directory = page.get_by_test_id("clinic-view-directory")
+    directory.get_by_text("Der Verzeichnisabgleich erfordert Rechte zur Identitätsverwaltung.").wait_for()
+    assert directory.get_by_role("button", name="Vorschau laden").count() == 0
+    assert "/api/clinic/v1/directory/preview" not in seen_requests
+    directory.get_by_role("button", name="Lokale Konten verwalten").click()
+    page.get_by_test_id("clinic-v8-view-users").wait_for(state="visible")
     assert current.count() == 1 and current.inner_text().strip() == "Benutzer und Rollen"
     assert not js_errors, js_errors
 
