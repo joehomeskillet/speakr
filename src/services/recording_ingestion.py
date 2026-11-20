@@ -1385,6 +1385,15 @@ def ingest(
             discard_unannounced_recording(recording, storage)
             return jsonify(api_error('upload_canceled')), 409
 
+        from src.clinic.config import clinic_mode_enabled
+        if clinic_mode_enabled():
+            from src.clinic import web_ingest
+            refused = web_ingest.register_upload(
+                owner=owner, recording=recording, storage=storage, form=form, now=now,
+                meeting_date=meeting_date, processing_source=processing_source)
+            if refused is not None:
+                return refused
+
         enqueue_ingestion_jobs(
             recording,
             owner=owner,
