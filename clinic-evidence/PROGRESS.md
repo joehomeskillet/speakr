@@ -10,4 +10,6 @@
 | Verlässlichkeit | Zwei Prozessabbrüche prüften die Wiederaufnahme der Benachrichtigungen. Die Exportprüfung las eine Datei über einen zweiten Anwendungsprozess. |
 | Vollständiger Projektlauf | Auf 86ddee26 bestanden 11.657 Python-Tests, 5.809 serielle Kliniktests, 1.942 Paketprüfungen und 2.337 JavaScript-Tests. Die Suite für die nachfolgenden Änderungen läuft separat. |
 
+Auf b7c776ee erreicht eine regulär angemeldete QA-Autorin den Schreibplatz über die Aufnahmenkarte. Ein neues synthetisches Diktat wurde über HTTPS angenommen und im Browser auf dem öffentlichen Staging abgespielt. Die lokale Browserprüfung bestätigt den vollständigen Freigabeweg samt aktualisierter Fallbindung. Im Liveversuch scheiterte die Spracherkennung an einer vom lokalen Dienst zurückgewiesenen Modellkennung. Der erste manuelle Speichervorgang ohne vorhandene Textrevision lieferte HTTP 503. Für beide Fälle läuft eine gesonderte Prüfung.
+
 Die Staging-Reparatur ergab zwölf abspielbare Audiodateien aus dreizehn übernommenen Diktaten. Ein DS2-Original enthält null Audioframes. Der Durchlauf als bestehender User 1 benötigt dessen Klinik-Kontopolicy. Hardware-, externe KIS- und Produktionsabnahme sind offen.
