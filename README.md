@@ -1,307 +1,223 @@
-<div align="center">
-    <img src="static/img/icon-32x32.png" alt="Speakr Logo" width="32"/>
-</div>
+**Deutsch** · [English](README.en.md)
 
-<h1 align="center">Speakr</h1>
-<p align="center">Self-hosted AI transcription and intelligent note-taking platform</p>
+# Speakr – Web-Diktat für Kliniken
 
-<p align="center">
-  <a href="https://www.gnu.org/licenses/agpl-3.0"><img alt="AGPL v3" src="https://img.shields.io/badge/License-AGPL_v3-blue.svg"></a>
-  <a href="https://github.com/murtaza-nasir/speakr/actions/workflows/docker-publish.yml"><img alt="Docker Build" src="https://github.com/murtaza-nasir/speakr/actions/workflows/docker-publish.yml/badge.svg"></a>
-  <a href="https://hub.docker.com/r/learnedmachine/speakr"><img alt="Docker Pulls" src="https://img.shields.io/docker/pulls/learnedmachine/speakr"></a>
-  <a href="https://github.com/murtaza-nasir/speakr/releases/latest"><img alt="Latest Version" src="https://img.shields.io/badge/version-0.11.1-brightgreen.svg"></a>
-</p>
+Dieser unabhängige Fork von [Speakr](https://github.com/murtaza-nasir/speakr) (Originalprojekt, Upstream) wird als webbasierte Ablösung für dns.comfort entwickelt, mit Fokus auf den Arbeitsablauf von dns.comfort.pro ([Hersteller](https://www.sonic-labs.net/produkte/dns-comfort-pro)). Er ist kein Produkt dieses Herstellers. Diktierende nehmen im Browser auf, die Spracherkennung läuft auf eigener Infrastruktur, und der Schreibdienst hört ab und korrigiert. Auch Prüfung und Freigabe erfolgen ausschliesslich im Webclient, ohne nativen Diktatclient.
 
-<p align="center">
-  <a href="https://murtaza-nasir.github.io/speakr">Documentation</a> •
-  <a href="https://murtaza-nasir.github.io/speakr/getting-started">Quick Start</a> •
-  <a href="https://murtaza-nasir.github.io/speakr/screenshots">Screenshots</a> •
-  <a href="https://hub.docker.com/r/learnedmachine/speakr">Docker Hub</a> •
-  <a href="https://github.com/murtaza-nasir/speakr/releases">Releases</a>
-</p>
+Das Projekt richtet sich an Kliniken und Entwicklungsteams, die einen Diktat- und Schreibdienstablauf im Browser erproben oder weiterentwickeln wollen, ohne Audio an Cloud-Spracherkennung zu senden. Die Oberfläche des Klinikmodus ist deutschsprachig (Schweizer Schreibweise).
 
----
+**Benutzerhandbuch:** [Deutsch](https://joehomeskillet.github.io/speakr/de/) · [English](https://joehomeskillet.github.io/speakr/)
 
-## Overview
+> [!IMPORTANT]
+> **Entwicklungsstand.** Der Fork ist nicht für den Produktivbetrieb freigegeben. Die Entwicklungsvorgaben des Projekts erlauben nur synthetische Daten; verwenden Sie keine echten Patientendaten. Was belegt ist und was fehlt, steht unter [Stand der Ablösung](#stand-der-ablösung).
 
-Speakr transforms your audio recordings into organized, searchable, and intelligent notes. Built for privacy-conscious groups and individuals, it runs entirely on your own infrastructure, ensuring your sensitive conversations remain completely private.
+![Schreibplatz von Speakr mit Korrektureditor und Audiowiedergabe für ein synthetisches Testdiktat](docs/images/clinic/editor.png)
 
-<div align="center">
-    <img src="docs/assets/images/screenshots/main-view.png" alt="Speakr Main Interface" width="750"/>
-</div>
+Der Schreibplatz zeigt den Diktattext und die Steuerung für die Wiedergabe.
 
-## Key Features
-
-Speakr turns a recording into organized, searchable, shareable knowledge. Here is the pipeline:
-
-### Capture
-- **Flexible input** - record from your microphone, your computer's system or browser-tab audio, or both mixed together; or drag and drop existing files. A per-OS setup guide and a virtual-device picker surface Pulse / PipeWire monitors, BlackHole, VB-Cable, Voicemeeter, and Stereo Mix as inputs.
-- **Long sessions** - in-app recordings stream to the server during capture, so sessions can run for hours and survive a page reload.
-- **Hands-off intake** - a watched "black hole" folder auto-imports and processes any audio dropped into it, with optional per-user subfolders named by user id or username.
-
-### Transcribe
-- **Bring your own engine** - self-hosted WhisperX (recommended; it is what enables the speaker features below), OpenAI, Mistral / Voxtral, AssemblyAI, Tencent Cloud ASR, OpenASR, Alibaba FunASR, or any custom ASR webservice. The right connector is auto-detected from your configuration.
-- **Speaker diarization** - automatic who-said-what labeling (WhisperX, or OpenAI's diarizing models).
-- **Voice profiles** - recognize the same person across different recordings via voice embeddings (requires the WhisperX ASR backend).
-- **Custom vocabulary and hotwords** (most effective with the WhisperX backend) - bias the transcriber toward names, jargon, and acronyms it would otherwise mishear; configurable globally, per tag / folder, or right in the upload and in-app recording dialogs, with reusable saved templates.
-- **Synced playback** - click any line to jump to that moment, follow-along highlighting during playback, and a chat-style bubble view.
-- **Language support** - automatic language detection plus the full Whisper language list (about one hundred languages), with names localized to your interface language.
-
-### Understand
-- **Summaries** - generated automatically, with prompts you can fully customize per recording, tag, or folder (including reusable prompt variables).
-- **Per-recording chat** - ask questions about a single recording in a floating, dockable panel; answers cite transcript timestamps as clickable chips that start playback at that moment.
-- **Inquire Mode** - semantic search and natural-language chat across your entire library at once. An optional **agentic mode** (opt-in beta) upgrades this to an AI researcher that iteratively searches, lists, and reads your recordings until it can answer - showing every step live, and citing its sources with numbered links that open the recording and start playback at the cited segment. Ask "what did we decide about the pricing change, and did anyone disagree?" and it reads across the relevant meetings and cites each position back to where it was said. You decide what it may read: transcripts always, summaries and private notes only if you allow them.
-
-### Organize
-- **Folders and bulk operations** to keep a large library tidy.
-- **Smart tags** with their own AI prompt and ASR settings - and stack, so multiple tags layer their instructions.
-- **Retention policies** with auto-deletion and per-recording protection from cleanup.
-- **Automated export** to templated files when a recording finishes.
-
-### Collaborate
-- **Multi-user** with **Single Sign-On** against any OIDC provider (Keycloak, Azure AD, Google, Auth0, Pocket ID).
-- **Groups** with group-scoped tags that auto-share recordings to every member.
-- **Granular internal sharing** (view / edit / reshare) and admin-controlled, secure **public links**.
-
-### Automate
-- **REST API v1** with a Swagger UI, for automation tools (n8n, Zapier, Make) and dashboards.
-- **Signed webhooks** - HMAC-signed, SSRF-guarded, retrying outbound notifications on recording lifecycle events.
-- **Usage budgets** for LLM tokens and transcription minutes, per user.
-- **Audit log** for site admins - sign-ins, access to recordings, changes, shares and admin actions, with filters and export.
-
-Speakr is also an installable Progressive Web App - mobile-first, with a phone share-target - and ships light/dark themes, an incognito mode, a configurable Help Center link for your own documentation, and a UI translated into seven languages.
-
-## Works with Mailr
-
-[Mailr](https://github.com/murtaza-nasir/mailr) is a self-hosted webmail application that I also develop. It includes a calendar, tasks, notes and an AI assistant, and mail accounts from any provider are connected over IMAP and SMTP. With a Speakr server connected, recordings are shown beside their meetings and emails, a follow-up email can be drafted from a recording, and its action items can be added as tasks. See [Speakr recordings](https://murtaza-nasir.github.io/mailr/user-guide/recordings/) in the Mailr documentation.
-
-## Unofficial Companion Apps
-
-These apps were built by members of the community for use with your own Speakr server. They are maintained by their authors, not by this project, and I have not tested them myself.
-
-| App | Platform | Description |
-|---|---|---|
-| [Minutes for Speakr](https://github.com/Inrego/SpeakrApp) | Android, Windows | Recording on the device with upload to Speakr, including automatic recording and automatic folder uploads |
-| [MeetingRecorder](https://github.com/Feridoun/MeetingRecorder) | Windows | Tray app for recording both sides of a call, with upload to Speakr through an API token |
-| [Mimio](https://github.com/i-iooi-i/Mimio) | Windows | Desktop client based on Minutes for Speakr, with a floating recorder and an English and Simplified Chinese interface |
-
-See [Companion Apps](https://murtaza-nasir.github.io/speakr/user-guide/companion-apps) in the documentation.
-
-## Real-World Use Cases
-
-Different people use Speakr's collaboration and retention features in different ways:
-
-| Use Case | Setup | What It Does |
-|----------|-------|-------------|
-| **Family memories** | Create "Family" group with protected tag | Everyone gets access to trips and events automatically, recordings preserved forever |
-| **Book club discussions** | "Book Club" group, tag monthly meetings | All members auto-share discussions, can add personal notes about what resonated |
-| **Work project group** | Share individually with 3 teammates | Temporary collaboration, easy to revoke when project ends |
-| **Daily group standups** | Group tag with 14-day retention | Auto-share with group, auto-cleanup of routine meetings |
-| **Architecture decisions** | Engineering group tag, protected from deletion | Technical discussions automatically shared, preserved permanently as reference |
-| **Client consultations** | Individual share with view-only permission | Controlled external access, clients can't accidentally edit |
-| **Research interviews** | Protected tag + Obsidian export | Preserve recordings indefinitely, transcripts auto-import to note-taking system |
-| **Legal consultations** | Group tag with 7-year retention | Automatic sharing with legal group, compliance-based retention |
-| **Sales calls** | Group tag with 1-year retention | Whole sales group learns from each call, cleanup after sales cycle |
-
-### Creative Tag Prompt Examples
-
-Tags with custom prompts transform raw recordings into exactly what you need:
-
-- **Recipe recordings**: Record yourself cooking while narrating - tag with "Recipe" to convert messy speech into formatted recipes with ingredient lists and numbered steps
-- **Lecture notes**: Students tag lectures with "Study Notes" to get organized outlines with concepts, examples, and definitions instead of raw transcripts
-- **Code reviews**: "Code Review" tag extracts issues, suggested changes, and action items in technical language developers can use directly
-- **Meeting summaries**: "Action Items" tag ignores discussion and returns just decisions, tasks, and deadlines
-
-### Tag Stacking for Combined Effects
-
-Stack multiple tags to layer instructions:
-- "Recipe" + "Gluten Free" = Formatted recipe with gluten substitution suggestions
-- "Lecture" + "Biology 301" = Study notes format focused on biological terminology
-- "Client Meeting" + "Legal Review" = Client requirements plus legal implications highlighted
-
-The order can matter - start with format tags, then add focus tags for best results.
-
-### Integration Examples
-
-- **Obsidian/Logseq**: Enable auto-export to write completed transcripts directly to your vault using your custom template - no manual export needed
-- **Documentation wikis**: Map auto-export to your wiki's import folder for seamless transcript publishing
-- **Content creation**: Create SRT subtitle templates from your audio recordings for podcasts or video content
-- **Project management**: Extract action items with custom tag prompts, then auto-export for automated task creation
-
-## Quick Start
-
-### Using Docker (Recommended)
-
-```bash
-# Create project directory
-mkdir speakr && cd speakr
-
-# Download docker-compose configuration:
-wget https://raw.githubusercontent.com/murtaza-nasir/speakr/master/config/docker-compose.example.yml -O docker-compose.yml
-
-# Download the environment template:
-wget https://raw.githubusercontent.com/murtaza-nasir/speakr/master/config/env.transcription.example -O .env
-
-# Configure your API keys and launch
-nano .env
-docker compose up -d
-
-# Access at http://localhost:8899
-```
-
-> **Lightweight image:** Use `learnedmachine/speakr:lite` for a smaller image (~725MB vs ~4.4GB) that skips PyTorch. All features work normally — only Inquire Mode's semantic search falls back to basic text search.
-
-**Required API Keys:**
-- `TRANSCRIPTION_API_KEY` - For speech-to-text (OpenAI) or `ASR_BASE_URL` for self-hosted
-- `TEXT_MODEL_API_KEY` - For summaries, titles, and chat (OpenRouter or OpenAI; not needed for a local server without authentication)
-
-### Transcription Options
-
-Speakr uses a **connector-based architecture** for local and self-hosted transcription:
-
-| Option | Setup | Speaker Diarization | Voice Profiles |
-|--------|-------|---------------------|----------------|
-| **Local OpenAI-compatible Whisper** (e.g. Speaches) | `TRANSCRIPTION_BASE_URL` | Optional | No |
-| **WhisperX ASR** (`asr_endpoint`) | GPU container | Yes (best quality) | Yes |
-
-**Local OpenAI-compatible Whisper (e.g. Speaches):**
-```bash
-TRANSCRIPTION_CONNECTOR=openai_whisper
-TRANSCRIPTION_BASE_URL=http://speaches:8000/v1
-TRANSCRIPTION_MODEL=Systran/faster-whisper-large-v3
-```
-
-**Best quality (Self-hosted WhisperX):**
-```bash
-ASR_BASE_URL=http://whisperx-asr:9000
-ASR_RETURN_SPEAKER_EMBEDDINGS=true  # Enable voice profiles
-```
-Requires [WhisperX ASR Service](https://github.com/murtaza-nasir/whisperx-asr-service) container with GPU.
-
-> **PyTorch 2.6 Users:** If you encounter a "Weights only load failed" error with WhisperX, add `TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=true` to your ASR container. See [troubleshooting](https://murtaza-nasir.github.io/speakr/troubleshooting#pytorch-26-weights-loading-error-whisperx-asr-service) for details.
-
-**[View Full Installation Guide →](https://murtaza-nasir.github.io/speakr/getting-started/installation)**
-
-## Documentation
-
-Complete documentation is available at **[murtaza-nasir.github.io/speakr](https://murtaza-nasir.github.io/speakr)**
-
-- [Getting Started](https://murtaza-nasir.github.io/speakr/getting-started) - Quick setup guide
-- [User Guide](https://murtaza-nasir.github.io/speakr/user-guide/) - Learn all features
-- [Admin Guide](https://murtaza-nasir.github.io/speakr/admin-guide/) - Administration and configuration
-- [Troubleshooting](https://murtaza-nasir.github.io/speakr/troubleshooting) - Common issues and solutions
-- [FAQ](https://murtaza-nasir.github.io/speakr/faq) - Frequently asked questions
-
-## Latest Release (v0.11.1)
-
-- Every column of the user management table can be sorted, and the order holds across pages and with a search.
-- The audit log has a Refresh button, and an export is a snapshot up to the newest event at its start.
-- Every file in the log has an identifier, and stored paths with the original file name are removed from error text.
-
-### v0.11.0
-
-- The phone layout is rebuilt, with one layout in every theme.
-- The processing queue shows active, waiting and failed jobs, and jobs and uploads can be canceled.
-- Site admins have an audit log of sign-ins, access to recordings, changes, shares and admin actions.
-- Keyboard shortcuts are available on the desktop.
-- Incognito requests are logged as metadata only, and speaker labels of every transcription service are stored as `SPEAKER_00`, `SPEAKER_01`.
-
-### v0.10.23-alpha
-
-- The segment editor has a timeline with the waveform, undo and redo, and segments can be moved or resized by clicking and dragging.
-- Long transcripts are shown quickly on the recording page, on public share links and in Identify speakers, and can be searched with Ctrl+F.
-- Site admins can set who can create groups (#576) and who users can find when sharing.
-- With the WhisperX ASR service 0.5.0 or later, transcriptions are submitted as asynchronous jobs.
-- A security fix for shared summaries and notes on public share pages is included.
-
-
-[Full release notes](https://github.com/murtaza-nasir/speakr/releases/tag/v0.11.1) · [All releases](https://github.com/murtaza-nasir/speakr/releases)
-
-## Screenshots
-
-<table align="center" border="0">
+<table>
   <tr>
-    <td align="center">
-      <img src="docs/assets/images/screenshots/main-view-chat-notes.png" alt="Main view with chat and notes" width="400"/>
-      <br><em>Main view with floating chat and notes</em>
-    </td>
-    <td align="center">
-      <img src="docs/assets/images/screenshots/main-view-video.png" alt="Video playback" width="400"/>
-      <br><em>Video playback synced to the transcript</em>
-    </td>
+    <td width="64%" valign="top"><img src="docs/images/clinic/worklist.png" alt="Arbeitsliste des Schreibdiensts mit synthetischen Testdiktaten" width="100%"></td>
+    <td width="36%" valign="top"><img src="docs/images/clinic/mobile-recordings.png" alt="Aufnahmenliste auf einem schmalen Smartphone-Bildschirm mit synthetischen Testdiktaten" width="100%"></td>
   </tr>
   <tr>
-    <td align="center">
-      <img src="docs/assets/images/screenshots/inquire-semantic-search.png" alt="Semantic search" width="400"/>
-      <br><em>Ask questions across all your recordings</em>
-    </td>
-    <td align="center">
-      <img src="docs/assets/images/screenshots/main-view-stats.png" alt="Recording stats" width="400"/>
-      <br><em>Per-recording stats and speaker breakdown</em>
-    </td>
-  </tr>
-  <tr>
-    <td align="center">
-      <img src="docs/assets/images/screenshots/mobile-summary.png" alt="Mobile summary" width="220"/>
-      <br><em>On mobile: summary with bottom navigation</em>
-    </td>
-    <td align="center">
-      <img src="docs/assets/images/screenshots/mobile-transcript.png" alt="Mobile transcript" width="220"/>
-      <br><em>On mobile: transcript with speaker names</em>
-    </td>
+    <td>Arbeitsliste nach Schreibkräfte-Pool und Autor. Alle gezeigten Daten sind synthetisch.</td>
+    <td>Aufnahmenliste auf dem Smartphone. Alle gezeigten Daten sind synthetisch.</td>
   </tr>
 </table>
 
-**[View Full Screenshot Gallery →](https://murtaza-nasir.github.io/speakr/screenshots)**
+<details>
+<summary><strong>Demos</strong> – zwei kurze Bildschirmclips (stumm, synthetische Daten)</summary>
 
-## Technology Stack
+<br>
 
-- **Backend**: Python/Flask with SQLAlchemy
-- **Frontend**: Vue.js 3 with Tailwind CSS
-- **AI/ML**: OpenAI Whisper, OpenRouter, Ollama support
-- **Database**: SQLite (default) or PostgreSQL
-- **Deployment**: Docker, Docker Compose
+Beide Clips sind stumm und zeigen synthetische Daten.
 
-## Reporting Issues
+<img src="docs/images/clinic/wiedergabe-mit-wortmarkierung.gif" alt="Stummer Bildschirmclip: Der Schreibplatz spielt ein synthetisches Diktat ab und markiert das jeweils gesprochene Wort im Text" width="100%">
 
-- [Report bugs](https://github.com/murtaza-nasir/speakr/issues)
-- [Request features](https://github.com/murtaza-nasir/speakr/discussions)
+Abspielen des Originalaudios im Schreibplatz mit mitlaufender Wortmarkierung (8,75 s, 14 erkannte Wörter).
 
-## License
+<img src="docs/images/clinic/text-korrigieren.gif" alt="Stummer Bildschirmclip: Im Korrektureditor wird ein synthetisches Transkript geändert, gespeichert und erneut geöffnet" width="100%">
 
-This project is **dual-licensed**:
+Korrigieren, Speichern und erneutes Öffnen eines Transkripts (9,28 s).
 
-1.  **GNU Affero General Public License v3.0 (AGPLv3)**
-    [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+</details>
 
-    Speakr is offered under the AGPLv3 as its open-source license. You are free to use, modify, and distribute this software under the terms of the AGPLv3. A key condition of the AGPLv3 is that if you run a modified version on a network server and provide access to it for others, you must also make the source code of your modified version available to those users under the AGPLv3.
+[Funktionen](#funktionen) · [Stand der Ablösung](#stand-der-ablösung) · [Nachweise und Register](#nachweise-und-register) · [Erste Schritte](#erste-schritte) · [Mitwirken](#mitwirken) · [Herkunft und Lizenz](#herkunft-und-lizenz)
 
-    * You **must** create a file named `LICENSE` (or `COPYING`) in the root of your repository and paste the full text of the [GNU AGPLv3 license](https://www.gnu.org/licenses/agpl-3.0.txt) into it.
-    * Read the full license text carefully to understand your rights and obligations.
+## Funktionen
 
-2.  **Commercial License**
+Die Klinikfunktionen sind nur aktiv, wenn `CLINIC_MODE=1` gesetzt ist. Unabhängig von diesem Schalter hat der Fork einzelne Upstream-Funktionen entfernt, darunter Freigabelinks, Kalenderereignisse, den Inkognito-Modus, die Selbstregistrierung, die Passwortrücksetzung per E-Mail und mehrere Cloud-Spracherkennungsanbieter.
 
-    For users or organizations who cannot or do not wish to comply with the terms of the AGPLv3 (for example, if you want to integrate Speakr into a proprietary commercial product or service without being obligated to share your modifications under AGPLv3), a separate commercial license is available.
+### Aufnahme im Browser
 
-    Please contact **speakr maintainers** for details on obtaining a commercial license.
+- Unter „Neue Aufnahme“ im Browser aufnehmen oder eine Audiodatei hochladen. Vor dem Start ist ein Titel erforderlich.
+- „Entwurf sichern“ legt die Aufnahme auf dem Server ab, „Einreichen“ übergibt sie an den Schreibdienst. Audio wird standardmässig nicht im Browserspeicher abgelegt.
+- DSS- und DS2-Diktatdateien werden nur mit passender Dateikennung angenommen. Das Original bleibt unverändert; für die Erkennung dekodiert ein fest gepinnter [dss-codec](https://github.com/hirparak/dss-codec) die Datei.
 
-**You must choose one of these licenses** under which to use, modify, or distribute this software. If you are using or distributing the software without a commercial license agreement, you must adhere to the terms of the AGPLv3.
+### Lokale Spracherkennung
 
-## Contributing
+- Erwartet wird ein OpenAI-kompatibler Spracherkennungsdienst, zum Beispiel Speaches. Er ist nicht Teil dieses Repositorys.
+- Verwenden Sie ausschliesslich lokale oder private Erkennungsdienste. Beim OpenAI-kompatiblen Anschluss prüft Speakr die konfigurierte Adresse. Für andere Anschlüsse muss der Betrieb die erlaubten Netzwerkziele begrenzen.
+- Aufgenommene Dateien werden im Hintergrund über die bestehende Verarbeitungswarteschlange transkribiert. Ist `TRANSCRIPTION_WORD_TIMESTAMPS=1` gesetzt und liefert der Dienst Wortzeiten, markiert der Schreibplatz beim Abspielen das gesprochene Wort.
+- Optional: [`deployment/gpu-asr-service`](deployment/gpu-asr-service) ist ein OpenAI-kompatibler Whisper-Dienst auf OpenVINO für Intel-Arc-GPUs. Er ist nicht die Standardeinstellung.
 
-We welcome contributions to Speakr! There are many ways to help:
+### Arbeitsliste und Zuweisung
 
-- **Bug Reports & Feature Requests**: [Open an issue](https://github.com/murtaza-nasir/speakr/issues)
-- **Discussions**: [Share ideas and ask questions](https://github.com/murtaza-nasir/speakr/discussions)
-- **Documentation**: Help improve our docs
-- **Translations**: Contribute translations for internationalization
+- Die „Arbeitsliste“ ordnet Diktate nach Schreibkräfte-Pool und Autor. Sie zeigt Zähler für „Offen“, „In Bearbeitung“ und „Abgeschlossen“ und bietet Filter, Sortierung und Tastaturnavigation. Prioritäten reichen von „Bei Gelegenheit“ bis „Dringend“.
+- Ein Diktat lässt sich namentlich zuweisen. Die Zuweisungsauswahl erscheint nur, wenn der Server eine Kandidatenliste liefert.
+- Bearbeiten setzt eine exklusive, zeitlich begrenzte Übernahme voraus. Speichern aus einem veralteten Bearbeitungsstand wird abgewiesen. Die Bearbeitung lässt sich an den Schreibdienst zurückgeben.
+- Autorenpools und Schreibkräfte-Pools sind getrennt.
 
-### Code Contributions
+### Schreibplatz: Abhören, Korrigieren, Versionen
 
-By submitting a pull request, you agree to our [Contributor License Agreement (CLA)](CLA.md). This ensures we can maintain our dual-license model (AGPLv3 and Commercial). You retain copyright ownership of your contribution — the CLA simply grants us permission to include it in both the open source and commercial versions of Speakr. Our bot will post a reminder when you open a PR.
+- Wiedergabe mit 0,5- bis 2-facher Geschwindigkeit, Lautstärkeausgleich nur für die Wiedergabe (das Original bleibt unverändert) und Wortmarkierung mit Mitverfolgen.
+- Fusspedale im Tastaturmodus: Die Funktions- oder Medientasten, die ein Pedal sendet, lassen sich Wiedergabeaktionen zuordnen (Abspielen/Pause, Abspielen bei gedrückter Taste, Zurück, Vor). WebHID wird nicht verwendet.
+- Korrektureditor mit Rückgängig und Wiederholen, Suchen und Ersetzen, Schriftgrösse, Vollbild und Tastaturhilfe. Ohne Erkennungstext lässt sich manuell schreiben.
+- Speichern setzt die aktuelle Übernahme voraus; die Verknüpfungen zwischen Text und Audio bleiben erhalten.
+- Nicht destruktive Audiobearbeitung (Einfügen, Überschreiben, Ausschneiden, Kürzen) mit mindestens 16 Rückgängig-Schritten.
+- Textrevisionen werden nur angehängt, nie überschrieben. Ein späteres Erkennungsergebnis wird als Nebenrevision gespeichert und ersetzt keine menschliche Korrektur. „Verlauf“ zeigt die Reihenfolge der Änderungen.
 
-**See our [Contributing Guide](CONTRIBUTING.md) for complete details on:**
-- How the CLA works and why we need it
-- Step-by-step contribution process
-- Development setup instructions
-- Coding standards and best practices
+### Prüfen, Freigeben, Archiv
+
+- „Prüfen und Freigeben“ zeigt die geprüfte Text-, Audio- und Kontextrevision. Eine Freigabe bindet genau diese Fassung. Ändert sich danach etwas, ist die Fassung erneut abzunehmen.
+- Freigeben erfordert eine eigene Berechtigung. Freigeben, Fertigstellen und Archivieren sind getrennte Schritte.
+- Das „Archiv“ listet abgeschlossene Diktate.
+- Zum Stand der Dokumentausgabe siehe [Stand der Ablösung](#stand-der-ablösung).
+
+### Rollen und Sichtbereiche
+
+- Der Zugriff wird zentral entschieden. Diktierende sehen, hören und bearbeiten standardmässig nur eigene Diktate.
+- Jede weitere Aktion braucht eine ausdrückliche Berechtigung mit Geltungsbereich: eigene Diktate, bestimmte Diktierende, ein Autorenpool oder alle. Ausdrückliche Verweigerungen gehen immer vor.
+- Berechtigungen ändern nur Administratoren; Identitätsadministratoren und alle anderen Konten können das nicht. Jede Änderung wird protokolliert. Routen ohne Eintrag in der Routenrichtlinie sind im Klinikmodus gesperrt.
+- Verwaltungsseiten erscheinen nur, wenn die API die Berechtigung bestätigt.
+
+### Optional
+
+- **Windows-Dateiimport** ([`apps/windows-import`](apps/windows-import/README.md)): Ein .NET-10-Agent lädt Diktatdateien aus ausdrücklich freigegebenen Ordnern oder Wechseldatenträgern unverändert über HTTPS mit Client-Zertifikat (mTLS) hoch. Er nimmt nicht auf, spielt nicht ab, bearbeitet keinen Text und programmiert keine Geräte. Ein Autorenhinweis aus dem DS2-Dateikopf gewährt keine Rechte.
+- **KI-Zusammenfassung:** Öffnen Sie das Diktat und wählen Sie „KI-Zusammenfassung“. Mit Bearbeitungsrecht können Sie die aktuelle gespeicherte Textfassung zusammenfassen lassen. Bei aktivierter Automatik startet dies einmal nach der ersten erfolgreichen Erkennung eines neuen Diktats. Der Auftrag prüft Fachrecht, Textrevision und lokales Textmodell. Eine spätere Korrektur lässt sich auf Wunsch neu zusammenfassen.
+- **Modellwahl:** Site-Administratoren sehen und ändern unter „Modellwahl“ die wirksamen lokalen Modellkennungen für CPU-Erkennung, GPU-Erkennung und Zusammenfassungen. Neue Aufträge verwenden die gespeicherten Werte. Die Wahl des Zusammenfassungsmodells ändert weder den Titel- noch den Chatstandard.
+
+## Stand der Ablösung
+
+Der [Projektauftrag](clinic-spec/CLAUDE.md) umfasst 101 Pflichtfunktionen. Das ursprüngliche Register ordnet 56 dem Webclient zu und nennt bei 32 eine zu prüfende Abhängigkeit. Bei 13 weiteren stehen Teilanforderungen im Konflikt mit der Webarchitektur. Alle bleiben im Umfang. Im Originalregister ist bisher für keine der 101 Funktionen ein direkter Vergleich mit dns.comfort protokolliert. Die folgenden Ergebnisse stammen aus Tests des Forks mit synthetischen Diktaten.
+
+### Belegt
+
+Im Testbetrieb mit synthetischen Benutzerabläufen:
+
+- Aufnahmen und Uploads im Webclient sowie Transkription aufgenommener Dateien im Hintergrund
+- lokale Spracherkennung, geprüft an einzelnen synthetischen Aufnahmen mit Wortzeiten
+- Aufnahmenliste und Arbeitsliste
+- Abhören und Schreiben im Schreibplatz
+- Zuweisung über Schreibkräfte-Pools und Rückgabe an den Schreibdienst
+- Prüfen und Freigeben
+- Archiv
+
+### Teilweise umgesetzt
+
+- **Windows-Dateiimport:** mit einem simulierten Laufwerk getestet; der DS2-Autor wird aus der Originaldatei gelesen. Die Abnahme mit physischen Geräten fehlt.
+- **Dokumentausgabe im Prüf- und Freigabeweg:** Der Export liefert derzeit Status, Dateiname und Hash. Das Herunterladen der fertigen Datei fehlt noch.
+- **Vorlagen:** Die Verwaltung zeigt gespeicherte DOCX- und ODT-Vorlagen mit Version und Einfügemarke. Im Schreibplatz lässt sich eine Vorlagenversion auswählen. Das Einfügen des Vorlagentextes und die Ausgabe in eine gewählte Vorlage bleiben offen.
+
+### Offen
+
+Fehlende Softwarefunktionen:
+
+- fortlaufendes Live-Diktat über das Browsermikrofon mit laufenden Zwischenergebnissen (noch nicht durchgehend angebunden)
+- sprachgesteuerter Aufnahmestart (VOX) im Browser
+- erneutes Laden eines exportierten Pakets aus Audio und Text als bearbeitbare Sitzung
+- Offline-Wiederherstellung im normalen Webclient
+- Vorlesen per synthetischer Sprachausgabe (TTS)
+- Schreiben des Geräteautors aus dem Web auf Philips-Geräte (offene Webgrenze, nicht umgesetzt)
+
+Abnahme in realer Umgebung:
+
+- Erkennung und Dateiimport an physischen Philips-Geräten LFH9600 und LFH9620
+- echtes Fusspedal
+- Partner-KIS (Krankenhausinformationssystem); die KIS-Prüfung verwendet derzeit einen Simulator
+- produktive Anmeldedienste
+
+Verhaltenslücken:
+
+- Desktop-Diktat in andere Anwendungen und SpeechLock
+- Einfügen in bereits geöffnete Word- oder Writer-Dokumente
+- globale Tastenkürzel und Symbol im Infobereich (Tray)
+- bestätigtes Training akustischer Profile aus Korrekturen
+
+## Nachweise und Register
+
+Die öffentlichen Projektregister beschreiben Anforderungen, ihre Zuordnung und die vorgesehenen Tests. Sie sind keine Testprotokolle und deutschsprachig.
+
+- [Alle 101 Pflichtfunktionen](clinic-spec/docs/20_Alle_101_Pflichtfunktionen.md): Sollverhalten jeder Pflichtfunktion (PAR)
+- [PAR-Paritätsmatrix](clinic-spec/planning/parity-matrix.csv) (auch als [JSON](clinic-spec/planning/parity-matrix.json)): Zuordnung jeder Pflichtfunktion zu Modulen, Wiederverwendung und Tests
+- [Parität und Webgrenze](clinic-spec/docs/11_Paritaet_und_Webgrenze.md) und [offene Webgrenzen](clinic-spec/planning/web-parity-gaps.json): die 13 offenen Teilklauseln
+- [Projektspezifikation](clinic-spec/CLAUDE.md): verbindlicher Entwicklungsauftrag
+- [Benutzerhandbuch](https://joehomeskillet.github.io/speakr/de/) (auch auf [Englisch](https://joehomeskillet.github.io/speakr/)): Bedienung der Klinikversion
+
+## Erste Schritte
+
+Ausgangspunkt ist der Branch `main` mit der veröffentlichten Klinikversion. `config/docker-compose.example.yml` bezieht das Upstream-Image `learnedmachine/speakr` von Docker Hub; es enthält keinen Klinik-Build. Eine Compose-Datei für den Klinik-Stack liegt nicht im Repository.
+
+### Voraussetzungen
+
+- Git und Docker; der Image-Build ist für `linux/amd64` ausgelegt, weil der Prüfwert des DSS/DS2-Decoders nur für diese Architektur gilt
+- ein OpenAI-kompatibler Spracherkennungsdienst unter einer lokalen oder privaten Adresse, zum Beispiel Speaches
+- für die Tests ohne Docker: Python 3.11 und ffmpeg unter Linux sowie Node.js 18 oder ab 20 für die JavaScript-Tests
+
+### Image bauen und starten
+
+```bash
+git clone -b main https://github.com/joehomeskillet/speakr.git
+cd speakr
+docker build --platform linux/amd64 -t speakr-clinic .
+```
+
+Das [`Dockerfile`](Dockerfile) installiert die Abhängigkeiten aus den Lock-Dateien mit Hash-Prüfung und baut den DSS/DS2-Decoder sowie das CSS. Mit `--build-arg LIGHTWEIGHT=1` entsteht ein Image ohne die Embedding-Abhängigkeiten.
+
+Die [Installationsanleitung](https://joehomeskillet.github.io/speakr/de/getting-started/installation/) führt durch lokale Modellauswahl, Netzwerk, Start und das erste Administratorkonto. Legen Sie die Umgebungsdatei ausserhalb des Build-Verzeichnisses ab. PostgreSQL ist die führende Datenbank der Klinikarchitektur. Testen Sie die neue Installation mit einer kurzen synthetischen Aufnahme.
+
+## Mitwirken
+
+Beiträge sind willkommen. Die laufende Entwicklung findet auf dem Branch `dev` statt: Zweigen Sie von `dev` ab und eröffnen Sie Pull Requests auf `dev`.
+
+### Entwicklungsumgebung und Tests
+
+```bash
+python3.11 -m venv venv
+venv/bin/pip install --require-hashes --no-deps -r requirements.lock -r requirements-dev.lock
+scripts/build_css.sh
+venv/bin/python -m pytest tests/ -q -n 4 --dist loadfile -p no:cacheprovider --timeout=120
+venv/bin/python -m pytest tests/clinic -q -p no:cacheprovider
+venv/bin/python -I clinic-spec/scripts/Verify-SuedhangPackage.py --root clinic-spec
+npm ci
+npm test
+```
+
+- `scripts/build_css.sh` lädt die gepinnte Tailwind-CLI, prüft ihren Hash und erzeugt `static/css/tailwind.css`.
+- `scripts/clinic_pg_run.sh` führt `tests/clinic` gegen einen temporären PostgreSQL-Container aus (Docker erforderlich).
+- Der Windows-Importagent wird unter Windows mit dem .NET-10-SDK getestet: `dotnet test apps/windows-import/Speakr.Clinic.ImportAgent.sln`.
+
+### Regeln
+
+- Legen Sie neue Fachlogik unter `src/clinic/` und Tests unter `tests/clinic/` ab. Behalten Sie den bestehenden Stack bei (Flask, SQLAlchemy, Vue, Tailwind) und nutzen Sie für Hintergrundarbeit `ProcessingJob` und `JobQueue`.
+- Schwächen Sie bestehende Tests nie ab, um einen Lauf grün zu machen.
+- Spracherkennung bleibt lokal. Kein nativer Diktatclient, keine Browsererweiterung.
+- Verwenden Sie in Tests, Fixtures, Screenshots und Issues ausschliesslich synthetische Daten.
+- Markieren Sie offene Punkte in [`clinic-spec/planning/web-parity-gaps.json`](clinic-spec/planning/web-parity-gaps.json) nicht als erledigt.
+
+### Lizenz von Beiträgen
+
+Beiträge stehen unter der GNU AGPL v3, der Lizenz dieses Repositorys. Wer eine geänderte Fassung über ein Netzwerk für andere bereitstellt, muss deren Nutzenden den Quellcode dieser Fassung anbieten (Abschnitt 13 der [Lizenz](LICENSE)). Bestehende Urheber- und Lizenzhinweise bleiben erhalten.
+
+Für Beiträge zu diesem Fork siehe [Beitragsleitfaden](CONTRIBUTING.md). Für Beiträge an das Originalprojekt gelten dessen [Beitragsbedingungen](https://github.com/murtaza-nasir/speakr/blob/48d3018fb7d80b77f897bedd86bcc89b5034d1f5/CONTRIBUTING.md) und [Contributor License Agreement](CLA.md).
+
+## Herkunft und Lizenz
+
+- Dieses Repository ist ein Fork von [Speakr](https://github.com/murtaza-nasir/speakr) (Originalprojekt, Upstream), Version v0.11.1, Upstream-Commit `48d3018fb7d80b77f897bedd86bcc89b5034d1f5`. Aufnahme, Transkriptionsanbindung, Verarbeitungswarteschlange, Benutzerverwaltung und Oberfläche bauen auf der Arbeit des Speakr-Projekts auf. Einzelne Upstream-Funktionen hat der Fork entfernt (siehe [Funktionen](#funktionen)).
+- Fork: [github.com/joehomeskillet/speakr](https://github.com/joehomeskillet/speakr), Branch `main` (veröffentlichte Klinikversion) und Branch `dev` (laufende Entwicklung).
+- Lizenz: GNU Affero General Public License, Version 3 (AGPL-3.0), siehe [`LICENSE`](LICENSE).
+- Das Originalprojekt beschreibt seine [separate kommerzielle Lizenzierung](https://github.com/murtaza-nasir/speakr/blob/48d3018fb7d80b77f897bedd86bcc89b5034d1f5/README.md). Anfragen zu dessen Angebot richten Sie an das Originalprojekt. Für die hier veröffentlichten Klinikänderungen gilt die oben verlinkte AGPL v3.
+- Das [Klinikhandbuch](https://joehomeskillet.github.io/speakr/de/) dokumentiert diesen Fork. Die [Quellenübersicht](docs/de/sources.md) verlinkt die auf einen Commit fixierte Originaldokumentation. Das Docker-Hub-Image des Originalprojekts enthält dessen eigene Fassung.
+- Die DSS/DS2-Dekodierung nutzt [dss-codec](https://github.com/hirparak/dss-codec), im Dockerfile auf einen festen Commit gepinnt.
+- dns.comfort und dns.comfort.pro sind Produkte ihres Herstellers. Die Namen beschreiben hier nur das Funktionsziel.
