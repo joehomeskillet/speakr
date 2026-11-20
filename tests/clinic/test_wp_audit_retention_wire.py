@@ -50,20 +50,28 @@ def ctx(monkeypatch):
 
 @pytest.fixture
 def delete_guard(ctx):
-    """A database-level guard on audit_event. On SQLite a trigger stands in for
-    the PostgreSQL application role, which has no delete privilege there."""
-    sqlite = db.engine.dialect.name == 'sqlite'
-    if sqlite:
-        with db.engine.begin() as conn:
+    """Enforce the application's delete restriction even when CI owns the database."""
+    dialect = db.engine.dialect.name
+    with db.engine.begin() as conn:
+        if dialect == 'sqlite':
             conn.execute(text(f'DROP TRIGGER IF EXISTS {_GUARD}'))
             conn.execute(text(f'CREATE TRIGGER {_GUARD} BEFORE DELETE ON audit_event FOR EACH ROW '
                               "BEGIN SELECT RAISE(ABORT, 'audit_event is append-only'); END"))
+        elif dialect == 'postgresql':
+            conn.execute(text(f"CREATE FUNCTION {_GUARD}() RETURNS trigger LANGUAGE plpgsql AS "
+                              "$$ BEGIN RAISE EXCEPTION 'audit_event is append-only'; END; $$"))
+            conn.execute(text(f'CREATE TRIGGER {_GUARD} BEFORE DELETE ON audit_event FOR EACH ROW '
+                              f'EXECUTE FUNCTION {_GUARD}()'))
     try:
         yield
     finally:
-        if sqlite:
-            with db.engine.begin() as conn:
+        db.session.rollback()
+        with db.engine.begin() as conn:
+            if dialect == 'sqlite':
                 conn.execute(text(f'DROP TRIGGER IF EXISTS {_GUARD}'))
+            elif dialect == 'postgresql':
+                conn.execute(text(f'DROP TRIGGER {_GUARD} ON audit_event'))
+                conn.execute(text(f'DROP FUNCTION {_GUARD}()'))
 
 
 def _policy(**overrides):

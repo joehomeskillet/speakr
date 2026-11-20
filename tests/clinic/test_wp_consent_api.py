@@ -103,7 +103,10 @@ def test_clinic_mode_off_hides_routes(world, monkeypatch):
 def test_stale_version_duplicate_and_validation(world):
     c, h = world["client"](world["user"])
     body = {"expected_consent_id": 0, "statement_text": STATEMENT}
+    other_id = world["other"].id
+    vc.grant_consent(actor_user_id=other_id, user_id=other_id, statement_text=STATEMENT, expected_consent_id=0)
     first = c.post(GRANT, headers=h, json=body)
+    assert first.status_code == 201
     latest = first.json["latest_consent_id"]
     # Same version again is an identical retry, not a conflict.
     assert c.post(GRANT, headers=h, json=body).status_code == 201
