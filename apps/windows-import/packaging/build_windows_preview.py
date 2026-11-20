@@ -58,7 +58,7 @@ def publish(output):
         stage = Path(tmp)
         # Compile the exact commit named in the public manifest.
         archive = stage / "source.zip"
-        subprocess.run(["git", "-C", root, "archive", "--format=zip", "-o", archive,
+        subprocess.run(["git", "-C", root.parents[1], "archive", "--format=zip", "-o", archive,
                         f"{edition}:apps/windows-import", "src", "Directory.Build.props"], check=True)
         source = stage / "source"
         with zipfile.ZipFile(archive) as files:
