@@ -28,11 +28,17 @@ from sqlalchemy.orm.attributes import set_committed_value
 
 from src.clinic.models import ClinicDictation, ClinicReviewLease
 from src.database import db
+from src.models.audit import AuditEvent
+from src.services import audit
 
 STALE_GENERATION = "stale_generation"
 EXPIRED = "expired"
 FOREIGN_HOLDER = "foreign_holder"
 NOT_FOUND = "not_found"
+
+# The audit vocabulary has no lease event yet. Lease operations use the existing
+# change event; the first entry of ``fields`` names the operation. Never transcript text.
+AUDIT_EVENT = "recording.edited"
 
 _ROW_LOCK_DIALECTS = {"postgresql", "mysql", "mariadb"}
 _DEFAULTS = Path(__file__).resolve().parents[2] / "clinic-spec" / "config" / "dev.defaults.json"
@@ -50,6 +56,8 @@ class LeaseConflict(Exception):
     def __init__(self, reason: str, lease: ClinicReviewLease | None = None):
         self.reason = reason
         self.lease = lease
+        # Generation of the grant that now holds the dictation, when one exists.
+        self.generation = lease.generation if lease is not None else None
         super().__init__(reason)
 
 
@@ -116,6 +124,103 @@ def acquire(
     if last is not None and _expiry(last) > now and last.holder_user_id == user_id:
         return _stamp(last)
     raise LeaseConflict(FOREIGN_HOLDER, last)
+
+
+def takeover(
+    dictation_id: str,
+    user_id: int,
+    now: datetime,
+    duration: float | None = None,
+    heartbeat_interval: float | None = None,
+) -> tuple[ClinicReviewLease, tuple[int, int] | None]:
+    """Move the lease to ``user_id`` now, even while another holder is still active.
+
+    The generation increases by one, so the previous holder's next save or
+    renew fails with a stale generation. Returns the lease and
+    ``(previous_holder_user_id, previous_generation)``, or ``None`` when no
+    lease existed. A holder who already has the active lease keeps it unchanged.
+    The caller decides whether the actor may take over.
+    """
+    now = _require_now(now)
+    seconds, _heartbeat = review_intervals(duration, heartbeat_interval)
+    expires = now + timedelta(seconds=seconds)
+    if _lock_dictation(dictation_id) is None:
+        raise LeaseConflict(NOT_FOUND)
+    row = _lock_lease(dictation_id)
+    if row is None:
+        created = _insert(dictation_id, user_id, expires)
+        if created is not None:
+            return created, None
+        row = _lock_lease(dictation_id)
+        if row is None:
+            raise LeaseConflict(NOT_FOUND)
+    _stamp(row)
+    previous = (row.holder_user_id, row.generation)
+    if row.holder_user_id == user_id and row.expires_at > now:
+        row.expires_at = expires
+        db.session.flush()
+        return row, previous
+    if not _take_over(row, user_id, expires):
+        raise LeaseConflict(STALE_GENERATION, row)
+    return row, previous
+
+
+def current(dictation_id: str) -> ClinicReviewLease | None:
+    """The stored lease of this dictation (expired or not), or None. Read only."""
+    row = db.session.query(ClinicReviewLease).filter(ClinicReviewLease.dictation_id == dictation_id).one_or_none()
+    return _stamp(row) if row is not None else None
+
+
+def audit_operation(
+    operation: str,
+    row: ClinicReviewLease,
+    actor_user_id: int,
+    dictation: ClinicDictation,
+    *,
+    previous_holder: int | None = None,
+    actor_kind: str = "session",
+) -> None:
+    """Add one audit row for a lease operation to the caller's transaction.
+
+    Carries operation, actor, dictation id and generation only. The caller
+    commits, so the row exists exactly when the operation took effect.
+    """
+    fields = [f"lease.{operation}", f"dictation:{row.dictation_id}", f"generation:{row.generation}"]
+    if previous_holder is not None:
+        fields.append(f"from:{previous_holder}")
+    audit.record_in_tx(
+        AUDIT_EVENT, recording_id=dictation.recording_id, actor_kind=actor_kind,
+        actor_user_id=actor_user_id, target_user_id=previous_holder, details={"fields": fields},
+    )
+
+
+def audit_lapse(dictation: ClinicDictation, now: datetime) -> bool:
+    """Audit an expired grant once, when it is first seen.
+
+    Expiry has no event of its own, so it is recorded when the lapsed lease is
+    next looked at by an acquire or takeover. A grant that ended by release, or
+    was already recorded as expired, writes nothing. Returns True on a new row.
+    """
+    now = _require_now(now)
+    row = _lock_lease(dictation.id)
+    if row is None:
+        return False
+    _stamp(row)
+    if row.expires_at > now:
+        return False
+    marker, generation = f"dictation:{dictation.id}", f"generation:{row.generation}"
+    rows = (
+        db.session.query(AuditEvent)
+        .filter(AuditEvent.event == AUDIT_EVENT, AuditEvent.recording_id == dictation.recording_id)
+        .order_by(AuditEvent.id.desc())
+        .limit(200)
+    )
+    for event in rows:
+        fields = (event.details or {}).get("fields") or []
+        if marker in fields and generation in fields and fields[0] in ("lease.release", "lease.expire"):
+            return False
+    audit_operation("expire", row, row.holder_user_id, dictation, actor_kind="system")
+    return True
 
 
 def heartbeat(
