@@ -174,7 +174,7 @@ def create_blueprint(
         if active is None or active.transcript_revision_id != revision.id:
             return _problem(409, 'NOT_RELEASED', detail='Nur die freigegebene Version kann ausgegeben werden')
         if body['format'] == KIS_FORMAT:
-            return _kis_export(dictation, active, key)
+            return _kis_export(dictation, active)
         return _file_export(dictation, active, body['format'], key)
 
     def _file_export(dictation: ClinicDictation, active: ClinicRelease, fmt: str, key: str) -> Response:
@@ -201,12 +201,14 @@ def create_blueprint(
         response.status_code = 201
         return response
 
-    def _kis_export(dictation: ClinicDictation, active: ClinicRelease, key: str) -> Response:
+    def _kis_export(dictation: ClinicDictation, active: ClinicRelease) -> Response:
+        # The ledger key binds to the release, not the HTTP request: at most one send per
+        # release and target; a retry after UNKNOWN goes through kis.reconcile only.
         adapter = adapter_for()
         if not adapter.enabled:
             return _problem(503, export_status='unavailable', detail='Keine KIS-Anbindung konfiguriert')
         context = db.session.get(ClinicContextRevision, active.context_revision_id)
-        result = kis.deliver(active, context, adapter, f'export:{dictation.id}:{key}',
+        result = kis.deliver(active, context, adapter, f'export:{active.id}',
                              datetime.now(timezone.utc))
         if result.outcome == kis.REFUSED:
             return _problem(409, 'KIS_REFUSED', reason=result.reason)

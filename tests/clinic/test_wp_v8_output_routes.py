@@ -233,3 +233,45 @@ def test_routes_are_registered_in_clinic_mode(tmp_path):
     line = next(row for row in done.stdout.splitlines() if row.startswith("RULES"))
     for suffix in ("/clipboard/<uuid:revision_id>", "/exports", "/exports/<uuid:job_id>", "/output-targets"):
         assert suffix in line
+
+
+def test_new_key_after_unknown_does_not_send_again(web):
+    client, c = web
+    _release(c)
+    c["adapter"] = adapter = MockKisAdapter(script=["timeout"])
+    cl, csrf = client(c["actor"])
+    first = cl.post(_base(c) + "/exports", headers=_key() | csrf, json=_body(c, "kis"))
+    assert first.json["status"] == "unknown"
+    second = cl.post(_base(c) + "/exports", headers=_key() | csrf, json=_body(c, "kis"))
+    assert second.json["status"] == "unknown" and second.json["replayed"] is True
+    assert second.json["id"] == first.json["id"]
+    assert adapter.deliver_calls == 1
+    assert db.session.query(ClinicDelivery).count() == 1
+
+
+def test_new_key_after_delivered_does_not_send_again(web):
+    client, c = web
+    _release(c)
+    c["adapter"] = adapter = MockKisAdapter()
+    cl, csrf = client(c["actor"])
+    first = cl.post(_base(c) + "/exports", headers=_key() | csrf, json=_body(c, "kis"))
+    assert first.json["status"] == "delivered"
+    second = cl.post(_base(c) + "/exports", headers=_key() | csrf, json=_body(c, "kis"))
+    assert second.json["status"] == "delivered" and second.json["replayed"] is True
+    assert adapter.deliver_calls == 1
+
+
+def test_real_app_wiring_in_clinic_mode(tmp_path):
+    script = (
+        "from src.app import app\n"
+        "from src.clinic import routes_output as ro\n"
+        "from src.clinic.kis import DisabledAdapter\n"
+        "res = app.test_client().get('/api/clinic/v1/dictations/00000000-0000-4000-8000-000000000000/output-targets')\n"
+        "print('STATUS', res.status_code, 'clinic_unclassified_route' in res.get_data(as_text=True))\n"
+        "print('ADAPTER', isinstance(ro.configured_adapter(app), DisabledAdapter))\n")
+    env = {k: v for k, v in os.environ.items() if k != "CLINIC_PROFILE"}
+    env.update(CLINIC_MODE="1", TRANSCRIPTION_BASE_URL="http://127.0.0.1:9/v1",
+               TRANSCRIPTION_API_KEY="synthetic", SQLALCHEMY_DATABASE_URI=f"sqlite:///{tmp_path}/wiring.db")
+    done = subprocess.run([sys.executable, "-c", script], cwd=ROOT, env=env, capture_output=True, text=True)
+    assert "STATUS 401 False" in done.stdout, done.stdout + done.stderr
+    assert "ADAPTER True" in done.stdout
