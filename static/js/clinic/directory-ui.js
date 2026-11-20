@@ -17,6 +17,7 @@ const BASE = '/directory';
 
 export const LABELS = Object.freeze({
     title: 'Verzeichnisabgleich',
+    description: 'Vergleicht lokale Konten mit dem Verzeichnis. Vorschau laden, Auswahl prüfen und erst nach der Bestätigung anwenden.',
     reload: 'Vorschau laden',
     additions: 'Neue Identitäten',
     modifications: 'Änderungen',
@@ -255,39 +256,62 @@ export const DirectoryReview = {
             ctrl.state.status = surfaceFor('warning').status;
             ctrl.state.message = REASONS.permission;
         }
-        return { ctrl, state: ctrl.state, labels: LABELS, allowed, key: { a: actionKey, m: memberKey } };
+        const hasChanges = () => Object.values(ctrl.groups()).some((list) => list.length > 0);
+        return { ctrl, state: ctrl.state, labels: LABELS, allowed, key: { a: actionKey, m: memberKey }, hasChanges };
     },
     template: `
-<section role="region" aria-labelledby="clinic-dir-title" :aria-busy="state.status === 'processing'">
-  <h2 id="clinic-dir-title">${LABELS.title}</h2>
-  <p role="note">${LABELS.unresolved}</p>
-  <p>${LABELS.archiveOnly}</p>
-  <p v-if="state.message" role="alert">{{ state.message }}</p>
-  <button type="button" :disabled="!allowed || state.status === 'processing'" @click="ctrl.load()">{{ state.message && !state.stale ? '${LABELS.retry}' : '${LABELS.reload}' }}</button>
-  <button type="button" @click="$emit('open-accounts')">${LABELS.local}</button>
-  <div v-if="state.preview && !state.stale">
-    <p>{{ state.preview.source }} · {{ state.preview.version }}</p>
-    <h3>${LABELS.additions}</h3>
-    <ul role="list" aria-label="${LABELS.additions}">
-      <li v-for="a in ctrl.groups().additions" :key="key.a(a)">{{ a.detail || a.object_id }} (${LABELS.linkRequired})</li>
-    </ul>
-    <h3>${LABELS.modifications}</h3>
-    <ul role="list" aria-label="${LABELS.modifications}">
-      <li v-for="a in ctrl.groups().modifications" :key="key.a(a)"><label><input type="checkbox" :checked="state.selected[key.a(a)]" @change="ctrl.toggle(key.a(a))" @keydown="ctrl.onKey(key.a(a), $event)"> {{ a.detail || a.object_id }}</label></li>
-    </ul>
-    <h3>${LABELS.disabled}</h3>
-    <ul role="list" aria-label="${LABELS.disabled}">
-      <li v-for="a in ctrl.groups().disabled" :key="key.a(a)"><label><input type="checkbox" :checked="state.selected[key.a(a)]" @change="ctrl.toggle(key.a(a))" @keydown="ctrl.onKey(key.a(a), $event)"> {{ a.detail || a.object_id }}</label></li>
-    </ul>
-    <h3>${LABELS.memberships}</h3>
-    <ul role="list" aria-label="${LABELS.memberships}">
-      <li v-for="m in ctrl.groups().memberships" :key="key.m(m)"><label><input type="checkbox" :checked="state.selected[key.m(m)]" @change="ctrl.toggle(key.m(m))" @keydown="ctrl.onKey(key.m(m), $event)"> {{ m.kind }} {{ m.pool_kind }} {{ m.pool_id }} ({{ m.subject_id }})</label></li>
-    </ul>
-    <button type="button" @click="ctrl.review()">${LABELS.review}</button>
-    <div v-if="state.confirming" role="alertdialog" aria-label="${LABELS.confirmTitle}" @keydown.esc="ctrl.cancel()">
-      <h3>${LABELS.confirmTitle}</h3>
-      <button type="button" @click="ctrl.apply()">${LABELS.confirm}</button>
-      <button type="button" @click="ctrl.cancel()">${LABELS.cancel}</button>
+<section role="region" class="cadm-panel" aria-labelledby="clinic-dir-title" :aria-busy="state.status === 'processing'">
+  <header class="cadm-panel__head">
+    <div>
+      <h2 id="clinic-dir-title" class="cadm-title">${LABELS.title}</h2>
+      <p class="cadm-desc">${LABELS.description}</p>
+    </div>
+    <div class="cadm-panel__tools">
+      <button type="button" class="btn btn--primary" :disabled="!allowed || state.status === 'processing'" @click="ctrl.load()"><i class="fas fa-sync-alt" aria-hidden="true"></i><span>{{ state.message && !state.stale ? '${LABELS.retry}' : '${LABELS.reload}' }}</span></button>
+      <button type="button" class="btn btn--ghost" @click="$emit('open-accounts')"><i class="fas fa-users-cog" aria-hidden="true"></i><span>${LABELS.local}</span></button>
+    </div>
+  </header>
+  <p role="note" class="banner banner--warn"><i class="fas fa-exclamation-triangle" aria-hidden="true"></i><span>${LABELS.unresolved}</span></p>
+  <p class="banner banner--info"><i class="fas fa-info-circle" aria-hidden="true"></i><span>${LABELS.archiveOnly}</span></p>
+  <p v-if="state.message" role="alert" class="banner banner--danger"><i class="fas fa-exclamation-circle" aria-hidden="true"></i><span>{{ state.message }}</span></p>
+  <div v-if="state.preview && !state.stale" class="cadm-section">
+    <p class="cadm-hint">{{ state.preview.source }} · {{ state.preview.version }}</p>
+    <p v-if="!hasChanges()" class="cadm-empty">${LABELS.empty}</p>
+    <section class="cadm-section">
+      <h3 class="cadm-subtitle">${LABELS.additions} <span class="pill-status pill-status--pending">{{ ctrl.groups().additions.length }}</span></h3>
+      <ul role="list" aria-label="${LABELS.additions}" class="cadm-rows" :class="{ 'cadm-rows--empty': !ctrl.groups().additions.length }">
+        <li v-if="!ctrl.groups().additions.length">–</li>
+        <li v-for="a in ctrl.groups().additions" :key="key.a(a)"><span>{{ a.detail || a.object_id }}</span><span class="pill-status pill-status--warn">${LABELS.linkRequired}</span></li>
+      </ul>
+    </section>
+    <section class="cadm-section">
+      <h3 class="cadm-subtitle">${LABELS.modifications} <span class="pill-status pill-status--pending">{{ ctrl.groups().modifications.length }}</span></h3>
+      <ul role="list" aria-label="${LABELS.modifications}" class="cadm-rows" :class="{ 'cadm-rows--empty': !ctrl.groups().modifications.length }">
+        <li v-if="!ctrl.groups().modifications.length">–</li>
+        <li v-for="a in ctrl.groups().modifications" :key="key.a(a)"><label class="cadm-check"><input type="checkbox" :checked="state.selected[key.a(a)]" @change="ctrl.toggle(key.a(a))" @keydown="ctrl.onKey(key.a(a), $event)"> {{ a.detail || a.object_id }}</label></li>
+      </ul>
+    </section>
+    <section class="cadm-section">
+      <h3 class="cadm-subtitle">${LABELS.disabled} <span class="pill-status pill-status--pending">{{ ctrl.groups().disabled.length }}</span></h3>
+      <ul role="list" aria-label="${LABELS.disabled}" class="cadm-rows" :class="{ 'cadm-rows--empty': !ctrl.groups().disabled.length }">
+        <li v-if="!ctrl.groups().disabled.length">–</li>
+        <li v-for="a in ctrl.groups().disabled" :key="key.a(a)"><label class="cadm-check"><input type="checkbox" :checked="state.selected[key.a(a)]" @change="ctrl.toggle(key.a(a))" @keydown="ctrl.onKey(key.a(a), $event)"> {{ a.detail || a.object_id }}</label></li>
+      </ul>
+    </section>
+    <section class="cadm-section">
+      <h3 class="cadm-subtitle">${LABELS.memberships} <span class="pill-status pill-status--pending">{{ ctrl.groups().memberships.length }}</span></h3>
+      <ul role="list" aria-label="${LABELS.memberships}" class="cadm-rows" :class="{ 'cadm-rows--empty': !ctrl.groups().memberships.length }">
+        <li v-if="!ctrl.groups().memberships.length">–</li>
+        <li v-for="m in ctrl.groups().memberships" :key="key.m(m)"><label class="cadm-check"><input type="checkbox" :checked="state.selected[key.m(m)]" @change="ctrl.toggle(key.m(m))" @keydown="ctrl.onKey(key.m(m), $event)"> {{ m.kind }} {{ m.pool_kind }} {{ m.pool_id }} ({{ m.subject_id }})</label></li>
+      </ul>
+    </section>
+    <div class="cadm-form__actions">
+      <button type="button" class="btn btn--primary" @click="ctrl.review()">${LABELS.review}</button>
+    </div>
+    <div v-if="state.confirming" role="alertdialog" aria-label="${LABELS.confirmTitle}" class="banner banner--warn cadm-dialog" @keydown.esc="ctrl.cancel()">
+      <h3 class="cadm-subtitle">${LABELS.confirmTitle}</h3>
+      <button type="button" class="btn btn--danger btn--sm" @click="ctrl.apply()">${LABELS.confirm}</button>
+      <button type="button" class="btn btn--ghost btn--sm" @click="ctrl.cancel()">${LABELS.cancel}</button>
     </div>
   </div>
 </section>`,

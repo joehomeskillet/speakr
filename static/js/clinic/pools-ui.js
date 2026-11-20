@@ -20,6 +20,9 @@ export const POOL_TYPES = Object.freeze({
 
 const LABELS = {
     'clinic.pools.title': 'Pools verwalten',
+    'clinic.pools.description': 'Autoren- und Schreibpools mit ihren Mitgliedern. Änderungen gelten sofort und werden mit dem Stand abgeglichen.',
+    'clinic.pools.noPools': 'Keine Pools vorhanden.',
+    'clinic.pools.userId': 'ID',
     'clinic.pools.author': 'Autorenpools',
     'clinic.pools.staff': 'Schreibpools',
     'clinic.pools.revision': 'Stand',
@@ -176,37 +179,50 @@ export function statusSurface(state) {
 }
 
 export const POOLS_TEMPLATE = `
-<section class="pools-ui" aria-labelledby="pools-title" @keydown="onKey">
-  <h2 id="pools-title">{{ label('clinic.pools.title') }}</h2>
-  <p role="status" aria-live="polite" :style="surfaceStyle">
-    {{ label('clinic.pools.revision') }}: {{ state.revision === null ? '–' : state.revision }}
+<section class="pools-ui cadm-panel" aria-labelledby="pools-title" @keydown="onKey">
+  <header class="cadm-panel__head">
+    <div>
+      <h2 id="pools-title" class="cadm-title">{{ label('clinic.pools.title') }}</h2>
+      <p class="cadm-desc">{{ label('clinic.pools.description') }}</p>
+    </div>
+    <div class="cadm-panel__tools">
+      <button type="button" class="btn btn--ghost" @click="store.reload()"><i class="fas fa-sync-alt" aria-hidden="true"></i><span>{{ label('clinic.pools.reload') }}</span></button>
+      <button type="button" class="btn btn--primary" v-if="state.failedWrite" @click="store.retry()">{{ label('clinic.pools.retry') }}</button>
+    </div>
+  </header>
+  <p role="status" aria-live="polite" class="cadm-status" :style="surfaceStyle">
+    <span>{{ label('clinic.pools.revision') }}: {{ state.revision === null ? '–' : state.revision }}</span>
     <span v-if="state.status === 'stale'">{{ label('clinic.pools.stale') }}</span>
     <span v-else>{{ state.message }}</span>
   </p>
-  <button type="button" @click="store.reload()">{{ label('clinic.pools.reload') }}</button>
-  <button type="button" v-if="state.failedWrite" @click="store.retry()">{{ label('clinic.pools.retry') }}</button>
-  <section v-for="type in ['author', 'staff']" :key="type" :aria-labelledby="'pools-' + type">
-    <h3 :id="'pools-' + type">{{ label(type === 'author' ? 'clinic.pools.author' : 'clinic.pools.staff') }}</h3>
-    <article v-for="pool in state.pools[type]" :key="pool.id">
-      <h4>{{ pool.name }}</h4>
-      <ul :aria-label="label('clinic.pools.members')">
-        <li v-if="!pool.memberUserIds.length">{{ label('clinic.pools.empty') }}</li>
-        <li v-for="uid in pool.memberUserIds" :key="uid">
-          {{ uid }}
-          <button type="button" @click="store.requestRemoval(type, pool.id, uid)">{{ label('clinic.pools.remove') }}</button>
-        </li>
-      </ul>
-      <form @submit.prevent="addFromDraft(type, pool.id)">
-        <label :for="'pools-add-' + pool.id">{{ label('clinic.pools.addLabel') }}</label>
-        <input :id="'pools-add-' + pool.id" type="number" min="1" step="1" inputmode="numeric" v-model="drafts[pool.id]">
-        <button type="submit">{{ label('clinic.pools.add') }}</button>
-      </form>
-    </article>
+  <section v-for="type in ['author', 'staff']" :key="type" class="cadm-section" :aria-labelledby="'pools-' + type">
+    <h3 :id="'pools-' + type" class="cadm-subtitle">{{ label(type === 'author' ? 'clinic.pools.author' : 'clinic.pools.staff') }}
+      <span class="pill-status pill-status--pending">{{ state.pools[type].length }}</span></h3>
+    <p v-if="state.status === 'ready' && !state.pools[type].length" class="cadm-empty">{{ label('clinic.pools.noPools') }}</p>
+    <div class="cadm-cards">
+      <article v-for="pool in state.pools[type]" :key="pool.id" class="cadm-card">
+        <h4 class="cadm-card__title">{{ pool.name }}</h4>
+        <ul class="cadm-chips" :aria-label="label('clinic.pools.members')">
+          <li v-if="!pool.memberUserIds.length" class="cadm-chip cadm-chip--empty">{{ label('clinic.pools.empty') }}</li>
+          <li v-for="uid in pool.memberUserIds" :key="uid" class="cadm-chip">
+            <span>{{ label('clinic.pools.userId') }} {{ uid }}</span>
+            <button type="button" class="btn btn--quiet btn--sm" :title="label('clinic.pools.remove')" :aria-label="label('clinic.pools.remove') + ': ' + uid" @click="store.requestRemoval(type, pool.id, uid)"><i class="fas fa-times" aria-hidden="true"></i></button>
+          </li>
+        </ul>
+        <form class="cadm-inline" @submit.prevent="addFromDraft(type, pool.id)">
+          <div class="cadm-field">
+            <label :for="'pools-add-' + pool.id">{{ label('clinic.pools.addLabel') }}</label>
+            <input :id="'pools-add-' + pool.id" class="field" type="number" min="1" step="1" inputmode="numeric" v-model="drafts[pool.id]">
+          </div>
+          <button type="submit" class="btn btn--ghost">{{ label('clinic.pools.add') }}</button>
+        </form>
+      </article>
+    </div>
   </section>
-  <div v-if="state.pendingRemoval" role="alertdialog" aria-modal="false" aria-labelledby="pools-confirm">
+  <div v-if="state.pendingRemoval" role="alertdialog" aria-modal="false" aria-labelledby="pools-confirm" class="banner banner--warn cadm-dialog">
     <p id="pools-confirm">{{ label('clinic.pools.confirmRemove') }}</p>
-    <button type="button" @click="store.confirmRemoval()">{{ label('clinic.pools.confirm') }}</button>
-    <button type="button" @click="store.cancelRemoval()">{{ label('clinic.pools.cancel') }}</button>
+    <button type="button" class="btn btn--danger btn--sm" @click="store.confirmRemoval()">{{ label('clinic.pools.confirm') }}</button>
+    <button type="button" class="btn btn--ghost btn--sm" @click="store.cancelRemoval()">{{ label('clinic.pools.cancel') }}</button>
   </div>
 </section>`;
 
@@ -218,6 +234,7 @@ export function createPoolsComponent(Vue, client) {
             const state = Vue.reactive({ status: 'idle', revision: null, pools: { author: [], staff: [] }, pendingRemoval: null, failedWrite: null, message: '' });
             const store = createPoolsStore(client, (next) => Object.assign(state, next));
             const surfaceStyle = Vue.computed(() => {
+                if (state.status === 'ready') return {};
                 const s = statusSurface(state);
                 return { background: s.background, color: s.color, borderColor: s.border };
             });

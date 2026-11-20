@@ -19,16 +19,23 @@
  * implicit dictation access.
  */
 
-import { surfaceFor } from './tokens.js';
-
 export const LOGIN_POLICIES = ['local_only', 'local_and_entra', 'entra_only'];
 export const SELECTABLE_POLICIES = ['local_only'];
 const BASE = '/admin/users';
 
 export const LABELS = Object.freeze({
     title: 'Konten der Autoren und Schreibkräfte',
+    description: 'Anmeldekonten anlegen, bearbeiten, sperren und Einmalcodes ausstellen. Diktate und Pools werden hier nicht vergeben.',
     list: 'Konten',
     create: 'Konto anlegen',
+    createTitle: 'Neues Konto',
+    editTitle: 'Konto bearbeiten',
+    empty: 'Noch keine Konten vorhanden.',
+    loading: 'Konten werden geladen …',
+    roles: 'Rollen',
+    roleAdmin: 'Administration',
+    roleIdentity: 'Identitätsadministration',
+    noRole: 'Keine',
     edit: 'Bearbeiten',
     disable: 'Deaktivieren',
     reactivate: 'Reaktivieren',
@@ -309,14 +316,12 @@ export function createAccountsAdmin(options) {
     return { state, load, startCreate, startEdit, cancel, apply, confirm, setStatus, issueRecovery, dismissCode, isDirty };
 }
 
-const ERROR_SURFACE = surfaceFor('error');
-const BOX = 'border:1px solid var(--border-primary);background:var(--bg-secondary);color:var(--text-primary);';
-
 /**
  * Vue component. `controller` is the result of createAccountsAdmin made with
  * Vue's `reactive`. All controls are native elements, so Tab, Enter and Space
  * behave as the browser defines; Escape in the editor cancels. Errors use
  * role="alert", status changes are announced through a polite live region.
+ * Layout classes (cadm-*) live in static/css/clinic-admin.css; controls use the primitives .btn and .field.
  */
 export const AccountsAdminPanel = {
     name: 'AccountsAdminPanel',
@@ -326,8 +331,7 @@ export const AccountsAdminPanel = {
             labels: LABELS,
             policies: LOGIN_POLICIES,
             selectable: SELECTABLE_POLICIES,
-            boxStyle: BOX,
-            errorStyle: `background:${ERROR_SURFACE.background};color:${ERROR_SURFACE.color};border:1px solid ${ERROR_SURFACE.border};`,
+            statusClass: { active: 'pill-status--success', disabled: 'pill-status--warn', pending_activation: 'pill-status--pending' },
         };
     },
     computed: {
@@ -335,62 +339,102 @@ export const AccountsAdminPanel = {
     },
     mounted() { if (!this.s.loaded) this.controller.load(); },
     template: `
-<section aria-labelledby="acc-title" :style="boxStyle" :aria-busy="s.loading || s.busy ? 'true' : 'false'">
-  <h2 id="acc-title">{{ labels.title }}</h2>
-  <p>{{ labels.noImplicitAccess }}</p>
-  <p v-if="s.error" role="alert" :style="errorStyle">{{ s.message }}
-    <button type="button" v-if="s.error === 'network' || s.error === 'UNKNOWN'" @click="controller.load()">{{ labels.reload }}</button>
-  </p>
-  <div v-if="s.recoveryCode" role="status">
+<section class="cadm-panel" aria-labelledby="acc-title" :aria-busy="s.loading || s.busy ? 'true' : 'false'">
+  <header class="cadm-panel__head">
+    <div>
+      <h2 id="acc-title" class="cadm-title">{{ labels.title }}</h2>
+      <p class="cadm-desc">{{ labels.description }}</p>
+    </div>
+    <div class="cadm-panel__tools">
+      <button type="button" class="btn btn--primary" :disabled="s.busy" @click="controller.startCreate()">
+        <i class="fas fa-user-plus" aria-hidden="true"></i><span>{{ labels.create }}</span>
+      </button>
+    </div>
+  </header>
+  <p class="banner banner--info"><i class="fas fa-info-circle" aria-hidden="true"></i><span>{{ labels.noImplicitAccess }}</span></p>
+  <div v-if="s.error" role="alert" class="banner banner--danger">
+    <i class="fas fa-exclamation-triangle" aria-hidden="true"></i><span>{{ s.message }}</span>
+    <button type="button" class="btn btn--sm btn--ghost" v-if="s.error === 'network' || s.error === 'UNKNOWN'" @click="controller.load()">{{ labels.reload }}</button>
+  </div>
+  <div v-if="s.recoveryCode" role="status" class="cadm-code">
     <p>{{ labels.recoveryCode }}</p>
     <output><code>{{ s.recoveryCode }}</code></output>
-    <button type="button" @click="controller.dismissCode()">{{ labels.dismissCode }}</button>
+    <button type="button" class="btn btn--sm btn--ghost" @click="controller.dismissCode()">{{ labels.dismissCode }}</button>
   </div>
-  <button type="button" :disabled="s.busy" @click="controller.startCreate()">{{ labels.create }}</button>
-  <table :aria-label="labels.list">
-    <thead><tr>
-      <th scope="col">{{ labels.username }}</th><th scope="col">{{ labels.email }}</th>
-      <th scope="col">{{ labels.status }}</th><th scope="col">{{ labels.loginPolicy }}</th>
-      <th scope="col"><span class="sr-only">{{ labels.edit }}</span></th>
-    </tr></thead>
-    <tbody>
-      <tr v-for="a in s.accounts" :key="a.id">
-        <th scope="row">{{ a.username }}</th>
-        <td>{{ a.email }}</td>
-        <td>{{ labels.statuses[a.status] || a.status }}</td>
-        <td>{{ labels.policies[a.login_policy] || a.login_policy }}</td>
-        <td>
-          <button type="button" :aria-label="labels.edit + ': ' + a.username" @click="controller.startEdit(a.id)">{{ labels.edit }}</button>
-          <button type="button" v-if="a.status === 'active'" :disabled="s.busy" :aria-label="labels.disable + ': ' + a.username" @click="controller.setStatus(a.id, 'disabled')">{{ labels.disable }}</button>
-          <button type="button" v-if="a.status === 'disabled'" :disabled="s.busy" :aria-label="labels.reactivate + ': ' + a.username" @click="controller.setStatus(a.id, 'active')">{{ labels.reactivate }}</button>
-          <button type="button" :disabled="s.busy" :aria-label="labels.recovery + ': ' + a.username" @click="controller.issueRecovery(a.id)">{{ labels.recovery }}</button>
-        </td>
-      </tr>
-    </tbody>
-  </table>
-  <form v-if="s.draft" @submit.prevent="controller.confirm()" @keydown.esc.prevent="controller.cancel()" novalidate>
-    <label for="acc-username">{{ labels.username }}</label>
-    <input id="acc-username" type="text" autocomplete="off" maxlength="20" v-model="s.draft.username"
-           :aria-invalid="s.error === 'username_required' ? 'true' : 'false'">
-    <label for="acc-email">{{ labels.email }}</label>
-    <input id="acc-email" type="email" autocomplete="off" inputmode="email" v-model="s.draft.email"
-           :aria-invalid="s.error === 'email_required' ? 'true' : 'false'">
-    <template v-if="s.draft.mode === 'create'">
-      <label for="acc-name">{{ labels.name }}</label>
-      <input id="acc-name" type="text" autocomplete="off" maxlength="100" v-model="s.draft.name">
-    </template>
-    <template v-else>
-      <label for="acc-policy">{{ labels.loginPolicy }}</label>
-      <select id="acc-policy" v-model="s.draft.login_policy" aria-describedby="acc-entra">
-        <option v-for="p in policies" :key="p" :value="p" :disabled="!selectable.includes(p) && p !== s.base.login_policy">{{ labels.policies[p] }}</option>
-      </select>
-      <p id="acc-entra">{{ labels.entraNote }}</p>
-      <label><input type="checkbox" v-model="s.draft.is_admin"> {{ labels.isAdmin }}</label>
-      <label><input type="checkbox" v-model="s.draft.is_identity_admin"> {{ labels.isIdentityAdmin }}</label>
-    </template>
-    <button type="button" :disabled="s.busy" @click="controller.apply()">{{ labels.apply }}</button>
-    <button type="submit" :disabled="s.busy">{{ labels.ok }}</button>
-    <button type="button" @click="controller.cancel()">{{ labels.cancel }}</button>
+  <div v-if="s.accounts.length" class="cadm-tablewrap cadm-tablewrap--stack">
+    <table class="cadm-table cadm-table--stack" :aria-label="labels.list">
+      <thead><tr>
+        <th scope="col">{{ labels.username }}</th><th scope="col">{{ labels.email }}</th>
+        <th scope="col">{{ labels.roles }}</th>
+        <th scope="col">{{ labels.status }}</th><th scope="col">{{ labels.loginPolicy }}</th>
+        <th scope="col" class="cadm-col-actions"><span class="sr-only">{{ labels.edit }}</span></th>
+      </tr></thead>
+      <tbody>
+        <tr v-for="a in s.accounts" :key="a.id">
+          <th scope="row">{{ a.username }}</th>
+          <td class="cadm-cell--wide" :data-label="labels.email">{{ a.email }}</td>
+          <td :data-label="labels.roles">
+            <span class="cadm-badges">
+              <span v-if="a.is_admin" class="pill-status pill-status--info">{{ labels.roleAdmin }}</span>
+              <span v-if="a.is_identity_admin" class="pill-status pill-status--processing">{{ labels.roleIdentity }}</span>
+              <span v-if="!a.is_admin && !a.is_identity_admin" class="cadm-muted">{{ labels.noRole }}</span>
+            </span>
+          </td>
+          <td :data-label="labels.status"><span class="pill-status" :class="statusClass[a.status] || 'pill-status--pending'">{{ labels.statuses[a.status] || a.status }}</span></td>
+          <td :data-label="labels.loginPolicy">{{ labels.policies[a.login_policy] || a.login_policy }}</td>
+          <td class="cadm-col-actions">
+            <span class="cadm-actions">
+              <button type="button" class="btn btn--sm btn--ghost btn--icon" :title="labels.edit" :aria-label="labels.edit + ': ' + a.username" @click="controller.startEdit(a.id)"><i class="fas fa-edit" aria-hidden="true"></i></button>
+              <button type="button" class="btn btn--sm btn--ghost btn--icon" v-if="a.status === 'active'" :disabled="s.busy" :title="labels.disable" :aria-label="labels.disable + ': ' + a.username" @click="controller.setStatus(a.id, 'disabled')"><i class="fas fa-user-slash" aria-hidden="true"></i></button>
+              <button type="button" class="btn btn--sm btn--ghost btn--icon" v-if="a.status === 'disabled'" :disabled="s.busy" :title="labels.reactivate" :aria-label="labels.reactivate + ': ' + a.username" @click="controller.setStatus(a.id, 'active')"><i class="fas fa-user-check" aria-hidden="true"></i></button>
+              <button type="button" class="btn btn--sm btn--ghost btn--icon" :disabled="s.busy" :title="labels.recovery" :aria-label="labels.recovery + ': ' + a.username" @click="controller.issueRecovery(a.id)"><i class="fas fa-key" aria-hidden="true"></i></button>
+            </span>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p v-else-if="s.loaded" class="cadm-empty">{{ labels.empty }}</p>
+  <p v-else-if="s.loading" role="status" class="cadm-empty">{{ labels.loading }}</p>
+  <form v-if="s.draft" class="cadm-editor" @submit.prevent="controller.confirm()" @keydown.esc.prevent="controller.cancel()" novalidate>
+    <h3 class="cadm-subtitle">{{ s.draft.mode === 'create' ? labels.createTitle : labels.editTitle }}</h3>
+    <div class="cadm-form">
+      <div class="cadm-field">
+        <label for="acc-username">{{ labels.username }}</label>
+        <input id="acc-username" class="field" type="text" autocomplete="off" maxlength="20" v-model="s.draft.username"
+               :aria-invalid="s.error === 'username_required' ? 'true' : 'false'">
+      </div>
+      <div class="cadm-field">
+        <label for="acc-email">{{ labels.email }}</label>
+        <input id="acc-email" class="field" type="email" autocomplete="off" inputmode="email" v-model="s.draft.email"
+               :aria-invalid="s.error === 'email_required' ? 'true' : 'false'">
+      </div>
+      <template v-if="s.draft.mode === 'create'">
+        <div class="cadm-field">
+          <label for="acc-name">{{ labels.name }}</label>
+          <input id="acc-name" class="field" type="text" autocomplete="off" maxlength="100" v-model="s.draft.name">
+        </div>
+      </template>
+      <template v-else>
+        <div class="cadm-field">
+          <label for="acc-policy">{{ labels.loginPolicy }}</label>
+          <select id="acc-policy" class="field" v-model="s.draft.login_policy" aria-describedby="acc-entra">
+            <option v-for="p in policies" :key="p" :value="p" :disabled="!selectable.includes(p) && p !== s.base.login_policy">{{ labels.policies[p] }}</option>
+          </select>
+          <p id="acc-entra" class="cadm-hint">{{ labels.entraNote }}</p>
+        </div>
+        <fieldset class="cadm-fieldset cadm-field--wide">
+          <legend>{{ labels.roles }}</legend>
+          <label class="cadm-check"><input type="checkbox" v-model="s.draft.is_admin"> {{ labels.isAdmin }}</label>
+          <label class="cadm-check"><input type="checkbox" v-model="s.draft.is_identity_admin"> {{ labels.isIdentityAdmin }}</label>
+        </fieldset>
+      </template>
+      <div class="cadm-form__actions">
+        <button type="submit" class="btn btn--primary" :disabled="s.busy">{{ labels.ok }}</button>
+        <button type="button" class="btn btn--ghost" :disabled="s.busy" @click="controller.apply()">{{ labels.apply }}</button>
+        <button type="button" class="btn btn--quiet" @click="controller.cancel()">{{ labels.cancel }}</button>
+      </div>
+    </div>
   </form>
 </section>`,
 };
