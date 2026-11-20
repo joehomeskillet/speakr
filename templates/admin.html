@@ -141,11 +141,11 @@
             })();
         });
     </script>
+    {% if clinic_mode %}<link rel="stylesheet" href="{{ url_for('static', filename='css/clinic-admin.css', v=app_version) }}">{% endif %}
     <!-- Tailwind utilities, compiled at build time (scripts/build_css.sh). Last in
          <head> so that, as with the former runtime build, they follow the page's
          own stylesheets in the cascade. -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.css', v=app_version) }}">
-    {% if clinic_mode %}<link rel="stylesheet" href="{{ url_for('static', filename='css/clinic-admin.css', v=app_version) }}">{% endif %}
     {% include 'includes/ui_theme.html' %}
 </head>
 <body class="bg-[var(--bg-primary)] text-[var(--text-primary)] h-full flex flex-col overflow-hidden">
