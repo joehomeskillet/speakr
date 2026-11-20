@@ -412,6 +412,7 @@ export const AccountsAdminPanel = {
             query: filters.search || '',
             role: filters.role || '',
             sortOrder: (filters.sort || 'username') + ':' + (filters.order || 'asc'),
+            opener: null,
             limits: LIMITS,
             source: filters.source || '',
             labels: LABELS,
@@ -424,7 +425,21 @@ export const AccountsAdminPanel = {
         s() { return this.controller.state; },
         rows() { return this.s.table.users; },
     },
+    watch: {
+        's.draft'(draft) {
+            if (draft || !this.opener) return;
+            const opener = this.opener;
+            this.opener = null;
+            this.$nextTick(() => { if (opener.isConnected) opener.focus(); });
+        },
+    },
     methods: {
+        openEditor(event, id) {
+            if (id == null) this.controller.startCreate();
+            else if (!this.controller.startEdit(id)) return;
+            this.opener = event.currentTarget;
+            this.$nextTick(() => this.$refs.username?.focus());
+        },
         browse(page = 1) {
             const [sort, order] = this.sortOrder.split(':');
             return this.controller.browse(page, {
@@ -445,7 +460,7 @@ export const AccountsAdminPanel = {
       <p v-if="!embedded" class="cadm-desc">{{ labels.description }}</p>
     </div>
     <div v-if="!embedded" class="cadm-panel__tools">
-      <button type="button" class="btn btn--primary" :disabled="s.busy" @click="controller.startCreate()">
+      <button type="button" class="btn btn--primary" :disabled="s.busy" @click="openEditor($event)">
         <i class="fas fa-user-plus" aria-hidden="true"></i><span>{{ labels.create }}</span>
       </button>
     </div>
@@ -503,7 +518,7 @@ export const AccountsAdminPanel = {
           <td :data-label="labels.loginPolicy">{{ labels.policies[a.login_policy] || a.login_policy }}</td>
           <td class="cadm-col-actions">
             <span class="cadm-actions">
-              <button type="button" class="btn btn--sm btn--ghost btn--icon" :title="labels.edit" :aria-label="labels.edit + ': ' + a.username" @click="controller.startEdit(a.id)"><i class="fas fa-edit" aria-hidden="true"></i></button>
+              <button type="button" class="btn btn--sm btn--ghost btn--icon" :title="labels.edit" :aria-label="labels.edit + ': ' + a.username" @click="openEditor($event, a.id)"><i class="fas fa-edit" aria-hidden="true"></i></button>
               <button type="button" class="btn btn--sm btn--ghost btn--icon" v-if="a.status === 'active'" :disabled="s.busy" :title="labels.disable" :aria-label="labels.disable + ': ' + a.username" @click="controller.setStatus(a.id, 'disabled')"><i class="fas fa-user-slash" aria-hidden="true"></i></button>
               <button type="button" class="btn btn--sm btn--ghost btn--icon" v-if="a.status === 'disabled'" :disabled="s.busy" :title="labels.reactivate" :aria-label="labels.reactivate + ': ' + a.username" @click="controller.setStatus(a.id, 'active')"><i class="fas fa-user-check" aria-hidden="true"></i></button>
               <button type="button" class="btn btn--sm btn--ghost btn--icon" :disabled="s.busy" :title="labels.recovery" :aria-label="labels.recovery + ': ' + a.username" @click="controller.issueRecovery(a.id)"><i class="fas fa-key" aria-hidden="true"></i></button>
@@ -525,7 +540,7 @@ export const AccountsAdminPanel = {
     <div class="cadm-form">
       <div class="cadm-field">
         <label for="acc-username">{{ labels.username }}</label>
-        <input id="acc-username" class="field" type="text" autocomplete="off" maxlength="20" v-model="s.draft.username"
+        <input id="acc-username" ref="username" class="field" type="text" autocomplete="off" maxlength="20" v-model="s.draft.username"
                :aria-invalid="s.error === 'username_required' ? 'true' : 'false'">
       </div>
       <div class="cadm-field">
