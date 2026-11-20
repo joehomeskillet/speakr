@@ -13,9 +13,14 @@
     {% include 'components/token_budget_indicator.html' %}
 
     <!-- "Verwaltung & Seiten": the pages of the menu that exist in the app. The Verwaltung pages are the tabs of /admin. -->
-    <details class="v6-admin" data-testid="clinic-pages-menu">
+    <details class="v6-admin" data-testid="clinic-pages-menu" data-close-outside
+             @keydown.esc="if ($event.currentTarget.open) {
+                 $event.stopPropagation();
+                 $event.currentTarget.open = false;
+                 $event.currentTarget.querySelector('summary').focus();
+             }">
         <summary aria-label="Verwaltung &amp; Seiten"><svg class="ui-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3" fill="currentColor"/><circle cx="15" cy="17" r="3" fill="currentColor"/></svg><span class="v8-menu-label">Verwaltung &amp; Seiten</span><svg class="ui-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></summary>
-        <div class="v6-menu">
+        <div class="v6-menu" @click="if ($event.target.closest('a')) $event.currentTarget.parentElement.open = false;">
             <section>
                 <h2>Diktat und Ausgabe</h2>
                 <a href="/#/neu">Neue Aufnahme</a>
