@@ -308,3 +308,45 @@ def test_import_graph_is_clinic_gated_and_dynamic():
     assert "registerCorrectionView(app)" in src
     assert src.count("createClinicApiClient()") == 1, "one shared api-client"
     assert src.count("ref(clinicWorklist ? clinicViewFromHash() : null)") == 1
+
+
+def test_context_drawer_returns_focus_to_each_trigger(live_server):
+    from playwright.sync_api import expect, sync_playwright
+
+    base, _ = live_server
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        try:
+            page = _login(browser, base, TYPIST)
+            _open_from_worklist(page, base)
+            page.set_viewport_size({"width": 390, "height": 844})
+            editor = page.get_by_test_id("clinic-correction-view")
+            drawer = editor.get_by_test_id("context-drawer")
+            close = drawer.get_by_test_id("drawer-close")
+            player = editor.get_by_test_id("player-bar")
+            expect(editor.get_by_role("group", name="Wiedergabe", exact=True)).to_have_count(1)
+            expect(player.get_by_role("group", name="Wiedergabe", exact=True)).to_be_visible()
+            audio_node = player.locator("audio").element_handle()
+            pedal = editor.get_by_test_id("pedal-status")
+            expect(pedal).to_be_visible()
+            assert not pedal.get_attribute("aria-label")
+            expect(pedal.locator("..")).to_have_role("status")
+            for section in ("assignment", "marks", "options"):
+                trigger = editor.locator(f'[data-context-toggle="{section}"]')
+                for via_escape in (True, False):
+                    expect(trigger).to_be_enabled()
+                    trigger.focus()
+                    page.keyboard.press("Enter")
+                    expect(close).to_be_focused()
+                    expect(drawer).to_have_accessible_name(trigger.get_attribute("aria-label"))
+                    expect(trigger).to_have_attribute("aria-expanded", "true")
+                    if via_escape:
+                        page.keyboard.press("Escape")
+                    else:
+                        close.click()
+                    expect(trigger).to_be_focused()
+                    expect(trigger).to_have_attribute("aria-expanded", "false")
+                    expect(drawer).to_have_attribute("inert", "")
+                    assert player.locator("audio").evaluate("(element, original) => element === original", audio_node)
+        finally:
+            browser.close()

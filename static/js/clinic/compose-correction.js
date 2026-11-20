@@ -116,7 +116,6 @@ export const TEXT = Object.freeze({
     server: 'Serverstand',
     retry: 'Erneut versuchen',
     text: 'Transkript',
-    player: 'Wiedergabe',
     audio: 'Audio zum Diktat',
     alignment: 'Text und Audio',
     alignmentText: 'Transkript mit Audio-Zuordnung',
@@ -135,7 +134,6 @@ export const TEXT = Object.freeze({
     unsaved: 'Nicht gespeicherte Änderungen sind vorhanden.',
     manual: 'Keine automatische Erkennung vorhanden. Bitte manuell transkribieren.',
     loading: 'Wird geladen …',
-    pedalStatus: 'Pedalstatus',
     keys: 'Tastatur: Strg + S speichert. Im Transkript hält die Wiedergabe beim Tippen an, wenn der Modus «Auf zu hörendes Wort zeigen» gewählt ist. Das Audio wird mit den Tasten des Players bedient.',
 });
 
@@ -774,6 +772,8 @@ export const CorrectionBody = {
         const shortcutsOpen = V.ref(false);
         const followOn = V.ref(false);
         const drawer = V.ref('');
+        const drawerClose = V.shallowRef(null);
+        let drawerOpener = null;
         const later = (fn) => { if (typeof V.nextTick === 'function') V.nextTick(fn); else fn(); };
         const editorPort = {
             read() {
@@ -852,14 +852,17 @@ export const CorrectionBody = {
         const templatesOpen = V.ref(false);
         const DRAWER_TITLES = { assignment: TEXT.ctxAssignment, marks: TEXT.ctxMarks, options: TEXT.ctxOptions };
         const drawerTitle = () => DRAWER_TITLES[drawer.value] || '';
-        const toggleDrawer = (id) => {
-            drawer.value = drawer.value === id ? '' : id;
-            if (drawer.value) {
-                later(() => {
-                    const close = typeof document !== 'undefined' ? document.querySelector('[data-testid="drawer-close"]') : null;
-                    if (close) close.focus();
-                });
-            }
+        const closeDrawer = () => {
+            const opener = drawerOpener;
+            drawerOpener = null;
+            drawer.value = '';
+            later(() => { if (!drawer.value && opener?.isConnected) opener.focus(); });
+        };
+        const toggleDrawer = (id, opener) => {
+            if (drawer.value === id) return closeDrawer();
+            drawerOpener = opener;
+            drawer.value = id;
+            later(() => { if (drawer.value === id) drawerClose.value?.focus(); });
         };
         // saveMessage already says "Nicht gespeicherte Änderungen." while dirty; do not repeat it.
         const unsavedSuffix = () => Boolean(e.dirty.value) && !/nicht gespeicherte/i.test(String(s.message.value || ''));
@@ -869,7 +872,7 @@ export const CorrectionBody = {
             formatDictationReference,
             c, FOCUS, MODES, box, styleFor, TEXT, showDiff,
             tb, tbState, textEl, setTextEl, fontPx, focusMode, shortcutsOpen, highlightOn, inlineWord, editorScroll, followOn, onTextInput, onTextKeydown, onFindKeydown,
-            onQuery, onReplacement, onCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, toggleDrawer, unsavedSuffix,
+            onQuery, onReplacement, onCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, drawerClose, closeDrawer, toggleDrawer, unsavedSuffix,
             repeatState: c.repeat.state, REPEAT_TEXT,
             text: e.text, canEdit: e.canEdit, dirty: e.dirty, loading: e.loading, error: e.error, manual: e.manual,
             lease: e.lease, audio: e.audio, template: e.template, templates: e.templates, templatesError: e.templatesError,
@@ -922,15 +925,15 @@ export const CorrectionBody = {
       <div class="context-tools">
         <span class="tool-wrap" v-tip="{ label: TEXT.ctxAssignment }">
           <button type="button" class="icon-button" :style="FOCUS" :disabled="!ready" :aria-label="TEXT.ctxAssignment" :aria-expanded="String(drawer === 'assignment')"
-                  aria-haspopup="dialog" aria-controls="ccv-drawer" data-context-toggle="assignment" @click="toggleDrawer('assignment')"><UiIcon name="users" /></button>
+                  aria-haspopup="dialog" aria-controls="ccv-drawer" data-context-toggle="assignment" @click="toggleDrawer('assignment', $event.currentTarget)"><UiIcon name="users" /></button>
         </span>
         <span class="tool-wrap" v-tip="{ label: TEXT.ctxMarks }">
           <button type="button" class="icon-button" :style="FOCUS" :disabled="!ready" :aria-label="TEXT.ctxMarks" :aria-expanded="String(drawer === 'marks')"
-                  aria-haspopup="dialog" aria-controls="ccv-drawer" data-context-toggle="marks" @click="toggleDrawer('marks')"><UiIcon name="marker" /></button>
+                  aria-haspopup="dialog" aria-controls="ccv-drawer" data-context-toggle="marks" @click="toggleDrawer('marks', $event.currentTarget)"><UiIcon name="marker" /></button>
         </span>
         <span class="tool-wrap" v-tip="{ label: TEXT.ctxOptions }">
           <button type="button" class="icon-button" :style="FOCUS" :disabled="!ready" :aria-label="TEXT.ctxOptions" :aria-expanded="String(drawer === 'options')"
-                  aria-haspopup="dialog" aria-controls="ccv-drawer" data-context-toggle="options" @click="toggleDrawer('options')"><UiIcon name="settings" /></button>
+                  aria-haspopup="dialog" aria-controls="ccv-drawer" data-context-toggle="options" @click="toggleDrawer('options', $event.currentTarget)"><UiIcon name="settings" /></button>
         </span>
         <span class="tool-wrap" v-tip="{ label: TEXT.reload }">
           <button type="button" class="icon-button" :style="FOCUS" :disabled="loading || dirty" :aria-label="TEXT.reload"
@@ -953,7 +956,7 @@ export const CorrectionBody = {
     </div>
 
     <template v-if="ready">
-      <div class="player compact-player" :aria-label="TEXT.player" data-testid="player-bar">
+      <div class="player compact-player" data-testid="player-bar">
         <audio preload="metadata" hidden :ref="c.bindAudio" :src="audio.status === 'ready' ? audio.src : null" :aria-label="TEXT.audio"></audio>
         <PlaybackTempo v-if="audioEl" :audio="audioEl" :step-seconds="c.stepSeconds" :on-sync="c.onSync" />
         <span class="word-sync-controls">
@@ -970,7 +973,7 @@ export const CorrectionBody = {
       <p class="word-sync-info" role="status" aria-live="polite">
         <template v-if="audio.status !== 'ready' && audio.status !== 'idle' && audio.status !== 'loading'">{{ audio.message }} </template>
         <template v-if="alignmentNotice"><span data-testid="alignment-notice">{{ alignmentNotice }}</span> </template>
-        <span v-if="pedalStatus" data-testid="pedal-status" :aria-label="TEXT.pedalStatus">{{ pedalStatus }}</span>
+        <span v-if="pedalStatus" data-testid="pedal-status">{{ pedalStatus }}</span>
       </p>
 
       <div class="editor-document" @keydown.esc="shortcutsOpen = false; templatesOpen = false">
@@ -1148,11 +1151,11 @@ export const CorrectionBody = {
   </div>
 
   <div v-if="ready" id="ccv-drawer" class="context-drawer" role="dialog" aria-modal="false" :aria-label="drawerTitle() || TEXT.ctxClosed" :inert="!drawer" :aria-hidden="drawer ? null : 'true'" :data-open="drawer ? 'true' : null"
-       data-testid="context-drawer" @keydown.esc="drawer = ''">
+       data-testid="context-drawer" @keydown.esc.stop.prevent="closeDrawer">
     <div class="dialoghead">
       <h2>{{ drawerTitle() }}</h2>
       <span class="tool-wrap" v-tip="{ label: TEXT.closeContext }">
-        <button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.closeContext" data-testid="drawer-close" @click="drawer = ''"><UiIcon name="close" /></button>
+        <button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.closeContext" ref="drawerClose" data-testid="drawer-close" @click="closeDrawer"><UiIcon name="close" /></button>
       </span>
     </div>
     <div v-show="!drawer || drawer === 'assignment'" style="display: grid; gap: 14px; min-width: 0">
