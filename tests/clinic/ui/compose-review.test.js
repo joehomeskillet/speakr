@@ -247,6 +247,16 @@ describe('compose-review accept flow', () => {
         expect(client.commands).toHaveLength(0);
     });
 
+    it.each([['permission', 404], ['conflict', 409]])('keeps a rejected archive out of the success state (%s)', async (outcome, status) => {
+        const { c } = await opened(server(), {
+            'POST /dictations/d1/archive': () => ({ outcome, status, message: 'Abgelehnt' }),
+        });
+        await c.request('archive');
+        expect(await c.confirm()).toMatchObject({ ok: false });
+        expect(c.status.value).toBe('ready');
+        expect(c.error.value).not.toBe('');
+    });
+
     it('archive is its own action and does not accept or release', async () => {
         const { c, client } = await opened();
         await c.request('archive');

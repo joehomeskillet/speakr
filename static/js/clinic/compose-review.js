@@ -64,6 +64,8 @@ export const TEXT = Object.freeze({
     reload: 'Aktuellen Stand laden',
     retry: 'Erneut versuchen',
     loading: 'Wird geladen …',
+    archived: 'Das Diktat wurde archiviert.',
+    openArchive: 'Zum Archiv',
     noReview: 'Für dieses Diktat liegt kein Prüfauftrag vor. Es wird nichts freigegeben.',
     denied: 'Keine Berechtigung für diese Ansicht.',
     failed: 'Der Prüfstand konnte nicht geladen werden.',
@@ -420,7 +422,13 @@ export function createReviewViewController(options) {
             const done = { ok: true, action: id, data: res.data };
             confirming.value = null;
             reason.value = '';
-            await load(); // the server state is authoritative after a decision
+            if (id === 'archive' && res.data?.applied === true && res.data.status === 'zu_archivieren') {
+                wf.load(null);
+                status.value = 'archived';
+                if (editor.lease.value.writable) await editor.release();
+            } else {
+                await load();
+            }
             return done;
         }
         const conflict = wf.state.stale || res.outcome === 'conflict';
@@ -557,6 +565,10 @@ const ReviewBody = {
   </div>
   <p class="visually-hidden" id="crv-keys">{{ TEXT.keys }}</p>
   <div v-if="status === 'loading'" class="state-box" role="status" aria-live="polite" data-testid="loading-state">{{ TEXT.loading }}</div>
+  <div v-if="status === 'archived'" class="state-box">
+    <p role="status">{{ TEXT.archived }}</p>
+    <a class="button" href="/#/archiv">{{ TEXT.openArchive }}</a>
+  </div>
   <p v-if="status === 'none'" class="empty" role="note" data-testid="no-review">{{ TEXT.noReview }}</p>
   <p v-if="status === 'denied'" role="alert" class="note warning" data-testid="denied">{{ TEXT.denied }}</p>
   <div v-if="status === 'error'" role="alert" class="note burgundy" data-testid="load-error">

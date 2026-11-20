@@ -93,7 +93,12 @@ def test_grant_revoke_and_archive_real_release(browser, tmp_path, monkeypatch):
         with page.expect_response(lambda r: r.request.method == "DELETE") as revoked:
             entry.get_by_role("button", name="Entziehen").click()
         assert revoked.value.status == 200
-        assert post("/archive", body, etag).status == 404
+        # The already-open review still shows the former action; submission checks the live grant.
+        archive.click()
+        with review.expect_response(lambda r: r.url == path + "/archive" and r.request.method == "POST") as denied:
+            review.get_by_test_id("confirm").click()
+        assert denied.value.status == 404
+        expect(review.get_by_text("Das Diktat wurde archiviert.")).to_have_count(0)
         open_review()
         expect(archive).to_have_count(0)
         grant()
@@ -109,6 +114,11 @@ def test_grant_revoke_and_archive_real_release(browser, tmp_path, monkeypatch):
         with review.expect_response(lambda r: r.url == path + "/archive" and r.request.method == "POST") as result:
             review.get_by_test_id("confirm").click()
         assert result.value.status == 200, result.value.text()
+        expect(review.get_by_role("status").filter(has_text="Das Diktat wurde archiviert.")).to_be_visible()
+        review.get_by_role("link", name="Zum Archiv").click()
+        expect(review.get_by_test_id("archive-open")).to_be_visible()
+        archived = author.request.get(api + "/recordings?status=zu_archivieren").json()["items"]
+        assert [row["dictation_id"] for row in archived] == [did]
         payload = result.value.json()
         assert payload["applied"] and payload["status"] == "zu_archivieren"
         assert author.request.get(path + "/detail").json()["etag"] == payload["etag"]
