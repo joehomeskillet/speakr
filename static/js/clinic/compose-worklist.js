@@ -55,6 +55,7 @@ export const HOSTED_CSS = [
     '@media (min-width:641px){.v8-ui .viewcontrols select,.v8-ui .toolbar-right select{font-size:12px}}',
     '.v8-ui .searchwrap input{font-weight:400}',
     '.v8-ui .clinic-worklist-view .filter-pill.active:hover{background:var(--v8-s1);color:var(--v8-text)}',
+    '.v8-ui .clinic-worklist-view .status{white-space:normal;overflow-wrap:anywhere;max-width:100%}',
     '.v8-ui .worktable .prio{max-width:100%;vertical-align:middle}',
     '.v8-ui .worktable .prio::before{flex-shrink:0}',
     '.v8-ui .worktable .prio span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
@@ -880,7 +881,7 @@ export const WorklistView = {
                       </div>
                     </td>
                     <td v-for="col in c.columns()" :key="col.key" :data-label="col.label" :class="c.emptyCell(item.row, col.key) ? 'cl-empty' : ''">
-                      <span v-if="col.key === 'status'" class="status" style="white-space: normal; overflow-wrap: anywhere" data-layout="pill-status" :class="c.statusTone(item.row)">{{ c.badge(item.row).label }}</span>
+                      <span v-if="col.key === 'status'" class="status" data-layout="pill-status" :class="c.statusTone(item.row)">{{ c.badge(item.row).label }}</span>
                       <span v-else-if="col.key === 'priority'" class="prio" :class="c.prioClass(item.row)" :title="c.cell(item.row, col.key)"><span>{{ c.cell(item.row, col.key) }}</span></span>
                       <span v-else-if="col.key === 'staff_pools'" class="pool-pill" :title="c.cell(item.row, col.key)">{{ c.cell(item.row, col.key) }}</span>
                       <span v-else-if="col.key === 'dictated_by'" class="entity-name" :title="c.cell(item.row, col.key)">{{ c.cell(item.row, col.key) }}</span>
@@ -901,7 +902,7 @@ export const WorklistView = {
               </div>
               <div class="detailcontent">
                 <div class="detailbadges" v-if="c.selectedRow.value">
-                  <span class="status" style="white-space: normal; overflow-wrap: anywhere" :class="c.statusTone(c.selectedRow.value)">{{ c.badge(c.selectedRow.value).label }}</span>
+                  <span class="status" :class="c.statusTone(c.selectedRow.value)">{{ c.badge(c.selectedRow.value).label }}</span>
                   <span class="prio" :class="c.prioClass(c.selectedRow.value)">{{ c.cell(c.selectedRow.value, 'priority') }}</span>
                 </div>
                 <div class="detail-info" v-if="c.selectedRow.value">
