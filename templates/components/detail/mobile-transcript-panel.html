@@ -19,7 +19,6 @@
                 <button type="button" data-phone-switch-option="translation" @click="viewingTranslation = true"
                         :aria-pressed="viewingTranslation ? 'true' : 'false'" v-text="t('translation.title')"></button>
             </div>
-            <span v-else class="ph-tbar__title" v-text="t('transcription.title')"></span>
             <button v-if="processedTranscription.simpleSegments && processedTranscription.simpleSegments.length > 0 && !processedTranscription.isError"
                     type="button" class="ph-ib ph-toggle" data-phone-find @click="toggleTranscriptFind"
                     :aria-pressed="transcriptFind.open ? 'true' : 'false'"
