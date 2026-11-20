@@ -33,10 +33,13 @@ export const TEXT = Object.freeze({
     statusLabel: 'Status der Aufnahme',
     sortLabel: 'Aufnahmedatum',
     sortNewest: 'Neueste zuerst',
+    sortSelect: 'Aufnahmen chronologisch sortieren',
+    scopeLabel: 'Aufnahmen oder Archiv',
+    scopeAll: 'Alle Aufnahmen',
+    noMatchLoaded: 'Keine Treffer in den geladenen Aufnahmen.',
+    searchLoadedHint: 'Die Suche durchsucht nur die bereits geladenen Aufnahmen. Lade weitere Aufnahmen, um mehr zu finden.',
     resultOf: '{n} von {m} Aufnahmen',
     dictation: 'Diktat',
-    sourceMic: 'Mikrofon',
-    sourceImport: 'Import',
     today: 'Heute',
     yesterday: 'Gestern',
     emptyHint: 'Neue Aufnahmen erscheinen hier, nach Aufnahmezeit geordnet.',
@@ -67,7 +70,7 @@ export const TEXT = Object.freeze({
     filters: 'Filter',
     filtersShow: 'Filter anzeigen',
     filtersHide: 'Filter ausblenden',
-    authorId: 'Diktierende',
+    authorId: 'Diktiert von',
     poolId: 'Schreibkräfte-Pool',
     authorAny: 'Alle Diktierenden',
     poolAny: 'Alle Pools',
@@ -187,6 +190,14 @@ export function statusBadge(status) {
 
 const nameOf = (person) => (person && typeof person.display_name === 'string' && person.display_name ? person.display_name : null);
 
+/** Prototype status tint class of a workflow status; unknown statuses keep the neutral first tint. */
+const STATUS_TINT = Object.freeze({
+    aufgabe: 'neu', neu_angelegt: 'neu',
+    vorbereitung_offline: 'in-arbeit', vorbereitung_online: 'in-arbeit', in_bearbeitung: 'in-arbeit',
+    zu_schreiben: 'wartet', zu_korrigieren: 'wartet', abzunehmen: 'wartet',
+    abgenommen: 'erledigt', fertiggestellt: 'erledigt', zu_archivieren: 'erledigt', zu_loeschen: 'erledigt',
+});
+
 /** One contract item to the flat shape the template renders. Reads contract fields only. */
 export function toViewRow(item) {
     const source = item && item.time_source;
@@ -194,11 +205,19 @@ export function toViewRow(item) {
     const pools = (Array.isArray(item.staff_pools) ? item.staff_pools : []).map((p) => p && p.name).filter(Boolean);
     const badge = statusBadge(item.workflow_status);
     const seconds = Number.isFinite(item.duration_ms) ? Math.round(item.duration_ms / 1000) : null;
+    const time = formatTime(item.sort_time || item.recorded_at);
+    const heading = item.case_display ? TEXT.caseId + ' ' + item.case_display : TEXT.dictation;
+    const authorName = nameOf(item.dictated_by) || TEXT.noAuthor;
+    const poolText = pools.length ? pools.join(', ') : TEXT.noPool;
     return {
         key: String(item.dictation_id),
         dictationId: String(item.dictation_id),
         day: item.day || null,
-        time: formatTime(item.sort_time || item.recorded_at),
+        time,
+        datetime: item.sort_time || item.recorded_at || '',
+        statusClass: Object.prototype.hasOwnProperty.call(STATUS_TINT, item.workflow_status) ? STATUS_TINT[item.workflow_status] : 'neu',
+        ariaLabel: [heading, TEXT.author + ' ' + authorName, TEXT.pool + ' ' + poolText, item.day ? formatLongDay(item.day) : '', time, badge.label,
+            seconds === null ? '' : formatAudioDuration(seconds)].filter(Boolean).join(', '),
         isFallback: fallback,
         fallbackLabel: fallback ? TEXT.fallbackBadge : '',
         fallbackTip: fallback ? (FALLBACK_TIP[source] || TEXT.fallbackUnknown) : '',
@@ -215,8 +234,6 @@ export function toViewRow(item) {
         workflowStatus: item.workflow_status || null,
         heading: item.case_display ? TEXT.caseId + ' ' + item.case_display : TEXT.dictation,
         hasLease: nameOf(item.lease_holder) !== null,
-        sourceKind: source === 'imported' ? 'upload' : 'mic',
-        sourceLabel: source === 'recorded' ? TEXT.sourceMic : (source === 'imported' ? TEXT.sourceImport : ''),
         fallbackText: source === 'imported' ? TEXT.fallbackImportedText : (source === 'created' ? TEXT.fallbackCreatedText : ''),
         searchText: [nameOf(item.dictated_by), pools.join(' '), item.case_display, '#' + item.dictation_id, item.dictation_id].filter(Boolean).join(' ').toLowerCase(),
     };
@@ -361,7 +378,7 @@ export function createRecordingsController(options) {
     function persist() {
         memory.snapshot = {
             rows: state.rows.slice(), nextCursor: state.nextCursor,
-            filters: { ...state.filters }, draft: { ...state.draft }, scrollTop,
+            filters: { ...state.filters }, draft: { ...state.draft }, query: state.query, scrollTop,
             options: { authors: [...registry.authors], pools: [...registry.pools] },
         };
     }
@@ -444,7 +461,7 @@ export function createRecordingsController(options) {
         if (snap) {
             Object.assign(state, {
                 rows: snap.rows.slice(), nextCursor: snap.nextCursor, loaded: true,
-                filters: { ...snap.filters }, draft: { ...snap.draft },
+                filters: { ...snap.filters }, draft: { ...snap.draft }, query: snap.query || '',
             });
             scrollTop = snap.scrollTop || 0;
             if (snap.options) {
@@ -485,11 +502,13 @@ export function createRecordingsController(options) {
         activeFilterCount: () => FILTER_KEYS.filter((k) => String(state.filters[k] || '').trim() !== '').length,
         countLabel: () => {
             const n = visibleRows().length;
-            if (n !== state.rows.length) return TEXT.resultOf.replace('{n}', String(n)).replace('{m}', String(state.rows.length));
+            if (n !== state.rows.length) return TEXT.resultOf.replace('{n}', String(n)).replace('{m}', state.rows.length + (state.nextCursor ? '+' : ''));
             return (n === 1 ? TEXT.countOne : TEXT.countMany.replace('{n}', String(n))) + (state.nextCursor ? '+' : '');
         },
         totalLabel: () => String(state.rows.length) + (state.nextCursor ? '+' : ''),
         hasQuery: () => String(state.query || '').trim() !== '',
+        /** A search is active while more pages exist: the search only covers the loaded rows. */
+        searchPartial: () => String(state.query || '').trim() !== '' && Boolean(state.nextCursor),
         scrollTop: () => scrollTop, hasFilters, groups: () => groupByDay(visibleRows()),
         text: TEXT, statusOptions: STATUS_LABELS,
         errorStyle: (() => {
