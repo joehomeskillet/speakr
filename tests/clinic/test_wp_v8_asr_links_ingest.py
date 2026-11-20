@@ -51,7 +51,7 @@ def _links(dictation):
 
 
 def test_first_asr_revision_gets_ms_links(ctx):
-    _rec, dictation, _original = _dictation(ctx)
+    _rec, dictation, original = _dictation(ctx)
     stored = _stored(("Erster Satz.", 0.0, 1.25), ("Zweiter Satz.", 1.25, 2.5))
     links = ingest_asr_result(dictation, _plain(stored), stored, MODEL)
     head = revisions.current_revision(dictation)
@@ -59,6 +59,8 @@ def test_first_asr_revision_gets_ms_links(ctx):
     assert [(link.audio_start_ms, link.audio_end_ms) for link in links] == [(0, 1250), (1250, 2500)]
     assert [head.body[link.text_start:link.text_end] for link in links] == ["Erster Satz.", "Zweiter Satz."]
     assert {link.transcript_revision_id for link in links} == {head.id}
+    # The audio side of the binding runs through the ASR revision's original.
+    assert head.original_version_id == original.id
     assert {link.origin for link in links} == {"AUTO"}
 
 
@@ -90,7 +92,7 @@ def test_asr_head_with_other_text_is_left_alone(ctx):
 
 
 def test_processing_hook_links_the_first_asr_revision(ctx):
-    rec, dictation, _original = _dictation(ctx)
+    rec, dictation, original = _dictation(ctx)
     connector = _connector(text="Erster Satz. Zweiter Satz.")
     from src.services.transcription.base import TranscriptionSegment
     connector.transcribe.return_value.segments = [
@@ -105,6 +107,7 @@ def test_processing_hook_links_the_first_asr_revision(ctx):
     db.session.expire_all()
     head = revisions.current_revision(dictation)
     assert head is not None and head.kind == "ASR"
+    assert head.original_version_id == original.id
     assert [(link.audio_start_ms, link.audio_end_ms) for link in _links(dictation)] == [(500, 1500), (1500, 3000)]
     assert db.session.get(Recording, rec.id).transcription is not None
 
@@ -125,3 +128,21 @@ def test_clinic_mode_off_leaves_processing_untouched(ctx, monkeypatch):
     assert revisions.history(dictation) == []
     assert _links(dictation) == []
     assert db.session.get(Recording, rec.id).transcription == "Nur Text."
+
+
+def test_failed_link_step_logs_no_transcript_text(ctx, monkeypatch, caplog):
+    import logging
+
+    from src.tasks.processing import _link_asr_segments_at_ingest
+
+    _rec, dictation, _original = _dictation(ctx)
+    secret = "Vertraulicher Befund Eins"
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError(f"INSERT failed [parameters: ('{secret}',)]")
+
+    monkeypatch.setattr("src.clinic.correction.ingest_asr_result", _boom)
+    with caplog.at_level(logging.INFO):
+        assert _link_asr_segments_at_ingest(dictation, secret, secret, MODEL) is False
+    assert "not stored" in caplog.text
+    assert secret not in caplog.text
