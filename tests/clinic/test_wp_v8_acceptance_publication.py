@@ -183,7 +183,9 @@ approver.command(d2, "request_acceptance", {"text_revision_id": d2["head"], "con
 assert approver.command(d2, "decide_acceptance", {"text_revision_id": d2["head"], "decision": "accept"}).status_code == 200
 out["d2_status_a"] = status_of(d2)
 audits_before = len(audit_rows())
-save = approver.c.post(BASE.format(d2["id"]) + "/correction/save", headers=approver.h(**{"Idempotency-Key": str(uuid.uuid4())}),
+correction = BASE.format(d2["id"]) + "/correction"
+etag = approver.get(correction).headers["ETag"]
+save = approver.c.post(correction + "/save", headers=approver.h(**{"Idempotency-Key": str(uuid.uuid4()), "If-Match": etag}),
                        json={"text": "Text B.", "audio_position_ms": 100, "lease_generation": held2["generation"],
                              "expected_text_revision_id": d2["head"]})
 out["save_b"] = [save.status_code, body(save) if save.status_code != 200 else None]
@@ -196,7 +198,7 @@ out["d2_release_b_early"] = [rel_b.status_code, (body(rel_b) or {}).get("code")]
 out["d2_status_after_early"] = status_of(d2)
 out["d2_accept_b"] = approver.command(d2, "decide_acceptance", {"text_revision_id": b_id, "decision": "accept"}).status_code
 out["d2_status_accepted_b"] = status_of(d2)
-resave = approver.c.post(BASE.format(d2["id"]) + "/correction/save", headers=approver.h(**{"Idempotency-Key": str(uuid.uuid4())}),
+resave = approver.c.post(correction + "/save", headers=approver.h(**{"Idempotency-Key": str(uuid.uuid4()), "If-Match": body(save)["etag"]}),
                          json={"text": "Text B.", "audio_position_ms": 100, "lease_generation": held2["generation"],
                                "expected_text_revision_id": b_id,
                                "expected_state_version": body(save)["state_version"]})
