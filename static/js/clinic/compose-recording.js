@@ -38,6 +38,7 @@ const H1 = 'font-size: clamp(26px, 4vw, 30px); line-height: 1.2; font-weight: 70
 const H2 = 'font-size: 16px; line-height: 1.35; font-weight: 700; letter-spacing: -.2px; margin: 0 0 14px';
 const FIELD = 'display: grid; gap: 6px; margin: 0 0 16px; min-width: 0';
 const LABEL = 'font-size: 12px; font-weight: 650';
+const PRIMARY = 'background: var(--ink); border-color: var(--ink); color: white';
 const HELP = 'font-size: 11px; color: var(--v8-muted)';
 const INPUT = 'width: 100%; min-height: 40px; padding: 10px 11px; border: 1px solid var(--line); border-radius: 7px; background-color: var(--surface); color: var(--v8-text); font: inherit';
 
@@ -94,7 +95,7 @@ export const ICON_PATHS = Object.freeze({
     start: 'M12 5a7 7 0 1 0 0 14a7 7 0 0 0 0-14z',
     pause: 'M7 5h3v14H7z M14 5h3v14h-3z',
     resume: 'M8 5l11 7-11 7z',
-    play: 'M8 5l11 7-11 7z',
+    play: 'M3 9h4l5-4v14l-5-4H3z M16 8a6 6 0 0 1 0 8l-1-1a5 5 0 0 0 0-6z M19 5a10 10 0 0 1 0 14l-1-1a9 9 0 0 0 0-12z',
     stop: 'M6 6h12v12H6z',
     rewind: 'M6 5h2v14H6z M20 5v14L9 12z',
 });
@@ -340,13 +341,13 @@ export const RECORDING_TEMPLATE = `
     <section class="panel" :aria-label="c.text.info">
       <h2 style="${H2}">{{ c.text.info }}</h2>
       <div class="field-grid">
-        <div style="${FIELD}" data-testid="author"><span style="${LABEL}">{{ c.text.author }}</span><strong>{{ m.author || c.text.noValue }}</strong><small style="${HELP}">{{ c.text.authorHint }}</small></div>
+        <div style="${FIELD}" data-testid="author"><span style="${LABEL}">{{ c.text.author }}</span><strong>{{ m.author || m.authorId }}</strong><small style="${HELP}">{{ c.text.authorHint }}</small></div>
         <div style="${FIELD}">
           <span style="${LABEL}">{{ c.text.modes }}</span>
-          <div role="group" :aria-label="c.text.modes" class="actions">
-            <button type="button" class="button" style="min-height: 2.75rem" data-testid="mode-record" :class="{ primary: m.mode === 'record' }"
+          <div role="group" :aria-label="c.text.modes" class="actions text-sm">
+            <button type="button" class="button" style="min-height: 2.75rem" data-testid="mode-record" :style="m.mode === 'record' ? '${PRIMARY}' : null"
                     :aria-pressed="m.mode === 'record' ? 'true' : 'false'" :disabled="!m.canSwitchMode" @click="c.setMode('record')">{{ c.text.modeRecord }}</button>
-            <button type="button" class="button" style="min-height: 2.75rem" data-testid="mode-file" :class="{ primary: m.mode === 'file' }"
+            <button type="button" class="button" style="min-height: 2.75rem" data-testid="mode-file" :style="m.mode === 'file' ? '${PRIMARY}' : null"
                     :aria-pressed="m.mode === 'file' ? 'true' : 'false'" :disabled="!m.canSwitchMode" @click="c.setMode('file')">{{ c.text.modeFile }}</button>
           </div>
         </div>
@@ -380,14 +381,14 @@ export const RECORDING_TEMPLATE = `
               </div>
               <div class="recorder-caption"><strong>{{ captions[m.phase] || m.phase }}</strong></div>
             </div>
-            <div class="actions" style="margin-top: 12px">
-              <button v-for="b in textControls(m.controls)" :key="b.id" type="button" class="button" :class="{ primary: b.id === 'send' }" style="min-height: 2.75rem"
+            <div class="actions text-sm" style="margin-top: 12px">
+              <button v-for="b in textControls(m.controls)" :key="b.id" type="button" class="button" :style="b.id === 'send' ? '${PRIMARY}' : null" style="min-height: 2.75rem"
                       :data-testid="'rec-' + b.id" :disabled="b.disabled" :aria-disabled="b.disabled ? 'true' : 'false'" @click="act(b.id)">{{ b.label }}</button>
             </div>
           </div>
           <div v-else class="recorder compact-recorder" style="flex-wrap: wrap">
-            <div class="recorder-controls" style="flex-wrap: wrap; gap: 8px">
-              <button type="button" class="button primary" style="min-height: 2.75rem" data-testid="file-upload"
+            <div class="recorder-controls text-sm" style="flex-wrap: wrap; gap: 8px">
+              <button type="button" class="button" style="min-height: 2.75rem; ${PRIMARY}" data-testid="file-upload"
                       :disabled="!m.canUpload" @click="c.sendFile()">{{ m.uploadLabel }}</button>
               <button type="button" class="button" style="min-height: 2.75rem" data-testid="file-cancel"
                       :disabled="!m.canCancelFile" @click="c.cancelFile()">{{ c.text.cancel }}</button>
@@ -399,8 +400,8 @@ export const RECORDING_TEMPLATE = `
         <div v-if="m.created" data-testid="created">
           <div class="note"><span class="tag neutral dot">{{ c.text.created }}</span> <strong data-testid="created-id">{{ m.created.dictationId }}</strong></div>
           <hr class="separator">
-          <div class="actions">
-            <button type="button" class="button primary" style="min-height: 2.75rem" data-testid="to-worklist" @click="c.toWorklist()">{{ c.text.toWorklist }}</button>
+          <div class="actions text-sm">
+            <button type="button" class="button" style="min-height: 2.75rem; ${PRIMARY}" data-testid="to-worklist" @click="c.toWorklist()">{{ c.text.toWorklist }}</button>
             <button type="button" class="button" style="min-height: 2.75rem" data-testid="open-created" @click="c.openCreated()">{{ c.text.open }}</button>
             <button type="button" class="button" style="min-height: 2.75rem" data-testid="another" @click="c.another()">{{ c.text.another }}</button>
           </div>

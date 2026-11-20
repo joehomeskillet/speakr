@@ -486,6 +486,7 @@ export function createReviewViewController(options) {
 }
 
 const FOCUS = { '--focus-outline': FOCUS_INDICATOR.outline, '--focus-offset': FOCUS_INDICATOR.outlineOffset };
+const PRIMARY = 'background: var(--ink); border-color: var(--ink); color: white';
 const box = (name) => {
     const s = surfaceFor(name);
     return { background: s.background, color: s.color, border: '1px solid ' + s.border };
@@ -576,7 +577,7 @@ const ReviewBody = {
     <section v-if="c.markers().length" class="note warning" style="margin: 0 0 16px" :aria-label="TEXT.blockers" data-testid="blockers">
       <h3 style="${H3}">{{ TEXT.blockers }} ({{ c.markers().length }})</h3>
       <p>{{ TEXT.blockersHint }}</p>
-      <ul role="list" style="margin: 0; padding-left: 18px"><li v-for="b in c.markers()" :key="b.id">{{ b.label }}</li></ul>
+      <ul role="list" style="margin: 0; padding-left: 18px; list-style: disc"><li v-for="b in c.markers()" :key="b.id">{{ b.label }}</li></ul>
     </section>
 
     <div class="grid">
@@ -615,9 +616,9 @@ const ReviewBody = {
             <p v-if="c.acceptanceView().reason" class="hint" data-testid="acceptance-reason"><strong>{{ TEXT.rejectReason }}:</strong> {{ c.acceptanceView().reason }}</p>
           </div>
           <p v-if="c.readOnly()" class="note" role="note" data-testid="read-only">{{ TEXT.readOnly }}</p>
-          <div class="actions" style="margin-top: 14px">
-            <button v-for="a in c.actions()" :key="a.id" type="button" class="button" :class="{ primary: a.id === 'accept' }" style="min-height: 2.75rem"
-                    :style="FOCUS" :disabled="a.disabled" :data-action="a.id" :aria-describedby="a.why ? 'crv-why-' + a.id : null"
+          <div class="actions text-sm" style="margin-top: 14px">
+            <button v-for="a in c.actions()" :key="a.id" type="button" class="button" style="min-height: 2.75rem"
+                    :style="[FOCUS, a.id === 'accept' ? '${PRIMARY}' : null]" :disabled="a.disabled" :data-action="a.id" :aria-describedby="a.why ? 'crv-why-' + a.id : null"
                     @click="c.request(a.id)">{{ a.label }}</button>
           </div>
           <template v-for="a in c.actions()" :key="'w' + a.id"><span v-if="a.why" :id="'crv-why-' + a.id" class="visually-hidden">{{ a.why }}</span></template>
@@ -634,8 +635,8 @@ const ReviewBody = {
               <label class="inline-label"><input type="checkbox" v-model="contentChecked"> {{ TEXT.contentChecked }}</label>
               <label class="inline-label"><input type="checkbox" v-model="contextChecked"> {{ TEXT.contextChecked }}</label>
             </div>
-            <div class="actions">
-              <button type="submit" class="button primary" style="min-height: 2.75rem" :style="FOCUS" :disabled="wf.state.busy" data-testid="confirm">{{ TEXT.confirm }}</button>
+            <div class="actions text-sm">
+              <button type="submit" class="button" style="min-height: 2.75rem; ${PRIMARY}" :style="FOCUS" :disabled="wf.state.busy" data-testid="confirm">{{ TEXT.confirm }}</button>
               <button type="button" class="button" style="min-height: 2.75rem" :style="FOCUS" data-testid="cancel" @click="c.cancel()">{{ TEXT.cancel }}</button>
             </div>
           </form>

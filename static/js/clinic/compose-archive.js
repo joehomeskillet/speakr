@@ -38,7 +38,7 @@ const H1 = 'font-size: clamp(26px, 4vw, 30px); line-height: 1.2; font-weight: 70
 const H2 = 'font-size: 16px; line-height: 1.35; font-weight: 700; letter-spacing: -.2px; margin: 0 0 14px';
 const FIELD = 'display: grid; gap: 6px; margin: 0 0 16px; min-width: 0';
 const LABEL = 'font-size: 12px; font-weight: 650';
-const INPUT = 'width: 100%; min-height: 40px; padding: 10px 11px; border: 1px solid var(--line); border-radius: 7px; background-color: var(--surface); color: var(--v8-text); font: inherit';
+const INPUT = 'width: 100%; min-width: 0; max-width: 100%; min-height: 40px; padding: 10px 11px; border: 1px solid var(--line); border-radius: 7px; background-color: var(--surface); color: var(--v8-text); font: inherit';
 
 export const TEXT = Object.freeze({
     title: 'Archiv',
@@ -337,8 +337,8 @@ export const ArchiveView = {
       <div style="${FIELD}; flex: 1 1 150px; margin: 0"><label style="${LABEL}" for="cav-to">{{ c.text.to }}</label><input style="${INPUT}" id="cav-to" type="date" v-model="c.filters.to" data-testid="filter-to"></div>
       <div style="${FIELD}; flex: 1 1 150px; margin: 0"><label style="${LABEL}" for="cav-author">{{ c.text.author }}</label><input style="${INPUT}" id="cav-author" type="text" v-model="c.filters.authorId" data-testid="filter-author" autocomplete="off"></div>
       <div style="${FIELD}; flex: 1 1 150px; margin: 0"><label style="${LABEL}" for="cav-pool">{{ c.text.pool }}</label><input style="${INPUT}" id="cav-pool" type="text" v-model="c.filters.poolId" data-testid="filter-pool" autocomplete="off"></div>
-      <div class="actions">
-        <button type="submit" class="button primary">{{ c.text.apply }}</button>
+      <div class="actions text-sm">
+        <button type="submit" class="button" style="background: var(--ink); border-color: var(--ink); color: white">{{ c.text.apply }}</button>
         <button type="button" class="button" @click="c.resetFilters()">{{ c.text.reset }}</button>
       </div>
     </form>
@@ -352,27 +352,34 @@ export const ArchiveView = {
       <p v-else-if="!c.rows.value.length && !c.error.value" class="empty" data-testid="archive-empty">{{ c.emptyText() }}</p>
       <div v-else-if="c.rows.value.length">
         <div class="table-wrap" style="position: relative">
-          <table aria-label="Archiv">
+          <table aria-label="Archiv" style="white-space: normal">
             <thead>
               <tr>
                 <th scope="col">{{ c.text.recorded }}</th>
                 <th scope="col">{{ c.text.author }}</th>
-                <th scope="col">{{ c.text.pool }}</th>
-                <th scope="col">{{ c.text.archived }}</th>
-                <th scope="col">{{ c.text.retention }}</th>
+                <th scope="col" class="hidden md:table-cell">{{ c.text.pool }}</th>
+                <th scope="col" class="hidden md:table-cell">{{ c.text.archived }}</th>
+                <th scope="col" class="hidden md:table-cell">{{ c.text.retention }}</th>
+                <th scope="col"><span class="sr-only">Aktion</span></th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="row in c.rows.value" :key="c.key(row)" data-row :data-id="c.key(row)">
                 <td>
-                  <button type="button" class="button small" style="float: right; margin-left: 8px" data-testid="archive-open" @click="c.open(row)">{{ c.text.open }}</button>
                   <strong>{{ c.recorded(row).text }}</strong>
                   <small v-if="c.recorded(row).mark" :title="c.recorded(row).hint" :aria-label="c.recorded(row).mark + ': ' + c.recorded(row).hint">({{ c.recorded(row).mark }})</small>
                 </td>
-                <td data-cell="author">{{ c.author(row) }}</td>
-                <td data-cell="pool">{{ c.pool(row) }}</td>
-                <td data-cell="archived">{{ c.archived(row) }}</td>
-                <td data-cell="retention"><span class="tag" :style="c.retentionStyle(row)">{{ c.retention(row) }}</span></td>
+                <td data-cell="author" style="overflow-wrap: anywhere">
+                  {{ c.author(row) }}
+                  <div class="md:hidden">
+                    <small>{{ c.pool(row) }}</small>
+                    <span class="tag" style="white-space: normal" :style="c.retentionStyle(row)">{{ c.retention(row) }}</span>
+                  </div>
+                </td>
+                <td data-cell="pool" class="hidden md:table-cell" style="overflow-wrap: anywhere">{{ c.pool(row) }}</td>
+                <td data-cell="archived" class="hidden md:table-cell">{{ c.archived(row) }}</td>
+                <td data-cell="retention" class="hidden md:table-cell"><span class="tag" :style="c.retentionStyle(row)">{{ c.retention(row) }}</span></td>
+                <td><button type="button" class="button small" data-testid="archive-open" @click="c.open(row)">{{ c.text.open }}</button></td>
               </tr>
             </tbody>
           </table>

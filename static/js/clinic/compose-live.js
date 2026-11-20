@@ -58,7 +58,7 @@ export const TEXT = Object.freeze({
     save: 'Erneut speichern',
     partial: 'Vorläufig',
     unsaved: 'Nicht gespeicherte Sätze sind noch nicht dauerhaft.',
-    empty: 'Noch kein Text. Mit «Starten» beginnen.',
+    empty: 'Noch kein Text. Mit der Aufnahmetaste beginnen.',
     ready: 'Bereit zum Diktieren',
     eyebrow: 'Aufnahmen',
     subline: 'Live diktieren. Jeder Satz wird einzeln gespeichert und ist erst danach dauerhaft.',
@@ -380,7 +380,7 @@ const LiveBody = {
       </div>
     </div>
     <p v-if="state.session.hasUnsaved" role="note" class="note warning" style="margin: 0; border-radius: 0; border-width: 0 0 1px">{{ TEXT.unsaved }}</p>
-    <div class="writing-surface">
+    <div class="writing-surface" style="min-height: clamp(360px, calc(100dvh - 370px), 760px)">
       <div style="width: 100%; min-width: 0">
         <ol class="live-phrases" :aria-label="TEXT.phrases" aria-live="off" data-testid="live-phrases"
             style="list-style: none; margin: 0; display: grid; gap: 4px; font-size: 16px; line-height: 1.75; align-content: start"

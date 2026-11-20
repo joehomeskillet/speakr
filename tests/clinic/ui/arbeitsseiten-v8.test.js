@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ArchiveView, archiveSummary } from '../../../static/js/clinic/compose-archive.js';
-import { PHASE_CAPTIONS, RECORDING_TEMPLATE } from '../../../static/js/clinic/compose-recording.js';
+import { ICON_PATHS, PHASE_CAPTIONS, RECORDING_TEMPLATE } from '../../../static/js/clinic/compose-recording.js';
 import { LiveView } from '../../../static/js/clinic/compose-live.js';
 import { ReviewView } from '../../../static/js/clinic/compose-review.js';
 import { PHASES, createRecorderPhasesComponent } from '../../../static/js/clinic/recorder-phases-ui.js';
@@ -43,6 +43,15 @@ describe('V8 work pages: prototype structure', () => {
         for (const part of ['data-testid="acceptance-state"', 'role="alertdialog"', 'data-testid="wiedervorlage"', 'data-testid="actions"', 'class="metadata"', 'class="keyvalues"']) {
             expect(t).toContain(part);
         }
+    });
+
+    it('keeps the archive open button in its own trailing column', () => {
+        expect(templates.archive).toMatch(/<th scope="col"><span class="sr-only">Aktion<\/span><\/th>\s*<\/tr>/);
+        expect(templates.archive).toMatch(/<td><button[^>]*data-testid="archive-open"[^>]*>[^<]*<\/button><\/td>\s*<\/tr>/);
+    });
+
+    it('distinguishes playback from resuming a recording', () => {
+        expect(ICON_PATHS.play).not.toBe(ICON_PATHS.resume);
     });
 
     it('the live page keeps one polite live region and the saved-state label per phrase', () => {
