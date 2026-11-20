@@ -253,6 +253,18 @@ export function createCorrectionViewController(options) {
         return 'Letzte gespeicherte Position: ' + pad(Math.floor(total / 60)) + ':' + pad(total % 60);
     });
 
+    // --- waveform peaks (V8 P06) ---------------------------------------------
+    // The waveform module asks for a URL by recording id; the view answers it from the peaks route of the
+    // audio revision the editor currently shows. No revision or a 404 reads as "no peaks" (honest fallback text).
+    const peaksKey = () => editor.audio.value.revisionId || null;
+    function peaksFetch(_url, init) {
+        const revision = peaksKey();
+        if (!revision) return Promise.resolve({ status: 404 });
+        const url = '/api/clinic/v1/dictations/' + encodeURIComponent(dictationId)
+            + '/audio-revisions/' + encodeURIComponent(revision) + '/peaks';
+        return (opts.peaksFetch || ((u, i) => fetch(u, i)))(url, init);
+    }
+
     // --- audio wiring -------------------------------------------------------
     function unbindAudio() {
         for (const [node, name, fn] of audioListeners.splice(0)) {
@@ -465,6 +477,7 @@ export function createCorrectionViewController(options) {
         vue: V, api, editor, alignment, modes, saver, gain: () => gain,
         ready, loadGeneration, revisionGeneration, audioEl, gainState, closeMessage, resumeLabel,
         recordingId: () => opts.recordingId || editor.audio.value.recordingId || null,
+        peaksKey, peaksFetch,
         stepSeconds: v8 ? STEP_SECONDS_V8 : STEP_SECONDS,
         leaseRun, leaseButtons,
         start, load, save, setText, reloadLatest, keepMine, takeServer, compare: () => saver.compare(), close, dispose, syncRevision,
@@ -635,7 +648,7 @@ export const CorrectionBody = {
         </section>
 
         <CorrectionWaveform :key="'w' + loadGeneration" :editor="c.editor" :alignment="c.alignment" :client="c.client"
-                            :dictation-id="dictationId" :recording-id="c.recordingId()" :vue="c.vue" />
+                            :dictation-id="dictationId" :recording-id="c.peaksKey()" :fetch-fn="c.peaksFetch" :vue="c.vue" />
       </div>
     </div>
 
