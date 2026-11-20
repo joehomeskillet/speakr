@@ -27,14 +27,16 @@
     white-space: normal;
     overflow-wrap: anywhere;
 }
-.v8-ui :is(.clinic-recordings-view, .clinic-worklist-view) .status.cl-workflow-status {
+.v8-ui .clinic-recordings-view .recording-row > .status,
+.v8-ui .clinic-worklist-view .status.cl-workflow-status {
     font-size: var(--fs-meta);
     line-height: 1.4;
     white-space: normal;
     overflow-wrap: normal;
     max-width: 100%;
 }
-.v8-ui :is(.clinic-recordings-view, .clinic-worklist-view) .cl-workflow-status::before { flex-shrink: 0; }
+.v8-ui .clinic-recordings-view .recording-row > .status::before,
+.v8-ui .clinic-worklist-view .cl-workflow-status::before { flex-shrink: 0; }
 .clinic-worklist-view .worktable .statuscol { width: 11rem; }
 
 /* Reflow the same worklist cells when the viewport or detail pane narrows the table. */
@@ -70,7 +72,7 @@
 :is(.clinic-recordings-view, .clinic-worklist-view) .cl-id-value textarea { width: 100%; min-width: 0; resize: none; font-size: 12px; overflow-wrap: anywhere; }
 
 @media (max-width: 700px) {
-    .v8-ui .clinic-recordings-view .recording-row .cl-workflow-status { grid-column: 2 / 4; grid-row: 3; margin-left: 0; }
+    .v8-ui .clinic-recordings-view .recording-row > .status { grid-column: 2 / 4; grid-row: 3; margin-left: 0; }
     .v8-ui .clinic-worklist-view .listbody.has-detail { grid-template-columns: minmax(0, 1fr); }
     /* Native selects already reserve room for the arrow. Keep the mobile type size. */
     .clinic-recordings-view .record-toolbar select.record-select { padding-inline-end: 6px; }

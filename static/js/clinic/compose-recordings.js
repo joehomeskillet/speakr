@@ -207,7 +207,7 @@ export const RecordingsView = {
               <span class="record-subtitle" :class="r.isFallback ? 'date-fallback' : ''"><span v-if="!r.caseDisplay">{{ r.reference }}</span><span v-if="r.fallbackText" data-testid="fallback" :title="r.fallbackTip" :aria-label="r.fallbackTip">{{ r.caseDisplay ? '' : ' · ' }}{{ r.fallbackText }}</span><span v-else-if="r.isFallback" data-testid="fallback" :title="r.fallbackTip" :aria-label="r.fallbackTip">{{ r.caseDisplay ? '' : ' · ' }}{{ r.fallbackLabel }}</span></span>
               <span v-if="r.processing" class="cl-processing">{{ r.processing }}</span>
             </span>
-            <span class="status cl-workflow-status" :class="r.statusClass">{{ r.status }}</span>
+            <span class="status" :class="r.statusClass">{{ r.status }}</span>
             <span class="record-source" aria-hidden="true"></span>
             <span class="record-duration">{{ r.duration }}</span>
             <span class="record-chevron" aria-hidden="true">›</span>
