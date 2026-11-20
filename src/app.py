@@ -1444,12 +1444,51 @@ def register_clinic_audio(flask_app):
         adapter_for=lambda: routes_output.configured_adapter(flask_app)))
 
 
+def register_clinic_operations(flask_app):
+    """Mount the recordings list, processing overview, statistics, ASR training and import-agent handlers.
+
+    Called at startup only in clinic mode, after register_clinic_audio, and reuses the one
+    receipt runner. The import agent authenticates with a machine credential (proxy secret
+    plus certificate fingerprint) and never with a session, so its blueprint is CSRF-exempt.
+    Its secrets come from CLINIC_AGENT_PROXY_SECRET and CLINIC_AGENT_MASTER_SECRET (at least
+    32 bytes each); when one is missing or too short a random per-process value is used, so
+    every agent request answers 401 until the secrets are configured (fail closed).
+    """
+    import secrets
+
+    from src.clinic import routes_agent, routes_jobs, routes_recordings, routes_statistics, routes_training, startup
+    from src.clinic.agent_channel import ChannelPolicy
+    from src.clinic.ingest import IngestService
+    from src.clinic.worklist_entries import load_entries
+
+    def secret_from_env(name):
+        value = os.environ.get(name, '').strip().encode('utf-8')
+        if len(value) < routes_agent.MIN_PROXY_SECRET_BYTES:
+            flask_app.logger.warning('Clinic import agent: %s is not set or shorter than %d bytes; '
+                                     'agent requests are refused until it is configured',
+                                     name, routes_agent.MIN_PROXY_SECRET_BYTES)
+            return secrets.token_bytes(routes_agent.MIN_PROXY_SECRET_BYTES)
+        return value
+
+    run_once = flask_app.extensions['clinic_run_once']
+    agent_bp = routes_agent.create_agent_blueprint(
+        ChannelPolicy(master_secret=secret_from_env('CLINIC_AGENT_MASTER_SECRET')),
+        IngestService(startup.originals_root(flask_app)), secret_from_env('CLINIC_AGENT_PROXY_SECRET'))
+    flask_app.register_blueprint(routes_recordings.create_blueprint(load_entries))
+    flask_app.register_blueprint(routes_jobs.create_blueprint(run_once=run_once))
+    flask_app.register_blueprint(routes_statistics.blueprint)
+    flask_app.register_blueprint(routes_training.blueprint)
+    flask_app.register_blueprint(agent_bp)
+    csrf.exempt(agent_bp)
+
+
 from src.clinic.config import clinic_mode_enabled as _clinic_mode_enabled
 if _clinic_mode_enabled():
     register_clinic_resources(app)
     register_clinic_identity(app)
     register_clinic_worklist(app)
     register_clinic_audio(app)
+    register_clinic_operations(app)
 
 # PWA Web Share Target (issue #285): the native share sheet cannot round-trip
 # a CSRF token, so the share-target endpoint is exempted. Authentication still

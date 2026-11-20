@@ -224,6 +224,28 @@ _CLINIC_AUDIO = _split("""
     clinic_output.targets clinic_output.request_export clinic_output.export_status
 """)
 
+# Recordings list, processing overview, statistics, ASR training and import-agent handlers,
+# mounted by register_clinic_operations in src/app.py only in clinic mode. Recordings, jobs
+# and statistics are AUTH: each handler authenticates the browser session itself and decides
+# every row or role through the central policy (jobs retry and statistics scope refuse with 403
+# inside the handler). Training is ADMIN (the handler additionally needs an active site admin).
+_CLINIC_OPERATIONS = _split("""
+    clinic_recordings.list_recordings
+    clinic_jobs.health clinic_jobs.retry
+    clinic_statistics.aggregates
+""")
+_CLINIC_OPERATIONS_ADMIN = _split("""
+    clinic_training.manifest clinic_training.schedule clinic_training.start
+    clinic_training.status clinic_training.cancel
+""")
+# The import agent is a machine principal: no browser session exists, so the guard must let the
+# request through. Every agent route authenticates itself (proxy secret plus certificate
+# fingerprint, 401 otherwise) and the blueprint is CSRF-exempt in the app.
+_CLINIC_AGENT_MACHINE = _split("""
+    clinic_agent.inventory clinic_agent.intents clinic_agent.begin clinic_agent.chunk
+    clinic_agent.finalize clinic_agent.receipt clinic_agent.abort clinic_agent.outcomes
+""")
+
 _DISABLED = {
     'internal_sharing': """
         groups.add_team_member groups.create_team
@@ -343,13 +365,14 @@ def _build() -> dict[str, RouteRule]:
         table[endpoint] = rule
 
     clinic = clinic_mode_enabled()
-    for endpoint in _PUBLIC + (_CLINIC_IDENTITY_PUBLIC if clinic else ()):
+    for endpoint in _PUBLIC + ((_CLINIC_IDENTITY_PUBLIC + _CLINIC_AGENT_MACHINE) if clinic else ()):
         add(endpoint, RouteRule(PUBLIC))
     for endpoint in _AUTH + ((_CLINIC_RESOURCES + _CLINIC_ASR + _CLINIC_WORKLIST + _CLINIC_IDENTITY
-                                       + _CLINIC_METADATA_FIELDS_AUTH + _CLINIC_AUDIO) if clinic else ()):
+                                       + _CLINIC_METADATA_FIELDS_AUTH + _CLINIC_AUDIO
+                                       + _CLINIC_OPERATIONS) if clinic else ()):
         add(endpoint, RouteRule(AUTH))
     for endpoint in _ADMIN + ((_CLINIC_IDENTITY_ADMIN + _CLINIC_ADMIN_DICTATIONS
-                                    + _CLINIC_METADATA_FIELDS_ADMIN) if clinic else ()):
+                                    + _CLINIC_METADATA_FIELDS_ADMIN + _CLINIC_OPERATIONS_ADMIN) if clinic else ()):
         add(endpoint, RouteRule(ADMIN))
     for feature, endpoints in _DISABLED.items():
         for endpoint in _split(endpoints):
