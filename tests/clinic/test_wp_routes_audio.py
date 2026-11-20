@@ -124,13 +124,27 @@ out["edit_stale"] = ca.post(D + "/audio-edits", headers={**ha, **key()}, json=cu
 out["derived"] = [ca.get(D + "/audio/derived").status_code, cb.get(D + "/audio/derived").status_code]
 
 # correction
-out["cor_get"] = [ca.get(D + "/correction").status_code, cb.get(D + "/correction").status_code]
+correction = ca.get(D + "/correction")
+out["cor_get"] = [correction.status_code, cb.get(D + "/correction").status_code]
+match = {"If-Match": correction.headers["ETag"]}
 save = {"text": BODY + " Neu.", "audio_position_ms": 0, "lease_generation": gen, "expected_text_revision_id": asr_id}
 out["cor_no_csrf"] = ca.post(D + "/correction/save", headers=key(), json=save).status_code
-out["cor_foreign"] = cb.post(D + "/correction/save", headers={**hb, **key()}, json=save).status_code
-r = ca.post(D + "/correction/save", headers={**ha, **key()}, json=save)
+foreign = cb.post(D + "/correction/save", headers={**hb, **key()}, json=save)
+unknown = cb.post(f"/api/clinic/v1/dictations/{uuid.uuid4()}/correction/save", headers={**hb, **key()}, json=save)
+out["cor_foreign"] = foreign.status_code
+out["cor_concealed"] = (
+    foreign.json.keys() == unknown.json.keys() == {"type", "title", "status", "code", "correlation_id"}
+    and all(foreign.json[k] == unknown.json[k] for k in ("type", "title", "status", "code"))
+    and unknown.status_code == 404 and not foreign.headers.get("ETag"))
+missing = ca.post(D + "/correction/save", headers={**ha, **key()}, json=save)
+out["cor_missing"] = [missing.status_code, missing.json["code"]]
+malformed = ca.post(D + "/correction/save", headers={**ha, **key(), "If-Match": "*"}, json=save)
+out["cor_malformed"] = malformed.status_code
+r = ca.post(D + "/correction/save", headers={**ha, **key(), **match}, json=save)
 out["cor_save"] = r.status_code; out["cor_body"] = r.get_data(as_text=True)[:300]
-out["cor_stale"] = ca.post(D + "/correction/save", headers={**ha, **key()}, json=save).status_code
+out["cor_stale"] = ca.post(D + "/correction/save", headers={**ha, **key(), "If-Match": r.json["etag"]}, json=save).status_code
+out["cor_stale_header"] = ca.post(D + "/correction/save", headers={**ha, **key(), **match},
+                                 json={**save, "expected_text_revision_id": r.json["text_revision_id"]}).status_code
 
 # dictation properties
 P = D + "/protection"
@@ -228,6 +242,10 @@ def test_correction_save_guards_and_stale_version(on):
     assert on["cor_get"] == [200, 404]
     assert on["cor_no_csrf"] in (400, 403)
     assert on["cor_foreign"] == 404
+    assert on["cor_concealed"]
+    assert on["cor_missing"] == [428, "PRECONDITION_REQUIRED"]
+    assert on["cor_malformed"] == 400
+    assert on["cor_stale_header"] == 409
     assert (on["cor_save"], on["cor_stale"]) == (200, 409)
 
 
