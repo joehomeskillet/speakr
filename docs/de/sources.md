@@ -12,11 +12,12 @@ Das Archiv enthält alle Dateien aus `docs/`, die ursprüngliche `mkdocs.yml` un
 
 SHA-256 der ZIP-Datei: `1834c140bb5525ae473efb0a9b72d772e6d1b6eefbc31242676e299b88b3fde2`.
 
-Um das Originalhandbuch lokal zu bauen, entpacken Sie das Archiv und öffnen den Ordner mit der `mkdocs.yml`. Führen Sie dort in einer virtuellen Python-Umgebung die folgenden Befehle aus. Das Ergebnis lesen Sie unter `site/index.html`.
+Um das Originalhandbuch lokal zu bauen, entpacken Sie das Archiv und öffnen den Ordner mit der `mkdocs.yml`. Führen Sie dort in einer virtuellen Python-Umgebung die folgenden Befehle aus. Der Build legt das statische Handbuch unter `site/` ab. Starten Sie zum lokalen Lesen den Vorschauserver und öffnen Sie die im Terminal angezeigte lokale Adresse.
 
 ```sh
 python -m pip install -r docs/requirements-docs.txt
 python -m mkdocs build
+python -m mkdocs serve
 ```
 
 ## Klinikedition

@@ -12,11 +12,12 @@ The archive contains all files in `docs/`, the original `mkdocs.yml`, and the re
 
 SHA-256 of the ZIP file: `1834c140bb5525ae473efb0a9b72d772e6d1b6eefbc31242676e299b88b3fde2`.
 
-To build the original handbook locally, extract the archive, open the extracted directory containing `mkdocs.yml` and run the following commands in a Python virtual environment. Open `site/index.html` to read the result.
+To build the original handbook locally, extract the archive, open the extracted directory containing `mkdocs.yml` and run the following commands in a Python virtual environment. The build creates the static handbook in `site/`. To browse it locally with working navigation, start the preview server and open the loopback address printed in the terminal.
 
 ```sh
 python -m pip install -r docs/requirements-docs.txt
 python -m mkdocs build
+python -m mkdocs serve
 ```
 
 ## Clinic edition
