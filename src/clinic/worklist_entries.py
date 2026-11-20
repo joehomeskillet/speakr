@@ -39,6 +39,7 @@ from src.models import GroupMembership, Recording, User
 from src.services import audit
 
 LEAD_ROLE = "admin"  # GroupMembership.role of a typist-pool lead
+_DEFAULT_SOURCE = ("audio", None)
 
 
 def stamp(value):
@@ -67,24 +68,31 @@ def _open_mode(actor: int, dictation: ClinicDictation, status: str) -> str:
     return "player" if status == workflow.TO_WRITE else "correction"
 
 
-def _source_labels(dictation_ids: list[str]) -> dict[str, str]:
-    """German source label per dictation from its earliest original receipt origin (unknown: absent)."""
-    earliest: dict[str, tuple] = {}
+def _sources(dictation_ids: list[str]) -> dict[str, tuple[str, str | None]]:
+    """Worklist source kind and origin label from each dictation's first original."""
+    earliest: dict[str, str] = {}
     for start in range(0, len(dictation_ids), 500):
         part = dictation_ids[start:start + 500]
-        for original in db.session.query(ClinicOriginal).filter(ClinicOriginal.dictation_id.in_(part)):
-            key = (stamp(original.created_at) or "", original.id)
-            if original.dictation_id not in earliest or key < earliest[original.dictation_id][0]:
-                earliest[original.dictation_id] = (key, original.receipt)
-    labels = {}
-    for dictation_id, (_key, receipt) in earliest.items():
+        originals = (
+            db.session.query(ClinicOriginal.dictation_id, ClinicOriginal.receipt)
+            .filter(ClinicOriginal.dictation_id.in_(part))
+            .order_by(ClinicOriginal.created_at, ClinicOriginal.id)
+        )
+        for dictation_id, receipt in originals:
+            earliest.setdefault(dictation_id, receipt)
+    sources = {}
+    for dictation_id, receipt in earliest.items():
         try:
-            origin = json.loads(receipt).get("origin")
-        except (ValueError, AttributeError):
+            data = json.loads(receipt)
+        except ValueError:
             continue
-        if isinstance(origin, str) and origin in routes_worklist.ORIGIN_LABELS:
-            labels[dictation_id] = routes_worklist.ORIGIN_LABELS[origin]
-    return labels
+        if not isinstance(data, dict):
+            continue
+        kind = "document" if data.get("kind") == "document" else "audio"
+        origin = data.get("origin")
+        label = routes_worklist.ORIGIN_LABELS.get(origin) if isinstance(origin, str) else None
+        sources[dictation_id] = kind, label
+    return sources
 
 
 def load_entries(actor: int) -> list[routes_worklist.WorklistEntry]:
@@ -106,20 +114,21 @@ def load_entries(actor: int) -> list[routes_worklist.WorklistEntry]:
 
     found = list(query)
     roles = project_roles(dictation for dictation, _row, _rec in found)
-    labels = _source_labels([dictation.id for dictation, _row, _rec in found])
+    sources = _sources([dictation.id for dictation, _row, _rec in found])
     entries = []
     for dictation, row, rec in found:
         if admin and actor not in (dictation.author_user_id, rec.user_id):
             audit.record("recording.content.read", recording=rec, details={"part": "worklist"},
                          actor_kind="session", actor_user_id=actor)
+        source_kind, source_label = sources.get(dictation.id, _DEFAULT_SOURCE)
         entries.append(routes_worklist.WorklistEntry(rec, dict(
             dictation_id=dictation.id, title=rec.title or "", status=row.status,
             author_user_id=dictation.author_user_id, priority=row.priority,
             deadline_at=stamp(row.deadline_at), assignee_user_id=row.assignee_user_id,
             assigned_at=None, notes=rec.notes or "", created_at=stamp(row.created_at),
-            duration_seconds=row.audio_seconds, recipient=None, source_kind="audio",
+            duration_seconds=row.audio_seconds, recipient=None, source_kind=source_kind,
             open_mode=_open_mode(actor, dictation, row.status), revision=dictation.version_counter,
-            source_label=labels.get(dictation.id), **roles[dictation.id]), dictation.pool_id))
+            source_label=source_label, **roles[dictation.id]), dictation.pool_id))
     return entries
 
 
