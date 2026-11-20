@@ -1585,7 +1585,7 @@ _TRANSCRIPT_STATE_FIELDS = (
 )
 
 
-def _link_asr_segments_at_ingest(dictation, asr_text, stored, model_ref):
+def _link_asr_segments_at_ingest(dictation, asr_text, stored, model_ref, *, expected_asr_revision_id=None):
     """CLINIC_MODE: store the ASR revision and its timed segment links; never fails the ASR run.
 
     Returns True when stored, False when the step failed (logged without transcript text).
@@ -1593,7 +1593,8 @@ def _link_asr_segments_at_ingest(dictation, asr_text, stored, model_ref):
     from src.clinic.correction import ingest_asr_result
     try:
         with db.session.begin_nested():
-            ingest_asr_result(dictation, asr_text, stored, model_ref)
+            ingest_asr_result(dictation, asr_text, stored, model_ref,
+                              expected_asr_revision_id=expected_asr_revision_id)
     except Exception as link_err:
         log_failure(current_app.logger, logging.WARNING,
                     f"ASR segment links of dictation {dictation.id} not stored", link_err)
@@ -1601,16 +1602,17 @@ def _link_asr_segments_at_ingest(dictation, asr_text, stored, model_ref):
     return True
 
 
-def _handle_late_asr(recording, prior, model_ref):
+def _handle_late_asr(recording, prior, model_ref, *, attempt=None):
     """CLINIC_MODE: an ASR result that arrives after a human revision is a side revision.
 
     With a human head the visible transcript fields go back to what they were
     before this run and the result is appended through ``add_asr_revision``.
     Without a head the first ASR revision is created with its millisecond
     segment links; with an ASR head of the same text the links are refreshed
-    (idempotent). Any other ASR head is left alone.
+    (idempotent). Only a fresh explicit repeat may advance a changed ASR head.
     """
-    from src.clinic.revisions import KIND_HUMAN, current_revision
+    from src.clinic import asr_repeat
+    from src.clinic.revisions import KIND_HUMAN, current_revision, normalise_text
     from src.clinic.web_ingest import dictation_for_recording
     dictation = dictation_for_recording(recording.id)
     if dictation is None:
@@ -1619,11 +1621,34 @@ def _handle_late_asr(recording, prior, model_ref):
     head = current_revision(dictation)
     asr_text = _plain_transcript_text(recording.transcription)
     stored = recording.transcription
-    if head is not None and head.kind == KIND_HUMAN:
+    status, job, params = asr_repeat.repeat_status(
+        job_control.current().job_id, recording, dictation, head, attempt)
+    unchanged = head is not None and head.body == normalise_text(asr_text)
+    protected = head is not None and head.kind == KIND_HUMAN
+    rejected = status in ('duplicate', 'stale', 'stale_attempt') or (
+        head is not None and not protected and not unchanged and status != 'eligible')
+    if protected or rejected or unchanged:
         for field, value in prior.items():
             setattr(recording, field, value)
-    if asr_text.strip() and _link_asr_segments_at_ingest(dictation, asr_text, stored, model_ref):
+        # A correction can arrive while the connector runs; the head is authoritative.
+        if head is not None and _plain_transcript_text(recording.transcription) != head.body:
+            recording.transcription = head.body
+    stored_ok = False
+    if not rejected and asr_text.strip():
+        stored_ok = _link_asr_segments_at_ingest(
+            dictation, asr_text, stored, model_ref,
+            expected_asr_revision_id=head.id if head and status == 'eligible' else None)
+    if stored_ok:
         recognition_state.settle(db.session, dictation.id)
+    elif not rejected:
+        for field, value in prior.items():
+            setattr(recording, field, value)
+        if head is not None and _plain_transcript_text(recording.transcription) != head.body:
+            recording.transcription = head.body
+    if status == 'stale' or (status == 'eligible' and stored_ok):
+        outcome = 'stale' if rejected else 'protected' if protected else 'unchanged' if unchanged else 'applied'
+        asr_repeat.receipt(job, params, outcome, current_revision(dictation))
+    asr_repeat.mirror_projection(dictation, recording)
     return dictation
 
 
@@ -1983,8 +2008,11 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
             # Clinic mode: what the visible transcript looked like before this run,
             # so a late result can leave it alone behind a human revision.
             clinic_prior = None
+            clinic_attempt = None
             from src.clinic.config import clinic_mode_enabled
             if clinic_mode_enabled():
+                from src.clinic.asr_repeat import attempt_identity
+                clinic_attempt = attempt_identity(job.job_id)
                 clinic_prior = {field: getattr(recording, field) for field in _TRANSCRIPT_STATE_FIELDS}
             for attempt in range(max_attempts):
                 try:
@@ -2007,6 +2035,9 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
                         # A safe point: the result is dropped, nothing of it is stored.
                         job.check_cancel()
 
+                        if clinic_prior is not None:
+                            from src.clinic.asr_repeat import lock_projection
+                            clinic_prior = lock_projection(recording)
                         recording.transcription_language = normalize_language_code(
                             getattr(chunk_result, 'language', None))
 
@@ -2063,6 +2094,9 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
                         # A safe point: the result is dropped, nothing of it is stored.
                         job.check_cancel()
 
+                        if clinic_prior is not None:
+                            from src.clinic.asr_repeat import lock_projection
+                            clinic_prior = lock_projection(recording)
                         # Record the language the service reported for this
                         # audio. Normalised because backends differ on whether
                         # they return 'en' or 'english', and normalisation
@@ -2232,7 +2266,8 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
             if clinic_prior is not None:
                 dictation = _handle_late_asr(
                     recording, clinic_prior,
-                    f"{connector_name}:{transcription_model or getattr(connector, 'model', None) or 'default'}")
+                    f"{connector_name}:{transcription_model or getattr(connector, 'model', None) or 'default'}",
+                    attempt=clinic_attempt)
             if not has_asr_text:
                 current_app.logger.warning(
                     f"Transcription for recording {recording_id} returned no text; marking it failed")

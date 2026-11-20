@@ -59,7 +59,11 @@ def queue_transcription_reprocess(recording, user, overrides=None):
     from src.services.job_cancel import snapshot_for_reprocess
     restore_state = snapshot_for_reprocess(recording, 'transcription')
 
-    recording.transcription = None
+    from src.clinic.config import clinic_mode_enabled
+    from src.clinic.asr_repeat import bind_repeat
+    clinic_repeat = clinic_mode_enabled() and bind_repeat(recording, params)
+    if not clinic_repeat:
+        recording.transcription = None
     recording.summary = None
     recording.status = 'QUEUED'
     from src.services import audit
