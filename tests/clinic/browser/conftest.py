@@ -66,7 +66,9 @@ def app_base(tmp_path_factory):
             proc.wait(timeout=20)
 
 
-@pytest.fixture(scope="session")
+# Module scope: a sync Playwright left running for the session makes every later
+# sync_playwright() in the same process fail ("Sync API inside the asyncio loop").
+@pytest.fixture(scope="module")
 def browser():
     from playwright.sync_api import sync_playwright
 
@@ -79,7 +81,7 @@ def browser():
             instance.close()
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def role_states(browser, app_base):
     """Storage state per role, logged in once through the real login form."""
     return {role: support.login(browser, app_base, email) for role, email in support.ROLES.items()}
