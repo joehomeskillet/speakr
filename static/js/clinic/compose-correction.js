@@ -874,7 +874,7 @@ export const CorrectionBody = {
             tb, tbState, textEl, setTextEl, fontPx, focusMode, shortcutsOpen, highlightOn, inlineWord, editorScroll, followOn, onTextInput, onTextKeydown, onFindKeydown,
             onQuery, onReplacement, onCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, drawerClose, closeDrawer, toggleDrawer, unsavedSuffix,
             repeatState: c.repeat.state, REPEAT_TEXT,
-            text: e.text, canEdit: e.canEdit, dirty: e.dirty, loading: e.loading, error: e.error, manual: e.manual,
+            text: e.text, canEdit: e.canEdit, dirty: e.dirty, textRevisionId: e.textRevisionId, loading: e.loading, error: e.error, manual: e.manual,
             lease: e.lease, audio: e.audio, template: e.template, templates: e.templates, templatesError: e.templatesError,
             editorAnnouncement: e.announcement,
             alignStatus: a.status, alignError: a.error, segments: a.segments, currentWord: a.currentWord, alignAnnouncement: a.announcement,
@@ -912,7 +912,7 @@ export const CorrectionBody = {
             @click="c.load({ discard: error.code === 'stale' })">{{ error.code === 'stale' ? TEXT.reload : TEXT.retry }}</button>
   </div>
 
-  <DictationSummary v-if="ready" :client="c.client" :dictation-id="dictationId" />
+  <DictationSummary v-if="ready" :client="c.client" :dictation-id="dictationId" :text-revision-id="textRevisionId" :dirty="dirty" />
   <section class="editor-workspace" :class="{ 'is-focus': focusMode }" :data-dirty="dirty ? 'true' : 'false'" :aria-label="TEXT.workspace">
     <div class="editor-heading">
       <div class="document-title">

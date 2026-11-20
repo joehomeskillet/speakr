@@ -32,13 +32,15 @@ const PROPS = {
     client: { type: Object, required: true },
     dictationId: { type: String, required: true },
     expanded: { type: Boolean, default: false },
+    textRevisionId: { type: String, default: null },
+    dirty: { type: Boolean, default: false },
 };
 
 const SummaryBody = {
     components: { SummaryText },
     props: PROPS,
     setup(props) {
-        const { ref, onBeforeUnmount } = globalThis.Vue;
+        const { ref, watch, onBeforeUnmount } = globalThis.Vue;
         const data = ref(null);
         const busy = ref(false);
         const error = ref('');
@@ -60,13 +62,14 @@ const SummaryBody = {
             if (disposed || !open || busy.value) return;
             const active = ['queued', 'processing'].includes(data.value?.status);
             if (generate && (data.value?.may_generate !== true || active || error.value)) return;
+            const revision = props.textRevisionId;
             clearTimeout(timer);
             busy.value = true;
             submitting.value = generate;
             error.value = '';
             try {
                 const result = await props.client.request(path, generate ? { method: 'POST', body: {} } : {});
-                if (disposed) return;
+                if (disposed || revision !== props.textRevisionId) return;
                 if (result.outcome === 'ok' && Object.hasOwn(messages, result.data?.status)) {
                     data.value = result.data;
                     if (open && ['queued', 'processing'].includes(data.value.status)) {
@@ -83,13 +86,28 @@ const SummaryBody = {
                     error.value = errors[result.status] || 'Der Stand der KI-Zusammenfassung konnte nicht geladen werden.';
                 }
             } catch {
+                if (disposed || revision !== props.textRevisionId) return;
                 if (!generate) data.value = null;
                 error.value = 'Der Stand der KI-Zusammenfassung konnte nicht geladen werden.';
             } finally {
-                busy.value = false;
-                submitting.value = false;
+                // A newer GET owns the busy state. An in-flight POST must settle before reading its outcome.
+                if (!disposed && (generate || revision === props.textRevisionId)) {
+                    busy.value = false;
+                    submitting.value = false;
+                    if (revision !== props.textRevisionId) refresh();
+                }
             }
         }
+
+        watch(() => props.textRevisionId, () => {
+            clearTimeout(timer);
+            data.value = null;
+            error.value = '';
+            if (!submitting.value) {
+                busy.value = false;
+                refresh();
+            }
+        });
 
         function toggle(event) {
             open = event.currentTarget.open;
@@ -106,6 +124,7 @@ const SummaryBody = {
     <p v-if="error" role="alert">{{ error }}</p>
     <p role="status" class="hint">{{ submitting ? 'Erstellung wird angefordert …' : (data ? messages[data.status] : (busy ? 'Stand wird geladen …' : '')) }}</p>
     <SummaryText v-if="data?.text" :text="data.text" />
+    <p v-if="dirty" class="hint">Die Zusammenfassung verwendet die zuletzt gespeicherte Textfassung.</p>
     <button v-if="error" type="button" class="button" :disabled="busy" @click="refresh()">Stand erneut laden</button>
     <button v-else-if="data?.may_generate && !['queued', 'processing'].includes(data.status)"
             type="button" class="button" :disabled="busy" @click="refresh(true)">
@@ -121,5 +140,5 @@ export const DictationSummary = {
     name: 'ClinicDictationSummary',
     props: PROPS,
     components: { SummaryBody },
-    template: `<SummaryBody :key="dictationId" :dictation-id="dictationId" :client="client" :expanded="expanded" />`,
+    template: `<SummaryBody :key="dictationId" v-bind="$props" />`,
 };

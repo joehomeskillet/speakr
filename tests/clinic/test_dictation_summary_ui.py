@@ -146,3 +146,74 @@ def test_direct_switch_discards_pending_summary_and_renders_safe_markdown(live_s
             assert not external
         finally:
             browser.close()
+
+
+@pytest.mark.parametrize("pending_method", ["GET", "POST"])
+def test_open_summary_tracks_saved_revision_with_pending_request(live_server, pending_method):
+    base, did = live_server
+    calls = []
+    held = []
+    subsequent = {"status": 403, "data": {}}
+    ready = {"text": "Alte Planfassung", "status": "ready", "may_generate": True}
+    with sync_playwright() as playwright:
+        browser = mount._launch(playwright)
+        try:
+            page = _login(browser, base)
+
+            def respond(route):
+                calls.append(route.request.method)
+                if len(calls) == 1:
+                    route.fulfill(json=ready)
+                elif len(calls) == 2:
+                    held.append(route)
+                else:
+                    route.fulfill(status=subsequent["status"], json=subsequent["data"])
+
+            page.route(f"**/api/clinic/v1/dictations/{did}/summary", respond)
+            page.get_by_test_id("clinic-recordings-view").locator(f'[data-row][data-id="{did}"]').click()
+            editor = page.get_by_test_id("clinic-correction-view")
+            card = editor.locator(".clinic-dictation-summary")
+            toggle = card.locator("summary")
+            field = editor.get_by_test_id("text")
+            if not field.is_editable():
+                editor.locator("[data-action=acquire]").click()
+            expect(field).to_be_editable()
+            toggle.click()
+            expect(card.locator(".clinic-summary-text")).to_have_text(ready["text"])
+            field.fill(field.input_value() + " Neue Abfahrtszeit.")
+            expect(card.get_by_text("Die Zusammenfassung verwendet die zuletzt gespeicherte Textfassung.")).to_be_visible()
+            with page.expect_request(lambda r: r.url.endswith("/summary") and r.method == pending_method):
+                if pending_method == "POST":
+                    card.get_by_role("button", name="Zusammenfassung neu erstellen").click()
+                else:
+                    toggle.click()
+                    toggle.click()
+            with page.expect_response(lambda r: r.url.endswith("/correction/save") and r.request.method == "POST") as saved:
+                editor.get_by_test_id("save").click()
+            assert saved.value.status == 200
+            expect(editor.get_by_test_id("save-state")).to_have_attribute("data-state", "saved")
+            expect(card.locator(".clinic-summary-text")).to_have_count(0)
+            assert len(held) == 1
+            if pending_method == "GET":
+                expect(card.get_by_role("alert")).to_contain_text("Berechtigung")
+            held[0].fulfill(status=202 if pending_method == "POST" else 200, json=ready)
+            expect(card.get_by_role("alert")).to_contain_text("Berechtigung")
+            expect(card.locator(".clinic-summary-text")).to_have_count(0)
+            assert calls == ["GET", pending_method, "GET"]
+
+            toggle.click()
+            previous = field.input_value()
+            field.fill(previous + " Neues Ziel.")
+            with page.expect_response(lambda r: r.url.endswith("/correction/save") and r.request.method == "POST") as saved:
+                editor.get_by_test_id("save").click()
+            assert saved.value.status == 200
+            expect(editor.get_by_test_id("save-state")).to_have_attribute("data-state", "saved")
+            assert calls == ["GET", pending_method, "GET"]
+            subsequent.update(status=200, data={**ready, "status": "stale"})
+            toggle.click()
+            expect(card.get_by_role("status")).to_contain_text("aktuellen Textfassung")
+            expect(card.locator(".clinic-summary-text")).to_have_text(ready["text"])
+            assert calls == ["GET", pending_method, "GET", "GET"]
+            assert not page.js_errors
+        finally:
+            browser.close()
