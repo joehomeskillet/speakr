@@ -72,6 +72,18 @@ describe('peaks wiring in the correction view', () => {
         wave.dispose();
     });
 
+    it('maps only 503 DEPENDENCY_UNAVAILABLE to the unavailable state', async () => {
+        const problem = (status, code) => ({ status, clone() { return this; }, json: async () => ({ code }), arrayBuffer: async () => new ArrayBuffer(0) });
+        const gone = await mount(vi.fn(async () => problem(503, 'DEPENDENCY_UNAVAILABLE')));
+        expect((await gone.wave.load()).code).toBe('none');
+        gone.c.dispose();
+        gone.wave.dispose();
+        const other = await mount(vi.fn(async () => problem(503, 'SOMETHING_ELSE')));
+        expect((await other.wave.load()).code).toBe('failed');
+        other.c.dispose();
+        other.wave.dispose();
+    });
+
     it('does not request peaks without an audio revision', async () => {
         const get = vi.fn();
         const c = createCorrectionViewController({ client: client(), dictationId: D, currentUser: user, peaksFetch: get });

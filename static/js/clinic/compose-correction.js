@@ -255,14 +255,20 @@ export function createCorrectionViewController(options) {
 
     // --- waveform peaks (V8 P06) ---------------------------------------------
     // The waveform module asks for a URL by recording id; the view answers it from the peaks route of the
-    // audio revision the editor currently shows. No revision or a 404 reads as "no peaks" (honest fallback text).
+    // audio revision the editor currently shows. No revision, a 404, or a 503 DEPENDENCY_UNAVAILABLE (no durable
+    // audio source) reads as "no peaks" (honest fallback text); every other failure stays a load failure.
     const peaksKey = () => editor.audio.value.revisionId || null;
-    function peaksFetch(_url, init) {
+    async function peaksFetch(_url, init) {
         const revision = peaksKey();
-        if (!revision) return Promise.resolve({ status: 404 });
+        if (!revision) return { status: 404 };
         const url = '/api/clinic/v1/dictations/' + encodeURIComponent(dictationId)
             + '/audio-revisions/' + encodeURIComponent(revision) + '/peaks';
-        return (opts.peaksFetch || ((u, i) => fetch(u, i)))(url, init);
+        const res = await (opts.peaksFetch || ((u, i) => fetch(u, i)))(url, init);
+        if (res && res.status === 503 && typeof res.clone === 'function') {
+            const body = await res.clone().json().catch(() => null);
+            if (body && body.code === 'DEPENDENCY_UNAVAILABLE') return { status: 404 };
+        }
+        return res;
     }
 
     // --- audio wiring -------------------------------------------------------
