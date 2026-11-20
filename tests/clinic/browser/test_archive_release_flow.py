@@ -1,7 +1,9 @@
 """D6. The review and archive command use the same live action grant on the released report."""
 
 import sqlite3
+from datetime import datetime, timezone
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from playwright.sync_api import expect
 
@@ -119,6 +121,18 @@ def test_grant_revoke_and_archive_real_release(browser, tmp_path, monkeypatch):
         expect(review.get_by_test_id("archive-open")).to_be_visible()
         archived = author.request.get(api + "/recordings?status=zu_archivieren").json()["items"]
         assert [row["dictation_id"] for row in archived] == [did]
+        with sqlite3.connect(tmp_path / "v860.db") as conn:
+            archived_at, retention_at = conn.execute("""
+                SELECT e.archived_at, r.retention_archived_at
+                FROM clinic_archive_entry e
+                JOIN clinic_dictation d ON d.id = e.dictation_id
+                JOIN recording r ON r.id = d.recording_id
+                WHERE e.dictation_id = ?""", (did,)).fetchone()
+        assert archived_at is not None and retention_at is None
+        moment = datetime.fromisoformat(archived_at).replace(tzinfo=timezone.utc)
+        assert archived[0]["archived_at"] == moment.isoformat().replace("+00:00", "Z")
+        expect(review.locator('[data-cell="archived"]')).to_have_text(
+            moment.astimezone(ZoneInfo("Europe/Zurich")).strftime("%d.%m.%Y %H:%M"))
         payload = result.value.json()
         assert payload["applied"] and payload["status"] == "zu_archivieren"
         assert author.request.get(path + "/detail").json()["etag"] == payload["etag"]

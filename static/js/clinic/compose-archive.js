@@ -13,7 +13,8 @@
  *  - A row may carry optional retention fields next to the v8-01 contract:
  *    retention_state ("active" | "due" | "held" | "deleted", the V4 retention
  *    axis, projected from retention_archived_at / legal hold / due date) and
- *    archived_at (ISO UTC, from retention_archived_at). Without them the row
+ *    archived_at (ISO UTC, from retention_archived_at or the durable manual
+ *    archive entry). Without them the row
  *    shows "Aufbewahrung nicht angegeben"; nothing is derived on the client.
  *
  * Read only: there is no delete, reopen or restore control. Opening a row
