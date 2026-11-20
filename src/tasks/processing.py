@@ -2553,18 +2553,27 @@ def transcribe_audio_task(app_context, recording_id, filepath, filename_for_asr,
 
         mime_type = recording.mime_type if recording else None
 
-    terminal_error = transcribe_with_connector(
-        app_context, recording_id, filepath, filename_for_asr, start_time,
-        mime_type=mime_type,
-        language=user_transcription_language,
-        diarize=diarize_setting,
-        min_speakers=min_speakers,
-        max_speakers=max_speakers,
-        tag_id=tag_id,
-        hotwords=hotwords,
-        initial_prompt=initial_prompt,
-        transcription_model=transcription_model,
-    )
+    from src.clinic.asr_input import worker_audio_input
+    from src.services.reprocessing import ReprocessError
+    with app_context:
+        recording = db.session.get(Recording, recording_id)
+        try:
+            with worker_audio_input(recording, filepath, filename_for_asr, mime_type) as audio_input:
+                input_path, input_name, input_mime = audio_input
+                terminal_error = transcribe_with_connector(
+                    app_context, recording_id, input_path, input_name, start_time,
+                    mime_type=input_mime,
+                    language=user_transcription_language,
+                    diarize=diarize_setting,
+                    min_speakers=min_speakers,
+                    max_speakers=max_speakers,
+                    tag_id=tag_id,
+                    hotwords=hotwords,
+                    initial_prompt=initial_prompt,
+                    transcription_model=transcription_model,
+                )
+        except ReprocessError as error:
+            terminal_error = _fail_without_retry(recording, error.code)
 
     # After transcription completes, calculate processing time
     with app_context:

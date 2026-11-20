@@ -795,13 +795,15 @@ def reprocess_transcription(recording_id):
         if 'language' in data:
             overrides['language'] = data.get('language')
         try:
-            queue_transcription_reprocess(recording, current_user, overrides)
+            job_id = queue_transcription_reprocess(recording, current_user, overrides)
         except ReprocessError as e:
-            return jsonify(api_error(e.code)), e.status
+            return jsonify({'code': e.code, 'error': e.message}), e.status
         current_app.logger.info(f"Queued transcription reprocessing for recording {recording_id}")
 
         # Get queue position for response
-        queue_position = job_queue.get_position_in_queue(recording.id)
+        from src.clinic.config import clinic_mode_enabled
+        queued_job = db.session.get(ProcessingJob, job_id) if clinic_mode_enabled() else None
+        queue_position = job_queue.get_position_in_queue(queued_job.recording_id if queued_job else recording.id)
         queue_status = job_queue.get_queue_status()
 
         # Return recording with per-user status and queue info

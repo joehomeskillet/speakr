@@ -221,7 +221,10 @@ def test_ingest_failure_rolls_back_successor_and_does_not_consume_repeat(prepare
 
 
 def test_http_repeat_ingress_queues_bound_job_and_rejects_active_duplicate(prepared, monkeypatch):
+    from datetime import datetime, timezone
+
     from src.app import app
+    from src.clinic.lease import acquire
 
     dictation, source, source_job = prepared
     first = revisions.current_revision(dictation)
@@ -230,12 +233,16 @@ def test_http_repeat_ingress_queues_bound_job_and_rejects_active_duplicate(prepa
         session["_user_id"] = str(source.user_id)
         session["_fresh"] = True
     url = f"/recording/{source.id}/reprocess_transcription"
-    response = client.post(url, json={})
+    assert client.post(url, json={}).status_code == 400
+    held = acquire(dictation.id, source.user_id, datetime.now(timezone.utc))
+    db.session.commit()
+    body = {"lease_generation": held.generation}
+    response = client.post(url, json=body)
     assert response.status_code == 200, response.get_data(as_text=True)
     job = ProcessingJob.query.filter_by(recording_id=source.id, job_type="reprocess_transcription").one()
     assert _binding(job)["transcript_revision_id"] == first.id
     assert _binding(job)["source_job_id"] == source_job.id
-    assert client.post(url, json={}).status_code == 400
+    assert client.post(url, json=body).status_code == 400
     assert ProcessingJob.query.filter_by(recording_id=source.id, job_type="reprocess_transcription").count() == 1
     _response(monkeypatch)
     _run(job)
