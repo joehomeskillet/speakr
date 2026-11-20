@@ -464,6 +464,7 @@ export function createReviewViewController(options) {
         unbindAudio();
         audioEl.value = null;
         alignment.dispose();
+        if (editor.lease.value.writable) void editor.release();
         editor.dispose();
         wf.cancel();
         wf.load(null);
@@ -531,7 +532,7 @@ const ReviewBody = {
             toneBox: (tone) => box({ success: 'success', warn: 'warning', danger: 'error', info: 'pending' }[tone] || 'normal'),
             status: c.status, review: c.review, newer: c.newer, confirming: c.confirming, reason: c.reason, error: c.error,
             reasonInvalid: c.reasonInvalid, contentChecked: c.contentChecked, contextChecked: c.contextChecked,
-            audio: c.editor.audio, manual: c.editor.manual,
+            audio: c.editor.audio, manual: c.editor.manual, lease: c.editor.lease,
             segments: a.segments, currentWord: a.currentWord,
             setReasonNode: (n) => { reasonNode = n; },
         };
@@ -614,6 +615,12 @@ const ReviewBody = {
             <p v-if="c.acceptanceView().acceptedRevision" class="hint" data-testid="acceptance-revision">{{ TEXT.acceptedRevision }}: {{ TEXT.textRevision }} {{ c.acceptanceView().acceptedRevision }}</p>
             <p v-if="c.acceptanceView().moved" class="note warning" style="margin-top: 0" data-testid="acceptance-moved">{{ TEXT.movedSince }}</p>
             <p v-if="c.acceptanceView().reason" class="hint" data-testid="acceptance-reason"><strong>{{ TEXT.rejectReason }}:</strong> {{ c.acceptanceView().reason }}</p>
+          </div>
+          <div v-if="c.actions().some(a => ['accept', 'reject', 'release'].includes(a.id)) && lease.mayAcquire === true"
+               class="actions text-sm" aria-label="Bearbeitungssperre">
+            <button v-if="['idle', 'error', 'lost'].includes(lease.status)" type="button" class="button secondary"
+                    :style="FOCUS" @click="c.editor.acquire()" data-testid="begin-review">Prüfung beginnen</button>
+            <span role="status" aria-live="polite">{{ lease.message }}</span>
           </div>
           <p v-if="c.readOnly()" class="note" role="note" data-testid="read-only">{{ TEXT.readOnly }}</p>
           <div class="actions text-sm" style="margin-top: 14px">
