@@ -6,6 +6,15 @@ import { OfflineView } from '../../../static/js/clinic/compose-offline.js';
 const ROOT = new URL('../../../', import.meta.url);
 const read = (rel) => readFileSync(new URL(rel, ROOT), 'utf8');
 
+function expectDarkWarning(classes) {
+    const tokens = classes.split(/\s+/);
+    for (const theme of ['[.dark_&]', '[[data-theme=dark]_&]']) {
+        expect(tokens).toContain(theme + ':!text-[color:var(--v8-text)]');
+        expect(tokens).toContain(theme + ':!bg-[var(--v8-s2)]');
+        expect(tokens).toContain(theme + ':!border-[color:var(--line)]');
+    }
+}
+
 // Structure of the V8 prototype pages einstellungen.html (P19), offline.html (P21), anmeldung.html (P20):
 // page head with eyebrow, h1 and subline, then panels. Data, test ids and German labels stay with the modules.
 describe('v8-118 settings page structure', () => {
@@ -44,10 +53,25 @@ describe('v8-118 settings page structure', () => {
         expect(consent).toContain('data-testid="clinic-settings-consent-state"');
         expect(consent).toContain('class="keyvalues"');
     });
+
+    it('keeps denied, unsaved pedal and revoke warnings readable under both dark theme selectors', () => {
+        for (const template of [SETTINGS_TEMPLATE, createPedalSettingsComponent({}).template, createConsentComponent({}, {}).template]) {
+            const warning = template.match(/class="(note warning[^"]*)"/);
+            expect(warning).not.toBeNull();
+            expectDarkWarning(warning[1]);
+        }
+    });
 });
 
 describe('v8-118 offline page structure', () => {
     const tpl = OfflineView.template;
+
+    it('uses dark warning colours for both the locked notice and discard confirmation', () => {
+        const view = OfflineView.setup({ vue: {}, crypto: {} });
+        view.s.noticeKind = 'warning';
+        expectDarkWarning(view.noticeClass());
+        expectDarkWarning(tpl.match(/class="([^"]*)" role="alert" data-testid="discard-confirm"/)[1]);
+    });
 
     it('has the prototype page head and two panels (drafts table, connection and check)', () => {
         expect(tpl).toContain('class="pagehead"');

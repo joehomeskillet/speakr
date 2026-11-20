@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import pytest
+from lxml import html
+
 from src.app import app
 
 
@@ -41,3 +44,20 @@ def test_upstream_login_has_no_v8_markup(monkeypatch):
     for marker in ("clinic-v8.css", "v8-ui", "pagehead", "login-ui.js", "data-password-toggle"):
         assert marker not in html
     assert 'name="remember"' in html
+
+
+@pytest.mark.parametrize(("category", "variant", "role"), [("danger", "burgundy", "alert"), ("warning", "warning", "status")])
+def test_clinic_flash_uses_dark_theme_colours(monkeypatch, category, variant, role):
+    monkeypatch.setenv("CLINIC_MODE", "1")
+    client = app.test_client()
+    with client.session_transaction() as session:
+        session["_flashes"] = [(category, "Testmeldung")]
+    page = html.fromstring(client.get("/login").data)
+    note, = page.xpath("//div[text()='Testmeldung']")
+    assert note.get("role") == role
+    assert {"note", variant} <= note.classes
+    for theme in ("[.dark_&]", "[[data-theme=dark]_&]"):
+        assert f"{theme}:!text-[color:var(--v8-text)]" in note.classes
+        if category == "warning":
+            assert f"{theme}:!bg-[var(--v8-s2)]" in note.classes
+            assert f"{theme}:!border-[color:var(--line)]" in note.classes

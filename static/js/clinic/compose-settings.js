@@ -246,10 +246,12 @@ export function createConsentComponent(Vue, client, props = {}) {
 
 // Class bundles for the V8 look. The app's utility reset (preflight) wins over the element rules of clinic-v8.css, so headings
 // get their sizes here; the buttons of the unowned preferences child are skinned from outside.
-const HEADINGS = '[&_h1]:text-[30px] [&_h1]:max-[760px]:text-[26px] [&_h1]:font-bold [&_h1]:leading-[1.2] [&_h1]:tracking-[-0.8px] [&_h1]:mb-[9px] [&_h1]:text-[color:var(--v8-text)] '
+const HEADINGS = '[&_h1]:[font-family:Inter,Segoe_UI,Arial,sans-serif] [&_h1]:text-[30px] [&_h1]:max-[760px]:text-[26px] [&_h1]:font-bold [&_h1]:leading-[1.2] [&_h1]:tracking-[-0.8px] [&_h1]:mb-[9px] [&_h1]:text-[color:var(--v8-text)] '
     + '[&_h2]:text-[16px] [&_h2]:font-bold [&_h2]:leading-[1.35] [&_h2]:tracking-[-0.2px] [&_h2]:mb-[14px] [&_h2]:text-[color:var(--v8-text)] [&_button]:px-[13px]';
 const DANGER = 'danger max-[760px]:min-h-11 [.dark_&]:!text-[color:var(--v8-text)] [.dark_&]:!border-[color:var(--burgundy)] [[data-theme=dark]_&]:!text-[color:var(--v8-text)] [[data-theme=dark]_&]:!border-[color:var(--burgundy)]';
 const NOTE_BURGUNDY = 'note burgundy [.dark_&]:!text-[color:var(--v8-text)] [[data-theme=dark]_&]:!text-[color:var(--v8-text)]';
+const NOTE_WARNING = 'note warning [.dark_&]:!bg-[var(--v8-s2)] [.dark_&]:!border-[color:var(--line)] [.dark_&]:!text-[color:var(--v8-text)] '
+    + '[[data-theme=dark]_&]:!bg-[var(--v8-s2)] [[data-theme=dark]_&]:!border-[color:var(--line)] [[data-theme=dark]_&]:!text-[color:var(--v8-text)]';
 const PRIMARY = 'primary max-[760px]:min-h-11 !bg-[var(--ink)] !border-[color:var(--ink)] !text-[13px] !font-semibold !px-[13px] hover:!bg-[var(--brand2)]';
 const CHILD_BUTTONS = '[&_.btn]:!min-h-[38px] [&_.btn]:rounded-lg [&_.btn]:border [&_.btn]:border-[color:var(--line)] [&_.btn]:bg-[var(--surface)] [&_.btn]:px-[13px] [&_.btn]:text-[13px] [&_.btn]:font-semibold [&_.btn]:text-[color:var(--v8-text)] [&_.btn:disabled]:opacity-50 '
     + '[&_button[type=submit]]:!bg-[var(--ink)] [&_button[type=submit]]:!border-[color:var(--ink)] [&_button[type=submit]]:!text-white';
@@ -269,13 +271,15 @@ const PEDAL_TEMPLATE = `
   </div>
   <p v-if="!rows().length" class="hint mt-3" role="status" data-testid="clinic-settings-pedal-empty">{{ labels.empty }}</p>
   <div v-else class="table-wrap mt-4">
-    <table class="min-w-[32rem]" :aria-label="labels.title">
-      <thead><tr><th scope="col">{{ labels.key }}</th><th scope="col">{{ labels.action }}</th><th scope="col"><span class="sr-only">{{ labels.remove }}</span></th></tr></thead>
-      <tbody>
-        <tr v-for="r in rows()" :key="r.code" :data-code="r.code">
-          <td><kbd class="tag neutral">{{ r.code }}</kbd></td>
+    <table class="max-[760px]:block" :aria-label="labels.title">
+      <thead class="max-[760px]:sr-only"><tr><th scope="col">{{ labels.key }}</th><th scope="col">{{ labels.action }}</th><th scope="col"><span class="sr-only">{{ labels.remove }}</span></th></tr></thead>
+      <tbody class="max-[760px]:block">
+        <tr v-for="r in rows()" :key="r.code" :data-code="r.code"
+            class="max-[760px]:grid max-[760px]:gap-2 max-[760px]:p-3 max-[760px]:border-b max-[760px]:border-[color:var(--line)] max-[760px]:last:border-0 max-[760px]:[&_td]:p-0 max-[760px]:[&_td]:border-0">
+          <td><span class="hidden max-[760px]:inline">{{ labels.key }} </span><kbd class="tag neutral">{{ r.code }}</kbd></td>
           <td>
-            <select class="w-full min-w-[12rem] !pl-3 !pr-8 !text-[13px]" :value="r.action" :aria-label="labels.action + ' ' + r.code" @change="setAction(r.code, $event.target.value)">
+            <span class="hidden max-[760px]:block">{{ labels.action }}</span>
+            <select class="w-full min-w-0 !pl-3 !pr-8 !text-[13px]" :value="r.action" :aria-label="labels.action + ' ' + r.code" @change="setAction(r.code, $event.target.value)">
               <option v-for="a in actions" :key="a" :value="a">{{ labels.actions[a] }}</option>
             </select>
           </td>
@@ -301,7 +305,7 @@ const PEDAL_TEMPLATE = `
              data-testid="clinic-settings-pedal-autorewind" @change="setSeconds('autoRewindSeconds', $event.target.value, $event.target)">
     </div>
   </div>
-  <p v-if="saveError" class="note warning" role="alert">{{ labels.notSaved }}</p>
+  <p v-if="saveError" class="${NOTE_WARNING}" role="alert">{{ labels.notSaved }}</p>
 </section>`;
 
 const CONSENT_TEMPLATE = `
@@ -327,7 +331,7 @@ const CONSENT_TEMPLATE = `
     <button v-if="view.error.retryable" type="button" class="ml-2" @click="controller.load()">{{ view.labels.retry }}</button>
   </div>
   <p v-if="view.notice" class="note" role="status" aria-live="polite">{{ view.notice }}</p>
-  <div v-if="view.confirmingRevoke" class="note warning" role="alertdialog" :aria-label="view.labels.confirm">
+  <div v-if="view.confirmingRevoke" class="${NOTE_WARNING}" role="alertdialog" :aria-label="view.labels.confirm">
     <p class="font-semibold">{{ view.labels.confirm }}</p>
     <div class="actions">
       <button type="button" class="${DANGER}" :disabled="view.busy" data-testid="clinic-settings-consent-confirm"
@@ -347,6 +351,9 @@ const CONSENT_TEMPLATE = `
 
 export const SETTINGS_TEMPLATE = `
 <div class="clinic-settings-view v8-page ${HEADINGS}">
+  <nav class="breadcrumb" aria-label="Brotkrumennavigation">
+    <a href="#/aufnahmen">Speakr</a><span aria-hidden="true">›</span><span>{{ labels.eyebrow }}</span><span aria-hidden="true">›</span><span aria-current="page">{{ labels.title }}</span>
+  </nav>
   <div class="pagehead">
     <div>
       <div class="eyebrow">{{ labels.eyebrow }}</div>
@@ -355,7 +362,7 @@ export const SETTINGS_TEMPLATE = `
     </div>
     <div class="head-actions"></div>
   </div>
-  <p v-if="state.denied" class="note warning" role="alert">{{ labels.denied }}</p>
+  <p v-if="state.denied" class="${NOTE_WARNING}" role="alert">{{ labels.denied }}</p>
   <p v-else-if="state.forbidden" class="${NOTE_BURGUNDY}" role="alert" :style="errorStyle" data-testid="clinic-settings-forbidden">{{ labels.forbidden }}</p>
   <template v-else>
     <div class="grid equal">

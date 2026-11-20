@@ -70,10 +70,13 @@
         </a>
     </header>
     <main id="main" class="v8-page mx-auto w-full max-w-[1600px] px-4 sm:px-8 py-6 [&_h1]:text-[30px] [&_h1]:max-[760px]:text-[26px] [&_h1]:font-bold [&_h1]:leading-[1.2] [&_h1]:tracking-[-0.8px] [&_h1]:mb-[9px] [&_h1]:text-[color:var(--v8-text)] [&_h2]:text-[16px] [&_h2]:font-bold [&_h2]:leading-[1.35] [&_h2]:tracking-[-0.2px] [&_h2]:mb-[14px] [&_h2]:text-[color:var(--v8-text)] [&_button]:px-[13px]">
+        <nav class="breadcrumb" aria-label="Brotkrumennavigation">
+            <a href="{{ url_for('recordings.index') }}">Speakr</a><span aria-hidden="true">›</span><span>Zugriff</span><span aria-hidden="true">›</span><span aria-current="page">{{ t('authPages.loginTitle') }}</span>
+        </nav>
         <div class="pagehead">
             <div>
                 <div class="eyebrow">Zugriff</div>
-                <h1>{{ t('authPages.loginTitle') }}</h1>
+                <h1 class="[font-family:Inter,Segoe_UI,Arial,sans-serif]">{{ t('authPages.loginTitle') }}</h1>
                 <p class="subline">Lokale Anmeldung am Arbeitsplatz. Der Zugriff richtet sich nach Ihrer Rolle und Ihren Berechtigungen.</p>
             </div>
             <div class="head-actions"></div>
@@ -85,7 +88,9 @@
 
                     {% with messages = get_flashed_messages(with_categories=true) %}
                         {% for category, message in messages %}
-                            <div class="note {% if category == 'danger' %}burgundy{% elif category != 'success' %}warning{% endif %}" role="{{ 'alert' if category == 'danger' else 'status' }}" style="margin-top:0;margin-bottom:16px">{{ message }}</div>
+                            <div class="note {% if category == 'danger' %}burgundy{% elif category != 'success' %}warning [.dark_&]:!bg-[var(--v8-s2)] [[data-theme=dark]_&]:!bg-[var(--v8-s2)] [.dark_&]:!border-[color:var(--line)] [[data-theme=dark]_&]:!border-[color:var(--line)]{% endif %}
+                                        {% if category != 'success' %}[.dark_&]:!text-[color:var(--v8-text)] [[data-theme=dark]_&]:!text-[color:var(--v8-text)]{% endif %}"
+                                 role="{{ 'alert' if category == 'danger' else 'status' }}" style="margin-top:0;margin-bottom:16px">{{ message }}</div>
                         {% endfor %}
                     {% endwith %}
 

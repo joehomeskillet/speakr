@@ -362,10 +362,12 @@ export function createOfflineViewController(options) {
 
 // Class bundles for the V8 look: the app's utility reset wins over the element rules of clinic-v8.css, so headings and the
 // primary button carry their sizes here.
-const HEADINGS = '[&_h1]:text-[30px] [&_h1]:max-[760px]:text-[26px] [&_h1]:font-bold [&_h1]:leading-[1.2] [&_h1]:tracking-[-0.8px] [&_h1]:mb-[9px] [&_h1]:text-[color:var(--v8-text)] '
+const HEADINGS = '[&_h1]:[font-family:Inter,Segoe_UI,Arial,sans-serif] [&_h1]:text-[30px] [&_h1]:max-[760px]:text-[26px] [&_h1]:font-bold [&_h1]:leading-[1.2] [&_h1]:tracking-[-0.8px] [&_h1]:mb-[9px] [&_h1]:text-[color:var(--v8-text)] '
     + '[&_h2]:text-[16px] [&_h2]:font-bold [&_h2]:leading-[1.35] [&_h2]:tracking-[-0.2px] [&_h2]:mb-[14px] [&_h2]:text-[color:var(--v8-text)] [&_button]:px-[13px]';
 const DANGER = 'danger max-[760px]:min-h-11 [.dark_&]:!text-[color:var(--v8-text)] [.dark_&]:!border-[color:var(--burgundy)] [[data-theme=dark]_&]:!text-[color:var(--v8-text)] [[data-theme=dark]_&]:!border-[color:var(--burgundy)]';
 const NOTE_BURGUNDY = 'note burgundy [.dark_&]:!text-[color:var(--v8-text)] [[data-theme=dark]_&]:!text-[color:var(--v8-text)]';
+const NOTE_WARNING = 'note warning [.dark_&]:!bg-[var(--v8-s2)] [.dark_&]:!border-[color:var(--line)] [.dark_&]:!text-[color:var(--v8-text)] '
+    + '[[data-theme=dark]_&]:!bg-[var(--v8-s2)] [[data-theme=dark]_&]:!border-[color:var(--line)] [[data-theme=dark]_&]:!text-[color:var(--v8-text)]';
 const PRIMARY = 'primary max-[760px]:min-h-11 !bg-[var(--ink)] !border-[color:var(--ink)] !text-[13px] !font-semibold !px-[13px] hover:!bg-[var(--brand2)]';
 
 export const OfflineView = {
@@ -401,7 +403,7 @@ export const OfflineView = {
         if (typeof V.onMounted === 'function') V.onMounted(() => { c.start(); });
         if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => c.dispose());
         const s = c.state;
-        const noticeClass = () => (s.noticeKind === 'error' ? NOTE_BURGUNDY : s.noticeKind === 'warning' ? 'note warning' : 'note');
+        const noticeClass = () => (s.noticeKind === 'error' ? NOTE_BURGUNDY : s.noticeKind === 'warning' ? NOTE_WARNING : 'note');
         const profileLabel = () => PROFILE_LABELS[s.profile] || 'Nicht freigegebenes Profil';
         const contact = () => (s.lastContact ? s.lastContact.toLocaleTimeString('de-CH') : TEXT.noContact);
         const submit = () => c.unlock(props.getWrapped ? props.getWrapped() : null);
@@ -409,6 +411,9 @@ export const OfflineView = {
     },
     template: `
 <section class="clinic-offline v8-page" :class="HEADINGS" aria-labelledby="clinic-offline-title">
+  <nav class="breadcrumb" aria-label="Brotkrumennavigation">
+    <a href="#/aufnahmen">Speakr</a><span aria-hidden="true">›</span><span>{{ TEXT.eyebrow }}</span><span aria-hidden="true">›</span><span aria-current="page">{{ TEXT.title }}</span>
+  </nav>
   <div class="pagehead">
     <div>
       <div class="eyebrow">{{ TEXT.eyebrow }}</div>
@@ -439,7 +444,7 @@ export const OfflineView = {
                 </tr>
                 <tr v-if="s.pendingDiscard === d.key">
                   <td colspan="2" class="whitespace-normal">
-                    <div class="note warning !mt-0" role="alert" data-testid="discard-confirm">
+                    <div class="${NOTE_WARNING} !mt-0" role="alert" data-testid="discard-confirm">
                       <p>{{ TEXT.discardWarn }}</p>
                       <div class="actions">
                         <button type="button" :class="DANGER" data-testid="discard-yes" @click="c.confirmDiscard()">{{ TEXT.discardConfirm }}</button>
