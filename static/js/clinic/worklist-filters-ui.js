@@ -40,7 +40,7 @@ export const LABELS = Object.freeze({
     op: 'Operator',
     value: 'Wert',
     search: 'Metadatensuche',
-    filter: 'Filter',
+    filter: 'Erweiterte Filter',
     editor: 'Filter bearbeiten',
     activeCount: 'Aktive Bedingungen',
     noConditions: 'Noch keine Bedingung. Mit «Bedingung hinzufügen» lässt sich der Filter eingrenzen.',
@@ -368,78 +368,81 @@ export const WorklistFiltersPanel = {
     },
     mounted() { if (!this.s.loaded) this.controller.load(); },
     template: `
-<section aria-labelledby="wf-title" class="wf-panel" :aria-busy="s.loading || s.busy ? 'true' : 'false'">
+<section aria-labelledby="wf-title" class="wf-panel workspace-top" :aria-busy="s.loading || s.busy ? 'true' : 'false'">
   <h2 id="wf-title" class="cl-sr-only">{{ labels.title }}</h2>
-  <div class="cl-toolbar" data-testid="filter-toolbar">
-    <div class="cl-toolbar__group" data-testid="refresh-bar">
+  <div class="viewline" data-testid="filter-toolbar">
+    <div data-testid="refresh-bar">
       <slot name="start"></slot>
     </div>
-    <span class="cl-toolbar__spacer" aria-hidden="true"></span>
-    <div class="cl-toolbar__search">
-      <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
-      <label for="wf-search" class="cl-sr-only">{{ labels.search }}</label>
-      <input id="wf-search" type="search" class="field" maxlength="200" autocomplete="off" :placeholder="labels.search" :value="s.query"
-             @keydown.enter.prevent="controller.setQuery($event.target.value)"
-             @change="controller.setQuery($event.target.value)">
-    </div>
-    <div class="cl-toolbar__group">
-      <button type="button" class="btn btn--ghost cl-btn" data-testid="filter-toggle" aria-controls="wf-editor"
-              :aria-expanded="open ? 'true' : 'false'" @click="open = !open">
-        <i class="fa-solid fa-sliders" aria-hidden="true"></i>{{ labels.filter }}
-        <span v-if="activeCount" class="cl-badge" data-testid="filter-count"><span class="cl-sr-only">{{ labels.activeCount }}: </span>{{ activeCount }}</span>
-      </button>
+    <div class="viewcontrols">
+      <slot name="end"></slot>
       <label for="wf-select" class="cl-sr-only">{{ labels.select }}</label>
-      <select id="wf-select" class="field cl-select" :value="s.selectedId || ''" @change="controller.select($event.target.value || null)">
+      <select id="wf-select" class="select field" style="width: auto; height: auto; margin: 0; min-height: 34px; appearance: auto" :value="s.selectedId || ''" @change="controller.select($event.target.value || null)">
         <option value="">{{ labels.none }}</option>
         <option v-for="f in s.filters" :key="f.id" :value="f.id">{{ f.name }}</option>
       </select>
-      <slot name="end"></slot>
+      <button type="button" class="icon-btn" data-testid="filter-toggle" aria-controls="wf-editor"
+              :aria-expanded="open ? 'true' : 'false'" @click="open = !open">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>{{ labels.filter }}
+        <span v-if="activeCount" class="num-circle" data-testid="filter-count"><span class="cl-sr-only">{{ labels.activeCount }}: </span>{{ activeCount }}</span>
+      </button>
     </div>
+  </div>
+  <div class="toolbar">
+    <label for="wf-search" class="searchwrap">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>
+      <span class="cl-sr-only">{{ labels.search }}</span>
+      <input id="wf-search" type="search" maxlength="200" autocomplete="off" :placeholder="labels.search" :value="s.query"
+             style="min-height: 0; padding: 0; border: 0; border-radius: 0; box-shadow: none; background: transparent"
+             @keydown.enter.prevent="controller.setQuery($event.target.value)"
+             @change="controller.setQuery($event.target.value)">
+    </label>
+    <slot name="toolbar"></slot>
   </div>
   <div role="status" aria-live="polite">
-    <p v-if="s.message && !s.error" class="cl-note cl-hint">{{ s.message }}</p>
+    <p v-if="s.message && !s.error" class="note" style="margin: 12px 0 0">{{ s.message }}</p>
   </div>
-  <p v-if="s.error" role="alert" class="cl-error" :style="errorStyle">{{ s.message }}
-    <button type="button" class="btn btn--ghost btn--sm" v-if="s.error === 'network'" @click="controller.load()">{{ labels.reload }}</button>
+  <p v-if="s.error" role="alert" class="note burgundy" :style="errorStyle">{{ s.message }}
+    <button type="button" class="secondary" v-if="s.error === 'network'" @click="controller.load()">{{ labels.reload }}</button>
   </p>
-  <div v-show="open" id="wf-editor" class="cl-panel" :style="boxStyle" data-testid="filter-editor">
-    <div class="cl-panel__head">
-      <h3 class="cl-panel__title">{{ labels.editor }}</h3>
-      <p id="wf-count" aria-live="polite" class="cl-hint">{{ countLabel }}</p>
+  <div v-show="open" id="wf-editor" class="advanced show" data-testid="filter-editor">
+    <div class="cl-panel__head" style="flex: 1 1 100%">
+      <h3 class="cl-panel__title" style="margin: 0">{{ labels.editor }}</h3>
+      <p id="wf-count" aria-live="polite" class="hint" style="margin: 0">{{ countLabel }}</p>
     </div>
-    <form @submit.prevent="controller.save(false)" novalidate>
+    <form @submit.prevent="controller.save(false)" novalidate style="flex: 1 1 100%; min-width: 0">
       <label for="wf-name" class="cl-label cl-namefield">{{ labels.name }}
-        <input id="wf-name" type="text" class="field" maxlength="60" autocomplete="off" v-model="s.draft.name"
+        <input id="wf-name" type="text" class="field" style="margin: 0" maxlength="60" autocomplete="off" v-model="s.draft.name"
                :readonly="!s.specLoaded"
                :aria-invalid="s.error === 'name_required' || s.error === 'name_too_long' ? 'true' : 'false'">
       </label>
-      <p v-if="!s.draft.conditions.length" class="cl-hint cl-hint--pad">{{ labels.noConditions }}</p>
+      <p v-if="!s.draft.conditions.length" class="hint" style="margin: 10px 0 0">{{ labels.noConditions }}</p>
       <div class="cl-conditions">
-        <fieldset v-for="(c, i) in s.draft.conditions" :key="i" class="cl-condition">
+        <fieldset v-for="(c, i) in s.draft.conditions" :key="i" class="cl-condition" style="background: var(--v8-s1); border-color: var(--line)">
           <legend>{{ labels.fields[c.field] || c.field }}</legend>
           <label :for="'wf-f' + i" class="cl-label">{{ labels.field }}
-            <select :id="'wf-f' + i" class="field" v-model="c.field">
+            <select :id="'wf-f' + i" class="field" style="margin: 0" v-model="c.field">
               <option v-for="f in fields" :key="f" :value="f">{{ labels.fields[f] }}</option>
             </select>
           </label>
           <label :for="'wf-o' + i" class="cl-label">{{ labels.op }}
-            <select :id="'wf-o' + i" class="field" v-model="c.op">
+            <select :id="'wf-o' + i" class="field" style="margin: 0" v-model="c.op">
               <option v-for="o in operators" :key="o" :value="o">{{ labels.ops[o] }}</option>
             </select>
           </label>
           <label v-if="c.op !== 'is_null'" :for="'wf-v' + i" class="cl-label">{{ labels.value }}
-            <input :id="'wf-v' + i" type="text" class="field" autocomplete="off" v-model="c.value">
+            <input :id="'wf-v' + i" type="text" class="field" style="margin: 0" autocomplete="off" v-model="c.value">
           </label>
           <span v-else></span>
-          <button type="button" class="btn btn--ghost" @click="controller.removeCondition(i)"><i class="fa-solid fa-xmark" aria-hidden="true"></i>{{ labels.removeCondition }}</button>
+          <button type="button" class="secondary" @click="controller.removeCondition(i)">{{ labels.removeCondition }}</button>
         </fieldset>
       </div>
       <div class="cl-panel__foot">
-        <button type="button" class="btn btn--ghost" @click="controller.addCondition()"><i class="fa-solid fa-plus" aria-hidden="true"></i>{{ labels.addCondition }}</button>
+        <button type="button" class="secondary" @click="controller.addCondition()">{{ labels.addCondition }}</button>
         <span class="cl-toolbar__spacer" aria-hidden="true"></span>
-        <button type="submit" class="btn btn--primary" :disabled="s.busy || !s.specLoaded">{{ labels.save }}</button>
-        <button type="button" class="btn btn--ghost" :disabled="s.busy || !s.specLoaded || s.limitReached || !s.selectedId" @click="controller.save(true)">{{ labels.saveNew }}</button>
-        <button type="button" class="btn btn--ghost" :disabled="s.busy || !s.specLoaded || !s.selectedId" @click="controller.remove()"><i class="fa-regular fa-trash-can" aria-hidden="true"></i>{{ labels.remove }}</button>
+        <button type="submit" class="primary" :disabled="s.busy || !s.specLoaded">{{ labels.save }}</button>
+        <button type="button" class="secondary" :disabled="s.busy || !s.specLoaded || s.limitReached || !s.selectedId" @click="controller.save(true)">{{ labels.saveNew }}</button>
+        <button type="button" class="secondary" :disabled="s.busy || !s.specLoaded || !s.selectedId" @click="controller.remove()">{{ labels.remove }}</button>
       </div>
     </form>
   </div>
