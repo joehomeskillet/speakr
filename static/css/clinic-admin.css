@@ -62,6 +62,7 @@
     color: var(--text-muted);
 }
 .cadm-nav__item {
+    box-sizing: border-box;
     appearance: none;
     display: block;
     width: 100%;
