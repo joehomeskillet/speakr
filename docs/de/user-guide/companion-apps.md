@@ -20,6 +20,8 @@ Der Importagent überträgt Dateien von freigegebenen Geräten und Ordnern unver
 
 ![Bestätigung der gespeicherten HTTPS-Serveradresse](../../images/clinic/windows-import-gespeichert.png)
 
+Für den reinen Dialogtest genügt ein eigener Ordner. Wird der Agent als Dienst betrieben, dürfen nur berechtigte Betreiber in den Installationsordner schreiben.
+
 Die Einstellung wird als `import-server.json` neben der EXE gespeichert. Zum erneuten Öffnen des Dialogs können Sie in PowerShell `.\Speakr-Import-win-x64-preview.exe --configure` aufrufen.
 
 Die Adresse lässt sich auch vor der Registrierung eingeben. Nach einer neuen Stationszuordnung muss das Ziel erneut bestätigt werden. Die zuständige Stelle muss den Agenten registrieren, sein Clientzertifikat bereitstellen und die vorgesehenen Quellen freigeben.

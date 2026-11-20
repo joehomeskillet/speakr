@@ -10,7 +10,7 @@ Download the [standalone preview executable](https://github.com/joehomeskillet/s
 Get-FileHash -Algorithm SHA256 .\Speakr-Import-win-x64-preview.exe
 ```
 
-Follow the illustrated instructions in [Deutsch](../../docs/de/user-guide/companion-apps.md#windows-importagent) or [English](../../docs/user-guide/companion-apps.md#windows-import-agent) to set the clinic's HTTPS server address. Open the verified EXE in a writable folder or run `.\Speakr-Import-win-x64-preview.exe --configure`. Saving writes `import-server.json` beside the EXE. A working import also requires a registered machine identity, a client certificate and approved sources.
+Follow the illustrated instructions in [Deutsch](../../docs/de/user-guide/companion-apps.md#windows-importagent) or [English](../../docs/user-guide/companion-apps.md#windows-import-agent) to set the clinic's HTTPS server address. Open the verified EXE in a writable folder or run `.\Speakr-Import-win-x64-preview.exe --configure`. Saving writes `import-server.json` beside the EXE. For a dialog-only test, a separate portable folder is enough. In a service installation, restrict write access to authorized operators. A working import also requires a registered machine identity, a client certificate and approved sources.
 
 ## Scope
 

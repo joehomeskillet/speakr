@@ -20,6 +20,8 @@ The import agent sends files from approved recorders and folders to your clinic 
 
 ![Confirmation that the HTTPS server address was saved](../images/clinic/windows-import-gespeichert.png)
 
+For a dialog-only test, use a separate portable folder. When running the agent as a service, restrict write access to the installation folder to authorized operators.
+
 The setting is saved as `import-server.json` next to the executable. To reopen the dialog from PowerShell, run `.\Speakr-Import-win-x64-preview.exe --configure`.
 
 You can enter the address before registration. Confirm the destination again if the workstation is assigned a new identity. Before a transfer can succeed, your operator must register the agent, provide its client certificate and approve its source folders or devices.
