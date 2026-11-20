@@ -43,7 +43,7 @@ export const TEXT = Object.freeze({
     forbidden: 'Keine Berechtigung für den Wortschatz.',
     failed: 'Der Wortschatz konnte nicht geladen werden.',
     retry: 'Erneut versuchen',
-    empty: 'Noch keine Wörter in Ihrer persönlichen Liste. Wörter können Sie unten hinzufügen oder importieren.',
+    empty: 'Noch keine Wörter für diese Auswahl.',
 });
 
 const PROBE = '/vocabulary/search?scope=user&q=&mode=contains&status=all';
@@ -152,7 +152,6 @@ export const VOCABULARY_VIEW_TEMPLATE = `
   <p v-else-if="state.status === 'error'" role="alert" data-testid="load-error" class="note burgundy" :style="errorStyle">${TEXT.failed} {{ state.message }}
     <button type="button" class="small" @click="load()">${TEXT.retry}</button></p>
   <template v-else>
-    <p v-if="state.empty" role="status" data-testid="empty" class="note">${TEXT.empty}</p>
     <div class="tabs" role="tablist" style="overflow-x:auto" aria-label="${TEXT.tablist}" @keydown="onKey">
       <button v-for="t in tabs" :key="t.id" type="button" role="tab" :id="'cvv-tab-' + t.id"
         :aria-selected="state.active === t.id ? 'true' : 'false'" :aria-controls="'cvv-panel-' + t.id"
@@ -160,7 +159,11 @@ export const VOCABULARY_VIEW_TEMPLATE = `
     </div>
     <div role="tabpanel" :id="'cvv-panel-' + state.active" :aria-labelledby="'cvv-tab-' + state.active">
       <div class="panel" style="overflow-x:auto">
-        <component :is="activeComponent" v-bind="activeProps" :key="state.epoch + ':' + state.active"></component>
+        <component :is="activeComponent" v-bind="activeProps" :key="state.epoch + ':' + state.active">
+          <template #empty="{ scope, query }"><span data-testid="empty">{{ query.q
+            ? 'Keine passenden Wörter für diese Suche.'
+            : scope.kind === 'pool' ? 'Keine passenden Wörter in diesem Autorenpool.' : text.empty }}</span></template>
+        </component>
       </div>
     </div>
   </template>
@@ -214,7 +217,7 @@ export const VocabularyView = {
             if (tab) tab.focus();
         }
         return {
-            state: ctrl.state, tabs: TABS, select: ctrl.select, load: ctrl.load, onKey,
+            state: ctrl.state, text: TEXT, tabs: TABS, select: ctrl.select, load: ctrl.load, onKey,
             activeComponent, activeProps, errorStyle: box('error'),
         };
     },
