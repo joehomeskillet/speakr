@@ -1339,8 +1339,8 @@ def register_clinic_audio(flask_app):
     import threading
 
     from src.clinic import (audio_revisions, config, local_tts, policy, pool_policy, revisions, routes_audio,
-                            routes_bundle, routes_correction, routes_dictation_properties, routes_live,
-                            routes_tts, startup)
+                            routes_bundle, routes_clipboard, routes_correction, routes_dictation_properties,
+                            routes_live, routes_output, routes_tts, startup)
     from src.clinic.admin_dictation_access import can_open_content
     from src.clinic.ingest import IngestService
     from src.clinic.models import ClinicDictation, ClinicTranscriptRevision
@@ -1350,7 +1350,7 @@ def register_clinic_audio(flask_app):
     # Handler action name -> central policy actions that must all be allowed.
     needs = {
         'play': ('play',), 'edit': ('edit',), 'export': ('export',), 'import': ('edit',),
-        'correction_read': ('view',), 'correction_edit': ('edit',),
+        'correction_read': ('view',), 'correction_edit': ('edit',), 'clipboard': ('export',),
     }
 
     def may(user_id, name, dictation):
@@ -1436,6 +1436,12 @@ def register_clinic_audio(flask_app):
         IngestService(startup.originals_root(flask_app))))
     flask_app.register_blueprint(routes_correction.create_blueprint(authorize=lambda user, name, dictation: may(user.id, name, dictation), run_once=run_once))
     flask_app.register_blueprint(routes_tts.TtsApi(tts_load, lambda: None, None).blueprint)
+    flask_app.register_blueprint(routes_clipboard.create_blueprint(
+        authorize=lambda user, name, dictation: may(user.id, name, dictation),
+        source_for=routes_output.output_source, ledger={}))
+    flask_app.register_blueprint(routes_output.create_blueprint(
+        authorize=lambda user, name, dictation: may(user.id, name, dictation),
+        adapter_for=lambda: routes_output.configured_adapter(flask_app)))
 
 
 from src.clinic.config import clinic_mode_enabled as _clinic_mode_enabled
