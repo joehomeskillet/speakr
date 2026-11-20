@@ -1279,6 +1279,12 @@ def register_clinic_worklist(flask_app):
         lambda actor, action, dictation_id: may(actor, action, db.session.get(ClinicDictation, dictation_id)),
         assign_regex).blueprint)
 
+    # --- v8-131: staging Fall-ID context ---
+    from src.clinic import routes_context, routes_output
+
+    flask_app.register_blueprint(routes_context.create_blueprint(
+        authorize=workflow_authorize, adapter_for=lambda: routes_output.configured_adapter(flask_app)))
+
     # --- v8-74: acceptance policy publication (start) ---
     # An active site admin publishes the approvers (W12: full access, no extra step); every other user
     # is refused with an audited 403. Read needs the shared policy action 'view' or an active admin.
