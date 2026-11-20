@@ -3,7 +3,7 @@
  * recorder composable (static/js/modules/composables/audio.js).
  *
  * The recorder is injected, so its state and upload stay the single source.
- * A dictation counts as sent only when the upload resolves with a server
+ * A draft counts as saved only when the upload resolves with a server
  * receipt (an object carrying an id). A rejected, interrupted or receipt-less
  * upload ends in `failed` and can be retried. Title and audio stay in memory;
  * nothing is written to browser storage. Colours come from tokens.js.
@@ -22,12 +22,12 @@ export const LABELS = Object.freeze({
     stop: 'Aufnahme beenden',
     rewind: 'Zurückspulen',
     play: 'Abspielen',
-    send: 'Senden',
+    send: 'Entwurf sichern',
     retry: 'Erneut senden',
     cancel: 'Abbrechen',
-    sent: 'Gesendet',
-    failed: 'Senden fehlgeschlagen. Das Diktat wurde nicht gesendet.',
-    sending: 'Wird gesendet',
+    sent: 'Gespeichert',
+    failed: 'Der Server hat das Speichern des Entwurfs nicht bestätigt.',
+    sending: 'Entwurf wird gesichert …',
     unauthorized: 'Keine Berechtigung für diese Aktion.',
 });
 
@@ -36,10 +36,12 @@ const STATUS = Object.freeze({
     review: 'pending', sending: 'processing', sent: 'success', failed: 'error',
 });
 
-function hasReceipt(value) {
-    if (!value || typeof value !== 'object') return false;
-    const id = value.id ?? value.recording_id ?? value.recordingId;
-    return (typeof id === 'string' && id !== '') || (Number.isInteger(id) && id >= 0);
+/** Clinic dictation id, or the stored recording id on a legacy upload receipt. */
+export function receiptDictationId(value) {
+    if (!value || typeof value !== 'object') return null;
+    const id = value.dictation_id ?? value.id ?? value.recording_id ?? value.recordingId;
+    if (typeof id === 'string' && id.trim()) return id;
+    return Number.isInteger(id) && id >= 0 ? String(id) : null;
 }
 
 /** Use the stock capture controls and send the finished microphone take through the clinic file upload. */
@@ -68,7 +70,7 @@ export function createClinicRecorder(audio, state, uploadFile) {
             const type = state.mediaRecorder.value.mimeType.split(';')[0];
             const file = new File(chunks, 'aufnahme.webm', { type });
             const receipt = await uploadFile(file, title);
-            if (!hasReceipt(receipt)) throw new Error('no_receipt');
+            if (receiptDictationId(receipt) === null) throw new Error('no_receipt');
             // A new take gets its own chunk array as soon as capture starts.
             if (state.audioChunks.value === chunks) await audio.clearRecording();
             return receipt;
@@ -176,7 +178,7 @@ export function createRecorderPhases(options) {
             receipt = null;
         }
         if (mine !== generation) return denied('stale');
-        if (!hasReceipt(receipt)) {
+        if (receiptDictationId(receipt) === null) {
             set({ phase: 'failed', error: 'no_receipt' });
             return denied('no_receipt');
         }

@@ -27,9 +27,10 @@
  * dictation_id); it is supplied by the mount package together with the recorder.
  */
 
-import { createRecorderPhases } from './recorder-phases-ui.js';
+import { createRecorderPhases, LABELS, receiptDictationId } from './recorder-phases-ui.js';
 import { surfaceFor } from './tokens.js';
 
+export { receiptDictationId };
 export const COMPOSE_RECORDING_VERSION = 1;
 
 // clinic-v8.css states heading, button and form-control styles with zero-specificity element selectors; the Tailwind
@@ -52,13 +53,17 @@ export const TEXT = Object.freeze({
     file: 'Audiodatei',
     fileSelected: 'Ausgewählte Datei',
     fileInvalid: 'Bitte eine nicht leere Audiodatei wählen.',
-    upload: 'Hochladen',
-    uploading: 'Wird hochgeladen',
+    upload: LABELS.send,
+    uploading: LABELS.sending,
     recordingControls: 'Aufnahmesteuerung',
     startFailed: 'Die Aufnahme konnte nicht gestartet werden. Bitte die Mikrofonfreigabe im Browser prüfen oder eine Datei hochladen.',
-    recordFailed: 'Senden fehlgeschlagen. Das Diktat wurde nicht gesendet. Die Aufnahme wird nicht lokal gespeichert.',
-    fileFailed: 'Hochladen fehlgeschlagen. Das Diktat wurde nicht gesendet. Die Audiodatei wird nicht lokal gespeichert.',
-    sent: 'Das Diktat wurde gesendet.',
+    recordFailed: 'Senden fehlgeschlagen. Der Entwurf wurde nicht gesendet. Die Aufnahme wird nicht lokal gespeichert.',
+    fileFailed: 'Hochladen fehlgeschlagen. Der Entwurf wurde nicht gesendet. Die Audiodatei wird nicht lokal gespeichert.',
+    sent: 'Gespeichert. Noch nicht an den Schreibdienst gesendet.',
+    submit: 'Einreichen',
+    submitting: 'Diktat wird eingereicht …',
+    submitted: 'Eingereicht.',
+    submitUnknown: 'Einreichung nicht bestätigt. Bitte erneut versuchen.',
     created: 'Erstelltes Diktat',
     toWorklist: 'Zur Arbeitsliste',
     open: 'Öffnen',
@@ -70,7 +75,7 @@ export const TEXT = Object.freeze({
     info: 'Aufnahmeinformationen',
     authorHint: 'Angemeldete Person. Sie kann hier nicht geändert werden.',
     titleHint: 'Ein Titel ist erforderlich, bevor die Aufnahme startet.',
-    storageNote: 'Ton und Titel bleiben im Arbeitsspeicher des Browsers. Es wird nichts lokal gespeichert, bis das Diktat gesendet ist.',
+    storageNote: '„Entwurf sichern“ speichert die Aufnahme auf dem Server. Mit „Einreichen“ geben Sie sie an den Schreibdienst weiter.',
     state: 'Stand',
     noValue: '–',
     cancel: 'Abbrechen',
@@ -82,10 +87,10 @@ export const PHASE_CAPTIONS = Object.freeze({
     ready: 'Bereit zur Aufnahme',
     recording: 'Aufnahme läuft',
     paused: 'Pausiert',
-    review: 'Aufnahme beendet, bereit zum Senden',
-    sending: 'Wird gesendet',
-    sent: 'Gesendet',
-    failed: 'Senden fehlgeschlagen',
+    review: 'Aufnahme beendet · Entwurf noch nicht gesichert',
+    sending: LABELS.sending,
+    sent: LABELS.sent,
+    failed: 'Speicherung nicht bestätigt',
     idle: 'Keine Datei gewählt',
     selected: 'Datei gewählt',
 });
@@ -113,13 +118,12 @@ export function isAudioFile(file) {
     return type.startsWith('audio/') || AUDIO_EXTENSION.test(String(file.name || ''));
 }
 
-/** Dictation id of a server receipt, or null. */
-export function receiptDictationId(receipt) {
-    if (!receipt || typeof receipt !== 'object') return null;
-    const id = receipt.dictation_id ?? receipt.id ?? receipt.recording_id ?? receipt.recordingId;
-    if (typeof id === 'string' && id !== '') return id;
-    return Number.isInteger(id) && id >= 0 ? String(id) : null;
-}
+const SEND_REFUSALS = Object.freeze({
+    AUDIO_REQUIRED: 'Für diesen Entwurf liegt keine gültige Audiofassung vor.',
+    NOT_DRAFT: 'Das Diktat ist kein neuer Entwurf mehr. Bitte den aktuellen Stand öffnen.',
+    NO_STAFF_POOL: 'Kein Schreibkräfte-Pool zugeordnet.',
+    STALE_VERSION: 'Der Entwurf wurde geändert. Bitte den aktuellen Stand prüfen.',
+});
 
 function displayName(user) {
     const name = user.display_name || user.name || user.username || '';
@@ -145,6 +149,9 @@ export function createRecordingViewController(options) {
     const listeners = new Set();
     const state = { mode: 'record', file: null, filePhase: 'idle', fileError: null, fileReceipt: null, disposed: false };
     let fileGeneration = 0;
+    let submission = null;
+    let submitError = '';
+    let pendingSend = null;
 
     const notify = () => { for (const listener of listeners) listener(); };
     machine.subscribe(notify);
@@ -208,13 +215,59 @@ export function createRecordingViewController(options) {
         return { ok: true };
     }
 
-    /** Receipt of the created dictation, or null while nothing was sent. */
+    function receipt() {
+        return state.mode === 'file' ? state.fileReceipt : machine.getState().receipt;
+    }
+
     function created() {
-        const receipt = state.mode === 'file'
-            ? (state.filePhase === 'sent' ? state.fileReceipt : null)
-            : (machine.getState().phase === 'sent' ? machine.getState().receipt : null);
-        const id = receiptDictationId(receipt);
+        const id = receiptDictationId(receipt());
         return id === null ? null : { dictationId: id };
+    }
+
+    // The numeric recording id on older upload receipts is not a workflow target.
+    function canSubmit() {
+        const id = receipt()?.dictation_id;
+        return typeof id === 'string' && !!id.trim() && typeof client?.request === 'function'
+            && allowed() && !state.disposed && !submission;
+    }
+
+    async function submit() {
+        if (!canSubmit()) return denied('invalid_phase');
+        const id = receipt().dictation_id;
+        const path = '/dictations/' + encodeURIComponent(id);
+        submission = 'submitting';
+        submitError = '';
+        notify();
+        try {
+            if (!pendingSend) {
+                const detail = await client.request(path + '/detail');
+                if (detail.outcome !== 'ok' || detail.data?.dictation_id !== id || !detail.data.etag) {
+                    submitError = detail.message || 'Der aktuelle Diktatstand konnte nicht geladen werden.';
+                    return denied('detail_unavailable');
+                }
+                pendingSend = { idempotencyKey: globalThis.crypto.randomUUID(), ifMatch: detail.data.etag };
+            }
+            if (state.disposed || !allowed()) return denied('cancelled');
+            const res = await client.request(path + '/send', { method: 'POST', body: {}, ...pendingSend });
+            if (state.disposed) return denied('cancelled');
+            if (res.outcome === 'ok' && res.data?.dictation_id === id && res.data.status) {
+                submission = 'submitted';
+                return { ok: true };
+            }
+            if (['conflict', 'permission', 'validation'].includes(res.outcome)) {
+                pendingSend = null;
+                submitError = SEND_REFUSALS[res.code] || res.message;
+            }
+            return denied(res.code || 'unconfirmed');
+        } catch {
+            return denied('unconfirmed');
+        } finally {
+            if (submission !== 'submitted') {
+                submission = null;
+                submitError ||= TEXT.submitUnknown;
+            }
+            if (!state.disposed) notify();
+        }
     }
 
     /** Opens the created dictation in the page; false when none was created. */
@@ -233,7 +286,10 @@ export function createRecordingViewController(options) {
 
     /** Starts the next dictation from a clean state after a successful send. */
     function another() {
-        if (!created()) return denied('invalid_phase');
+        if (!created() || submission === 'submitting') return denied('invalid_phase');
+        submission = null;
+        submitError = '';
+        pendingSend = null;
         Object.assign(state, { file: null, filePhase: 'idle', fileError: null, fileReceipt: null });
         if (machine.getState().phase === 'sent') machine.reset();
         if (client && typeof client.switchContext === 'function') client.switchContext({});
@@ -247,6 +303,8 @@ export function createRecordingViewController(options) {
 
     function message() {
         if (!allowed()) return TEXT.denied;
+        if (submission) return TEXT[submission];
+        if (submitError) return submitError;
         const s = machine.getState();
         if (state.mode === 'file') {
             if (state.filePhase === 'sending') return TEXT.uploading;
@@ -262,6 +320,8 @@ export function createRecordingViewController(options) {
     }
 
     function surface() {
+        if (submitError) return surfaceFor('error');
+        if (submission === 'submitting') return surfaceFor('processing');
         if (state.mode !== 'file') return machine.surface();
         const status = { idle: 'normal', selected: 'pending', sending: 'processing', sent: 'success', failed: 'error' }[state.filePhase];
         return surfaceFor(status);
@@ -273,7 +333,8 @@ export function createRecordingViewController(options) {
         const fileBusy = state.filePhase === 'sending' || state.filePhase === 'sent';
         return {
             mode: state.mode,
-            phase: phase(),
+            phase: submission || phase(),
+            canSubmit: canSubmit(),
             author: displayName(user),
             authorId: String(user.id),
             title: s.title,
@@ -319,7 +380,7 @@ export function createRecordingViewController(options) {
         start: () => machine.start(), pause: () => machine.pause(), resume: () => machine.resume(),
         stop: () => machine.stop(), rewind: () => machine.rewind(), play: () => machine.play(),
         send: () => machine.send(), cancel: () => machine.cancel(),
-        selectFile, sendFile, cancelFile,
+        selectFile, sendFile, cancelFile, submit,
         openCreated, toWorklist, another, dispose,
     };
 }
@@ -398,12 +459,13 @@ export const RECORDING_TEMPLATE = `
         </template>
         <p role="status" aria-live="polite" class="text-status" :class="{ error: m.surface.status === 'error' }" style="margin-top: 12px" data-testid="status">{{ m.message }}</p>
         <div v-if="m.created" data-testid="created">
-          <div class="note"><span class="tag neutral dot">{{ c.text.created }}</span> <strong data-testid="created-id">{{ m.created.dictationId }}</strong></div>
+          <div class="note"><span class="tag neutral dot">{{ c.text.created }}</span> <strong class="break-all" data-testid="created-id">{{ m.created.dictationId }}</strong></div>
           <hr class="separator">
           <div class="actions text-sm">
-            <button type="button" class="button" style="min-height: 2.75rem; ${PRIMARY}" data-testid="to-worklist" @click="c.toWorklist()">{{ c.text.toWorklist }}</button>
-            <button type="button" class="button" style="min-height: 2.75rem" data-testid="open-created" @click="c.openCreated()">{{ c.text.open }}</button>
-            <button type="button" class="button" style="min-height: 2.75rem" data-testid="another" @click="c.another()">{{ c.text.another }}</button>
+            <button v-if="m.phase !== 'submitted'" type="button" class="btn btn--primary" style="min-height: 2.75rem" data-testid="submit-draft" :disabled="!m.canSubmit" @click="c.submit()">{{ c.text.submit }}</button>
+            <button type="button" class="button" style="min-height: 2.75rem" data-testid="to-worklist" :disabled="m.phase === 'submitting'" @click="c.toWorklist()">{{ c.text.toWorklist }}</button>
+            <button type="button" class="button" style="min-height: 2.75rem" data-testid="open-created" :disabled="m.phase === 'submitting'" @click="c.openCreated()">{{ c.text.open }}</button>
+            <button type="button" class="button" style="min-height: 2.75rem" data-testid="another" :disabled="m.phase === 'submitting'" @click="c.another()">{{ c.text.another }}</button>
           </div>
         </div>
       </section>
