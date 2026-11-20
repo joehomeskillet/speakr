@@ -253,6 +253,15 @@ _CLINIC_AGENT_MACHINE = _split("""
 _CLINIC_ACCEPTANCE = _split("""
     clinic_acceptance_policy.read clinic_acceptance_policy.save clinic_workflow.read_acceptance_state
 """)
+# --- v8-75: own-user voice consent and voice enrollment (mounted by register_clinic_voice_consent) ---
+# Each handler authenticates the browser session itself (active user, session id match, CSRF for
+# writes) and acts only on current_user: no body or URL names a subject.
+_CLINIC_VOICE_CONSENT_V8_75 = _split("""
+    clinic_voice_consent.get_consent clinic_voice_consent.grant clinic_voice_consent.revoke
+    voice_enrollment.get_own_voice_enrollment voice_enrollment.enroll_own_voice_sample
+    voice_enrollment.grant_own_voice_consent voice_enrollment.revoke_own_voice_consent
+""")
+# --- end v8-75 ---
 
 _DISABLED = {
     'internal_sharing': """
@@ -380,6 +389,9 @@ def _build() -> dict[str, RouteRule]:
                                        + _CLINIC_OPERATIONS) if clinic else ()):
         add(endpoint, RouteRule(AUTH))
     for endpoint in (_CLINIC_ACCEPTANCE if clinic else ()):  # v8-74
+        add(endpoint, RouteRule(AUTH))
+    # v8-75
+    for endpoint in (_CLINIC_VOICE_CONSENT_V8_75 if clinic else ()):
         add(endpoint, RouteRule(AUTH))
     for endpoint in _ADMIN + ((_CLINIC_IDENTITY_ADMIN + _CLINIC_ADMIN_DICTATIONS
                                     + _CLINIC_METADATA_FIELDS_ADMIN + _CLINIC_OPERATIONS_ADMIN) if clinic else ()):

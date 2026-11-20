@@ -1487,6 +1487,20 @@ def register_clinic_operations(flask_app):
     csrf.exempt(agent_bp)
 
 
+# --- v8-75: voice consent and voice enrollment routes ---
+def register_clinic_voice_consent(flask_app):
+    """Mount the own-user voice consent and voice enrollment blueprints.
+
+    Called at startup only in clinic mode. Voice profiles are opt-in: enrollment is refused
+    without active consent and again after revocation (enforced in voice_consent).
+    Both modules authenticate the browser session and check CSRF themselves.
+    """
+    from src.clinic import routes_consent, routes_voice_enrollment
+    flask_app.register_blueprint(routes_consent.blueprint)
+    flask_app.register_blueprint(routes_voice_enrollment.blueprint)
+# --- end v8-75 ---
+
+
 from src.clinic.config import clinic_mode_enabled as _clinic_mode_enabled
 if _clinic_mode_enabled():
     register_clinic_resources(app)
@@ -1494,6 +1508,7 @@ if _clinic_mode_enabled():
     register_clinic_worklist(app)
     register_clinic_audio(app)
     register_clinic_operations(app)
+    register_clinic_voice_consent(app)  # v8-75
 
 # PWA Web Share Target (issue #285): the native share sheet cannot round-trip
 # a CSRF token, so the share-target endpoint is exempted. Authentication still
