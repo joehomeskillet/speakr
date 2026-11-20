@@ -18,14 +18,23 @@ export const SEARCH_MODES = Object.freeze(['contains', 'prefix', 'suffix', 'exac
 export const STATUS_FILTERS = Object.freeze(['active', 'suppressed', 'all']);
 
 const LABELS = {
-    'clinic.vocabulary.title': 'Vokabular verwalten',
+    'clinic.vocabulary.title': 'Wörter und Vorschläge',
     'clinic.vocabulary.scope': 'Aktueller Bereich',
-    'clinic.vocabulary.scopeUser': 'Eigene Liste',
+    'clinic.vocabulary.scopeUser': 'Persönlich',
     'clinic.vocabulary.scopePool': 'Autorenpool',
     'clinic.vocabulary.pool': 'Autorenpool wählen',
     'clinic.vocabulary.search': 'Suchen',
     'clinic.vocabulary.query': 'Suchbegriff',
     'clinic.vocabulary.mode': 'Suchmodus',
+    'clinic.vocabulary.contains': 'Enthält',
+    'clinic.vocabulary.prefix': 'Beginnt mit',
+    'clinic.vocabulary.suffix': 'Endet mit',
+    'clinic.vocabulary.exact': 'Genau gleich',
+    'clinic.vocabulary.active': 'Aktiv',
+    'clinic.vocabulary.suppressed': 'Unterdrückt',
+    'clinic.vocabulary.all': 'Alle',
+    'clinic.vocabulary.unknown': 'Unbekannt',
+    'clinic.vocabulary.loading': 'Wortschatz wird geladen …',
     'clinic.vocabulary.filter': 'Status',
     'clinic.vocabulary.written': 'Schreibweise',
     'clinic.vocabulary.spoken': 'Gesprochen',
@@ -234,62 +243,85 @@ export function statusSurface(state) {
 }
 
 export const VOCABULARY_TEMPLATE = `
-<section class="vocabulary-ui" aria-labelledby="voc-title" @keydown="onKey">
+<section class="vocabulary-ui v8-page stack" aria-labelledby="voc-title" :aria-busy="state.status === 'loading'">
   <h2 id="voc-title">{{ label('clinic.vocabulary.title') }}</h2>
-  <p role="status" aria-live="polite" :style="surfaceStyle">
+  <div class="actions">
+    <button type="button" class="small" :aria-pressed="state.scope.kind === 'user'" @click="store.setScope('user')">{{ label('clinic.vocabulary.scopeUser') }}</button>
+    <form class="filterbar" @submit.prevent="store.setScope('pool', poolDraft)">
+      <div class="field" style="border:0;padding:0;box-shadow:none;background:none">
+        <label for="voc-pool">{{ label('clinic.vocabulary.pool') }}</label>
+        <input id="voc-pool" type="text" autocomplete="off" v-model="poolDraft" required>
+      </div>
+      <button type="submit" class="small">{{ label('clinic.vocabulary.scopePool') }} öffnen</button>
+    </form>
+  </div>
+  <p role="status" aria-live="polite" class="note" :style="surfaceStyle">
     {{ label('clinic.vocabulary.scope') }}:
     <strong>{{ state.scope.kind === 'pool' ? label('clinic.vocabulary.scopePool') + ' ' + state.scope.poolId : label('clinic.vocabulary.scopeUser') }}</strong>
-    <span v-if="state.status === 'stale'">{{ label('clinic.vocabulary.stale') }}</span>
+    <span v-if="state.status === 'loading'">{{ label('clinic.vocabulary.loading') }}</span>
+    <span v-else-if="state.status === 'stale'">{{ label('clinic.vocabulary.stale') }}</span>
     <span v-else>{{ state.message }}</span>
   </p>
-  <button type="button" @click="store.setScope('user')">{{ label('clinic.vocabulary.scopeUser') }}</button>
-  <form @submit.prevent="store.setScope('pool', poolDraft)">
-    <label for="voc-pool">{{ label('clinic.vocabulary.pool') }}</label>
-    <input id="voc-pool" type="text" autocomplete="off" v-model="poolDraft">
-    <button type="submit">{{ label('clinic.vocabulary.scopePool') }}</button>
+  <form class="filterbar" @submit.prevent="store.search()">
+    <div class="field search" style="border:0;padding:0;box-shadow:none;background:none">
+      <label for="voc-q">{{ label('clinic.vocabulary.query') }}</label>
+      <input id="voc-q" type="search" data-role="query" autocomplete="off" v-model="state.query.q">
+    </div>
+    <div class="field" style="border:0;padding:0;box-shadow:none;background:none">
+      <label for="voc-mode">{{ label('clinic.vocabulary.mode') }}</label>
+      <select class="select" :style="controlStyle" id="voc-mode" v-model="state.query.mode"><option v-for="mode in modes" :key="mode" :value="mode">{{ enumLabel(mode) }}</option></select>
+    </div>
+    <div class="field" style="border:0;padding:0;box-shadow:none;background:none">
+      <label for="voc-filter">{{ label('clinic.vocabulary.filter') }}</label>
+      <select class="select" :style="controlStyle" id="voc-filter" v-model="state.query.filter"><option v-for="filter in filters" :key="filter" :value="filter">{{ enumLabel(filter) }}</option></select>
+    </div>
+    <button type="submit" class="primary">{{ label('clinic.vocabulary.search') }}</button>
   </form>
-  <form @submit.prevent="store.search()">
-    <label for="voc-q">{{ label('clinic.vocabulary.query') }}</label>
-    <input id="voc-q" type="search" data-role="query" autocomplete="off" v-model="state.query.q">
-    <label for="voc-mode">{{ label('clinic.vocabulary.mode') }}</label>
-    <select id="voc-mode" v-model="state.query.mode"><option v-for="m in modes" :key="m" :value="m">{{ m }}</option></select>
-    <label for="voc-filter">{{ label('clinic.vocabulary.filter') }}</label>
-    <select id="voc-filter" v-model="state.query.filter"><option v-for="f in filters" :key="f" :value="f">{{ f }}</option></select>
-    <button type="submit">{{ label('clinic.vocabulary.search') }}</button>
-  </form>
-  <button type="button" @click="store.reload()">{{ label('clinic.vocabulary.reload') }}</button>
-  <button type="button" v-if="state.failedWrite" @click="store.retry()">{{ label('clinic.vocabulary.retry') }}</button>
-  <button type="button" @click="addSelected()">{{ label('clinic.vocabulary.addSelection') }}</button>
-  <table :aria-label="label('clinic.vocabulary.title')">
-    <thead><tr>
-      <th scope="col">{{ label('clinic.vocabulary.written') }}</th>
-      <th scope="col">{{ label('clinic.vocabulary.spoken') }}</th>
-      <th scope="col">{{ label('clinic.vocabulary.filter') }}</th>
-      <th scope="col"><span class="sr-only">Aktion</span></th>
-    </tr></thead>
-    <tbody>
-      <tr v-if="!state.entries.length"><td colspan="4">{{ label('clinic.vocabulary.empty') }}</td></tr>
-      <tr v-for="e in state.entries" :key="e.id">
-        <td>{{ e.written }}</td><td>{{ e.spoken }}</td><td>{{ e.status }}</td>
+  <div class="table-wrap" v-if="state.entries.length">
+    <table :aria-label="label('clinic.vocabulary.title')">
+      <thead><tr>
+        <th scope="col">{{ label('clinic.vocabulary.written') }}</th>
+        <th scope="col">{{ label('clinic.vocabulary.spoken') }}</th>
+        <th scope="col">{{ label('clinic.vocabulary.filter') }}</th>
+        <th scope="col">Aktion</th>
+      </tr></thead>
+      <tbody><tr v-for="e in state.entries" :key="e.id">
+        <td class="wrap"><strong>{{ e.written }}</strong></td><td class="wrap">{{ e.spoken || '–' }}</td>
+        <td><span class="tag" :class="{ error: e.status === 'suppressed' }">{{ enumLabel(e.status) }}</span></td>
         <td>
-          <button type="button" v-if="e.status === 'active'" @click="store.suppress(e.id)">{{ label('clinic.vocabulary.suppress') }}</button>
-          <button type="button" v-else @click="store.reactivate(e.id)">{{ label('clinic.vocabulary.reactivate') }}</button>
+          <button type="button" class="small" v-if="e.status === 'active'" @click="store.suppress(e.id)">{{ label('clinic.vocabulary.suppress') }}</button>
+          <button type="button" class="small" v-else @click="store.reactivate(e.id)">{{ label('clinic.vocabulary.reactivate') }}</button>
         </td>
-      </tr>
-    </tbody>
-  </table>
+      </tr></tbody>
+    </table>
+  </div>
+  <p v-else-if="state.status === 'ready'" class="empty" role="status">{{ label('clinic.vocabulary.empty') }} für diese Auswahl. Suche oder Status anpassen.</p>
+  <div class="actions">
+    <button type="button" class="small" @click="store.reload()">{{ label('clinic.vocabulary.reload') }}</button>
+    <button type="button" class="small" v-if="state.failedWrite" @click="store.retry()">{{ label('clinic.vocabulary.retry') }}</button>
+    <button type="button" class="small" @click="addSelected()">{{ label('clinic.vocabulary.addSelection') }}</button>
+  </div>
   <form @submit.prevent="doImport()">
-    <label for="voc-import">{{ label('clinic.vocabulary.importLabel') }}</label>
-    <textarea id="voc-import" rows="4" v-model="importDraft"></textarea>
-    <button type="submit">{{ label('clinic.vocabulary.import') }}</button>
+    <div class="field" style="border:0;padding:0;box-shadow:none;background:none">
+      <label for="voc-import">{{ label('clinic.vocabulary.importLabel') }}</label>
+      <textarea id="voc-import" rows="4" v-model="importDraft"></textarea>
+    </div>
+    <button type="submit" class="small">{{ label('clinic.vocabulary.import') }}</button>
   </form>
-  <button type="button" @click="store.exportList(false)">{{ label('clinic.vocabulary.export') }}</button>
-  <button type="button" @click="store.exportList(true)">{{ label('clinic.vocabulary.exportEffective') }}</button>
-  <div v-if="state.exportText">
+  <div class="actions">
+    <button type="button" class="small" @click="store.exportList(false)">{{ label('clinic.vocabulary.export') }}</button>
+    <button type="button" class="small" @click="store.exportList(true)">{{ label('clinic.vocabulary.exportEffective') }}</button>
+  </div>
+  <div v-if="state.exportText" class="field" style="border:0;padding:0;box-shadow:none;background:none">
     <label for="voc-export">{{ label('clinic.vocabulary.exported') }}</label>
     <textarea id="voc-export" rows="4" readonly :value="state.exportText"></textarea>
   </div>
+  <p class="note">Eine aktive Wortliste ist keine garantierte Enginewirkung. Fehlende Fähigkeiten müssen gesondert nachgewiesen werden.</p>
 </section>`;
+
+export function vocabularyEnumLabel(value) {
+    return label('clinic.vocabulary.' + ([...SEARCH_MODES, ...STATUS_FILTERS].includes(value) ? value : 'unknown'));
+}
 
 /** Vue component definition; pass the Vue global (window.Vue) and an api client. */
 export function createVocabularyComponent(Vue, client) {
@@ -306,6 +338,8 @@ export function createVocabularyComponent(Vue, client) {
                 const s = statusSurface(state);
                 return { background: s.background, color: s.color, borderColor: s.border };
             });
+            const control = surfaceFor('normal');
+            const controlStyle = { backgroundColor: control.background, color: control.color, borderColor: control.border };
             const poolDraft = Vue.ref('');
             const importDraft = Vue.ref('');
             function addSelected() {
@@ -319,7 +353,7 @@ export function createVocabularyComponent(Vue, client) {
             }
             Vue.onMounted(() => store.search());
             return {
-                state, store, label, surfaceStyle, poolDraft, importDraft, addSelected, doImport,
+                state, store, label, enumLabel: vocabularyEnumLabel, surfaceStyle, controlStyle, poolDraft, importDraft, addSelected, doImport,
                 modes: SEARCH_MODES, filters: STATUS_FILTERS, onKey: (e) => handleKey(store, e),
             };
         },

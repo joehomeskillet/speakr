@@ -42,6 +42,39 @@ export const LABELS = Object.freeze({
     saved: 'Gespeichert.',
 });
 
+const ACTION_LABELS = Object.freeze({
+    focus_editor: 'Editor fokussieren', open_editor: 'Editor öffnen', insert_marker: 'Markierung einfügen',
+    next_marker: 'Nächste Markierung', previous_marker: 'Vorherige Markierung',
+    send_dictation: 'Diktat senden', release_dictation: 'Diktat freigeben',
+});
+const ERROR_LABELS = Object.freeze({
+    macro_too_deep: 'Das Makro ist zu tief verschachtelt.',
+    macro_cycle: 'Das Makro verweist auf sich selbst.',
+    invalid_step: 'Ein Makroschritt ist ungültig.',
+    unknown_action: 'Eine Aktion ist unbekannt.',
+    macro_too_long: 'Das Makro ist zu lang.',
+    written_form_required: 'Bitte eine Schreibweise eingeben.',
+    phonetic_hint_required: 'Bitte einen Aussprachehinweis eingeben.',
+    training_unsupported: LABELS.trainingOff,
+    phrase_required: 'Bitte eine Auslösephrase eingeben.',
+    kind_invalid: 'Die Befehlsart ist ungültig.',
+    actions_required: 'Bitte mindestens eine Aktion eingeben.',
+    command_single_action: 'Ein Einzelbefehl darf nur eine Aktion enthalten.',
+    confirmation_required: LABELS.confirmationNeeded,
+    stale_version: 'Der Stand ist veraltet. Bitte neu laden.',
+    permission: 'Keine Berechtigung für diese Aktion.',
+    network: 'Verbindung fehlgeschlagen. Bitte erneut versuchen.',
+    UNKNOWN: 'Das Ergebnis ist unklar. Bitte den aktuellen Stand prüfen.',
+});
+
+export function commandErrorLabel(code) {
+    return ERROR_LABELS[code] || 'Der Befehl konnte nicht geprüft werden.';
+}
+
+export function commandStepLabel(step) {
+    return step.startsWith('text:') ? 'Text einfügen: ' + step.slice(5) : (ACTION_LABELS[step] || 'Unbekannte Aktion');
+}
+
 export function isSensitiveAction(actionId) {
     return SENSITIVE_RIGHTS.has(APP_ACTIONS[actionId]);
 }
@@ -275,21 +308,39 @@ export function createVoiceCommandsComponent(vue) {
             const confirm = () => c.requestConfirmation(def());
             const reset = () => { form.phrase = ''; form.stepsText = ''; };
             V.onMounted(() => c.load());
-            return { c, form, pv, needsConfirm, save, confirm, reset, LABELS };
+            return { c, form, pv, needsConfirm, save, confirm, reset, LABELS,
+                stepLabel: commandStepLabel, errorLabel: commandErrorLabel };
         },
         template: `
-<section aria-labelledby="vc-title" @keydown.esc="reset">
+<section class="v8-page stack" aria-labelledby="vc-title" @keydown.esc="reset" :aria-busy="c.state.status === 'loading' || c.state.status === 'saving'">
   <h2 id="vc-title">{{ LABELS.title }}</h2>
-  <p role="status" aria-live="polite" :style="{ color: c.surface(c.state.status === 'error' ? 'error' : 'normal').color }">{{ c.state.message }}</p>
-  <form @submit.prevent="save">
-    <label for="vc-phrase">{{ LABELS.phrase }}</label>
-    <input id="vc-phrase" v-model="form.phrase" type="text" autocomplete="off" required>
-    <label for="vc-steps">{{ LABELS.steps }}</label>
-    <textarea id="vc-steps" v-model="form.stepsText" rows="4" aria-describedby="vc-preview"></textarea>
-    <p id="vc-preview"><strong>{{ LABELS.preview }}:</strong> <span v-if="pv.ok">{{ pv.steps.join(', ') }}</span><span v-else role="alert">{{ pv.error }}</span></p>
-    <p v-if="needsConfirm">{{ LABELS.sensitive }}
-      <button type="button" @click="confirm">{{ LABELS.confirm }}</button></p>
-    <button type="submit" :disabled="c.state.status === 'saving'">{{ LABELS.save }}</button>
+  <p v-if="c.state.status === 'loading'" class="note" role="status">Sprachbefehle werden geladen …</p>
+  <p v-if="c.state.message" class="note" :class="{ burgundy: c.state.status === 'error' }" role="status" aria-live="polite">{{ c.state.message }}</p>
+  <ul v-if="c.state.errors.length" class="note burgundy" role="alert">
+    <li v-for="error in c.state.errors" :key="error">{{ errorLabel(error) }}</li>
+  </ul>
+  <form class="stack" @submit.prevent="save">
+    <div class="field" style="border:0;padding:0;box-shadow:none;background:none">
+      <label for="vc-phrase">{{ LABELS.phrase }}</label>
+      <input id="vc-phrase" v-model="form.phrase" type="text" autocomplete="off" required>
+    </div>
+    <div class="field" style="border:0;padding:0;box-shadow:none;background:none">
+      <label for="vc-steps">{{ LABELS.steps }}</label>
+      <textarea id="vc-steps" v-model="form.stepsText" rows="4" aria-describedby="vc-preview"></textarea>
+    </div>
+    <div id="vc-preview" class="note" aria-live="polite">
+      <strong>{{ LABELS.preview }}: </strong>
+      <span v-if="!form.stepsText.trim()"> Noch keine Aktionen.</span>
+      <span v-else-if="pv.ok"> {{ pv.steps.map(stepLabel).join(', ') }}</span>
+      <span v-else role="alert"> {{ errorLabel(pv.error) }}</span>
+    </div>
+    <div v-if="needsConfirm" class="note warning">
+      <p>{{ LABELS.sensitive }}</p>
+      <button type="button" class="small" @click="confirm">{{ LABELS.confirm }}</button>
+    </div>
+    <div class="actions">
+      <button type="submit" class="primary" :disabled="c.state.status === 'saving'">{{ LABELS.save }}</button>
+    </div>
   </form>
 </section>`,
     };
