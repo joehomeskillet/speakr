@@ -63,7 +63,7 @@ export function useWorklistRefresh(options = {}) {
     const worklist = options.worklist || useWorklist({ ...options, apiClient: client });
     const tokenVersion = options.tokenVersion !== undefined ? options.tokenVersion : TOKEN_CONTRACT_VERSION;
     const intervalMs = options.intervalMs !== undefined ? options.intervalMs : 30000;
-    const fetchChanges = options.fetchChanges || fetchRecordingChanges;
+    const { fetchChanges = fetchRecordingChanges } = options;
     const usesRecordingFeed = fetchChanges === fetchRecordingChanges;
     const mapRecording = options.mapRecording || ((recording) => recording);
     const now = options.now || (() => new Date());
