@@ -30,9 +30,23 @@
     </button>
 
     <!-- New Recording Button -->
+    {% if not clinic_mode %}
     <button @click="switchToUploadView" class="btn btn--sm btn--primary header-action" :aria-label="t('nav.newRecording')">
         <i class="fas fa-plus"></i><span class="header-action__label hidden sm:inline" v-text="t('nav.newRecording')"></span>
     </button>
+    {% else %}
+    {#- V8 menu views (v8-71): in CLINIC_MODE the V8 recording view replaces the upstream entry; the hash link works from every page. -#}
+    <a href="/#/neu" data-testid="nav-clinic-new" data-clinic-tooltip aria-label="Neue Aufnahme"
+       class="btn btn--sm btn--primary header-action">
+        <i class="fas fa-plus" aria-hidden="true"></i><span class="header-action__label hidden sm:inline">Neue Aufnahme</span>
+    </a>
+    {#- Connection indicator (icon only): opens Verbindungsstatus / Entwürfe. -#}
+    <a href="/#/offline" data-testid="nav-clinic-offline" data-clinic-connection data-clinic-tooltip data-online="true"
+       aria-label="Verbindungsstatus / Entwürfe" class="btn btn--icon header-action">
+        <i class="fas fa-wifi" aria-hidden="true"></i>
+    </a>
+    {#- end V8 menu views (v8-71) -#}
+    {% endif %}
 
     <!-- User menu -->
     {% if current_user.is_authenticated %}
@@ -105,6 +119,12 @@
                class="block px-4 py-2 hover:bg-[var(--bg-tertiary)] transition-colors">
                 <i class="fas fa-book mr-2 w-4 text-center"></i><span>Ressourcen</span>
             </a>
+            {#- V8 menu views (v8-71): personal settings (P19), a view of the clinic shell. -#}
+            <a href="/#/einstellungen" data-testid="nav-clinic-settings" @click="isUserMenuOpen = false"
+               class="block px-4 py-2 hover:bg-[var(--bg-tertiary)] transition-colors">
+                <i class="fas fa-sliders mr-2 w-4 text-center"></i><span>Einstellungen</span>
+            </a>
+            {#- end V8 menu views (v8-71) -#}
             {% endif %}
             {% if current_user.is_admin %}
             <a href="/admin" class="block px-4 py-2 hover:bg-[var(--bg-tertiary)] transition-colors">

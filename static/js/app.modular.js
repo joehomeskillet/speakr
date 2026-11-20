@@ -313,6 +313,32 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
+    // V8 menu views (v8-71): the menu-level views and their helpers (CLINIC_MODE only).
+    let clinicMenu = null;
+    if (clinicWorklist) {
+        try {
+            const [{ registerRecordingView }, { registerLiveView }, { registerArchiveView }, { registerImportView },
+                { registerSettingsView }, { registerOfflineView }, { createTooltip }, { getUploadCsrfToken }] = await Promise.all([
+                import('./clinic/compose-recording.js'),
+                import('./clinic/compose-live.js'),
+                import('./clinic/compose-archive.js'),
+                import('./clinic/compose-import.js'),
+                import('./clinic/compose-settings.js'),
+                import('./clinic/compose-offline.js'),
+                import('./clinic/tooltip.js'),
+                import('./modules/csrf.js'),
+            ]);
+            clinicMenu = {
+                register: [registerRecordingView, registerLiveView, registerArchiveView, registerImportView, registerSettingsView, registerOfflineView],
+                createTooltip,
+                getUploadCsrfToken,
+            };
+        } catch (error) {
+            console.error('[Clinic] Menu views could not be loaded:', error);
+        }
+    }
+    // end V8 menu views (v8-71)
+
     // CSRF Token Integration with Vue.js
     const csrfToken = ref(document.querySelector('meta[name="csrf-token"]')?.getAttribute('content'));
 
@@ -369,6 +395,19 @@ document.addEventListener('DOMContentLoaded', async () => {
                 { view: 'clinic-activity', label: 'Verlauf' },
             ];
             // end V8 dictation views (v8-70)
+            // V8 menu views (v8-71): hash routes of the menu-level views (CLINIC_MODE only).
+            const CLINIC_MENU_VIEWS = ['clinic-recording', 'clinic-live', 'clinic-archive', 'clinic-import', 'clinic-settings', 'clinic-offline'];
+            if (clinicWorklist) {
+                Object.assign(CLINIC_VIEW_HASH, {
+                    'clinic-recording': '#/neu',
+                    'clinic-live': '#/live',
+                    'clinic-archive': '#/archiv',
+                    'clinic-import': '#/import',
+                    'clinic-settings': '#/einstellungen',
+                    'clinic-offline': '#/offline',
+                });
+            }
+            // end V8 menu views (v8-71)
             const clinicViewFromHash = () => Object.keys(CLINIC_VIEW_HASH)
                 .find((view) => view !== 'clinic-correction' && CLINIC_VIEW_HASH[view] === window.location.hash) || 'clinic-recordings';
             const currentView = ref(clinicWorklist ? clinicViewFromHash() : null);
@@ -2941,6 +2980,48 @@ document.addEventListener('DOMContentLoaded', async () => {
             // leave — otherwise audioBlobURL lingers and the "unsaved recording"
             // prompt fires on every subsequent navigation.
             utils.discardActiveRecording = audioComposable.discardRecording;
+            // V8 menu views (v8-71): state and handlers of the menu-level views (CLINIC_MODE only; inert otherwise).
+            const clinicMenuViews = CLINIC_MENU_VIEWS;
+            const clinicMenuActions = [
+                { view: 'clinic-recording', testid: 'menu-new-recording', label: 'Neue Aufnahme' },
+                { view: 'clinic-import', testid: 'menu-file', label: 'Datei' },
+                { view: 'clinic-live', testid: 'menu-live', label: 'Live-Diktat' },
+                { view: 'clinic-archive', testid: 'menu-archive', label: 'Archiv' },
+            ];
+            const clinicMenuToolbarVisible = computed(() => clinicMenuActions.some((entry) => entry.view === currentView.value));
+            // The stock recorder composable (persistence gate v8-05 applies inside it: no audio in browser storage).
+            const clinicRecorder = audioComposable;
+            // The file path: one multipart POST /upload; the answer is the server receipt the view checks for an id.
+            const clinicUploadFile = async (file) => {
+                const body = new FormData();
+                body.append('file', file);
+                const token = clinicMenu ? await clinicMenu.getUploadCsrfToken() : null;
+                const response = await fetch('/upload', { method: 'POST', headers: token ? { 'X-CSRFToken': token } : {}, body });
+                if (!response.ok) throw new Error('upload_failed');
+                return response.json();
+            };
+            // Live-Diktat runs on an existing dictation: ?dictation=<id> or the id typed into the picker.
+            const CLINIC_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+            const clinicInitialLiveId = new URLSearchParams(window.location.search).get('dictation');
+            const clinicLiveId = ref(clinicInitialLiveId && CLINIC_ID_PATTERN.test(clinicInitialLiveId) ? clinicInitialLiveId : null);
+            const clinicLiveDraft = ref('');
+            const openClinicLive = () => {
+                const id = clinicLiveDraft.value.trim();
+                if (CLINIC_ID_PATTERN.test(id)) clinicLiveId.value = id;
+            };
+            // A view that creates or lists dictations hands over to the existing correction view; the archive is read only.
+            const openClinicMenuDictation = (payload) => openClinicDictation({
+                dictationId: payload && payload.dictationId,
+                mode: payload && payload.mode === 'view' ? 'player' : 'correction',
+            });
+            if (clinicWorklist) {
+                // The stock recorder switches to the upstream 'recording' view (or null, 'detail' after an upload).
+                // The V8 recording view stays on screen: such a switch away from it is refused.
+                watch(currentView, (next, previous) => {
+                    if (previous === 'clinic-recording' && (next === 'recording' || next === 'detail' || next === null)) currentView.value = previous;
+                }, { flush: 'sync' });
+            }
+            // end V8 menu views (v8-71)
             const uiComposable = useUI(state, utils, processedTranscription);
             const modalsComposable = useModals(state, utils);
             const transcriptionComposable = useTranscription(state, utils);
@@ -5213,8 +5294,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                 requestClinicCorrectionClose, clinicAudioContextFactory,
                 // V8 dictation views (v8-70)
                 clinicDictationId, clinicDictationViewActive, clinicDictationLinks: CLINIC_DICTATION_LINKS,
-                openClinicDictationView, closeClinicDictationView, openClinicEditorFromView
+                openClinicDictationView, closeClinicDictationView, openClinicEditorFromView,
                 // end V8 dictation views (v8-70)
+                // V8 menu views (v8-71)
+                clinicMenuViews, clinicMenuActions, clinicMenuToolbarVisible, clinicRecorder, clinicUploadFile,
+                clinicLiveId, clinicLiveDraft, openClinicLive, openClinicMenuDictation
+                // end V8 menu views (v8-71)
             };
         },
         delimiters: ['${', '}']
@@ -5248,6 +5333,33 @@ document.addEventListener('DOMContentLoaded', async () => {
         clinicWorklist.registerRecordingsView(app);
         clinicWorklist.registerDictationViews(app); // V8 dictation views (v8-70)
     }
+    // V8 menu views (v8-71)
+    if (clinicMenu) {
+        clinicMenu.register.forEach((register) => register(app));
+    }
+    // end V8 menu views (v8-71)
 
     app.mount('#app');
+
+    // V8 menu views (v8-71): tooltips of the icon-only header entries and the connection indicator (tooltip.js).
+    if (clinicMenu) {
+        document.querySelectorAll('[data-clinic-tooltip]').forEach((el) => {
+            clinicMenu.createTooltip(el, el.getAttribute('aria-label') || '');
+        });
+        const syncConnection = () => {
+            const online = navigator.onLine !== false;
+            document.querySelectorAll('[data-clinic-connection]').forEach((el) => {
+                el.setAttribute('data-online', online ? 'true' : 'false');
+                const icon = el.querySelector('i');
+                if (icon) {
+                    icon.classList.toggle('fa-wifi', online);
+                    icon.classList.toggle('fa-plug-circle-xmark', !online);
+                }
+            });
+        };
+        window.addEventListener('online', syncConnection);
+        window.addEventListener('offline', syncConnection);
+        syncConnection();
+    }
+    // end V8 menu views (v8-71)
 });
