@@ -124,6 +124,10 @@ class ClinicTranscriptRevision(db.Model):
     original_version_id = db.Column(db.String(36), nullable=False)
     # Modellnachweis. Required for ASR rows, empty for human corrections.
     model_ref = db.Column(db.String(255), nullable=True)
+    # Who saved the row and when. NULL on rows written before these columns
+    # existed; never backfilled from the uploader or the dictating person.
+    revision_author_user_id = db.Column(db.Integer, nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         ForeignKeyConstraint(

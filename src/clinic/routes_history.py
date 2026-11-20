@@ -64,10 +64,12 @@ def dictation_etag(dictation: ClinicDictation) -> str:
 
 def _history(dictation: ClinicDictation) -> list[JSON]:
     events: list[JSON] = [
-        dict(kind='revision', id=row.id, revision_kind=row.kind, parent_revision_id=row.parent_revision_id)
+        dict(kind='revision', id=row.id, revision_kind=row.kind, parent_revision_id=row.parent_revision_id,
+             author=revisions.revision_author(row),
+             created_at=_utc(row.created_at) if row.created_at is not None else None)
         for row in revisions.history(dictation)
     ]
-    # Transcript revisions have no timestamps. Keep their lineage order, then
+    # Revisions keep their lineage order (legacy rows have no timestamp), then
     # merge the timestamped ledgers. Pool-wide configuration is not dictation history.
     timed = [
         dict(kind='routing', id=row.id, action='work_state_transferred', at=_utc(row.transferred_at))
