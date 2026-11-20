@@ -545,6 +545,8 @@ class FairJobQueue:
         recording_id = job.recording_id
         params_str = job.params
         is_new_upload = job.is_new_upload
+        # Also identify the attempt if parameter parsing fails before dispatch.
+        attempt = (job.status, job.retry_count, job.started_at, job.created_at)
 
         with self._app_context():
             from src.database import db
@@ -561,6 +563,9 @@ class FairJobQueue:
                 if not job:
                     logger.error(f"Job {job_id} not found when trying to process")
                     return
+                # Freeze the running attempt before dispatch. Refresh/rollback
+                # can later put a replacement into the same Python object.
+                attempt = (job.status, job.retry_count, job.started_at, job.created_at)
 
                 # Get recording
                 recording = db.session.get(Recording, recording_id)
@@ -586,11 +591,11 @@ class FairJobQueue:
                 runner_outcome = getattr(self, runner_name)(job, recording, params, job_type=job_type)
 
                 # Mark as completed - re-fetch to ensure we have latest state
-                job = db.session.get(ProcessingJob, job_id)
+                job = self._current_attempt(job_id, attempt)
                 if job is None:
                     # Deleting a recording deletes its jobs: the id may now
                     # be a new upload's, so nothing is reported (#597).
-                    logger.info(f"Job {job_id} was removed with its recording while it ran; no notices sent")
+                    logger.info(f"Job {job_id} is no longer current; no notices sent")
                     return
                 # A transcription that ended FAILED without raising (no text,
                 # budget used up) must not end as a successful job: the job
@@ -604,6 +609,11 @@ class FairJobQueue:
                 # Clinic mode only; upstream keeps the job 'completed'.
                 from src.clinic.config import clinic_mode_enabled
                 job_fails = bool(terminal_error) and clinic_mode_enabled()
+                # A read/check alone races with recovery on another connection.
+                # Hold the matching row through all finalization writes/commit.
+                job = self._current_attempt(job_id, attempt, lock=True)
+                if job is None:
+                    return
                 job.status = 'failed' if job_fails else 'completed'
                 if job_fails:
                     job.error_message = terminal_error
@@ -669,6 +679,9 @@ class FairJobQueue:
                 except Exception:
                     pass
 
+                job = self._current_attempt(job_id, attempt, lock=True)
+                if job is None:
+                    return
                 from src.tasks.processing import RecordingDeletedDuringJob
                 current = db.session.get(Recording, recording_id)
                 if (current is None or isinstance(e, RecordingDeletedDuringJob)
@@ -809,6 +822,38 @@ class FairJobQueue:
                                 logger.warning(f"Failure email for job {job_id} failed: {e}")
 
                     db.session.commit()
+
+    @staticmethod
+    def _current_attempt(job_id, attempt, *, lock=False):
+        """Read or lock only the caller's attempt; discard stale pending writes.
+
+        The conditional no-op UPDATE serializes finalization with recovery on
+        SQLite as well as databases with row locks. No lock spans the runner.
+        Direct callers that run queued jobs retain their existing semantics.
+        """
+        from src.database import db
+        from src.models import ProcessingJob
+
+        status, retry_count, started_at, created_at = attempt
+        query = ProcessingJob.query.filter_by(
+            id=job_id, status=status, retry_count=retry_count,
+            started_at=started_at, created_at=created_at)
+        with db.session.no_autoflush:
+            if lock:
+                matched = query.update(
+                    {ProcessingJob.status: ProcessingJob.status}, synchronize_session=False)
+            else:
+                matched = query.with_entities(ProcessingJob.id).first() is not None
+        if not matched:
+            db.session.rollback()
+            logger.info(f"Job {job_id}: attempt superseded or removed; outcome ignored")
+            return None
+        if lock:
+            # Preserve pending writes by this runner, but refresh fields another
+            # connection may have changed (cancel marks or provider task state).
+            db.session.flush()
+            return db.session.get(ProcessingJob, job_id, populate_existing=True)
+        return db.session.get(ProcessingJob, job_id)
 
     @staticmethod
     def _finish_canceled(job_id, recording_id, loaded_created_at=None):
