@@ -39,7 +39,7 @@ from src.clinic.alignment import ClinicAlignmentRevision
 from src.clinic.audio_invalidation import get_compatible_links
 from src.clinic.audio_revisions import current_audio_revision
 from src.clinic.config import clinic_mode_enabled
-from src.clinic.correction_transaction import save_correction_transaction
+from src.clinic.correction_transaction import CorrectionOriginalError, save_correction_transaction
 from src.clinic.models import ClinicDictation, ClinicTranscriptRevision
 from src.clinic.parity_dispatch import JSON, CommandProblem, RunOnce
 from src.clinic.unicode_anchor_map import OffsetError, to_codepoint_offset, to_utf16_offset
@@ -228,6 +228,8 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
         digest = sha256(repr(sorted(digest_of.items())).encode()).hexdigest()
         try:
             return jsonify(run_once((actor, f'{operation}:{scope}', target, key), digest, run))
+        except CorrectionOriginalError as error:
+            return _problem(409, code=str(error))
         except corr.CorrectionConflict as error:
             return _problem(423 if str(error) == lease.FOREIGN_HOLDER else 409)
         except lease.LeaseConflict as error:

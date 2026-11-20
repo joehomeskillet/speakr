@@ -10,7 +10,7 @@ from __future__ import annotations
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.database import db as _db
-from src.clinic.models import _utcnow, ClinicDictation, ClinicTranscriptRevision
+from src.clinic.models import _utcnow, ClinicDictation, ClinicOriginal, ClinicTranscriptRevision
 from src.clinic.correction import CorrectionConflict, CorrectionError, save_state, ClinicCorrectionState
 from src.clinic.live_session import (
     LiveSessionError,
@@ -22,6 +22,10 @@ from src.clinic.revisions import add_human_revision, current_revision
 from src.services.audit import record_in_tx
 from src.clinic.lease import LeaseConflict, assert_current
 from src.clinic.notify_enqueue import record_notice
+
+
+class CorrectionOriginalError(CorrectionError):
+    """The first human text cannot bind an unambiguous existing original."""
 
 
 def save_correction_transaction(
@@ -80,7 +84,16 @@ def save_correction_transaction(
                 raise CorrectionError("expected_text_revision_id not found")
 
         head_before = current_revision(dictation)
-        revision = add_human_revision(dictation, parent_revision, text, user_id)
+        original = None
+        if head_before is None:
+            # A first human document has no parent to supply its immutable source.
+            # Never guess between originals or manufacture one from typed text.
+            originals = _db.session.query(ClinicOriginal).filter_by(dictation_id=dictation.id).limit(2).all()
+            if len(originals) != 1:
+                raise CorrectionOriginalError('ORIGINAL_MISSING' if not originals else 'ORIGINAL_AMBIGUOUS')
+            original = originals[0]
+        revision = add_human_revision(
+            dictation, parent_revision, text, user_id, original_version=original)
         if head_before is None or revision.id != head_before.id:
             _resubmit_accepted(dictation, user_id, revision.id)
 
