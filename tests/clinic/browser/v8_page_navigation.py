@@ -36,12 +36,17 @@ def show_dictation_tab(page, tab, endpoint):
                              r.url.endswith(f"/dictations/{page.v8_dictation_id}/{endpoint}")) as response:
         support._click_noting(page, page.get_by_test_id("clinic-dictation-link-" + tab), tab)
     assert response.value.status == 200, f"{endpoint}: HTTP {response.value.status}"
-    return response.value.json()
+    return response.value.url
 
 
 def show_review(page, base):
     show_detail(page, base)
-    data = show_dictation_tab(page, "review", "review")
+    review_url = show_dictation_tab(page, "review", "review")
+    # The clicked page may navigate while Chromium discards the previous response body.
+    # Read the expected revision independently with the same signed-in browser context.
+    expected = page.request.get(review_url)
+    assert expected.status == 200
+    data = expected.json()
     view = page.get_by_test_id("clinic-review-view")
     expect(view.get_by_test_id("dictation-id")).to_contain_text(page.v8_dictation_id)
     expect(view.get_by_test_id("review-text")).to_contain_text("Anamnese Husten seit drei Tagen.")
