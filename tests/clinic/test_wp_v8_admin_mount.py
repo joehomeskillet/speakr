@@ -3,15 +3,17 @@
 PAR-ADM-001 to PAR-ADM-005, PAR-VOC-001 to PAR-VOC-008, PAR-ASR-002, PAR-OPS-008.
 
 Reuses the harness of test_wp_mount_admin (real Flask app in a child process, throwaway SQLite database, synthetic users
-only, headless Chromium). The site admin opens the Klinik tab of /admin: every V8 page must be listed in its own
-navigation row and its module root must render. A non-site-admin account never reaches /admin. The existing panel row
-(clinic-panel-*) is not touched by the V8 row (clinic-v8-panel-*).
+only, headless Chromium). Each authorised page has one entry in the grouped navigation and renders its real module.
+The full-coverage case grants the admin statistics access for one synthetic author.
 """
 
 from __future__ import annotations
 
 import re
 from pathlib import Path
+
+import pytest
+from playwright.sync_api import expect
 
 from test_wp_mount_admin import (  # noqa: F401  (fixtures and helpers of the earlier mount package)
     ADMIN_EMAIL, LEAD_EMAIL, PANELS, TEAM_PAGE, _login, _panel_names, _render, browser, live_server,
@@ -24,9 +26,9 @@ ROOT = Path(__file__).resolve().parents[2]
 
 # id -> (label in the navigation row, heading text the module root renders)
 V8_PAGES = {
+    "users": ("Benutzer und Rollen", "Benutzer und Rollen"),
     "admin-pools": ("Schreibkräfte-Pools", "Schreibkräfte-Pools"),
     "authors": ("Diktierende und Autorenpools", "Diktierende und Autorenpools"),
-    "users": ("Benutzer und Rollen", "Benutzer und Rollen"),
     "vocabulary": ("Wortschatz", "Wortschatz"),
     "commands-templates": ("Befehle und Vorlagen", "Befehle und Vorlagen"),
     "asr-profiles": ("Sprachprofile", "Sprachprofile"),
@@ -40,14 +42,15 @@ def _v8_names(page) -> list[str]:
     return [b.inner_text().strip() for b in page.locator("[data-testid^=clinic-v8-panel-]").all()]
 
 
+@pytest.mark.parametrize("live_server", ["statistics_grant"], indirect=True, scope="module")
 def test_site_admin_sees_every_v8_page_and_its_module_root_renders(live_server, browser):
     base, _ids = live_server
     page, js_errors = _login(browser, base, ADMIN_EMAIL)
     page.goto(base + "/admin")
-    page.locator("[data-testid=admin-tab-clinic]").click()
+    expect(page.get_by_test_id("clinic-v8-view-users").locator("#acc-title")).to_be_visible()
     page.locator("[data-testid=clinic-admin]").wait_for(state="visible", timeout=20000)
 
-    # The earlier panel row is unchanged; the V8 pages sit in their own row.
+    # Both module families share one navigation; every granted route is reachable once.
     assert _panel_names(page) == PANELS
     assert _v8_names(page) == [label for label, _ in V8_PAGES.values()]
 
@@ -67,7 +70,7 @@ def test_users_and_asr_profiles_load_real_data_through_the_admin_client(live_ser
     statuses: list[tuple[int, str]] = []
     page.on("response", lambda res: statuses.append((res.status, res.url)))
     page.goto(base + "/admin")
-    page.locator("[data-testid=admin-tab-clinic]").click()
+    expect(page.get_by_test_id("clinic-v8-view-users").locator("#acc-title")).to_be_visible()
     page.locator("[data-testid=clinic-admin]").wait_for(state="visible", timeout=20000)
 
     page.locator("[data-testid=clinic-v8-panel-users]").click()
@@ -75,10 +78,10 @@ def test_users_and_asr_profiles_load_real_data_through_the_admin_client(live_ser
     users.get_by_text("w226admin").first.wait_for(state="visible", timeout=20000)
     assert users.locator("[role=alert]").count() == 0
 
-    page.locator("[data-testid=clinic-v8-panel-asr-profiles]").click()
+    with page.expect_response(lambda r: r.url.endswith("/api/admin/clinic/training/schedule") and r.status == 200):
+        page.locator("[data-testid=clinic-v8-panel-asr-profiles]").click()
     asr = page.locator("[data-testid=clinic-v8-view-asr-profiles]")
     asr.get_by_text("Sprachprofile").first.wait_for(state="visible", timeout=20000)
-    page.wait_for_timeout(1000)
     # The training section is loaded from the real route (the voice-consent section is not wired in this harness).
     assert any(c == 200 and u.endswith("/api/admin/clinic/training/schedule") for c, u in statuses), statuses
 

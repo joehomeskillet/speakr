@@ -7,6 +7,8 @@ styled tables and buttons in the four identity panels, and no horizontal page ov
 
 from __future__ import annotations
 
+from playwright.sync_api import expect
+
 from test_wp_mount_admin import ADMIN_EMAIL, _login, browser, live_server  # noqa: F401  (fixtures of the earlier mount package)
 
 _FIXTURES = (browser, live_server)
@@ -16,7 +18,7 @@ def _open(browser, base, width, height):
     page, js_errors = _login(browser, base, ADMIN_EMAIL)
     page.set_viewport_size({"width": width, "height": height})
     page.goto(base + "/admin")
-    page.locator("[data-testid=admin-tab-clinic]").click()
+    expect(page.get_by_test_id("clinic-v8-view-users").locator("#acc-title")).to_be_visible()
     page.locator("[data-testid=clinic-admin]").wait_for(state="visible", timeout=20000)
     return page, js_errors
 
@@ -24,12 +26,18 @@ def _open(browser, base, width, height):
 def test_one_grouped_navigation_with_every_panel_and_test_id(live_server, browser):
     base, _ids = live_server
     page, js_errors = _open(browser, base, 1440, 900)
-    assert page.locator("[data-testid=clinic-admin] nav").count() == 1
-    groups = page.locator(".cadm-nav__group")
-    assert groups.count() >= 4
-    # every panel of both families is still reachable under its test id
-    assert page.locator("[data-testid^=clinic-panel-]").count() == 9
-    assert page.locator("[data-testid^=clinic-v8-panel-]").count() == 9
+    nav = page.get_by_role("navigation", name="Verwaltung", exact=True)
+    expect(nav).to_have_count(1)
+    assert nav.locator(".cadm-nav__group").count() >= 4
+    expected = {
+        "clinic-panel-" + panel for panel in ("directory", "categories", "regex", "columns", "preferences")
+    } | {
+        "clinic-v8-panel-" + panel for panel in
+        ("users", "admin-pools", "authors", "vocabulary", "commands-templates", "asr-profiles", "import", "jobs")
+    } | {"clinic-policy-panel-acceptance"}
+    ids = nav.locator("button[data-testid^=clinic-]").evaluate_all("items => items.map(el => el.dataset.testid)")
+    assert sorted(ids) == sorted(expected)
+    expect(page.get_by_test_id("clinic-admin-withheld")).to_contain_text("Aktivität und Audit")
     assert not js_errors, js_errors
 
 
@@ -51,12 +59,22 @@ def test_accounts_table_is_styled_and_actions_are_separate_named_buttons(live_se
 
 
 def test_no_horizontal_page_overflow_at_390_px_for_the_four_identity_panels(live_server, browser):
-    base, _ids = live_server
+    base, ids = live_server
     page, js_errors = _open(browser, base, 390, 844)
-    for panel in ("accounts", "pools", "grants", "directory"):
-        page.locator(f"[data-testid=clinic-panel-{panel}]").click()
-        page.locator(f"[data-testid=clinic-view-{panel}]").wait_for(state="visible", timeout=20000)
-        page.wait_for_timeout(500)
+    nav = page.get_by_test_id("clinic-v8-nav")
+    for panel, entry, root in (
+        ("accounts", "Benutzer und Rollen", "#acc-title"),
+        ("pools", "Diktierende und Autorenpools", "#pools-title"),
+        ("grants", "Benutzer und Rollen", "#grants-title"),
+        ("directory", "Verzeichnis", "[data-testid=clinic-view-directory]"),
+    ):
+        nav.get_by_role("button", name=entry, exact=True).click()
+        if panel == "pools":
+            page.locator("#authors-pools").click()
+        if panel == "grants":
+            page.get_by_role("button", name="Fachrechte", exact=True).click()
+            page.locator("#usr-pick").select_option(str(ids["typist"]))
+        expect(page.locator(root)).to_be_visible()
         overflow = page.evaluate("document.documentElement.scrollWidth > innerWidth + 1 || document.body.scrollWidth > innerWidth + 1")
         assert not overflow, panel
         spilled = page.evaluate(
@@ -64,7 +82,7 @@ def test_no_horizontal_page_overflow_at_390_px_for_the_four_identity_panels(live
                 if (el.getBoundingClientRect().right <= innerWidth + 1) return false;
                 for (let p = el.parentElement; p; p = p.parentElement) {
                     const ox = getComputedStyle(p).overflowX;
-                    if ((ox === 'auto' || ox === 'scroll') && (p.matches('.cadm-nav, .cadm-tablewrap') || p.dataset.testid === 'clinic-admin')) return false;
+                    if ((ox === 'auto' || ox === 'scroll') && (p.matches('.cadm-nav, .cadm-tablewrap, .v8-admin-page .table-wrap') && p.getBoundingClientRect().right <= innerWidth + 1 || p.dataset.testid === 'clinic-admin')) return false;
                 }
                 return true;
             }).map(el => el.className || el.tagName)"""
@@ -78,8 +96,8 @@ def test_clinic_admin_lands_on_accounts_with_the_active_tab_visible_on_mobile(li
     page.set_viewport_size({"width": 390, "height": 844})
     page.goto(base + "/admin")
     page.locator("#acc-title").wait_for(state="visible")
-    tab = page.get_by_test_id("admin-tab-clinic")
-    assert "is-active" in tab.get_attribute("class").split()
+    tab = page.get_by_role("button", name="Benutzer und Rollen", exact=True)
+    expect(tab).to_have_attribute("aria-current", "page")
     assert tab.evaluate("el => el.getBoundingClientRect().left >= 0 && el.getBoundingClientRect().right <= innerWidth")
     assert not js_errors, js_errors
 
@@ -89,12 +107,13 @@ def test_accounts_search_and_composed_create_action(live_server, browser):
     page.get_by_test_id("clinic-v8-panel-users").click()
     view = page.get_by_test_id("clinic-users-view")
     search = view.get_by_role("searchbox", name="Suche")
-    search.fill("W226TYPIST")
+    with page.expect_response(lambda r: "/admin/users?" in r.url and "search=W226TYPIST" in r.url and r.status == 200):
+        search.fill("W226TYPIST")
     rows = view.locator("table tbody tr")
-    assert rows.count() == 1
-    assert "w226typist" in rows.inner_text()
+    expect(rows).to_have_count(1)
+    expect(rows).to_contain_text("w226typist")
     search.fill("kein-treffer")
     view.get_by_text("Keine passenden Konten.").wait_for()
     view.get_by_role("button", name="Konto anlegen").click()
-    assert page.locator("#acc-username").evaluate("el => el === document.activeElement")
+    expect(page.locator("#acc-username")).to_be_focused()
     assert not js_errors, js_errors
