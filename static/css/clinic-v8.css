@@ -398,7 +398,8 @@
 .v8-ui .editor-focus-mode{overflow:visible}}
 .v8-ui .writing-surface.has-word-sync{position:relative;isolation:isolate;overflow:hidden;background:var(--surface)}
 .v8-ui .editor-workspace .has-word-sync>.editor{position:relative;z-index:1;background:transparent;white-space:pre-wrap;overflow-wrap:break-word;word-break:normal;tab-size:4;box-sizing:border-box}
-.v8-ui .word-backdrop{position:absolute;top:0;left:0;z-index:0;overflow:hidden;pointer-events:none;user-select:none;color:transparent;box-sizing:border-box}
+.v8-ui .writing-surface>.editor,.v8-ui .word-backdrop{scrollbar-gutter:stable}
+.v8-ui .word-backdrop{position:absolute;inset:0;z-index:0;overflow:hidden;pointer-events:none;user-select:none;color:transparent;box-sizing:border-box}
 .v8-ui .word-backdrop-content{display:block;position:relative;margin:0;border:0;box-sizing:border-box;white-space:pre-wrap;overflow-wrap:break-word;word-break:normal;tab-size:4;font-family:"Segoe UI",Arial,sans-serif;font-size:16px;font-weight:400;line-height:1.85;letter-spacing:.04px;padding:30px 40px;color:transparent;transform-origin:top left;pointer-events:none}
 .v8-ui .word-backdrop mark[data-active-word]{display:inline;padding:0;margin:0;border:0;border-radius:3px;font:inherit;letter-spacing:inherit;line-height:inherit;color:transparent;background:#ecd3dd;box-shadow:0 0 0 2px #ecd3dd,inset 0 -2px 0 #96566e;text-decoration:none;box-decoration-break:clone;-webkit-box-decoration-break:clone}
 .v8-ui .word-sync-controls{display:inline-flex;align-items:center;gap:2px;margin-left:2px;padding-left:7px;border-left:1px solid var(--line)}

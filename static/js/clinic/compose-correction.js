@@ -737,6 +737,12 @@ export const CorrectionBody = {
         const s = c.saver;
         const m = c.modes;
         const highlightOn = V.ref(true);
+        const editorScroll = V.ref(0);
+        const inlineWord = V.computed(() => {
+            if (!highlightOn.value || e.dirty.value || a.activeGranularity.value !== 'word') return null;
+            const state = a.alignmentState.value;
+            return state === 'succeeded' || state === 'partial' ? a.currentWord.value : null;
+        });
         const styleFor = (seg) => {
             const word = a.currentWord.value;
             if (highlightOn.value && word && seg.linkId === word.id) return box('processing');
@@ -845,7 +851,7 @@ export const CorrectionBody = {
         return {
             formatDictationReference,
             c, FOCUS, MODES, box, styleFor, TEXT, showDiff,
-            tb, tbState, textEl, setTextEl, fontPx, focusMode, shortcutsOpen, highlightOn, followOn, onTextInput, onTextKeydown, onFindKeydown,
+            tb, tbState, textEl, setTextEl, fontPx, focusMode, shortcutsOpen, highlightOn, inlineWord, editorScroll, followOn, onTextInput, onTextKeydown, onFindKeydown,
             onQuery, onReplacement, onCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, toggleDrawer, unsavedSuffix,
             text: e.text, canEdit: e.canEdit, dirty: e.dirty, loading: e.loading, error: e.error, manual: e.manual,
             lease: e.lease, audio: e.audio, template: e.template, templates: e.templates, templatesError: e.templatesError,
@@ -1039,10 +1045,13 @@ export const CorrectionBody = {
         <p v-if="manual" class="template-meta" role="note">{{ TEXT.manual }}</p>
         <p v-if="toolStatus()" class="template-meta" role="status" data-testid="toolbar-reason">{{ toolStatus() }}</p>
 
-        <div class="writing-surface">
+        <div class="writing-surface" :class="{ 'has-word-sync': inlineWord }">
+          <div v-if="inlineWord" class="word-backdrop" aria-hidden="true">
+            <div class="word-backdrop-content" :style="{ fontSize: fontPx + 'px', transform: 'translateY(' + (-editorScroll) + 'px)' }">{{ text.slice(0, inlineWord.start) }}<mark data-active-word>{{ text.slice(inlineWord.start, inlineWord.end) }}</mark>{{ text.slice(inlineWord.end) }}</div>
+          </div>
           <textarea class="editor" :ref="setTextEl" :style="{ ...FOCUS, fontSize: fontPx + 'px' }" :value="text" :readonly="!canEdit" :aria-readonly="String(!canEdit)"
                     :aria-label="TEXT.text" :aria-describedby="canEdit ? 'ccv-keys' : 'ccv-keys ccv-readonly'" data-testid="text"
-                    @input="onTextInput($event)" @keydown="onTextKeydown($event)" @select="followOn = false; c.onSelect($event)"
+                    @scroll.passive="editorScroll = $event.target.scrollTop" @input="onTextInput($event)" @keydown="onTextKeydown($event)" @select="followOn = false; c.onSelect($event)"
                     @keyup="c.onSelect($event)" @mouseup="c.onSelect($event)"></textarea>
         </div>
         <p v-if="!canEdit && !loading" id="ccv-readonly" class="template-meta" style="margin: 0">{{ lease.mayAcquire === false ? TEXT.readOnlyAccess : TEXT.readOnly }}</p>
