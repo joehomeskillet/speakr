@@ -5260,17 +5260,14 @@ Summarization Instructions:
             },
             template: `
 <section class="cadm" aria-labelledby="clinic-admin-title" data-testid="clinic-admin">
-  <header class="cadm-head">
+  <header class="cadm-head sr-only">
     <h2 id="clinic-admin-title" class="cadm-head__title">Verwaltung</h2>
     <p class="cadm-head__lead">Konten, Pools, Rechte, Inhalte und Betrieb dieser Klinikinstanz.</p>
   </header>
   <p v-if="probing" role="status" class="cadm-state">Berechtigungen werden geprüft …</p>
   <template v-else>
-    <p v-if="withheld.length && (!selected || active)" role="status" class="banner banner--warn" data-testid="clinic-admin-withheld">
-      <i class="fas fa-lock" aria-hidden="true"></i><span v-text="withheldText"></span>
-    </p>
     <div class="cadm-layout">
-      <nav v-if="groups.length || !team" class="cadm-nav" aria-label="Verwaltung" data-testid="clinic-v8-nav">
+      <nav v-if="groups.length || !team || withheld.length" class="cadm-nav" aria-label="Verwaltung" data-testid="clinic-v8-nav">
         <div v-for="g in groups" :key="g.id" class="cadm-nav__group" role="group" :data-testid="g.id === 'policy' ? 'clinic-policy-nav' : null" :aria-labelledby="'cadm-group-' + g.id">
           <p class="cadm-nav__label" :id="'cadm-group-' + g.id" v-text="g.label"></p>
           <button v-for="d in g.items" :key="d.id" type="button" class="cadm-nav__item" :class="{ 'is-active': d.id === activeId }"
@@ -5278,6 +5275,7 @@ Summarization Instructions:
                   @click="open(d.id)"><span v-if="d.id === 'users'" data-testid="admin-tab-clinic" :class="{ 'is-active': d.id === activeId }" v-text="d.label"></span><span v-else v-text="d.label"></span></button>
         </div>
         <div v-if="!team" id="clinic-admin-system-nav"></div>
+        <p v-if="withheld.length" role="status" class="cadm-nav__notice" data-testid="clinic-admin-withheld" v-text="withheldText"></p>
       </nav>
       <div class="cadm-main" :data-testid="active && active.id === 'users' ? 'clinic-view-accounts' : null">
         <div v-if="!team" id="clinic-admin-system-content"></div>
