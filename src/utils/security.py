@@ -20,7 +20,7 @@ INSECURE_SECRET_KEY = 'default-dev-key-change-in-production'
 
 def resolve_secret_key(env_key, db_uri, key_file=None,
                        instance_dir_fallback='/data/instance',
-                       token_factory=None):
+                       token_factory=None, *, allow_generate=True):
     """Resolve a Flask SECRET_KEY without any Flask/logging dependency.
 
     This key signs the session cookie and the itsdangerous email/password-reset
@@ -68,6 +68,8 @@ def resolve_secret_key(env_key, db_uri, key_file=None,
     except OSError:
         pass
 
+    if not allow_generate:
+        raise ValueError('The clinic web-only worker requires the existing session signing key.')
     new_key = token_factory()
     try:
         os.makedirs(os.path.dirname(key_file) or '.', exist_ok=True)

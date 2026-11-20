@@ -20,7 +20,7 @@ from flask_wtf.csrf import CSRFError, validate_csrf
 from werkzeug.exceptions import HTTPException
 from wtforms.validators import ValidationError
 
-from src.clinic import audio_invalidation, audio_render, audio_revisions, lease, live_session
+from src.clinic import audio_invalidation, audio_render, audio_revisions, audio_segments, lease, live_session
 from src.clinic.audio_format_choice import FormatError, parse_mime
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.models import ClinicDictation
@@ -132,6 +132,10 @@ def create_blueprint(
     bp = Blueprint('clinic_audio', __name__)
 
     def object_for(dictation_id: UUID, action: str, *, lock: bool = False) -> ClinicDictation:
+        if lock and db.session.get_bind().dialect.name == 'sqlite':
+            # SQLite has no FOR UPDATE; take its write lock before receipt/head reads.
+            db.session.query(ClinicDictation).filter_by(id=str(dictation_id)).update(
+                {ClinicDictation.id: ClinicDictation.id}, synchronize_session=False)
         dictation = db.session.get(ClinicDictation, str(dictation_id),
                                    populate_existing=lock, with_for_update=lock)
         if dictation is None or not authorize(current_user, action, dictation):
@@ -171,11 +175,67 @@ def create_blueprint(
         edl = audio_revisions.get_revision_edl(dictation, head)
         audit.record('recording.content.read', recording_id=dictation.recording_id,
                      actor_kind='session', actor_user_id=current_user.id, details={'part': 'audio_revision'})
-        response = jsonify(revision_id=head.id, segments=[
+        response = jsonify(revision_id=head.id, undo_depth=audio_revisions.undo_depth(dictation),
+                           redo_depth=audio_revisions.redo_depth(dictation), segments=[
             dict(source_id=e.source_id, start_ms=e.source_start_ms, end_ms=e.source_end_ms)
             for e in edl.entries])
         response.headers['ETag'] = revision_etag(head.id)
         return response
+
+    @bp.post(f'{PATH}/audio-segments')
+    def upload_segment(dictation_id: UUID) -> Response:
+        dictation = object_for(dictation_id, 'edit')
+        actor, target = current_user.id, dictation.id
+        limit = audio_segments.MAX_INPUT_BYTES + 64 * 1024
+        request.max_content_length = min(limit, request.max_content_length or limit)
+        try:
+            key = _uuid(request.headers.get('Idempotency-Key', ''))
+            if (set(request.form) != {'audio_revision_id', 'lease_generation'}
+                    or set(request.files) != {'file'}
+                    or any(len(request.form.getlist(k)) != 1 for k in request.form)
+                    or len(request.files.getlist('file')) != 1):
+                abort(400)
+            revision = _uuid(request.form['audio_revision_id'])
+            raw_generation = request.form['lease_generation']
+            if not raw_generation.isascii() or not raw_generation.isdecimal():
+                abort(400)
+            generation = _int(int(raw_generation), minimum=1)
+        except (ValueError, TypeError):
+            abort(400)
+        published = []
+        result = None
+        try:
+            with audio_segments.validated_upload(request.files['file']) as (root, decoded, duration):
+                digest = sha256(json.dumps([revision, generation, decoded.input_sha256]).encode()).hexdigest()
+                # Serialize receipt lookup as well as creation against edits and lease takeover.
+                locked = object_for(dictation_id, 'edit', lock=True)
+
+                def apply():
+                    audio_segments.assert_writable(locked, actor, generation)
+                    head = audio_revisions.current_audio_revision(locked)
+                    if head is None or head.id != revision:
+                        abort(409)
+                    segment, path = audio_segments.persist_segment(locked, root, decoded, duration)
+                    published.append((segment.id, path))
+                    return dict(segment_id=segment.id, duration_ms=segment.duration_ms)
+
+                result = run_once((actor, 'audio_segment', target, key), digest, apply)
+                return jsonify(result), 201
+        except lease.LeaseConflict as error:
+            return _problem({lease.FOREIGN_HOLDER: 423, lease.NOT_FOUND: 404}.get(error.reason, 409))
+        except live_session.LiveSessionError:
+            return _problem(423)
+        except CommandProblem as error:
+            if str(error) == 'IDEMPOTENCY_CONFLICT':
+                return _problem(409, conflict=True)
+            raise
+        except OSError:
+            db.session.rollback()
+            return _problem(503)
+        finally:
+            for segment_id, path in published:
+                if result is None or result['segment_id'] != segment_id:
+                    path.unlink(missing_ok=True)
 
     @bp.post(f'{PATH}/audio-edits')
     def edit(dictation_id: UUID) -> Response:
@@ -190,6 +250,7 @@ def create_blueprint(
 
         def apply() -> JSON:
             locked = object_for(dictation_id, 'edit', lock=True)
+            audio_segments.assert_writable(locked, actor, spec['lease_generation'])
             now = datetime.now(timezone.utc)
             live_session.assert_edit_allowed(target, actor, now)
             args: dict = {}
@@ -198,6 +259,10 @@ def create_blueprint(
                 segment = db.session.get(audio_revisions.ClinicAudioSegment, spec['source_segment_id'])
                 if segment is None or segment.dictation_id != target:
                     abort(404)
+                start = spec.get('source_start_ms', 0)
+                duration = spec.get('duration_ms', segment.duration_ms - start)
+                if duration <= 0 or start + duration > segment.duration_ms:
+                    abort(400)
                 args = dict(position_ms=spec['position_ms'], source=segment,
                             duration_ms=spec.get('duration_ms'),
                             source_start_ms=spec.get('source_start_ms', 0))
@@ -272,7 +337,14 @@ def create_blueprint(
         response = Response(rendered.wav, mimetype=DERIVED_MIME)
         response.headers['ETag'] = revision_etag(head.id)
         response.headers['X-Audio-Revision'] = head.id
-        return response.make_conditional(request, accept_ranges=True, complete_length=len(rendered.wav))
+        length = len(rendered.wav)
+        environ = request.environ
+        byte_range = request.range
+        if (byte_range is not None and byte_range.units == 'bytes' and len(byte_range.ranges) == 1
+                and byte_range.ranges[0][0] < -length):
+            # A suffix longer than the representation starts at byte zero.
+            environ = {**environ, 'HTTP_RANGE': 'bytes=0-'}
+        return response.make_conditional(environ, accept_ranges=True, complete_length=length)
 
     @bp.get(f'{PATH}/audio-revisions/<uuid:revision_id>/peaks')
     def peaks(dictation_id: UUID, revision_id: UUID) -> Response:

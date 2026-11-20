@@ -1,12 +1,22 @@
 """Project the recognition outcome onto the dictation's preparation step."""
 
-from sqlalchemy import event
-from sqlalchemy.orm import object_session
+from sqlalchemy import case, event, func
+from sqlalchemy.orm import load_only, object_session
 
 from src.clinic.config import clinic_mode_enabled
 from src.models import ProcessingJob, Recording
 
 _ASR_JOBS = ('transcribe', 'reprocess_transcription', 'convert', 'stitch', 'merge')
+
+# Narrow ASR filler: whitespace, sentence separators and quotation marks only.
+# Keep medical/math signs (including +, ?, §, -, /) and all letters/numbers.
+# Explicit whitespace keeps SQLite/Python and PostgreSQL independent of locale.
+_ASR_CONTENT_PATTERN = '[^' + (
+    '\t\n\v\f\r\x1c\x1d\x1e\x1f \x85\xa0\u1680'
+    '\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a'
+    '\u2028\u2029\u202f\u205f\u3000'
+    '.,!;:…。｡、､，！：；،؛۔\'"“”„«»‹›‘’‚'
+) + ']'
 
 
 def asr_outcomes(dictations):
@@ -32,20 +42,28 @@ def asr_outcomes(dictations):
                     if 0 < number <= 2**63 - 1:
                         links[did].add(number)
         recording_ids = set().union(*links.values())
-        recordings = {r.id: r for r in session.query(Recording).filter(Recording.id.in_(recording_ids))}
+        recordings = {r.id: r for r in session.query(Recording).options(
+            load_only(Recording.id, Recording.user_id, Recording.status)
+        ).filter(Recording.id.in_(recording_ids))}
         states = defaultdict(set)
         for rid, state in session.query(ProcessingJob.recording_id, ProcessingJob.status).filter(
                 ProcessingJob.recording_id.in_(recording_ids), ProcessingJob.job_type.in_(_ASR_JOBS)):
             states[rid].add(state)
         # A late ASR tip also counts when a human revision is the visible head.
-        done = {did for (did,) in session.query(ClinicTranscriptRevision.dictation_id).filter(
-            ClinicTranscriptRevision.dictation_id.in_(ids), ClinicTranscriptRevision.kind == KIND_ASR).distinct()}
+        # Classify both incoming and historical immutable receipts in the DB.
+        # Return one flag per dictation, never transcript bodies or per-row binds.
+        # A prior meaningful ASR still counts after a later filler-only result.
+        done = dict(session.query(ClinicTranscriptRevision.dictation_id, func.max(case(
+            (ClinicTranscriptRevision.body.regexp_match(_ASR_CONTENT_PATTERN), 1), else_=0
+        ))).filter(ClinicTranscriptRevision.dictation_id.in_(ids),
+                   ClinicTranscriptRevision.kind == KIND_ASR
+        ).group_by(ClinicTranscriptRevision.dictation_id).all())
         for d in part:
             anchor = recordings.get(d.recording_id)
             linked = [recordings[rid] for rid in links[d.id] if rid in recordings and anchor is not None
                       and recordings[rid].user_id == anchor.user_id]
             job_states = set().union(*(states[r.id] for r in linked))
-            if d.id in done:
+            if done.get(d.id):
                 outcome = 'completed'
             elif 'processing' in job_states:
                 outcome = 'processing'
@@ -53,6 +71,8 @@ def asr_outcomes(dictations):
                 outcome = 'queued'
             elif 'failed' in job_states or any(r.status == 'FAILED' for r in linked):
                 outcome = 'failed'
+            elif d.id in done:
+                outcome = 'skipped'
             else:
                 outcome = 'none'
             outcomes[d.id] = outcome
@@ -64,7 +84,8 @@ def asr_outcome(dictation, *, outcomes=None, detailed=False):
     state = (asr_outcomes([dictation]) if outcomes is None else outcomes)[dictation.id]
     if detailed:
         return state
-    return {'completed': 'done', 'queued': 'running', 'processing': 'running'}.get(state, state)
+    return {'completed': 'done', 'queued': 'running', 'processing': 'running',
+            'skipped': 'none'}.get(state, state)
 
 
 def settle(session, dictation_id):
@@ -86,17 +107,19 @@ def settle(session, dictation_id):
 @event.listens_for(ProcessingJob.status, 'set')
 def _on_job_status(job, status, old_status, initiator):
     """Settle in the queue's transaction, once it has decided against retry."""
-    if status != 'failed' or job.job_type not in _ASR_JOBS or not clinic_mode_enabled():
+    if status not in ('completed', 'failed') or job.job_type not in _ASR_JOBS or not clinic_mode_enabled():
+        return
+    if status == 'completed' and job.job_type not in ('transcribe', 'reprocess_transcription'):
         return
     session = object_session(job)
     if session is None:
         return
 
     @event.listens_for(session, 'before_commit', once=True)
-    def settle_failure(session):
+    def settle_terminal(session):
         from src.clinic.web_ingest import dictation_for_recording
 
-        if job not in session or job in session.deleted or job.status != 'failed':
+        if job not in session or job in session.deleted or job.status != status:
             return
         session.flush()
         recording = session.get(Recording, job.recording_id)

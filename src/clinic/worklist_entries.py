@@ -170,7 +170,8 @@ def _single_head(model, dictation_id: str):
 def _asr_state(dictation, status: str, outcomes=None) -> str:
     outcome = recognition_state.asr_outcome(dictation, outcomes=outcomes, detailed=True)
     return {'completed': 'SUCCEEDED', 'processing': 'RUNNING', 'queued': 'PENDING',
-            'failed': 'FAILED'}.get(outcome, 'SKIPPED' if status == workflow.TO_WRITE else 'PENDING')
+            'failed': 'FAILED', 'skipped': 'SKIPPED'}.get(
+                outcome, 'SKIPPED' if status == workflow.TO_WRITE else 'PENDING')
 
 
 def case_displays(dictation_ids):

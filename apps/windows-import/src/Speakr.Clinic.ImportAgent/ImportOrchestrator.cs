@@ -217,6 +217,8 @@ public sealed class ImportOrchestrator
                     }
                 }
                 var completion = SidecarReader.Read(file, _options.SimulatorMode);
+                if (completion == CompletionObservation.Unknown && Ds2AuthorHint.Read(bytes) is string headerAuthor)
+                    completion = completion with { ClaimedAuthorCode = headerAuthor, ParserVersion = "ds2-author-keyword-v1" };
                 items.Add(new InventoryItem(sourceId, root.Id, Path.GetFullPath(root.Path), relative, file, bytes.LongLength, mtime, sha, version, completion));
             }
         }

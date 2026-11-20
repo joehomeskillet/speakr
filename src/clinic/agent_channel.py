@@ -367,6 +367,20 @@ def agent_of(principal):
 
 # --- inventory -------------------------------------------------------------------
 
+def registered_agent_roots():
+    rows = db.session.query(ClinicAgent.id, ClinicAgent.enabled, ClinicAgent.allowed_sources).order_by(ClinicAgent.id)
+    return {agent_id: (enabled, set(json.loads(roots))) for agent_id, enabled, roots in rows}
+
+
+def unique_root_owners(registry):
+    """A disabled machine retains its claim, so a replacement cannot inherit a local alias."""
+    owners = {}
+    for agent_id, (enabled, roots) in registry.items():
+        for root in roots:
+            owners[root] = agent_id if enabled and root not in owners else None
+    return owners
+
+
 def _parse_mtime(value):
     try:
         return aware(datetime.fromisoformat(re.sub(r"(\.\d{6})\d+", r"\1", str(value))))

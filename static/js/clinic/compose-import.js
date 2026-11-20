@@ -22,6 +22,7 @@
  */
 
 import { surfaceFor } from './tokens.js';
+import { ImportSourceRouting } from './import-source-routing.js';
 
 import { formatMoment } from './compose-archive.js';
 
@@ -336,6 +337,15 @@ export const IMPORT_TEMPLATE = `
       </div>
     </section>
 
+    <import-source-routing :client="client"></import-source-routing>
+    <details class="panel">
+      <summary>Geräteautor am Philips LFH9600 oder LFH9620</summary>
+      <p>Für ein neues Diktat wählen Sie am Recorder unter „KEYWORD“ das Feld „Author“.
+        Die verfügbaren Namen richten Sie mit Philips SpeechExec ein.
+        Der Importautor bestimmt die Zuordnung in Speakr.</p>
+      <a href="https://www.dictation.philips.com/fileadmin/Products/lfh9600/ifu/lfh96x0_ifu_en.pdf#page=22"
+         target="_blank" rel="noopener noreferrer">Philips-Handbuch, Seite 22 (PDF, Englisch)</a>
+    </details>
     <section v-if="c.canClarify" class="panel" aria-labelledby="civ-clar" data-testid="clarification">
       <h2 id="civ-clar">{{ c.text.clarification }}</h2>
       <p class="hint">{{ c.text.clarificationHint }}</p>
@@ -377,6 +387,7 @@ export const IMPORT_TEMPLATE = `
 
 export const ImportView = {
     name: 'ClinicImportView',
+    components: { ImportSourceRouting },
     props: {
         client: { type: Object, required: true },
         currentUser: { type: Object, required: true },

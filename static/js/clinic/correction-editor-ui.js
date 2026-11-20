@@ -63,6 +63,23 @@ export const LABELS = Object.freeze({
 
 const ROOT = '/api/clinic/v1';
 
+function derivedAudioSource(dictationId, revisionId) {
+    if (!revisionId) return null;
+    return ROOT + '/dictations/' + encodeURIComponent(dictationId)
+        + '/audio/derived?format=wav&audio_revision_id=' + encodeURIComponent(revisionId);
+}
+
+export function readAudioRevision(dictationId, res) {
+    if (res.outcome === 'ok' && res.data && typeof res.data.revision_id === 'string') {
+        const id = res.data.revision_id;
+        return { status: 'ready', revisionId: id, etag: '"' + id + '"', src: derivedAudioSource(dictationId, id), message: '' };
+    }
+    const none = { revisionId: null, etag: null, src: null };
+    if (res.status === 404) return { status: 'unavailable', ...none, message: LABELS.audioMissing };
+    if (res.outcome === 'permission') return { status: 'denied', ...none, message: LABELS.audioDenied };
+    return { status: 'error', ...none, message: LABELS.audioFailed };
+}
+
 function fail(code) {
     return { ok: false, code, message: LABELS[code] || LABELS.failed };
 }
@@ -124,20 +141,7 @@ export function useCorrectionEditor(options) {
     }
 
     function audioSource(revisionId) {
-        const rev = revisionId || audio.value.revisionId;
-        if (!rev) return null;
-        return ROOT + base + '/audio/derived?format=wav&audio_revision_id=' + encodeURIComponent(rev);
-    }
-
-    function readAudio(res) {
-        if (res.outcome === 'ok' && res.data && typeof res.data.revision_id === 'string') {
-            const id = res.data.revision_id;
-            return { status: 'ready', revisionId: id, etag: '"' + id + '"', src: audioSource(id), message: '' };
-        }
-        const none = { revisionId: null, etag: null, src: null };
-        if (res.status === 404) return { status: 'unavailable', ...none, message: LABELS.audioMissing };
-        if (res.outcome === 'permission') return { status: 'denied', ...none, message: LABELS.audioDenied };
-        return { status: 'error', ...none, message: LABELS.audioFailed };
+        return derivedAudioSource(dictationId, revisionId || audio.value.revisionId);
     }
 
     async function loadTemplates() {
@@ -182,7 +186,7 @@ export function useCorrectionEditor(options) {
             : (data.text_revision_id ? '"' + data.text_revision_id + '"' : null);
         manual.value = data.text === '';
         dirty.value = false;
-        audio.value = aud.outcome === 'cancelled' ? { ...audio.value, status: 'idle' } : readAudio(aud);
+        audio.value = aud.outcome === 'cancelled' ? { ...audio.value, status: 'idle' } : readAudioRevision(dictationId, aud);
         recompute();
         await loadTemplates();
         say(manual.value ? LABELS.manual : LABELS.loaded);
@@ -239,6 +243,7 @@ export function useCorrectionEditor(options) {
 /** Vue component. Props: client, dictationId, currentUser, vue. */
 /** Re-exported so the composed view reaches the toolbar controller through a module it already imports. */
 export { createCorrectionToolbar, FONT_SIZE, vTip } from './correction-toolbar-ui.js';
+export { CorrectionAudioPanel } from './correction-audio-panel.js';
 export { createRepeatTranscription, REPEAT_TEXT } from './repeat-transcription-ui.js';
 
 export const CorrectionEditor = {

@@ -16,6 +16,60 @@
 /* P01 supplies its own spacing between the heading, filters, result count and day groups. */
 .clinic-recordings-view.cl-view { gap: 0; }
 
+/* Keep safe row names and long case identifiers readable at both list widths. */
+.v8-ui .clinic-recordings-view .record-title,
+.v8-ui .clinic-worklist-view .titletext strong {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    overflow: visible;
+    text-overflow: clip;
+    line-height: 1.5;
+}
+.v8-ui .clinic-worklist-view .cl-row-reference {
+    color: var(--v8-text-2);
+    font-size: var(--fs-meta);
+    font-weight: 400;
+}
+
+/* Workflow stays a compact V8 pill; recognition is readable metadata beside the title. */
+.v8-ui :is(.clinic-recordings-view, .clinic-worklist-view) .cl-processing {
+    display: block;
+    margin-top: var(--sp-1);
+    color: var(--v8-text-2);
+    font-size: var(--fs-meta);
+    font-weight: 400;
+    line-height: 1.5;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+.v8-ui .clinic-recordings-view .recording-row > .status,
+.v8-ui .clinic-worklist-view .status.cl-workflow-status {
+    font-size: var(--fs-meta);
+    line-height: 1.4;
+    white-space: normal;
+    overflow-wrap: normal;
+    max-width: 100%;
+}
+.v8-ui .clinic-recordings-view .recording-row > .status::before,
+.v8-ui .clinic-worklist-view .cl-workflow-status::before { flex-shrink: 0; }
+.clinic-worklist-view .worktable .statuscol { width: 11rem; }
+
+/* Reflow the same worklist cells when the viewport or detail pane narrows the table. */
+.clinic-worklist-view .table-container { container-type: inline-size; }
+@container (max-width: 1100px) {
+    .v8-ui .clinic-worklist-view .worktable { display: block; min-width: 0; }
+    .v8-ui .clinic-worklist-view .worktable thead { display: block; }
+    .v8-ui .clinic-worklist-view .worktable thead tr { display: flex; flex-wrap: wrap; }
+    .v8-ui .clinic-worklist-view .worktable thead th { width: auto; }
+    .v8-ui .clinic-worklist-view .worktable tbody { display: block; }
+    .v8-ui .clinic-worklist-view .worktable tr[data-row] { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: var(--sp-2); padding: var(--sp-3); border-bottom: 1px solid var(--line); }
+    .v8-ui .clinic-worklist-view .worktable td { display: block; min-width: 0; padding: 0; border: 0; white-space: normal; overflow-wrap: anywhere; }
+    .v8-ui .clinic-worklist-view .worktable td[data-label] { grid-column: 2; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: var(--sp-2); align-items: start; }
+    .v8-ui .clinic-worklist-view .worktable td[data-label]::before { content: attr(data-label); color: var(--v8-text-2); }
+    .v8-ui .clinic-worklist-view .worktable .status { justify-self: start; }
+    .v8-ui .clinic-worklist-view .worktable .group-row, .v8-ui .clinic-worklist-view .worktable .group-row th { display: block; white-space: normal; overflow-wrap: anywhere; }
+}
+
 /* Full identifiers stay available without stretching the default list rows. */
 .clinic-recordings-view .cl-reference-row { position: relative; border-bottom: 1px solid var(--border-primary); }
 .clinic-recordings-view .cl-reference-row:last-child { border-bottom: 0; }
@@ -33,9 +87,16 @@
 :is(.clinic-recordings-view, .clinic-worklist-view) .cl-id-value textarea { width: 100%; min-width: 0; resize: none; font-size: 12px; overflow-wrap: anywhere; }
 
 @media (max-width: 700px) {
+    .v8-ui .clinic-recordings-view .recording-row > .status { grid-column: 2; grid-row: 3; margin-left: 0; }
+    .v8-ui .clinic-recordings-view .record-chevron { display: block; grid-column: 3; grid-row: 3; justify-self: end; }
+    .v8-ui .clinic-worklist-view .listbody.has-detail { grid-template-columns: minmax(0, 1fr); }
     /* Native selects already reserve room for the arrow. Keep the mobile type size. */
     .clinic-recordings-view .record-toolbar select.record-select { padding-inline-end: 6px; }
     .clinic-recordings-view #crv-role-filters { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (min-width: 360px) and (max-width: 700px) {
+    .clinic-recordings-view #crv-role-filters { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
 }
 
 @media (max-width: 767px) {

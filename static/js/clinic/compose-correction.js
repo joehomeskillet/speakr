@@ -32,7 +32,7 @@
 import { formatDictationReference } from './worklist-ui.js';
 import { createClinicApiClient } from './api-client.js';
 import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
-import { createCorrectionToolbar, useCorrectionEditor, vTip, createRepeatTranscription, REPEAT_TEXT } from './correction-editor-ui.js';
+import { CorrectionAudioPanel, createCorrectionToolbar, useCorrectionEditor, vTip, createRepeatTranscription, REPEAT_TEXT } from './correction-editor-ui.js';
 import { LABELS as ALIGN_LABELS, createPlaybackHighlighter, useCorrectionAlignment } from './correction-alignment-ui.js';
 import { CorrectionWaveform } from './correction-waveform-ui.js';
 import { PlaybackTempo, usePlaybackTempo } from './playback-tempo-ui.js';
@@ -424,6 +424,12 @@ export function createCorrectionViewController(options) {
         return res;
     }
 
+    function adoptAudioRevision(id) {
+        if (disposed || !id || editor.audio.value.revisionId === id) return;
+        editor.audio.value = { status: 'ready', revisionId: id, etag: '"' + id + '"', src: editor.audioSource(id), message: '' };
+        alignment.refresh();
+    }
+
     /** Conflict choice: keep the local text on the newest server revision. */
     function keepMine() {
         return saver.keepMine();
@@ -595,7 +601,7 @@ export function createCorrectionViewController(options) {
         leaseRun, leaseButtons,
         pedalStatus, pedalReady: () => pedalReady, pedal: () => pedal, setPedalSettings,
         start, load, save, setText, reloadLatest, keepMine, takeServer, compare: () => saver.compare(), close, dispose, syncRevision,
-        client: scoped, bindAudio, bindAlignmentRoot, alignmentRootEl: () => alignmentRoot, alignmentNotice, onSync, onShortcut, onKeydown, onInput, onSelect, onTemplate, seekToResume, getPositionMs, seek,
+        client: scoped, adoptAudioRevision, bindAudio, bindAlignmentRoot, alignmentRootEl: () => alignmentRoot, alignmentNotice, onSync, onShortcut, onKeydown, onInput, onSelect, onTemplate, seekToResume, getPositionMs, seek,
         text: TEXT,
     };
 }
@@ -647,6 +653,16 @@ const LOCAL_CSS = `
 .v8-ui .editor-page :is(.context-tools,.player-controls,.word-sync-controls) .icon-button:not(:hover):not([aria-pressed=true]):not([aria-expanded=true]){background:transparent;border-color:transparent}
 .v8-ui .editor-page :is(.context-tools,.player-controls,.word-sync-controls) .icon-button:is(:hover,[aria-expanded=true]):not([aria-pressed=true]){background:var(--v8-s2);border-color:var(--line)}
 .v8-ui .editor-page .compact-player select{appearance:auto}
+.v8-ui .correction-audio-panel {margin:16px 0;border-block:1px solid var(--line);padding-block:12px}
+.v8-ui .audio-edit-fields {display:grid;gap:14px;margin-top:12px}
+.v8-ui .audio-edit-fields fieldset {display:grid;gap:8px;min-width:0;padding:0;border:0}
+.v8-ui .audio-edit-fields legend {font-weight:650;margin-bottom:6px}
+.v8-ui .audio-edit-fields label {display:grid;gap:3px;min-width:0}
+.v8-ui .audio-edit-range {display:grid;grid-template-columns:minmax(75px,1fr) auto;gap:8px;align-items:end}
+.v8-ui .audio-edit-fields input {max-width:100%;min-width:0}
+.v8-ui .audio-edit-fields button {justify-self:start}
+.v8-ui .audio-edit-fields .clinic-audio-edit {display:flex;gap:6px;flex-wrap:wrap;padding:10px;border-radius:8px}
+.v8-ui .audio-edit-fields .clinic-audio-edit p {flex-basis:100%;margin:0}
 .v8-ui .editor-page :is(.context-tools,.toolbar-group:last-child,.find-row,.word-sync-controls,.dialoghead,.popover-heading) .tooltip{left:auto;right:0;transform:none}
 .v8-ui .editor-page .alignment-text{max-height:8lh;overflow:auto;overflow-wrap:anywhere;white-space:pre-wrap;line-height:1.8;margin:0}
 .v8-ui .editor-page .editor-status{flex-wrap:wrap}
@@ -707,7 +723,7 @@ const BODY_PROPS = {
 /** Inner body: one instance per dictation. The outer view re-keys it, which disposes everything. */
 export const CorrectionBody = {
     name: 'ClinicCorrectionBody',
-    components: { CorrectionWaveform, AudioMarkers, PlaybackTempo, PlaybackGain, UiIcon },
+    components: { CorrectionAudioPanel, CorrectionWaveform, AudioMarkers, PlaybackTempo, PlaybackGain, UiIcon },
     directives: { tip: vTip },
     props: BODY_PROPS,
     emits: ['close'],
@@ -1125,7 +1141,7 @@ export const CorrectionBody = {
       </fieldset>
     </section>
     <section class="panel">
-      <CorrectionWaveform :key="'w' + loadGeneration" :editor="c.editor" :alignment="c.alignment" :client="c.client"
+      <CorrectionWaveform :key="'w' + loadGeneration + audio.revisionId" :editor="c.editor" :alignment="c.alignment" :client="c.client"
                           :dictation-id="dictationId" :recording-id="c.peaksKey()" :fetch-fn="c.peaksFetch" :vue="c.vue" />
     </section>
 
@@ -1149,7 +1165,7 @@ export const CorrectionBody = {
     </div>
     <div v-show="!drawer || drawer === 'marks'" style="display: grid; gap: 20px; min-width: 0">
       <section class="panel">
-        <AudioMarkers :key="'m' + loadGeneration + '-' + revisionGeneration" :editor="c.editor" :alignment="c.alignment" :client="c.client"
+        <AudioMarkers :key="'m' + loadGeneration + '-' + revisionGeneration + audio.revisionId" :editor="c.editor" :alignment="c.alignment" :client="c.client"
                       :dictation-id="dictationId" :get-position-ms="c.getPositionMs" :seek="c.seek" :vue="c.vue" />
       </section>
     </div>
@@ -1158,6 +1174,9 @@ export const CorrectionBody = {
       <section class="panel" :aria-label="TEXT.options">
         <div class="panel-header"><h2>{{ TEXT.options }}</h2></div>
         <PlaybackGain v-if="gainState" :state="gainState.value" :controller="c.gain()" />
+        <CorrectionAudioPanel v-if="canEdit && audio.status === 'ready'" :client="c.client" :dictation-id="dictationId"
+            :lease="c.editor.leaseController" :position="c.getPositionMs" :visible="drawer === 'options'"
+            @revision="c.adoptAudioRevision" />
         <div data-testid="repeat-transcription">
           <button type="button" class="button small" :style="FOCUS" :disabled="!c.repeat.eligible()"
                   data-testid="repeat-open" @click="c.repeat.open()">{{ REPEAT_TEXT.title }}</button>

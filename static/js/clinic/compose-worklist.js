@@ -7,10 +7,8 @@
  * dictation: lease, workflow actions, protection, acceptance policy and
  * history. Nothing from those modules is re-implemented here.
  *
- * Owner decision W16: patients are referenced by Fall-ID only. The contract has
- * no Fall-ID field on Dictation yet, so this view shows no Fall-ID column or
- * filter and renders no patient name, title, notes or recipient. The
- * dictation-properties-ui panel is not mounted: it is a validate-only form with
+ * The primary label uses the current authorized case reference when available (W16).
+ * The dictation-properties-ui panel is not mounted: it is a validate-only form with
  * title and recipient inputs and is not bound to the selected dictation.
  * Role separation (V8 P02): "Diktiert von", "Schreibkräfte-Pool" and "Übernommen
  * von" are three separate columns fed by the additive row fields dictated_by,
@@ -122,7 +120,7 @@ export const TEXT = Object.freeze({
 });
 
 // Columns the layout may order, sort and group. Title, notes and recipient are
-// left out on purpose (W16); no Fall-ID column until the contract provides one.
+// left out on purpose (W16). The case reference belongs to the row heading.
 // The order is the default column order of the V8 worklist (Status, Priorität, Pool, Diktiert von, Quelle, Dauer, ...).
 export const LIST_COLUMNS = Object.freeze([
     { key: 'status', label: 'Status' },
@@ -255,12 +253,12 @@ export function statusBadge(row) {
     const suffix = processing ? ' · ' + processing : '';
     try {
         const s = resolveStatusSurface(row.status, { version: TOKEN_CONTRACT_VERSION });
-        return { label: s.label + suffix, style: { background: s.background, color: s.color, border: '1px solid ' + s.border } };
+        return { label: s.label + suffix, workflow: s.label, processing, style: { background: s.background, color: s.color, border: '1px solid ' + s.border } };
     } catch (error) {
         if (!(error instanceof TokenContractError)) throw error;
         const s = surfaceFor('normal');
         const key = String(row.status || '').toLowerCase();
-        return { label: (STATUS_LABELS[key] || key || '–') + suffix, style: { background: s.background, color: s.color, border: '1px solid ' + s.border } };
+        return { label: (STATUS_LABELS[key] || key || '–') + suffix, workflow: STATUS_LABELS[key] || key || '–', processing, style: { background: s.background, color: s.color, border: '1px solid ' + s.border } };
     }
 }
 
@@ -277,6 +275,7 @@ export function formatDateTime(value) {
 }
 
 export function dictationLabel(row) {
+    if (row?.case_display) return 'Fall-ID ' + row.case_display;
     return row?.created_at ? 'Diktat vom ' + formatDateTime(row.created_at) : 'Diktat';
 }
 
@@ -348,9 +347,11 @@ export function createWorklistViewController(options) {
     let started = false;
     let disposed = false;
     let detailId = null;
+    let pendingDetail;
     let detailKey = null; // `${id}|${revision}|${etag}` of the loaded detail
     let lease = null; // { ctrl, unsubscribe }
     let reloadQueued = false;
+    let loadedRevision = client.dictationChanges;
 
     // --- list modules -------------------------------------------------------
     let refresh = null;
@@ -412,6 +413,7 @@ export function createWorklistViewController(options) {
 
     // --- loading ------------------------------------------------------------
     async function reload() {
+        const revision = client.dictationChanges;
         let response;
         if (!paused.value) {
             response = await refresh.refresh();
@@ -428,6 +430,7 @@ export function createWorklistViewController(options) {
             }
         }
         if (response && response.outcome === 'ok') {
+            loadedRevision = revision;
             view.total = response.data && Number.isInteger(response.data.total) ? response.data.total : null;
         }
         if (!paused.value && started && !disposed && !refresh.isRunning.value && !worklist.isPermissionLost.value) {
@@ -604,7 +607,8 @@ export function createWorklistViewController(options) {
     }
 
     async function loadWorkflowDetail(id, key) {
-        const result = await detailClient.request('/api/clinic/v1/dictations/' + encodeURIComponent(id) + '/detail');
+        pendingDetail = detailClient.request('/api/clinic/v1/dictations/' + encodeURIComponent(id) + '/detail');
+        const result = await pendingDetail;
         if (disposed || detailId !== id || detailKey !== key) return;
         if (result?.outcome === 'ok' && Array.isArray(result.data?.allowed_actions)) {
             loadWorkflow({ ...result.data, dictation_id: id,
@@ -666,6 +670,7 @@ export function createWorklistViewController(options) {
     async function start() {
         if (started || disposed) return;
         started = true;
+        loadedRevision = client.dictationChanges;
         ensureHostedStyles();
         await Promise.all([layout.load(), refresh.start()]);
         applyV8Default();
@@ -695,6 +700,8 @@ export function createWorklistViewController(options) {
     return {
         vue: V, view, panels, selectedId, selectedRow: worklist.selectedRow, leaseState, leaseRun, paused,
         worklist, refresh, filters, layout, workflow, detailClient, displayed, columns, headerAttrs,
+        detailRequest: (id) => id === detailId ? pendingDetail : null,
+        refreshIfChanged: () => loadedRevision !== client.dictationChanges ? reload() : null,
         start, dispose, reload, assignmentDone, select, open, canOpen, listenOnly, onRowKey, goto, pages, hasNext, applyFilter,
         key: rowKey, cell: cellText, badge: statusBadge, dictationLabel, entryCount, text: TEXT,
         referenceLabel: (row) => 'Diktat ' + formatDictationReference(rowKey(row)),
@@ -760,15 +767,24 @@ export const WorklistView = {
         if (!V) throw new Error('Vue is required to mount the worklist view');
         const parts = buildParts(V, c.detailClient);
         if (typeof V.onMounted === 'function' && props.autoStart) V.onMounted(() => c.start());
+        if (typeof V.onActivated === 'function' && props.autoStart) V.onActivated(() => c.refreshIfChanged());
         if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => c.dispose());
         function rowContext(id) {
             const row = c.worklist.selectedRow.value;
             if (!row || rowKey(row) !== id) return null;
             const visible = c.columns().map((col) => col.key);
-            return {
+            const context = V.reactive({
                 dictator: visible.includes('dictated_by') && row.dictated_by ? cellText(row, 'dictated_by') : null,
                 pool: visible.includes('staff_pools') ? cellText(row, 'staff_pools') : null,
-            };
+            });
+            // An unavailable detail cannot confirm this row's current staff assignment.
+            c.detailRequest(id)?.then(result => {
+                if (result?.status >= 500 || result?.outcome === 'permission') {
+                    context.dictator = 'Nicht verfügbar';
+                    context.pool = 'Nicht verfügbar';
+                }
+            });
+            return context;
         }
         return { c, parts, rowContext };
     },
@@ -878,7 +894,10 @@ export const WorklistView = {
                           <svg v-if="item.row.source_kind === 'manual_file' || item.row.source_kind === 'document'" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 3h10l4 4v14H5zM15 3v6h5M9 12h6M9 16h6"/></svg>
                           <svg v-else width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4M8 22h8"/></svg>
                         </span>
-                        <div class="titletext"><strong>{{ c.referenceLabel(item.row) }}</strong></div>
+                        <div class="titletext"><strong>{{ c.dictationLabel(item.row) }}</strong>
+                          <small class="cl-row-reference">{{ c.referenceLabel(item.row) }}</small>
+                          <span v-if="c.badge(item.row).processing" class="cl-processing">Spracherkennung: {{ c.badge(item.row).processing }}</span>
+                        </div>
                       </div>
                       <details v-if="c.key(item.row)" class="cl-id-disclosure" @click.stop @dblclick.stop @keydown.stop
                                @keydown.esc.prevent="$event.currentTarget.open = false; $event.currentTarget.querySelector('summary').focus()">
@@ -890,7 +909,7 @@ export const WorklistView = {
                       </details>
                     </td>
                     <td v-for="col in c.columns()" :key="col.key" :data-label="col.label" :class="c.emptyCell(item.row, col.key) ? 'cl-empty' : ''">
-                      <span v-if="col.key === 'status'" class="status" data-layout="pill-status" :class="c.statusTone(item.row)">{{ c.badge(item.row).label }}</span>
+                      <span v-if="col.key === 'status'" class="status cl-workflow-status" data-layout="pill-status" :class="c.statusTone(item.row)">Arbeitsstand: {{ c.badge(item.row).workflow }}</span>
                       <span v-else-if="col.key === 'priority'" class="prio" :class="c.prioClass(item.row)" :title="c.cell(item.row, col.key)"><span>{{ c.cell(item.row, col.key) }}</span></span>
                       <span v-else-if="col.key === 'staff_pools'" class="pool-pill" :title="c.cell(item.row, col.key)">{{ c.cell(item.row, col.key) }}</span>
                       <span v-else-if="col.key === 'dictated_by'" class="entity-name" :title="c.cell(item.row, col.key)">{{ c.cell(item.row, col.key) }}</span>

@@ -117,3 +117,77 @@ def test_unresolved_original_survives_until_confirmed_assignment(env, clinic_on,
     assert ClinicDictation.query.one().author_user_id == env["author"].id
     assert ClinicOriginal.query.one().storage_key == original.storage_key
     assert path.stat().st_ino == inode and path.read_bytes() == data
+
+
+@pytest.mark.parametrize("kind,pool,header_conflict,stored", [
+    ("device", None, False, True), ("device", "pool-other", False, False),
+    ("device", None, True, False), ("folder", None, False, False),
+])
+def test_locally_approved_source_routing_at_finalize(env, clinic_on, monkeypatch, kind, pool,
+                                                    header_conflict, stored):
+    from src.clinic import import_source_config
+    from src.clinic.identity import ClinicAccountPolicy
+
+    admin, author, other = (env[k] for k in ("admin", "author", "other"))
+    admin.is_admin = True
+    db.session.add(ClinicAccountPolicy(user_id=admin.id, status="active"))
+    db.session.commit()
+    monkeypatch.setenv("CLINIC_IMPORT_ROOT_ALLOWLIST", "/test-root")
+    import_source_config.create_source_config(actor_user_id=admin.id, source_kind=kind, source_ref="usb-1",
+        approved_root="/test-root", target_author_user_id=author.id, target_pool_id=pool,
+        may_assign_author=lambda actor, target: actor == admin.id and target == author.id)
+    _intent(env, actor_user_id=other.id, source_kind=kind, now=NOW - timedelta(minutes=1))
+    expected = _intent(env, source_kind=kind)
+    ingest_id, body, _ = _upload(env, _data("routing"))
+    evidence = ({"alias_map": {"other author": [other.id]}, "embedded_author_for": lambda *_: "Other Author"}
+                if header_conflict else {})
+    receipt = _finalize(env, ingest_id, body, **evidence)
+    if stored:
+        assert receipt["import"]["intent_id"] == expected["id"]
+        assert db.session.get(ClinicDictation, receipt["dictation_id"]).author_user_id == author.id
+    else:
+        assert receipt["import"]["status"] == "UNASSIGNED"
+        assert receipt["import"]["intent_id"] is None
+
+
+def test_reused_source_alias_requires_clarification_for_both_registered_agents(env, clinic_on, monkeypatch):
+    from src.clinic import import_source_config
+    from src.clinic.identity import ClinicAccountPolicy
+
+    admin, author = env["admin"], env["author"]
+    admin.is_admin = True
+    db.session.add(ClinicAccountPolicy(user_id=admin.id, status="active"))
+    db.session.commit()
+    monkeypatch.setenv("CLINIC_IMPORT_ROOT_ALLOWLIST", "/test-root")
+    import_source_config.create_source_config(actor_user_id=admin.id, source_kind="device", source_ref="usb-1",
+        approved_root="/test-root", target_author_user_id=author.id, may_assign_author=lambda *_: True)
+    def deliver(agent, marker):
+        ingest_id, body, _ = _upload(agent, _data(marker))
+        return _finalize(agent, ingest_id, body)
+
+    first_intent = _intent(env)
+    original_receipt = deliver(env, "only-original-station")
+    assert original_receipt["import"]["intent_id"] == first_intent["id"]
+
+    second = ch.register_agent(env["policy"], actor_user_id=admin.id, display_name="Second lab recorder",
+                               allowed_sources=["usb-1"], credential_fingerprint="bb" * 20)
+    peer = {**env, "agent_id": second["agent_id"], "principal": ch.authenticate_agent("bb" * 20)}
+    expected = _intent(env)
+
+    for agent, marker in ((env, "station-one"), (peer, "station-two")):
+        receipt = deliver(agent, marker)
+        assert receipt["import"]["status"] == "UNASSIGNED"
+        assert receipt["import"]["intent_id"] is None
+        assert receipt["deletion_permitted"] is False
+        original = db.session.get(ic.ClinicImportOriginal, receipt["import"]["delivery_id"])
+        assert original.origin_ref.startswith("agent:" + agent["agent_id"] + ":")
+        assert agent["service"].file_path(original.storage_key).read_bytes() == _data(marker)
+    assert db.session.get(ic.ClinicImportIntent, expected["id"]).status == "OPEN"
+
+    ch.set_agent_enabled(env["policy"], actor_user_id=admin.id, agent_id=env["agent_id"], enabled=False)
+    assert deliver(peer, "only-replacement-enabled")["import"]["status"] == "UNASSIGNED"
+    ch.set_agent_enabled(env["policy"], actor_user_id=admin.id, agent_id=env["agent_id"], enabled=True)
+    ch.set_agent_enabled(env["policy"], actor_user_id=admin.id, agent_id=second["agent_id"], enabled=False)
+    assert deliver(env, "only-first-station-enabled-again")["import"]["status"] == "UNASSIGNED"
+    assert db.session.get(ic.ClinicImportIntent, expected["id"]).status == "OPEN"
+    assert db.session.get(ClinicDictation, original_receipt["dictation_id"]).author_user_id == author.id

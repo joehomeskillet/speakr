@@ -153,13 +153,20 @@ def test_review_and_release_current_bound_versions(review_scene, tmp_path):
                 assert _get(page, path + "/review")["revision"] == ready["revision"]
 
             page.get_by_test_id("clinic-dictation-link-detail").click()
-            with page.expect_response(lambda r: r.url.endswith("/leases") and r.request.method == "POST") as acquired:
-                page.locator(".clinic-lease").get_by_role("button", name="Bearbeiten", exact=True).click()
+            edit = page.locator(".clinic-lease").get_by_role("button", name="Bearbeiten", exact=True)
+            expect(edit).to_be_enabled()
+            # Acquiring the lease refreshes P03. Publish only after that read bound the old rule.
+            with page.expect_response(lambda r: r.url == path + "/detail" and r.request.method == "GET") as loaded:
+                with page.expect_response(lambda r: r.url == path + "/leases" and r.request.method == "POST") as acquired:
+                    edit.click()
             assert acquired.value.ok, acquired.value.text()
-            # A policy may be published after P03 loaded. Its stale submit must stop and recover in place.
+            assert loaded.value.json()["binding"]["acceptanceRuleId"] == rule
+            submit = page.get_by_role("button", name="Zur Abnahme einreichen", exact=True)
+            expect(submit).to_be_enabled()
             _publish(admin, base, path, [author, typist])
             with page.expect_response(lambda r: r.url.endswith("/parity/commands") and r.request.method == "POST") as outdated:
-                page.get_by_role("button", name="Zur Abnahme einreichen", exact=True).click()
+                submit.click()
+            assert outdated.value.request.post_data_json["payload"]["acceptance_rule_id"] == rule
             assert (outdated.value.status, outdated.value.json()["code"]) == (409, "REVISION_CONFLICT")
             rule = _get(page, path + "/review")["binding"]["acceptance_rule_id"]
             assert rule != binding["acceptance_rule_id"]
@@ -184,9 +191,14 @@ def test_review_and_release_current_bound_versions(review_scene, tmp_path):
             audio.press("Space")
             page.wait_for_function("document.querySelector('[data-testid=clinic-review-view] audio').currentTime > 0.2")
             audio.press("Space")
+            acceptance = review.locator("[data-action=accept]")
+            expect(acceptance).to_be_disabled()
+            expect(review.locator("#crv-why-accept")).to_be_visible()
+            expect(acceptance).to_have_accessible_description(re.compile("Prüfung beginnen"))
             with page.expect_response(lambda r: r.url.endswith("/leases") and r.request.method == "POST") as review_lease:
                 review.get_by_test_id("begin-review").click()
             assert review_lease.value.ok, review_lease.value.text()
+            expect(acceptance).to_be_enabled()
             # A trusted new case also invalidates the already rendered P07 decision.
             context_update = page.request.post(path + "/context", headers=_headers(page, base),
                                                data={"case_reference": "SYN-0131"})

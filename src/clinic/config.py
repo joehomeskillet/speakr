@@ -45,6 +45,16 @@ def clinic_mode_enabled() -> bool:
     return os.environ.get('CLINIC_MODE', '').strip().lower() in _TRUE
 
 
+def web_only() -> bool:
+    """A temporary HTTP worker for an already initialized clinic deployment."""
+    value = os.environ.get('CLINIC_WEB_ONLY', '')
+    if value in ('', '0'):
+        return False
+    if value != '1' or not clinic_mode_enabled():
+        raise RuntimeError('CLINIC_WEB_ONLY=1 requires enabled clinic mode')
+    return True
+
+
 def config_dir() -> Path:
     override = os.environ.get('CLINIC_CONFIG_DIR', '').strip()
     if override:

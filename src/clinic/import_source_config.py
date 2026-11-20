@@ -224,7 +224,7 @@ def update_source_config(
     eol_filter_enabled=None, file_pattern=None, priority=None, language_id=None,
     asr_profile_id=None, allow_source_delete=None,
     may_assign_author: Optional[Callable[[int, int], bool]] = None,
-    may_manage_deletion: Optional[Callable[[int], bool]] = None, now=None,
+    may_manage_deletion: Optional[Callable[[int], bool]] = None, now=None, commit=True,
 ):
     """Authorized update. ``expected_version`` must match the server policy version."""
     now = aware(now) or _now()
@@ -232,7 +232,11 @@ def update_source_config(
     row = db.session.get(ClinicImportSourceConfig, config_id)
     if row is None or row.created_by_user_id != actor_user_id:
         raise AgentChannelError("not_found", "import source config")
-    if row.policy_version != expected_version:
+    claimed = ClinicImportSourceConfig.query.filter_by(
+        id=config_id, created_by_user_id=actor_user_id, policy_version=expected_version,
+    ).update({ClinicImportSourceConfig.policy_version: ClinicImportSourceConfig.policy_version + 1},
+             synchronize_session=False)
+    if claimed != 1:
         raise AgentChannelError("conflict", "stale policy version")
     row.approved_root = _clean_root(row.approved_root if approved_root is None else approved_root)
     if target_author_user_id is not None:
@@ -261,9 +265,12 @@ def update_source_config(
             if may_manage_deletion is None or not may_manage_deletion(actor_user_id):
                 raise AgentChannelError("forbidden", "source deletion rights require authorization")
         row.allow_source_delete = bool(allow_source_delete)
-    row.policy_version += 1
+    row.policy_version = expected_version + 1
     row.updated_at = now
-    db.session.commit()
+    if commit:
+        db.session.commit()
+    else:
+        db.session.flush()
     return _view(row)
 
 
@@ -322,8 +329,21 @@ def resolve_source_config(source_kind, source_ref, relative_path):
         raise AgentChannelError("invalid", "source_kind")
     source_ref = _clean_ref(source_ref, "source_ref")
     row = ClinicImportSourceConfig.query.filter_by(source_kind=source_kind, source_ref=source_ref).first()
-    if row is None:
+    return _matching_file(row, relative_path) if row is not None else None
+
+
+def delivery_config(source_ref, relative_path):
+    """An inventoried root has no kind. Configured roots must resolve to one matching rule."""
+    rows = ClinicImportSourceConfig.query.filter_by(source_ref=source_ref).all()
+    if not rows:
         return None
+    matches = [config for row in rows if (config := _matching_file(row, relative_path))]
+    if len(matches) != 1:
+        raise AgentChannelError("conflict", "no unique import source rule")
+    return matches[0]
+
+
+def _matching_file(row, relative_path):
     _validate_path(row, relative_path)
     name = norm_path(relative_path).split("/")[-1].lower()
     if not fnmatch.fnmatch(name, row.file_pattern.lower()):

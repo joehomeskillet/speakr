@@ -306,6 +306,7 @@ if 'sqlite' in app.config['SQLALCHEMY_DATABASE_URI']:
 # the env var is secure by default instead of silently exploitable. (The key
 # only signs sessions/tokens; it does not encrypt stored data, so a lost key
 # means a one-time re-login, never data loss.)
+from src.clinic.config import web_only as _clinic_web_only
 from src.utils.security import resolve_secret_key as _resolve_secret_key
 
 try:
@@ -313,6 +314,7 @@ try:
         os.environ.get('SECRET_KEY'),
         app.config['SQLALCHEMY_DATABASE_URI'],
         key_file=os.environ.get('SECRET_KEY_FILE') or None,
+        allow_generate=not _clinic_web_only(),
     )
 except ValueError as _sk_exc:
     raise RuntimeError(str(_sk_exc))
@@ -962,13 +964,12 @@ def inject_group_admin_status():
         'can_create_groups': can_create_groups,
     }
 
-# Ensure upload and instance directories exist
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-
-# Ensure upload and instance directories exist
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-# Assuming the instance folder is handled correctly by Flask or created by setup.sh
-# os.makedirs(os.path.dirname(app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '/')), exist_ok=True)
+# A temporary web worker shares the initialized deployment's upload directory.
+if _clinic_web_only():
+    if not os.path.isdir(app.config['UPLOAD_FOLDER']):
+        raise RuntimeError('The clinic web-only worker requires the existing upload directory.')
+else:
+    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 
 # --- User loader for Flask-Login ---
@@ -1063,7 +1064,12 @@ from src.init_db import initialize_database
 with app.app_context():
     from src.models.system import register_system_setting_cache_invalidation
     register_system_setting_cache_invalidation()
-    initialize_database(app)
+    if _clinic_web_only():
+        # Verify that this is a provisioned clinic DB without running DDL or the original-file sweep.
+        from src.clinic.models import ClinicDictation
+        db.session.execute(select(ClinicDictation.id).limit(0))
+    else:
+        initialize_database(app)
 
 # Application configuration (extracted to src/config/app_config.py)
 from src.config.app_config import initialize_config
@@ -1262,7 +1268,8 @@ def register_clinic_worklist(flask_app):
 
     routes_workflow.register_commands(dispatch, workflow_authorize, acceptance_policy, ledger)
     routes_worklist.register_save_filter(dispatch, filters.create)
-    flask_app.register_blueprint(routes_worklist.create_blueprint(load_entries, filters, layouts))
+    flask_app.register_blueprint(routes_worklist.create_blueprint(
+        load_entries, filters, layouts, load_case_displays=worklist_entries.case_displays))
     flask_app.register_blueprint(routes_columns.create_columns_blueprint(
         layouts, lambda _actor: (routes_worklist._DEFAULT_LAYOUT, routes_worklist.COLUMNS), run_once))
     flask_app.register_blueprint(routes_workflow.create_blueprint(

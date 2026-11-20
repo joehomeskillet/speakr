@@ -42,12 +42,13 @@ export async function readDirectory(client, filters = {}) {
 }
 
 export async function readAccountPage(client, page, filters) {
-    if (!filters.role && !filters.source) return requestPage(client, page, PAGE_SIZE, filters);
-    // Role and sign-in policy have no server filter. Keep the server's search and order.
+    if (!filters.role && !filters.source && !filters.status) return requestPage(client, page, PAGE_SIZE, filters);
+    // Role, account status and sign-in policy have no server filter. Keep the server's search and order.
     const res = await readDirectory(client, filters);
     if (res.outcome !== 'ok') return res;
     const users = res.data.users.filter(user =>
-        (!filters.role || user[filters.role]) &&
+        (!filters.role || (filters.role === 'none' ? !user.is_admin && !user.is_identity_admin : user[filters.role])) &&
+        (!filters.status || (user.status || 'active') === filters.status) &&
         (!filters.source || (user.login_policy || MISSING_POLICY_FILTER) === filters.source));
     const pages = Math.max(1, Math.ceil(users.length / PAGE_SIZE));
     const current = Math.min(page, pages);

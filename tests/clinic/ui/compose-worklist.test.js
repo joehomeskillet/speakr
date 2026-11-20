@@ -12,10 +12,26 @@ import {
     flattenGroups,
     neighborRow,
     registerWorklistView,
+    statusBadge,
 } from '../../../static/js/clinic/compose-worklist.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(__dirname, '../../../static/js/clinic/compose-worklist.js'), 'utf8');
+
+it('separates workflow and ASR labels without changing the combined status contract', () => {
+    for (const [asr_state, processing] of Object.entries({
+        PENDING: 'Transkription wartet', RUNNING: 'Transkription läuft',
+        FAILED: 'Transkription fehlgeschlagen', SUCCEEDED: 'Transkription abgeschlossen',
+    })) {
+        expect(statusBadge({ status: 'vorbereitung_offline', asr_state })).toMatchObject({
+            workflow: 'In Vorbereitung [Offline]', processing,
+            label: 'In Vorbereitung [Offline] · ' + processing,
+        });
+    }
+    expect(statusBadge({ status: 'unknown', asr_state: 'SKIPPED' })).toMatchObject({
+        workflow: 'unknown', processing: undefined, label: 'unknown',
+    });
+});
 
 const row = (id, extra = {}) => ({
     dictation_id: id,

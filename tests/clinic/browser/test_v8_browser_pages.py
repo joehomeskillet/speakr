@@ -1,4 +1,4 @@
-"""V8 browser acceptance (UI8-008): mounted views per role, viewport and theme; the rest is xfail.
+"""V8 browser acceptance (UI8-008): P01–P21 per authorized role, viewport and theme.
 
 Hard failures: the view does not show, an uncaught JavaScript exception, the theme is not applied.
 Findings (axe violations, horizontal overflow, console errors, failed requests) are written to the
@@ -14,7 +14,15 @@ import v8_browser_support as support
 
 MOUNTED = [(p, role, size, theme) for p in support.PAGES if p.mounted
            for role in p.roles for size in support.VIEWPORTS for theme in support.THEMES]
-NOT_MOUNTED = [p for p in support.PAGES if not p.mounted]
+
+
+@pytest.fixture(scope="module")
+def app_base(tmp_path_factory):
+    source = support.SERVER.replace("server = make_server", support.navigation.MATRIX_SEED + "\nserver = make_server")
+    source = ("import os\nos.environ['SPEAKR_SKIP_BACKGROUND_TASKS'] = 'true'\n"
+              "os.environ['TRANSCRIPTION_BASE_URL'] = 'http://127.0.0.1:9/v1'\n" + source)
+    with support.serve_app(tmp_path_factory.mktemp("v8-matrix21"), source) as base:
+        yield base
 
 
 def _case_id(case) -> str:
@@ -27,7 +35,8 @@ def test_mounted_page(case, browser, app_base, role_states, axe_js, commit, stri
     page_entry, role, size, theme = case
     width, height = support.VIEWPORTS[size]
     stem = f"{commit}__{_case_id(case)}"
-    context = browser.new_context(viewport={"width": width, "height": height}, storage_state=role_states[role],
+    state = {"cookies": [], "origins": []} if role == "anonymous" else role_states[role]
+    context = browser.new_context(viewport={"width": width, "height": height}, storage_state=state,
                                   **support.theme_context_options(theme))
     try:
         context.add_init_script(support.theme_init_script(theme))
@@ -59,6 +68,7 @@ def test_mounted_page(case, browser, app_base, role_states, axe_js, commit, stri
         support.write_result(stem, {
             "page": page_entry.page_id, "view": page_entry.view, "role": role, "viewport": size, "theme": theme,
             "commit": commit, "axe": "not run: no local axe-core" if axe is None else axe,
+            "url": page.url, "dictation_id": getattr(page, "v8_dictation_id", None),
             "overflow": overflow, "diagnostics": diagnostics, "js_errors": js_errors})
         if any(counts.values()):
             support.FINDINGS.append({"case": _case_id(case), "counts": {k: v for k, v in counts.items() if v}})
@@ -68,14 +78,26 @@ def test_mounted_page(case, browser, app_base, role_states, axe_js, commit, stri
             assert not violations, [v["id"] for v in violations]
             assert not (overflow["document"] or overflow["body"]), overflow
             assert not diagnostics, diagnostics
+    except Exception as exc:
+        support.OUT_DIR.mkdir(parents=True, exist_ok=True)
+        page.screenshot(path=str(support.OUT_DIR / f"{stem}__failure.png"), full_page=True, animations="disabled")
+        support.write_result(stem + "__failure", {
+            "page": page_entry.page_id, "view": page_entry.view, "role": role, "viewport": size, "theme": theme,
+            "url": page.url, "error": str(exc), "diagnostics": diagnostics, "js_errors": js_errors})
+        raise
     finally:
         context.close()
 
 
-@pytest.mark.parametrize("page_entry", [
-    pytest.param(p, id=p.page_id, marks=pytest.mark.xfail(reason="not mounted", run=False)) for p in NOT_MOUNTED])
-def test_unmounted_page(page_entry):
-    raise AssertionError(f"{page_entry.page_id} {page_entry.title}: not mounted")
+def test_all_v8_pages_are_active():
+    assert [p.page_id for p in support.PAGES if p.mounted] == [f"P{n:02d}" for n in range(1, 22)]
+    pages = {p.page_id: p for p in support.PAGES}
+    for page_id in ("P01", "P02", "P13"):
+        assert pages[page_id].roles == ("author", "typist", "lead", "admin")
+    assert pages["P06"].roles == ("typist",)
+    assert pages["P10"].roles == pages["P12"].roles == ("admin",)
+    assert pages["P20"].roles == ("anonymous",)
+    assert len(MOUNTED) == 180
 
 
 def test_axe_core_available(axe_js):

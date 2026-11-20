@@ -32,6 +32,18 @@ dotnet test apps/windows-import/Speakr.Clinic.ImportAgent.sln
 
 The suite runs on the Windows host that has the .NET 10 SDK. Tests that touch DPAPI, the secret-file ACL or Windows path admission return immediately on other operating systems.
 
+### Windows drive pickup simulation
+
+On a Windows test machine with the .NET 10 SDK, run:
+
+```powershell
+.\apps\windows-import\tests\Test-ApprovedDrivePickup.ps1
+```
+
+The script maps a fresh temporary directory to an unused drive letter with `subst` and runs the agent against its explicitly allowed source folder. A neutral WAV is stored once by the in-process import simulator. On a second poll, the receipt, chunk count and source bytes stay the same. A second test creates two separate synthetic DS2 headers with different author codes. The test unmaps the drive and removes its temporary files. For offline use, `-TestAssembly` accepts the built `Speakr.Clinic.ImportAgent.Tests.dll` with its normal test output directory. Physical recorders and the clinic network service require separate acceptance.
+
+The agent can read an untrusted author-code hint from a complete three-block DS2 header when the short ID agrees with the recorder's explicitly labelled Author keyword. Unsupported or contradictory headers yield no hint. The observation leaves recording completion unknown and grants no permissions. The agent upload contract carries the unchanged original bytes. [Pinned DS2 header layout](https://github.com/hirparak/dss-codec/blob/c38d3192239005b0570c5987cbde62e69dd7dbbe/dss-codec/CODEC_SPECIFICATION.md#ds2-file-header-1536-bytes--0x600)
+
 ## Not proven
 
 Real Philips / LFH / DPM devices, docks and firmware. Windows service installation. Code signing. A live mTLS handshake against clinic ingress. The in-process simulator grants `permitted_post_step` from the intent without a dictation id; a production receipt usually says `none` unless the server allows removal. Residual race: a file that is replaced or relinked between listing and read in `Collect` is narrowed by a re-check after the read, not eliminated (.NET exposes no final-path-by-handle). The hold-name rename leaves a window for a party with write access to the source directory who can guess the hold name; the name is random. Hardware acceptance tests stay `not_run`.

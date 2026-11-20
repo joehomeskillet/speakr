@@ -31,6 +31,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from src.database import db
 from src.models import User
 
+from . import agent_channel
 from .agent_channel import (
     AgentChannelError, ClinicAgentIngest, agent_of, aware, inventory_row, transactional, utcnow,
 )
@@ -322,13 +323,17 @@ def _fits(intent, root_id, source_id, relative_path):
     return not expected or _file_name(relative_path or "") in expected
 
 
-def _find_intent(item, now, author_user_id=None):
+def _find_intent(item, now, author_user_id=None, *, target_pool_id=None, source_kind=None):
     """Oldest open, unexpired intent that fits the reported file; ``None`` if there is none."""
     if item is None:
         return None
     query = ClinicImportIntent.query.filter_by(status="OPEN")
     if author_user_id is not None:
         query = query.filter_by(target_author_user_id=author_user_id)
+    if target_pool_id is not None:
+        query = query.filter_by(target_pool_id=target_pool_id)
+    if source_kind is not None:
+        query = query.filter_by(source_kind=source_kind)
     for intent in query.order_by(ClinicImportIntent.created_at):
         if aware(intent.expires_at) > now and _fits(intent, item.root_id, item.source_id, item.relative_path):
             return intent
@@ -431,14 +436,39 @@ def _resolved_author(item, session_row, device_map, alias_map, embedded_author_f
         return None
 
 
+def _clinic_delivery_intent(item, session_row, now, device_map, alias_map, embedded_author_for):
+    from . import import_source_config
+
+    if item is None:
+        return None
+    try:
+        config = import_source_config.delivery_config(item.root_id, item.relative_path) or {}
+    except AgentChannelError:
+        return None
+    if config:
+        owners = agent_channel.unique_root_owners(agent_channel.registered_agent_roots())
+        if owners.get(item.root_id) != session_row.agent_id:
+            return None
+    if config.get("source_kind") == "device":
+        device = item.root_id.strip().upper()
+        configured_author = config["target_author_user_id"]
+        if device_map.get(device, configured_author) != configured_author:
+            return None
+        device_map = {**device_map, device: configured_author}
+    author = _resolved_author(item, session_row, device_map, alias_map, embedded_author_for)
+    if author is None or (config and author != config["target_author_user_id"]):
+        return None
+    return _find_intent(item, now, author, target_pool_id=config.get("target_pool_id"),
+                        source_kind=config.get("source_kind"))
+
+
 def _record_delivery(agent, session_row, now, *, device_map, alias_map, embedded_author_for):
     delivery = ClinicImportDelivery.query.filter_by(ingest_id=session_row.id).first()
     if delivery is not None:
         return delivery
     item = inventory_row(agent.id, session_row.source_id, session_row.snapshot_version)
     if clinic_mode_enabled():
-        author = _resolved_author(item, session_row, device_map, alias_map, embedded_author_for)
-        intent = _find_intent(item, now, author) if author is not None else None
+        intent = _clinic_delivery_intent(item, session_row, now, device_map, alias_map, embedded_author_for)
     else:
         intent = _find_intent(item, now)
     delivery = ClinicImportDelivery(

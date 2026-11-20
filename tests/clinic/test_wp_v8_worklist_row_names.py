@@ -164,3 +164,45 @@ def test_rows_carry_no_patient_data(scene):
         (row,) = _rows(scene["typist"])
         assert "PATIENT-TITLE-SECRET" not in str({k: row[k] for k in (
             "dictated_by", "staff_pools", "assignee", "source_label", "lease_holder")})
+
+
+def test_visible_page_exposes_only_its_unique_case_reference(scene):
+    from src.clinic.models import ClinicContextRevision
+
+    with app.app_context():
+        second = _add_dictation(scene, None)
+        actor = scene["author"]
+        lookups = []
+
+        def load_cases(ids):
+            lookups.append(ids)
+            return worklist_entries.case_displays(ids)
+
+        def page(user_id, number=1):
+            return routes_worklist.get_worklist(
+                worklist_entries.load_entries(user_id), policy.build_subject(user_id), LayoutStore(),
+                page=number, page_size=1, load_case_displays=load_cases)
+
+        initial = page(actor)
+        first_id = initial.page.items[0]["dictation_id"]
+        assert "case_display" not in initial.page.items[0]
+        other_id = next(did for did in (scene["dictation"], second) if did != first_id)
+        head = ClinicContextRevision(dictation_id=first_id, case_ref="SYN-0001", patient_ref="PRIVATE-PATIENT")
+        db.session.add_all([head, ClinicContextRevision(dictation_id=other_id, case_ref="SYN-0002")])
+        db.session.commit()
+        bound = page(actor)
+        assert bound.page.items[0]["case_display"] == "SYN-0001"
+        assert "PRIVATE-PATIENT" not in str(bound.page.items)
+        assert bound.cursor != initial.cursor
+        assert page(actor, 2).page.items[0]["case_display"] == "SYN-0002"
+        assert lookups == [[first_id], [first_id], [other_id]]
+        assert page(scene["stranger"]).page.total == 0
+        assert len(lookups) == 3
+
+        db.session.add_all([ClinicContextRevision(dictation_id=first_id, parent_revision_id=head.id,
+                                                  case_ref=reference)
+                            for reference in ("SYN-0003", "SYN-0004")])
+        db.session.commit()
+        ambiguous = page(actor)
+        assert "case_display" not in ambiguous.page.items[0]
+        assert ambiguous.cursor != bound.cursor
