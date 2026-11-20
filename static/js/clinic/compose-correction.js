@@ -40,7 +40,6 @@ import { MODES, useCorrectionModes } from './correction-modes-ui.js';
 import { useCorrectionSave } from './correction-save-ui.js';
 import { AudioMarkers } from './audio-markers-ui.js';
 import { PlaybackGain, usePlaybackGain } from './playback-gain-ui.js';
-import { leaseActions } from './lease-ui.js';
 
 export const COMPOSE_CORRECTION_VERSION = 1;
 
@@ -497,7 +496,7 @@ export function createCorrectionViewController(options) {
 
     // --- lifecycle ------------------------------------------------------------
     const leaseRun = { acquire: editor.acquire, release: editor.release, takeOver: editor.takeOver };
-    const leaseButtons = () => leaseActions(editor.lease.value).filter((a) => typeof leaseRun[a.id] === 'function');
+    const leaseButtons = () => editor.availableLeaseActions().filter((a) => typeof leaseRun[a.id] === 'function');
 
     // --- foot pedal, keyboard mode (PAR-OPS-001) -----------------------------
     // The pedal calls the same functions as the player controls: modeAudio (play, pause) and the tempo
