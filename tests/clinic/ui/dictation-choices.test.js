@@ -16,6 +16,13 @@ describe('name-based dictation entry points', () => {
         expect(c.state.rows.map((r) => r.id)).toEqual(['a', 'b']);
         expect(new Set(c.state.rows.map((r) => r.label)).size).toBe(2);
         expect(c.resolve(c.state.rows[1].label)).toBe('b');
+        expect(c.resolve('Test')).toBeNull();
+        expect(c.resolve('Müller')).toBeNull();
+        expect(c.resolve('Meyer-Schmid')).toBeNull();
+        const directUuid = '5819d7bb-b213-478e-a859-f17cab582f5c';
+        expect(c.resolve(directUuid)).toBe(directUuid);
+        client.request.mockResolvedValueOnce(ok([row('legacy-id')]));
+        await c.load();
         expect(c.resolve('legacy-id')).toBe('legacy-id');
         expect(c.resolve('../secret')).toBeNull();
         expect(c.resolve('Dr. Bei')).toBeNull();

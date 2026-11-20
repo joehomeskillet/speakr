@@ -3108,11 +3108,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             };
             const clinicRecorder = clinicMenu?.createClinicRecorder(audioComposable, state, clinicUploadFile);
             // Live-Diktat runs on an existing dictation: ?dictation=<id> or the id typed into the picker.
-            const CLINIC_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
-            const clinicInitialLiveId = new URLSearchParams(window.location.search).get('dictation');
-            const clinicLiveId = ref(clinicInitialLiveId && CLINIC_ID_PATTERN.test(clinicInitialLiveId) ? clinicInitialLiveId : null);
-            const clinicLiveDraft = ref('');
             const clinicLiveChoices = clinicWorklist ? clinicWorklist.createDictationChoices({ client: clinicWorklist.client, makeState: reactive, authorId: clinicWorklist.user.id }) : null;
+            const clinicInitialLiveId = new URLSearchParams(window.location.search).get('dictation');
+            const clinicLiveId = ref(clinicLiveChoices?.resolve(clinicInitialLiveId) || null);
+            const clinicLiveDraft = ref('');
             watch(currentView, (view) => {
                 clinicLiveChoices?.clear();
                 if (view === 'clinic-live' && !clinicLiveId.value) clinicLiveChoices?.load();
@@ -3120,7 +3119,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             onUnmounted(() => clinicLiveChoices?.clear());
             const openClinicLive = () => {
                 const id = clinicLiveChoices?.resolve(clinicLiveDraft.value);
-                if (id && CLINIC_ID_PATTERN.test(id)) clinicLiveId.value = id;
+                if (id) clinicLiveId.value = id;
             };
             // A view that creates or lists dictations hands over to the existing correction view; the archive is read only.
             const openClinicMenuDictation = (payload) => openClinicDictation({
