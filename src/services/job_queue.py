@@ -20,6 +20,7 @@ from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
 
+from src.clinic.asr_capabilities import CAPABILITY_UNAVAILABLE
 from src.clinic.config import clinic_mode_enabled
 from src.services.error_classification import is_permanent_error, SummaryStepFailed
 from src.utils.error_text import describe_error, log_failure, user_error_text
@@ -46,7 +47,8 @@ SUMMARY_JOBS = ['summarize', 'reprocess_summary', 'translate_transcription']
 # Clinic follow-ups (src/clinic): only enqueued in clinic mode, so upstream
 # behaviour is unchanged. They run on the fast summary workers.
 CLINIC_JOBS = ['clinic_finalize', 'clinic_output', 'clinic_notify', 'clinic_alignment']
-SUMMARY_JOBS += CLINIC_JOBS
+ASR_TRAINING_JOB = 'asr_training'
+SUMMARY_JOBS += [*CLINIC_JOBS, ASR_TRAINING_JOB]
 # Building a recording's Inquire chunks (embeddings) has its own workers, so a
 # slow embedding model never holds up a transcription or a summary (#541).
 INDEX_JOBS = ['index_chunks']
@@ -75,11 +77,12 @@ JOB_RUNNERS = {
     'clinic_output': '_run_clinic_job',
     'clinic_notify': '_run_clinic_job',
     'clinic_alignment': '_run_clinic_job',
+    ASR_TRAINING_JOB: '_run_asr_training',
 }
 
 # Jobs that run beside a recording's processing: they leave recording.status
 # alone and send no webhooks or emails.
-BACKGROUND_JOBS = ('translate_transcription', 'index_chunks', *CLINIC_JOBS)
+BACKGROUND_JOBS = ('translate_transcription', 'index_chunks', *CLINIC_JOBS, ASR_TRAINING_JOB)
 
 # Stable operation keys of clinic follow-ups: one job per key and job type,
 # also across concurrent retries and after the first job has ended.
@@ -387,6 +390,8 @@ class FairJobQueue:
                     # A clinic follow-up without a registered handler stays
                     # queued (not failed) until register_clinic_handler runs.
                     job_types = [t for t in job_types if t not in CLINIC_JOBS or t in _CLINIC_HANDLERS]
+                    if ASR_TRAINING_JOB in job_types and not clinic_mode_enabled():
+                        job_types.remove(ASR_TRAINING_JOB)
                     order = self.turn_order(job_types)
                     candidate_job = order[0] if order else None
 
@@ -422,8 +427,10 @@ class FairJobQueue:
                         # A conversion leaves the recording QUEUED: its
                         # transcription is queued next, and the status should
                         # not go from PROCESSING back to QUEUED (#543).
+                        # Training intents also leave the recording alone.
                         if (recording and recording.status == 'QUEUED'
-                                and candidate_job.job_type not in CONVERT_JOBS):
+                                and candidate_job.job_type not in CONVERT_JOBS
+                                and candidate_job.job_type != ASR_TRAINING_JOB):
                             recording.status = 'PROCESSING'
 
                         db.session.commit()
@@ -699,11 +706,13 @@ class FairJobQueue:
                 # what it repeats of the request (src/utils/error_text.py).
                 try:
                     _params = params if isinstance(locals().get('params'), dict) else {}
-                    error_str = user_error_text(
-                        e, current,
-                        extra_sources=[v for v in (_params.get('hotwords'), _params.get('initial_prompt'),
-                                                   _params.get('custom_prompt')) if isinstance(v, str)],
-                        limit=1000)
+                    # Keep the fixed training refusal code even if it occurs in the recording text.
+                    if (job_type, error_str) != (ASR_TRAINING_JOB, CAPABILITY_UNAVAILABLE):
+                        error_str = user_error_text(
+                            e, current,
+                            extra_sources=[v for v in (_params.get('hotwords'), _params.get('initial_prompt'),
+                                                       _params.get('custom_prompt')) if isinstance(v, str)],
+                            limit=1000)
                 except Exception as scrub_error:
                     logger.warning(f"Job {job_id}: error text could not be shortened: {describe_error(scrub_error)}")
                     error_str = f"{type(e).__name__} (the error text is in the log at DEBUG)"
@@ -994,6 +1003,10 @@ class FairJobQueue:
             job_control.current().check_cancel()
 
         return progress
+
+    def _run_asr_training(self, job, recording, params, job_type=None):
+        """Refuse training intents until a verified local runner is wired."""
+        raise ClinicJobRefused(CAPABILITY_UNAVAILABLE)
 
     def _run_clinic_job(self, job, recording, params, job_type=None):
         """Run a clinic follow-up through its registered handler (src/clinic).

@@ -30,8 +30,8 @@ from src.clinic.models import ClinicDictation
 from src.clinic.release import active_release
 from src.clinic.training_manifest import _seal
 from src.database import db
+from src.services.job_queue import ASR_TRAINING_JOB as JOB_TYPE
 
-JOB_TYPE = "asr_training"
 PARAM = "clinic_training"
 TIMEZONE = "Europe/Zurich"
 
@@ -229,7 +229,7 @@ def _latest_job(manifest_hash, profile_version, user_id):
 
 
 def _enqueue(manifest, items, profile_version, queue, base) -> dict:
-    from src.models import ProcessingJob, Recording
+    from src.models import ProcessingJob
 
     if queue is None:
         from src.services.job_queue import job_queue as queue
@@ -238,8 +238,6 @@ def _enqueue(manifest, items, profile_version, queue, base) -> dict:
     # same manifest always maps to the same (recording, job type) slot.
     anchor = db.session.get(ClinicDictation, items[0]["dictation_id"]).recording_id
     params = _intent_params(manifest, profile_version, len(items))
-    recording = db.session.get(Recording, anchor)
-    status_before = None if recording is None else recording.status
     with _lock:
         existing = _latest_job(manifest["manifest_hash"], profile_version, user_id)
         if existing is not None and existing.status in ("queued", "processing"):
@@ -249,7 +247,6 @@ def _enqueue(manifest, items, profile_version, queue, base) -> dict:
         except Exception as exc:  # the queue refused: report, never raise a half state
             db.session.rollback()
             return {**base, "state": FAILED, "reason": type(exc).__name__}
-        _restore_status(anchor, status_before)
         job = db.session.get(ProcessingJob, job_id)
         intent = json.loads(job.params or "{}").get(PARAM, {})
         if intent.get("manifest_hash") != manifest["manifest_hash"] or (
@@ -260,13 +257,3 @@ def _enqueue(manifest, items, profile_version, queue, base) -> dict:
         # A concurrent caller in another process won the insert: same job id, same intent.
         state = SCHEDULED if existing is None or existing.id != job_id else ALREADY_SCHEDULED
         return {**base, "state": state, "job_id": job_id}
-
-
-def _restore_status(recording_id, status_before) -> None:
-    """The queue marks a recording QUEUED for non-background jobs; training must not."""
-    from src.models import Recording
-
-    recording = db.session.get(Recording, recording_id)
-    if recording is not None and status_before is not None and recording.status != status_before:
-        recording.status = status_before
-        db.session.commit()

@@ -12,6 +12,8 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from src.clinic.asr_capabilities import CAPABILITY_UNAVAILABLE
+
 _STATUSES = ("queued", "processing", "completed", "failed")
 _UTC_MIN = datetime.min.replace(tzinfo=timezone.utc)
 _REDACTED = "[…]"
@@ -116,6 +118,9 @@ def summarise(
                 error_class = name
             # Pattern scrubbing cannot reliably detect unquoted clinical text.
             message = "Fehlerdetails ausgeblendet." if error is not None else ""
+            if job_type == "asr_training" and error == CAPABILITY_UNAVAILABLE:
+                error_class = CAPABILITY_UNAVAILABLE
+                message = "Training nicht verfügbar"
             failures.append(FailureView(job_id, job_type, error_class, message, finished))
 
     failures.sort(key=lambda failure: (
