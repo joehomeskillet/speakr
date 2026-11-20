@@ -1,5 +1,13 @@
 # Speakr V8: geprüfte Änderungen im Klinik-Webclient
 
+## Öffnen, Anhören und Wiedererkennen auf Staging 0dc67654
+
+Nach einem einzigen normalen Neuladen im bereits geöffneten, angemeldeten Handy-Browsertab lieferte die Verwaltung die neue CSS-Kennung. Der eingeklappte Rollenfilter war tatsächlich unsichtbar. Die Aufnahmenansicht zeigt beim Einstieg Suche, Status, Zeitraum, Pool und Autor. Bei 390 Pixeln lag die erste vollständige Karte zwischen y=687 und y=829. Per Touch öffnet der Titel das Diktat. Die Arbeitsliste behält einen separaten Bereich zum Auswählen. Bei 1440 Pixeln begann die erste Aufnahme bei y=433.
+
+„Erneut transkribieren“ im Schreibplatz startete für den ersten QA-Fall den echten lokalen Auftrag 68. Der Auftrag wurde abgeschlossen und als „protected“ quittiert. Nach erneutem Öffnen war die menschliche Fassung bytegleich. Ein zweites QA-Diktat bestand aus zwei neutralen gesprochenen Sätzen. Auftrag 73 ergab wieder denselben Text und die Quittung „unchanged“. Es gab danach eine ASR-Fassung und keine menschliche Fassung. Der registrierte lokale Integrationstest prüft den zusätzlichen Fall eines geänderten ASR-Ergebnisses ohne menschliche Korrektur sowie die genaue Bindung an die aktuelle Audioversion.
+
+Bei der Archivierung zeigt die normale Archivfläche das gespeicherte Datum des QA-Testfalls. Die bestehende Kopfzeile des Schreibplatzes hält Zurück und die Diktatansichten beim Wechsel an derselben Stelle. Dadurch steht der Titel auf schmalen Geräten tiefer als im statischen HTML-Prototyp. Zwölf Browserprüfungen haben die sechs Ansichten und die Rückkehr zur Ausgangsliste bestätigt.
+
 ## Nachweis vom 20. November um 16:16 Uhr
 
 Auf Staging öffnete ein normal angemeldetes QA-Konto die eigene Aufnahme per Mausklick bei 1440 Pixeln und per Touch bei 390 Pixeln. In der Arbeitsliste wählte der Titeldruck die passende Zeile. Die vollständige Kennung ließ sich getrennt aufklappen. Beim Abspielen von 9,505 Sekunden echtem Testaudio markierte der Schreibplatz zwei aufeinanderfolgende Wörter im Transkript bei 0,209 und 0,344 Sekunden. Der lokale GPU-Dienst lieferte für 22 von 24 Wörtern passende Zeiten.
