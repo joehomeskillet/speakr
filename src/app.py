@@ -1154,8 +1154,8 @@ def register_clinic_worklist(flask_app):
 
     from sqlalchemy import or_
 
-    from src.clinic import (policy, pool_policy, routes_categories, routes_columns, routes_history,
-                            routes_regex, routes_templates, routes_workflow, routes_worklist,
+    from src.clinic import (policy, pool_policy, routes_categories, routes_columns, routes_dictation_detail,
+                            routes_history, routes_regex, routes_templates, routes_workflow, routes_worklist,
                             workflow, workflow_metadata, worklist_entries)
     from src.clinic.acceptance_policy import SCOPE_DICTATION, AcceptanceLedger, PolicyError
     from src.clinic import finalize_gates
@@ -1265,6 +1265,9 @@ def register_clinic_worklist(flask_app):
         job_type='clinic_finalize', book=ArchiveBook()))
     flask_app.register_blueprint(routes_history.create_blueprint(
         authorize=lambda user, action, dictation: may(user.id, action, dictation), run_once=run_once,
+        dictation_snapshot=worklist_entries.dictation_snapshot))
+    flask_app.register_blueprint(routes_dictation_detail.create_blueprint(
+        authorize=lambda user, action, dictation: may(user.id, action, dictation),
         dictation_snapshot=worklist_entries.dictation_snapshot))
     flask_app.register_blueprint(routes_templates.blueprint)
     flask_app.register_blueprint(routes_categories.blueprint)
