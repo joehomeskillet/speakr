@@ -248,7 +248,9 @@ export function createConsentComponent(Vue, client, props = {}) {
 // get their sizes here; the buttons of the unowned preferences child are skinned from outside.
 const HEADINGS = '[&_h1]:text-[30px] [&_h1]:max-[760px]:text-[26px] [&_h1]:font-bold [&_h1]:leading-[1.2] [&_h1]:tracking-[-0.8px] [&_h1]:mb-[9px] [&_h1]:text-[color:var(--v8-text)] '
     + '[&_h2]:text-[16px] [&_h2]:font-bold [&_h2]:leading-[1.35] [&_h2]:tracking-[-0.2px] [&_h2]:mb-[14px] [&_h2]:text-[color:var(--v8-text)] [&_button]:px-[13px]';
-const PRIMARY = 'primary !bg-[var(--ink)] !border-[color:var(--ink)] !text-[13px] !font-semibold !px-[13px] hover:!bg-[var(--brand2)]';
+const DANGER = 'danger max-[760px]:min-h-11 [.dark_&]:!text-[color:var(--v8-text)] [.dark_&]:!border-[color:var(--burgundy)] [[data-theme=dark]_&]:!text-[color:var(--v8-text)] [[data-theme=dark]_&]:!border-[color:var(--burgundy)]';
+const NOTE_BURGUNDY = 'note burgundy [.dark_&]:!text-[color:var(--v8-text)] [[data-theme=dark]_&]:!text-[color:var(--v8-text)]';
+const PRIMARY = 'primary max-[760px]:min-h-11 !bg-[var(--ink)] !border-[color:var(--ink)] !text-[13px] !font-semibold !px-[13px] hover:!bg-[var(--brand2)]';
 const CHILD_BUTTONS = '[&_.btn]:!min-h-[38px] [&_.btn]:rounded-lg [&_.btn]:border [&_.btn]:border-[color:var(--line)] [&_.btn]:bg-[var(--surface)] [&_.btn]:px-[13px] [&_.btn]:text-[13px] [&_.btn]:font-semibold [&_.btn]:text-[color:var(--v8-text)] [&_.btn:disabled]:opacity-50 '
     + '[&_button[type=submit]]:!bg-[var(--ink)] [&_button[type=submit]]:!border-[color:var(--ink)] [&_button[type=submit]]:!text-white';
 const CHOICES = '[&_legend]:mb-2 [&_legend]:text-[12px] [&_legend]:font-bold [&_fieldset]:m-0 [&_fieldset]:mb-4 [&_fieldset]:min-w-0 [&_fieldset]:border-0 [&_fieldset]:p-0 '
@@ -267,13 +269,13 @@ const PEDAL_TEMPLATE = `
   </div>
   <p v-if="!rows().length" class="hint mt-3" role="status" data-testid="clinic-settings-pedal-empty">{{ labels.empty }}</p>
   <div v-else class="table-wrap mt-4">
-    <table :aria-label="labels.title">
+    <table class="min-w-[32rem]" :aria-label="labels.title">
       <thead><tr><th scope="col">{{ labels.key }}</th><th scope="col">{{ labels.action }}</th><th scope="col"><span class="sr-only">{{ labels.remove }}</span></th></tr></thead>
       <tbody>
         <tr v-for="r in rows()" :key="r.code" :data-code="r.code">
           <td><kbd class="tag neutral">{{ r.code }}</kbd></td>
           <td>
-            <select :value="r.action" :aria-label="labels.action + ' ' + r.code" @change="setAction(r.code, $event.target.value)">
+            <select class="w-full min-w-[12rem] !pl-3 !pr-8 !text-[13px]" :value="r.action" :aria-label="labels.action + ' ' + r.code" @change="setAction(r.code, $event.target.value)">
               <option v-for="a in actions" :key="a" :value="a">{{ labels.actions[a] }}</option>
             </select>
           </td>
@@ -312,7 +314,7 @@ const CONSENT_TEMPLATE = `
   </div>
   <p class="hint mb-2">{{ labels.optIn }}</p>
   <dl class="keyvalues">
-    <div><dt>{{ view.statement.label }}</dt><dd data-testid="clinic-settings-consent-statement">{{ view.statement.text }}</dd></div>
+    <div class="max-[760px]:!grid-cols-1 max-[760px]:!gap-1"><dt>{{ view.statement.label }}</dt><dd data-testid="clinic-settings-consent-statement">{{ view.statement.text }}</dd></div>
     <div><dt>{{ labels.embeddings }}</dt><dd data-testid="clinic-settings-consent-count">{{ view.embeddingCount }}</dd></div>
   </dl>
   <ul v-if="view.history.length" role="list" class="hint mt-3" :aria-label="labels.history">
@@ -320,7 +322,7 @@ const CONSENT_TEMPLATE = `
       <time class="tabular-nums">{{ h.when }}</time><span>{{ h.label }}</span>
     </li>
   </ul>
-  <div v-if="view.error" class="note burgundy" role="alert" data-testid="clinic-settings-consent-error">
+  <div v-if="view.error" class="${NOTE_BURGUNDY}" role="alert" data-testid="clinic-settings-consent-error">
     <span>{{ view.error.message }}</span>
     <button v-if="view.error.retryable" type="button" class="ml-2" @click="controller.load()">{{ view.labels.retry }}</button>
   </div>
@@ -328,7 +330,7 @@ const CONSENT_TEMPLATE = `
   <div v-if="view.confirmingRevoke" class="note warning" role="alertdialog" :aria-label="view.labels.confirm">
     <p class="font-semibold">{{ view.labels.confirm }}</p>
     <div class="actions">
-      <button type="button" class="danger" :disabled="view.busy" data-testid="clinic-settings-consent-confirm"
+      <button type="button" class="${DANGER}" :disabled="view.busy" data-testid="clinic-settings-consent-confirm"
               @click="controller.confirmRevoke()">{{ view.labels.confirm }}</button>
       <button type="button" data-testid="clinic-settings-consent-cancel"
               @click="controller.cancel()">{{ view.labels.cancel }}</button>
@@ -337,7 +339,7 @@ const CONSENT_TEMPLATE = `
   <div v-else class="actions mt-4">
     <button type="button" class="${PRIMARY}" :disabled="!view.canGrant" data-testid="clinic-settings-consent-grant"
             @click="controller.grant()">{{ view.labels.grant }}</button>
-    <button type="button" class="danger" :disabled="!view.canRevoke" data-testid="clinic-settings-consent-revoke"
+    <button type="button" class="${DANGER}" :disabled="!view.canRevoke" data-testid="clinic-settings-consent-revoke"
             @click="controller.requestRevoke()">{{ view.labels.revoke }}</button>
     <button type="button" :disabled="view.busy" @click="controller.load()">{{ view.labels.reload }}</button>
   </div>
@@ -354,7 +356,7 @@ export const SETTINGS_TEMPLATE = `
     <div class="head-actions"></div>
   </div>
   <p v-if="state.denied" class="note warning" role="alert">{{ labels.denied }}</p>
-  <p v-else-if="state.forbidden" class="note burgundy" role="alert" :style="errorStyle" data-testid="clinic-settings-forbidden">{{ labels.forbidden }}</p>
+  <p v-else-if="state.forbidden" class="${NOTE_BURGUNDY}" role="alert" :style="errorStyle" data-testid="clinic-settings-forbidden">{{ labels.forbidden }}</p>
   <template v-else>
     <div class="grid equal">
       <div class="space-y-5 min-w-0">

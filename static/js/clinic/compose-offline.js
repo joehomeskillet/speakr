@@ -364,7 +364,9 @@ export function createOfflineViewController(options) {
 // primary button carry their sizes here.
 const HEADINGS = '[&_h1]:text-[30px] [&_h1]:max-[760px]:text-[26px] [&_h1]:font-bold [&_h1]:leading-[1.2] [&_h1]:tracking-[-0.8px] [&_h1]:mb-[9px] [&_h1]:text-[color:var(--v8-text)] '
     + '[&_h2]:text-[16px] [&_h2]:font-bold [&_h2]:leading-[1.35] [&_h2]:tracking-[-0.2px] [&_h2]:mb-[14px] [&_h2]:text-[color:var(--v8-text)] [&_button]:px-[13px]';
-const PRIMARY = 'primary !bg-[var(--ink)] !border-[color:var(--ink)] !text-[13px] !font-semibold !px-[13px] hover:!bg-[var(--brand2)]';
+const DANGER = 'danger max-[760px]:min-h-11 [.dark_&]:!text-[color:var(--v8-text)] [.dark_&]:!border-[color:var(--burgundy)] [[data-theme=dark]_&]:!text-[color:var(--v8-text)] [[data-theme=dark]_&]:!border-[color:var(--burgundy)]';
+const NOTE_BURGUNDY = 'note burgundy [.dark_&]:!text-[color:var(--v8-text)] [[data-theme=dark]_&]:!text-[color:var(--v8-text)]';
+const PRIMARY = 'primary max-[760px]:min-h-11 !bg-[var(--ink)] !border-[color:var(--ink)] !text-[13px] !font-semibold !px-[13px] hover:!bg-[var(--brand2)]';
 
 export const OfflineView = {
     name: 'ClinicOfflineView',
@@ -399,11 +401,11 @@ export const OfflineView = {
         if (typeof V.onMounted === 'function') V.onMounted(() => { c.start(); });
         if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => c.dispose());
         const s = c.state;
-        const noticeClass = () => (s.noticeKind === 'error' ? 'note burgundy' : s.noticeKind === 'warning' ? 'note warning' : 'note');
+        const noticeClass = () => (s.noticeKind === 'error' ? NOTE_BURGUNDY : s.noticeKind === 'warning' ? 'note warning' : 'note');
         const profileLabel = () => PROFILE_LABELS[s.profile] || 'Nicht freigegebenes Profil';
         const contact = () => (s.lastContact ? s.lastContact.toLocaleTimeString('de-CH') : TEXT.noContact);
         const submit = () => c.unlock(props.getWrapped ? props.getWrapped() : null);
-        return { c, s, TEXT, HEADINGS, PRIMARY, noticeClass, profileLabel, contact, submit };
+        return { c, s, TEXT, HEADINGS, PRIMARY, DANGER, noticeClass, profileLabel, contact, submit };
     },
     template: `
 <section class="clinic-offline v8-page" :class="HEADINGS" aria-labelledby="clinic-offline-title">
@@ -431,7 +433,7 @@ export const OfflineView = {
                     <div class="actions">
                       <button type="button" data-testid="restore"
                               :disabled="s.phase !== 'unlocked' || !s.online || s.busy" @click="c.restore(d.dictationId, d.sequence)">{{ TEXT.restore }}</button>
-                      <button type="button" class="danger" data-testid="discard" @click="c.askDiscard(d.key)">{{ TEXT.discard }}</button>
+                      <button type="button" :class="DANGER" data-testid="discard" @click="c.askDiscard(d.key)">{{ TEXT.discard }}</button>
                     </div>
                   </td>
                 </tr>
@@ -440,7 +442,7 @@ export const OfflineView = {
                     <div class="note warning !mt-0" role="alert" data-testid="discard-confirm">
                       <p>{{ TEXT.discardWarn }}</p>
                       <div class="actions">
-                        <button type="button" class="danger" data-testid="discard-yes" @click="c.confirmDiscard()">{{ TEXT.discardConfirm }}</button>
+                        <button type="button" :class="DANGER" data-testid="discard-yes" @click="c.confirmDiscard()">{{ TEXT.discardConfirm }}</button>
                         <button type="button" data-testid="discard-no" @click="c.cancelDiscard()">{{ TEXT.cancel }}</button>
                       </div>
                     </div>
@@ -464,7 +466,7 @@ export const OfflineView = {
       <p role="status" aria-live="polite" data-testid="notice" :class="noticeClass()">{{ s.phase === 'checking' ? TEXT.checking : s.notice }}</p>
       <div class="actions mt-4">
         <button type="button" :class="PRIMARY" data-testid="refresh" v-if="!s.loggedOut" :disabled="s.busy" @click="c.refresh()">{{ TEXT.refresh }}</button>
-        <button type="button" class="danger" data-testid="logout" @click="c.logout()">{{ TEXT.logout }}</button>
+        <button type="button" :class="DANGER" data-testid="logout" @click="c.logout()">{{ TEXT.logout }}</button>
       </div>
       <template v-if="s.phase === 'locked' || s.phase === 'unlocked'">
         <div v-if="s.phase === 'locked'" class="mt-4" role="group" :aria-label="TEXT.unlockSection">

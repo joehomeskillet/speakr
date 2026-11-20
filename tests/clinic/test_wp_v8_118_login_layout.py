@@ -10,6 +10,7 @@ def login_html(monkeypatch, clinic: bool) -> str:
         monkeypatch.setenv("CLINIC_MODE", "1")
     else:
         monkeypatch.delenv("CLINIC_MODE", raising=False)
+    monkeypatch.setitem(app.config, "WTF_CSRF_ENABLED", True)
     response = app.test_client().get("/login")
     assert response.status_code == 200
     return response.get_data(as_text=True)
