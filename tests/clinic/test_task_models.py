@@ -16,6 +16,7 @@ from src.services import llm
 from src.services.job_queue import DICTATION_SUMMARY_JOB, job_queue
 from src.services.transcription.base import TranscriptionRequest
 from src.services.transcription.connectors.openai_whisper import OpenAIWhisperConnector
+from tests.clinic.test_wp_asr_engine_wire import ctx  # noqa: F401
 from tests.clinic.test_dictation_summary import scene  # noqa: F401
 
 URL = '/api/clinic/v1/admin/task-models'
@@ -157,3 +158,28 @@ def test_authoritative_local_catalog_and_explicit_reset(api, monkeypatch):
         assert response.status_code == 200
         assert response.json['models']['summary']['effective'] == 'text-served'
         assert response.json['models']['asr_cpu']['effective'] == 'cpu-served'
+
+
+def test_asr_revision_carries_the_concrete_completed_response_model(ctx):
+    from src.clinic.revisions import history
+    from tests.clinic.test_wp_asr_engine_wire import _connector, _dictation_with_head, _run
+
+    rec, dictation, _, _ = _dictation_with_head(ctx, human=True)
+    connector = _connector(text='Neue lokale Testfassung.', model='cpu-default')
+    connector.transcribe.return_value.provider = 'openai_whisper'
+    connector.transcribe.return_value.model = 'actual-on-gpu'
+    _run(rec, connector, transcription_model='upload-default')
+    assert history(dictation)[-1].model_ref == 'openai_whisper:actual-on-gpu'
+
+
+def test_async_cpu_provenance_preserves_uncertainty_for_resumed_jobs():
+    from tests.test_asr_async_jobs import BASE, FakeWhisperX, _connector, _request
+    from src.tasks.processing import _response_model_ref
+
+    fake = FakeWhisperX(script=[('done', None, 1)])
+    connector = _connector(fake)
+    sent = connector.transcribe(_request(model='newly-selected'))
+    assert _response_model_ref(sent) == 'asr_endpoint:newly-selected'
+    saved = {'job_id': fake.add_job(script=[('done', None, 1)]), 'base_url': BASE}
+    resumed = connector.transcribe(_request(saved, model='different-selection-now'))
+    assert _response_model_ref(resumed) == 'asr_endpoint:unspecified'

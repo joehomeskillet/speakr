@@ -260,7 +260,7 @@ class ASREndpointConnector(BaseTranscriptionConnector):
                             status_code=response.status_code
                         )
 
-            return self._parse_response(data)
+            return self._parse_response(data, params.get("model"))
 
         except httpx.HTTPStatusError as e:
             # Capture the upstream response body so the actual error message
@@ -382,6 +382,7 @@ class ASREndpointConnector(BaseTranscriptionConnector):
 
         saved = request.provider_task if isinstance(request.provider_task, dict) else {}
         job_id = None
+        submitted_model = None
         if _valid_job_id(saved.get('job_id')) and saved.get('base_url') == self.base_url:
             job_id = saved['job_id']
             logger.info(f"ASR job {job_id}: resuming the saved job")
@@ -393,6 +394,7 @@ class ASREndpointConnector(BaseTranscriptionConnector):
                     while True:
                         if job_id is None:
                             job_id = self._submit_job(client, request, job_params, headers, deadline)
+                            submitted_model = job_params.get("model")
                             if save({'job_id': job_id, 'base_url': self.base_url}) is False:
                                 # Nothing would remove this job later.
                                 gone_id, job_id = job_id, None
@@ -426,7 +428,7 @@ class ASREndpointConnector(BaseTranscriptionConnector):
                             save(None)
                             raise
 
-                    response = self._parse_response(data)
+                    response = self._parse_response(data, submitted_model)
                 except BaseException as stop:
                     # A timeout, failed polls, an unreadable result or a
                     # shutdown: a saved job is left for the retry that
@@ -650,7 +652,7 @@ class ASREndpointConnector(BaseTranscriptionConnector):
                   if body_excerpt else f"{what} failed with status {response.status_code}")
         raise ProviderError(detail, provider=self.PROVIDER_NAME, status_code=response.status_code)
 
-    def _parse_response(self, data: Dict[str, Any]) -> TranscriptionResponse:
+    def _parse_response(self, data: Dict[str, Any], submitted_model=None) -> TranscriptionResponse:
         """
         Parse ASR webservice response into standardized format.
 
@@ -715,7 +717,7 @@ class ASREndpointConnector(BaseTranscriptionConnector):
             speaker_embeddings=speaker_embeddings,
             language=data.get('language'),
             provider=self.PROVIDER_NAME,
-            model="asr-endpoint",
+            model=submitted_model or "asr-endpoint",
             raw_response=data
         )
 
