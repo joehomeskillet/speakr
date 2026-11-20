@@ -245,6 +245,7 @@
                     <div class="cadm-nav__items">
                       <a href="#/system/statistik" class="cadm-nav__item" :class="{ 'is-active': activeTab === 'stats' }" :aria-current="activeTab === 'stats' ? 'page' : null">Systemstatistik</a>
                       <a href="#/system/einstellungen" class="cadm-nav__item" :class="{ 'is-active': activeTab === 'settings' }" :aria-current="activeTab === 'settings' ? 'page' : null">Systemeinstellungen</a>
+                      <a href="#/system/modelle" class="cadm-nav__item" :class="{ 'is-active': activeTab === 'models' }" :aria-current="activeTab === 'models' ? 'page' : null">Modellwahl</a>
                       <a href="#/system/audit" class="cadm-nav__item" data-audit-tab :class="{ 'is-active': activeTab === 'audit' }" :aria-current="activeTab === 'audit' ? 'page' : null">System-Auditprotokoll</a>
                     </div>
                   </div>
@@ -642,6 +643,9 @@
                   <div class="tab-footer"></div>
                 </div>
 
+                {% if clinic_mode %}
+                <clinic-model-selection v-if="activeTab === 'models'"></clinic-model-selection>
+                {% endif %}
                 <!-- System Settings Tab -->
                 <div class="tab-content" :class="{ hidden: activeTab !== 'settings' }">
                   <div class="tab-scroll">
@@ -667,9 +671,9 @@
                             <div class="min-w-0">
                                 <h4 class="text-sm font-semibold text-[var(--text-primary)] flex items-center gap-2">
                                     <i class="fas fa-microphone-lines text-[var(--text-accent)]"></i>
-                                    <span>${ t('adminDashboard.transcriptionModels') }</span>
+                                    {% if clinic_mode %}<span>Modellkatalog für die Aufnahme</span>{% else %}<span>${ t('adminDashboard.transcriptionModels') }</span>{% endif %}
                                 </h4>
-                                <p class="text-xs text-[var(--text-muted)] mt-0.5">${ t('adminDashboard.transcriptionModelsDesc') }</p>
+                                {% if clinic_mode %}<p class="t-meta">Sichtbare Modelle und Anzeigenamen für die Aufnahme. Der Katalogstandard gilt für die CPU-Transkription, solange in der Modellwahl keine eigene CPU-Kennung festgelegt ist.</p>{% else %}<p class="text-xs text-[var(--text-muted)] mt-0.5">${ t('adminDashboard.transcriptionModelsDesc') }</p>{% endif %}
                             </div>
                             <button @click="discoverTranscriptionModels" :disabled="discoveringModels"
                                     class="btn btn--ghost flex-shrink-0 whitespace-nowrap">
@@ -2222,6 +2226,11 @@ Summarization Instructions:
             const i18nInstance = window.i18n;
             
             createApp({
+            {% if clinic_mode %}
+            components: {
+                ClinicModelSelection: Vue.defineAsyncComponent(() => import("{{ url_for('static', filename='js/clinic/admin-task-models.js', v=app_version) }}")),
+            },
+            {% endif %}
             setup() {
                 
                 // State
@@ -2231,7 +2240,7 @@ Summarization Instructions:
                 onMounted(() => {
                     const tabFromHash = () => {
                         const path = window.location.hash.split('?')[0];
-                        const pages = { '#/system/statistik': 'stats', '#/system/einstellungen': 'settings', '#/system/audit': 'audit' };
+                        const pages = { '#/system/statistik': 'stats', '#/system/einstellungen': 'settings', '#/system/modelle': 'models', '#/system/audit': 'audit' };
                         if (pages[path] === 'audit') {
                             const account = new URLSearchParams(window.location.hash.split('?')[1]).get('konto');
                             auditFilters.value = { ...emptyAuditFilters(), user: /^\d+$/.test(account || '') ? account : '' };
@@ -2293,6 +2302,7 @@ Summarization Instructions:
                 //     preview). Both used to write the same key, so the
                 //     raw card here was a redundant second editor.
                 const HIDDEN_SETTING_KEYS = new Set([
+                    'clinic_task_models',
                     'transcription_models_visible_json',
                     'transcription_default_model',
                     'admin_default_summary_prompt',
@@ -5198,7 +5208,7 @@ Summarization Instructions:
                     return id && allDefs.some((d) => d.id === id) ? id : null;
                 };
                 // Landing page: Benutzer und Rollen (it carries the former Konten panel).
-                const onSystemPage = () => !team && /^#\/system\/(statistik|einstellungen|audit)(?:\?|$)/.test(window.location.hash);
+                const onSystemPage = () => !team && /^#\/system\/(statistik|einstellungen|modelle|audit)(?:\?|$)/.test(window.location.hash);
                 const selectedId = () => onSystemPage() ? null : (idFromHash() || (team ? null : 'users'));
                 const activeId = ref(selectedId());
                 const notifyShell = () => window.dispatchEvent(new Event('clinic-admin-panelchange'));
