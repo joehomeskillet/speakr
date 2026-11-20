@@ -4762,6 +4762,15 @@ Summarization Instructions:
         import { columnsComponent } from "{{ url_for('static', filename='js/clinic/columns-ui.js', v=app_version) }}";
         import { createRegexRulesComponent } from "{{ url_for('static', filename='js/clinic/regex-ui.js', v=app_version) }}";
         import { createPreferencesComponent } from "{{ url_for('static', filename='js/clinic/preferences-ui.js', v=app_version) }}";
+        import { registerAdminPoolsView } from "{{ url_for('static', filename='js/clinic/compose-admin-pools.js', v=app_version) }}";
+        import { registerAuthorsView } from "{{ url_for('static', filename='js/clinic/compose-authors.js', v=app_version) }}";
+        import { registerUsersView } from "{{ url_for('static', filename='js/clinic/compose-users.js', v=app_version) }}";
+        import { registerVocabularyView } from "{{ url_for('static', filename='js/clinic/compose-vocabulary.js', v=app_version) }}";
+        import { registerCommandsTemplatesView } from "{{ url_for('static', filename='js/clinic/compose-commands-templates.js', v=app_version) }}";
+        import { registerAsrProfilesView } from "{{ url_for('static', filename='js/clinic/compose-asr-profiles.js', v=app_version) }}";
+        import { registerImportView } from "{{ url_for('static', filename='js/clinic/compose-import.js', v=app_version) }}";
+        import { registerJobsView } from "{{ url_for('static', filename='js/clinic/compose-jobs.js', v=app_version) }}";
+        import { registerActivityView } from "{{ url_for('static', filename='js/clinic/compose-activity.js', v=app_version) }}";
 
         const { createApp, reactive, ref, computed, markRaw, onMounted } = window.Vue;
         const root = document.getElementById('clinic-admin-root');
@@ -4836,23 +4845,43 @@ Summarization Instructions:
             { id: 'preferences', label: 'Vorgaben', probe: '/preferences/recipient-default', comp: createPreferencesComponent(window.Vue, client, {}), props: {} },
         ].map((d) => Object.assign(d, { comp: typeof d.comp === 'string' ? d.comp : markRaw(d.comp) }));
 
+        // V8 administration pages (compose-*.js, registered on this app below). Own navigation row, same probe pattern:
+        // the page stays hidden when the API answers 403/404. The component tag carries the module's registered name.
+        const v8props = { client, currentUser: { id: userId, is_admin: !team } };
+        const v8defs = [
+            { id: 'admin-pools', label: 'Schreibkräfte-Pools', probe: '/pool-admin/pools', comp: 'clinic-admin-pools-view', props: { client, userClient: client } },
+            { id: 'authors', label: 'Diktierende und Autorenpools', probe: '/admin/users', comp: 'clinic-authors-view', props: v8props },
+            { id: 'users', label: 'Benutzer und Rollen', probe: '/admin/users', comp: 'clinic-users-view', props: { ...v8props, adminClient: client } },
+            { id: 'vocabulary', label: 'Wortschatz', probe: '/vocabulary/search?scope=user&q=&mode=contains&status=all', comp: 'clinic-vocabulary-view', props: v8props },
+            { id: 'commands-templates', label: 'Befehle und Vorlagen', probe: '/resources/commands', comp: 'clinic-commands-templates-view', props: v8props },
+            { id: 'asr-profiles', label: 'Sprachprofile', probe: '/admin/clinic/training/schedule', comp: 'clinic-asr-profiles-view', props: { ...v8props, adminClient: client } },
+            { id: 'import', label: 'Import', probe: '/imports/intents', comp: 'clinic-import-view', props: v8props },
+            { id: 'jobs', label: 'Verarbeitung', probe: '/jobs/health', comp: 'clinic-jobs-view', props: { client, canRetry: !team } },
+            { id: 'activity', label: 'Aktivität und Audit', probe: '/statistics/aggregates', comp: 'clinic-activity-view', props: v8props },
+        ].map((d) => Object.assign(d, { v8: true }));
+        const allDefs = defs.concat(v8defs);
+
         const Root = {
             setup() {
                 const shown = ref(team ? [] : defs);
+                const shownV8 = ref(team ? [] : v8defs);
                 const withheld = ref([]);
                 const probing = ref(team);
                 const activeId = ref(team ? null : defs[0].id);
-                const active = computed(() => defs.find((d) => d.id === activeId.value) || null);
+                const active = computed(() => allDefs.find((d) => d.id === activeId.value) || null);
+                const viewTestId = computed(() => (active.value && active.value.v8 ? 'clinic-v8-view-' : 'clinic-view-') + (active.value ? active.value.id : ''));
                 const withheldText = computed(() => 'Für dieses Konto nicht freigegeben: ' + withheld.value.join(', ') + '.');
                 async function probe() {
-                    const results = await Promise.all(defs.map((d) => (d.probe ? client.request(d.probe) : Promise.resolve({ outcome: 'ok' }))));
+                    const results = await Promise.all(allDefs.map((d) => (d.probe ? client.request(d.probe) : Promise.resolve({ outcome: 'ok' }))));
                     shown.value = defs.filter((d, i) => results[i].outcome === 'ok');
+                    shownV8.value = v8defs.filter((d, i) => results[defs.length + i].outcome === 'ok');
                     withheld.value = defs.filter((d, i) => results[i].outcome !== 'ok').map((d) => d.label);
-                    activeId.value = shown.value.length ? shown.value[0].id : null;
+                    const first = shown.value[0] || shownV8.value[0];
+                    activeId.value = first ? first.id : null;
                     probing.value = false;
                 }
                 onMounted(() => { if (team) probe(); });
-                return { shown, withheld, withheldText, probing, activeId, active };
+                return { shown, shownV8, withheld, withheldText, probing, activeId, active, viewTestId };
             },
             template: `
 <section aria-labelledby="clinic-admin-title" data-testid="clinic-admin">
@@ -4865,7 +4894,12 @@ Summarization Instructions:
               :aria-current="d.id === activeId ? 'page' : null" :data-testid="'clinic-panel-' + d.id"
               @click="activeId = d.id"><span v-text="d.label"></span></button>
     </nav>
-    <div v-if="active" :key="active.id" :data-testid="'clinic-view-' + active.id">
+    <nav v-if="shownV8.length" class="tabs mb-4" aria-label="Klinik-Verwaltung, Seiten" data-testid="clinic-v8-nav">
+      <button v-for="d in shownV8" :key="d.id" type="button" class="tab" :class="{ 'is-active': d.id === activeId }"
+              :aria-current="d.id === activeId ? 'page' : null" :data-testid="'clinic-v8-panel-' + d.id"
+              @click="activeId = d.id"><span v-text="d.label"></span></button>
+    </nav>
+    <div v-if="active" :key="active.id" :data-testid="viewTestId">
       <component :is="active.comp" v-bind="active.props" @open-accounts="activeId = 'accounts'"></component>
     </div>
   </template>
@@ -4877,6 +4911,8 @@ Summarization Instructions:
         function mountClinic() {
             const app = createApp(Root);
             registerDirectoryReview(app);
+            [registerAdminPoolsView, registerAuthorsView, registerUsersView, registerVocabularyView, registerCommandsTemplatesView,
+                registerAsrProfilesView, registerImportView, registerJobsView, registerActivityView].forEach((register) => register(app));
             app.mount(document.getElementById('clinic-admin-root'));
         }
         const host = document.getElementById('app');
