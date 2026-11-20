@@ -1253,7 +1253,10 @@ def register_clinic_worklist(flask_app):
                 'clinic_kis_adapter', MockKisAdapter() if staging else DisabledAdapter())
         return finalize_gates.trusted_context(context, adapter)
 
-    routes_workflow.register_commands(dispatch, workflow_authorize, acceptance_policy)
+    def acceptance_decision(dictation, audio_revision_id, context_revision_id):
+        return routes_workflow.bound_decision(ledger, dictation, audio_revision_id, context_revision_id)
+
+    routes_workflow.register_commands(dispatch, workflow_authorize, acceptance_policy, ledger)
     routes_worklist.register_save_filter(dispatch, filters.create)
     flask_app.register_blueprint(routes_worklist.create_blueprint(load_entries, filters, layouts))
     flask_app.register_blueprint(routes_columns.create_columns_blueprint(
@@ -1262,6 +1265,7 @@ def register_clinic_worklist(flask_app):
         authorize=workflow_authorize, run_once=run_once, allowed_actions=allowed_actions,
         record_audit=record_audit, trusted_context=context_is_trusted,
         open_review_flags=finalize_gates.open_review_flags, acceptance_policy=acceptance_policy,
+        acceptance_decision=acceptance_decision, acceptance_ledger=ledger,
         job_type='clinic_finalize', book=ArchiveBook()))
     flask_app.register_blueprint(routes_history.create_blueprint(
         authorize=lambda user, action, dictation: may(user.id, action, dictation), run_once=run_once,
