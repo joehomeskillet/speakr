@@ -278,19 +278,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     const clinicMode = appRootElement?.dataset?.clinicMode === 'True';
     if (clinicMode) {
         try {
-            const [{ createClinicApiClient }, { registerWorklistView }, { registerResourcesView }, { registerCorrectionView }, { registerRecordingsView }] = await Promise.all([
+            const [{ createClinicApiClient }, { registerWorklistView }, { registerResourcesView }, { registerCorrectionView, scopedClient }, { registerRecordingsView }] = await Promise.all([
                 import('./clinic/api-client.js'),
                 import('./clinic/compose-worklist.js'),
                 import('./clinic/compose-resources.js'),
                 import('./clinic/compose-correction.js'),
                 import('./clinic/compose-recordings.js'),
             ]);
+            const client = createClinicApiClient();
             clinicWorklist = {
                 registerWorklistView,
                 registerResourcesView,
                 registerCorrectionView,
                 registerRecordingsView,
-                client: createClinicApiClient(),
+                client,
+                correctionClient: scopedClient(client),
                 user: { id: appRootElement.dataset.currentUserId, role: appRootElement.dataset.clinicRole || 'author' },
             };
             // V8 dictation views (v8-70)
@@ -414,6 +416,28 @@ document.addEventListener('DOMContentLoaded', async () => {
             const currentView = ref(clinicWorklist ? clinicViewFromHash() : null);
             // Clinic correction view ('clinic-correction'): the dictation it shows.
             const clinicCorrectionId = ref(null);
+            const clinicCorrectionStaff = ref({});
+            if (clinicWorklist) {
+                watch(clinicCorrectionId, async (id, _previous, onCleanup) => {
+                    if (!id) {
+                        clinicCorrectionStaff.value = {};
+                        return;
+                    }
+                    clinicCorrectionStaff.value = { dictator: 'Wird geladen …', pool: 'Wird geladen …' };
+                    let current = true;
+                    onCleanup(() => { current = false; });
+                    const { outcome, data } = await clinicWorklist.correctionClient.request('/dictations/' + encodeURIComponent(id) + '/detail');
+                    if (!current) return;
+                    if (outcome === 'ok' && data?.dictation_id === id) {
+                        clinicCorrectionStaff.value = {
+                            dictator: data.author?.display_name,
+                            pool: data.staff_pools?.map(pool => pool.name).filter(Boolean).join(', '),
+                        };
+                    } else {
+                        clinicCorrectionStaff.value = { dictator: 'Nicht verfügbar', pool: 'Nicht verfügbar' };
+                    }
+                }, { flush: 'post' });
+            }
             const clinicCorrectionMount = ref(null);
             const clinicViewMount = ref(null);
             // The tab view a correction was opened from; closing returns there.
@@ -5292,7 +5316,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 clinicClient: clinicWorklist ? clinicWorklist.client : null,
                 clinicUser: clinicWorklist ? clinicWorklist.user : null,
                 clinicCorrectionId, clinicCorrectionMount, clinicViewMount, clinicOrigin, clinicActiveTab, goClinicView,
-                openClinicDictation, closeClinicCorrection,
+                openClinicDictation, closeClinicCorrection, clinicCorrectionStaff,
                 requestClinicCorrectionClose, clinicAudioContextFactory,
                 // V8 dictation views (v8-70)
                 clinicDictationId, clinicDictationViewActive, clinicDictationLinks: CLINIC_DICTATION_LINKS,
