@@ -175,7 +175,7 @@ jobs:
         run: |
           /tmp/wxv/bin/python whisperx/tests/e2e/stub_server.py --port 9000 \
             --env-file whisperx/tests/defaults/minimal.env > /tmp/whisperx.log 2>&1 &
-          for i in $(seq 1 60); do curl -fs http://127.0.0.1:9000/health && break; sleep 1; done
+          for _ in $(seq 1 60); do curl -fs http://127.0.0.1:9000/health && break; sleep 1; done
           curl -fs http://127.0.0.1:9000/health
 
       - name: Contract - vendored model rules match the service
@@ -266,12 +266,10 @@ jobs:
       - name: Start Speakr (config/env.whisperx.example)
         run: |
           python tests/e2e/run_speakr.py --port 8899 --workdir /tmp/speakr-smoke > /tmp/speakr.log 2>&1 &
-          for i in $(seq 1 90); do curl -fs -o /dev/null http://127.0.0.1:8899/login && break; sleep 2; done
+          for _ in $(seq 1 90); do curl -fs -o /dev/null http://127.0.0.1:8899/login && break; sleep 2; done
           curl -fs -o /dev/null http://127.0.0.1:8899/login
 
-      # The group permission test (#576) runs on the same instance after
-      # the smoke test; the settings it changes are restored afterwards.
-      - name: Browser smoke test and group permission test
+      - name: Source browser smoke and interaction tests
         env:
           SPEAKR_BROWSER_SMOKE: '1'
           SPEAKR_BASE_URL: http://127.0.0.1:8899
@@ -331,7 +329,7 @@ jobs:
         run: |
           python3 tests/e2e/smoke_env.py > smoke.env
           docker run -d --name speakr-smoke -p 8899:8899 --env-file smoke.env speakr:smoke
-          for i in $(seq 1 90); do curl -fs -o /dev/null http://127.0.0.1:8899/login && break; sleep 2; done
+          for _ in $(seq 1 90); do curl -fs -o /dev/null http://127.0.0.1:8899/login && break; sleep 2; done
           curl -fs -o /dev/null http://127.0.0.1:8899/login
 
       - name: Set up Python
