@@ -462,7 +462,7 @@ export const RECORDING_TEMPLATE = `
           <div class="note"><span class="tag neutral dot">{{ c.text.created }}</span> <strong class="break-all" data-testid="created-id">{{ m.created.dictationId }}</strong></div>
           <hr class="separator">
           <div class="actions text-sm">
-            <button v-if="m.phase !== 'submitted'" type="button" class="btn btn--primary" style="min-height: 2.75rem" data-testid="submit-draft" :disabled="!m.canSubmit" @click="c.submit()">{{ c.text.submit }}</button>
+            <button v-if="m.phase !== 'submitted'" type="button" class="button" style="min-height: 2.75rem; ${PRIMARY}" data-testid="submit-draft" :disabled="!m.canSubmit" @click="c.submit()">{{ c.text.submit }}</button>
             <button type="button" class="button" style="min-height: 2.75rem" data-testid="to-worklist" :disabled="m.phase === 'submitting'" @click="c.toWorklist()">{{ c.text.toWorklist }}</button>
             <button type="button" class="button" style="min-height: 2.75rem" data-testid="open-created" :disabled="m.phase === 'submitting'" @click="c.openCreated()">{{ c.text.open }}</button>
             <button type="button" class="button" style="min-height: 2.75rem" data-testid="another" :disabled="m.phase === 'submitting'" @click="c.another()">{{ c.text.another }}</button>
