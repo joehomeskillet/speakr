@@ -11,6 +11,7 @@ Days are UTC calendar days, like the usage tables they read.
 import os
 from collections import defaultdict
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from statistics import median
 
 from sqlalchemy import case, extract
@@ -34,6 +35,11 @@ def _days(start, end):
     while d <= end:
         yield d
         d += timedelta(days=1)
+
+
+def _minutes(seconds):
+    """Round to whole six-second units (tenths of a minute), with ties to even."""
+    return round(Decimal(str(seconds or 0)) / 6) / 10
 
 
 def _usage_window(start, end):
@@ -156,7 +162,7 @@ def build_overview(days=30, today=None):
             .filter(TranscriptionUsage.date >= start, TranscriptionUsage.date <= today).group_by(TranscriptionUsage.date):
         row = daily_use.get(d.isoformat())
         if row is not None:
-            row['minutes'] += round((seconds or 0) / 60, 1)
+            row['minutes'] = _minutes(seconds)
 
     # ---- cost per model in the range
     by_model = []
@@ -174,16 +180,16 @@ def build_overview(days=30, today=None):
         row['tokens'] += tokens
         row['requests'] += requests
         row['cost'] += cost
-    for model, connector, seconds, requests, cost in db.session.query(
-            TranscriptionUsage.model_name, TranscriptionUsage.connector_type,
+    model_label = db.func.coalesce(db.func.nullif(TranscriptionUsage.model_name, ''), TranscriptionUsage.connector_type, '')
+    for name, seconds, requests, cost in db.session.query(
+            model_label,
             db.func.sum(TranscriptionUsage.audio_duration_seconds), db.func.sum(TranscriptionUsage.request_count),
             db.func.sum(TranscriptionUsage.estimated_cost)) \
             .filter(TranscriptionUsage.date >= start, TranscriptionUsage.date <= today) \
-            .group_by(TranscriptionUsage.model_name, TranscriptionUsage.connector_type):
-        name = model or connector or ''
+            .group_by(model_label):
         row = models.setdefault(('transcription', name), {'kind': 'transcription', 'model': name, 'tokens': 0,
                                                           'minutes': 0, 'requests': 0, 'cost': 0.0})
-        row['minutes'] += round((seconds or 0) / 60, 1)
+        row['minutes'] = _minutes(seconds)
         row['requests'] += int(requests or 0)
         row['cost'] += float(cost or 0)
     model_rows = sorted(models.values(), key=lambda r: (-r['cost'], -r['tokens'], -r['minutes'], r['model']))

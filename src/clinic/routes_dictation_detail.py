@@ -26,7 +26,10 @@ from src.services import audit
 PATH = '/api/clinic/v1/dictations/<uuid:dictation_id>/detail'
 _PROBLEMS = {
     401: ('UNAUTHORIZED', 'Anmeldung erforderlich'),
+    403: ('FORBIDDEN', 'Zugriff verweigert'),
     404: ('NOT_FOUND', 'Diktat nicht gefunden'),
+    409: ('CONFLICT', 'Der aktuelle Textstand kann nicht zusammengefasst werden'),
+    503: ('SUMMARY_UNAVAILABLE', 'Lokales Sprachmodell nicht verfügbar'),
 }
 
 
@@ -201,4 +204,6 @@ def create_blueprint(
             **capabilities,
         )
 
+    from src.clinic.dictation_summary import register_route
+    register_route(bp)
     return bp

@@ -48,7 +48,8 @@ SUMMARY_JOBS = ['summarize', 'reprocess_summary', 'translate_transcription']
 # behaviour is unchanged. They run on the fast summary workers.
 CLINIC_JOBS = ['clinic_finalize', 'clinic_output', 'clinic_notify', 'clinic_alignment']
 ASR_TRAINING_JOB = 'asr_training'
-SUMMARY_JOBS += [*CLINIC_JOBS, ASR_TRAINING_JOB]
+DICTATION_SUMMARY_JOB = "clinic_dictation_summary"
+SUMMARY_JOBS += [*CLINIC_JOBS, ASR_TRAINING_JOB, DICTATION_SUMMARY_JOB]
 # Building a recording's Inquire chunks (embeddings) has its own workers, so a
 # slow embedding model never holds up a transcription or a summary (#541).
 INDEX_JOBS = ['index_chunks']
@@ -67,6 +68,7 @@ JOB_RUNNERS = {
     'transcribe': '_run_audio_job',
     'reprocess_transcription': '_run_audio_job',
     'summarize': '_run_summarization',
+    DICTATION_SUMMARY_JOB: '_run_summarization',
     'reprocess_summary': '_run_reprocess_summary',
     'stitch': '_run_stitch',
     'merge': '_run_merge',
@@ -82,7 +84,7 @@ JOB_RUNNERS = {
 
 # Jobs that run beside a recording's processing: they leave recording.status
 # alone and send no webhooks or emails.
-BACKGROUND_JOBS = ('translate_transcription', 'index_chunks', *CLINIC_JOBS, ASR_TRAINING_JOB)
+BACKGROUND_JOBS = ('translate_transcription', 'index_chunks', *CLINIC_JOBS, ASR_TRAINING_JOB, DICTATION_SUMMARY_JOB)
 
 # Stable operation keys of clinic follow-ups: one job per key and job type,
 # also across concurrent retries and after the first job has ended.
@@ -442,7 +444,7 @@ class FairJobQueue:
                         # Training intents also leave the recording alone.
                         if (recording and recording.status == 'QUEUED'
                                 and candidate_job.job_type not in CONVERT_JOBS
-                                and candidate_job.job_type != ASR_TRAINING_JOB):
+                                and candidate_job.job_type not in (ASR_TRAINING_JOB, DICTATION_SUMMARY_JOB)):
                             recording.status = 'PROCESSING'
 
                         db.session.commit()
@@ -930,6 +932,10 @@ class FairJobQueue:
         """Run summarization-only task. Status updates handled by task function."""
         from src.tasks.processing import generate_summary_only_task
         from flask import current_app
+
+        if job_type == DICTATION_SUMMARY_JOB:
+            from src.clinic.dictation_summary import run_summary
+            return run_summary(job, params, self._current_attempt)
 
         if params.get('follow_up'):
             # Title and summary queued by a transcription job (src/clinic/follow_up.py).

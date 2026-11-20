@@ -4,9 +4,9 @@
 
 Web-only clinic dictation fork of Speakr v0.11.1, pinned to upstream commit `48d3018fb7d80b77f897bedd86bcc89b5034d1f5`.
 
-- Integration branch: `clinic/main`.
+- Published release branch: `main`. Development and integration branch: `dev`.
 - Remotes: `origin` is upstream Speakr; `fork` is the clinic fork.
-- Work packages branch from `clinic/main`.
+- Work packages branch locally from `dev`. The orchestrator promotes tested changes from `dev` to `main` by pull request.
 
 ## Source of truth
 
@@ -40,8 +40,8 @@ npm test
 
 ## Worker contract
 
-- Each work package gets its own git worktree under `.claude/worktrees/`, branched from `clinic/main`.
-- Commit only on that work package's branch. Never push. Never merge into `clinic/main`.
+- Each work package gets its own git worktree under `.claude/worktrees/`, branched from `dev`.
+- Commit only on that work package's local branch. The orchestrator owns pushes and merges to `dev` and `main`.
 - Report the commit hash and the verbatim gate output.
 - The last line of the report is `WP-REPORT: DONE — <summary>` or `WP-REPORT: BLOCKED — <reason>`.
 - Shell calls: every call is `rtk <cmd>`, one command per call. No `rtk proxy`, no `&&`, `;` or `||` chains, no pipes.
