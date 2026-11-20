@@ -91,7 +91,7 @@ def test_model_selection_site_admin_only(live_server, browser):
     base, _ = live_server
     page, _ = _login(browser, base, LEAD_EMAIL)
     page.goto(base + TEAM_PAGE)
-    nav = page.get_by_role("navigation", name="Verwaltung", exact=True)
+    nav = page.get_by_role("navigation", name="Klinik-Verwaltung", exact=True)
     expect(nav).to_be_visible()
     expect(nav.get_by_role("link", name="Modellwahl")).to_have_count(0)
     assert page.goto(base + "/admin#/system/modelle").status == 403
