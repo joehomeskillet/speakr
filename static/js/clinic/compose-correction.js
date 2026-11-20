@@ -46,6 +46,9 @@ export const COMPOSE_CORRECTION_VERSION = 1;
 /** The upstream player (modules/composables/audioPlayer.js) defines no skip step, so the view uses 3 s. */
 export const STEP_SECONDS = 3;
 
+/** V8 editor contract (UI8-004): skip and rewind step in seconds. Used when the controller runs with contract 'v8'. */
+export const STEP_SECONDS_V8 = 5;
+
 export const TEXT = Object.freeze({
     title: 'Korrektur',
     dictation: 'Diktat',
@@ -56,6 +59,12 @@ export const TEXT = Object.freeze({
     noTemplate: 'Keine Vorlage gewählt',
     seekSelection: 'Zur Auswahl im Audio springen',
     reload: 'Aktuellen Stand laden',
+    conflictChoice: 'Eigenen Text und Serverstand vergleichen und bewusst wählen.',
+    keepMine: 'Eigenen Text behalten',
+    takeServer: 'Serverstand übernehmen',
+    compare: 'Vergleichen',
+    mine: 'Eigener Text',
+    server: 'Serverstand',
     retry: 'Erneut versuchen',
     text: 'Transkript',
     player: 'Wiedergabe',
@@ -100,13 +109,51 @@ const isNode = (n) => n !== null && typeof n === 'object';
  */
 export function scopedClient(client) {
     if (!client || typeof client.request !== 'function') throw new Error('client is required');
+    const shared = releaseState(client);
     return {
-        request: (path, options) => client.request(path, options),
+        request: (path, options) => {
+            if (LEASE_RELEASE.test(String(path))) return trackRelease(shared, client.request(path, options));
+            return shared.gate ? shared.gate.then(() => client.request(path, options)) : client.request(path, options);
+        },
         command: (body, options) => client.command(body, options),
         switchContext(next) {
-            if (next && next.dictationId !== null && next.dictationId !== undefined) client.switchContext(next);
+            if (!next || next.dictationId === null || next.dictationId === undefined) return;
+            if (shared.pending.size === 0) {
+                client.switchContext(next);
+                return;
+            }
+            // A lease release of the previous dictation is still in flight. A context switch would abort it
+            // and the server would keep the lease until it expires, so the switch waits for the release and
+            // requests of the new dictation queue behind it.
+            shared.next = next;
+            shared.gate = Promise.allSettled([...shared.pending]).then(() => {
+                const queued = shared.next;
+                shared.next = null;
+                shared.gate = null;
+                if (queued) client.switchContext(queued);
+            });
         },
     };
+}
+
+const LEASE_RELEASE = /\/leases\/release$/;
+const releaseStates = new WeakMap();
+
+function releaseState(client) {
+    let shared = releaseStates.get(client);
+    if (!shared) {
+        shared = { pending: new Set(), gate: null, next: null };
+        releaseStates.set(client, shared);
+    }
+    return shared;
+}
+
+function trackRelease(shared, promise) {
+    const tracked = Promise.resolve(promise);
+    shared.pending.add(tracked);
+    const done = () => { shared.pending.delete(tracked); };
+    tracked.then(done, done);
+    return tracked;
 }
 
 /**
@@ -158,7 +205,11 @@ export function createCorrectionViewController(options) {
     const stops = [];
     const audioListeners = [];
 
-    const editor = useCorrectionEditor({ client, dictationId, currentUser: user, vue: V || undefined });
+    // contract 'v8': shared lease controller, reconcile before a new key, +-5 s step. Without it the pre-V8 behaviour stays.
+    const v8 = opts.contract === 'v8';
+    const editor = useCorrectionEditor({
+        client, dictationId, currentUser: user, vue: V || undefined, exposeLeaseController: v8,
+    });
 
     const position = () => {
         const el = audioEl.value;
@@ -185,6 +236,8 @@ export function createCorrectionViewController(options) {
     const saver = useCorrectionSave({
         editor, client, dictationId, getPositionMs, vue: V || undefined,
         lease: createLeaseAdapter(editor, V),
+        ...(opts.autosaveMs !== undefined ? { autosaveMs: opts.autosaveMs } : {}),
+        ...(v8 ? { reconcileFirst: true } : {}),
         ...(opts.saveOptions || {}),
     });
 
@@ -271,6 +324,22 @@ export function createCorrectionViewController(options) {
     async function save() {
         const res = await saver.save();
         if (res && res.ok) await syncRevision();
+        return res;
+    }
+
+    /** Conflict choice: keep the local text on the newest server revision. */
+    function keepMine() {
+        return saver.keepMine();
+    }
+
+    /** Conflict choice: adopt the server text; the new revision's alignment is loaded again. */
+    async function takeServer() {
+        const res = await saver.takeServer();
+        if (res && res.ok) {
+            knownRevision = editor.textRevisionId.value;
+            loadGeneration.value += 1;
+            await alignment.refresh();
+        }
         return res;
     }
 
@@ -375,9 +444,9 @@ export function createCorrectionViewController(options) {
         vue: V, api, editor, alignment, modes, saver, gain: () => gain,
         ready, loadGeneration, revisionGeneration, audioEl, gainState, closeMessage, resumeLabel,
         recordingId: () => opts.recordingId || editor.audio.value.recordingId || null,
-        stepSeconds: STEP_SECONDS,
+        stepSeconds: v8 ? STEP_SECONDS_V8 : STEP_SECONDS,
         leaseRun, leaseButtons,
-        start, load, save, setText, reloadLatest, close, dispose, syncRevision,
+        start, load, save, setText, reloadLatest, keepMine, takeServer, compare: () => saver.compare(), close, dispose, syncRevision,
         client: scoped, bindAudio, onSync, onShortcut, onKeydown, onInput, onSelect, onTemplate, seekToResume, getPositionMs, seek,
         text: TEXT,
     };
@@ -418,6 +487,7 @@ const CorrectionBody = {
         });
         if (typeof V.onMounted === 'function') V.onMounted(() => { c.start(); });
         if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => c.dispose());
+        const showDiff = V.ref(false);
         const e = c.editor;
         const a = c.alignment;
         const s = c.saver;
@@ -429,7 +499,7 @@ const CorrectionBody = {
             return {};
         };
         return {
-            c, FOCUS, MODES, box, styleFor, TEXT,
+            c, FOCUS, MODES, box, styleFor, TEXT, showDiff,
             text: e.text, canEdit: e.canEdit, dirty: e.dirty, loading: e.loading, error: e.error, manual: e.manual,
             lease: e.lease, audio: e.audio, template: e.template, templates: e.templates, templatesError: e.templatesError,
             editorAnnouncement: e.announcement,
@@ -559,6 +629,14 @@ const CorrectionBody = {
               :disabled="c.saver.resumePosition.value === null" data-testid="resume" @click="c.seekToResume()">{{ TEXT.resume }}</button>
       <button v-if="saveState === 'conflict'" type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS"
               data-testid="reload-latest" @click="c.reloadLatest()">{{ TEXT.reload }}</button>
+      <div v-if="saveState === 'conflict'" role="group" :aria-label="TEXT.conflictChoice" data-testid="conflict-choice">
+        <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" data-testid="keep-mine" @click="c.keepMine()">{{ TEXT.keepMine }}</button>
+        <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" data-testid="take-server" @click="c.takeServer()">{{ TEXT.takeServer }}</button>
+        <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" data-testid="compare" :aria-expanded="String(showDiff)" @click="showDiff = !showDiff">{{ TEXT.compare }}</button>
+        <ul v-if="showDiff" data-testid="diff">
+          <li v-for="(row, i) in (c.compare() || [])" :key="i" :data-kind="row.kind">{{ row.kind === 'mine' ? TEXT.mine + ': ' : (row.kind === 'server' ? TEXT.server + ': ' : '') }}{{ row.text }}</li>
+        </ul>
+      </div>
     </section>
   </template>
   <div role="status" aria-live="polite">{{ editorAnnouncement }}</div>
