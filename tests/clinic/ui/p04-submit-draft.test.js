@@ -62,6 +62,22 @@ describe('P04 draft submission', () => {
         expect(upload).toHaveBeenCalledOnce();
     });
 
+    it('does not offer another submission after the server confirms this is no longer a draft', async () => {
+        const { controller, request } = recording();
+        controller.setMode('file');
+        controller.selectFile({ name: 'test.wav', size: 20 });
+        await controller.sendFile();
+        request.mockResolvedValueOnce(detail).mockResolvedValueOnce({ outcome: 'conflict', code: 'NOT_DRAFT' });
+        expect((await controller.submit()).ok).toBe(false);
+        expect(controller.model()).toMatchObject({ canSubmit: false, message: expect.stringContaining('kein neuer Entwurf') });
+        expect((await controller.submit()).ok).toBe(false);
+        expect(request).toHaveBeenCalledTimes(2);
+        controller.another();
+        controller.selectFile({ name: 'next.wav', size: 30 });
+        await controller.sendFile();
+        expect(controller.model().canSubmit).toBe(true);
+    });
+
     it('never uses a recording id for a workflow command', async () => {
         const { controller, request } = recording({ id: 19 });
         controller.setMode('file');

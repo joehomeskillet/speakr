@@ -61,6 +61,7 @@ export const TEXT = Object.freeze({
     fileFailed: 'Hochladen fehlgeschlagen. Der Entwurf wurde nicht gesendet. Die Audiodatei wird nicht lokal gespeichert.',
     sent: 'Gespeichert. Noch nicht an den Schreibdienst gesendet.',
     submit: 'Einreichen',
+    retrySave: 'Erneut sichern',
     submitting: 'Diktat wird eingereicht …',
     submitted: 'Eingereicht.',
     submitUnknown: 'Einreichung nicht bestätigt. Bitte erneut versuchen.',
@@ -93,6 +94,9 @@ export const PHASE_CAPTIONS = Object.freeze({
     failed: 'Speicherung nicht bestätigt',
     idle: 'Keine Datei gewählt',
     selected: 'Datei gewählt',
+    submitting: TEXT.submitting,
+    submitted: TEXT.submitted,
+    notDraft: 'Kein neuer Entwurf',
 });
 
 /** Inline SVG paths (24x24, filled with currentColor) of the recorder icon buttons. Shared with the live page. */
@@ -257,12 +261,13 @@ export function createRecordingViewController(options) {
             if (['conflict', 'permission', 'validation'].includes(res.outcome)) {
                 pendingSend = null;
                 submitError = SEND_REFUSALS[res.code] || res.message;
+                if (res.code === 'NOT_DRAFT') submission = 'notDraft';
             }
             return denied(res.code || 'unconfirmed');
         } catch {
             return denied('unconfirmed');
         } finally {
-            if (submission !== 'submitted') {
+            if (submission === 'submitting') {
                 submission = null;
                 submitError ||= TEXT.submitUnknown;
             }
@@ -303,8 +308,8 @@ export function createRecordingViewController(options) {
 
     function message() {
         if (!allowed()) return TEXT.denied;
-        if (submission) return TEXT[submission];
         if (submitError) return submitError;
+        if (submission) return TEXT[submission];
         const s = machine.getState();
         if (state.mode === 'file') {
             if (state.filePhase === 'sending') return TEXT.uploading;
@@ -444,7 +449,7 @@ export const RECORDING_TEMPLATE = `
             </div>
             <div class="actions text-sm" style="margin-top: 12px">
               <button v-for="b in textControls(m.controls)" :key="b.id" type="button" class="button" :style="b.id === 'send' ? '${PRIMARY}' : null" style="min-height: 2.75rem"
-                      :data-testid="'rec-' + b.id" :disabled="b.disabled" :aria-disabled="b.disabled ? 'true' : 'false'" @click="act(b.id)">{{ b.label }}</button>
+                      :data-testid="'rec-' + b.id" :disabled="b.disabled" :aria-disabled="b.disabled ? 'true' : 'false'" @click="act(b.id)">{{ b.id === 'send' && m.phase === 'failed' ? c.text.retrySave : b.label }}</button>
             </div>
           </div>
           <div v-else class="recorder compact-recorder" style="flex-wrap: wrap">
@@ -462,7 +467,7 @@ export const RECORDING_TEMPLATE = `
           <div class="note"><span class="tag neutral dot">{{ c.text.created }}</span> <strong class="break-all" data-testid="created-id">{{ m.created.dictationId }}</strong></div>
           <hr class="separator">
           <div class="actions text-sm">
-            <button v-if="m.phase !== 'submitted'" type="button" class="btn btn--primary" style="min-height: 2.75rem" data-testid="submit-draft" :disabled="!m.canSubmit" @click="c.submit()">{{ c.text.submit }}</button>
+            <button v-if="m.phase !== 'submitted'" type="button" class="button" style="min-height: 2.75rem; ${PRIMARY}" data-testid="submit-draft" :disabled="!m.canSubmit" @click="c.submit()">{{ c.text.submit }}</button>
             <button type="button" class="button" style="min-height: 2.75rem" data-testid="to-worklist" :disabled="m.phase === 'submitting'" @click="c.toWorklist()">{{ c.text.toWorklist }}</button>
             <button type="button" class="button" style="min-height: 2.75rem" data-testid="open-created" :disabled="m.phase === 'submitting'" @click="c.openCreated()">{{ c.text.open }}</button>
             <button type="button" class="button" style="min-height: 2.75rem" data-testid="another" :disabled="m.phase === 'submitting'" @click="c.another()">{{ c.text.another }}</button>
