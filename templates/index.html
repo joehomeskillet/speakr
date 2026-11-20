@@ -185,45 +185,35 @@
                         <clinic-resources-view v-else-if="currentView === 'clinic-resources'" :client="clinicClient" :current-user="clinicUser"></clinic-resources-view>
                     </keep-alive>
                 </div>
-                <div v-if="clinicWorklistEnabled && currentView === 'clinic-correction' && clinicCorrectionId"
-                     data-testid="clinic-correction-mount" data-clinic-shell-view ref="clinicCorrectionMount"
-                     class="flex-1 overflow-y-auto content">
-                    <button type="button" data-testid="clinic-correction-back"
-                            class="mb-3 px-3 py-2 rounded border border-[var(--border-primary)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
-                            style="min-height: 2.75rem"
-                            @click="requestClinicCorrectionClose()"
-                            v-text="clinicOrigin === 'clinic-recordings' ? 'Zurück zu Aufnahmen' : 'Zurück zur Arbeitsliste'"></button>
-                    <!-- V8 dictation views (v8-70) -->
-                    <nav aria-label="Diktat" data-testid="clinic-dictation-nav" class="flex flex-wrap items-center gap-2 mb-3">
+                {% macro dictation_chrome(back_id, close) -%}
+                <div class="dictation-chrome v8-chrome">
+                    <button type="button" class="button" data-testid="{{ back_id }}" @click="{{ close }}()">
+                        <i class="fas fa-arrow-right" aria-hidden="true"></i>
+                        <span v-text="clinicOrigin === 'clinic-recordings' ? 'Zurück zu Aufnahmen' : 'Zurück zur Arbeitsliste'"></span>
+                    </button>
+                    <nav aria-label="Diktat" data-testid="clinic-dictation-nav" class="record-tabs">
                         <button v-for="link in clinicDictationLinks" :key="link.view" type="button" :data-testid="'clinic-dictation-link-' + link.view.replace('clinic-', '')"
-                                class="px-3 py-2 rounded border border-[var(--border-primary)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
-                                style="min-height: 2.75rem"
-                                :class="{ 'font-semibold': currentView === link.view }"
-                                :aria-current="currentView === link.view ? 'page' : null"
+                                :class="{ active: currentView === link.view }" :aria-current="currentView === link.view ? 'page' : null"
                                 @click="openClinicDictationView(link.view)" v-text="link.label"></button>
                     </nav>
-                    <!-- end V8 dictation views (v8-70) -->
+                </div>
+                {%- endmacro %}
+                <div v-if="clinicWorklistEnabled && currentView === 'clinic-correction' && clinicCorrectionId" :key="clinicCorrectionId"
+                     data-testid="clinic-correction-mount" data-clinic-shell-view ref="clinicCorrectionMount"
+                     class="flex-1 overflow-y-auto content">
                     <clinic-correction-view :client="clinicClient" :dictation-id="clinicCorrectionId" :current-user="clinicUser"
+                                            :dictator="clinicCorrectionStaff.dictator" :pool="clinicCorrectionStaff.pool"
                                             :create-audio-context="clinicAudioContextFactory"
                                             @close="closeClinicCorrection"></clinic-correction-view>
+                    <teleport defer to=".clinic-correction-view .pagehead">
+                        {{ dictation_chrome('clinic-correction-back', 'requestClinicCorrectionClose') }}
+                    </teleport>
                 </div>
                 <!-- V8 dictation views (v8-70): details, review, output, processing and activity of the opened dictation. The id is state, not URL. -->
                 <div v-if="clinicWorklistEnabled && clinicDictationViewActive && clinicDictationId"
                      data-testid="clinic-dictation-mount" data-clinic-shell-view
                      class="flex-1 overflow-y-auto content">
-                    <button type="button" data-testid="clinic-dictation-back"
-                            class="mb-3 px-3 py-2 rounded border border-[var(--border-primary)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
-                            style="min-height: 2.75rem"
-                            @click="closeClinicDictationView()"
-                            v-text="clinicOrigin === 'clinic-recordings' ? 'Zurück zu Aufnahmen' : 'Zurück zur Arbeitsliste'"></button>
-                    <nav aria-label="Diktat" data-testid="clinic-dictation-nav" class="flex flex-wrap items-center gap-2 mb-3">
-                        <button v-for="link in clinicDictationLinks" :key="link.view" type="button" :data-testid="'clinic-dictation-link-' + link.view.replace('clinic-', '')"
-                                class="px-3 py-2 rounded border border-[var(--border-primary)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
-                                style="min-height: 2.75rem"
-                                :class="{ 'font-semibold': currentView === link.view }"
-                                :aria-current="currentView === link.view ? 'page' : null"
-                                @click="openClinicDictationView(link.view)" v-text="link.label"></button>
-                    </nav>
+                    {{ dictation_chrome('clinic-dictation-back', 'closeClinicDictationView') }}
                     <clinic-detail-view v-if="currentView === 'clinic-detail'" :client="clinicClient" :dictation-id="clinicDictationId" :current-user="clinicUser"
                                         :origin="clinicOrigin" @back="closeClinicDictationView" @open-editor="openClinicEditorFromView"></clinic-detail-view>
                     <clinic-review-view v-else-if="currentView === 'clinic-review'" :client="clinicClient" :dictation-id="clinicDictationId" :current-user="clinicUser"
