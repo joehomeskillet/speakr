@@ -7,7 +7,9 @@ policy version; a stale version gets 409 with the authoritative ``{version}``.
 A body equal to the current policy is a retry and changes nothing, so it
 creates no second version and no second audit row.
 
-The blueprint is not mounted here; the app wiring injects the callbacks.
+The blueprint is not mounted here; the app wiring injects the callbacks. A published version and
+its audit row are committed here (the ledger itself never commits); a refused write is audited
+as a denied ``recording.edited`` (field names only) and committed on its own.
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ from src.clinic.acceptance_policy import SCOPE_DICTATION, AcceptanceLedger, Poli
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.models import ClinicDictation
 from src.database import db
+from src.services import audit
 
 PATH = '/api/clinic/v1/dictations/<uuid:dictation_id>/acceptance-policy'
 PERM_READ = 'clinic.acceptance_policy.read'
@@ -111,6 +114,11 @@ def create_blueprint(
     def save(dictation_id: UUID):
         row = visible(dictation_id)
         if authorize(current_user.id, PERM_WRITE, row) is not True:
+            audit.record_in_tx('recording.edited', recording_id=row.recording_id,
+                               recording_owner_id=row.author_user_id, actor_kind='session',
+                               actor_user_id=current_user.id, outcome='denied', force=True,
+                               details={'fields': ['acceptance_policy']})
+            db.session.commit()
             abort(403)
         match = request.headers.get('If-Match')
         if match is None:
@@ -147,6 +155,7 @@ def create_blueprint(
             approver_pool_ids=stored.approver_pool_ids if stored else (),
             deny_user_ids=stored.deny_user_ids if stored else (),
             now=now, expected_version=version)
+        db.session.commit()
         return jsonify(_view(created.version, created.required, created.approver_user_ids))
 
     return bp

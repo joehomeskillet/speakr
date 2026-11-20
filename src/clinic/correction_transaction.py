@@ -17,7 +17,9 @@ from src.clinic.live_session import (
     _expiry as _session_expiry,
     _load as _load_session,
 )
-from src.clinic.revisions import add_human_revision
+from src.clinic import workflow
+from src.clinic.revisions import add_human_revision, current_revision
+from src.services.audit import record_in_tx
 from src.clinic.lease import LeaseConflict, assert_current
 
 
@@ -76,7 +78,10 @@ def save_correction_transaction(
             if parent_revision is None:
                 raise CorrectionError("expected_text_revision_id not found")
 
+        head_before = current_revision(dictation)
         revision = add_human_revision(dictation, parent_revision, text, user_id)
+        if head_before is None or revision.id != head_before.id:
+            _resubmit_accepted(dictation, user_id)
 
         # Save the correction state pointing at the new revision
         state = save_state(
@@ -98,3 +103,19 @@ def save_correction_transaction(
     except Exception:
         _db.session.rollback()
         raise
+
+def _resubmit_accepted(dictation: ClinicDictation, user_id: int) -> None:
+    """Wiedervorlage (v8-74): a text head that moves after acceptance needs a new acceptance.
+
+    Runs inside the save transaction, so the status change and its audit row commit or roll
+    back with the revision. The audit row carries field names only, never text.
+    """
+    item = _db.session.get(workflow.ClinicWorkflowDictation, dictation.id, with_for_update=True)
+    if item is None or workflow.resubmit_for_acceptance(_db.session, dictation.id) is None:
+        return
+    if record_in_tx(
+        "recording.edited", actor_user_id=user_id, recording_id=dictation.recording_id,
+        recording_owner_id=dictation.author_user_id, force=True,
+        details={"fields": ["workflow_status", "workflow_acceptance_resubmitted"]},
+    ) is None:
+        raise workflow.WorkflowError("audit_unavailable")

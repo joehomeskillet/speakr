@@ -246,6 +246,14 @@ _CLINIC_AGENT_MACHINE = _split("""
     clinic_agent.finalize clinic_agent.receipt clinic_agent.abort clinic_agent.outcomes
 """)
 
+# v8-74: acceptance policy read/publish and the acceptance-state read (P07), mounted by
+# register_clinic_worklist in clinic mode only. All three are AUTH: the handlers authenticate the session,
+# check CSRF on writes and decide the object themselves (policy action 'view'; publishing needs an active
+# site admin and a refusal is audited), so the table does not stand in for them.
+_CLINIC_ACCEPTANCE = _split("""
+    clinic_acceptance_policy.read clinic_acceptance_policy.save clinic_workflow.read_acceptance_state
+""")
+
 _DISABLED = {
     'internal_sharing': """
         groups.add_team_member groups.create_team
@@ -370,6 +378,8 @@ def _build() -> dict[str, RouteRule]:
     for endpoint in _AUTH + ((_CLINIC_RESOURCES + _CLINIC_ASR + _CLINIC_WORKLIST + _CLINIC_IDENTITY
                                        + _CLINIC_METADATA_FIELDS_AUTH + _CLINIC_AUDIO
                                        + _CLINIC_OPERATIONS) if clinic else ()):
+        add(endpoint, RouteRule(AUTH))
+    for endpoint in (_CLINIC_ACCEPTANCE if clinic else ()):  # v8-74
         add(endpoint, RouteRule(AUTH))
     for endpoint in _ADMIN + ((_CLINIC_IDENTITY_ADMIN + _CLINIC_ADMIN_DICTATIONS
                                     + _CLINIC_METADATA_FIELDS_ADMIN + _CLINIC_OPERATIONS_ADMIN) if clinic else ()):

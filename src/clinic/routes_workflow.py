@@ -22,6 +22,10 @@ match; anything else (older text, moved audio or context, unbound decision) is n
 acceptance. ``acceptance_state`` reports the resulting state, including "Wiedervorlage"; release
 refusals carry it. A return is stored even when audio or context is missing or ambiguous
 (placeholder ``-``); only an accept needs all three, and a return is never releasable.
+
+``GET .../acceptance-state`` (v8-74, no CSRF) serves P07: 401 anonymous, 403 without the shared
+policy action 'view', and the reject reason only for a viewer. A text save that moves the head of an
+accepted dictation puts it back to "Abzunehmen" (correction_transaction), so the new head can be accepted.
 """
 
 from __future__ import annotations
@@ -57,6 +61,8 @@ from src.models import Recording
 PATH = '/api/clinic/v1/dictations/<uuid:dictation_id>'
 PERM_METADATA = 'clinic.metadata'
 PERM_ARCHIVE = 'clinic.archive'
+# Shared permission name whose policy actions are exactly ('view',) in the app's table.
+PERM_VIEW = 'history'
 Authorize = Callable[[int, str, ClinicDictation], bool]
 _CONFLICT = frozenset({'stale_version', 'stale_revision'})
 _STATUS = {'forbidden': 403, 'unauthorized': 403, 'not_found': 404, 'clinic_disabled': 404,
@@ -300,6 +306,8 @@ def create_blueprint(
         if not (current_user.is_authenticated and current_user.is_active
                 and session.get('_user_id') == current_user.get_id()):
             abort(401)
+        if request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return
         try:
             validate_csrf(request.headers.get('X-CSRFToken') or request.headers.get('X-CSRF-Token'))
         except ValidationError:
@@ -363,6 +371,27 @@ def create_blueprint(
         response = jsonify(result)
         response.status_code = created if not result.get('replayed') else 200
         return response
+
+    @bp.get(f'{PATH}/acceptance-state')
+    def read_acceptance_state(dictation_id: UUID):
+        """Acceptance state for P07 (v8-74). Access is the shared policy action 'view'."""
+        if acceptance_ledger is None:
+            abort(404)
+        row = db.session.get(ClinicDictation, str(dictation_id))
+        if row is None:
+            abort(404)
+        if authorize(current_user.id, PERM_VIEW, row) is not True:
+            abort(403)
+        out = acceptance_state(acceptance_ledger, row)
+        if out['state'] == 'zurueckgegeben':
+            # The reason is free text typed by the approver: only for users who may view the text.
+            try:
+                last = _latest(acceptance_ledger, row)
+            except PolicyError:
+                last = None
+            if last is not None and last.reason:
+                out['reject_reason'] = last.reason
+        return jsonify(out)
 
     @bp.post(f'{PATH}/metadata')
     def metadata(dictation_id: UUID):
