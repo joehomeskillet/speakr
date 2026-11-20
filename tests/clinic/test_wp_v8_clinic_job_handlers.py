@@ -46,7 +46,7 @@ def _build(tmp_path: Path, clinic: bool) -> dict:
 
 def test_real_app_registers_every_clinic_job_type_in_clinic_mode(tmp_path):
     result = _build(tmp_path, True)
-    assert result["jobs"] == ["clinic_finalize", "clinic_notify", "clinic_output"]
+    assert result["jobs"] == ["clinic_alignment", "clinic_finalize", "clinic_notify", "clinic_output"]
     assert result["handlers"] == result["jobs"]
 
 
