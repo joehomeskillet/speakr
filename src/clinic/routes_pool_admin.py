@@ -31,7 +31,7 @@ _FORBIDDEN_KEYS = frozenset({
 })
 _STATUS = {
     "unauthenticated": 401, "unauthorized": 403, "forbidden": 403, "unknown_actor": 403,
-    "not_author_pool": 404, "not_staff_pool": 404, "unknown_kind": 404,
+    "not_author_pool": 404, "not_staff_pool": 404, "unknown_kind": 404, "not_a_member": 404,
     "name_taken": 409, "conflict": 409, "already_linked": 409, "pool_inactive": 409,
 }
 _TITLES = {400: "Ungültige Anfrage", 401: "Anmeldung erforderlich", 403: "Zugriff verweigert",
@@ -115,6 +115,18 @@ def _guard():
 
 
 blueprint.register_error_handler(CSRFError, lambda _e: _problem("unauthorized"))
+
+
+@blueprint.put(PREFIX + "/pools/staff/<pool_id>/members/<int:user_id>/role")
+def set_member_role(pool_id: str, user_id: int):
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or set(body) != {"role"}:
+        return _problem("invalid_payload")
+    try:
+        return jsonify(pools.set_staff_member_role(
+            pool_id, user_id, body["role"], actor_id=current_user.id))
+    except pools.PoolError as error:
+        return _problem(error.code)
 
 
 @blueprint.get(PREFIX + "/pools")
