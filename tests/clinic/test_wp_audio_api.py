@@ -181,7 +181,7 @@ def test_current_revision_and_derived_audio(scene):
     client, _ = session_for(flask, data.author)
     view = client.get(BASE.format(data.dictation) + '/audio-revisions/current')
     assert view.status_code == 200 and view.headers['Cache-Control'] == 'no-store'
-    assert view.json == {'revision_id': data.head,
+    assert view.json == {'revision_id': data.head, 'undo_depth': 0, 'redo_depth': 0,
                          'segments': [{'source_id': data.original, 'start_ms': 0, 'end_ms': 1000}]}
     assert view.headers['ETag'] == f'"{data.head}"'
     url = BASE.format(data.dictation) + '/audio/derived'
