@@ -1378,6 +1378,15 @@ def ingest(
             return stored.error_response
         recording = stored.recording
 
+        from src.clinic.config import clinic_mode_enabled
+        if clinic_mode_enabled():
+            from src.clinic import web_ingest
+            refused = web_ingest.register_upload(
+                owner=owner, recording=recording, storage=storage, form=form, now=now,
+                meeting_date=meeting_date, processing_source=processing_source)
+            if refused is not None:
+                return refused
+
         # A cancel that arrived while the file was converted and stored: the
         # recording goes before a job is queued or a webhook is sent.
         if client_upload_id and register_recording(owner.id, client_upload_id, recording):
