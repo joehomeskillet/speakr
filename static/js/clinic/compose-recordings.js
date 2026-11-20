@@ -180,8 +180,9 @@ export const RecordingsView = {
           <span class="group-count">{{ g.countText }}</span>
         </div>
         <div class="record-group-list" data-testid="cards">
-          <button v-for="r in g.rows" :key="r.key" type="button" class="recording-row" data-row data-card :data-id="r.dictationId" data-testid="open-link"
-             :aria-label="r.ariaLabel" @click.prevent="c.open(r)">
+          <div v-for="r in g.rows" :key="r.key" class="cl-reference-row">
+          <button type="button" class="recording-row" data-row data-card :data-id="r.dictationId" data-testid="open-link"
+             :disabled="!r.dictationId" :aria-label="r.ariaLabel" @click.prevent="c.open(r)">
             <time class="record-time" :datetime="r.datetime || null">{{ r.time }}</time>
             <span class="record-icon" aria-hidden="true">
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h10l4 4v14H5zM15 3v6h5M9 12h6M9 16h6"/></svg>
@@ -193,13 +194,21 @@ export const RecordingsView = {
                 <span class="record-role"><span class="record-role-label">{{ t.pool }}:</span> <span class="pool-name" data-cell="pool" :title="r.poolText">{{ r.poolText }}</span></span>
                 <span v-if="r.hasLease" class="record-role"><span class="record-role-label">{{ t.lease }}:</span> <span class="dictator-name" data-cell="lease">{{ r.leaseHolder }}</span></span>
               </span>
-              <span class="record-subtitle" :class="r.isFallback ? 'date-fallback' : ''">#{{ r.dictationId }}<span v-if="r.fallbackText" data-testid="fallback" :title="r.fallbackTip" :aria-label="r.fallbackTip"> · {{ r.fallbackText }}</span><span v-else-if="r.isFallback" data-testid="fallback" :title="r.fallbackTip" :aria-label="r.fallbackTip"> · {{ r.fallbackLabel }}</span></span>
+              <span class="record-subtitle" :class="r.isFallback ? 'date-fallback' : ''"><span v-if="!r.caseDisplay">{{ r.reference }}</span><span v-if="r.fallbackText" data-testid="fallback" :title="r.fallbackTip" :aria-label="r.fallbackTip">{{ r.caseDisplay ? '' : ' · ' }}{{ r.fallbackText }}</span><span v-else-if="r.isFallback" data-testid="fallback" :title="r.fallbackTip" :aria-label="r.fallbackTip">{{ r.caseDisplay ? '' : ' · ' }}{{ r.fallbackLabel }}</span></span>
             </span>
             <span class="status" style="white-space: normal; overflow-wrap: anywhere" :class="r.statusClass">{{ r.status }}<span v-if="r.processing"> · {{ r.processing }}</span></span>
             <span class="record-source" aria-hidden="true"></span>
             <span class="record-duration">{{ r.duration }}</span>
             <span class="record-chevron" aria-hidden="true">›</span>
           </button>
+          <details v-if="r.dictationId" class="cl-id-disclosure" @keydown.esc.stop.prevent="$event.currentTarget.open = false; $event.currentTarget.querySelector('summary').focus()">
+            <summary :aria-label="'Kennung anzeigen: ' + r.heading + ' ' + r.reference"><i class="fa-solid fa-circle-info" aria-hidden="true"></i></summary>
+            <label class="cl-id-value">Vollständige Diktatkennung
+              <textarea readonly rows="2" :value="r.dictationId" @focus="$event.target.select()" aria-label="Vollständige Diktatkennung"></textarea>
+              <span>Zum Kopieren markieren.</span>
+            </label>
+          </details>
+          </div>
         </div>
       </section>
     </div>

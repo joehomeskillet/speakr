@@ -22,7 +22,7 @@
  */
 
 import { TOKEN_CONTRACT_VERSION, TokenContractError, surfaceFor } from './tokens.js';
-import { ROLE_AUTHOR, STATUS_LABELS, formatAudioDuration, formatPriority, getOpenMode, resolveStatusSurface } from './worklist-ui.js';
+import { ROLE_AUTHOR, STATUS_LABELS, formatAudioDuration, formatDictationReference, formatPriority, getOpenMode, resolveStatusSurface } from './worklist-ui.js';
 import { formatLastUpdate, useWorklistRefresh } from './worklist-refresh-ui.js';
 import { WorklistFiltersPanel, createWorklistFilters } from './worklist-filters-ui.js';
 import { WorklistLayoutControls, useWorklistLayout } from './worklist-layout-ui.js';
@@ -550,14 +550,14 @@ export function createWorklistViewController(options) {
         const status = leaseState.value && leaseState.value.status;
         return status === 'lost' || (status === 'foreign' && !listenOnly.value);
     };
-    const canOpen = computed(() => Boolean(worklist.selectedRow.value) && !leaseBlocksOpen());
+    const canOpen = computed(() => Boolean(rowKey(worklist.selectedRow.value)) && !leaseBlocksOpen());
 
     /** Activates a row (or the current selection) and reports it to the page; selection and lease are unchanged otherwise. */
     function open(row) {
         if (disposed) return false;
         if (row && rowKey(row) !== selectedId.value) select(row);
         const target = worklist.selectedRow.value;
-        if (!target || leaseBlocksOpen()) return false;
+        if (!rowKey(target) || leaseBlocksOpen()) return false;
         if (typeof options.onOpen === 'function') {
             options.onOpen({ dictationId: rowKey(target), mode: listenOnly.value ? 'player' : getOpenMode(target, user.role) });
         }
@@ -697,6 +697,7 @@ export function createWorklistViewController(options) {
         worklist, refresh, filters, layout, workflow, detailClient, displayed, columns, headerAttrs,
         start, dispose, reload, assignmentDone, select, open, canOpen, listenOnly, onRowKey, goto, pages, hasNext, applyFilter,
         key: rowKey, cell: cellText, badge: statusBadge, dictationLabel, entryCount, text: TEXT,
+        referenceLabel: (row) => 'Diktat ' + formatDictationReference(rowKey(row)),
         emptyCell: (row, key) => !ROLE_KEYS.includes(key) && key !== 'status' && cellText(row, key) === '–',
         priorityTone: priorityToneOf,
         pageLabel: () => 'Seite ' + view.page + (pages() === null ? '' : ' von ' + pages()),
@@ -877,7 +878,16 @@ export const WorklistView = {
                           <svg v-if="item.row.source_kind === 'manual_file' || item.row.source_kind === 'document'" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 3h10l4 4v14H5zM15 3v6h5M9 12h6M9 16h6"/></svg>
                           <svg v-else width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4M8 22h8"/></svg>
                         </span>
-                        <span class="titletext"><strong>{{ c.dictationLabel(item.row) }}</strong><small>{{ c.text.recording }}</small></span>
+                        <div class="titletext"><strong>{{ c.referenceLabel(item.row) }}</strong>
+                          <details v-if="c.key(item.row)" class="cl-id-disclosure" @click.stop @dblclick.stop @keydown.stop
+                                   @keydown.esc.prevent="$event.currentTarget.open = false; $event.currentTarget.querySelector('summary').focus()">
+                            <summary :aria-label="'Kennung anzeigen: ' + c.referenceLabel(item.row)">Kennung</summary>
+                            <label class="cl-id-value">Vollständige Diktatkennung
+                              <textarea readonly rows="2" :value="c.key(item.row)" @focus="$event.target.select()" aria-label="Vollständige Diktatkennung"></textarea>
+                              <span>Zum Kopieren markieren.</span>
+                            </label>
+                          </details>
+                        </div>
                       </div>
                     </td>
                     <td v-for="col in c.columns()" :key="col.key" :data-label="col.label" :class="c.emptyCell(item.row, col.key) ? 'cl-empty' : ''">
