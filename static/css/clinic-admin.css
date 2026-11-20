@@ -508,6 +508,8 @@
 .cadm .v8-admin-page .cadm-table .pill-status--success,
 .cadm .v8-admin-page .cadm-table .pill-status--info { color: var(--v8-text-2); background: var(--soft); }
 .cadm .v8-admin-page .cadm-actions .btn { min-width: 36px; min-height: 36px; }
+.cadm .clinic-authors-view { padding-inline: 0; max-width: none; }
+.cadm #authors-title { font-size: var(--fs-title); }
 .cadm .clinic-authors-view > .stats { margin-top: var(--sp-4); }
 .cadm .cadm-subsection-head {
     display: flex;
