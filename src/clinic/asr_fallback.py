@@ -141,9 +141,9 @@ class FallbackTranscriptionConnector(BaseTranscriptionConnector):
     def _gpu_request(request: TranscriptionRequest, served_model: str | None = None) -> TranscriptionRequest:
         """A per-request model override (reprocess) names a CPU model; the GPU
         target honors an explicit name or alias. For the bundled single-model
-        service an absent or malformed pin uses the name advertised by healthz."""
+        service an absent pin uses the name advertised by healthz."""
         model = os.environ.get(GPU_MODEL_ENV, '').strip()
-        if served_model and (not model or (not model.isascii() and model != served_model)):
+        if served_model and not model:
             # CPU profile/model overrides do not name the bundled GPU model.
             return dataclasses.replace(request, model=served_model)
         if model and request.model:

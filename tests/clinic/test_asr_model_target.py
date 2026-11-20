@@ -37,7 +37,7 @@ def test_upload_targets_the_single_model_loaded_on_the_gpu(env, stubs, svc, conf
         connector = ConnectorRegistry().initialize_from_env()
         request = TranscriptionRequest(audio_file=io.BytesIO(b"synthetic-audio"), filename="a.wav",
                                        mime_type="audio/wav", model=job_model)
-        if configured_gpu == "another-valid-model":
+        if configured_gpu in ("another-valid-model", "üö"):
             with pytest.raises(TranscriptionError) as failure:
                 connector.transcribe(request)
             assert failure.value.__cause__.status_code == 404
