@@ -73,7 +73,11 @@ def list_state(user_id: int) -> dict[str, Any]:
                 if user_id not in members:
                     continue
                 members = [user_id]
-            out[f"{kind}_pools"].append({"id": pool.id, "name": pool.name, "member_user_ids": members})
+            state = {"id": pool.id, "name": pool.name, "member_user_ids": members}
+            if kind == "staff":
+                state["members"] = [member for member in pools.staff_member_roles(pool.id)
+                                    if manager or member["user_id"] == user_id]
+            out[f"{kind}_pools"].append(state)
     return out
 
 
