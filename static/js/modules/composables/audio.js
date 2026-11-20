@@ -161,6 +161,8 @@ export function useAudio(state, utils) {
     function _serverRecordingChunksEnabled() {
         const el = document.getElementById('app');
         if (!el || !el.dataset) return false;
+        // Clinic recordings use one multipart upload after capture.
+        if (el.dataset.clinicMode === 'True' && currentView.value === 'clinic-recording') return false;
         return (el.dataset.serverRecordingChunks || '').toLowerCase() === 'true';
     }
 
@@ -1444,8 +1446,8 @@ export function useAudio(state, utils) {
         return uploadRecordedAudio({ mergeIntent });
     };
 
-    // Discard recording
-    const discardRecording = async () => {
+    const clearRecording = async (clearSavedSession) => {
+        const sessionStartTime = currentRecordingSessionStartTime;
         _clearVideoPreview();
         _stopPendingDisplayStream();
         _releaseAudioContext();
@@ -1489,14 +1491,18 @@ export function useAudio(state, utils) {
 
         // Clear IndexedDB session
         try {
-            await RecordingDB.clearRecordingSession();
+            await clearSavedSession(sessionStartTime);
         } catch (dbError) {
             console.warn('[Recording] Failed to clear IndexedDB session:', dbError);
         }
 
         await releaseWakeLock();
         await hideRecordingNotification();
+    };
 
+    // Discard recording
+    const discardRecording = async () => {
+        await clearRecording(RecordingDB.clearRecordingSession);
         // Return to upload modal so the user can finish the upload form.
         // Behind the modal, land on the open recording's detail view when one
         // is selected (a bare null left a blank main area if the user then
@@ -1699,6 +1705,7 @@ export function useAudio(state, utils) {
         pauseRecording,
         resumeRecording,
         stopRecording,
+        clearRecording: () => clearRecording(RecordingDB.clearRecordingSessionIfStartedAt),
         discardRecording,
         normalizeLiveMediaDuration,
         uploadRecordedAudio,

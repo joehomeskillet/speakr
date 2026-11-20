@@ -45,7 +45,8 @@ from werkzeug.exceptions import HTTPException
 from wtforms.validators import ValidationError
 
 from src.clinic import acceptance_rules, archive_policy, audio_revisions, lease, live_session, policy
-from src.clinic import revisions, workflow, workflow_actions, workflow_finalize, workflow_metadata
+from src.clinic import pools, recognition_state, revisions, workflow, workflow_actions, workflow_finalize
+from src.clinic import workflow_metadata
 from src.clinic.acceptance_policy import SCOPE_DICTATION, AcceptanceLedger, AcceptancePolicyVersion, PolicyError
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.metadata_changes import ChangeError
@@ -57,6 +58,7 @@ from src.clinic.pool_policy import author_pool_ids
 from src.clinic.release import _heads as release_heads
 from src.database import db
 from src.models import Recording
+from src.services import audit
 
 PATH = '/api/clinic/v1/dictations/<uuid:dictation_id>'
 PERM_METADATA = 'clinic.metadata'
@@ -65,6 +67,11 @@ PERM_ARCHIVE = 'clinic.archive'
 PERM_VIEW = 'history'
 Authorize = Callable[[int, str, ClinicDictation], bool]
 _CONFLICT = frozenset({'stale_version', 'stale_revision'})
+_SEND_CONFLICTS = {
+    'not_draft': 'Nur neu angelegte Diktate können eingereicht werden.',
+    'audio_required': 'Keine Audiorevision vorhanden.',
+    'no_staff_pool': 'Kein Schreibkräfte-Pool zugeordnet.',
+}
 _STATUS = {'forbidden': 403, 'unauthorized': 403, 'not_found': 404, 'clinic_disabled': 404,
            'audit_unavailable': 503}
 _TITLES = {400: 'Ungültige Anfrage', 401: 'Anmeldung erforderlich', 403: 'Zugriff verweigert',
@@ -332,11 +339,19 @@ def create_blueprint(
         return {'acceptance': acceptance_state(acceptance_ledger, row)} if row else {}
 
     def command(dictation_id: UUID, name: str, permission: str, body: Any,
-                apply: Callable[[ClinicDictation, int, str, datetime], JSON], *, created: int = 200):
+                apply: Callable[[ClinicDictation, int, str, datetime], JSON], *, created: int = 200,
+                author_only: bool = False):
         target, actor = str(dictation_id), current_user.id
-        row = db.session.get(ClinicDictation, target)
+        # Serialize author sends before receipt lookup so overlapping retries replay.
+        if author_only:
+            connection = db.session.connection()
+            if connection.dialect.name == 'sqlite' and not connection.connection.driver_connection.in_transaction:
+                connection.exec_driver_sql('BEGIN IMMEDIATE')
+        row = db.session.get(ClinicDictation, target, with_for_update=author_only, populate_existing=author_only)
+        if author_only and (row is None or row.author_user_id != actor):
+            abort(403)
         if row is None or authorize(actor, permission, row) is not True:
-            abort(404)
+            abort(403 if author_only else 404)
         try:
             key = str(UUID(request.headers.get('Idempotency-Key', '')))
         except ValueError:
@@ -351,6 +366,8 @@ def create_blueprint(
         digest = sha256(json.dumps([name, expected, body], sort_keys=True, default=str).encode()).hexdigest()
 
         def operation() -> JSON:
+            if author_only:
+                return apply(row, expected, key, datetime.now(timezone.utc))
             locked = db.session.get(ClinicDictation, target, populate_existing=True, with_for_update=True)
             return apply(locked, expected, key, datetime.now(timezone.utc))
 
@@ -362,6 +379,8 @@ def create_blueprint(
             raise
         except (workflow.WorkflowError, ChangeError, archive_policy.ArchivePolicyError) as error:
             code = getattr(error, 'code', None) or str(error)
+            if code in _SEND_CONFLICTS:
+                return _problem(409, code.upper(), detail=_SEND_CONFLICTS[code], state=_state(target))
             if code in _CONFLICT or code.startswith('lease_'):
                 return _problem(409, code.upper(), state=_state(target),
                                 **_acceptance_extra(target, code))
@@ -454,6 +473,36 @@ def create_blueprint(
                     'replayed': done.replayed}
 
         return command(dictation_id, 'release', workflow_finalize.PERMISSION, body, apply, created=201)
+
+    @bp.post(f'{PATH}/send')
+    def send(dictation_id: UUID):
+        body = request.get_json(silent=True)
+        if body != {}:
+            abort(400)
+
+        def apply(row, expected, _key, now):
+            if row.version_counter != expected:
+                raise workflow.WorkflowError('stale_version')
+            item = db.session.get(workflow.ClinicWorkflowDictation, row.id, with_for_update=True)
+            if item is None or item.status != workflow.DRAFT:
+                raise workflow.WorkflowError('not_draft')
+            if db.session.query(ClinicAudioRevision.id).filter_by(dictation_id=row.id).first() is None:
+                raise workflow.WorkflowError('audio_required')
+            if not pools.routable_staff_pool_ids(row.pool_id, now):
+                raise workflow.WorkflowError('no_staff_pool')
+
+            workflow.transition(db.session(), row.id, 'send_online')
+            settled = recognition_state.settle(db.session(), row.id)
+            row.version_counter += 1
+            if audit.record_in_tx('recording.edited', recording_id=row.recording_id,
+                                  recording_owner_id=row.author_user_id, actor_kind='session',
+                                  actor_user_id=current_user.id, force=True,
+                                  details={'fields': ['workflow_status', 'workflow_send']}) is None:
+                raise workflow.WorkflowError('audit_unavailable')
+            return {'dictation_id': row.id, 'status': settled.status,
+                    'version': row.version_counter, 'etag': _etag(row)}
+
+        return command(dictation_id, 'send', 'clinic.dictate', body, apply, author_only=True)
 
     @bp.post(f'{PATH}/archive')
     def archive(dictation_id: UUID):
