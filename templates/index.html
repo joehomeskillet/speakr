@@ -67,6 +67,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tokens.css', v=app_version) }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css', v=app_version) }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/primitives.css', v=app_version) }}">
+    {% if clinic_mode %}<link rel="stylesheet" href="{{ url_for('static', filename='css/clinic-v8.css', v=app_version) }}">{% endif %}
     <link rel="stylesheet" href="{{ url_for('static', filename='css/clinic-lists.css', v=app_version) }}">
     <!-- The phone layout of the recording page and the recording list (below 768px) -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/phone.css', v=app_version) }}">
@@ -118,10 +119,32 @@
          data-recording-max-hours="{{ recording_max_hours }}"
          data-recording-chunk-seconds="{{ recording_chunk_seconds }}"
          data-recording-video-kbps="{{ recording_video_kbps }}"
-         class="h-full flex flex-col opacity-0 transition-opacity duration-500">
+         class="h-full flex flex-col opacity-0 transition-opacity duration-500{% if clinic_mode %} v8-ui{% endif %}">
 
         <!-- Header -->
+        {% if clinic_mode %}
+        {#- CLINIC_MODE (v8-110): the topbar of the V8 prototype: brand, the two primary tabs, then the controls
+            (menu "Verwaltung & Seiten", Neue Aufnahme, connection indicator, avatar with the account menu). -#}
+        {#- The wrapper keeps the header out of the UI themes' "#app > header" rules: the V8 topbar does not follow a theme. -#}
+        <div style="display: contents">
+        <header class="topbar" data-testid="clinic-header">
+            <a class="brand-link" href="/#/aufnahmen" aria-label="Speakr – Aufnahmen"><span class="logo" aria-hidden="true"></span><span class="brand">Speakr</span></a>
+            <!-- Primary tabs (CLINIC_MODE only): Aufnahmen and Arbeitsliste; Ressourcen and the other pages are in the menus. The view is kept in the URL hash (#/aufnahmen, #/arbeitsliste, #/ressourcen, #/diktat). No patient data is shown. -->
+            <nav v-if="clinicWorklistEnabled" class="topnav" aria-label="Klinik" data-testid="clinic-primary-nav">
+                <button type="button" data-testid="nav-recordings"
+                        :aria-current="clinicActiveTab === 'clinic-recordings' ? 'page' : null"
+                        @click="goClinicView('clinic-recordings')">Aufnahmen</button>
+                <button type="button" data-testid="nav-clinic-worklist"
+                        :aria-current="clinicActiveTab === 'clinic-worklist' ? 'page' : null"
+                        @click="goClinicView('clinic-worklist')">Arbeitsliste</button>
+            </nav>
+            <span class="topspacer"></span>
+            {% include 'components/header-controls.html' %}
+        </header>
+        </div>
+        {% else %}
         {% include 'components/header.html' %}
+        {% endif %}
 
         <div class="flex-1 flex overflow-hidden relative">
             <!-- Sidebar (renders its own mobile backdrop as its first element) -->
@@ -140,35 +163,16 @@
                 {% include 'components/banner.html' %}
 
                 {% if clinic_mode %}
-                <!-- Clinic shell (CLINIC_MODE only): two primary tabs; Ressourcen and Verwaltung are in the header menu.
-                     The view is kept in the URL hash (#/aufnahmen, #/arbeitsliste, #/ressourcen, #/diktat). No patient data is shown. -->
-                <nav v-if="clinicWorklistEnabled" aria-label="Klinik" data-testid="clinic-primary-nav"
-                     class="flex items-center gap-2 px-3 py-2 border-b border-[var(--border-primary)] bg-[var(--bg-secondary)] flex-shrink-0">
-                    <button type="button" data-testid="nav-recordings"
-                            class="px-3 py-2 rounded border border-[var(--border-primary)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
-                            style="min-height: 2.75rem"
-                            :class="{ 'font-semibold': clinicActiveTab === 'clinic-recordings' }"
-                            :aria-current="clinicActiveTab === 'clinic-recordings' ? 'page' : null"
-                            @click="goClinicView('clinic-recordings')">Aufnahmen</button>
-                    <button type="button" data-testid="nav-clinic-worklist"
-                            class="px-3 py-2 rounded border border-[var(--border-primary)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
-                            style="min-height: 2.75rem"
-                            :class="{ 'font-semibold': clinicActiveTab === 'clinic-worklist' }"
-                            :aria-current="clinicActiveTab === 'clinic-worklist' ? 'page' : null"
-                            @click="goClinicView('clinic-worklist')">Arbeitsliste</button>
-                </nav>
+                <!-- Clinic shell (CLINIC_MODE only): the primary tabs are in the topbar above. -->
                 <!-- The three views stay alive while another one is shown (keep-alive), so a restored view keeps its state. -->
                 <div v-if="clinicWorklistEnabled" v-show="['clinic-recordings', 'clinic-worklist', 'clinic-resources'].includes(currentView)"
                      data-clinic-shell-view ref="clinicViewMount"
-                     class="flex-1 overflow-y-auto p-3 md:p-6 bg-[var(--bg-primary)] text-[var(--text-primary)]">
+                     class="flex-1 overflow-y-auto content">
                     <!-- V8 menu views (v8-71): actions of the Aufnahmen toolbar. Not primary tabs; Einstellungen and
                          Verbindungsstatus / Entwürfe are entries of the header (components/header-controls.html). -->
-                    <div v-if="currentView === 'clinic-recordings'" role="group" aria-label="Aufnahme-Aktionen"
-                         data-testid="clinic-menu-actions" class="flex flex-wrap items-center gap-2 mb-3">
-                        <button v-for="entry in clinicMenuActions" :key="entry.view" type="button" :data-testid="entry.testid"
-                                class="px-3 py-2 rounded border border-[var(--border-primary)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
-                                style="min-height: 2.75rem"
-                                :class="{ 'font-semibold': currentView === entry.view }"
+                    <div v-if="currentView === 'clinic-recordings'" role="group" aria-label="Aufnahme-Aktionen" aria-hidden="true"
+                         data-testid="clinic-menu-actions" class="v8-quick">
+                        <button v-for="entry in clinicMenuActions" :key="entry.view" type="button" :data-testid="entry.testid" tabindex="-1"
                                 :aria-current="currentView === entry.view ? 'page' : null"
                                 @click="goClinicView(entry.view)" v-text="entry.label"></button>
                     </div>
@@ -181,7 +185,7 @@
                 </div>
                 <div v-if="clinicWorklistEnabled && currentView === 'clinic-correction' && clinicCorrectionId"
                      data-testid="clinic-correction-mount" data-clinic-shell-view ref="clinicCorrectionMount"
-                     class="flex-1 overflow-y-auto p-3 md:p-6 bg-[var(--bg-primary)] text-[var(--text-primary)]">
+                     class="flex-1 overflow-y-auto content">
                     <button type="button" data-testid="clinic-correction-back"
                             class="mb-3 px-3 py-2 rounded border border-[var(--border-primary)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
                             style="min-height: 2.75rem"
@@ -204,7 +208,7 @@
                 <!-- V8 dictation views (v8-70): details, review, output, processing and activity of the opened dictation. The id is state, not URL. -->
                 <div v-if="clinicWorklistEnabled && clinicDictationViewActive && clinicDictationId"
                      data-testid="clinic-dictation-mount" data-clinic-shell-view
-                     class="flex-1 overflow-y-auto p-3 md:p-6 bg-[var(--bg-primary)] text-[var(--text-primary)]">
+                     class="flex-1 overflow-y-auto content">
                     <button type="button" data-testid="clinic-dictation-back"
                             class="mb-3 px-3 py-2 rounded border border-[var(--border-primary)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
                             style="min-height: 2.75rem"
@@ -231,15 +235,12 @@
                      Verbindungsstatus / Entwürfe. One view at a time; hash routes #/neu #/live #/archiv #/import #/einstellungen #/offline. -->
                 <div v-if="clinicWorklistEnabled && clinicMenuViews.includes(currentView)"
                      data-testid="clinic-menu-view" data-clinic-shell-view
-                     class="flex-1 overflow-y-auto p-3 md:p-6 bg-[var(--bg-primary)] text-[var(--text-primary)]">
+                     class="flex-1 overflow-y-auto content">
                     <!-- V8 menu views (v8-71): actions of the Aufnahmen toolbar. Not primary tabs; Einstellungen and
                          Verbindungsstatus / Entwürfe are entries of the header (components/header-controls.html). -->
-                    <div v-if="clinicMenuToolbarVisible" role="group" aria-label="Aufnahme-Aktionen"
-                         data-testid="clinic-menu-actions" class="flex flex-wrap items-center gap-2 mb-3">
-                        <button v-for="entry in clinicMenuActions" :key="entry.view" type="button" :data-testid="entry.testid"
-                                class="px-3 py-2 rounded border border-[var(--border-primary)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
-                                style="min-height: 2.75rem"
-                                :class="{ 'font-semibold': currentView === entry.view }"
+                    <div v-if="clinicMenuToolbarVisible" role="group" aria-label="Aufnahme-Aktionen" aria-hidden="true"
+                         data-testid="clinic-menu-actions" class="v8-quick">
+                        <button v-for="entry in clinicMenuActions" :key="entry.view" type="button" :data-testid="entry.testid" tabindex="-1"
                                 :aria-current="currentView === entry.view ? 'page' : null"
                                 @click="goClinicView(entry.view)" v-text="entry.label"></button>
                     </div>

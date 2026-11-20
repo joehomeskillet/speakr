@@ -5362,4 +5362,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         syncConnection();
     }
     // end V8 menu views (v8-71)
+    // V8 header menu (v8-110): "Verwaltung & Seiten" (a details element) closes on a chosen entry, a click outside and Escape.
+    if (clinicMenu) {
+        const closePagesMenus = (keep) => document.querySelectorAll('details.v6-admin[open]').forEach((d) => { if (d !== keep) d.removeAttribute('open'); });
+        document.addEventListener('click', (event) => {
+            const owner = event.target.closest ? event.target.closest('details.v6-admin') : null;
+            if (owner && event.target.closest('.v6-menu a')) owner.removeAttribute('open');
+            else closePagesMenus(owner);
+        });
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') closePagesMenus(null);
+        });
+    }
+    // end V8 header menu (v8-110)
 });

@@ -21,6 +21,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tokens.css', v=app_version) }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css', v=app_version) }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/primitives.css', v=app_version) }}">
+    {% if clinic_mode %}<link rel="stylesheet" href="{{ url_for('static', filename='css/clinic-v8.css', v=app_version) }}">{% endif %}
     {% include 'includes/i18n_bootstrap.html' %}
     <script src="{{ url_for('static', filename='js/i18n.js', v=app_version) }}"></script>
     <!-- Service worker registration, and what is removed from the browser at sign-out -->
@@ -147,7 +148,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.css', v=app_version) }}">
     {% include 'includes/ui_theme.html' %}
 </head>
-<body class="bg-[var(--bg-primary)] text-[var(--text-primary)] h-full flex flex-col overflow-hidden">
+<body class="bg-[var(--bg-primary)] text-[var(--text-primary)] h-full flex flex-col overflow-hidden{% if clinic_mode %} v8-ui{% endif %}">
     {% set page_label = ('Team Management' if is_team_admin and not current_user.is_admin else 'Admin') %}
     {% set page_label_key = ('nav.groupManagement' if is_team_admin and not current_user.is_admin else 'admin.title') %}
     {% include 'components/page-header.html' %}
