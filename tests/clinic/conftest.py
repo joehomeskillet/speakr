@@ -18,6 +18,7 @@ from sqlalchemy.sql.ddl import sort_tables
 from src.app import app, db
 from src.clinic import policy
 from src.clinic.models import install_clinic_guards
+from src.services import audit
 from src.clinic import registry as _clinic_registry  # noqa: F401  (all clinic tables on the metadata)
 from src.clinic.append_only_guards import (
     APPEND_ONLY_TABLES,
@@ -25,7 +26,7 @@ from src.clinic.append_only_guards import (
     trigger_names,
 )
 from src.models import (
-    APIToken, ProcessingJob, Recording, RecordingTag, SystemSetting, Tag, User,
+    APIToken, AuditEvent, ProcessingJob, Recording, RecordingTag, SystemSetting, Tag, User,
 )
 from src.utils.token_auth import hash_token
 
@@ -202,6 +203,18 @@ def _purge_upstream_dependents(user_ids, recording_ids):
                     conn.execute(table.delete().where(fk.parent.notin_(own[parent])))
 
 
+def _purge_audit_rows():
+    """Audit rows outlive their test while SQLite reuses the ids of deleted users and
+    recordings, so a later test that filters by actor or recording id sees the rows (and
+    dedup keys) of an earlier one. Drain the writer queue first so that no row of this
+    process arrives after the purge; reset the in-memory dedup map as well."""
+    audit.flush()
+    db.session.rollback()
+    AuditEvent.query.delete(synchronize_session=False)
+    db.session.commit()
+    audit.reset_memory()
+
+
 def _purge_orphan_jobs():
     """SQLite does not enforce foreign keys: a job left behind for a deleted recording
     would collide on (recording_id, job_type) when a later test reuses that recording id.
@@ -246,10 +259,21 @@ def _ensure_issuer_user():
     db.session.commit()
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _clinic_tables_exist():
+    """Every clinic table exists before the first test of the process. Several test
+    modules create their tables lazily (db.create_all in their own fixture), so a module
+    that needs one it does not create passed or failed with the order xdist chose."""
+    with app.app_context():
+        db.create_all()
+    yield
+
+
 @pytest.fixture(autouse=True)
 def clinic_isolation():
     with app.app_context():
         _purge_clinic_rows()
+        _purge_audit_rows()
         _purge_orphan_jobs()
         _ensure_issuer_user()
         users = [row[0] for row in db.session.query(User.id).all()]
@@ -257,4 +281,5 @@ def clinic_isolation():
     yield
     with app.app_context():
         _purge_clinic_rows()
+        _purge_audit_rows()
         _purge_new_accounts(users, recordings)
