@@ -85,6 +85,38 @@ export const TEXT = Object.freeze({
     nameRequired: 'Bitte einen Namen eingeben.',
     validityOrder: 'Das Ende der Gültigkeit muss nach dem Beginn liegen.',
     keys: 'Tastatur: Esc bricht eine offene Rückfrage ab.',
+    eyebrow: 'Verwaltung',
+    subline: 'Zuständige Gruppen und ihre Mitglieder verwalten. Die Zuweisung eines Diktats bezieht sich auf einen Schreibkräfte-Pool.',
+    addPool: 'Pool hinzufügen',
+    listTitle: 'Pools und Mitglieder',
+    search: 'Suche',
+    searchPlaceholder: 'Pool oder Mitglied …',
+    resetFilter: 'Filter zurücksetzen',
+    filterEmpty: 'Keine Einträge für diese Auswahl. Filter zurücksetzen oder Suche anpassen.',
+    colPool: 'Schreibkräfte-Pool',
+    colStatus: 'Status',
+    colAction: 'Aktion',
+    groupNote: 'Verantwortliche Gruppe',
+    noMembersShort: 'Keine Mitglieder',
+    edit: 'Schreibkräfte-Pool bearbeiten',
+    statPools: 'Schreibkräfte-Pools',
+    statPoolsNote: 'Gruppenzuständigkeit',
+    statActive: 'Aktive Pools',
+    statActiveNote: 'Nehmen neue Diktate an',
+    statMembers: 'Schreibkräfte',
+    statMembersNote: 'Mitglieder in Pools',
+    statEmpty: 'Ohne Mitglieder',
+    statEmptyNote: 'Nicht besetzt',
+    howTitle: 'Zugriff und Bearbeitung',
+    steps: Object.freeze([
+        Object.freeze({ title: 'Diktat dem Pool zuweisen', text: 'Die Gruppe trägt die Zuständigkeit und erhält den erlaubten Zugriff.' }),
+        Object.freeze({ title: 'Schreibkraft übernimmt', text: 'Die einzelne Bearbeitung wird zusätzlich angezeigt; der Pool bleibt sichtbar.' }),
+        Object.freeze({ title: 'Zurückgeben oder umverteilen', text: 'Poolwechsel werden protokolliert. Die diktierende Person wird nicht geändert.' }),
+    ]),
+    delimitTitle: 'Abgrenzung zu Autorenpools',
+    delimitText: 'Autorenpools organisieren diktierende Personen und ihre Ressourcen. Schreibkräfte-Pools organisieren die Zuständigkeit für die Bearbeitung.',
+    delimitLink: 'Diktierende und Autorenpools',
+    delimitNote: 'Berechtigungen werden serverseitig geprüft. Eine persönliche Arbeitsübernahme bleibt ein separates Merkmal am Diktat.',
 });
 
 const ERROR_TEXT = Object.freeze({
@@ -164,6 +196,8 @@ export function createAdminPoolsController(options) {
         validFrom: '',
         validTo: '',
         search: '',
+        filter: '',
+        createOpen: false,
     });
     const poolsView = reactive({ status: 'idle', revision: null, pools: { author: [], staff: [] }, pendingRemoval: null, failedWrite: null, message: '' });
     const store = createPoolsStore(client, (next) => Object.assign(poolsView, next));
@@ -186,6 +220,26 @@ export function createAdminPoolsController(options) {
     function members() {
         return membersOf(state.selectedId).map((id) => ({ id, name: nameOf(id) }));
     }
+
+    const memberNames = (poolId) => membersOf(poolId).map((id) => nameOf(id));
+
+    /** Rows whose pool name or member name contains the filter text (page-local, case-insensitive). */
+    function visibleRows() {
+        const needle = state.filter.trim().toLowerCase();
+        const all = rows();
+        if (!needle) return all;
+        return all.filter((p) => p.name.toLowerCase().includes(needle) || memberNames(p.id).some((n) => String(n).toLowerCase().includes(needle)));
+    }
+
+    /** Counts for the KPI cards: pools, active pools, distinct members, pools without members. */
+    function stats() {
+        const all = rows();
+        const people = new Set();
+        all.forEach((p) => p.memberUserIds.forEach((id) => people.add(Number(id))));
+        return { active: all.filter((p) => p.status.key === 'active').length, members: people.size, empty: all.filter((p) => !p.memberUserIds.length).length };
+    }
+
+    const countText = () => visibleRows().length + ' von ' + state.meta.length + ' Schreibkräfte-Pools';
 
     function results() {
         return searchAccounts(accounts.state.accounts, state.search, membersOf(state.selectedId));
@@ -304,6 +358,7 @@ export function createAdminPoolsController(options) {
         const done = await write('/pools', 'POST', { kind: KIND, name });
         if (done.ok) {
             state.createName = '';
+            state.createOpen = false;
             if (done.data && done.data.id) await select(done.data.id);
         }
         return done;
@@ -410,7 +465,7 @@ export function createAdminPoolsController(options) {
         state, poolsView, store, accounts, text: TEXT,
         load: () => load(), select, create, rename, saveValidity, requestDeactivate, cancelDeactivate, confirmDeactivate, reactivate,
         addMember, requestRemoval, confirmRemoval, cancelRemoval, onKey, dispose,
-        rows, members, results, selected, searchAvailable,
+        rows, members, results, selected, searchAvailable, memberNames, visibleRows, stats, countText,
         pendingRemovalName: () => (poolsView.pendingRemoval ? nameOf(poolsView.pendingRemoval.userId) : ''),
         retryWrite: () => store.retry(),
         errorStyle: styleOf('error'),
@@ -419,109 +474,182 @@ export function createAdminPoolsController(options) {
     };
 }
 
+// Line icons of the V8 prototype (03_Prototyp/assets/ui.css icon set); decorative, the buttons carry the labels.
+const ICON = (path) => '<svg class="ui-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="' + path + '"/></svg>';
+const ICONS = Object.freeze({
+    plus: ICON('M12 4v16M4 12h16'),
+    edit: ICON('m15 4 5 5M4 20l4-1L21 6l-4-4L4 15z'),
+    restart: ICON('M3 11a9 9 0 1 1 2 7M3 4v7h7'),
+    arrow: ICON('M4 12h16m-6-6 6 6-6 6'),
+});
+
 export const ADMIN_POOLS_TEMPLATE = `
-<section class="clinic-admin-pools-view" data-testid="clinic-admin-pools-view" aria-labelledby="cap-title" @keydown="c.onKey($event)">
-  <h1 id="cap-title" class="text-lg font-semibold">{{ c.text.title }}</h1>
-  <p v-if="c.state.status === 'loading' || c.state.status === 'idle'" role="status" aria-live="polite" data-testid="loading-state">{{ c.text.loading }}</p>
-  <p v-else-if="c.state.status === 'denied'" role="alert" class="mt-2 p-2 rounded" :style="c.errorStyle" data-testid="denied-state">{{ c.text.denied }}</p>
-  <div v-else-if="c.state.status === 'error'" role="alert" class="mt-2 p-2 rounded" :style="c.errorStyle" data-testid="load-error">
+<section class="clinic-admin-pools-view v8-page v8-admin-page" data-testid="clinic-admin-pools-view" aria-labelledby="cap-title" @keydown="c.onKey($event)">
+  <div class="pagehead">
+    <div>
+      <div class="eyebrow">{{ c.text.eyebrow }}</div>
+      <h1 id="cap-title">{{ c.text.title }}</h1>
+      <p class="subline">{{ c.text.subline }}</p>
+    </div>
+    <div v-if="c.state.status === 'ready'" class="head-actions">
+      <button type="button" class="primary" data-testid="create-open" :aria-expanded="c.state.createOpen ? 'true' : 'false'" @click="c.state.createOpen = !c.state.createOpen">${ICONS.plus}<span>{{ c.text.addPool }}</span></button>
+    </div>
+  </div>
+  <p v-if="c.state.status === 'loading' || c.state.status === 'idle'" role="status" aria-live="polite" class="hint" data-testid="loading-state">{{ c.text.loading }}</p>
+  <p v-else-if="c.state.status === 'denied'" role="alert" class="note burgundy" data-testid="denied-state">{{ c.text.denied }}</p>
+  <div v-else-if="c.state.status === 'error'" role="alert" class="note burgundy" data-testid="load-error">
     {{ c.state.message }}
-    <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" @click="c.load()">{{ c.text.retry }}</button>
+    <button type="button" class="small" @click="c.load()">{{ c.text.retry }}</button>
   </div>
   <template v-else>
     <p class="sr-only">{{ c.text.keys }}</p>
-    <p v-if="c.state.message" role="alert" class="mt-2 p-2 rounded" :style="c.warningStyle" data-testid="message">
+    <div v-if="c.state.message" role="alert" class="note warning" data-testid="message">
       {{ c.state.message }}
-      <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" @click="c.load()">{{ c.text.reload }}</button>
-    </p>
-    <div class="grid gap-4 lg:grid-cols-2 mt-3">
-      <div>
-        <form class="flex flex-wrap items-end gap-2" @submit.prevent="c.create()">
+      <button type="button" class="small" @click="c.load()">{{ c.text.reload }}</button>
+    </div>
+    <div class="stats" data-testid="pool-stats">
+      <div class="stat"><span>{{ c.text.statPools }}</span><strong>{{ c.rows().length }}</strong><small>{{ c.text.statPoolsNote }}</small></div>
+      <div class="stat"><span>{{ c.text.statActive }}</span><strong>{{ c.stats().active }}</strong><small>{{ c.text.statActiveNote }}</small></div>
+      <div class="stat"><span>{{ c.text.statMembers }}</span><strong>{{ c.stats().members }}</strong><small>{{ c.text.statMembersNote }}</small></div>
+      <div class="stat"><span>{{ c.text.statEmpty }}</span><strong>{{ c.stats().empty }}</strong><small>{{ c.text.statEmptyNote }}</small></div>
+    </div>
+    <section v-if="c.state.createOpen" class="panel" style="margin-bottom: 20px" aria-labelledby="cap-create-title" data-testid="create-panel">
+      <h2 id="cap-create-title">{{ c.text.create }}</h2>
+      <form @submit.prevent="c.create()">
+        <div class="field">
           <label for="cap-create-name">{{ c.text.createName }}</label>
-          <input id="cap-create-name" type="text" maxlength="100" autocomplete="off" v-model="c.state.createName" class="border rounded px-2 py-2" style="min-height: 2.75rem">
-          <button type="submit" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :disabled="c.state.busy">{{ c.text.create }}</button>
+          <input id="cap-create-name" type="text" maxlength="100" autocomplete="off" v-model="c.state.createName">
+        </div>
+        <div class="actions">
+          <button type="button" @click="c.state.createOpen = false">{{ c.text.cancel }}</button>
+          <button type="submit" class="primary" :disabled="c.state.busy">{{ c.text.create }}</button>
+        </div>
+      </form>
+    </section>
+    <section class="panel" aria-labelledby="cap-list-title">
+      <h2 id="cap-list-title">{{ c.text.listTitle }}</h2>
+      <div class="filterbar">
+        <div class="field search">
+          <label for="cap-filter">{{ c.text.search }}</label>
+          <input id="cap-filter" type="search" autocomplete="off" :placeholder="c.text.searchPlaceholder" v-model="c.state.filter" data-testid="pool-filter">
+        </div>
+        <span class="tool-wrap"><button type="button" class="icon-button" :aria-label="c.text.resetFilter" :title="c.text.resetFilter" data-testid="pool-filter-reset" @click="c.state.filter = ''">${ICONS.restart}</button></span>
+      </div>
+      <p class="result-count" aria-live="polite" data-testid="pool-count">{{ c.countText() }}</p>
+      <p v-if="!c.rows().length" class="empty" data-testid="empty-state">{{ c.text.empty }}</p>
+      <p v-else-if="!c.visibleRows().length" class="empty" data-testid="filter-empty">{{ c.text.filterEmpty }}</p>
+      <div v-else class="table-wrap">
+        <table :aria-label="c.text.listLabel" data-testid="pool-list">
+          <thead><tr>
+            <th scope="col">{{ c.text.colPool }}</th><th scope="col">{{ c.text.members }}</th>
+            <th scope="col">{{ c.text.colStatus }}</th><th scope="col">{{ c.text.colAction }}</th>
+          </tr></thead>
+          <tbody>
+            <tr v-for="p in c.visibleRows()" :key="p.id" :data-id="p.id" :class="{ 'is-selected': c.state.selectedId === p.id }">
+              <td><strong>{{ p.name }}</strong><small>{{ c.text.groupNote }}</small></td>
+              <td class="wrap">
+                <span v-if="p.memberUserIds.length">{{ c.memberNames(p.id).join(', ') }}</span>
+                <span v-else class="muted">{{ c.text.noMembersShort }}</span>
+              </td>
+              <td><span class="tag" :class="p.status.key === 'active' ? 'neutral' : 'wait'">{{ p.status.label }}</span></td>
+              <td>
+                <span class="tool-wrap"><button type="button" class="icon-button" :aria-label="c.text.edit + ': ' + p.name" :title="c.text.edit"
+                        :aria-current="c.state.selectedId === p.id ? 'true' : 'false'" :data-id="p.id" @click="c.select(p.id)">${ICONS.edit}</button></span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <p v-if="!c.selected()" id="cap-detail-title" class="hint" data-testid="detail-panel">{{ c.text.noSelection }}</p>
+    <aside v-else class="grid equal" aria-labelledby="cap-detail-title" data-testid="detail-panel">
+      <section class="panel" :key="c.state.selectedId">
+        <h2 id="cap-detail-title">{{ c.text.detail }}: {{ c.selected().name }}</h2>
+        <form class="field-grid" @submit.prevent="c.rename()">
+          <div class="field full">
+            <label for="cap-rename">{{ c.text.nameLabel }}</label>
+            <input id="cap-rename" type="text" maxlength="100" autocomplete="off" v-model="c.state.renameName">
+          </div>
+          <div class="actions full"><button type="submit" :disabled="c.state.busy">{{ c.text.rename }}</button></div>
         </form>
-        <p v-if="!c.rows().length" class="mt-3" data-testid="empty-state">{{ c.text.empty }}</p>
-        <ul v-else class="mt-3" :aria-label="c.text.listLabel" data-testid="pool-list">
-          <li v-for="p in c.rows()" :key="p.id">
-            <button type="button" class="px-3 py-2 border rounded w-full text-left" style="min-height: 2.75rem"
-                    :aria-current="c.state.selectedId === p.id ? 'true' : 'false'" :data-id="p.id" @click="c.select(p.id)">
-              <span>{{ p.name }}</span>
-              <span class="px-2 py-1 rounded text-xs" :style="c.badgeStyle(p)">{{ p.status.label }}</span>
-              <span class="text-sm">{{ c.text.members }}: {{ p.memberUserIds.length }}</span>
-              <span v-if="!p.memberUserIds.length" class="text-sm">{{ c.text.noMembers }}</span>
-            </button>
+        <fieldset style="border: 0; padding: 0; margin: 18px 0 0">
+          <legend><h3>{{ c.text.validity }}</h3></legend>
+          <div class="field-grid">
+            <div class="field">
+              <label for="cap-valid-from">{{ c.text.validFrom }}</label>
+              <input id="cap-valid-from" type="datetime-local" v-model="c.state.validFrom">
+            </div>
+            <div class="field">
+              <label for="cap-valid-to">{{ c.text.validTo }}</label>
+              <input id="cap-valid-to" type="datetime-local" v-model="c.state.validTo">
+            </div>
+          </div>
+          <div class="actions"><button type="button" :disabled="c.state.busy" @click="c.saveValidity()">{{ c.text.saveValidity }}</button></div>
+        </fieldset>
+        <section style="margin-top: 18px" aria-labelledby="cap-usage-title" data-testid="usage">
+          <h3 id="cap-usage-title">{{ c.text.usage }}</h3>
+          <p v-if="c.state.usageFailed" class="hint">{{ c.text.usageUnavailable }}</p>
+          <dl v-else-if="c.state.usage" class="keyvalues">
+            <div><dt>{{ c.text.usageOpen }}</dt><dd>{{ c.state.usage.openDictations }}</dd></div>
+            <div><dt>{{ c.text.usageMembers }}</dt><dd>{{ c.state.usage.members }}</dd></div>
+            <div><dt>{{ c.text.usageLinks }}</dt><dd>{{ c.state.usage.links }}</dd></div>
+          </dl>
+        </section>
+        <div class="actions" style="margin-top: 14px">
+          <button v-if="c.selected().active" type="button" class="danger" :disabled="c.state.busy" data-testid="deactivate" @click="c.requestDeactivate()">{{ c.text.deactivate }}</button>
+          <button v-else type="button" :disabled="c.state.busy" data-testid="reactivate" @click="c.reactivate()">{{ c.text.reactivate }}</button>
+        </div>
+        <div v-if="c.state.confirmDeactivate" role="alertdialog" aria-modal="false" aria-labelledby="cap-deact-title" class="note warning" data-testid="deactivate-confirm">
+          <p id="cap-deact-title"><strong>{{ c.text.confirmDeactivate }}</strong></p>
+          <p>{{ c.text.usageOpen }}: {{ c.state.usage ? c.state.usage.openDictations : 0 }}</p>
+          <p>{{ c.text.deactivateNote }}</p>
+          <div class="actions">
+            <button type="button" class="small" @click="c.cancelDeactivate()">{{ c.text.cancel }}</button>
+            <button type="button" class="small primary" @click="c.confirmDeactivate()">{{ c.text.deactivateYes }}</button>
+          </div>
+        </div>
+      </section>
+      <section class="panel" aria-labelledby="cap-members-title">
+        <h2 id="cap-members-title">{{ c.text.members }}</h2>
+        <ul :aria-label="c.text.members" data-testid="member-list" style="list-style: none; margin: 0; padding: 0">
+          <li v-if="!c.members().length" class="hint">{{ c.text.noMembers }}</li>
+          <li v-for="m in c.members()" :key="m.id" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0">
+            <span>{{ m.name }}</span>
+            <button type="button" class="small" :aria-label="c.text.removeMember + ': ' + m.name" :title="c.text.removeMember" @click="c.requestRemoval(m.id)">&times;</button>
           </li>
         </ul>
-      </div>
-      <aside aria-labelledby="cap-detail-title" data-testid="detail-panel">
-        <p v-if="!c.selected()" id="cap-detail-title">{{ c.text.noSelection }}</p>
-        <div v-else :key="c.state.selectedId">
-          <h2 id="cap-detail-title" class="font-semibold">{{ c.text.detail }}: {{ c.selected().name }}</h2>
-          <form class="flex flex-wrap items-end gap-2 mt-2" @submit.prevent="c.rename()">
-            <label for="cap-rename">{{ c.text.nameLabel }}</label>
-            <input id="cap-rename" type="text" maxlength="100" autocomplete="off" v-model="c.state.renameName" class="border rounded px-2 py-2" style="min-height: 2.75rem">
-            <button type="submit" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :disabled="c.state.busy">{{ c.text.rename }}</button>
-          </form>
-          <fieldset class="mt-3">
-            <legend>{{ c.text.validity }}</legend>
-            <label for="cap-valid-from">{{ c.text.validFrom }}</label>
-            <input id="cap-valid-from" type="datetime-local" v-model="c.state.validFrom" class="border rounded px-2 py-2" style="min-height: 2.75rem">
-            <label for="cap-valid-to">{{ c.text.validTo }}</label>
-            <input id="cap-valid-to" type="datetime-local" v-model="c.state.validTo" class="border rounded px-2 py-2" style="min-height: 2.75rem">
-            <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :disabled="c.state.busy" @click="c.saveValidity()">{{ c.text.saveValidity }}</button>
-          </fieldset>
-          <section class="mt-3" aria-labelledby="cap-usage-title" data-testid="usage">
-            <h3 id="cap-usage-title">{{ c.text.usage }}</h3>
-            <p v-if="c.state.usageFailed">{{ c.text.usageUnavailable }}</p>
-            <ul v-else-if="c.state.usage">
-              <li>{{ c.text.usageOpen }}: {{ c.state.usage.openDictations }}</li>
-              <li>{{ c.text.usageMembers }}: {{ c.state.usage.members }}</li>
-              <li>{{ c.text.usageLinks }}: {{ c.state.usage.links }}</li>
-            </ul>
-          </section>
-          <div class="mt-3">
-            <button v-if="c.selected().active" type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :disabled="c.state.busy" data-testid="deactivate" @click="c.requestDeactivate()">{{ c.text.deactivate }}</button>
-            <button v-else type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :disabled="c.state.busy" data-testid="reactivate" @click="c.reactivate()">{{ c.text.reactivate }}</button>
+        <div v-if="c.poolsView.pendingRemoval" role="alertdialog" aria-modal="false" aria-labelledby="cap-rm-title" class="note warning" data-testid="remove-confirm">
+          <p id="cap-rm-title"><strong>{{ c.text.confirmRemove }} {{ c.pendingRemovalName() }}</strong></p>
+          <div class="actions">
+            <button type="button" class="small" @click="c.cancelRemoval()">{{ c.text.cancel }}</button>
+            <button type="button" class="small primary" @click="c.confirmRemoval()">{{ c.text.confirmRemoveYes }}</button>
           </div>
-          <div v-if="c.state.confirmDeactivate" role="alertdialog" aria-modal="false" aria-labelledby="cap-deact-title" class="mt-2 p-2 rounded" :style="c.warningStyle" data-testid="deactivate-confirm">
-            <p id="cap-deact-title">{{ c.text.confirmDeactivate }}</p>
-            <p>{{ c.text.usageOpen }}: {{ c.state.usage ? c.state.usage.openDictations : 0 }}</p>
-            <p>{{ c.text.deactivateNote }}</p>
-            <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" @click="c.confirmDeactivate()">{{ c.text.deactivateYes }}</button>
-            <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" @click="c.cancelDeactivate()">{{ c.text.cancel }}</button>
-          </div>
-          <section class="mt-3" aria-labelledby="cap-members-title">
-            <h3 id="cap-members-title">{{ c.text.members }}</h3>
-            <ul :aria-label="c.text.members" data-testid="member-list">
-              <li v-if="!c.members().length">{{ c.text.noMembers }}</li>
-              <li v-for="m in c.members()" :key="m.id">
-                {{ m.name }}
-                <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem; min-width: 2.75rem"
-                        :aria-label="c.text.removeMember + ': ' + m.name" :title="c.text.removeMember" @click="c.requestRemoval(m.id)">&times;</button>
-              </li>
-            </ul>
-            <div v-if="c.poolsView.pendingRemoval" role="alertdialog" aria-modal="false" aria-labelledby="cap-rm-title" class="mt-2 p-2 rounded" :style="c.warningStyle" data-testid="remove-confirm">
-              <p id="cap-rm-title">{{ c.text.confirmRemove }} {{ c.pendingRemovalName() }}</p>
-              <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" @click="c.confirmRemoval()">{{ c.text.confirmRemoveYes }}</button>
-              <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" @click="c.cancelRemoval()">{{ c.text.cancel }}</button>
-            </div>
-            <p v-if="!c.searchAvailable()" role="status">{{ c.text.searchUnavailable }}</p>
-            <div v-else class="mt-2">
-              <label for="cap-member-search">{{ c.text.memberSearch }}</label>
-              <input id="cap-member-search" type="search" autocomplete="off" v-model="c.state.search" class="border rounded px-2 py-2" style="min-height: 2.75rem">
-              <ul v-if="c.state.search.trim()" :aria-label="c.text.memberSearch" data-testid="search-results">
-                <li v-if="!c.results().length">{{ c.text.searchNone }}</li>
-                <li v-for="a in c.results()" :key="a.id">
-                  {{ a.username }}
-                  <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem"
-                          :aria-label="c.text.addMember + ': ' + a.username" @click="c.addMember(a.id)">{{ c.text.addMember }}</button>
-                </li>
-              </ul>
-            </div>
-          </section>
         </div>
-      </aside>
+        <p v-if="!c.searchAvailable()" role="status" class="hint">{{ c.text.searchUnavailable }}</p>
+        <div v-else class="field" style="margin-top: 14px">
+          <label for="cap-member-search">{{ c.text.memberSearch }}</label>
+          <input id="cap-member-search" type="search" autocomplete="off" v-model="c.state.search">
+          <ul v-if="c.state.search.trim()" :aria-label="c.text.memberSearch" data-testid="search-results" style="list-style: none; margin: 6px 0 0; padding: 0">
+            <li v-if="!c.results().length" class="hint">{{ c.text.searchNone }}</li>
+            <li v-for="a in c.results()" :key="a.id" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0">
+              <span>{{ a.username }}</span>
+              <button type="button" class="small" :aria-label="c.text.addMember + ': ' + a.username" @click="c.addMember(a.id)">{{ c.text.addMember }}</button>
+            </li>
+          </ul>
+        </div>
+      </section>
+    </aside>
+    <div class="grid equal" style="margin-top: 20px">
+      <section class="panel" aria-labelledby="cap-how-title">
+        <h2 id="cap-how-title">{{ c.text.howTitle }}</h2>
+        <div v-for="(s, i) in c.text.steps" :key="i" class="step"><span>{{ i + 1 }}</span><div><strong>{{ s.title }}</strong><p>{{ s.text }}</p></div></div>
+      </section>
+      <section class="panel" aria-labelledby="cap-delimit-title">
+        <h2 id="cap-delimit-title">{{ c.text.delimitTitle }}</h2>
+        <p class="hint">{{ c.text.delimitText }}</p>
+        <a class="button" href="/#/verwaltung/diktierende">${ICONS.arrow}<span>{{ c.text.delimitLink }}</span></a>
+        <div class="note">{{ c.text.delimitNote }}</div>
+      </section>
     </div>
   </template>
 </section>`;

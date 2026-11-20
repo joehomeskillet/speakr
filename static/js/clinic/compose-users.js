@@ -46,6 +46,22 @@ export const LABELS = Object.freeze({
     poolsHint: 'Mitgliedschaften werden unter «Pools verwalten» geändert.',
     reload: 'Erneut laden',
     retry: 'Erneut versuchen',
+    eyebrow: 'Verwaltung',
+    subline: 'Lokale Benutzerkonten, Poolbezüge und Fachrechte getrennt verwalten.',
+    statAccounts: 'Benutzerkonten',
+    statAccountsNote: 'Lokale Konten',
+    statActive: 'Aktive Konten',
+    statActiveNote: 'Anmeldefähig',
+    statDisabled: 'Deaktivierte Konten',
+    statDisabledNote: 'Nicht anmeldefähig',
+    statAdmins: 'Administration',
+    statAdminsNote: 'Konten mit Adminrecht',
+    rolesTitle: 'Rollen und Zugriff',
+    rolesText: 'Rollen erlauben Funktionen. Poolbezüge und Fachrechte werden je Benutzer unter den Bereichen oben geändert.',
+    rolesNote: 'Der Zugriff auf ein konkretes Diktat bleibt zusätzlich an Benutzer, Pools und Objektberechtigungen gebunden. Eine Identitätsrolle gibt keinen Diktatzugriff.',
+    identityTitle: 'Anmeldung und Zugriff',
+    identityText: 'Die Anmeldung und die Zuordnung externer Identitäten werden getrennt von den Konten verwaltet. Der Zugriff wird immer serverseitig geprüft.',
+    identityLink: 'Anmeldung und Zugriff öffnen',
 });
 
 function userIdOf(user) {
@@ -170,28 +186,54 @@ export function createPoolsPanel(Vue) {
 }
 
 export const USERS_TEMPLATE = `
-<div class="clinic-users-view">
-  <h2>{{ labels.title }}</h2>
-  <p v-if="state.denied" role="alert" :style="errorStyle">{{ labels.deniedAnonymous }}</p>
-  <p v-else-if="state.forbidden" role="alert" :style="errorStyle">{{ labels.denied }}</p>
+<div class="clinic-users-view v8-page v8-admin-page" data-testid="clinic-users-view">
+  <div class="pagehead">
+    <div>
+      <div class="eyebrow">{{ labels.eyebrow }}</div>
+      <h1>{{ labels.title }}</h1>
+      <p class="subline">{{ labels.subline }}</p>
+    </div>
+  </div>
+  <p v-if="state.denied" role="alert" class="note burgundy">{{ labels.deniedAnonymous }}</p>
+  <p v-else-if="state.forbidden" role="alert" class="note burgundy">{{ labels.denied }}</p>
   <template v-else>
-    <nav :aria-label="labels.sections">
+    <div v-if="accounts.loaded" class="stats" data-testid="user-stats">
+      <div class="stat"><span>{{ labels.statAccounts }}</span><strong>{{ stats.total }}</strong><small>{{ labels.statAccountsNote }}</small></div>
+      <div class="stat"><span>{{ labels.statActive }}</span><strong>{{ stats.active }}</strong><small>{{ labels.statActiveNote }}</small></div>
+      <div class="stat"><span>{{ labels.statDisabled }}</span><strong>{{ stats.disabled }}</strong><small>{{ labels.statDisabledNote }}</small></div>
+      <div class="stat"><span>{{ labels.statAdmins }}</span><strong>{{ stats.admins }}</strong><small>{{ labels.statAdminsNote }}</small></div>
+    </div>
+    <nav class="tabs" :aria-label="labels.sections">
       <button v-for="s in sections" :key="s.id" type="button" :id="'usr-sec-' + s.id"
-        :aria-current="state.active === s.id ? 'true' : 'false'" @click="select(s.id)">{{ s.label }}</button>
+        :aria-current="state.active === s.id ? 'true' : 'false'"
+        :style="state.active === s.id ? { borderBottomColor: 'var(--burgundy)', color: 'var(--v8-text)' } : null"
+        @click="select(s.id)">{{ s.label }}</button>
     </nav>
-    <p v-if="accounts.loading" role="status" aria-live="polite">{{ labels.loading }}</p>
-    <p v-else-if="accounts.loaded && !accounts.accounts.length" role="status" aria-live="polite">{{ labels.empty }}</p>
-    <p v-if="accounts.error && !accounts.loaded" role="alert" :style="errorStyle">{{ accounts.message }}
-      <button type="button" @click="load()">{{ labels.retry }}</button></p>
-    <div v-if="accounts.loaded && state.active !== 'accounts'">
+    <p v-if="accounts.loading" role="status" aria-live="polite" class="hint">{{ labels.loading }}</p>
+    <p v-else-if="accounts.loaded && !accounts.accounts.length" role="status" aria-live="polite" class="empty">{{ labels.empty }}</p>
+    <p v-if="accounts.error && !accounts.loaded" role="alert" class="note burgundy">{{ accounts.message }}
+      <button type="button" class="small" @click="load()">{{ labels.retry }}</button></p>
+    <div v-if="accounts.loaded && state.active !== 'accounts'" class="field" style="max-width: 320px">
       <label for="usr-pick">{{ labels.user }}</label>
       <select id="usr-pick" :value="state.selectedId === null ? '' : String(state.selectedId)" @change="selectUser($event.target.value)">
         <option value="">-</option>
         <option v-for="a in accounts.accounts" :key="a.id" :value="String(a.id)">{{ a.username }}</option>
       </select>
     </div>
-    <div v-if="accounts.loaded" role="region" :aria-labelledby="'usr-sec-' + state.active">
+    <div v-if="accounts.loaded" role="region" class="panel" :aria-labelledby="'usr-sec-' + state.active">
       <component :is="activeComponent" v-bind="activeProps" :key="state.epoch + ':' + state.active + ':' + state.selectedId"></component>
+    </div>
+    <div v-if="accounts.loaded" class="grid equal" style="margin-top: 20px">
+      <section class="panel" aria-labelledby="usr-note-roles">
+        <h2 id="usr-note-roles">{{ labels.rolesTitle }}</h2>
+        <p class="hint">{{ labels.rolesText }}</p>
+        <div class="note">{{ labels.rolesNote }}</div>
+      </section>
+      <section class="panel" aria-labelledby="usr-note-identity">
+        <h2 id="usr-note-identity">{{ labels.identityTitle }}</h2>
+        <p class="hint">{{ labels.identityText }}</p>
+        <a class="button" href="/admin"><span>{{ labels.identityLink }}</span></a>
+      </section>
     </div>
   </template>
 </div>`;
@@ -238,8 +280,17 @@ export const UsersView = {
         });
         Vue.onMounted(() => ctrl.load());
         Vue.onBeforeUnmount(() => ctrl.dispose());
+        const stats = Vue.computed(() => {
+            const list = ctrl.accounts.state.accounts || [];
+            return {
+                total: list.length,
+                active: list.filter((a) => a.status === 'active').length,
+                disabled: list.filter((a) => a.status === 'disabled').length,
+                admins: list.filter((a) => a.is_admin).length,
+            };
+        });
         return {
-            state: ctrl.state, accounts: ctrl.accounts.state, sections: SECTIONS, labels: LABELS, errorStyle,
+            stats, state: ctrl.state, accounts: ctrl.accounts.state, sections: SECTIONS, labels: LABELS, errorStyle,
             select: ctrl.select, load: ctrl.load, selectUser: ctrl.selectUser, activeComponent, activeProps,
         };
     },

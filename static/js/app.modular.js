@@ -318,7 +318,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (clinicWorklist) {
         try {
             const [{ registerRecordingView }, { registerLiveView }, { registerArchiveView }, { registerImportView },
-                { registerSettingsView }, { registerOfflineView }, { createTooltip }, { getUploadCsrfToken }] = await Promise.all([
+                { registerSettingsView }, { registerOfflineView }, { createTooltip }, { getUploadCsrfToken },
+                { registerAdminPoolsView }, { registerAuthorsView }, { registerUsersView }, { registerVocabularyView },
+                { registerCommandsTemplatesView }, { registerAsrProfilesView }] = await Promise.all([
                 import('./clinic/compose-recording.js'),
                 import('./clinic/compose-live.js'),
                 import('./clinic/compose-archive.js'),
@@ -327,9 +329,17 @@ document.addEventListener('DOMContentLoaded', async () => {
                 import('./clinic/compose-offline.js'),
                 import('./clinic/tooltip.js'),
                 import('./modules/csrf.js'),
+                // V8 Verwaltung views (v8-114)
+                import('./clinic/compose-admin-pools.js'),
+                import('./clinic/compose-authors.js'),
+                import('./clinic/compose-users.js'),
+                import('./clinic/compose-vocabulary.js'),
+                import('./clinic/compose-commands-templates.js'),
+                import('./clinic/compose-asr-profiles.js'),
             ]);
             clinicMenu = {
-                register: [registerRecordingView, registerLiveView, registerArchiveView, registerImportView, registerSettingsView, registerOfflineView],
+                register: [registerRecordingView, registerLiveView, registerArchiveView, registerImportView, registerSettingsView, registerOfflineView,
+                    registerAdminPoolsView, registerAuthorsView, registerUsersView, registerVocabularyView, registerCommandsTemplatesView, registerAsrProfilesView],
                 createTooltip,
                 getUploadCsrfToken,
             };
@@ -338,6 +348,55 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
     // end V8 menu views (v8-71)
+
+    // V8 Verwaltung views (v8-114): the same-origin client for the admin routes outside /api/clinic/v1 (/admin/users and
+    // /api/admin/clinic/training/*), same call shape as the clinic client; it is the client templates/admin.html builds for the
+    // Klinik tab. Only the Verwaltung views use it (CLINIC_MODE only).
+    function createClinicAdminClient(getCsrfToken) {
+        let controllers = new Set();
+        const OUTCOME = { 400: 'validation', 422: 'validation', 401: 'permission', 403: 'permission', 409: 'conflict', 412: 'conflict' };
+        const MESSAGE = { permission: 'Keine Berechtigung für diese Aktion.', validation: 'Die Eingabe ist ungültig.', conflict: 'Der Stand ist veraltet.', network: 'Die Verbindung ist fehlgeschlagen.', cancelled: 'Die Anfrage wurde abgebrochen.', UNKNOWN: 'Das Ergebnis ist unbekannt.' };
+        const row = (outcome, status, code, data) => Object.assign({ outcome, status, code: code || null, correlationId: null, message: MESSAGE[outcome] || '' }, outcome === 'ok' ? { data } : {});
+        async function request(path, options) {
+            const opts = options || {};
+            if (typeof path !== 'string' || !path.startsWith('/admin/') || /:\/\/|\/\/|\.\.|\\/.test(path)) return row('validation', null, 'INVALID_PAYLOAD');
+            const url = path.startsWith('/admin/clinic/') ? '/api' + path : path;
+            const method = String(opts.method || 'GET').toUpperCase();
+            const unsafe = method !== 'GET' && method !== 'HEAD';
+            const controller = new AbortController();
+            controllers.add(controller);
+            try {
+                const headers = { Accept: 'application/json' };
+                if (unsafe) { const token = await getCsrfToken(); headers['X-CSRFToken'] = token; headers['X-CSRF-Token'] = token; }
+                const init = { method, credentials: 'same-origin', cache: 'no-store', headers, signal: controller.signal };
+                if (unsafe && opts.body !== undefined) { headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(opts.body); }
+                const response = await (window.originalFetch || window.fetch)(url, init);
+                const text = await response.text();
+                let data = null;
+                try { data = text ? JSON.parse(text) : null; } catch (e) { if (response.ok) return row('UNKNOWN', response.status, 'UNKNOWN'); }
+                if (response.ok) return row('ok', response.status, null, data);
+                const code = data && typeof data.code === 'string' && /^[A-Za-z0-9_]{1,80}$/.test(data.code) ? data.code : null;
+                return row(OUTCOME[response.status] || (response.status >= 500 || response.status === 408 || response.status === 429 ? 'network' : 'UNKNOWN'), response.status, code);
+            } catch (error) {
+                return error && error.name === 'AbortError' ? row('cancelled', null, 'CANCELLED') : row('network', null, 'NETWORK');
+            } finally {
+                controllers.delete(controller);
+            }
+        }
+        function switchContext() { controllers.forEach((c) => c.abort()); controllers = new Set(); }
+        return { request, switchContext };
+    }
+    // The authors page reads the account list (/admin/users) and the pools (/pools) through one client: a call to /admin/... goes to the
+    // admin client, every other call to the clinic client.
+    function createClinicRoutingClient(clinicClient, adminClient) {
+        const target = (path) => (typeof path === 'string' && path.startsWith('/admin/') ? adminClient : clinicClient);
+        return {
+            request: (path, options) => target(path).request(path, options),
+            command: (...args) => clinicClient.command(...args),
+            switchContext: (...args) => { clinicClient.switchContext(...args); adminClient.switchContext(...args); },
+        };
+    }
+    // end V8 Verwaltung views (v8-114)
 
     // CSRF Token Integration with Vue.js
     const csrfToken = ref(document.querySelector('meta[name="csrf-token"]')?.getAttribute('content'));
@@ -408,6 +467,24 @@ document.addEventListener('DOMContentLoaded', async () => {
                 });
             }
             // end V8 menu views (v8-71)
+            // V8 Verwaltung views (v8-114): the administration pages as views of the clinic shell. The probe is the rule of
+            // templates/admin.html: a GET the API authorises; a page is withheld when it answers 403. 'admin' marks the
+            // probes that reach the routes outside /api/clinic/v1.
+            const CLINIC_ADMIN_VIEWS = [
+                { view: 'clinic-admin-pools', hash: '#/verwaltung/schreibkraefte-pools', label: 'Schreibkräfte-Pools', tag: 'clinic-admin-pools-view', probe: '/pool-admin/pools' },
+                { view: 'clinic-admin-authors', hash: '#/verwaltung/diktierende', label: 'Diktierende und Autorenpools', tag: 'clinic-authors-view', probe: '/admin/users', admin: true },
+                { view: 'clinic-admin-users', hash: '#/verwaltung/benutzer', label: 'Benutzer und Rollen', tag: 'clinic-users-view', probe: '/admin/users', admin: true },
+                { view: 'clinic-admin-vocabulary', hash: '#/verwaltung/wortschatz', label: 'Wortschatz', tag: 'clinic-vocabulary-view', probe: '/vocabulary/search?scope=user&q=&mode=contains&status=all', sub: 'Persönliche und gemeinsame Einträge prüfen, versionieren und mit klarer gesprochener beziehungsweise geschriebener Form pflegen.' },
+                { view: 'clinic-admin-commands', hash: '#/verwaltung/befehle-vorlagen', label: 'Sprachbefehle und Vorlagen', tag: 'clinic-commands-templates-view', probe: '/resources/commands', sub: 'Erlaubte Webbefehle und editierbare Textbausteine. Schutzbedürftige Aktionen erfordern eine bewusste Bestätigung.' },
+                { view: 'clinic-admin-asr', hash: '#/verwaltung/sprachprofile', label: 'ASR und Sprachprofile', tag: 'clinic-asr-profiles-view', probe: '/admin/clinic/training/schedule', admin: true, sub: 'Profilkonfiguration und tatsächliche Enginefähigkeiten getrennt betrachten.' },
+                { view: 'clinic-admin-import', hash: '#/verwaltung/import', label: 'Dateien und Geräteimport', tag: 'clinic-import-view', probe: '/imports/intents', sub: 'Dateien einem Diktor und Schreibkräfte-Pool zuordnen. Prüfstatus und problematische Eingänge bleiben sichtbar.' },
+                { view: 'clinic-admin-jobs', hash: '#/verwaltung/verarbeitung', label: 'Verarbeitung', tag: 'clinic-jobs-view', probe: '/jobs/health', sub: 'Aufträge, Fehler und unklare Ausgabestände nachvollziehen.' },
+                { view: 'clinic-admin-activity', hash: '#/verwaltung/aktivitaet', label: 'Aktivität und Audit', tag: 'clinic-activity-view', probe: '/statistics/aggregates', sub: 'Wer hat was an welchem Objekt geändert? Akteur, Aktion und betroffene Revision im Überblick.' },
+            ];
+            if (clinicWorklist && clinicMenu) {
+                CLINIC_ADMIN_VIEWS.forEach((entry) => { CLINIC_VIEW_HASH[entry.view] = entry.hash; });
+            }
+            // end V8 Verwaltung views (v8-114)
             const clinicViewFromHash = () => Object.keys(CLINIC_VIEW_HASH)
                 .find((view) => view !== 'clinic-correction' && CLINIC_VIEW_HASH[view] === window.location.hash) || 'clinic-recordings';
             const currentView = ref(clinicWorklist ? clinicViewFromHash() : null);
@@ -3022,6 +3099,47 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }, { flush: 'sync' });
             }
             // end V8 menu views (v8-71)
+            // V8 Verwaltung views (v8-114): active entry, probe result per view (null while unknown) and the props of each page.
+            const clinicAdminViews = clinicMenu ? CLINIC_ADMIN_VIEWS : [];
+            const clinicAdminView = computed(() => clinicAdminViews.find((entry) => entry.view === currentView.value) || null);
+            const clinicAdminAccess = ref(null);
+            const clinicAdminClient = clinicMenu ? createClinicAdminClient(() => clinicMenu.getUploadCsrfToken()) : null;
+            const clinicAuthorsClient = clinicMenu ? createClinicRoutingClient(clinicWorklist.client, clinicAdminClient) : null;
+            const clinicAdminUser = clinicWorklist ? { id: clinicWorklist.user.id, role: clinicWorklist.user.role, is_admin: true } : null;
+            let clinicAdminProbe = null;
+            const probeClinicAdmin = () => {
+                if (!clinicMenu) return Promise.resolve(null);
+                if (!clinicAdminProbe) {
+                    clinicAdminProbe = Promise.all(clinicAdminViews.map((entry) => (entry.admin ? clinicAdminClient : clinicWorklist.client).request(entry.probe)))
+                        .then((results) => {
+                            const access = {};
+                            // Withheld only when the API refuses the account (401/403); a missing route or a network error leaves the page to show its own state.
+                            clinicAdminViews.forEach((entry, index) => { access[entry.view] = results[index].outcome !== 'permission'; });
+                            clinicAdminAccess.value = access;
+                            // Menu entries of withheld pages are hidden (header-controls.html).
+                            document.querySelectorAll('[data-clinic-admin-link]').forEach((link) => {
+                                const entry = clinicAdminViews.find((item) => item.view === link.getAttribute('data-clinic-admin-link'));
+                                link.hidden = !!entry && !access[entry.view];
+                            });
+                            return access;
+                        });
+                }
+                return clinicAdminProbe;
+            };
+            const clinicAdminAllowed = (entry) => !!entry && !!clinicAdminAccess.value && clinicAdminAccess.value[entry.view] === true;
+            const clinicAdminProps = (entry) => {
+                const base = { client: clinicWorklist.client, currentUser: clinicAdminUser };
+                if (entry.view === 'clinic-admin-pools') return { client: clinicWorklist.client, userClient: clinicAdminClient };
+                if (entry.view === 'clinic-admin-authors') return { ...base, client: clinicAuthorsClient };
+                if (entry.view === 'clinic-admin-users' || entry.view === 'clinic-admin-asr') return { ...base, adminClient: clinicAdminClient };
+                if (entry.view === 'clinic-admin-jobs') return { client: clinicWorklist.client, canRetry: true };
+                return base;
+            };
+            if (clinicMenu) {
+                watch(currentView, (view) => { if (clinicAdminViews.some((entry) => entry.view === view)) probeClinicAdmin(); }, { flush: 'sync', immediate: true });
+                if (appRootElement.dataset.clinicAdmin === 'True') onMounted(() => { probeClinicAdmin(); });
+            }
+            // end V8 Verwaltung views (v8-114)
             const uiComposable = useUI(state, utils, processedTranscription);
             const modalsComposable = useModals(state, utils);
             const transcriptionComposable = useTranscription(state, utils);
@@ -5298,8 +5416,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // end V8 dictation views (v8-70)
                 // V8 menu views (v8-71)
                 clinicMenuViews, clinicMenuActions, clinicMenuToolbarVisible, clinicRecorder, clinicUploadFile,
-                clinicLiveId, clinicLiveDraft, openClinicLive, openClinicMenuDictation
+                clinicLiveId, clinicLiveDraft, openClinicLive, openClinicMenuDictation,
                 // end V8 menu views (v8-71)
+                // V8 Verwaltung views (v8-114)
+                clinicAdminView, clinicAdminAllowed, clinicAdminAccess, clinicAdminProps
+                // end V8 Verwaltung views (v8-114)
             };
         },
         delimiters: ['${', '}']

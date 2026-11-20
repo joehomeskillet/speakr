@@ -49,6 +49,22 @@ export const LABELS = Object.freeze({
     rules: 'Hinweise',
     ruleOnePool: 'Ein Benutzer gehört höchstens einem Autorenpool an. Gleichnamige Pools werden nicht zusammengeschlossen.',
     ruleNoPerson: 'Diktierende sind bestehende Benutzer. Es gibt keine eigene Personenverwaltung.',
+    eyebrow: 'Verwaltung',
+    subline: 'Diktierende Personen eindeutig ausweisen und ihre Autorenressourcen organisieren.',
+    search: 'Suche',
+    searchPlaceholder: 'Name, Benutzer-ID oder Pool …',
+    allPools: 'Alle Autorenpools',
+    resetFilter: 'Filter zurücksetzen',
+    filterEmpty: 'Keine Einträge für diese Auswahl. Filter zurücksetzen oder Suche anpassen.',
+    statAuthors: 'Diktierende Personen',
+    statAuthorsNote: 'Mit Autorenpool',
+    statPools: 'Autorenpools',
+    statPoolsNote: 'Mit Mitgliedern',
+    statNoStaff: 'Ohne Schreibkräfte-Pool',
+    statNoStaffNote: 'Kein Pool zugewiesen',
+    statDisabled: 'Deaktivierte Konten',
+    statDisabledNote: 'Nicht anmeldefähig',
+    cardMembers: 'Mitglieder',
 });
 
 const STATUS_SURFACE = Object.freeze({ active: 'success', disabled: 'error', pending_activation: 'warning' });
@@ -83,6 +99,21 @@ export function deriveAuthors(accounts, pools) {
     return rows.sort((a, b) => String(a.name).localeCompare(String(b.name), 'de'));
 }
 
+/** One card per author pool: member names and the staff pools those members belong to (names only, no ids). */
+export function poolCardsOf(accounts, pools) {
+    const nameOf = (id) => {
+        const account = (accounts || []).find((a) => a.id === id);
+        return account ? account.username : '';
+    };
+    const staffPools = (pools && pools.staff) || [];
+    return ((pools && pools.author) || []).map((pool) => ({
+        id: pool.id,
+        name: pool.name,
+        members: pool.memberUserIds.map(nameOf).filter(Boolean),
+        staffPools: staffPools.filter((s) => s.memberUserIds.some((id) => pool.memberUserIds.includes(id))).map((s) => s.name),
+    }));
+}
+
 /**
  * Framework-free state for the list. Status: idle | loading | ready | denied | error.
  * @param {{client: {request: Function}, reactive?: Function}} deps
@@ -91,7 +122,7 @@ export function createAuthorsController(deps) {
     const client = deps.client;
     const reactive = deps.reactive || ((x) => x);
     const accounts = createAccountsAdmin({ client, reactive });
-    const state = reactive({ status: 'idle', rows: [], epoch: 0, message: '' });
+    const state = reactive({ status: 'idle', rows: [], poolCards: [], epoch: 0, message: '', query: '', pool: '' });
     let seq = 0;
 
     async function load() {
@@ -103,6 +134,7 @@ export function createAuthorsController(deps) {
         if (run !== seq) return false; // a newer load owns the state
         if (okAccounts && poolRes && poolRes.outcome === 'ok') {
             state.rows = deriveAuthors(accounts.state.accounts, store.state.pools);
+            state.poolCards = poolCardsOf(accounts.state.accounts, store.state.pools);
             state.status = 'ready';
             state.epoch += 1; // remounts the pools child with the current server state
             return true;
@@ -114,55 +146,139 @@ export function createAuthorsController(deps) {
         return false;
     }
 
-    return { state, load, retry: load };
+    /** Rows matching the search text (name, user id, pool names) and the chosen author pool. */
+    function visible() {
+        const needle = String(state.query || '').trim().toLowerCase();
+        return state.rows.filter((r) => {
+            if (state.pool && !r.authorPools.some((p) => String(p.id) === state.pool)) return false;
+            if (!needle) return true;
+            const haystack = [r.name, r.id, ...r.authorPools.map((p) => p.name), ...r.staffPools.map((p) => p.name)].join(' ').toLowerCase();
+            return haystack.includes(needle);
+        });
+    }
+
+    function poolOptions() {
+        const seen = new Map();
+        state.rows.forEach((r) => r.authorPools.forEach((p) => seen.set(String(p.id), p)));
+        return [...seen.values()].sort((x, y) => String(x.name).localeCompare(String(y.name), 'de'));
+    }
+
+    function resetFilter() {
+        state.query = '';
+        state.pool = '';
+    }
+
+    function stats() {
+        return {
+            authors: state.rows.length,
+            pools: poolOptions().length,
+            noStaffPool: state.rows.filter((r) => r.noStaffPool).length,
+            disabled: state.rows.filter((r) => r.status === 'disabled').length,
+        };
+    }
+
+    return { state, load, retry: load, visible, poolOptions, resetFilter, stats };
 }
 
 export function statusStyle(kind) {
     return style(kind);
 }
 
+// Line icons of the V8 prototype icon set; decorative, the buttons carry the labels.
+const ICON = (path) => '<svg class="ui-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="' + path + '"/></svg>';
+const ICONS = Object.freeze({
+    restart: ICON('M3 11a9 9 0 1 1 2 7M3 4v7h7'),
+    reload: ICON('M3 11a9 9 0 1 1 2 7M3 4v7h7'),
+});
+
 export const AUTHORS_TEMPLATE = `
-<section class="clinic-authors-view" aria-labelledby="authors-title">
-  <h2 id="authors-title">{{ labels.title }}</h2>
-  <button type="button" :disabled="state.status === 'loading'" @click="controller.load()">{{ labels.reload }}</button>
-  <p v-if="state.status === 'loading'" role="status" aria-live="polite">{{ labels.loading }}</p>
-  <p v-if="state.status === 'denied'" role="alert" :style="errorStyle">{{ state.message }}</p>
-  <p v-if="state.status === 'error'" role="alert" :style="errorStyle">{{ state.message }}
-    <button type="button" @click="controller.retry()">{{ labels.retry }}</button></p>
+<section class="clinic-authors-view v8-page v8-admin-page" data-testid="clinic-authors-view" aria-labelledby="authors-title">
+  <div class="pagehead">
+    <div>
+      <div class="eyebrow">{{ labels.eyebrow }}</div>
+      <h1 id="authors-title">{{ labels.title }}</h1>
+      <p class="subline">{{ labels.subline }}</p>
+    </div>
+    <div class="head-actions">
+      <button type="button" :disabled="state.status === 'loading'" @click="controller.load()">${ICONS.reload}<span>{{ labels.reload }}</span></button>
+    </div>
+  </div>
+  <p v-if="state.status === 'loading'" role="status" aria-live="polite" class="hint">{{ labels.loading }}</p>
+  <p v-if="state.status === 'denied'" role="alert" class="note burgundy">{{ state.message }}</p>
+  <p v-if="state.status === 'error'" role="alert" class="note burgundy">{{ state.message }}
+    <button type="button" class="small" @click="controller.retry()">{{ labels.retry }}</button></p>
   <template v-if="state.status === 'ready'">
-    <p v-if="!state.rows.length" role="status" aria-live="polite">{{ labels.empty }}</p>
-    <table v-else :aria-label="labels.list">
-      <thead><tr>
-        <th scope="col">{{ labels.columns.name }}</th><th scope="col">{{ labels.columns.id }}</th>
-        <th scope="col">{{ labels.columns.status }}</th><th scope="col">{{ labels.columns.role }}</th>
-        <th scope="col">{{ labels.columns.authorPools }}</th><th scope="col">{{ labels.columns.staffPools }}</th>
-      </tr></thead>
-      <tbody>
-        <tr v-for="r in state.rows" :key="r.id" :data-user-id="r.id">
-          <th scope="row">{{ r.name }}</th>
-          <td>{{ r.id }}</td>
-          <td><span :style="surfaceStyle(r.surface)">{{ r.statusLabel }}</span></td>
-          <td>{{ r.roleLabel }}</td>
-          <td>
-            <span v-for="p in r.authorPools" :key="p.id">{{ p.name }} </span>
-            <span v-if="r.multiAuthorPool" role="note">{{ labels.multiMembership }}</span>
-          </td>
-          <td>
-            <span v-for="p in r.staffPools" :key="p.id">{{ p.name }} </span>
-            <span v-if="r.noStaffPool">{{ labels.noStaffPool }}</span>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-    <section aria-labelledby="authors-pools">
-      <h3 id="authors-pools">{{ labels.pools }}</h3>
-      <p>{{ labels.poolsHelp }}</p>
+    <div class="stats" data-testid="author-stats">
+      <div class="stat"><span>{{ labels.statAuthors }}</span><strong>{{ controller.stats().authors }}</strong><small>{{ labels.statAuthorsNote }}</small></div>
+      <div class="stat"><span>{{ labels.statPools }}</span><strong>{{ controller.stats().pools }}</strong><small>{{ labels.statPoolsNote }}</small></div>
+      <div class="stat"><span>{{ labels.statNoStaff }}</span><strong>{{ controller.stats().noStaffPool }}</strong><small>{{ labels.statNoStaffNote }}</small></div>
+      <div class="stat"><span>{{ labels.statDisabled }}</span><strong>{{ controller.stats().disabled }}</strong><small>{{ labels.statDisabledNote }}</small></div>
+    </div>
+    <section class="panel" :aria-label="labels.list">
+      <h2>{{ labels.list }}</h2>
+      <p v-if="!state.rows.length" role="status" aria-live="polite" class="empty">{{ labels.empty }}</p>
+      <template v-else>
+        <div class="filterbar">
+          <div class="field search">
+            <label for="authors-search">{{ labels.search }}</label>
+            <input id="authors-search" type="search" autocomplete="off" :placeholder="labels.searchPlaceholder" v-model="state.query">
+          </div>
+          <div class="field">
+            <label for="authors-pool">{{ labels.columns.authorPools }}</label>
+            <select id="authors-pool" v-model="state.pool">
+              <option value="">{{ labels.allPools }}</option>
+              <option v-for="p in controller.poolOptions()" :key="p.id" :value="String(p.id)">{{ p.name }}</option>
+            </select>
+          </div>
+          <span class="tool-wrap"><button type="button" class="icon-button" :aria-label="labels.resetFilter" :title="labels.resetFilter" @click="controller.resetFilter()">${ICONS.restart}</button></span>
+        </div>
+        <p class="result-count" aria-live="polite">{{ controller.visible().length }} von {{ state.rows.length }} {{ labels.list }}</p>
+        <p v-if="!controller.visible().length" class="empty">{{ labels.filterEmpty }}</p>
+        <div v-else class="table-wrap">
+          <table :aria-label="labels.list">
+            <thead><tr>
+              <th scope="col">{{ labels.columns.name }}</th><th scope="col">{{ labels.columns.authorPools }}</th>
+              <th scope="col">{{ labels.columns.staffPools }}</th><th scope="col">{{ labels.columns.role }}</th>
+              <th scope="col">{{ labels.columns.status }}</th>
+            </tr></thead>
+            <tbody>
+              <tr v-for="r in controller.visible()" :key="r.id" :data-user-id="r.id">
+                <th scope="row"><strong>{{ r.name }}</strong><small>{{ labels.columns.id }}: {{ r.id }}</small></th>
+                <td class="wrap">
+                  <span v-for="p in r.authorPools" :key="p.id">{{ p.name }} </span>
+                  <span v-if="r.multiAuthorPool" role="note" class="hint">{{ labels.multiMembership }}</span>
+                </td>
+                <td class="wrap">
+                  <span v-for="p in r.staffPools" :key="p.id">{{ p.name }} </span>
+                  <span v-if="r.noStaffPool" class="muted">{{ labels.noStaffPool }}</span>
+                </td>
+                <td>{{ r.roleLabel }}</td>
+                <td><span class="tag" :class="r.surface === 'success' ? 'neutral' : (r.surface === 'error' ? 'error' : 'wait')">{{ r.statusLabel }}</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
+    </section>
+    <div v-if="state.poolCards.length" class="grid three" style="margin-top: 20px" data-testid="author-pool-cards">
+      <section v-for="p in state.poolCards" :key="p.id" class="panel" :aria-label="p.name">
+        <h2>{{ p.name }}</h2>
+        <dl class="keyvalues">
+          <div><dt>{{ labels.cardMembers }}</dt><dd>{{ p.members.length ? p.members.join(', ') : '–' }}</dd></div>
+          <div><dt>{{ labels.columns.staffPools }}</dt><dd>{{ p.staffPools.length ? p.staffPools.join(', ') : labels.noStaffPool }}</dd></div>
+        </dl>
+      </section>
+    </div>
+    <details class="panel" style="margin-top: 20px" aria-labelledby="authors-pools">
+      <summary id="authors-pools" style="cursor: pointer; font-weight: 700">{{ labels.pools }}</summary>
+      <p class="hint" style="margin-top: 12px">{{ labels.poolsHelp }}</p>
       <component :is="poolsComponent" :key="state.epoch"></component>
-    </section>
-    <section aria-labelledby="authors-rules">
-      <h3 id="authors-rules">{{ labels.rules }}</h3>
-      <ul><li>{{ labels.ruleOnePool }}</li><li>{{ labels.ruleNoPerson }}</li></ul>
-    </section>
+    </details>
+    <div class="note" aria-labelledby="authors-rules" role="group">
+      <strong id="authors-rules">{{ labels.rules }}</strong>
+      <p class="hint">{{ labels.ruleOnePool }}</p>
+      <p class="hint">{{ labels.ruleNoPerson }}</p>
+    </div>
   </template>
 </section>`;
 
