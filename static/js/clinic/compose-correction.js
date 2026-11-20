@@ -31,7 +31,7 @@
 
 import { createClinicApiClient } from './api-client.js';
 import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
-import { useCorrectionEditor } from './correction-editor-ui.js';
+import { createCorrectionToolbar, useCorrectionEditor, vTip } from './correction-editor-ui.js';
 import { LABELS as ALIGN_LABELS, createPlaybackHighlighter, useCorrectionAlignment } from './correction-alignment-ui.js';
 import { CorrectionWaveform } from './correction-waveform-ui.js';
 import { PlaybackTempo, usePlaybackTempo } from './playback-tempo-ui.js';
@@ -53,6 +53,53 @@ const CLOSE_EXTRA_SAVES = 2;
 
 export const TEXT = Object.freeze({
     title: 'Korrektur',
+    page: 'Schreibplatz',
+    subline: 'Diktat prüfen, Text korrigieren und mit der Aufnahme abgleichen.',
+    eyebrow: 'Arbeitsliste',
+    toWorklist: 'Zur Arbeitsliste',
+    workspace: 'Editorarbeitsbereich',
+    dictatedBy: 'Diktiert von',
+    pool: 'Schreibkräfte-Pool',
+    editing: 'Bearbeitung',
+    workerHeld: 'Von Ihnen übernommen',
+    workerForeign: 'Von anderer Person übernommen',
+    workerLost: 'Übernahme verloren',
+    workerFree: 'Noch nicht übernommen',
+    templateMenu: 'Textbaustein einfügen',
+    openAssignment: 'Zuordnung offen',
+    noPool: 'Kein Pool zugewiesen',
+    options: 'Wiedergabeoptionen',
+    highlightOn: 'Wortmarkierung ausschalten',
+    highlightOff: 'Wortmarkierung einschalten',
+    follow: 'Aktuelles Wort mitverfolgen',
+    undo: 'Rückgängig',
+    redo: 'Wiederholen',
+    paragraph: 'Absatz einfügen',
+    marker: 'Prüfmarke einfügen',
+    markerTip: 'Prüfmarke einfügen (noch nicht angebunden)',
+    ctxAssignment: 'Zuständigkeit und Übernahme',
+    ctxMarks: 'Prüfmarken und Hinweise',
+    ctxOptions: 'Diktatdetails und Wiedergabeoptionen',
+    closeContext: 'Kontext schliessen',
+    ctxClosed: 'Kontextbereich',
+    find: 'Im Text suchen',
+    replace: 'Suchen und Ersetzen',
+    fontDown: 'Text kleiner anzeigen',
+    fontUp: 'Text grösser anzeigen',
+    focusOn: 'Vollbild öffnen',
+    focusOff: 'Vollbild schliessen',
+    shortcuts: 'Tastaturhilfe',
+    shortcutsClose: 'Tastaturhilfe schliessen',
+    query: 'Suchen nach',
+    replacement: 'Ersetzen durch',
+    caseSensitive: 'Gross-/Kleinschreibung beachten',
+    prev: 'Vorheriger Treffer',
+    next: 'Nächster Treffer',
+    replaceOne: 'Ersetzen',
+    replaceAll: 'Alle ersetzen',
+    closeSearch: 'Suche schliessen',
+    noMatches: 'Keine Treffer',
+    saveDirty: 'Speichern (nicht gespeicherte Änderungen)',
     dictation: 'Diktat',
     close: 'Schliessen',
     closeFailed: 'Schliessen nicht möglich: Die Änderungen konnten nicht gespeichert werden.',
@@ -322,7 +369,7 @@ export function createCorrectionViewController(options) {
         // Same tempo controller the player buttons use (seek, rewind); the pedal calls it too.
         tempo = usePlaybackTempo({ audio: el, onSync });
         // Highlight follows the real media position (rAF while playing, events otherwise); it never touches focus or editor state.
-        highlighter = createPlaybackHighlighter({ alignment, audio: el, root: alignmentRoot });
+        highlighter = createPlaybackHighlighter({ alignment, audio: el, root: alignmentRoot, follow: false });
     }
 
     /** Element holding the aligned words; the highlighter marks [data-link] children and follows them. */
@@ -545,10 +592,96 @@ export function createCorrectionViewController(options) {
         leaseRun, leaseButtons,
         pedalStatus, pedalReady: () => pedalReady, pedal: () => pedal, setPedalSettings,
         start, load, save, setText, reloadLatest, keepMine, takeServer, compare: () => saver.compare(), close, dispose, syncRevision,
-        client: scoped, bindAudio, bindAlignmentRoot, alignmentNotice, onSync, onShortcut, onKeydown, onInput, onSelect, onTemplate, seekToResume, getPositionMs, seek,
+        client: scoped, bindAudio, bindAlignmentRoot, alignmentRootEl: () => alignmentRoot, alignmentNotice, onSync, onShortcut, onKeydown, onInput, onSelect, onTemplate, seekToResume, getPositionMs, seek,
         text: TEXT,
     };
 }
+
+/** Icon paths of the V8 symbol set (24x24 grid, stroke icons). Static markup, never built from data. */
+const ICON_PATHS = Object.freeze({
+    snippet: '<path d="M14 3H5v18h14V8zM14 3v5h5M8 12h8M8 16h6"/>',
+    'arrow-right': '<path d="M4 12h16m-6-6 6 6-6 6"/>',
+    undo: '<path d="M9 5 4 10l5 5M4 10h9a6 6 0 0 1 0 12" transform="translate(0 -2)"/>',
+    redo: '<path d="m15 5 5 5-5 5m5-5h-9a6 6 0 0 0 0 12" transform="translate(0 -2)"/>',
+    paragraph: '<path d="M13 4v16m5-16v16M20 4H9a5 5 0 0 0 0 10h4"/>',
+    marker: '<path d="M6 21V4m0 0c4-4 8 4 12 0v10c-4 4-8-4-12 0"/>',
+    search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
+    replace: '<path d="M4 6h13l-3-3m3 3-3 3M20 18H7l3-3m-3 3 3 3M5 11v2m14-2v2"/>',
+    'font-down': '<path d="m3 19 6-14 6 14M5 14h8m4-2h5"/>',
+    'font-up': '<path d="m2 19 6-14 6 14M4 14h8m4-2h6m-3-3v6"/>',
+    focus: '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>',
+    unfocus: '<path d="M3 8h5V3m13 5h-5V3M8 21v-5H3m13 5v-5h5"/>',
+    keyboard: '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M5 9h1m3 0h1m3 0h1m3 0h1M5 12h1m3 0h1m3 0h1m3 0h1M7 16h10"/>',
+    save: '<path d="M4 3h13l3 3v15H4zM8 3v6h8V3M8 21v-7h8v7"/>',
+    previous: '<path d="m15 5-7 7 7 7"/>',
+    next: '<path d="m9 5 7 7-7 7"/>',
+    close: '<path d="m6 6 12 12M18 6 6 18"/>',
+    highlight: '<path d="m8 13 7-9 5 4-7 9zM8 13l-3 6h6M3 22h18M13 6l5 4"/>',
+    'follow-word': '<path d="M4 5h9M4 10h7M4 15h9m4-12v16m-4-4 4 4 4-4M4 21h7"/>',
+    refresh: '<path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/>',
+    users: '<circle cx="9" cy="8" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 5a3 3 0 0 1 0 6m2 4a5 5 0 0 1 3 5"/>',
+    settings: '<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>',
+    target: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3"/>'
+});
+
+/** One inline SVG icon of the V8 set; decorative (aria-hidden), the button carries the accessible name. */
+const UiIcon = {
+    name: 'ClinicUiIcon',
+    props: { name: { type: String, required: true } },
+    setup(props) {
+        return { markup: () => ICON_PATHS[props.name] || '' };
+    },
+    template: '<svg class="ui-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" v-html="markup()"></svg>',
+};
+
+/**
+ * Page-local rules on top of clinic-v8.css (owned by v8-110): narrow-screen wrapping of the status row,
+ * theme-aware colours for the dirty status line and the key chips, lease buttons, the context drawer
+ * and the spacing of the child panels. Tokens only, so light and dark both work.
+ */
+const LOCAL_CSS = `
+.v8-ui .editor-page :is(.subline,.document-id,.document-context dt,.word-sync-info,.font-size,.template-meta,.editor-status){color:var(--v8-text-2)}
+.v8-ui .editor-page :is(.context-tools,.player-controls,.word-sync-controls) .icon-button:not(:hover):not([aria-pressed=true]):not([aria-expanded=true]){background:transparent;border-color:transparent}
+.v8-ui .editor-page :is(.context-tools,.player-controls,.word-sync-controls) .icon-button:is(:hover,[aria-expanded=true]):not([aria-pressed=true]){background:var(--v8-s2);border-color:var(--line)}
+.v8-ui .editor-page .compact-player select{appearance:auto}
+.v8-ui .editor-page :is(.context-tools,.toolbar-group:last-child,.find-row,.word-sync-controls,.dialoghead,.popover-heading) .tooltip{left:auto;right:0;transform:none}
+.v8-ui .editor-page .alignment-text{max-height:8lh;overflow:auto;overflow-wrap:anywhere;white-space:pre-wrap;line-height:1.8;margin:0}
+.v8-ui .editor-page .editor-status{flex-wrap:wrap}
+.v8-ui .editor-page .editor-status>[role=status]{flex:1 1 220px;min-width:0}
+.v8-ui .editor-page .editor-status-right{flex-wrap:wrap;white-space:normal;min-width:0}
+.v8-ui .editor-page .editor-workspace[data-dirty=true] .editor-status>[role=status]{color:var(--v8-text);font-weight:650}
+.v8-ui .editor-page .editor-workspace[data-dirty=true] .status-dot{background:var(--burgundy)}
+.v8-ui .editor-page .shortcut-list kbd{background:var(--v8-s2);color:var(--v8-text);border-color:var(--line)}
+.v8-ui .editor-page .live-inline-status .button{min-height:32px;padding:5px 12px;font-size:12px}
+.v8-ui .editor-page .live-inline-status .button:not(.primary){color:var(--v8-text)}
+.v8-ui .editor-page .live-inline-status .button:disabled{opacity:.55}
+.v8-ui .editor-page .context-drawer{background:var(--surface);color:var(--v8-text);border:1px solid var(--line);box-shadow:0 12px 40px rgb(0 0 0 / .22);z-index:120}
+.v8-ui .editor-page .context-drawer:not([data-open]){transform:translateX(calc(100% + 40px));pointer-events:none;box-shadow:none}
+.v8-ui .editor-page .context-drawer .dialoghead{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.v8-ui .editor-page .context-drawer h2{font-size:16px;font-weight:700;letter-spacing:-.2px;color:var(--v8-text);margin:0}
+.v8-ui .editor-page .context-drawer h3{font-size:13px;font-weight:700;color:var(--v8-text);margin:0 0 6px}
+.v8-ui .editor-page .context-drawer .panel-header h2{font-size:14px}
+.v8-ui .editor-page .context-drawer .hint{font-size:11px;color:var(--v8-text-2)}
+.v8-ui .editor-page .context-drawer .keyvalues{margin:0}
+.v8-ui .editor-page .context-drawer .keyvalues>div{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--v8-line-2)}
+.v8-ui .editor-page .context-drawer .keyvalues dt{color:var(--v8-text-2)}
+.v8-ui .editor-page .context-drawer .keyvalues dd{margin:0;font-weight:600;text-align:right}
+.v8-ui .editor-page .clinic-audio-markers-actions{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+.v8-ui .editor-page .clinic-audio-markers button{padding:5px 12px;font-size:12px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--v8-text)}
+.v8-ui .editor-page .clinic-audio-markers ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.v8-ui .editor-page .clinic-audio-markers li{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:8px;border-radius:8px}
+.v8-ui .editor-page .clinic-correction-waveform-uncertain,.v8-ui .editor-page .clinic-correction-waveform-unaligned{font-size:12px}
+.v8-ui .editor-page .editor-aux{display:grid;gap:14px;margin-top:16px}
+.v8-ui .editor-page :is(.panel-header h2,.clinic-correction-waveform h3){font-size:14px;font-weight:700;letter-spacing:-.1px;color:var(--v8-text)}
+.v8-ui .editor-page .sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+@media(max-width:700px){
+  .v8-ui .editor-page .editor-popover{position:static;width:auto;max-height:none;margin:8px 12px}
+  .v8-ui .editor-page .find-row{display:grid;grid-template-columns:minmax(0,1fr) repeat(3,auto)}
+  .v8-ui .editor-page .find-row>input{min-width:0;width:100%}
+  .v8-ui .editor-page .find-count{grid-column:2 / -1;min-width:0}
+}
+`;
+const LOCAL_CSS_ID = 'clinic-v8-schreibplatz-local';
 
 const FOCUS = { '--focus-outline': FOCUS_INDICATOR.outline, '--focus-offset': FOCUS_INDICATOR.outlineOffset };
 const box = (name) => {
@@ -563,12 +696,15 @@ const BODY_PROPS = {
     vue: { type: Object, default: null },
     recordingId: { type: String, default: null },
     createAudioContext: { type: Function, default: null },
+    dictator: { type: String, default: null },
+    pool: { type: String, default: null },
 };
 
 /** Inner body: one instance per dictation. The outer view re-keys it, which disposes everything. */
 export const CorrectionBody = {
     name: 'ClinicCorrectionBody',
-    components: { CorrectionWaveform, AudioMarkers, PlaybackTempo, PlaybackGain },
+    components: { CorrectionWaveform, AudioMarkers, PlaybackTempo, PlaybackGain, UiIcon },
+    directives: { tip: vTip },
     props: BODY_PROPS,
     emits: ['close'],
     setup(props, ctx) {
@@ -586,19 +722,127 @@ export const CorrectionBody = {
         });
         if (typeof V.onMounted === 'function') V.onMounted(() => { c.start(); });
         if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => c.dispose());
+        if (typeof document !== 'undefined' && document.head && !document.getElementById(LOCAL_CSS_ID)) {
+            const styleEl = document.createElement('style');
+            styleEl.id = LOCAL_CSS_ID;
+            styleEl.textContent = LOCAL_CSS;
+            document.head.appendChild(styleEl);
+        }
         const showDiff = V.ref(false);
         const e = c.editor;
         const a = c.alignment;
         const s = c.saver;
         const m = c.modes;
+        const highlightOn = V.ref(true);
         const styleFor = (seg) => {
             const word = a.currentWord.value;
-            if (word && seg.linkId === word.id) return box('processing');
+            if (highlightOn.value && word && seg.linkId === word.id) return box('processing');
             if (seg.flagged) { const w = surfaceFor('warning'); return { background: w.background, color: w.color }; }
             return {};
         };
+
+        // --- V8 editor chrome: toolbar controller over the text area, view state ---------------------------
+        const textEl = V.shallowRef(null);
+        const fontPx = V.ref(16);
+        const focusMode = V.ref(false);
+        const shortcutsOpen = V.ref(false);
+        const followOn = V.ref(false);
+        const drawer = V.ref('');
+        const later = (fn) => { if (typeof V.nextTick === 'function') V.nextTick(fn); else fn(); };
+        const editorPort = {
+            read() {
+                const el = textEl.value;
+                return { text: e.text.value, start: el ? el.selectionStart : 0, end: el ? el.selectionEnd : 0 };
+            },
+            write(next) {
+                c.setText(next.text);
+                later(() => { const el = textEl.value; if (el) el.setSelectionRange(next.start, next.end); });
+            },
+            select(start, end) {
+                const el = textEl.value;
+                if (!el) return;
+                el.focus();
+                el.setSelectionRange(start, end);
+            },
+        };
+        const tb = createCorrectionToolbar({
+            editor: editorPort,
+            canEdit: () => Boolean(e.canEdit.value),
+            onFontSize: (px) => { fontPx.value = px; },
+            onFocusMode: (on) => {
+                focusMode.value = on;
+                if (typeof document !== 'undefined' && document.body) document.body.classList.toggle('editor-focus-mode', on);
+            },
+            onShowShortcuts: () => { shortcutsOpen.value = !shortcutsOpen.value; },
+        });
+        const tbState = V.shallowRef(tb.getState());
+        const offToolbar = tb.subscribe((snapshot) => { tbState.value = snapshot; });
+        if (typeof V.onBeforeUnmount === 'function') {
+            V.onBeforeUnmount(() => {
+                offToolbar();
+                if (typeof document !== 'undefined' && document.body) document.body.classList.remove('editor-focus-mode');
+            });
+        }
+        if (typeof V.watch === 'function') {
+            V.watch(c.loadGeneration, () => { tb.reset(); });
+            V.watch(e.canEdit, () => { tb.refresh(); });
+            V.watch([followOn, a.currentWord], ([follow, word]) => {
+                if (!follow || !word || drawer.value) return;
+                const root = c.alignmentRootEl();
+                if (!root || !root.clientHeight || root.scrollHeight <= root.clientHeight) return;
+                const panel = root.getBoundingClientRect();
+                if (panel.bottom <= 0 || panel.top >= root.ownerDocument.documentElement.clientHeight) return;
+                const node = root.querySelector('[aria-current="true"]');
+                if (!node) return;
+                const cue = node.getBoundingClientRect();
+                if (cue.top < panel.top) root.scrollTop += cue.top - panel.top;
+                else if (cue.bottom > panel.bottom) root.scrollTop += cue.bottom - panel.bottom;
+            }, { flush: 'post' });
+        }
+        const setTextEl = (node) => { textEl.value = node && typeof node === 'object' ? node : null; };
+        const onTextInput = (event) => { c.onInput(event); tb.notifyChange(); };
+        const onTextKeydown = (event) => {
+            c.onKeydown(event);
+            if (tb.shortcut(event) && typeof event.preventDefault === 'function') event.preventDefault();
+        };
+        const onFindKeydown = (event) => {
+            if (event.key === 'Enter') { event.preventDefault(); tb.step(event.shiftKey ? -1 : 1); }
+        };
+        const onQuery = (event) => { tb.setQuery(event.target.value); };
+        const onReplacement = (event) => { tb.setReplacement(event.target.value); };
+        const onCase = (event) => { tb.setCaseSensitive(event.target.checked); };
+        const countLabel = () => {
+            const s = tbState.value;
+            if (!s.query) return '';
+            return s.matches ? (s.current >= 0 ? (s.current + 1) + ' / ' + s.matches : s.matches + ' Treffer') : TEXT.noMatches;
+        };
+        const SHORTCUTS = Object.freeze([
+            ['Speichern', 'Strg/Cmd+S'], [TEXT.undo, 'Strg/Cmd+Z'], [TEXT.redo, 'Strg/Cmd+Umschalt+Z'],
+            [TEXT.paragraph, 'Strg/Cmd+Enter'], [TEXT.marker, 'Strg/Cmd+Umschalt+M'], [TEXT.find, 'Strg/Cmd+F'],
+            ['Vollbild', 'Strg/Cmd+Umschalt+F'], [TEXT.shortcuts, 'F1'],
+        ]);
+        const WORKER = { held: TEXT.workerHeld, foreign: TEXT.workerForeign, lost: TEXT.workerLost };
+        const workerLabel = () => WORKER[e.lease.value.status] || TEXT.workerFree;
+        const templatesOpen = V.ref(false);
+        const DRAWER_TITLES = { assignment: TEXT.ctxAssignment, marks: TEXT.ctxMarks, options: TEXT.ctxOptions };
+        const drawerTitle = () => DRAWER_TITLES[drawer.value] || '';
+        const toggleDrawer = (id) => {
+            drawer.value = drawer.value === id ? '' : id;
+            if (drawer.value) {
+                later(() => {
+                    const close = typeof document !== 'undefined' ? document.querySelector('[data-testid="drawer-close"]') : null;
+                    if (close) close.focus();
+                });
+            }
+        };
+        // saveMessage already says "Nicht gespeicherte Änderungen." while dirty; do not repeat it.
+        const unsavedSuffix = () => Boolean(e.dirty.value) && !/nicht gespeicherte/i.test(String(s.message.value || ''));
+        const pickTemplate = (id) => { templatesOpen.value = false; if (id) e.applyTemplate(id); };
+        const toolStatus = () => tbState.value.readOnlyReason || tbState.value.message || '';
         return {
             c, FOCUS, MODES, box, styleFor, TEXT, showDiff,
+            tb, tbState, textEl, setTextEl, fontPx, focusMode, shortcutsOpen, highlightOn, followOn, onTextInput, onTextKeydown, onFindKeydown,
+            onQuery, onReplacement, onCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, toggleDrawer, unsavedSuffix,
             text: e.text, canEdit: e.canEdit, dirty: e.dirty, loading: e.loading, error: e.error, manual: e.manual,
             lease: e.lease, audio: e.audio, template: e.template, templates: e.templates, templatesError: e.templatesError,
             editorAnnouncement: e.announcement,
@@ -607,72 +851,203 @@ export const CorrectionBody = {
             mode: m.mode, modeStatus: m.status, modeError: m.error, modeAnnouncement: m.announcement,
             ready: c.ready, loadGeneration: c.loadGeneration, revisionGeneration: c.revisionGeneration,
             audioEl: c.audioEl, gainState: c.gainState, closeMessage: c.closeMessage, resumeLabel: c.resumeLabel,
-            pedalStatus: c.pedalStatus,
+            pedalStatus: c.pedalStatus, alignmentNotice: c.alignmentNotice,
         };
     },
     template: `
-<section class="clinic-correction-view" data-testid="clinic-correction-view" aria-labelledby="ccv-title" :aria-busy="loading ? 'true' : 'false'"
+<section class="clinic-correction-view editor-page v8-page" data-testid="clinic-correction-view" aria-labelledby="ccv-title" :aria-busy="loading ? 'true' : 'false'"
          @keydown="c.onShortcut($event)">
-  <header class="flex flex-wrap items-center gap-2">
-    <h1 id="ccv-title" class="text-lg font-semibold">{{ TEXT.title }}</h1>
-    <span class="text-sm" style="color: var(--text-secondary)">{{ TEXT.dictation }} {{ dictationId }}</span>
-    <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" data-testid="close" @click="c.close()">{{ TEXT.close }}</button>
-  </header>
-  <p v-if="closeMessage" role="alert" class="mt-2 p-2 rounded" :style="box('error')">{{ closeMessage }}</p>
+  <div class="pagehead">
+    <div>
+      <div class="eyebrow">{{ TEXT.eyebrow }}</div>
+      <h1 id="ccv-title" style="font-weight: 700; letter-spacing: -.8px; color: var(--v8-text)">{{ TEXT.page }}</h1>
+      <p class="subline">{{ TEXT.subline }}</p>
+    </div>
+    <div class="head-actions">
+      <button type="button" class="button" :style="FOCUS" data-testid="close" @click="c.close()">
+        <UiIcon name="arrow-right" /><span>{{ TEXT.toWorklist }}</span>
+      </button>
+    </div>
+  </div>
+  <p v-if="closeMessage" role="alert" class="note" :style="box('error')">{{ closeMessage }}</p>
   <p class="sr-only" id="ccv-keys">{{ TEXT.keys }}</p>
 
-  <div v-if="loading && !ready" role="status" aria-live="polite" data-testid="loading-state">{{ TEXT.loading }}</div>
-  <div v-if="error" role="alert" class="mt-2 p-2 rounded" :style="box('error')" data-testid="load-error">
+  <div v-if="loading && !ready" role="status" aria-live="polite" class="note" data-testid="loading-state">{{ TEXT.loading }}</div>
+  <div v-if="error" role="alert" class="note" :style="box('error')" data-testid="load-error">
     {{ error.message }}
-    <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS"
+    <button type="button" class="small" :style="FOCUS"
             @click="c.load({ discard: error.code === 'stale' })">{{ error.code === 'stale' ? TEXT.reload : TEXT.retry }}</button>
   </div>
 
-  <div class="mt-2" role="group" :aria-label="TEXT.lease" data-testid="lease-bar">
-    <p role="status" aria-live="polite" :style="{ color: lease.surface.color }">{{ lease.message }}</p>
-    <button v-for="b in c.leaseButtons()" :key="b.id" type="button" class="px-3 py-2 border rounded mr-2" style="min-height: 2.75rem"
-            :style="FOCUS" :disabled="b.disabled" :data-action="b.id" @click="c.leaseRun[b.id]()">{{ b.label }}</button>
-  </div>
-
-  <template v-if="ready">
-    <div class="flex flex-wrap items-center gap-2 mt-3" role="toolbar" :aria-label="TEXT.toolbar" data-testid="toolbar">
-      <label>{{ TEXT.template }}
-        <select :style="FOCUS" :disabled="!canEdit" :value="template ? template.id : ''" @change="c.onTemplate($event)">
-          <option value="">{{ TEXT.noTemplate }}</option>
-          <option v-for="row in templates.items" :key="row.id" :value="row.id">{{ row.name }} (v{{ row.version }})</option>
-        </select>
-      </label>
-      <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS"
-              :disabled="alignStatus !== 'ready'" data-testid="seek-selection" @click="c.alignment.seekToSelection()">{{ TEXT.seekSelection }}</button>
-      <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS"
-              :disabled="loading || dirty" data-testid="reload" @click="c.load()">{{ TEXT.reload }}</button>
+  <section class="editor-workspace" :class="{ 'is-focus': focusMode }" :data-dirty="dirty ? 'true' : 'false'" :aria-label="TEXT.workspace">
+    <div class="editor-heading">
+      <div class="document-title">
+        <UiIcon name="snippet" />
+        <h2 style="font-weight: 700; color: var(--v8-text)">{{ TEXT.dictation }}</h2>
+        <span class="document-id">#{{ dictationId }}</span>
+      </div>
+      <div class="context-tools">
+        <span class="tool-wrap" v-tip="{ label: TEXT.ctxAssignment }">
+          <button type="button" class="icon-button" :style="FOCUS" :disabled="!ready" :aria-label="TEXT.ctxAssignment" :aria-expanded="String(drawer === 'assignment')"
+                  aria-haspopup="dialog" aria-controls="ccv-drawer" data-context-toggle="assignment" @click="toggleDrawer('assignment')"><UiIcon name="users" /></button>
+        </span>
+        <span class="tool-wrap" v-tip="{ label: TEXT.ctxMarks }">
+          <button type="button" class="icon-button" :style="FOCUS" :disabled="!ready" :aria-label="TEXT.ctxMarks" :aria-expanded="String(drawer === 'marks')"
+                  aria-haspopup="dialog" aria-controls="ccv-drawer" data-context-toggle="marks" @click="toggleDrawer('marks')"><UiIcon name="marker" /></button>
+        </span>
+        <span class="tool-wrap" v-tip="{ label: TEXT.ctxOptions }">
+          <button type="button" class="icon-button" :style="FOCUS" :disabled="!ready" :aria-label="TEXT.ctxOptions" :aria-expanded="String(drawer === 'options')"
+                  aria-haspopup="dialog" aria-controls="ccv-drawer" data-context-toggle="options" @click="toggleDrawer('options')"><UiIcon name="settings" /></button>
+        </span>
+        <span class="tool-wrap" v-tip="{ label: TEXT.reload }">
+          <button type="button" class="icon-button" :style="FOCUS" :disabled="loading || dirty" :aria-label="TEXT.reload"
+                  data-testid="reload" @click="c.load()"><UiIcon name="refresh" /></button>
+        </span>
+      </div>
     </div>
-    <p v-if="templatesError" role="note">{{ templatesError }}</p>
-    <ul v-if="template && template.issues.length" role="note" aria-label="Hinweise zur Vorlage">
-      <li v-for="issue in template.issues" :key="issue.code">{{ issue.message }}</li>
-    </ul>
 
-    <div class="grid gap-4 lg:grid-cols-2 mt-3">
-      <div>
-        <p v-if="manual" role="note">{{ TEXT.manual }}</p>
-        <label class="block">{{ TEXT.text }}
-          <textarea rows="14" class="w-full" :style="FOCUS" :value="text" :readonly="!canEdit" :aria-readonly="String(!canEdit)"
-                    :aria-describedby="canEdit ? 'ccv-keys' : 'ccv-keys ccv-readonly'" data-testid="text"
-                    @input="c.onInput($event)" @keydown="c.onKeydown($event)" @select="c.onSelect($event)"
-                    @keyup="c.onSelect($event)" @mouseup="c.onSelect($event)"></textarea>
-        </label>
-        <p v-if="!canEdit && !loading" id="ccv-readonly">{{ TEXT.readOnly }}</p>
-        <p v-if="dirty" role="note">{{ TEXT.unsaved }}</p>
+    <dl class="document-context">
+      <div><dt>{{ TEXT.dictatedBy }}</dt><dd data-dictator-name>{{ dictator || TEXT.openAssignment }}</dd></div>
+      <div><dt>{{ TEXT.pool }}</dt><dd data-pool-name>{{ pool || TEXT.noPool }}</dd></div>
+      <div><dt>{{ TEXT.editing }}</dt><dd data-worker-name>{{ workerLabel() }}</dd></div>
+    </dl>
 
-        <section class="mt-3" :aria-label="TEXT.alignment" :data-status="alignStatus" data-testid="alignment">
-          <h2 class="font-semibold">{{ TEXT.alignment }}</h2>
-          <div v-if="alignStatus === 'error' || alignStatus === 'stale'" role="alert" class="p-2 rounded"
-               :style="box(alignStatus === 'error' ? 'error' : 'warning')">
-            {{ alignStatus === 'error' && alignError ? alignError.message : 'Die Audio-Zuordnung ist veraltet.' }}
-            <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" @click="c.alignment.refresh()">{{ TEXT.retry }}</button>
+    <div class="live-inline-status" role="group" :aria-label="TEXT.lease" data-testid="lease-bar"
+         style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+      <span role="status" aria-live="polite" :style="{ color: lease.surface.color }">{{ lease.message }}</span>
+      <button v-for="b in c.leaseButtons()" :key="b.id" type="button" :class="['button', 'small', b.id === 'acquire' ? 'primary' : '']" :style="FOCUS" :disabled="b.disabled"
+              :data-action="b.id" @click="c.leaseRun[b.id]()">{{ b.label }}</button>
+    </div>
+
+    <template v-if="ready">
+      <div class="player compact-player" :aria-label="TEXT.player" data-testid="player-bar">
+        <audio preload="metadata" hidden :ref="c.bindAudio" :src="audio.status === 'ready' ? audio.src : null" :aria-label="TEXT.audio"></audio>
+        <PlaybackTempo v-if="audioEl" :audio="audioEl" :step-seconds="c.stepSeconds" :on-sync="c.onSync" />
+        <span class="word-sync-controls">
+          <span class="tool-wrap" v-tip="{ label: highlightOn ? TEXT.highlightOn : TEXT.highlightOff }">
+            <button type="button" class="icon-button" :style="FOCUS" :aria-pressed="String(highlightOn)" :aria-label="highlightOn ? TEXT.highlightOn : TEXT.highlightOff"
+                    data-testid="highlight-toggle" @click="highlightOn = !highlightOn"><UiIcon name="highlight" /></button>
+          </span>
+          <span class="tool-wrap" v-tip="{ label: TEXT.follow }">
+            <button type="button" class="icon-button" :style="FOCUS" :aria-pressed="String(followOn)" :aria-label="TEXT.follow"
+                    data-testid="follow-toggle" @click="followOn = !followOn"><UiIcon name="follow-word" /></button>
+          </span>
+        </span>
+      </div>
+      <p class="word-sync-info" role="status" aria-live="polite">
+        <template v-if="audio.status !== 'ready' && audio.status !== 'idle' && audio.status !== 'loading'">{{ audio.message }} </template>
+        <template v-if="alignmentNotice"><span data-testid="alignment-notice">{{ alignmentNotice }}</span> </template>
+        <span v-if="pedalStatus" data-testid="pedal-status" :aria-label="TEXT.pedalStatus">{{ pedalStatus }}</span>
+      </p>
+
+      <div class="editor-document" @keydown.esc="shortcutsOpen = false; templatesOpen = false">
+        <div class="editorbar symbol-toolbar" role="toolbar" :aria-label="TEXT.toolbar" data-testid="toolbar">
+          <div class="toolbar-group">
+            <span class="tool-wrap" v-tip="{ label: TEXT.undo, keys: 'Strg/Cmd+Z' }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.undo"
+                    :aria-disabled="tbState.canUndo ? null : 'true'" data-tool="undo" @click="tb.undo()"><UiIcon name="undo" /></button></span>
+            <span class="tool-wrap" v-tip="{ label: TEXT.redo, keys: 'Strg/Cmd+Umschalt+Z' }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.redo"
+                    :aria-disabled="tbState.canRedo ? null : 'true'" data-tool="redo" @click="tb.redo()"><UiIcon name="redo" /></button></span>
           </div>
-          <p v-if="alignmentNotice" role="note" data-testid="alignment-notice">{{ alignmentNotice }}</p>
-          <p role="group" :aria-label="TEXT.alignmentText" :ref="c.bindAlignmentRoot">
+          <div class="toolbar-group">
+            <span class="tool-wrap" v-tip="{ label: TEXT.paragraph, keys: 'Strg/Cmd+Enter' }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.paragraph"
+                    data-tool="paragraph" @click="tb.insertParagraph()"><UiIcon name="paragraph" /></button></span>
+            <span class="tool-wrap" v-tip="{ label: TEXT.markerTip, keys: 'Strg/Cmd+Umschalt+M' }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.marker"
+                    aria-disabled="true" data-tool="marker" @click="tb.insertMarker()"><UiIcon name="marker" /></button></span>
+            <span class="tool-wrap" v-tip="{ label: TEXT.templateMenu }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.templateMenu"
+                    :aria-expanded="String(templatesOpen)" aria-controls="ccv-templates" :disabled="!canEdit" data-tool="template" @click="templatesOpen = !templatesOpen; shortcutsOpen = false"><UiIcon name="snippet" /></button></span>
+          </div>
+          <div class="toolbar-group">
+            <span class="tool-wrap" v-tip="{ label: TEXT.find, keys: 'Strg/Cmd+F' }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.find"
+                    :aria-expanded="String(tbState.searchOpen)" data-tool="search" @click="tb.toggleSearch()"><UiIcon name="search" /></button></span>
+            <span class="tool-wrap" v-tip="{ label: TEXT.replace }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.replace"
+                    :aria-expanded="String(tbState.searchOpen)" data-tool="replace" @click="tb.openSearch()"><UiIcon name="replace" /></button></span>
+          </div>
+          <div class="toolbar-group font-group">
+            <span class="tool-wrap" v-tip="{ label: TEXT.fontDown }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.fontDown"
+                    :aria-disabled="tbState.fontMin ? 'true' : null" data-tool="fontDown" @click="tb.fontDown()"><UiIcon name="font-down" /></button></span>
+            <span class="font-size" role="status" data-testid="font-size">{{ fontPx }} px</span>
+            <span class="tool-wrap" v-tip="{ label: TEXT.fontUp }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.fontUp"
+                    :aria-disabled="tbState.fontMax ? 'true' : null" data-tool="fontUp" @click="tb.fontUp()"><UiIcon name="font-up" /></button></span>
+          </div>
+          <span class="toolbar-spacer"></span>
+          <div class="toolbar-group">
+            <span class="tool-wrap" v-tip="{ label: focusMode ? TEXT.focusOff : TEXT.focusOn }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="focusMode ? TEXT.focusOff : TEXT.focusOn"
+                    :aria-pressed="String(focusMode)" data-tool="focus" @click="tb.toggleFocus()"><UiIcon :name="focusMode ? 'unfocus' : 'focus'" /></button></span>
+            <span class="tool-wrap" v-tip="{ label: TEXT.shortcuts, keys: 'F1' }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.shortcuts"
+                    :aria-expanded="String(shortcutsOpen)" data-tool="shortcuts" @click="shortcutsOpen = !shortcutsOpen; templatesOpen = false"><UiIcon name="keyboard" /></button></span>
+            <span class="tool-wrap" v-tip="{ label: TEXT.save, keys: 'Strg/Cmd+S' }"><button type="button" class="icon-button save-button" :class="{ 'has-changes': dirty }" :style="FOCUS"
+                    :aria-label="dirty ? TEXT.saveDirty : TEXT.save"
+                    :disabled="saveState === 'saving' || saveState === 'saved'" data-testid="save" @click="c.save()"><UiIcon name="save" /></button></span>
+          </div>
+        </div>
+
+        <div v-if="tbState.searchOpen" class="editor-find" role="search" :aria-label="TEXT.replace" data-testid="search-panel">
+          <div class="find-row">
+            <input type="text" :aria-label="TEXT.query" :placeholder="TEXT.query" :value="tbState.query" data-testid="search-query" @input="onQuery" @keydown="onFindKeydown">
+            <label class="case-option"><input type="checkbox" :checked="tbState.caseSensitive" data-testid="search-case" @change="onCase"> {{ TEXT.caseSensitive }}</label>
+            <span class="find-count" role="status" data-testid="search-count">{{ countLabel() }}</span>
+            <span class="tool-wrap" v-tip="{ label: TEXT.prev }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.prev" @click="tb.step(-1)"><UiIcon name="previous" /></button></span>
+            <span class="tool-wrap" v-tip="{ label: TEXT.next }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.next" @click="tb.step(1)"><UiIcon name="next" /></button></span>
+            <span class="tool-wrap" v-tip="{ label: TEXT.closeSearch }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.closeSearch" @click="tb.closeSearch()"><UiIcon name="close" /></button></span>
+          </div>
+          <div class="replace-row">
+            <input type="text" :aria-label="TEXT.replacement" :placeholder="TEXT.replacement" :value="tbState.replacement" data-testid="search-replacement" @input="onReplacement">
+            <button type="button" class="small" :style="FOCUS" :disabled="!canEdit" @click="tb.replaceCurrent()">{{ TEXT.replaceOne }}</button>
+            <button type="button" class="small" :style="FOCUS" :disabled="!canEdit" @click="tb.replaceAll()">{{ TEXT.replaceAll }}</button>
+          </div>
+        </div>
+
+        <div v-if="shortcutsOpen" class="editor-popover shortcut-popover" role="dialog" :aria-label="TEXT.shortcuts">
+          <div class="popover-heading">
+            <strong>{{ TEXT.shortcuts }}</strong>
+            <span class="tool-wrap" v-tip="{ label: TEXT.shortcutsClose }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.shortcutsClose" @click="shortcutsOpen = false"><UiIcon name="close" /></button></span>
+          </div>
+          <dl class="shortcut-list">
+            <div v-for="row in SHORTCUTS" :key="row[0]"><dt>{{ row[0] }}</dt><dd><kbd>{{ row[1] }}</kbd></dd></div>
+          </dl>
+        </div>
+
+        <div v-if="templatesOpen" id="ccv-templates" class="editor-popover" role="dialog" :aria-label="TEXT.templateMenu" data-testid="template-menu" style="left: 13px">
+          <div class="popover-heading">
+            <strong>{{ TEXT.template }}</strong>
+            <span class="tool-wrap" v-tip="{ label: TEXT.close }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.close" @click="templatesOpen = false"><UiIcon name="close" /></button></span>
+          </div>
+          <div class="snippet-options">
+            <button type="button" class="snippet-option" :style="FOCUS" :disabled="!canEdit" :aria-pressed="String(!template)" @click="pickTemplate('')">
+              <span><strong>{{ TEXT.noTemplate }}</strong></span>
+            </button>
+            <button v-for="row in templates.items" :key="row.id" type="button" class="snippet-option" :style="FOCUS" :disabled="!canEdit"
+                    :aria-pressed="String(Boolean(template && template.id === row.id))" @click="pickTemplate(row.id)">
+              <UiIcon name="snippet" /><span><strong>{{ row.name }}</strong><small>Version {{ row.version }}</small></span>
+            </button>
+          </div>
+        </div>
+
+        <p v-if="templatesError" class="template-meta" role="note">{{ templatesError }}</p>
+        <ul v-if="template && template.issues.length" class="template-meta" role="note" aria-label="Hinweise zur Vorlage" style="margin: 0; list-style: none">
+          <li v-for="issue in template.issues" :key="issue.code">{{ issue.message }}</li>
+        </ul>
+        <p v-if="manual" class="template-meta" role="note">{{ TEXT.manual }}</p>
+        <p v-if="toolStatus()" class="template-meta" role="status" data-testid="toolbar-reason">{{ toolStatus() }}</p>
+
+        <div class="writing-surface">
+          <textarea class="editor" :ref="setTextEl" :style="{ ...FOCUS, fontSize: fontPx + 'px' }" :value="text" :readonly="!canEdit" :aria-readonly="String(!canEdit)"
+                    :aria-label="TEXT.text" :aria-describedby="canEdit ? 'ccv-keys' : 'ccv-keys ccv-readonly'" data-testid="text"
+                    @input="onTextInput($event)" @keydown="onTextKeydown($event)" @select="followOn = false; c.onSelect($event)"
+                    @keyup="c.onSelect($event)" @mouseup="c.onSelect($event)"></textarea>
+        </div>
+        <p v-if="!canEdit && !loading" id="ccv-readonly" class="template-meta" style="margin: 0">{{ TEXT.readOnly }}</p>
+        <section class="panel" :aria-label="TEXT.alignment" :data-status="alignStatus" data-testid="alignment">
+          <div class="panel-header">
+            <h2>{{ TEXT.alignment }}</h2>
+            <button type="button" class="small" :style="FOCUS" :disabled="alignStatus !== 'ready'" data-testid="seek-selection" @click="c.alignment.seekToSelection()">{{ TEXT.seekSelection }}</button>
+          </div>
+          <div v-if="alignStatus === 'error' || alignStatus === 'stale'" role="alert" class="note" :style="box(alignStatus === 'error' ? 'error' : 'warning')">
+            {{ alignStatus === 'error' && alignError ? alignError.message : 'Die Audio-Zuordnung ist veraltet.' }}
+            <button type="button" class="small" :style="FOCUS" @click="c.alignment.refresh()">{{ TEXT.retry }}</button>
+          </div>
+          <p role="group" :aria-label="TEXT.alignmentText" :ref="c.bindAlignmentRoot" class="alignment-text"
+             @wheel.passive="followOn = false" @touchmove.passive="followOn = false" @pointerdown="followOn = false">
             <template v-for="seg in segments" :key="seg.start">
               <span v-if="seg.aligned" role="button" tabindex="0" :data-start="seg.start" :data-link="seg.linkId"
                     :aria-label="TEXT.wordAria + ': ' + seg.text" :aria-current="currentWord && currentWord.id === seg.linkId ? 'true' : null"
@@ -683,63 +1058,90 @@ export const CorrectionBody = {
                     :title="seg.flagged ? TEXT.unalignedMark : null" :style="styleFor(seg)">{{ seg.text }}</span>
             </template>
           </p>
-          <div role="status" aria-live="polite">{{ alignAnnouncement }}</div>
+          <div role="status" aria-live="polite" class="sr-only">{{ alignAnnouncement }}</div>
         </section>
       </div>
 
-      <div>
-        <section :aria-label="TEXT.player" data-testid="player-bar">
-          <h2 class="font-semibold">{{ TEXT.player }}</h2>
-          <audio controls preload="metadata" :ref="c.bindAudio" :src="audio.status === 'ready' ? audio.src : null" :aria-label="TEXT.audio"></audio>
-          <p v-if="audio.status !== 'ready' && audio.status !== 'idle' && audio.status !== 'loading'" role="note">{{ audio.message }}</p>
-          <PlaybackTempo v-if="audioEl" :audio="audioEl" :step-seconds="c.stepSeconds" :on-sync="c.onSync" />
-          <p v-if="pedalStatus" role="status" :aria-label="TEXT.pedalStatus" data-testid="pedal-status">{{ pedalStatus }}</p>
-          <PlaybackGain v-if="gainState" :state="gainState.value" :controller="c.gain()" />
-          <fieldset class="clinic-correction-modes" :aria-busy="modeStatus === 'saving'" :data-mode="mode">
-            <legend>{{ TEXT.mode }}</legend>
-            <div role="radiogroup" :aria-label="TEXT.modeGroup">
-              <label v-for="opt in MODES" :key="opt.id" class="block">
-                <input type="radio" name="clinic-correction-view-mode" :value="opt.id" :checked="mode === opt.id"
-                       :aria-describedby="'ccv-mode-' + opt.id" :style="FOCUS" @change="c.modes.setMode(opt.id)">
-                <span>{{ opt.label }}</span>
-                <small :id="'ccv-mode-' + opt.id">{{ opt.hint }}</small>
-              </label>
-            </div>
-            <div v-if="modeStatus === 'error'" role="alert" :style="box('error')">
-              {{ modeError && modeError.message }}
-              <button type="button" :style="FOCUS" @click="c.modes.setMode(mode)">{{ TEXT.modeRetry }}</button>
-            </div>
-            <div role="status" aria-live="polite">{{ modeAnnouncement }}</div>
-          </fieldset>
-        </section>
-
-        <CorrectionWaveform :key="'w' + loadGeneration" :editor="c.editor" :alignment="c.alignment" :client="c.client"
-                            :dictation-id="dictationId" :recording-id="c.peaksKey()" :fetch-fn="c.peaksFetch" :vue="c.vue" />
+      <div class="editor-status" :data-state="saveState" data-testid="save-state"
+           :style="saveState === 'error' || saveState === 'conflict' ? { color: 'var(--danger)' } : {}">
+        <span role="status" aria-live="polite"><span class="status-dot" aria-hidden="true"></span>{{ saveMessage }}<template v-if="unsavedSuffix()"> · {{ TEXT.unsaved }}</template></span>
+        <span class="editor-status-right">
+          <span role="note">{{ resumeLabel }}</span>
+          <button type="button" class="small" :style="FOCUS" :disabled="c.saver.resumePosition.value === null" data-testid="resume" @click="c.seekToResume()">{{ TEXT.resume }}</button>
+        </span>
       </div>
-    </div>
-
-    <AudioMarkers :key="'m' + loadGeneration + '-' + revisionGeneration" :editor="c.editor" :alignment="c.alignment" :client="c.client"
-                  :dictation-id="dictationId" :get-position-ms="c.getPositionMs" :seek="c.seek" :vue="c.vue" />
-
-    <section class="mt-3 p-2 rounded" :aria-label="TEXT.saveSection" :data-state="saveState" data-testid="save-state"
-             :style="box(saveState === 'saved' ? 'success' : (saveState === 'unsaved' ? 'warning' : (saveState === 'saving' ? 'processing' : 'error')))">
-      <p role="status" aria-live="polite">{{ saveMessage }}</p>
-      <p role="note">{{ resumeLabel }}</p>
-      <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS"
-              :disabled="saveState === 'saving' || saveState === 'saved'" data-testid="save" @click="c.save()">{{ TEXT.save }}</button>
-      <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS"
-              :disabled="c.saver.resumePosition.value === null" data-testid="resume" @click="c.seekToResume()">{{ TEXT.resume }}</button>
-            <div v-if="saveState === 'conflict'" role="group" :aria-label="TEXT.conflictChoice" data-testid="conflict-choice">
-        <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" data-testid="keep-mine" @click="c.keepMine()">{{ TEXT.keepMine }}</button>
-        <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" data-testid="take-server" @click="c.takeServer()">{{ TEXT.takeServer }}</button>
-        <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" data-testid="compare" :aria-expanded="String(showDiff)" @click="showDiff = !showDiff">{{ TEXT.compare }}</button>
-        <ul v-if="showDiff" data-testid="diff">
+      <div v-if="saveState === 'conflict'" class="editor-workflow" role="group" :aria-label="TEXT.conflictChoice" data-testid="conflict-choice">
+        <p class="hint">{{ TEXT.conflictChoice }}</p>
+        <div class="actions">
+          <button type="button" class="small" :style="FOCUS" data-testid="keep-mine" @click="c.keepMine()">{{ TEXT.keepMine }}</button>
+          <button type="button" class="small" :style="FOCUS" data-testid="take-server" @click="c.takeServer()">{{ TEXT.takeServer }}</button>
+          <button type="button" class="small" :style="FOCUS" data-testid="compare" :aria-expanded="String(showDiff)" @click="showDiff = !showDiff">{{ TEXT.compare }}</button>
+        </div>
+        <ul v-if="showDiff" data-testid="diff" style="flex-basis: 100%; margin: 0; padding-left: 18px">
           <li v-for="(row, i) in (c.compare() || [])" :key="i" :data-kind="row.kind">{{ row.kind === 'mine' ? TEXT.mine + ': ' : (row.kind === 'server' ? TEXT.server + ': ' : '') }}{{ row.text }}</li>
         </ul>
       </div>
+    </template>
+  </section>
+
+  <div v-if="ready" class="editor-aux">
+    <section class="panel" :aria-label="TEXT.options">
+      <div class="panel-header"><h2>{{ TEXT.mode }}</h2></div>
+      <fieldset class="clinic-correction-modes" :aria-busy="modeStatus === 'saving'" :data-mode="mode" style="border: 0; padding: 0; margin: 0">
+        <legend class="sr-only">{{ TEXT.mode }}</legend>
+          <div role="radiogroup" :aria-label="TEXT.modeGroup" style="display: grid; gap: 8px">
+          <label v-for="opt in MODES" :key="opt.id" class="inline-label" style="display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: start">
+            <input type="radio" name="clinic-correction-view-mode" :value="opt.id" :checked="mode === opt.id"
+                   :aria-describedby="'ccv-mode-' + opt.id" :style="FOCUS" @change="c.modes.setMode(opt.id)">
+            <span>{{ opt.label }}</span>
+            <small :id="'ccv-mode-' + opt.id" class="hint" style="grid-column: 2; margin: 0">{{ opt.hint }}</small>
+          </label>
+        </div>
+        <div v-if="modeStatus === 'error'" role="alert" class="note" :style="box('error')">
+          {{ modeError && modeError.message }}
+          <button type="button" class="small" :style="FOCUS" @click="c.modes.setMode(mode)">{{ TEXT.modeRetry }}</button>
+        </div>
+        <div role="status" aria-live="polite" class="sr-only">{{ modeAnnouncement }}</div>
+      </fieldset>
     </section>
-  </template>
-  <div role="status" aria-live="polite">{{ editorAnnouncement }}</div>
+    <section class="panel">
+      <CorrectionWaveform :key="'w' + loadGeneration" :editor="c.editor" :alignment="c.alignment" :client="c.client"
+                          :dictation-id="dictationId" :recording-id="c.peaksKey()" :fetch-fn="c.peaksFetch" :vue="c.vue" />
+    </section>
+
+  </div>
+
+  <div v-if="ready" id="ccv-drawer" class="context-drawer" role="dialog" aria-modal="false" :aria-label="drawerTitle() || TEXT.ctxClosed" :inert="!drawer" :aria-hidden="drawer ? null : 'true'" :data-open="drawer ? 'true' : null"
+       data-testid="context-drawer" @keydown.esc="drawer = ''">
+    <div class="dialoghead">
+      <h2>{{ drawerTitle() }}</h2>
+      <span class="tool-wrap" v-tip="{ label: TEXT.closeContext }">
+        <button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.closeContext" data-testid="drawer-close" @click="drawer = ''"><UiIcon name="close" /></button>
+      </span>
+    </div>
+    <div v-show="!drawer || drawer === 'assignment'" style="display: grid; gap: 14px; min-width: 0">
+      <p class="hint" style="margin: 0">{{ lease.message }}</p>
+      <dl class="keyvalues">
+        <div><dt>{{ TEXT.dictatedBy }}</dt><dd>{{ dictator || TEXT.openAssignment }}</dd></div>
+        <div><dt>{{ TEXT.pool }}</dt><dd>{{ pool || TEXT.noPool }}</dd></div>
+        <div><dt>{{ TEXT.editing }}</dt><dd>{{ workerLabel() }}</dd></div>
+      </dl>
+    </div>
+    <div v-show="!drawer || drawer === 'marks'" style="display: grid; gap: 20px; min-width: 0">
+      <section class="panel">
+        <AudioMarkers :key="'m' + loadGeneration + '-' + revisionGeneration" :editor="c.editor" :alignment="c.alignment" :client="c.client"
+                      :dictation-id="dictationId" :get-position-ms="c.getPositionMs" :seek="c.seek" :vue="c.vue" />
+      </section>
+    </div>
+
+    <div v-show="!drawer || drawer === 'options'" style="display: grid; gap: 20px; min-width: 0">
+      <section class="panel" :aria-label="TEXT.options">
+        <div class="panel-header"><h2>{{ TEXT.options }}</h2></div>
+        <PlaybackGain v-if="gainState" :state="gainState.value" :controller="c.gain()" />
+      </section>
+    </div>
+  </div>
+  <div role="status" aria-live="polite" class="sr-only">{{ editorAnnouncement }}</div>
 </section>`,
 };
 
@@ -750,7 +1152,8 @@ export const CorrectionView = {
     props: BODY_PROPS,
     emits: ['close'],
     template: `<CorrectionBody :key="dictationId" :client="client" :dictation-id="dictationId" :current-user="currentUser"
-        :vue="vue" :recording-id="recordingId" :create-audio-context="createAudioContext" @close="$emit('close')" />`,
+                              :vue="vue" :recording-id="recordingId" :create-audio-context="createAudioContext"
+        :dictator="dictator" :pool="pool" @close="$emit('close')" />`,
 };
 
 export function registerCorrectionView(app) {

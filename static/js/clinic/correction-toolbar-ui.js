@@ -45,6 +45,8 @@ export const TEXT = Object.freeze({
     focus: 'Fokusmodus',
     more: 'Weitere Werkzeuge',
     paragraph: 'Absatz einfügen',
+    marker: 'Prüfmarke einfügen',
+    markerUnavailable: 'Prüfmarken setzt der Server. Das Einfügen aus der Werkzeugleiste ist noch nicht angebunden; es wird kein Text in das Transkript geschrieben.',
     shortcuts: 'Tastenkürzel',
     query: 'Suchen nach',
     replacement: 'Ersetzen durch',
@@ -184,7 +186,7 @@ export function createCorrectionToolbar(options) {
     const canEdit = opts.canEdit || (() => true);
     const listeners = new Set();
     const initial = editor.read();
-    const history = createTextHistory({ text: initial.text, start: initial.start, end: initial.end });
+    let history = createTextHistory({ text: initial.text, start: initial.start, end: initial.end });
     const state = { fontSize: FONT_SIZE.start, focusMode: false, searchOpen: false, query: '', replacement: '', caseSensitive: false, matches: [], current: -1, message: '' };
     function applyEntry(entry) {
         editor.write({ text: entry.text, start: entry.start, end: entry.end });
@@ -237,7 +239,14 @@ export function createCorrectionToolbar(options) {
         emit();
     }
     const api = {
-        history,
+        get history() { return history; },
+        /** Drops undo/redo after the editor text was replaced from outside (load, server text). */
+        reset() {
+            const cur = editor.read();
+            history = createTextHistory({ text: cur.text, start: cur.start, end: cur.end });
+            recount();
+            emit();
+        },
         getState: snapshot,
         subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
         /** Call from the text area input handler and when the lease changes. */
@@ -267,6 +276,13 @@ export function createCorrectionToolbar(options) {
             const next = caret + PARAGRAPH_BREAK.length;
             commit(text, next, next);
             return true;
+        },
+        // Review marks (W11) are server-side flags that block release. The toolbar never writes demo text into
+        // the clinical transcript; until it is wired to the server mark path it only explains why it does nothing.
+        insertMarker() {
+            state.message = TEXT.markerUnavailable;
+            emit();
+            return false;
         },
         openSearch() {
             state.searchOpen = true;
@@ -377,6 +393,7 @@ export function createCorrectionToolbar(options) {
             if (key === 'f' && e.shiftKey) { api.toggleFocus(); return true; }
             if (key === 'f') { api.openSearch(); return true; }
             if (key === 'h' && !e.shiftKey) { api.openSearch(); return true; }
+            if (key === 'm' && e.shiftKey) { api.insertMarker(); return true; }
             if (key === 'enter') { api.insertParagraph(); return true; }
             return false;
         },
@@ -415,7 +432,7 @@ export function mountCorrectionToolbar(hostElement, toolbar, mountOptions) {
             ? [el(doc, 'span', { 'aria-hidden': 'true' }, [tool.glyph])]
             : [el(doc, 'i', { class: 'fas ' + tool.icon, 'aria-hidden': 'true' })];
         const btn = el(doc, 'button', {
-            type: 'button', class: 'btn btn--icon', 'aria-label': tool.name,
+            type: 'button', class: 'icon-button', 'aria-label': tool.name, title: tool.name,
             'data-tool': tool.id, 'aria-keyshortcuts': tool.shortcut ? tool.shortcut.replace('Strg/Cmd+', 'Control+') : null,
             'aria-pressed': tool.toggle && tool.id === 'focus' ? 'false' : null,
             'aria-expanded': tool.id === 'search' || tool.menu ? 'false' : null,
@@ -425,21 +442,21 @@ export function mountCorrectionToolbar(hostElement, toolbar, mountOptions) {
         buttons[tool.id] = btn;
         return btn;
     }
-    const bar = el(doc, 'div', { role: 'toolbar', 'aria-label': TEXT.toolbar, 'data-testid': 'toolbar' });
+    const bar = el(doc, 'div', { class: 'editorbar symbol-toolbar', role: 'toolbar', 'aria-label': TEXT.toolbar, 'data-testid': 'toolbar' });
     for (const tool of PRIMARY_TOOLS) bar.appendChild(iconButton(tool));
-    const sizeLabel = el(doc, 'span', { 'data-testid': 'font-size', role: 'status' });
+    const sizeLabel = el(doc, 'span', { class: 'font-size', 'data-testid': 'font-size', role: 'status' });
     bar.appendChild(sizeLabel);
-    const notice = el(doc, 'p', { role: 'status', 'data-testid': 'lease-notice', 'data-keep-in-focus': 'true' });
-    const reason = el(doc, 'p', { id: 'clinic-toolbar-reason', 'data-testid': 'toolbar-reason' });
+    const notice = el(doc, 'p', { class: 'hint', role: 'status', 'data-testid': 'lease-notice', 'data-keep-in-focus': 'true' });
+    const reason = el(doc, 'p', { class: 'hint', id: 'clinic-toolbar-reason', 'data-testid': 'toolbar-reason' });
     const menu = el(doc, 'div', { role: 'menu', 'aria-label': TEXT.more, hidden: true, 'data-testid': 'overflow-menu' });
     const query = el(doc, 'input', { type: 'text', 'aria-label': TEXT.query, 'data-testid': 'search-query' });
     const repl = el(doc, 'input', { type: 'text', 'aria-label': TEXT.replacement, 'data-testid': 'search-replacement' });
     const caseBox = el(doc, 'input', { type: 'checkbox', 'aria-label': TEXT.caseSensitive, 'data-testid': 'search-case' });
     const count = el(doc, 'span', { role: 'status', 'data-testid': 'search-count' });
     const panelButtons = {};
-    const panel = el(doc, 'div', { role: 'search', 'aria-label': TEXT.searchPanel, hidden: true, 'data-testid': 'search-panel' }, [query, caseBox, count, repl]);
+    const panel = el(doc, 'div', { class: 'editor-find', role: 'search', 'aria-label': TEXT.searchPanel, hidden: true, 'data-testid': 'search-panel' }, [query, caseBox, count, repl]);
     for (const [id, name] of [['prev', TEXT.prev], ['next', TEXT.next], ['replaceOne', TEXT.replaceOne], ['replaceAll', TEXT.replaceAll], ['closeSearch', TEXT.closeSearch]]) {
-        const b = el(doc, 'button', { type: 'button', class: 'btn', 'aria-label': name, 'data-tool': id }, [name]);
+        const b = el(doc, 'button', { type: 'button', class: 'small', 'aria-label': name, 'data-tool': id }, [name]);
         panelButtons[id] = b;
         panel.appendChild(b);
     }
@@ -570,3 +587,46 @@ export function mountCorrectionToolbar(hostElement, toolbar, mountOptions) {
         },
     };
 }
+
+/**
+ * Vue directive for the .tool-wrap element around an icon button: renders the tooltip of
+ * the V8 stylesheet (.tool-wrap > .tooltip) with the label and the shortcut, links it with
+ * aria-describedby, shows it on hover and on keyboard focus and closes it with Escape.
+ * Usage: v-tip="{ label, keys }". Text is set with textContent only.
+ */
+let tipCounter = 0;
+export const vTip = {
+    mounted(el, binding) {
+        const doc = el.ownerDocument;
+        const tip = doc.createElement('span');
+        tip.className = 'tooltip';
+        tip.setAttribute('role', 'tooltip');
+        tip.setAttribute('aria-hidden', 'true');
+        tip.id = 'clinic-tip-' + (++tipCounter);
+        const label = doc.createElement('span');
+        label.setAttribute('data-tooltip-label', '');
+        tip.appendChild(label);
+        const keys = doc.createElement('kbd');
+        tip.appendChild(keys);
+        el.appendChild(tip);
+        const button = el.querySelector('button');
+        if (button) button.setAttribute('aria-describedby', tip.id);
+        const show = () => { tip.setAttribute('data-visible', 'true'); tip.setAttribute('aria-hidden', 'false'); };
+        const hide = () => { tip.removeAttribute('data-visible'); tip.setAttribute('aria-hidden', 'true'); };
+        el.addEventListener('mouseenter', show);
+        el.addEventListener('mouseleave', hide);
+        el.addEventListener('focusin', () => { if (button?.matches(':focus-visible')) show(); });
+        el.addEventListener('focusout', hide);
+        el.addEventListener('keydown', (event) => { if (event.key === 'Escape') hide(); });
+        el._tip = { label, keys };
+        vTip.updated(el, binding);
+    },
+    updated(el, binding) {
+        const t = el._tip;
+        if (!t) return;
+        const v = binding.value || {};
+        t.label.textContent = v.label || '';
+        t.keys.textContent = v.keys || '';
+        t.keys.hidden = !v.keys;
+    },
+};

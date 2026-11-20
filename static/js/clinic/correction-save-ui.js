@@ -529,17 +529,17 @@ export const CorrectionSave = {
         return { ...saver, LABELS, surface, resumeText, focusStyle, onKey, showDiff, diffRows };
     },
     template: `
-<section class="clinic-correction-save" :aria-label="LABELS.title" :data-state="state" @keydown="onKey"
+<section class="clinic-correction-save panel" :aria-label="LABELS.title" :data-state="state" @keydown="onKey"
   :style="{ background: surface.background, color: surface.color, border: '1px solid ' + surface.border }">
   <p role="status" aria-live="polite"><strong>{{ surface.label }}:</strong> {{ message }}</p>
   <p role="note">{{ resumeText }}</p>
-  <button type="button" :style="focusStyle" :disabled="state === 'saving' || state === 'saved'" @click="save()">
+  <button type="button" class="small" :style="focusStyle" :disabled="state === 'saving' || state === 'saved'" @click="save()">
     {{ retries > 0 ? LABELS.retry : LABELS.save }}
   </button>
   <div v-if="state === 'conflict'" role="group" :aria-label="LABELS.conflictChoice" data-testid="conflict-choice">
-    <button type="button" :style="focusStyle" data-testid="keep-mine" @click="keepMine()">{{ LABELS.keepMine }}</button>
-    <button type="button" :style="focusStyle" data-testid="take-server" @click="takeServer()">{{ LABELS.takeServer }}</button>
-    <button type="button" :style="focusStyle" data-testid="compare" :aria-expanded="String(showDiff)" @click="showDiff = !showDiff">{{ LABELS.compare }}</button>
+    <button type="button" class="small" :style="focusStyle" data-testid="keep-mine" @click="keepMine()">{{ LABELS.keepMine }}</button>
+    <button type="button" class="small" :style="focusStyle" data-testid="take-server" @click="takeServer()">{{ LABELS.takeServer }}</button>
+    <button type="button" class="small" :style="focusStyle" data-testid="compare" :aria-expanded="String(showDiff)" @click="showDiff = !showDiff">{{ LABELS.compare }}</button>
     <ul v-if="showDiff" data-testid="diff">
       <li v-for="(row, i) in diffRows" :key="i" :data-kind="row.kind">{{ row.kind === 'mine' ? LABELS.mine + ': ' : (row.kind === 'server' ? LABELS.server + ': ' : '') }}{{ row.text }}</li>
     </ul>

@@ -20,6 +20,7 @@
  */
 
 import { surfaceFor } from './tokens.js';
+import { vTip } from './correction-toolbar-ui.js';
 
 export const TEMPO_MIN = 0.5;
 export const TEMPO_MAX = 2.0;
@@ -186,9 +187,24 @@ export function usePlaybackTempo(options) {
     };
 }
 
-/** Vue component. `stepSeconds` is required because the server defines no step size. */
+const CLOCK_LABELS = Object.freeze({ play: 'Wiedergabe starten', pause: 'Wiedergabe anhalten', position: 'Abspielposition' });
+
+const clock = (seconds) => {
+    const total = Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0;
+    const pad = (n) => String(n).padStart(2, '0');
+    return pad(Math.floor(total / 60)) + ':' + pad(total % 60);
+};
+
+const MEDIA_EVENTS = Object.freeze(['timeupdate', 'durationchange', 'loadedmetadata', 'play', 'pause', 'ended', 'seeked']);
+
+/**
+ * Vue component. `stepSeconds` is required because the server defines no step size.
+ * Renders the V8 player controls (play, rewind, skip, scrubber, time, speed) as the children of the
+ * `compact-player` row of the composed view; the root is transparent to layout (display: contents).
+ */
 export const PlaybackTempo = {
     name: 'PlaybackTempo',
+    directives: { tip: vTip },
     props: {
         audio: { type: Object, default: null },
         stepSeconds: { type: Number, required: true },
@@ -197,24 +213,75 @@ export const PlaybackTempo = {
     setup(props) {
         const tempo = usePlaybackTempo({ audio: props.audio, onSync: props.onSync });
         const styleOf = (s) => ({ background: s.background, color: s.color, borderColor: s.border });
-        return { tempo, state: tempo.state, rate: tempo.rate, labels: LABELS, speeds: SPEEDS, styleOf };
+        const V = globalThis.Vue;
+        const position = V.ref(0);
+        const duration = V.ref(0);
+        const playing = V.ref(false);
+        const media = props.audio;
+        const sync = () => {
+            if (!media) return;
+            position.value = Number.isFinite(media.currentTime) ? media.currentTime : 0;
+            duration.value = Number.isFinite(media.duration) ? media.duration : 0;
+            playing.value = media.paused === false;
+        };
+        if (media && typeof media.addEventListener === 'function') {
+            for (const name of MEDIA_EVENTS) media.addEventListener(name, sync);
+        }
+        sync();
+        const detach = () => {
+            if (media && typeof media.removeEventListener === 'function') {
+                for (const name of MEDIA_EVENTS) media.removeEventListener(name, sync);
+            }
+        };
+        const toggle = () => {
+            if (!media) return;
+            if (media.paused === false) media.pause();
+            else if (typeof media.play === 'function') Promise.resolve(media.play()).catch(() => {});
+        };
+        const scrub = (event) => {
+            if (!media) return;
+            media.currentTime = Number(event.target.value);
+            sync();
+            if (props.onSync) props.onSync({ reason: 'seeked', positionMs: Math.round(media.currentTime * 1000), rate: tempo.rate.value });
+        };
+        return {
+            tempo, state: tempo.state, rate: tempo.rate, labels: LABELS, clockLabels: CLOCK_LABELS, speeds: SPEEDS, styleOf,
+            position, duration, playing, toggle, scrub, detach, clock,
+        };
     },
     beforeUnmount() {
+        this.detach();
         this.tempo.dispose();
     },
     template: `
-        <div role="group" aria-label="Wiedergabe">
-            <button type="button" :disabled="!audio" @click="tempo.rewind(stepSeconds)">{{ labels.rewind }}</button>
-            <button type="button" :disabled="!audio" @click="tempo.skip(stepSeconds)">{{ labels.skip }}</button>
-            <button type="button" :disabled="!audio || rate <= speeds[0]" @click="tempo.slower()">{{ labels.slower }}</button>
-            <button type="button" :disabled="!audio || rate >= speeds[speeds.length - 1]" @click="tempo.faster()">{{ labels.faster }}</button>
-            <button type="button" :disabled="!audio" @click="tempo.setRate(1)">{{ labels.reset }}</button>
-            <label>{{ labels.speed }}
-                <select :disabled="!audio" :value="rate" @change="tempo.setRate(Number($event.target.value))">
-                    <option v-for="s in speeds" :key="s" :value="s">{{ s.toFixed(1) }}×</option>
-                </select>
-            </label>
-            <p role="status" aria-live="polite" :style="styleOf(state.surface)">{{ state.message }}</p>
+        <div role="group" aria-label="Wiedergabe" class="tempo-controls" style="display: contents">
+            <div class="player-controls">
+                <span class="tool-wrap" v-tip="{ label: playing ? clockLabels.pause : clockLabels.play }">
+                    <button type="button" class="icon-button" :disabled="!audio" :aria-label="playing ? clockLabels.pause : clockLabels.play"
+                        data-testid="play-toggle" @click="toggle()">
+                        <svg v-if="!playing" class="ui-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m8 4 12 8-12 8z" fill="currentColor" stroke="none"/></svg>
+                        <svg v-else class="ui-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M7 4v16M17 4v16" stroke-width="5"/></svg>
+                    </button>
+                </span>
+                <span class="tool-wrap" v-tip="{ label: labels.rewind }">
+                    <button type="button" class="icon-button" :disabled="!audio" :aria-label="labels.rewind" @click="tempo.rewind(stepSeconds)">
+                        <svg class="ui-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 8a9 9 0 1 1 1 11M4 3v5h5"/><text x="9" y="17" font-size="10" fill="currentColor" stroke="none" font-family="Arial,sans-serif">{{ stepSeconds }}</text></svg>
+                    </button>
+                </span>
+                <span class="tool-wrap" v-tip="{ label: labels.skip }">
+                    <button type="button" class="icon-button" :disabled="!audio" :aria-label="labels.skip" @click="tempo.skip(stepSeconds)">
+                        <svg class="ui-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 8a9 9 0 1 0-1 11m1-16v5h-5"/><text x="9" y="17" font-size="10" fill="currentColor" stroke="none" font-family="Arial,sans-serif">{{ stepSeconds }}</text></svg>
+                    </button>
+                </span>
+            </div>
+            <span class="player-divider" aria-hidden="true"></span>
+            <input type="range" min="0" :max="duration || 0" step="0.01" :value="position" :disabled="!audio || !duration"
+                :aria-label="clockLabels.position" :aria-valuetext="clock(position) + ' von ' + clock(duration)" @input="scrub">
+            <span class="time" data-player-time>{{ clock(position) }} / {{ clock(duration) }}</span>
+            <select style="font-size: 11px" :disabled="!audio" :value="rate" :aria-label="labels.speed" :title="labels.speed" @change="tempo.setRate(Number($event.target.value))">
+                <option v-for="s in speeds" :key="s" :value="s">{{ s.toFixed(1) }}×</option>
+            </select>
+            <p role="status" aria-live="polite" class="sr-only" :style="styleOf(state.surface)">{{ state.message }}</p>
         </div>`,
 };
 

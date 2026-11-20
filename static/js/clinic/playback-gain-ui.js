@@ -226,19 +226,20 @@ export const PlaybackGain = {
     },
     template: `
         <section class="clinic-playback-gain" role="group" aria-label="Wiedergabeverstärkung"
-            :data-mode="state.mode"
-            :style="{ background: state.surface.background, color: state.surface.color, border: '1px solid ' + state.surface.border }">
-            <p role="status" aria-live="polite">{{ state.message }}</p>
-            <button type="button" :aria-pressed="state.mode === 'auto'" :disabled="!state.available"
-                @click="controller.setMode('auto')">Automatisch</button>
-            <button type="button" :aria-pressed="state.mode === 'manual'" :disabled="!state.available"
-                @click="controller.setMode('manual')">Manuell</button>
-            <label>Verstärkung
-                <input type="range" :min="state.minDb" :max="state.maxDb" step="1" :value="Math.round(state.gainDb)"
+            :data-mode="state.mode" style="display: grid; gap: 8px">
+            <p role="status" aria-live="polite" class="hint" style="margin: 0">{{ state.message }}</p>
+            <div class="actions" style="margin: 0">
+                <button type="button" class="small" :aria-pressed="state.mode === 'auto'" :disabled="!state.available"
+                    @click="controller.setMode('auto')">Automatisch</button>
+                <button type="button" class="small" :aria-pressed="state.mode === 'manual'" :disabled="!state.available"
+                    @click="controller.setMode('manual')">Manuell</button>
+            </div>
+            <label class="inline-label" style="display: flex; align-items: center; gap: 10px">Verstärkung
+                <input type="range" style="flex: 1; min-width: 80px" :min="state.minDb" :max="state.maxDb" step="1" :value="Math.round(state.gainDb)"
                     :disabled="!state.available" :aria-valuetext="Math.round(state.gainDb) + ' Dezibel'"
                     @input="onInput">
+                <output>{{ Math.round(state.gainDb) }} dB</output>
             </label>
-            <output>{{ Math.round(state.gainDb) }} dB</output>
         </section>`,
 };
 
