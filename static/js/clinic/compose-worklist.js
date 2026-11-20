@@ -105,7 +105,6 @@ export const TEXT = Object.freeze({
     clearSelection: 'Auswahl aufheben',
     pagerFor: 'Seite',
     hintSelect: 'Eintrag auswählen, um Details anzuzeigen',
-    updated: 'Aktualisiert',
     refreshing: 'Aktualisiere …',
     chips: 'Statusfilter',
     detailInfo: 'Eckdaten',
@@ -676,12 +675,6 @@ export function createWorklistViewController(options) {
         statusTone: (row) => statusTone(row.status),
         prioClass: (row) => ({ high: 'hoch', low: 'niedrig', normal: 'mittel' })[priorityToneOf(row)],
         sourceText: (row) => sourceLabel(row.source_kind),
-        updatedLabel: () => {
-            const at = refresh.lastUpdate.value;
-            return at instanceof Date && !Number.isNaN(at.getTime())
-                ? TEXT.updated + ' ' + String(at.getHours()).padStart(2, '0') + ':' + String(at.getMinutes()).padStart(2, '0')
-                : refresh.lastUpdateLabel.value;
-        },
         pagerInfo: () => 'Seite ' + view.page + (pages() === null ? '' : ' von ' + pages()) + ' · '
             + entryCount(view.total ?? worklist.rows.value.length),
     };
@@ -747,7 +740,7 @@ export const WorklistView = {
       <p class="subtitle">{{ c.text.subline }}</p>
     </div>
     <div class="page-actions">
-      <span role="status" aria-live="polite" class="last-update" data-testid="last-update">{{ c.updatedLabel() }}</span>
+      <span role="status" aria-live="polite" class="last-update" data-testid="last-update">{{ c.refresh.lastUpdateLabel.value }}</span>
       <button type="button" class="icon-btn" data-testid="refresh-button"
               :aria-label="c.text.refresh" :title="c.text.refresh"
               :disabled="c.refresh.isRefreshing.value" :aria-busy="c.refresh.isRefreshing.value ? 'true' : 'false'"
