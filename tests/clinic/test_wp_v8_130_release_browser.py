@@ -156,6 +156,15 @@ def test_review_and_release_current_bound_versions(review_scene, tmp_path):
             with page.expect_response(lambda r: r.url.endswith("/leases") and r.request.method == "POST") as acquired:
                 page.locator(".clinic-lease").get_by_role("button", name="Bearbeiten", exact=True).click()
             assert acquired.value.ok, acquired.value.text()
+            # A policy may be published after P03 loaded. Its stale submit must stop and recover in place.
+            _publish(admin, base, path, [author, typist])
+            with page.expect_response(lambda r: r.url.endswith("/parity/commands") and r.request.method == "POST") as outdated:
+                page.get_by_role("button", name="Zur Abnahme einreichen", exact=True).click()
+            assert (outdated.value.status, outdated.value.json()["code"]) == (409, "REVISION_CONFLICT")
+            rule = _get(page, path + "/review")["binding"]["acceptance_rule_id"]
+            assert rule != binding["acceptance_rule_id"]
+            with page.expect_response(lambda r: r.url.endswith("/detail") and r.request.method == "GET"):
+                page.get_by_role("button", name="Aktuellen Stand laden", exact=True).click(timeout=4000)
             with page.expect_response(lambda r: r.url.endswith("/parity/commands") and r.request.method == "POST") as sent:
                 page.get_by_role("button", name="Zur Abnahme einreichen", exact=True).click()
             assert sent.value.status == 200, sent.value.text()
@@ -178,6 +187,19 @@ def test_review_and_release_current_bound_versions(review_scene, tmp_path):
             with page.expect_response(lambda r: r.url.endswith("/leases") and r.request.method == "POST") as review_lease:
                 review.get_by_test_id("begin-review").click()
             assert review_lease.value.ok, review_lease.value.text()
+            # A trusted new case also invalidates the already rendered P07 decision.
+            context_update = page.request.post(path + "/context", headers=_headers(page, base),
+                                               data={"case_reference": "SYN-0131"})
+            assert context_update.status == 201, context_update.text()
+            review.locator("[data-action=accept]").click()
+            with page.expect_response(lambda r: r.url.endswith("/parity/commands") and r.request.method == "POST") as stale_decision:
+                review.get_by_test_id("confirm").click()
+            assert (stale_decision.value.status, stale_decision.value.json()["code"]) == (409, "REVISION_CONFLICT")
+            with page.expect_response(lambda r: r.url.endswith("/review") and r.request.method == "GET") as refreshed:
+                review.get_by_test_id("reload").click()
+            refreshed_binding = refreshed.value.json()["binding"]
+            assert refreshed_binding["context_revision_id"] != binding["context_revision_id"]
+            binding = refreshed_binding
             review.locator("[data-action=accept]").click()
             with page.expect_response(lambda r: r.url.endswith("/parity/commands") and r.request.method == "POST") as accepted:
                 review.get_by_test_id("confirm").click()

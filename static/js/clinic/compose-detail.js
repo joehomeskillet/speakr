@@ -436,6 +436,8 @@ const DetailBody = {
           <p v-if="c.leaseBlocksOpen()" role="note" class="hint" style="margin: 0">{{ TEXT.openBlocked }}</p>
           <component :is="parts.Lease" v-if="leaseState" :state="leaseState" :run="c.leaseRun" />
           <component :is="parts.Workflow" v-if="!c.offline()" :wf="c.workflow" />
+          <button v-if="c.workflow.state.stale && !c.offline()" type="button" class="secondary"
+                  :disabled="status === 'loading'" @click="c.load()">{{ TEXT.reload }}</button>
         </section>
 
         <details class="panel" data-testid="history-panel">
