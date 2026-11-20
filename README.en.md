@@ -13,7 +13,7 @@ The project is for clinics and development teams who want to evaluate or extend 
 
 ![Speakr transcription workspace with correction editor and audio playback for a synthetic test dictation](docs/images/clinic/editor.png)
 
-*Transcription workspace with correction editor and playback. All data shown is synthetic; the optional AI summary is under evaluation.*
+The typing workspace shows the dictation text and playback controls.
 
 <table>
   <tr>

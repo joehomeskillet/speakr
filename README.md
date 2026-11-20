@@ -13,7 +13,7 @@ Das Projekt richtet sich an Kliniken und Entwicklungsteams, die einen Diktat- un
 
 ![Schreibplatz von Speakr mit Korrektureditor und Audiowiedergabe für ein synthetisches Testdiktat](docs/images/clinic/editor.png)
 
-*Schreibplatz mit Korrektureditor und Wiedergabe. Alle gezeigten Daten sind synthetisch; die optionale KI-Zusammenfassung ist in Prüfung.*
+Der Schreibplatz zeigt den Diktattext und die Steuerung für die Wiedergabe.
 
 <table>
   <tr>
