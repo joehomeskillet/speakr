@@ -32,7 +32,7 @@
 import { formatDictationReference } from './worklist-ui.js';
 import { createClinicApiClient } from './api-client.js';
 import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
-import { CorrectionAudioPanel, createCorrectionToolbar, useCorrectionEditor, vTip, createRepeatTranscription, REPEAT_TEXT } from './correction-editor-ui.js';
+import { CorrectionAudioPanel, DictationSummary, createCorrectionToolbar, useCorrectionEditor, vTip, createRepeatTranscription, REPEAT_TEXT } from './correction-editor-ui.js';
 import { LABELS as ALIGN_LABELS, createPlaybackHighlighter, useCorrectionAlignment } from './correction-alignment-ui.js';
 import { CorrectionWaveform } from './correction-waveform-ui.js';
 import { PlaybackTempo, usePlaybackTempo } from './playback-tempo-ui.js';
@@ -721,7 +721,7 @@ const BODY_PROPS = {
 /** Inner body: one instance per dictation. The outer view re-keys it, which disposes everything. */
 export const CorrectionBody = {
     name: 'ClinicCorrectionBody',
-    components: { CorrectionAudioPanel, CorrectionWaveform, AudioMarkers, PlaybackTempo, PlaybackGain, UiIcon },
+    components: { DictationSummary, CorrectionAudioPanel, CorrectionWaveform, AudioMarkers, PlaybackTempo, PlaybackGain, UiIcon },
     directives: { tip: vTip },
     props: BODY_PROPS,
     emits: ['close'],
@@ -912,6 +912,7 @@ export const CorrectionBody = {
             @click="c.load({ discard: error.code === 'stale' })">{{ error.code === 'stale' ? TEXT.reload : TEXT.retry }}</button>
   </div>
 
+  <DictationSummary v-if="ready" :client="c.client" :dictation-id="dictationId" />
   <section class="editor-workspace" :class="{ 'is-focus': focusMode }" :data-dirty="dirty ? 'true' : 'false'" :aria-label="TEXT.workspace">
     <div class="editor-heading">
       <div class="document-title">

@@ -28,6 +28,7 @@ import { TokenContractError, surfaceFor } from './tokens.js';
 import { STATUS_LABELS, formatAudioDuration, formatPriority } from './worklist-ui.js';
 import { createDetailClient, ensureHostedStyles, statusTone } from './compose-worklist.js';
 import { WORKFLOW_ACTIONS_TEMPLATE, createWorkflowActions } from './workflow-actions-ui.js';
+import { DictationSummary } from './dictation-summary-ui.js';
 import { DetailPlayback } from './detail-playback-ui.js';
 import { readAudioRevision } from './correction-editor-ui.js';
 import { createHistoryComponent } from './history-ui.js';
@@ -371,7 +372,7 @@ const BODY_PROPS = {
 /** Inner body: one instance per dictation. The outer view re-keys it, which disposes the lease and clears all data. */
 const DetailBody = {
     name: 'ClinicDetailBody',
-    components: { DetailPlayback },
+    components: { DetailPlayback, DictationSummary },
     props: BODY_PROPS,
     emits: ['back', 'open-editor'],
     setup(props, ctx) {
@@ -447,6 +448,7 @@ const DetailBody = {
 
     <div class="record-detail-grid">
       <div style="display: grid; gap: 22px; align-content: start; min-width: 0">
+        <DictationSummary v-if="status === 'ready'" :client="client" :dictation-id="dictationId" expanded />
         <section class="panel" :aria-label="TEXT.axes" data-testid="status-axes">
           <h2 style="font-weight: 700">{{ TEXT.axes }}</h2>
           <ul class="chiprow" style="list-style: none; margin: 0; padding: 0">
