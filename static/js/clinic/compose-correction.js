@@ -129,6 +129,7 @@ export const TEXT = Object.freeze({
     modeGroup: 'Wiedergabe beim Korrigieren',
     modeRetry: 'Erneut speichern',
     readOnly: 'Schreibgeschützt: Bearbeitung zuerst anfordern.',
+    readOnlyAccess: 'Sie haben für dieses Diktat Leserechte.',
     unsaved: 'Nicht gespeicherte Änderungen sind vorhanden.',
     manual: 'Keine automatische Erkennung vorhanden. Bitte manuell transkribieren.',
     loading: 'Wird geladen …',
@@ -1019,7 +1020,7 @@ export const CorrectionBody = {
                     @input="onTextInput($event)" @keydown="onTextKeydown($event)" @select="c.onSelect($event)"
                     @keyup="c.onSelect($event)" @mouseup="c.onSelect($event)"></textarea>
         </div>
-        <p v-if="!canEdit && !loading" id="ccv-readonly" class="template-meta" style="margin: 0">{{ TEXT.readOnly }}</p>
+        <p v-if="!canEdit && !loading" id="ccv-readonly" class="template-meta" style="margin: 0">{{ lease.mayAcquire === false ? TEXT.readOnlyAccess : TEXT.readOnly }}</p>
       </div>
 
       <div class="editor-status" :data-state="saveState" data-testid="save-state"
