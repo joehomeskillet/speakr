@@ -19,13 +19,14 @@ _ASR_CONTENT_PATTERN = '[^' + (
 ) + ']'
 
 
-def asr_outcomes(dictations):
+def asr_outcomes(dictations, *, initial_only=False):
     """Detailed outcomes in batches; no per-dictation original or job scans."""
     from collections import defaultdict
     from src.clinic.legacy_backfill import ORIGIN_REF_PREFIXES
     from src.clinic.models import ClinicOriginal, ClinicTranscriptRevision
     from src.clinic.revisions import KIND_ASR
 
+    job_types = [kind for kind in _ASR_JOBS if not initial_only or kind != 'reprocess_transcription']
     items = list(dictations)
     outcomes = {}
     for start in range(0, len(items), 500):
@@ -47,7 +48,7 @@ def asr_outcomes(dictations):
         ).filter(Recording.id.in_(recording_ids))}
         states = defaultdict(set)
         for rid, state in session.query(ProcessingJob.recording_id, ProcessingJob.status).filter(
-                ProcessingJob.recording_id.in_(recording_ids), ProcessingJob.job_type.in_(_ASR_JOBS)):
+                ProcessingJob.recording_id.in_(recording_ids), ProcessingJob.job_type.in_(job_types)):
             states[rid].add(state)
         # A late ASR tip also counts when a human revision is the visible head.
         # Classify both incoming and historical immutable receipts in the DB.

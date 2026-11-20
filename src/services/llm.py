@@ -371,7 +371,7 @@ class LLMNotConfiguredError(ValueError):
 
 
 def call_llm_completion(messages, temperature=0.7, response_format=None, stream=False, max_tokens=None,
-                        user_id=None, operation_type=None):
+                        user_id=None, operation_type=None, model_client=None):
     """
     Centralized function for LLM API calls with proper error handling and logging.
 
@@ -387,7 +387,8 @@ def call_llm_completion(messages, temperature=0.7, response_format=None, stream=
     Returns:
         OpenAI completion object or generator (if streaming)
     """
-    if not client:
+    completion_client = client if model_client is None else model_client
+    if not completion_client:
         raise LLMNotConfiguredError("No text model is configured. Set TEXT_MODEL_BASE_URL, and TEXT_MODEL_API_KEY for a hosted service.")
 
     # Check budget before making the call
@@ -461,7 +462,7 @@ def call_llm_completion(messages, temperature=0.7, response_format=None, stream=
 
         request_started_at = time.monotonic()
         from src.clinic.llm_limits import limited
-        response = limited(client).chat.completions.create(**completion_args)
+        response = limited(completion_client).chat.completions.create(**completion_args)
 
         # Track usage for non-streaming calls
         if user_id and operation_type and not stream and response.usage:

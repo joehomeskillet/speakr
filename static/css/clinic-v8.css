@@ -683,6 +683,19 @@
 .v8-ui .p03-wave line.played{stroke:var(--v8-text)}
 .v8-ui .p03-playhead{position:absolute;top:0;bottom:0;width:2px;transform:translateX(-50%);background:var(--v8-text);pointer-events:none}
 .v8-ui .player-demo{font-size:10px;color:var(--v8-muted);max-width:94px;line-height:1.6}
+.v8-ui .clinic-dictation-summary{padding:0}
+.v8-ui .clinic-dictation-summary>summary{padding:10px 17px;min-height:44px;box-sizing:border-box;align-content:center;cursor:pointer;font-weight:700}
+.v8-ui .clinic-dictation-summary>summary:focus-visible{outline:2px solid var(--v8-text);outline-offset:2px}
+.v8-ui .clinic-summary-body{padding:0 17px 14px}
+.v8-ui .clinic-summary-body p{margin:0 0 8px}
+.v8-ui .clinic-summary-body p:empty{margin:0}
+.v8-ui .clinic-summary-text{white-space:pre-wrap;overflow-wrap:anywhere}
+.v8-ui .clinic-summary-text :is(h3,h4,h5,h6){margin:12px 0 4px;font-weight:700}
+.v8-ui .clinic-summary-text h3{font-size:1rem}
+.v8-ui .clinic-summary-text :is(ul,ol){padding-inline-start:1.5em;margin:4px 0 12px}
+.v8-ui .clinic-summary-text ul{list-style:disc}
+.v8-ui .clinic-summary-text ol{list-style:decimal}
+.v8-ui .clinic-correction-view>.clinic-dictation-summary{margin-bottom:12px}
 .v8-ui .record-detail-grid{display:grid;grid-template-columns:minmax(0,1fr) 292px;gap:22px}
 .v8-ui .transcript-panel,.v8-ui .record-metadata{background:var(--surface);border:1px solid var(--line);border-radius:12px;min-width:0;overflow:hidden;align-self:start}
 .v8-ui .record-tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);padding:0 20px}

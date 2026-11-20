@@ -1,5 +1,11 @@
 # Speakr V8: geprüfte Änderungen im Klinik-Webclient
 
+## KI-Zusammenfassung im Diktat
+
+Auf Staging `f6b7b0a2` fehlte der Zugang zur gespeicherten Zusammenfassung sowohl im Schreibplatz als auch in den Diktatdetails. Ein regulär angemeldetes QA-Konto bestätigte das für ein synthetisches Diktat bei 390 und 1440 Pixeln. Der ursprüngliche Summary-Worker konnte in einer getrennten Testdatenbank über das lokale Modell eine Zusammenfassung erzeugen, speichern und erneut lesen. Beide vorgegebenen Fakten und der unveränderte Ausgangstext wurden geprüft.
+
+Ein synthetischer Autor meldete sich im Browser an und forderte eine Zusammenfassung über den neuen Klinik-Endpunkt an. Der reguläre Worker verarbeitete den korrigierten Text mit dem lokalen Modell. Das Ergebnis enthielt Luzern und Freitag aus der Korrektur und keine der überholten Angaben Basel und Montag. Es war nach dem Neuladen wieder abrufbar. Beide Textrevisionen und die Aufnahme blieben unverändert. Der Test verwendete eine von der vorherigen Version übernommene PostgreSQL-16.4-Datenbank.
+
 ## Öffnen, Anhören und Wiedererkennen auf Staging 0dc67654
 
 Nach einem einzigen normalen Neuladen im bereits geöffneten, angemeldeten Handy-Browsertab lieferte die Verwaltung die neue CSS-Kennung. Der eingeklappte Rollenfilter war tatsächlich unsichtbar. Die Aufnahmenansicht zeigt beim Einstieg Suche, Status, Zeitraum, Pool und Autor. Bei 390 Pixeln lag die erste vollständige Karte zwischen y=687 und y=829. Per Touch öffnet der Titel das Diktat. Die Arbeitsliste behält einen separaten Bereich zum Auswählen. Bei 1440 Pixeln begann die erste Aufnahme bei y=433.
@@ -47,3 +53,7 @@ Der zweite synthetische Upload durchlief die lokale GPU-Erkennung und wurde übe
 Ein über HTTPS angemeldeter Identitätsadministrator übernahm Staging-Konto 1 mit der bestehenden ID und 13 unverändert zugeordneten Diktaten. Das Konto besitzt jetzt die aktive lokale Klinikpolicy und einen expliziten Grant für Dokumentexport und Freigabe im eigenen Bestand. Die bestehende Site-Admin-Rolle hat die unter O4 vereinbarten Leserechte. Die Browserabnahme verwendet neue QA-Konten.
 
 PR #2 wurde nach sechs grünen Projektprüfungen in clinic/main gemergt. Der Lauf auf 3475a94e bestand mit 11.664 Python-Tests, 5.816 seriellen Kliniktests, 1.942 Paketprüfungen und 2.352 JavaScript-Tests.
+
+### Automatische Zusammenfassung neuer Klinikdiktate
+
+Für neue Diktate kann die erste erfolgreiche lokale Transkription eine Zusammenfassung auslösen. Dazu muss in den Systemeinstellungen `disable_auto_summarization=false` gelten und der Autor die persönliche Option `auto_summarization` eingeschaltet haben. Die Klinik speichert die erste ASR-Fassung und deren Auftrag gemeinsam. Der bestehende Summary-Worker verarbeitet ihn mit dem freigegebenen lokalen Modell und den Objektrechten des Autors. Der Titel entsteht weiterhin im bisherigen Titelauftrag. Bestandsdiktate, erneute Erkennung und menschliche Korrekturen lösen keine nachträgliche Automatik aus. Ein berechtigter Nutzer kann die aktuelle Textfassung über die Diktatdetails weiterhin ausdrücklich zusammenfassen lassen.
