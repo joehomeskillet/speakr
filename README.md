@@ -13,9 +13,9 @@ Das Projekt richtet sich an Kliniken und Entwicklungsteams, die einen Diktat- un
 <details>
 <summary>Windows-Importagent einrichten</summary>
 
-| HTTPS-Adresse der Klinik eingeben | Gespeicherte Adresse |
+| HTTPS-Adresse der Klinik eingeben | Adresse nach erneutem Öffnen |
 | --- | --- |
-| ![Serveradresse im Windows-Importagenten](docs/images/clinic/windows-import-server.png) | ![Bestätigung nach dem Speichern](docs/images/clinic/windows-import-gespeichert.png) |
+| ![Serveradresse im Windows-Importagenten](docs/images/clinic/windows-import-server.png) | ![Nach dem Neustart wieder angezeigte Serveradresse](docs/images/clinic/windows-import-gespeichert.png) |
 
 </details>
 
