@@ -432,7 +432,7 @@ export function createSections(Vue) {
 }
 
 export const ASR_PROFILES_TEMPLATE = `
-<div class="v8-page">
+<div class="v8-page clinic-asr-profiles-view">
   <div class="pagehead">
     <div>
       <div class="eyebrow">${TEXT.eyebrow}</div>

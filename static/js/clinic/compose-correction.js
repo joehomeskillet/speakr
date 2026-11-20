@@ -675,7 +675,7 @@ const LOCAL_CSS = `
 .v8-ui .editor-page .editor-aux{display:grid;gap:14px;margin-top:16px}
 .v8-ui .editor-page :is(.panel-header h2,.clinic-correction-waveform h3){font-size:14px;font-weight:700;letter-spacing:-.1px;color:var(--v8-text)}
 .v8-ui .editor-page .sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
-@media(max-width:767px){.v8-ui .editor-page .document-id{display:block;min-width:0;max-width:9ch;overflow:hidden;text-overflow:ellipsis}.v8-ui .editor-page .document-title h2{flex-shrink:0}}
+@media(max-width:767px){.v8-ui .editor-page .document-id{min-width:0;white-space:normal;overflow-wrap:anywhere}.v8-ui .editor-page .document-title h2{flex-shrink:0}}
 @media(max-width:700px){
   .v8-ui .editor-page .editor-popover{position:static;width:auto;max-height:none;margin:8px 12px}
   .v8-ui .editor-page .find-row{display:grid;grid-template-columns:minmax(0,1fr) repeat(3,auto)}
