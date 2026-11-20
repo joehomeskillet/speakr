@@ -96,7 +96,12 @@ def test_non_admin_gets_403_on_every_write(world):
         c.get(PREFIX + "/pools"),
         c.get(f"{PREFIX}/pools/author/{pid}/usage"),
     ]
-    assert [r.status_code for r in calls] == [403] * 7
+    calls += [
+        c.post(PREFIX + "/pools", headers=h, json={"kind": "other", "name": "x"}),
+        c.post(PREFIX + "/pools", headers=h, json={"bogus": 1}),
+        c.put(f"{PREFIX}/pools/author/{pid}/validity", headers=h, json={"valid_from": "garbage", "valid_to": None}),
+    ]
+    assert [r.status_code for r in calls] == [403] * 10
     assert calls[0].mimetype == "application/problem+json"
     assert db.session.get(pools.ClinicAuthorPool, pid).active is None
 
@@ -111,9 +116,15 @@ def test_admin_creates_both_kinds_and_audits(world):
     c, h = world["client"](world["admin"])
     r = c.post(PREFIX + "/pools", headers=h, json={"kind": "author", "name": "NA-" + _suffix()})
     assert r.status_code == 201 and r.json["kind"] == "author" and r.json["active"] is True
-    assert _history(r.json["id"], "created")[0]["actor_user_id"] == world["admin"].id
+    created = _history(r.json["id"], "created")[0]
+    assert created["actor_user_id"] == world["admin"].id
+    assert created["detail"] == {"kind": "author", "old": None, "new": {"name": r.json["name"], "active": True}}
     r = c.post(PREFIX + "/pools", headers=h, json={"kind": "staff", "name": "NS-" + _suffix()})
     assert r.status_code == 201 and r.json["kind"] == "staff"
+    staff_created = _history(r.json["id"], "created")[0]["detail"]
+    assert staff_created == {
+        "kind": "staff", "group_id": db.session.get(pools.ClinicStaffPool, r.json["id"]).group_id,
+        "old": None, "new": {"name": r.json["name"], "active": True}}
     assert c.post(PREFIX + "/pools", headers=h, json={"kind": "author", "name": r.json["name"]}).status_code == 201
     assert c.post(PREFIX + "/pools", headers=h, json={"kind": "other", "name": "x"}).status_code == 404
     assert c.post(PREFIX + "/pools", headers=h, json={"kind": "author", "name": " "}).status_code == 400
@@ -243,6 +254,37 @@ def test_pool_lead_may_preview_own_pools_only(world):
     c2, _ = world["client"](world["other_lead"])
     assert c2.get(f"{PREFIX}/pools/staff/{world['staff'].id}/usage").status_code == 403
     assert c2.get(f"{PREFIX}/pools/author/{world['author'].id}/usage").status_code == 403
+
+
+def test_disabled_lead_gets_403_on_usage(world):
+    c, _ = world["client"](world["lead"])
+    url = f"{PREFIX}/pools/staff/{world['staff'].id}/usage"
+    assert c.get(url).status_code == 200
+    db.session.get(ClinicAccountPolicy, world["lead"].id).status = "disabled"
+    db.session.commit()
+    assert c.get(url).status_code == 403
+
+
+def test_routable_staff_pool_ids_excludes_inactive_and_expired(world):
+    c, h = world["client"](world["admin"])
+    author, staff = world["author"], world["staff"]
+    admin_id = world["admin"].id
+    expired = pools.create_staff_pool("E-" + _suffix(), actor_id=admin_id)
+    off = pools.create_staff_pool("D-" + _suffix(), actor_id=admin_id)
+    for target in (expired, off):
+        pools.link_staff_pool(author.id, target.id, actor_id=admin_id)
+    author_user = _user()
+    pools.add_author_member(author.id, author_user.id, actor_id=admin_id)
+    row = _workflow_row(author_user, author.id, TO_WRITE)
+    assert set(pools.routable_staff_pool_ids(author.id)) == {staff.id, expired.id, off.id}
+    c.put(f"{PREFIX}/pools/staff/{off.id}/active", headers=h, json={"active": False})
+    past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    c.put(f"{PREFIX}/pools/staff/{expired.id}/validity", headers=h,
+          json={"valid_from": None, "valid_to": past})
+    assert pools.routable_staff_pool_ids(author.id) == [staff.id]
+    assert pools.ClinicPoolRoute.query.filter_by(author_pool_id=author.id).count() == 3
+    assert db.session.get(ClinicWorkflowDictation, row.id) is not None
+    assert "play" in pools.grants_for(author_user.id, db.session.get(ClinicDictation, row.id))["allowed"]
 
 
 def test_revoked_admin_is_refused(world):

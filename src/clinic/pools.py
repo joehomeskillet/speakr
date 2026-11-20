@@ -346,7 +346,10 @@ def create_author_pool(name: str, *, actor_id: int) -> ClinicAuthorPool:
     row = ClinicAuthorPool(name=name, created_by=actor_id)
     db.session.add(row)
     db.session.flush()
-    _history(actor_id, "pool", row.id, "created", {"kind": "author"})
+    _history(
+        actor_id, "pool", row.id, "created",
+        {"kind": "author", "old": None, "new": {"name": name, "active": True}},
+    )
     _commit()
     return row
 
@@ -362,7 +365,10 @@ def create_staff_pool(name: str, *, actor_id: int) -> ClinicStaffPool:
     row = ClinicStaffPool(group_id=group.id, created_by=actor_id)
     db.session.add(row)
     db.session.flush()
-    _history(actor_id, "pool", row.id, "created", {"kind": "staff", "group_id": group.id})
+    _history(
+        actor_id, "pool", row.id, "created",
+        {"kind": "staff", "group_id": group.id, "old": None, "new": {"name": name, "active": True}},
+    )
     _commit()
     return row
 
@@ -469,9 +475,28 @@ def is_routable(pool, now=None) -> bool:
 
 
 def ensure_routable(pool, now=None) -> None:
-    """Refuse new routing to a deactivated or out-of-validity pool. History and reads are unaffected."""
+    """Refuse new routing to a deactivated or out-of-validity pool. History and reads are unaffected.
+
+    Limitation: a pool whose ``valid_from`` lies in the future is not routable yet, so a link to or
+    from it cannot be prepared ahead of the planned start date (P10 does not define this case).
+    """
     if not is_routable(pool, now):
         raise PoolError("pool_inactive")
+
+
+def routable_staff_pool_ids(author_pool_id: str, now=None) -> list[str]:
+    """Ids of the staff pools linked to the author pool that are routable now (active, inside validity).
+
+    For consumers that pick recipients of NEW dictations. Existing dictations, history and read
+    rights are unaffected by this filter.
+    """
+    rows = (
+        db.session.query(ClinicStaffPool)
+        .join(ClinicPoolRoute, ClinicPoolRoute.staff_pool_id == ClinicStaffPool.id)
+        .filter(ClinicPoolRoute.author_pool_id == author_pool_id)
+        .order_by(ClinicStaffPool.id)
+    )
+    return [pool.id for pool in rows if is_routable(pool, now)]
 
 
 def _stamp(value):

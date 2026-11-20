@@ -56,6 +56,11 @@ def _is_manager(user_id: int) -> bool:
 
 def _is_lead(user_id: int, kind: str, pool_id: str) -> bool:
     """True for a lead of the staff pool, or of any staff pool the author pool is routed to."""
+    from src.clinic.identity import ClinicAccountPolicy
+
+    account = db.session.get(ClinicAccountPolicy, user_id, populate_existing=True)
+    if account is not None and account.status != "active":
+        return False
     if kind == "staff":
         pool = db.session.get(pools.ClinicStaffPool, pool_id)
         group_ids = [] if pool is None else [pool.group_id]
@@ -128,6 +133,8 @@ def list_pools():
 
 @blueprint.post(PREFIX + "/pools")
 def create_pool():
+    if not _is_manager(current_user.id):
+        return _problem("forbidden")
     body = _body({"kind", "name"}, {"kind", "name"})
     if body is None:
         return _problem("invalid_payload")
@@ -143,6 +150,8 @@ def create_pool():
 
 @blueprint.put(PREFIX + "/pools/<kind>/<pool_id>/name")
 def rename(kind: str, pool_id: str):
+    if not _is_manager(current_user.id):
+        return _problem("forbidden")
     body = _body({"name"}, {"name"})
     if body is None:
         return _problem("invalid_payload")
@@ -154,6 +163,8 @@ def rename(kind: str, pool_id: str):
 
 @blueprint.put(PREFIX + "/pools/<kind>/<pool_id>/active")
 def set_active(kind: str, pool_id: str):
+    if not _is_manager(current_user.id):
+        return _problem("forbidden")
     body = _body({"active"}, {"active"})
     if body is None:
         return _problem("invalid_payload")
@@ -165,6 +176,8 @@ def set_active(kind: str, pool_id: str):
 
 @blueprint.put(PREFIX + "/pools/<kind>/<pool_id>/validity")
 def set_validity(kind: str, pool_id: str):
+    if not _is_manager(current_user.id):
+        return _problem("forbidden")
     body = _body({"valid_from", "valid_to"}, {"valid_from", "valid_to"})
     if body is None:
         return _problem("invalid_payload")
@@ -179,6 +192,8 @@ def set_validity(kind: str, pool_id: str):
 
 @blueprint.post(PREFIX + "/pools/author/<pool_id>/links")
 def link(pool_id: str):
+    if not _is_manager(current_user.id):
+        return _problem("forbidden")
     body = _body({"staff_pool_id"}, {"staff_pool_id"})
     if body is None or not isinstance(body["staff_pool_id"], str):
         return _problem("invalid_payload")
