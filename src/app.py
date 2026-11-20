@@ -466,6 +466,8 @@ from src.tasks.processing import (
 )
 
 # Import configuration helpers
+from src.clinic.asset_version import clinic_asset_version
+from src.clinic.config import clinic_mode_enabled as _clinic_mode_enabled
 from src.config.version import get_version
 
 # Initialize Flask-Login and other extensions
@@ -822,14 +824,14 @@ def handle_request_entity_too_large(_error):
 def inject_now():
     return {'now': datetime.now()}
 
-# Expose the app version to templates so the service worker registration URL
-# (and therefore its cache namespace) changes on every release, forcing the
-# browser to install the new worker and refetch the app shell (issue #357).
+# Templates use this value for static URLs and the service worker cache. Clinic images
+# can change those assets between upstream releases. The visible product version stays in get_version().
 _app_version = get_version()
 
 @app.context_processor
 def inject_app_version():
-    return {'app_version': _app_version}
+    cache_version = clinic_asset_version(_app_version, app.static_folder) if _clinic_mode_enabled() else _app_version
+    return {'app_version': cache_version}
 
 from src.utils.i18n_bootstrap import i18n_bootstrap as _i18n_bootstrap
 
@@ -1528,7 +1530,6 @@ def register_clinic_voice_consent(flask_app):
 # --- end v8-75 ---
 
 
-from src.clinic.config import clinic_mode_enabled as _clinic_mode_enabled
 if _clinic_mode_enabled():
     register_clinic_resources(app)
     register_clinic_identity(app)
