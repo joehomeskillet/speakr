@@ -286,6 +286,7 @@ export function createRegexRulesComponent(Vue) {
         template: `
 <section class="clinic-regex space-y-4" :aria-label="model.label('title')" @keydown="onKeydown">
   <h2 class="text-lg font-semibold text-[var(--text-primary)]">{{ model.label('title') }}</h2>
+  <p class="mt-1 text-sm text-[var(--text-muted)]">Regeln zum Auslesen von Metadaten aus dem Diktattext festlegen und prüfen.</p>
   <fieldset v-for="(rule, i) in model.state.rules" :key="i" class="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4">
     <legend class="px-1 text-sm font-semibold text-[var(--text-primary)]">{{ model.label('rule') }} {{ i + 1 }}</legend>
     <div class="grid gap-3 sm:grid-cols-2">

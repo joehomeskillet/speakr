@@ -322,7 +322,7 @@ export function templatesComponent(vue, options) {
     <h2 id="clinic-tpl-title" class="text-lg font-semibold text-[var(--text-primary)]">${LABELS.title}</h2>
     <p class="mt-1 text-sm text-[var(--text-muted)]">Vorlagen mit Versionen und Einfügemarke. Jede Änderung legt eine neue Version an.</p>
   </header>
-  <p v-if="manager.state.status === 'processing'" role="status" class="text-sm text-[var(--text-muted)]">Vorlagen werden geladen.</p>
+  <p v-if="manager.state.status === 'processing'" role="status" class="text-sm text-[var(--text-muted)]">{{ manager.state.loaded ? 'Wird verarbeitet …' : 'Vorlagen werden geladen.' }}</p>
   <p v-else-if="manager.state.loaded && !manager.state.items.length" role="status" class="rounded-lg border border-dashed border-[var(--border-primary)] p-4 text-sm text-[var(--text-muted)]">Keine Vorlagen vorhanden.</p>
   <ul role="listbox" aria-label="${LABELS.list}" tabindex="0" class="grid gap-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)]" @keydown="manager.onKey($event)">
     <li v-for="row in manager.state.items" :key="row.id" role="option" :aria-selected="row.id === manager.state.selectedId"

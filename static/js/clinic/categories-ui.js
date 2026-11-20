@@ -235,7 +235,7 @@ export function categoriesComponent(vue, options) {
     <h2 id="clinic-cat-title" class="text-lg font-semibold text-[var(--text-primary)]">${LABELS.title}</h2>
     <p class="mt-1 text-sm text-[var(--text-muted)]">Kategorien je Feld festlegen und die Auswahl im Sendeformular prüfen.</p>
   </header>
-  <p v-if="editor.state.status === 'processing'" role="status" class="text-sm text-[var(--text-muted)]">Kategorien werden geladen.</p>
+  <p v-if="editor.state.status === 'processing'" role="status" class="text-sm text-[var(--text-muted)]">{{ editor.state.loaded ? 'Wird verarbeitet …' : 'Kategorien werden geladen.' }}</p>
   <p v-else-if="editor.state.loaded && !editor.state.sets.length" role="status" class="rounded-lg border border-dashed border-[var(--border-primary)] p-4 text-sm text-[var(--text-muted)]">Keine Kategorien vorhanden.</p>
   <fieldset v-for="row in editor.state.sets" :key="row.id" class="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4 space-y-3">
     <legend class="px-1 text-sm font-semibold text-[var(--text-primary)]">{{ row.name }}</legend>

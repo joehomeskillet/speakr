@@ -487,7 +487,7 @@ export const ADMIN_POOLS_TEMPLATE = `
           <section aria-labelledby="cap-usage-title" data-testid="usage">
             <h3 id="cap-usage-title" class="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">{{ c.text.usage }}</h3>
             <p v-if="c.state.usageFailed" class="text-sm text-[var(--text-muted)]">{{ c.text.usageUnavailable }}</p>
-            <ul v-else-if="c.state.usage" class="grid grid-cols-3 gap-2 text-sm text-[var(--text-secondary)]">
+            <ul v-else-if="c.state.usage" class="grid grid-cols-1 gap-2 sm:grid-cols-3 text-sm text-[var(--text-secondary)]">
               <li class="rounded-lg bg-[var(--bg-tertiary)] p-2">{{ c.text.usageOpen }}: <strong class="text-[var(--text-primary)]">{{ c.state.usage.openDictations }}</strong></li>
               <li class="rounded-lg bg-[var(--bg-tertiary)] p-2">{{ c.text.usageMembers }}: <strong class="text-[var(--text-primary)]">{{ c.state.usage.members }}</strong></li>
               <li class="rounded-lg bg-[var(--bg-tertiary)] p-2">{{ c.text.usageLinks }}: <strong class="text-[var(--text-primary)]">{{ c.state.usage.links }}</strong></li>

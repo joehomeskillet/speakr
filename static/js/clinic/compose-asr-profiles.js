@@ -361,7 +361,7 @@ const CAPABILITY_TEMPLATE = `
   <div class="overflow-x-auto rounded-lg border border-[var(--border-primary)]">
     <table :aria-label="text.capabilityTitle" class="min-w-full divide-y divide-[var(--border-primary)] text-sm">
       <thead class="bg-[var(--bg-tertiary)]"><tr><th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">{{ text.capabilityColumns.name }}</th><th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">{{ text.capabilityColumns.status }}</th></tr></thead>
-      <tbody class="bg-[var(--bg-secondary)]"><tr><td class="px-4 py-3 text-sm text-[var(--text-secondary)]">{{ text.pronunciation }}</td><td class="px-4 py-3 text-sm text-[var(--text-secondary)]"><span :style="surfaceStyle(row.surface)" class="inline-flex items-center rounded-full border px-2 text-xs font-semibold leading-5 whitespace-normal break-words py-0.5">{{ row.label }}</span></td></tr></tbody>
+      <tbody class="bg-[var(--bg-secondary)]"><tr><td class="px-4 py-3 text-sm text-[var(--text-secondary)]">{{ text.pronunciation }}</td><td class="px-4 py-3 text-sm text-[var(--text-secondary)]"><span :style="surfaceStyle(row.surface)" class="inline-flex items-center rounded-full border px-2 text-xs font-semibold leading-5 whitespace-normal [overflow-wrap:anywhere] py-0.5">{{ row.label }}</span></td></tr></tbody>
     </table>
   </div>
 </section>`;
