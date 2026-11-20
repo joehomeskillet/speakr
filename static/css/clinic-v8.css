@@ -841,8 +841,10 @@
 .v8-ui .pool-dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:25px}
 .v8-ui .pool-dialog-actions button{min-height:40px}
 @media(max-width:700px){.v8-ui .recording-row{min-height:128px}
-.v8-ui .record-role-filters{gap:9px}
-.v8-ui .record-role-filters>label{min-width:100%;max-width:100%}
+.v8-ui .record-role-filters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.v8-ui .record-role-filters>label{min-width:0;max-width:none}
+.v8-ui .record-role-filters input{width:100%;min-width:0}
+.v8-ui .record-role-filters .page-actions{grid-column:1 / -1}
 .v8-ui .record-roles{font-size:10px;gap:2px;margin-top:6px;flex-direction:column}
 .v8-ui .record-role{column-gap:4px}
 .v8-ui .record-subtitle{font-size:9px}
