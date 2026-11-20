@@ -29,18 +29,23 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 
 from flask import current_app
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.clinic import startup, web_ingest
-from src.clinic.ingest import IngestError, IngestService, storage_key_for
-from src.clinic.models import ClinicDictation, ClinicOriginal
+from src.clinic.audio_revisions import init_audio_revision
+from src.clinic.ingest import IngestError, IngestService, probe_original_duration_ms, storage_key_for
+from src.clinic.models import ClinicAudioRevision, ClinicDictation, ClinicOriginal
 from src.clinic.workflow import DRAFT, ClinicWorkflowDictation
 from src.database import db
 from src.models import Recording
 from src.services import audit
+from src.services.storage.locator import local_path_from_key
 
 logger = logging.getLogger(__name__)
 
@@ -217,3 +222,45 @@ def format_row(row: Row) -> str:
     """One output line: ids, action and reason only."""
     line = f'recording={row.recording_id} owner={row.owner_id} action={row.action} reason={row.reason}'
     return line + (f' dictation={row.dictation_id}' if row.dictation_id else '')
+
+
+def _init_audio_row(root: str, dictation_id: str, apply: bool) -> tuple[str, str]:
+    dictation = db.session.get(ClinicDictation, dictation_id, with_for_update=apply)
+    if dictation is None:
+        return SKIP, 'no_dictation'
+    if ClinicAudioRevision.query.filter_by(dictation_id=dictation_id).first() is not None:
+        return SKIP, 'already_initialized'
+    original = (ClinicOriginal.query.filter_by(dictation_id=dictation_id)
+                .order_by(ClinicOriginal.created_at, ClinicOriginal.id).first())
+    if original is None:
+        return SKIP, 'no_original'
+    try:
+        path = Path(local_path_from_key(root, original.storage_key))
+    except OSError:
+        return SKIP, 'original_read_failed'
+    except (RuntimeError, ValueError):
+        return SKIP, 'invalid_storage_key'
+    duration_ms = probe_original_duration_ms(path, original.content_hash)
+    if not apply:
+        return CREATE, 'missing_audio_revision'
+    init_audio_revision(dictation, original, duration_ms)
+    return CREATE, 'initialized'
+
+
+def init_missing_audio(*, apply: bool = False) -> Iterator[tuple[str, str, str]]:
+    """Yield one outcome per dictation, committing each repair independently."""
+    root = startup.originals_root(current_app)
+    ids = db.session.execute(db.select(ClinicDictation.id).order_by(ClinicDictation.id)).scalars().all()
+    for dictation_id in ids:
+        try:
+            action, reason = _init_audio_row(root, dictation_id, apply)
+            if apply:
+                db.session.commit()
+        except IngestError as error:
+            if apply:
+                db.session.rollback()
+            action, reason = SKIP, error.code
+        except SQLAlchemyError:
+            db.session.rollback()
+            action, reason = 'error', 'database_failed'
+        yield dictation_id, action, reason
