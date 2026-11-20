@@ -51,7 +51,7 @@ def model_server():
 
 
 @pytest.fixture
-def scene(tmp_path, monkeypatch):
+def scene(tmp_path, monkeypatch, request):
     app = Flask(__name__)
     app.config.update(TESTING=True, SECRET_KEY='synthetic-fixture', SQLALCHEMY_DATABASE_URI='sqlite:///' + str(tmp_path/'db'))
     db.init_app(app)
@@ -91,8 +91,9 @@ def scene(tmp_path, monkeypatch):
                                       receipt='syn', origin_ref=f'upload:recording:{source.id}:time=upload')
             db.session.add(original)
             db.session.flush()
-            first = revisions.add_asr_revision(row, original, 'Fehlerhafter neutraler Beispielsatz.', 'synthetic')
-            revisions.add_human_revision(row, first, 'Korrigierter neutraler Beispielsatz.', owner.id)
+            if getattr(request, 'param', None) != 'fresh':
+                first = revisions.add_asr_revision(row, original, 'Fehlerhafter neutraler Beispielsatz.', 'synthetic')
+                revisions.add_human_revision(row, first, 'Korrigierter neutraler Beispielsatz.', owner.id)
             db.session.commit()
             client = app.test_client()
             url = f'/api/clinic/v1/dictations/{row.id}/summary'
@@ -207,3 +208,141 @@ def test_ambiguous_historical_source_is_never_disclosed(scene):
     db.session.commit()
     assert client.get(url).json == {'status': 'empty', 'text': None, 'may_generate': True}
     assert not calls
+
+
+def first_asr_event(row, source, kind='transcribe'):
+    from src.clinic import asr_repeat
+    from src.services import job_control
+    from src.tasks.processing import _handle_late_asr
+
+    job = ProcessingJob(user_id=source.user_id, recording_id=source.id, job_type=kind, status='processing')
+    db.session.add(job)
+    db.session.commit()
+    attempt = asr_repeat.attempt_identity(job.id)
+
+    def deliver(body):
+        with job_control.running(job_control.JobControl(job.id)):
+            prior = asr_repeat.lock_projection(source)
+            source.transcription = body
+            assert _handle_late_asr(source, prior, 'local-test', attempt=attempt).id == row.id
+    return deliver
+
+
+@pytest.mark.parametrize('scene', ['fresh'], indirect=True)
+def test_first_asr_and_job_commit_together_and_retry_only_titles_source(scene, monkeypatch):
+    from src.clinic.follow_up import enqueue_follow_up, run_follow_up
+    from src.tasks import processing
+
+    client, url, signin, calls, row, owner, _, _, source = scene
+    hdr = signin(owner)
+    deliver = first_asr_event(row, source)
+    text = 'Erste synthetische automatische Abschrift.'
+    deliver(text)
+    db.session.rollback()
+    assert revisions.current_revision(row) is None and ProcessingJob.query.filter_by(job_type=DICTATION_SUMMARY_JOB).count() == 0
+    deliver(text)
+    db.session.commit()
+    head = revisions.current_revision(row)
+    queued = ProcessingJob.query.filter_by(job_type=DICTATION_SUMMARY_JOB).one()
+    assert queued.recording_id == row.recording_id and queued.user_id == owner
+    assert json.loads(queued.params) == {'revision_id': head.id, 'dictation_id': row.id, 'automatic': True}
+    title = db.session.get(ProcessingJob, enqueue_follow_up(source, True, dictation=row))
+    assert title.job_type == 'summarize' and title.recording_id == source.id
+    assert json.loads(title.params) == {'follow_up': True, 'summarize': False}
+    titled = []
+    monkeypatch.setattr(processing, 'generate_title_task',
+                        lambda _, rid, will_auto_summarize: titled.append((rid, will_auto_summarize)))
+    monkeypatch.setattr(processing, 'generate_summary_only_task', lambda *_: pytest.fail('unbound summary'))
+    run_follow_up(client.application.app_context(), source.id, {'follow_up': True, 'summarize': True})
+    assert titled == [(source.id, False)]
+    assert client.post(url, json={}, headers=hdr).status_code == 202
+    claim = job_queue._claim_next_job([DICTATION_SUMMARY_JOB], 'summary')
+    job_queue._process_job(claim)
+    db.session.expire_all()
+    assert client.get(url).json['status'] == 'ready' and len(calls) == 1
+    assert 'Erste synthetische automatische Abschrift.' in str(calls[0]['messages'])
+    assert source.summary == 'Historisches Ergebnis.'
+    deliver(text)
+    db.session.commit()
+    revisions.add_human_revision(row, head, 'Spätere menschliche Korrektur.', owner)
+    db.session.commit()
+    deliver('Erneute automatische Erkennung.')
+    db.session.commit()
+    assert client.get(url).json['status'] == 'stale'
+    assert ProcessingJob.query.filter_by(job_type=DICTATION_SUMMARY_JOB).count() == 1
+
+
+@pytest.mark.parametrize('scene', ['fresh'], indirect=True)
+@pytest.mark.parametrize('condition', ['opt_out', 'disabled', 'external', 'inactive', 'reprocess'])
+def test_first_asr_respects_existing_controls_and_does_not_backfill(scene, monkeypatch, condition):
+    from src.models import SystemSetting
+
+    client, url, signin, calls, row, owner, _, _, source = scene
+    if condition == 'opt_out':
+        db.session.get(User, owner).auto_summarization = False
+    elif condition == 'disabled':
+        SystemSetting.set_setting('disable_auto_summarization', True, setting_type='boolean')
+    elif condition == 'external':
+        monkeypatch.setenv('TEXT_MODEL_BASE_URL', 'https://example.invalid/v1')
+    elif condition == 'inactive':
+        db.session.get(ClinicAccountPolicy, owner).status = 'disabled'
+    db.session.commit()
+    deliver = first_asr_event(row, source, 'reprocess_transcription' if condition == 'reprocess' else 'transcribe')
+    deliver('Eine synthetische Erstfassung.')
+    db.session.commit()
+    assert revisions.current_revision(row) is not None
+    assert ProcessingJob.query.filter_by(job_type=DICTATION_SUMMARY_JOB).count() == 0
+    if condition in ('opt_out', 'disabled'):
+        assert client.post(url, json={}, headers=signin(owner)).status_code == 202
+    assert not calls
+
+
+@pytest.mark.parametrize('scene', ['fresh'], indirect=True)
+def test_pending_automatic_job_honors_opt_out_and_can_still_be_requested_manually(scene):
+    client, url, signin, calls, row, owner, _, _, source = scene
+    deliver = first_asr_event(row, source)
+    deliver('Neue synthetische Aufzeichnung.')
+    db.session.commit()
+    db.session.get(User, owner).auto_summarization = False
+    db.session.commit()
+    claim = job_queue._claim_next_job([DICTATION_SUMMARY_JOB], 'summary')
+    job_queue._process_job(claim)
+    db.session.expire_all()
+    assert db.session.get(ProcessingJob, claim.id).status == 'failed' and calls == []
+    assert client.post(url, json={}, headers=signin(owner)).status_code == 202
+    manual = job_queue._claim_next_job([DICTATION_SUMMARY_JOB], 'summary')
+    job_queue._process_job(manual)
+    db.session.expire_all()
+    assert len(calls) == 1 and client.get(url).json['status'] == 'ready'
+
+
+@pytest.mark.parametrize('scene', ['fresh'], indirect=True)
+def test_early_open_waits_only_while_first_recognition_and_auto_are_active(scene):
+    client, url, signin, calls, row, owner, _, _, source = scene
+    signin(owner)
+    source.summary = None
+    db.session.commit()
+    assert client.get(url).json['status'] == 'empty'
+    convert = ProcessingJob(user_id=owner, recording_id=source.id, job_type='convert', status='queued')
+    db.session.add(convert)
+    db.session.commit()
+    assert client.get(url).json == {'status': 'waiting_for_transcription', 'may_generate': False, 'text': None}
+    db.session.get(User, owner).auto_summarization = False
+    db.session.commit()
+    assert client.get(url).json['status'] == 'empty'
+    db.session.get(User, owner).auto_summarization = True
+    convert.status = 'failed'
+    db.session.commit()
+    assert client.get(url).json['status'] == 'empty'
+    repeat = ProcessingJob(user_id=owner, recording_id=source.id, job_type='reprocess_transcription', status='queued')
+    db.session.add(repeat)
+    db.session.commit()
+    assert client.get(url).json['status'] == 'empty'
+    deliver = first_asr_event(row, source)
+    assert client.get(url).json['status'] == 'waiting_for_transcription'
+    deliver('Neuer synthetischer Text für die laufende Ansicht.')
+    db.session.commit()
+    assert client.get(url).json['status'] == 'queued'
+    job_queue._process_job(job_queue._claim_next_job([DICTATION_SUMMARY_JOB], 'summary'))
+    db.session.expire_all()
+    assert client.get(url).json['status'] == 'ready' and len(calls) == 1

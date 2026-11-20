@@ -1639,6 +1639,9 @@ def _handle_late_asr(recording, prior, model_ref, *, attempt=None):
             dictation, asr_text, stored, model_ref,
             expected_asr_revision_id=head.id if head and status == 'eligible' else None)
     if stored_ok:
+        if head is None and status == 'unbound':
+            from src.clinic.dictation_summary import queue_first_asr_summary
+            queue_first_asr_summary(dictation, recording.id, job, attempt)
         recognition_state.settle(db.session, dictation.id)
     elif not rejected:
         for field, value in prior.items():
@@ -2394,7 +2397,9 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
                 # The LLM never runs on a transcription worker: the title and the
                 # summary are a job of the summary queue (src/clinic/follow_up.py).
                 from src.clinic.follow_up import enqueue_follow_up
-                enqueue_follow_up(recording, will_auto_summarize)
+                # The linked clinic summary is already bound to its first ASR revision.
+                # The original title worker still completes the source recording.
+                enqueue_follow_up(recording, will_auto_summarize, dictation=dictation)
                 if dictation is not None and dictation.recording_id != recording.id:
                     db.session.refresh(recording, with_for_update=True)
                     recognition_state.mirror_recording(dictation, recording)

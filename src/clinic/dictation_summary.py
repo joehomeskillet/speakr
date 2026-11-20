@@ -1,4 +1,4 @@
-"""Explicit, revision-bound clinic summaries on Speakr's existing summary queue."""
+"""Revision-bound clinic summaries on Speakr's existing summary queue."""
 
 import json
 import os
@@ -31,7 +31,7 @@ def local_model_ready():
             and llm.client is not None and config.is_local_model_url(str(llm.client.base_url)))
 
 
-def allowed(user, action, dictation):
+def may_use_dictation(user, action, dictation):
     if user is None or not user.is_active:
         return False
     account = db.session.get(ClinicAccountPolicy, user.id)
@@ -42,6 +42,38 @@ def allowed(user, action, dictation):
 def usable(text):
     return bool(text and text.strip() and not is_transcription_error(text.lstrip()) and not
                 text.lstrip().startswith(('[Summary skipped', '[Summary not generated', '[Summary generation failed')))
+
+
+def auto_enabled(user):
+    disabled = SystemSetting.get_setting('disable_auto_summarization', False)
+    return str(disabled).lower() != 'true' and user is not None and user.auto_summarization is not False
+
+
+def auto_author(dictation):
+    user = db.session.get(User, dictation.author_user_id)
+    if (auto_enabled(user) and local_model_ready() and may_use_dictation(user, 'view', dictation)
+            and may_use_dictation(user, 'edit', dictation)):
+        return user
+    return None
+
+
+def queue_first_asr_summary(dictation, source_recording_id, job, attempt):
+    """Publish the existing summary job with the first ASR revision, under the dictation lock."""
+    if (job is None or job.recording_id != source_recording_id
+            or job.job_type != 'transcribe' or job.status != 'processing'
+            or job.cancel_requested_at is not None or attempt != (job.retry_count, job.started_at)):
+        return
+    user = auto_author(dictation)
+    if user is None:
+        return
+    head = revisions.current_revision(dictation)
+    if (head is None or head.kind != revisions.KIND_ASR or not usable(head.body)
+            or len(head.body.strip()) < 10):
+        return
+    db.session.add(ProcessingJob(user_id=user.id, recording_id=dictation.recording_id,
+                                 job_type=DICTATION_SUMMARY_JOB, params=json.dumps({
+                                     'dictation_id': dictation.id, 'revision_id': head.id, 'automatic': True,
+                                 })))
 
 
 def source_recording(dictation, head):
@@ -98,6 +130,10 @@ def summary_state(dictation, head, may_generate):
                                           ).order_by(ProcessingJob.id.desc()).first()
     if latest and latest.status in ('queued', 'processing', 'failed'):
         status = latest.status
+    elif status == 'empty' and head is None and auto_author(dictation) is not None:
+        from src.clinic.recognition_state import asr_outcomes
+        if asr_outcomes([dictation], initial_only=True)[dictation.id] in ('queued', 'processing'):
+            status = 'waiting_for_transcription'
     return dict(status=status, text=text, may_generate=may_generate)
 
 
@@ -105,14 +141,14 @@ def register_route(bp):
     @bp.route('/api/clinic/v1/dictations/<uuid:dictation_id>/summary', methods=['GET', 'POST'])
     def summary(dictation_id):
         row = db.session.get(ClinicDictation, str(dictation_id))
-        if row is None or not allowed(current_user, 'view', row):
+        if row is None or not may_use_dictation(current_user, 'view', row):
             abort(404)
         if request.method == 'POST':
             try:
                 validate_csrf(request.headers.get('X-CSRFToken') or request.headers.get('X-CSRF-Token'))
             except ValidationError:
                 abort(403)
-        edit = allowed(current_user, 'edit', row)
+        edit = may_use_dictation(current_user, 'edit', row)
         head = revisions.current_revision(row)
         valid = head is not None and usable(head.body) and len(head.body.strip()) >= 10
         ready = local_model_ready()
@@ -141,8 +177,9 @@ def register_route(bp):
 def _authorized_input(job, params, *, lock=False):
     row = db.session.get(ClinicDictation, params['dictation_id'], populate_existing=True, with_for_update=lock)
     user = db.session.get(User, job.user_id, populate_existing=True)
-    if (row is None or row.recording_id != job.recording_id or not allowed(user, 'view', row)
-            or not allowed(user, 'edit', row) or not local_model_ready()):
+    if (row is None or row.recording_id != job.recording_id or not may_use_dictation(user, 'view', row)
+            or not may_use_dictation(user, 'edit', row) or not local_model_ready()
+            or (params.get('automatic') and not auto_enabled(user))):
         raise SummaryUnavailable('Summary unavailable')
     head = revisions.current_revision(row)
     if head is None or head.id != params['revision_id'] or not usable(head.body):

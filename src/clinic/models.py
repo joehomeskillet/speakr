@@ -156,7 +156,7 @@ class ClinicTranscriptRevision(db.Model):
 
 
 class ClinicDictationSummary(db.Model):
-    """The last explicitly generated summary and the exact text it describes."""
+    """The last generated summary and the exact text revision it describes."""
 
     __tablename__ = "clinic_dictation_summary"
     dictation_id = db.Column(db.String(36), primary_key=True)

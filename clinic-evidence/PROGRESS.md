@@ -53,3 +53,7 @@ Der zweite synthetische Upload durchlief die lokale GPU-Erkennung und wurde übe
 Ein über HTTPS angemeldeter Identitätsadministrator übernahm Staging-Konto 1 mit der bestehenden ID und 13 unverändert zugeordneten Diktaten. Das Konto besitzt jetzt die aktive lokale Klinikpolicy und einen expliziten Grant für Dokumentexport und Freigabe im eigenen Bestand. Die bestehende Site-Admin-Rolle hat die unter O4 vereinbarten Leserechte. Die Browserabnahme verwendet neue QA-Konten.
 
 PR #2 wurde nach sechs grünen Projektprüfungen in clinic/main gemergt. Der Lauf auf 3475a94e bestand mit 11.664 Python-Tests, 5.816 seriellen Kliniktests, 1.942 Paketprüfungen und 2.352 JavaScript-Tests.
+
+### Automatische Zusammenfassung neuer Klinikdiktate
+
+Für neue Diktate kann die erste erfolgreiche lokale Transkription eine Zusammenfassung auslösen. Dazu muss in den Systemeinstellungen `disable_auto_summarization=false` gelten und der Autor die persönliche Option `auto_summarization` eingeschaltet haben. Die Klinik speichert die erste ASR-Fassung und deren Auftrag gemeinsam. Der bestehende Summary-Worker verarbeitet ihn mit dem freigegebenen lokalen Modell und den Objektrechten des Autors. Der Titel entsteht weiterhin im bisherigen Titelauftrag. Bestandsdiktate, erneute Erkennung und menschliche Korrekturen lösen keine nachträgliche Automatik aus. Ein berechtigter Nutzer kann die aktuelle Textfassung über die Diktatdetails weiterhin ausdrücklich zusammenfassen lassen.
