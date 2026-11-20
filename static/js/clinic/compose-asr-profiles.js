@@ -309,7 +309,7 @@ export function createAsrProfilesViewController(deps) {
 
 const CONSENT_TEMPLATE = `
 <section class="panel" role="region" :aria-label="view.title" data-testid="voice-consent"
-  :aria-busy="view.loading || view.busy" @keydown.esc="controller.onKeydown($event); $nextTick(() => $refs.revokeButton?.focus())">
+  :aria-busy="view.loading || view.busy">
   <h2>{{ view.title }}</h2>
   <p class="hint">{{ hint }}</p>
   <p v-if="view.loading" class="text-status" role="status">Einwilligung wird geladen …</p>
