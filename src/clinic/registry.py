@@ -43,6 +43,7 @@ MODEL_MODULES = (
     "worklist_layout",
     "worklist_filters",
     "correction_modes",
+    "app_wiring",
 )
 
 

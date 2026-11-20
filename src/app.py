@@ -1290,7 +1290,7 @@ def register_clinic_identity(flask_app):
     The directory has no provider, so it answers its capability-unavailable problem.
     Preference stores are process-local; a durable store is a later package.
     """
-    from src.clinic import (entra, pool_policy, routes_admin_dictations, routes_directory, routes_grants,
+    from src.clinic import (app_wiring, entra, pool_policy, routes_admin_dictations, routes_directory, routes_grants,
                             routes_identity_providers, routes_pool_admin, routes_pools, routes_preferences)
     from src.clinic.last_selection import Allowed, SelectionStore
     from src.clinic.routes_metadata_fields import create_metadata_fields_blueprint
@@ -1303,8 +1303,8 @@ def register_clinic_identity(flask_app):
 
     def author_pool_for(user_id):
         # One author pool per user is the clinic rule; a user in none has no author recipient default.
-        ids = sorted(pool_policy.author_pool_ids(user_id))
-        return ids[0] if ids else None
+        # The model has no active-pool flag: first pool by name, then id (app_wiring.choose_author_pool).
+        return app_wiring.choose_author_pool(user_id)
 
     def allowed_for(user_id):
         pool_ids = pool_policy.author_pool_ids(user_id)
@@ -1332,13 +1332,12 @@ def register_clinic_audio(flask_app):
     ParityDispatch (start/stop live session are registered on it). Object decisions go through
     pool_policy.decide; an active site admin may open audio of any user (W12, audited by the
     audio handler). Capabilities that do not exist yet answer "unavailable" and are never faked:
-    no durable audio source for the derived rendering (503), no bundle persistence (503), no local
-    TTS engine or declared capability (CAPABILITY_UNAVAILABLE), no live-draft coordinator
-    (CAPABILITY_UNAVAILABLE). The protection store is process-local.
+    no bundle persistence (503), no local TTS engine or declared capability
+    (CAPABILITY_UNAVAILABLE), no live-draft coordinator (CAPABILITY_UNAVAILABLE). The derived
+    rendering reads the stored originals (app_wiring.make_source_loader); the protection store is
+    durable (clinic_dictation_protection).
     """
-    import threading
-
-    from src.clinic import (audio_revisions, config, local_tts, policy, pool_policy, revisions, routes_audio,
+    from src.clinic import (app_wiring, config, local_tts, policy, pool_policy, revisions, routes_audio,
                             routes_bundle, routes_clipboard, routes_correction, routes_dictation_properties,
                             routes_live, routes_output, routes_tts, startup)
     from src.clinic.admin_dictation_access import can_open_content
@@ -1369,34 +1368,11 @@ def register_clinic_audio(flask_app):
     def text_version(dictation):
         return db.session.query(ClinicTranscriptRevision).filter_by(dictation_id=dictation.id).count()
 
-    def load_sources(_dictation, _edl):
-        raise audio_revisions.AudioRevisionError('no durable audio source is wired yet')
-
-    class ProcessProtectionStore:
-        """Protection records of this process; a durable store is a later package."""
-
-        def __init__(self):
-            self._rows, self._lock = {}, threading.Lock()
-
-        def acl_allows(self, user_id, dictation_id):
-            return may(user_id, 'play', db.session.get(ClinicDictation, dictation_id))
-
-        def can_manage(self, user_id, dictation_id):
-            return may(user_id, 'edit', db.session.get(ClinicDictation, dictation_id))
-
-        def get(self, dictation_id):
-            if db.session.get(ClinicDictation, dictation_id) is None:
-                return None
-            with self._lock:
-                return self._rows.get(dictation_id, (None, 1))
-
-        def put(self, dictation_id, record, expected_version):
-            with self._lock:
-                version = self._rows.get(dictation_id, (None, 1))[1]
-                if expected_version != version:
-                    return None
-                self._rows[dictation_id] = (record, version + 1)
-                return version + 1
+    load_sources = app_wiring.make_source_loader(startup.originals_root(flask_app))
+    protection_store = app_wiring.DurableProtectionStore(
+        lambda user_id, dictation_id: may(user_id, 'play', db.session.get(ClinicDictation, dictation_id)),
+        lambda user_id, dictation_id: may(user_id, 'edit', db.session.get(ClinicDictation, dictation_id)),
+        lambda dictation_id: db.session.get(ClinicDictation, dictation_id) is not None)
 
     def bundle_load(actor, dictation_id):
         dictation = db.session.get(ClinicDictation, dictation_id)
@@ -1427,7 +1403,7 @@ def register_clinic_audio(flask_app):
         dispatch, lambda actor, dictation_id: may(actor, 'edit', db.session.get(ClinicDictation, dictation_id)))
     flask_app.register_blueprint(routes_audio.create_blueprint(
         authorize=authorize, run_once=run_once, load_sources=load_sources))
-    flask_app.register_blueprint(routes_dictation_properties.DictationPropertyRoutes(ProcessProtectionStore()).blueprint())
+    flask_app.register_blueprint(routes_dictation_properties.DictationPropertyRoutes(protection_store).blueprint())
     flask_app.register_blueprint(routes_bundle.create_blueprint(
         bundle_load, lambda actor, dictation_id, action: may(actor, action, db.session.get(ClinicDictation, dictation_id)),
         bundle_persist, run_once, managed_client))
