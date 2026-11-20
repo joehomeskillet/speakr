@@ -5,7 +5,7 @@ const MAX_PER_PAGE = 1000;
 function pathFor(page, perPage, { search, sort, order }) {
     const params = new URLSearchParams();
     if (page !== 1) params.set('page', page);
-    if (perPage !== PAGE_SIZE) params.set('per_page', perPage);
+    if (perPage !== PAGE_SIZE || sort) params.set('per_page', perPage);
     if (search) params.set('search', search);
     if (sort && sort !== 'id') params.set('sort', sort);
     if (order === 'desc') params.set('order', order);

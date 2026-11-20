@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createAccountsAdmin } from '../../../static/js/clinic/accounts-ui.js';
+import { AccountsAdminPanel, createAccountsAdmin } from '../../../static/js/clinic/accounts-ui.js';
 
 function fixture(count, write) {
     const users = Array.from({ length: count }, (_, i) => ({
@@ -32,9 +32,23 @@ describe('clinic account directory', () => {
         expect(c.state.table.page).toBe(67);
         await c.browse(1, { search: 'person100', sort: 'username', order: 'desc' });
         expect(c.state.table.users.map(u => u.id)).toEqual([1003, 1002, 1001, 1000]);
+        expect(AccountsAdminPanel.data.call({ controller: c })).toMatchObject({ query: 'person100', sortOrder: 'username:desc' });
         expect(request.mock.calls.at(-1)[0]).toContain('search=person100&sort=username&order=desc');
         await c.browse(1, { role: 'is_identity_admin' });
         expect(c.state.table.users.map(u => u.id)).toEqual([1003]);
+    });
+
+    it('opens the account table alphabetically using a paged read and retains its search when reopened', async () => {
+        const { c, request } = fixture(32);
+        const vm = { controller: c, s: c.state, ...AccountsAdminPanel.data.call({ controller: c }),
+            browse: AccountsAdminPanel.methods.browse };
+        await AccountsAdminPanel.mounted.call(vm);
+        expect(request.mock.calls.at(-1)[0]).toBe('/admin/users?per_page=15&sort=username');
+        await c.browse(1, { search: 'person003', sort: 'username', order: 'desc' });
+        expect(AccountsAdminPanel.data.call({ controller: c })).toMatchObject({ query: 'person003', sortOrder: 'username:desc' });
+        const count = request.mock.calls.length;
+        await AccountsAdminPanel.mounted.call(vm);
+        expect(request).toHaveBeenCalledTimes(count);
     });
 
     it('preserves the raw seconds and other unchanged fields and uses a single versioned command', async () => {

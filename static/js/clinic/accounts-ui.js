@@ -155,6 +155,7 @@ export function createAccountsAdmin(options) {
         accounts: [],
         table: { users: [], page: 1, pages: 1, total: 0 },
         tableLoading: false,
+        filters: {},
         draft: null, // {mode: 'create'|'edit', id, version, username, ...}
         base: null, // loaded server values of the draft, for dirty tracking
         loading: false,
@@ -196,15 +197,14 @@ export function createAccountsAdmin(options) {
 
     let loadId = 0;
     let pageId = 0;
-    let filters = {};
     let requestedPage = 1;
 
-    async function browse(page = 1, nextFilters = filters) {
-        filters = nextFilters;
+    async function browse(page = 1, nextFilters = state.filters) {
+        state.filters = nextFilters;
         requestedPage = page;
         const id = ++pageId;
         state.tableLoading = true;
-        const res = await readAccountPage(client, page, filters);
+        const res = await readAccountPage(client, page, nextFilters);
         if (id !== pageId) return false;
         state.tableLoading = false;
         clearMessage();
@@ -231,7 +231,7 @@ export function createAccountsAdmin(options) {
                 return failFromResult(res);
             }
             state.accounts = res.data.users.map(fromRow);
-            if (!Object.values(filters).some(Boolean) && requestedPage === 1) {
+            if (!Object.values(state.filters).some(Boolean) && requestedPage === 1) {
                 const total = state.accounts.length;
                 state.table = { users: state.accounts.slice(0, PAGE_SIZE), page: 1,
                     pages: Math.max(1, Math.ceil(total / PAGE_SIZE)), total };
@@ -407,12 +407,13 @@ export const AccountsAdminPanel = {
     name: 'AccountsAdminPanel',
     props: { controller: { type: Object, required: true }, embedded: Boolean },
     data() {
+        const filters = this.controller.state.filters;
         return {
-            query: '',
-            role: '',
-            sortOrder: 'id:asc',
+            query: filters.search || '',
+            role: filters.role || '',
+            sortOrder: (filters.sort || 'username') + ':' + (filters.order || 'asc'),
             limits: LIMITS,
-            source: '',
+            source: filters.source || '',
             labels: LABELS,
             policies: LOGIN_POLICIES,
             selectable: SELECTABLE_POLICIES,
@@ -432,7 +433,10 @@ export const AccountsAdminPanel = {
         },
         seen(value) { return value ? new Date(value).toLocaleString('de-CH') : 'Noch nie'; },
     },
-    mounted() { if (!this.s.loaded) this.controller.load(); },
+    async mounted() {
+        if (!this.s.loaded && !await this.controller.load()) return;
+        if (!this.s.filters.sort) await this.browse();
+    },
     template: `
 <section class="cadm-panel" aria-labelledby="acc-title" :aria-busy="s.loading || s.busy ? 'true' : 'false'">
   <header class="cadm-panel__head">
