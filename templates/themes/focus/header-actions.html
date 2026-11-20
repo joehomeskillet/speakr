@@ -21,6 +21,7 @@
             </button>
             <button @click="toggleHighlight(selectedRecording)" class="btn btn--icon hidden md:inline-flex"
                     :style="selectedRecording.is_highlighted ? 'color: var(--text-warn-strong);' : ''"
+                    :aria-pressed="!!selectedRecording.is_highlighted"
                     :title="selectedRecording.is_highlighted ? t('tooltips.removeHighlight') : t('tooltips.highlight')">
                 <i class="fas fa-star"></i>
             </button>

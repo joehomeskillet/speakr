@@ -513,12 +513,34 @@ def test_star_inbox_and_delete_keys_call_the_functions_of_their_buttons(desk):
 
     try:
         # On the open recording: the header's star and inbox buttons
-        starred = "() => getComputedStyle(document.querySelector('header .fa-star').closest('button')).color === 'rgb(234, 179, 8)'"
-        desk.press("s")
-        saved("is_highlighted", opened, not before["is_highlighted"])
-        assert page.evaluate(starred) == (not before["is_highlighted"]), "the header's star does not show the change"
-        desk.press("s")
-        saved("is_highlighted", opened, bool(before["is_highlighted"]))
+        star = page.locator("header button:visible").filter(has=page.locator(".fa-star"))
+        active_color = star.evaluate("""button => {
+            const token = getComputedStyle(button).getPropertyValue('--text-warn-strong').trim();
+            if (!token || !CSS.supports('color', token)) throw new Error('Missing star color token');
+            const sample = document.createElement('span');
+            sample.style.color = token;
+            button.append(sample);
+            const color = getComputedStyle(sample).color;
+            sample.remove();
+            return color;
+        }""")
+
+        def check_star(active):
+            saved("is_highlighted", opened, active)
+            visible_star = playwright_api.expect(star)
+            visible_star.to_have_attribute("aria-pressed", str(active).lower())
+            if active:
+                visible_star.to_have_css("color", active_color)
+            else:
+                visible_star.not_to_have_css("color", active_color)
+
+        initial_star = bool(before["is_highlighted"])
+        for toggle in (lambda: desk.press("s"), star.click):
+            toggle()
+            check_star(not initial_star)
+            toggle()
+            check_star(initial_star)
+        desk.blur()
         desk.press("i")
         saved("is_inbox", opened, not before["is_inbox"])
         desk.press("i")
