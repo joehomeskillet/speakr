@@ -211,14 +211,17 @@ def test_admin_users_table_shows_last_active(browser_page):
     assert headers[-2:] == ["last active", "actions"], (
         f"/admin: Last active is not the column before Actions: {headers}")
 
+    last_active_column = headers.index("last active")
+
     def check_rows():
         rows = table.locator("tbody tr")
         checked = 0
         for index in range(rows.count()):
             cells = rows.nth(index).locator("td")
-            if cells.count() < 9:  # the empty-state or loading row
-                continue
-            cell = cells.nth(7)
+            if cells.count() == 1 and cells.first.get_attribute("colspan"):
+                continue  # the empty-state or loading row
+            assert cells.count() == len(headers), f"/admin: incomplete user row {index}"
+            cell = cells.nth(last_active_column)
             text = cell.inner_text().strip()
             assert text, f"/admin: empty Last active cell in row {index}"
             cell_classes = cell.get_attribute("class") or ""
