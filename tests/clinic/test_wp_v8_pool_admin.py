@@ -393,7 +393,7 @@ def test_routes_are_mounted_classified_and_reachable_in_clinic_mode(tmp_path):
     result = _reach("on", tmp_path)
     assert result["endpoints"] == sorted(
         f"clinic_pool_admin.{n}" for n in ("list_pools", "create_pool", "rename", "set_active",
-                                           "set_validity", "link", "usage"))
+                                           "set_validity", "link", "usage", "set_member_role"))
     assert result["unclassified"] == [] and result["kinds"] == ["auth"]
     assert result["anon"] in (302, 401)
     assert (result["plain"], result["plain_create"]) == (403, 403)

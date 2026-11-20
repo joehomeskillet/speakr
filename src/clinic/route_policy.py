@@ -164,7 +164,7 @@ _CLINIC_IDENTITY = _split("""
     clinic_pools.list_pools clinic_pools.put_pool
     clinic_pool_admin.list_pools clinic_pool_admin.create_pool clinic_pool_admin.rename
     clinic_pool_admin.set_active clinic_pool_admin.set_validity clinic_pool_admin.link
-    clinic_pool_admin.usage
+    clinic_pool_admin.usage clinic_pool_admin.set_member_role
     clinic_grants.read
     clinic_preferences.recipient_default clinic_preferences.recipient_resolve
     clinic_preferences.last_selection clinic_preferences.workstation_issue
