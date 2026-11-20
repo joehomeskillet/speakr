@@ -20,6 +20,7 @@ export function useReprocess(state, utils) {
 
     const { showToast, setGlobalError, onChatComplete } = utils;
     const t = (key, params) => (utils.t ? utils.t(key, params) : key);
+    const clinicMode = () => document.getElementById('app')?.dataset.clinicMode === 'True';
 
     // Store for active polling intervals
     const reprocessingPolls = new Map();
@@ -28,11 +29,19 @@ export function useReprocess(state, utils) {
     // Reprocess Modal
     // =========================================
 
-    const openReprocessModal = (type, recording = null) => {
+    const openReprocessModal = async (type, recording = null) => {
         // Summaries have their own dialog (#584); this one is transcription only.
         if (type === 'summary') {
             openRegenerateSummaryModal(recording);
             return;
+        }
+        if (clinicMode()) {
+            const { activeRepeatSession, REPEAT_TEXT } = await import('../../clinic/repeat-transcription-ui.js');
+            const session = activeRepeatSession((recording || selectedRecording.value)?.id);
+            if (!session?.eligible()) {
+                setGlobalError(REPEAT_TEXT.unavailable);
+                return;
+            }
         }
         reprocessType.value = type;
         reprocessRecording.value = recording || selectedRecording.value;
@@ -138,6 +147,15 @@ export function useReprocess(state, utils) {
     const reprocessTranscription = async (recordingId, language, minSpeakers, maxSpeakers, hotwords, initialPrompt, transcriptionModel) => {
         if (!recordingId) {
             setGlobalError(t('errors.noRecordingToReprocess'));
+            return;
+        }
+
+        if (clinicMode()) {
+            const { activeRepeatSession, REPEAT_TEXT } = await import('../../clinic/repeat-transcription-ui.js');
+            const session = activeRepeatSession(recordingId);
+            const result = session ? await session.submit() : { ok: false, message: REPEAT_TEXT.unavailable };
+            if (!result.ok) setGlobalError(result.message);
+            else showToast(result.message, 'fa-sync-alt');
             return;
         }
 

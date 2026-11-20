@@ -91,6 +91,7 @@ export function useCorrectionEditor(options) {
     const user = opts.currentUser || {};
 
     const text = refs.ref('');
+    const recordingId = refs.ref(null);
     const textRevisionId = refs.ref(null);
     const etag = refs.ref(null);
     const dirty = refs.ref(false);
@@ -173,6 +174,7 @@ export function useCorrectionEditor(options) {
             return problem;
         }
         text.value = data.text;
+        recordingId.value = Number.isSafeInteger(data.recording_id) && data.recording_id > 0 ? data.recording_id : null;
         textRevisionId.value = data.text_revision_id;
         // The server issues the validator (revision + lease generation); an older server only names the revision.
         etag.value = typeof data.etag === 'string' && data.etag
@@ -225,7 +227,7 @@ export function useCorrectionEditor(options) {
     }
 
     return {
-        text, textRevisionId, etag, dirty, manual, loading, error, audio, template,
+        text, recordingId, textRevisionId, etag, dirty, manual, loading, error, audio, template,
         templates: manager.state, templatesError, lease: leaseState, canEdit, announcement,
         load, applyTemplate, setText, dispose, audioSource,
         availableLeaseActions: () => leaseActions(leaseState.value),

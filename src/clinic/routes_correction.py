@@ -262,6 +262,7 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
         audio = current_audio_revision(dictation)
         links = get_compatible_links(dictation, head, audio) if head else []
         out: JSON = dict(
+            recording_id=dictation.recording_id,
             dictation_id=dictation.id, text_revision_id=head.id if head else None, text=body, etag=etag,
             state=None if state is None else dict(version=state.version, audio_position_ms=state.audio_position_ms),
             audio_revision_id=audio.id if audio else None,

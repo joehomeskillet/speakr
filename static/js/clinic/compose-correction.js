@@ -40,6 +40,7 @@ import { MODES, useCorrectionModes } from './correction-modes-ui.js';
 import { useCorrectionSave } from './correction-save-ui.js';
 import { AudioMarkers } from './audio-markers-ui.js';
 import { PlaybackGain, usePlaybackGain } from './playback-gain-ui.js';
+import { createRepeatTranscription, REPEAT_TEXT } from './repeat-transcription-ui.js';
 
 export const COMPOSE_CORRECTION_VERSION = 1;
 
@@ -298,6 +299,7 @@ export function createCorrectionViewController(options) {
         ...(opts.saveOptions || {}),
     });
 
+    const repeat = createRepeatTranscription({ editor, ref });
     const resumeLabel = (api.computed)(() => {
         const ms = saver.resumePosition.value;
         if (ms === null) return 'Keine gespeicherte Position.';
@@ -569,6 +571,7 @@ export function createCorrectionViewController(options) {
         if (disposed) return;
         const holdsLease = editor.lease.value && editor.lease.value.status === 'held';
         disposed = true;
+        repeat.dispose();
         for (const stop of stops.splice(0)) if (typeof stop === 'function') stop();
         if (pedal) { pedal.detach(); pedal = null; }
         pedalStatus.value = '';
@@ -585,7 +588,7 @@ export function createCorrectionViewController(options) {
     }
 
     return {
-        vue: V, api, editor, alignment, modes, saver, gain: () => gain,
+        vue: V, api, editor, alignment, modes, saver, repeat, gain: () => gain,
         ready, loadGeneration, revisionGeneration, audioEl, gainState, closeMessage, resumeLabel,
         recordingId: () => opts.recordingId || editor.audio.value.recordingId || null,
         peaksKey, peaksFetch,
@@ -852,6 +855,7 @@ export const CorrectionBody = {
             c, FOCUS, MODES, box, styleFor, TEXT, showDiff,
             tb, tbState, textEl, setTextEl, fontPx, focusMode, shortcutsOpen, highlightOn, inlineWord, editorScroll, followOn, onTextInput, onTextKeydown, onFindKeydown,
             onQuery, onReplacement, onCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, toggleDrawer, unsavedSuffix,
+            repeatState: c.repeat.state, REPEAT_TEXT,
             text: e.text, canEdit: e.canEdit, dirty: e.dirty, loading: e.loading, error: e.error, manual: e.manual,
             lease: e.lease, audio: e.audio, template: e.template, templates: e.templates, templatesError: e.templatesError,
             editorAnnouncement: e.announcement,
@@ -1155,6 +1159,19 @@ export const CorrectionBody = {
       <section class="panel" :aria-label="TEXT.options">
         <div class="panel-header"><h2>{{ TEXT.options }}</h2></div>
         <PlaybackGain v-if="gainState" :state="gainState.value" :controller="c.gain()" />
+        <div data-testid="repeat-transcription">
+          <button type="button" class="button small" :style="FOCUS" :disabled="!c.repeat.eligible()"
+                  data-testid="repeat-open" @click="c.repeat.open()">{{ REPEAT_TEXT.title }}</button>
+          <p v-if="!c.repeat.eligible() && !repeatState.message" class="hint">{{ REPEAT_TEXT.unavailable }}</p>
+          <div v-if="repeatState.confirming" role="group" :aria-label="REPEAT_TEXT.title">
+            <p class="hint">{{ REPEAT_TEXT.explanation }}</p>
+            <button type="button" class="button primary small" :style="FOCUS" :disabled="!c.repeat.eligible()"
+                    data-testid="repeat-confirm" @click="c.repeat.submit()">{{ REPEAT_TEXT.confirm }}</button>
+            <button type="button" class="button small" :style="FOCUS" @click="c.repeat.cancel()">Abbrechen</button>
+          </div>
+          <p v-if="repeatState.message" :role="repeatState.phase === 'error' ? 'alert' : 'status'"
+             class="hint" data-testid="repeat-result" :data-state="repeatState.phase">{{ repeatState.message }}</p>
+        </div>
       </section>
     </div>
   </div>
