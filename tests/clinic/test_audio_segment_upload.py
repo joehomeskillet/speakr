@@ -42,7 +42,7 @@ def scene(tmp_path, monkeypatch):
     original_bytes = wav(1000)
     (tmp_path / 'original.wav').write_bytes(original_bytes)
     with app.app_context():
-        users = [User(username=uuid.uuid4().hex, email=f'{uuid.uuid4()}@test.invalid', password='x')
+        users = [User(username=uuid.uuid4().hex[:20], email=f'{uuid.uuid4()}@test.invalid', password='x')
                  for _ in range(2)]
         db.session.add_all(users)
         db.session.flush()

@@ -60,7 +60,7 @@ def _suffix() -> str:
 def _user(name: str, *, is_admin: bool = False) -> User:
     tag = _suffix()
     user = User(
-        username=f"adacc_{name}_{tag}",
+        username=f"{name[:11]}_{tag}",
         email=f"{name}_{tag}@example.invalid",
         password="x",
         is_admin=is_admin,
