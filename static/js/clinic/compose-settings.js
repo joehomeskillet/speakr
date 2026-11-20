@@ -254,8 +254,8 @@ const PEDAL_TEMPLATE = `
   </div>
   <p v-if="!rows().length" class="t-body" role="status" data-testid="clinic-settings-pedal-empty">{{ labels.empty }}</p>
   <ul v-else role="list" class="space-y-2" :aria-label="labels.title">
-    <li v-for="r in rows()" :key="r.code" class="grid items-center gap-x-3 gap-y-1 grid-cols-[1fr_auto] sm:grid-cols-[minmax(7rem,9rem)_1fr_auto]" :data-code="r.code">
-      <kbd class="kbd justify-self-start sm:justify-self-stretch">{{ r.code }}</kbd>
+    <li v-for="r in rows()" :key="r.code" class="grid items-center gap-x-3 gap-y-1 grid-cols-[1fr_auto] sm:grid-cols-[4.5rem_1fr_auto]" :data-code="r.code">
+      <kbd class="kbd inline-flex items-center justify-center justify-self-start min-w-[3.5rem] min-h-8 px-2 py-1">{{ r.code }}</kbd>
       <label class="order-last col-span-2 flex items-center gap-2 t-body min-w-0 sm:order-none sm:col-span-1">
         <span class="t-meta sr-only sm:not-sr-only">{{ labels.action }}</span>
         <select class="field field--sm min-w-0 flex-1" :value="r.action" :aria-label="labels.action + ' ' + r.code"
@@ -266,7 +266,7 @@ const PEDAL_TEMPLATE = `
       <button type="button" class="btn btn--sm btn--ghost" @click="removeKey(r.code)">{{ labels.remove }}</button>
     </li>
   </ul>
-  <div class="grid gap-3 sm:grid-cols-3">
+  <div class="grid gap-3 sm:grid-cols-3 items-end">
     <label class="flex flex-col gap-1 t-body">
       <span class="t-meta">{{ labels.rewindSeconds }}</span>
       <input type="number" min="0" max="60" step="1" class="field field--sm" :value="settings.rewindSeconds"
