@@ -95,7 +95,7 @@ def test_review_and_release_current_bound_versions(review_scene, tmp_path):
                                         headers=_headers(page, base) | {"If-Match": initial["etag"]})
             assert (refused.status, refused.json()["code"]) == (409, "LEASE_CONFLICT")
 
-            page.get_by_test_id("open-link").filter(visible=True).first.click()
+            page.locator(f'[data-testid=open-link][data-id="{did}"]').click()
             text = page.get_by_test_id("text")
             page.locator("[data-action=acquire]").click()
             expect(text).to_be_editable()
@@ -105,7 +105,8 @@ def test_review_and_release_current_bound_versions(review_scene, tmp_path):
 
             current = _get(page, path + "/review")
             held = _get(page, path + "/leases")
-            release = current["binding"]["release"] | {"confirmed_content": True, "confirmed_context": True,
+            release = current["binding"]["release"] | {"original_version_id": current["binding"]["audio_revision_id"],
+                                                        "confirmed_content": True, "confirmed_context": True,
                                                         "lease_id": held["lease_id"], "lease_generation": held["generation"]}
             denied = page.request.post(path + "/releases", data=release,
                                        headers=_headers(page, base) | {"If-Match": current["etag"]})
@@ -127,7 +128,7 @@ def test_review_and_release_current_bound_versions(review_scene, tmp_path):
             fields = {k: binding[k] for k in ("text_revision_id", "context_revision_id", "acceptance_rule_id")}
             for invalid in (stale, foreign):
                 refused = _command(page, base, did, ready, "request_acceptance", fields | {"acceptance_rule_id": invalid})
-                assert refused.status in (400, 409, 422), refused.text()
+                assert (refused.status, refused.json()["code"]) == (409, "REVISION_CONFLICT"), refused.text()
                 assert _get(page, path + "/review")["revision"] == ready["revision"]
 
             page.get_by_test_id("clinic-dictation-link-detail").click()
