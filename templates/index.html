@@ -160,6 +160,18 @@
                 <div v-if="clinicWorklistEnabled" v-show="['clinic-recordings', 'clinic-worklist', 'clinic-resources'].includes(currentView)"
                      data-clinic-shell-view ref="clinicViewMount"
                      class="flex-1 overflow-y-auto p-3 md:p-6 bg-[var(--bg-primary)] text-[var(--text-primary)]">
+                    <!-- V8 menu views (v8-71): actions of the Aufnahmen toolbar. Not primary tabs; Einstellungen and
+                         Verbindungsstatus / Entwürfe are entries of the header (components/header-controls.html). -->
+                    <div v-if="currentView === 'clinic-recordings'" role="group" aria-label="Aufnahme-Aktionen"
+                         data-testid="clinic-menu-actions" class="flex flex-wrap items-center gap-2 mb-3">
+                        <button v-for="entry in clinicMenuActions" :key="entry.view" type="button" :data-testid="entry.testid"
+                                class="px-3 py-2 rounded border border-[var(--border-primary)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
+                                style="min-height: 2.75rem"
+                                :class="{ 'font-semibold': currentView === entry.view }"
+                                :aria-current="currentView === entry.view ? 'page' : null"
+                                @click="goClinicView(entry.view)" v-text="entry.label"></button>
+                    </div>
+                    <!-- end V8 menu views (v8-71) -->
                     <keep-alive>
                         <clinic-recordings-view v-if="currentView === 'clinic-recordings'" :client="clinicClient" :current-user="clinicUser" @open="openClinicDictation"></clinic-recordings-view>
                         <clinic-worklist-view v-else-if="currentView === 'clinic-worklist'" :client="clinicClient" :current-user="clinicUser" @open="openClinicDictation"></clinic-worklist-view>
@@ -178,6 +190,47 @@
                                             :create-audio-context="clinicAudioContextFactory"
                                             @close="closeClinicCorrection"></clinic-correction-view>
                 </div>
+                <!-- V8 menu views (v8-71): Neue Aufnahme, Live-Diktat, Archiv, Dateien und Geräteimport, Einstellungen,
+                     Verbindungsstatus / Entwürfe. One view at a time; hash routes #/neu #/live #/archiv #/import #/einstellungen #/offline. -->
+                <div v-if="clinicWorklistEnabled && clinicMenuViews.includes(currentView)"
+                     data-testid="clinic-menu-view" data-clinic-shell-view
+                     class="flex-1 overflow-y-auto p-3 md:p-6 bg-[var(--bg-primary)] text-[var(--text-primary)]">
+                    <!-- V8 menu views (v8-71): actions of the Aufnahmen toolbar. Not primary tabs; Einstellungen and
+                         Verbindungsstatus / Entwürfe are entries of the header (components/header-controls.html). -->
+                    <div v-if="clinicMenuToolbarVisible" role="group" aria-label="Aufnahme-Aktionen"
+                         data-testid="clinic-menu-actions" class="flex flex-wrap items-center gap-2 mb-3">
+                        <button v-for="entry in clinicMenuActions" :key="entry.view" type="button" :data-testid="entry.testid"
+                                class="px-3 py-2 rounded border border-[var(--border-primary)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
+                                style="min-height: 2.75rem"
+                                :class="{ 'font-semibold': currentView === entry.view }"
+                                :aria-current="currentView === entry.view ? 'page' : null"
+                                @click="goClinicView(entry.view)" v-text="entry.label"></button>
+                    </div>
+                    <!-- end V8 menu views (v8-71) -->
+                    <clinic-recording-view v-if="currentView === 'clinic-recording'" :client="clinicClient" :current-user="clinicUser"
+                                           :recorder="clinicRecorder" :upload-file="clinicUploadFile"
+                                           @open="openClinicMenuDictation" @worklist="goClinicView('clinic-worklist')"></clinic-recording-view>
+                    <clinic-live-view v-else-if="currentView === 'clinic-live' && clinicLiveId" :client="clinicClient"
+                                      :dictation-id="clinicLiveId"></clinic-live-view>
+                    <section v-else-if="currentView === 'clinic-live'" data-testid="clinic-live-picker" aria-labelledby="clinic-live-picker-title">
+                        <h1 id="clinic-live-picker-title" class="text-lg font-semibold">Live-Diktat</h1>
+                        <p class="mt-2">Live-Diktat läuft zu einem bestehenden Diktat. Geben Sie die Diktat-ID ein.</p>
+                        <form class="flex flex-wrap items-end gap-2 mt-3" @submit.prevent="openClinicLive()">
+                            <label class="flex flex-col text-sm">Diktat-ID
+                                <input type="text" v-model="clinicLiveDraft" data-testid="clinic-live-id" autocomplete="off"
+                                       class="px-2 py-2 border rounded" style="min-height: 2.75rem">
+                            </label>
+                            <button type="submit" data-testid="clinic-live-open" class="px-3 py-2 border rounded" style="min-height: 2.75rem"
+                                    :disabled="!clinicLiveDraft.trim()">Live-Diktat öffnen</button>
+                        </form>
+                    </section>
+                    <clinic-archive-view v-else-if="currentView === 'clinic-archive'" :client="clinicClient"
+                                         @open="openClinicMenuDictation" @back="goClinicView('clinic-recordings')"></clinic-archive-view>
+                    <clinic-import-view v-else-if="currentView === 'clinic-import'" :client="clinicClient" :current-user="clinicUser"></clinic-import-view>
+                    <clinic-settings-view v-else-if="currentView === 'clinic-settings'" :client="clinicClient" :current-user="clinicUser"></clinic-settings-view>
+                    <clinic-offline-view v-else-if="currentView === 'clinic-offline'" :client="clinicClient" :who="clinicUser"></clinic-offline-view>
+                </div>
+                <!-- end V8 menu views (v8-71) -->
                 {% endif %}
 
                 <!-- Recording View -->
