@@ -8,7 +8,7 @@ Für ein zugelassenes Diktiergerät öffnen berechtigte Personen **Verwaltung & 
 
 ## Windows-Importagent
 
-Version `windows-import-v0.11.1-preview.1` ist eine unsignierte Testversion für Windows x64. Sie ist für die Erprobung vorgesehen und hat keine klinische Produktivfreigabe.
+Version `windows-import-v0.11.1-preview.1` ist eine unsignierte Testversion für Windows x64. Die EXE enthält die benötigte .NET-Laufzeit. Sie ist für die Erprobung vorgesehen und hat keine klinische Produktivfreigabe.
 
 Der Importagent überträgt Dateien von freigegebenen Geräten und Ordnern unverändert an Ihre Klinik. Laden Sie die [Windows-x64-EXE](https://github.com/joehomeskillet/speakr/releases/download/windows-import-v0.11.1-preview.1/Speakr-Import-win-x64-preview.exe) und die [zugehörige SHA-256-Prüfsumme](https://github.com/joehomeskillet/speakr/releases/download/windows-import-v0.11.1-preview.1/SHA256SUMS.txt) aus derselben Version herunter.
 
