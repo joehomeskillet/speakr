@@ -19,7 +19,7 @@
 import { surfaceFor } from './tokens.js';
 import { createPoolsStore } from './pools-ui.js';
 
-export const ACTIONS = Object.freeze(['view', 'play', 'edit', 'export', 'release']);
+export const ACTIONS = Object.freeze(['view', 'play', 'edit', 'export', 'audio_export', 'release']);
 export const SCOPES = Object.freeze(['own', 'pool', 'all']);
 export const EFFECTS = Object.freeze(['allow', 'deny']);
 
@@ -45,7 +45,7 @@ const LABELS = {
     'clinic.grants.action.archive': 'Archivieren',
     'clinic.grants.action.rename': 'Umbenennen',
     'clinic.grants.action.priority': 'Priorität ändern',
-    'clinic.grants.action.audio_export': 'Audio exportieren',
+    'clinic.grants.action.audio_export': 'Originalaudio exportieren',
     'clinic.grants.action.reassign': 'Neu zuordnen',
     'clinic.grants.action.reopen': 'Wieder öffnen',
     'clinic.grants.effective': 'Wirksames Ergebnis nach dem Speichern',
