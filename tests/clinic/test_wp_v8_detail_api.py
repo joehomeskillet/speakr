@@ -19,9 +19,9 @@ from flask import Flask, jsonify
 from flask_login import LoginManager, login_user
 
 from src.app import app as main_app, db
-from src.clinic import routes_dictation_detail, workflow, worklist_entries
+from src.clinic import revisions, routes_dictation_detail, workflow, worklist_entries
 from src.clinic.identity import create_tables as _create_identity_tables
-from src.clinic.models import ClinicContextRevision, ClinicDictation
+from src.clinic.models import ClinicContextRevision, ClinicDictation, ClinicOriginal
 from src.clinic.pools import ClinicAuthorPool, ClinicPoolRoute, ClinicStaffPool
 from src.models import AuditEvent, Group, Recording, User
 from src.services import audit
@@ -30,6 +30,7 @@ ROOT = Path(__file__).resolve().parents[2]
 FALL_ID = 'F-SYN-0042'
 PATIENT_MARKER = 'P-SYN-SECRET'
 TITLE_MARKER = 'TITLE-SYN-SECRET'
+DENIED = set()
 
 
 @pytest.fixture(autouse=True)
@@ -40,6 +41,7 @@ def _clinic_mode(monkeypatch):
         _create_identity_tables()
     audit.flush()
     audit.reset_memory()
+    DENIED.clear()
     yield
     audit.flush()
     audit.reset_memory()
@@ -106,7 +108,7 @@ def api():
 
         def authorize(user, action, dictation):
             seen.append(action)
-            return user.id in allowed
+            return user.id in allowed and action not in DENIED
 
         flask.register_blueprint(routes_dictation_detail.create_blueprint(
             authorize=authorize, dictation_snapshot=worklist_entries.dictation_snapshot))
@@ -140,7 +142,67 @@ def test_header_carries_identities_time_fall_id_and_separate_axes(api):
     assert data['status_axes'] == dict(processing='SKIPPED', workflow=workflow.TO_WRITE,
                                        acceptance='QUEUED', output='NOT_RELEASED')
     assert data['etag'] == f'"{ids["dictation"]}:3"' and data['revision'] == 3
-    assert seen == ['history']
+    assert seen[0] == 'history'
+
+
+def _with_status(api, status, *, acceptance_required):
+    login_as, allowed, _ = api
+    ids = _scene(meeting_date=None)
+    row = db.session.get(workflow.ClinicWorkflowDictation, ids['dictation'])
+    row.status, row.acceptance_required = status, acceptance_required
+    db.session.commit()
+    allowed.add(ids['typist'])
+    return login_as(ids['typist']).get(URL.format(ids['dictation'])).json
+
+
+def test_workflow_capabilities_follow_status_and_policy(api):
+    data = _with_status(api, workflow.TO_CORRECT, acceptance_required=True)
+    assert data['allowed_actions'] == ['submit', 'archive']
+    assert data['transitions'] == dict(submit=workflow.TO_ACCEPT, archive=workflow.TO_ARCHIVE)
+    assert set(data['binding']) == {'textRevisionId', 'contextRevisionId'}
+    data = _with_status(api, workflow.TO_ACCEPT, acceptance_required=True)
+    assert data['allowed_actions'] == ['accept', 'reject', 'archive']
+    assert data['transitions']['accept'] == workflow.ACCEPTED
+    assert data['transitions']['reject'] == workflow.TO_CORRECT
+    data = _with_status(api, workflow.DONE, acceptance_required=False)
+    assert data['allowed_actions'] == ['reopen', 'archive']
+    assert data['transitions']['reopen'] == workflow.TO_CORRECT
+    data = _with_status(api, workflow.ACCEPTED, acceptance_required=True)
+    assert data['allowed_actions'] == ['release', 'archive']
+    assert data['transitions']['release'] == workflow.DONE
+    assert data['binding']['textRevisionId'] is None and 'release' not in data['binding']
+
+
+def test_binding_names_the_current_transcript_head(api):
+    login_as, allowed, _ = api
+    ids = _scene()
+    row = db.session.get(workflow.ClinicWorkflowDictation, ids['dictation'])
+    row.status, row.acceptance_required = workflow.ACCEPTED, True
+    dictation = db.session.get(ClinicDictation, ids['dictation'])
+    original = ClinicOriginal(dictation_id=dictation.id, content_hash='0' * 64, size_bytes=1,
+                              storage_key='synthetic/original', receipt='{}', origin_ref='synthetic')
+    db.session.add(original)
+    db.session.flush()
+    head = revisions.add_human_revision(dictation, None, 'Synthetischer Text', ids['author'],
+                                        original_version=original)
+    db.session.commit()
+    allowed.add(ids['typist'])
+    data = login_as(ids['typist']).get(URL.format(ids['dictation'])).json
+    assert data['binding']['textRevisionId'] == head.id
+    assert data['binding']['release']['transcript_revision_id'] == head.id
+    assert data['binding']['release']['text_sha256'] == head.normalised_text_hash
+    assert data['binding']['release']['mode'] == 'PLATFORM_REVIEWED_KIS_DRAFT'
+    assert data['binding']['release']['original_version_id'] == original.id
+    assert not [k for k in data['binding']['release'] if 'lease' in k]
+
+
+def test_workflow_actions_are_withheld_when_the_policy_denies_them(api):
+    DENIED.update({'clinic.review', 'clinic.accept', 'clinic.reopen', 'clinic.release'})
+    data = _with_status(api, workflow.TO_ACCEPT, acceptance_required=True)
+    assert data['allowed_actions'] == ['archive']
+    assert data['transitions'] == dict(archive=workflow.TO_ARCHIVE)
+    DENIED.add('clinic.archive')
+    assert _with_status(api, workflow.TO_ACCEPT, acceptance_required=True)['allowed_actions'] == []
 
 
 def test_missing_recording_time_is_marked_as_fallback(api):

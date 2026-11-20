@@ -13,7 +13,7 @@ from flask import Blueprint, Response, abort, jsonify, session
 from flask_login import current_user
 from werkzeug.exceptions import HTTPException
 
-from src.clinic import workflow
+from src.clinic import revisions, workflow
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.models import ClinicDictation
 from src.clinic.pools import ClinicAuthorPool, ClinicPoolRoute, ClinicStaffPool
@@ -37,6 +37,45 @@ def _problem(status: int) -> Response:
     response.mimetype = 'application/problem+json'
     response.headers['Cache-Control'] = 'no-store'
     return response
+
+
+# Workflow action -> (policy permission, workflow trigger); same table as workflow_actions
+# and workflow_finalize, so the header offers exactly what the command endpoints accept.
+_ACTIONS = {
+    'submit': ('clinic.review', 'complete'),
+    'accept': ('clinic.accept', 'accept'),
+    'reject': ('clinic.accept', 'reject'),
+    'reopen': ('clinic.reopen', 'reopen'),
+    'release': ('clinic.release', 'complete'),
+    'archive': ('clinic.archive', 'report_archive'),
+}
+
+# "complete" branches on acceptance: submit is the branch into acceptance, release the one to done.
+_REQUIRED_TARGET = {'submit': workflow.TO_ACCEPT, 'release': workflow.DONE}
+
+
+def _capabilities(user: User, dictation: ClinicDictation, flow, snap: dict,
+                  authorize: Callable[[User, str, ClinicDictation], bool]) -> dict:
+    """Allowed workflow actions, their target status and the revision binding for the caller."""
+    if flow is None:
+        return dict(allowed_actions=[], transitions={}, binding={})
+    allowed, transitions = [], {}
+    for name, (permission, trigger) in _ACTIONS.items():
+        target = workflow._destination(flow.status, trigger, flow.acceptance_required, flow.resume_status)
+        if target is None or target[0] != _REQUIRED_TARGET.get(name, target[0]):
+            continue
+        if authorize(user, permission, dictation) is True:
+            allowed.append(name)
+            transitions[name] = target[0]
+    head = revisions.current_revision(dictation)
+    binding = dict(textRevisionId=None if head is None else head.id,
+                   contextRevisionId=snap['current_context_revision_id'])
+    if 'release' in allowed and head is not None:
+        binding['release'] = dict(
+            original_version_id=snap['current_original_version_id'],
+            transcript_revision_id=head.id, context_revision_id=snap['current_context_revision_id'],
+            document_type='report', mode='PLATFORM_REVIEWED_KIS_DRAFT', text_sha256=head.normalised_text_hash)
+    return dict(allowed_actions=allowed, transitions=transitions, binding=binding)
 
 
 def _person(user_id: int | None) -> dict | None:
@@ -64,7 +103,8 @@ def create_blueprint(
 ) -> Blueprint:
     """Mount with the trusted session channel and the current object policy.
 
-    The `history` action (view scope) gates the read, so a reader sees the
+    The `history` action (view scope) gates the read; the same `authorize` callback
+    decides each workflow action offered in `allowed_actions`, so a reader sees the
     header exactly when the history is readable. A dictation the caller may not
     see answers 404 like an unknown one.
     """
@@ -120,6 +160,7 @@ def create_blueprint(
                 acceptance=snap['review_state'],
                 output='RELEASED' if snap['active_release_id'] else 'NOT_RELEASED',
             ),
+            **_capabilities(current_user, dictation, flow, snap, authorize),
         )
 
     return bp
