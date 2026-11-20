@@ -87,11 +87,12 @@ def _eligible(dictation):
         return ()  # Legacy rows may lack a current author pool.
 
 
-def _end_previous_assignment(item):
+def _end_previous_assignment(item, dictation, actor):
     active = lease.current(item.id) if item.assignee_user_id is not None else None
     now = datetime.now(timezone.utc)
     if active is not None and active.holder_user_id == item.assignee_user_id and active.expires_at > now:
         lease.release(active, active.generation, now, user_id=item.assignee_user_id)
+        lease.audit_operation('release', active, actor, dictation, previous_holder=active.holder_user_id)
         if item.status == workflow.IN_PROGRESS:
             workflow.transition(db.session(), item.id, 'close')
 
@@ -168,11 +169,12 @@ def create_blueprint(run_once: RunOnce) -> Blueprint:
                 ).values(version_counter=dictation.version_counter + 1))
                 if bumped.rowcount != 1:
                     raise CommandProblem('STALE_VERSION')
-                _end_previous_assignment(item)
+                _end_previous_assignment(item, dictation, actor)
                 item.assignee_user_id = recipient
                 recording = db.session.get(Recording, dictation.recording_id)
                 if audit.record_in_tx('recording.edited', recording=recording, actor_kind='session',
-                                      actor_user_id=actor, details={'fields': ['assignee']}, force=True) is None:
+                                      actor_user_id=actor, target_user_id=recipient,
+                                      details={'fields': ['assignee']}, force=True) is None:
                     raise CommandProblem('AUDIT_UNAVAILABLE')
             return dict(dictation_id=dictation.id, assignee_user_id=recipient,
                         version=dictation.version_counter, etag=dictation_etag(dictation))

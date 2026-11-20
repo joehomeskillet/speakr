@@ -120,11 +120,9 @@ _CLINIC_RESOURCES = _split("""
     clinic_commands.get_pronunciation_capabilities clinic_commands.execute_command_endpoint
 """)
 
-# Worklist, workflow, history, template, category, regex and column handlers, mounted
-# by register_clinic_worklist in src/app.py only in clinic mode. Their URLs carry a
-# clinic dictation id (not a recording id), so the guard cannot resolve an object:
-# each handler authenticates the session, checks CSRF on writes and then decides the
-# object through the central policy (pool_policy.decide), failing closed.
+# These clinic-only endpoints authenticate the session and check CSRF on writes.
+# Handlers enforce object access. W13 assignment checks site admin or routed pool
+# lead status and pool grants directly, including explicit reassign denies.
 _CLINIC_WORKLIST = _split("""
     clinic_worklist.rows clinic_worklist.own_filters clinic_worklist.own_filter
     clinic_worklist.create_filter clinic_worklist.update_filter clinic_worklist.delete_filter

@@ -141,7 +141,7 @@ def _exercise():
     assert worklist(typist_browser)[sent]['assignee'] == expected[1] | {'id': str(typist)}
 
     with app.app_context():
-        lease.acquire(sent, typist, datetime.now(timezone.utc))
+        generation = lease.acquire(sent, typist, datetime.now(timezone.utc)).generation
         workflow.transition(db.session(), sent, 'open')
         db.session.commit()
 
@@ -154,8 +154,15 @@ def _exercise():
         assert lease.current(sent).expires_at <= datetime.now(timezone.utc)
         assert db.session.get(workflow.ClinicWorkflowDictation, sent).status == workflow.TO_CORRECT
         events = AuditEvent.query.filter_by(event='recording.edited', recording_id=recording_id).order_by(AuditEvent.id)
-        assert [(row.actor_user_id, row.details) for row in events] == [
-            (actor, {'fields': ['assignee']}) for actor in (admin, lead, lead, lead)]
+        assert [(row.actor_user_id, row.target_user_id, row.details) for row in events] == [
+            (admin, typist, {'fields': ['assignee']}),
+            (lead, typist, {'fields': [
+                'lease.release', f'dictation:{sent}', f'generation:{generation}', f'from:{typist}',
+            ]}),
+            (lead, lead, {'fields': ['assignee']}),
+            (lead, typist, {'fields': ['assignee']}),
+            (lead, None, {'fields': ['assignee']}),
+        ]
         pools.deny(lead, 'pool', pool_id=db.session.get(ClinicDictation, sent).pool_id,
                    actions=['reassign'], actor_id=admin)
     assert candidates(lead_browser).status_code == 403
