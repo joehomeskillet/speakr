@@ -205,11 +205,15 @@ export const POOLS_PANEL_TEMPLATE = `
   <p v-if="state.status === 'error' || state.status === 'denied'" role="alert" :style="errorStyle">{{ state.message }}
     <button type="button" @click="store.reload()">{{ labels.retry }}</button></p>
   <template v-if="userId && state.status === 'ready'">
-    <section v-for="g in groups" :key="g.type" :aria-labelledby="'usr-pools-' + g.type">
-      <h4 :id="'usr-pools-' + g.type">{{ g.title }}</h4>
-      <ul v-if="g.items.length" role="list"><li v-for="p in g.items" :key="p.id">{{ p.name }}</li></ul>
-      <p v-else>{{ labels.noPools }}</p>
-    </section>
+    <dl class="keyvalues">
+      <div v-for="g in groups" :key="g.type">
+        <dt :id="'usr-pools-' + g.type">{{ g.title }}</dt>
+        <dd>
+          <ul v-if="g.items.length" role="list" :aria-labelledby="'usr-pools-' + g.type"><li v-for="p in g.items" :key="p.id">{{ p.name }}</li></ul>
+          <template v-else>{{ labels.noPools }}</template>
+        </dd>
+      </div>
+    </dl>
     <p>{{ labels.poolsHint }}</p>
   </template>
 </section>`;

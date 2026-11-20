@@ -155,14 +155,18 @@ td small:where(.v8-admin-page *){display:block;font-size:10px;color:var(--v8-mut
 .v8-ui .v8-admin-plain .admin-plain-card :is(ul,ol):empty{display:none}
 .v8-ui .v8-admin-plain .admin-plain-card :is(section,div):last-child > :is(p,ul,table):last-child{margin-bottom:0}
 .v8-ui .v8-admin-plain .admin-plain-card section + section,.v8-ui .v8-admin-plain .admin-plain-card section + div[role=tabpanel]{margin-top:22px;padding-top:20px;border-top:1px solid var(--v8-line-2)}
-/* The P13–P15 compositions keep these legacy controls inside their own V8 panels. */
-.v8-ui :is(.v8-admin-plain .admin-plain-card,[data-testid=clinic-admin-plain] .panel:has(> :where(section:not(.panel)))){
+/* Legacy controls also appear in the P13–P15 panels and the selected user's detail tabs. */
+.v8-ui :is(.v8-admin-plain .admin-plain-card,
+           [data-testid=clinic-admin-plain] .panel:has(> :where(section:not(.panel))),
+           :where(.clinic-users-view) .panel[role=region]:not(:where(.users-form-only))){
   & :is(p,div)[style*="background"],& p[role=status][style]{padding:10px 14px;border:1px solid var(--line);border-radius:8px}
   & :is(form,fieldset){display:block}
   & form + form{margin-top:18px}
   & label{display:block;font-size:12px;font-weight:650;line-height:1.4;margin:16px 0 6px}
   & label:first-child{margin-top:0}
   & label:has(> :is(input[type=checkbox],input[type=radio])){display:flex;align-items:center;gap:8px;font-weight:500;font-size:13px;margin:6px 16px 6px 0}
+  & .grants-ui fieldset label{font-size:12px;font-weight:650}
+  & .grants-ui > ul + form,& .grants-ui [role=group] + button{margin-top:16px}
   & label:has(> select){display:grid;gap:6px;margin:0}
   & :where(input:not([type=checkbox]):not([type=radio]),select,textarea){display:block;width:100%;max-width:560px;min-height:40px;padding:10px 11px;border:1px solid var(--line);border-radius:7px;background-color:var(--surface);color:var(--v8-text);font-size:13px;box-shadow:none}
   & select:not([multiple]){appearance:none;padding-right:36px;font-weight:400}
