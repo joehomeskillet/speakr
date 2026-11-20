@@ -12,7 +12,7 @@
  */
 
 import { TOKEN_CONTRACT_VERSION, TokenContractError, surfaceFor } from './tokens.js';
-import { STATUS_LABELS, formatAudioDuration, getOpenMode, resolveStatusSurface } from './worklist-ui.js';
+import { STATUS_LABELS, formatAudioDuration, formatDictationReference, getOpenMode, resolveStatusSurface } from './worklist-ui.js';
 
 export const RECORDINGS_UI_VERSION = 1;
 export const RECORDINGS_PAGE_SIZE = 50;
@@ -221,16 +221,18 @@ export function toViewRow(item) {
     const seconds = Number.isFinite(item.duration_ms) ? Math.round(item.duration_ms / 1000) : null;
     const time = formatTime(item.sort_time || item.recorded_at);
     const heading = item.case_display ? TEXT.caseId + ' ' + item.case_display : TEXT.dictation;
+    const reference = formatDictationReference(item.dictation_id);
     const authorName = nameOf(item.dictated_by) || TEXT.noAuthor;
     const poolText = pools.length ? pools.join(', ') : TEXT.noPool;
     return {
         key: String(item.dictation_id),
-        dictationId: String(item.dictation_id),
+        dictationId: item.dictation_id == null ? '' : String(item.dictation_id),
+        reference,
         day: item.day || null,
         time,
         datetime: item.sort_time || item.recorded_at || '',
         statusClass: Object.prototype.hasOwnProperty.call(STATUS_TINT, item.workflow_status) ? STATUS_TINT[item.workflow_status] : 'neu',
-        ariaLabel: [heading, TEXT.author + ' ' + authorName, TEXT.pool + ' ' + poolText, item.day ? formatLongDay(item.day) : '', time, badge.label,
+        ariaLabel: [heading + (!item.case_display && reference ? ' ' + reference : ''), TEXT.author + ' ' + authorName, TEXT.pool + ' ' + poolText, item.day ? formatLongDay(item.day) : '', time, badge.label,
             seconds === null ? '' : formatAudioDuration(seconds)].filter(Boolean).join(', '),
         isFallback: fallback,
         fallbackLabel: fallback ? TEXT.fallbackBadge : '',
@@ -496,7 +498,7 @@ export function createRecordingsController(options) {
 
     /** Reports the row to the page with the same payload the worklist uses. */
     function open(row) {
-        if (disposed || !row) return false;
+        if (disposed || !row || !row.dictationId) return false;
         persist();
         if (typeof options.onOpen === 'function') {
             options.onOpen({ dictationId: row.dictationId, mode: getOpenMode({ status: row.workflowStatus }, user.role) });
