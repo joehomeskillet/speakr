@@ -50,7 +50,7 @@ _example = read_example()
 USER = os.environ.get("SPEAKR_SMOKE_USER", _example.get("ADMIN_EMAIL", "admin@example.com"))
 PASSWORD = os.environ.get("SPEAKR_SMOKE_PASSWORD", _example.get("ADMIN_PASSWORD", "changeme"))
 
-MENU_ENTRIES = ("Notifications", "Settings", "Shared recordings", "Sign out")
+MENU_ENTRIES = ("Notifications", "Settings", "Sign out")
 # A translation key: two or more dot-separated identifiers, the first one
 # lower case (nav.account, inquire.title, tokenBudget.percentage).
 TRANSLATION_KEY = re.compile(r"\b[a-z][a-zA-Z]*(?:\.[a-zA-Z]+)+\b")
@@ -94,6 +94,10 @@ def _check_user_menu(page, path):
     text = menu.inner_text()
     missing = [entry for entry in MENU_ENTRIES if entry not in text]
     assert not missing, f"{path}: user menu is missing {missing}"
+    assert "Shared recordings" not in text, f"{path}: removed sharing entry in user menu"
+    assert menu.locator('a[href="/account"]').is_visible()
+    assert menu.locator('a[href="/admin"]').is_visible()  # The smoke user is an admin.
+    assert menu.locator('form[action="/logout"] button').is_visible()
     page.keyboard.press("Escape")
     page.mouse.click(5, 400)
 
@@ -105,6 +109,9 @@ def test_main_view(browser_page):
     _check_header_translated(page, "/", "header")
     _check_user_menu(page, "/")
     _check_common(page, problems, "/")
+    # The removed upstream sharing capability must stay unavailable to a signed-in admin.
+    for endpoint in ("/api/permissions/can-share-publicly", "/api/recordings/shared-with-me"):
+        assert page.request.get(BASE + endpoint, max_redirects=0).status == 404, endpoint
 
 
 @pytest.mark.parametrize("path", ["/account", "/admin"])
