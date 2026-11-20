@@ -5179,6 +5179,7 @@ Summarization Instructions:
                 const shownV8 = ref([]);
                 const shownPolicy = ref([]);
                 const withheld = ref([]);
+                const deniedIds = ref([]);
                 const probing = ref(true);
                 const idFromHash = () => {
                     const matched = /^#\/([a-z-]+)$/.exec(window.location.hash);
@@ -5204,8 +5205,12 @@ Summarization Instructions:
                 };
                 window.addEventListener('popstate', syncNavigation);
                 window.addEventListener('hashchange', syncNavigation);
-                // Only a page the probe allowed mounts; a withheld deep-link target mounts nothing
-                // and the banner explains why.
+                const selected = computed(() => allDefs.find(d => d.id === activeId.value));
+                const viewName = computed(() => {
+                    const id = activeId.value;
+                    const suffix = { 'admin-pools': 'pools', 'commands-templates': 'commands', 'asr-profiles': 'asr' }[id] || id;
+                    return 'clinic-admin-' + suffix;
+                });
                 const active = computed(() => shown.value.concat(shownV8.value, shownPolicy.value).find((d) => d.id === activeId.value) || null);
                 const viewTestId = computed(() => (active.value && active.value.policy ? 'clinic-policy-view-' : active.value && active.value.v8 ? 'clinic-v8-view-' : 'clinic-view-') + (active.value ? active.value.id : ''));
                 const withheldText = computed(() => 'Für dieses Konto nicht freigegeben: ' + withheld.value.join(', ') + '.');
@@ -5221,15 +5226,12 @@ Summarization Instructions:
                     if (rest.length) out.push({ id: 'more', label: 'Weitere', items: rest });
                     return out.filter((g) => g.items.length);
                 });
-                const groupOf = computed(() => {
-                    const found = groups.value.find((g) => g.items.some((d) => d.id === activeId.value));
-                    return found ? found.label : '';
-                });
                 async function probe() {
                     const results = await Promise.all(allDefs.map((d) => (d.probe ? (d.probeVia || client).request(d.probe) : Promise.resolve({ outcome: 'ok' }))));
                     // Withheld only when the API refuses the account (401/403); a missing route or a
                     // network error leaves the page to show its own state.
                     const refused = (i) => results[i].outcome === 'permission';
+                    deniedIds.value = allDefs.filter((d, i) => refused(i)).map(d => d.id);
                     shown.value = defs.filter((d, i) => !refused(i) && (!team || results[i].outcome === 'ok'));
                     shownV8.value = v8defs.filter((d, i) => !refused(defs.length + i) && (!team || results[defs.length + i].outcome === 'ok'));
                     shownPolicy.value = policyDefs.filter((d, i) => !refused(defs.length + v8defs.length + i) && (!team || results[defs.length + v8defs.length + i].outcome === 'ok'));
@@ -5245,7 +5247,7 @@ Summarization Instructions:
                     if (!team) window.Vue.nextTick(notifyShell);
                 }
                 onMounted(probe);
-                return { team, shown, shownV8, withheld, withheldText, probing, activeId, active, viewTestId, groups, groupOf, open };
+                return { team, shown, shownV8, withheld, withheldText, probing, activeId, active, viewTestId, groups, selected, viewName, deniedIds, open };
             },
             template: `
 <section class="cadm" aria-labelledby="clinic-admin-title" data-testid="clinic-admin">
@@ -5255,7 +5257,7 @@ Summarization Instructions:
   </header>
   <p v-if="probing" role="status" class="cadm-state">Berechtigungen werden geprüft …</p>
   <template v-else>
-    <p v-if="withheld.length" role="status" class="banner banner--warn" data-testid="clinic-admin-withheld">
+    <p v-if="withheld.length && (!selected || active)" role="status" class="banner banner--warn" data-testid="clinic-admin-withheld">
       <i class="fas fa-lock" aria-hidden="true"></i><span v-text="withheldText"></span>
     </p>
     <div class="cadm-layout">
@@ -5270,10 +5272,19 @@ Summarization Instructions:
       </nav>
       <div class="cadm-main" :data-testid="active && active.id === 'users' ? 'clinic-view-accounts' : null">
         <div v-if="!team" id="clinic-admin-system-content"></div>
-        <p v-if="active" class="cadm-crumb" v-text="groupOf + ' / ' + active.label"></p>
-        <div v-if="active" :key="active.id" :data-testid="viewTestId">
-          <component :is="active.comp" v-bind="active.props" @open-accounts="open('users')"></component>
-        </div>
+        <section v-if="selected" class="cadm-main" data-testid="clinic-admin-view" :data-admin-view="viewName" aria-labelledby="cadm-page-label">
+          <nav class="cadm-crumb" aria-label="Brotkrumennavigation" data-testid="clinic-admin-breadcrumb">
+            <a href="/#/aufnahmen">Speakr</a> <span aria-hidden="true">›</span> <span>Verwaltung</span>
+            <span aria-hidden="true">›</span> <span id="cadm-page-label" aria-current="page" v-text="selected.label"></span>
+          </nav>
+          <div v-if="active" :key="active.id" :data-testid="viewTestId">
+            <component :is="active.comp" v-bind="active.props" @open-accounts="open('users')"></component>
+          </div>
+          <p v-else-if="deniedIds.includes(selected.id)" role="status" class="banner banner--warn" data-testid="clinic-admin-denied">
+            <i class="fas fa-lock" aria-hidden="true"></i><span>Die Seite „<strong v-text="selected.label"></strong>“ ist für dieses Konto nicht freigegeben.</span>
+          </p>
+          <p v-else role="status" class="cadm-state">Die Verfügbarkeit dieser Seite konnte nicht geprüft werden.</p>
+        </section>
       </div>
     </div>
   </template>

@@ -1,7 +1,7 @@
 """Verwaltung inside the clinic shell (v8-114; V8 P10 to P18, DESIGN_SYSTEM section 1).
 
-The administration pages are views of the clinic shell (hash routes #/verwaltung/<page>), reached from the header menu
-"Verwaltung & Seiten", with the breadcrumb Speakr > Verwaltung > <page>. Visibility follows the probe rule of
+The administration pages share /admin#/<page>. The original shell URLs forward there, and the header menu
+"Verwaltung & Seiten" opens them directly, with the breadcrumb Speakr > Verwaltung > <page>. Visibility follows the probe rule of
 templates/admin.html: a GET the API authorises; a page is withheld when the API answers 403.
 
 Reuses the harness of test_wp_mount_admin (real Flask app in a child process, throwaway SQLite database, synthetic users
@@ -12,6 +12,8 @@ The browser cases need Playwright, its Chromium, the gitignored static/vendor an
 from __future__ import annotations
 
 from pathlib import Path
+
+from playwright.sync_api import expect
 
 from test_wp_mount_admin import (  # noqa: F401  (fixtures and helpers of the earlier mount package)
     ADMIN_EMAIL, LEAD_EMAIL, _login, browser, live_server,
@@ -28,9 +30,9 @@ PAGES = {
     "clinic-admin-authors": ("#/verwaltung/diktierende", "Diktierende und Autorenpools", "Diktierende und Autorenpools"),
     "clinic-admin-users": ("#/verwaltung/benutzer", "Benutzer und Rollen", "Benutzer und Rollen"),
     "clinic-admin-vocabulary": ("#/verwaltung/wortschatz", "Wortschatz", "Wortschatz"),
-    "clinic-admin-commands": ("#/verwaltung/befehle-vorlagen", "Sprachbefehle und Vorlagen", "Befehle und Vorlagen"),
-    "clinic-admin-asr": ("#/verwaltung/sprachprofile", "ASR und Sprachprofile", "Sprachprofile"),
-    "clinic-admin-import": ("#/verwaltung/import", "Dateien und Geräteimport", "Dateien und Geräteimport"),
+    "clinic-admin-commands": ("#/verwaltung/befehle-vorlagen", "Befehle und Vorlagen", "Befehle und Vorlagen"),
+    "clinic-admin-asr": ("#/verwaltung/sprachprofile", "Sprachprofile", "Sprachprofile"),
+    "clinic-admin-import": ("#/verwaltung/import", "Import", "Dateien und Geräteimport"),
     "clinic-admin-jobs": ("#/verwaltung/verarbeitung", "Verarbeitung", "Verarbeitung"),
     "clinic-admin-activity": ("#/verwaltung/aktivitaet", "Aktivität und Audit", "Aktivität und Audit"),
 }
@@ -42,6 +44,10 @@ def _grant_statistics(page):
     # The statistics route needs an explicit grant (statistics_access); the admin of the harness has none, so the API refuses
     # the probe of "Aktivität und Audit". Reachability of that page is checked with the route answered.
     page.route("**/api/clinic/v1/statistics/aggregates*", lambda route: route.fulfill(status=200, content_type="application/json", body="{}"))
+
+
+def _canonical(base, legacy_hash):
+    return base + "/admin" + legacy_hash.replace("#/verwaltung/", "#/")
 
 
 def _mounted(page):
@@ -75,8 +81,10 @@ def test_every_page_is_reachable_by_hash_with_breadcrumb_as_admin(live_server, b
         _mounted(page)
         shell = _wait_page(page, view)
         crumb = shell.locator("[data-testid=clinic-admin-breadcrumb]")
+        expect(crumb.get_by_role("link", name="Speakr")).to_have_attribute("href", "/#/aufnahmen")
+        expect(crumb.locator('[aria-current="page"]')).to_have_text(label)
         assert [t.strip() for t in crumb.locator("a, span").all_inner_texts()] == ["Speakr", "›", "Verwaltung", "›", label]
-        assert page.evaluate("window.location.hash") == route
+        assert page.url == _canonical(base, route)
         # The primary tabs stay in the header; neither is the current page.
         assert page.locator("[data-testid=clinic-primary-nav] [aria-current=page]").count() == 0
     assert not js_errors, js_errors
@@ -91,7 +99,7 @@ def test_every_menu_entry_opens_its_page(live_server, browser):
     for view in MENU_PAGES:
         _open_from_menu(page, view)
         _wait_page(page, view)
-        assert page.evaluate("window.location.hash") == PAGES[view][0]
+        assert page.url == _canonical(base, PAGES[view][0])
     # Browser back returns to the previous page, the breadcrumb link to Aufnahmen.
     page.go_back()
     _wait_page(page, MENU_PAGES[-2])
@@ -153,9 +161,14 @@ def test_activity_is_withheld_when_the_api_refuses_the_statistics_probe(live_ser
     page.locator("[data-testid=clinic-pages-menu] summary").click()
     page.wait_for_function("document.querySelector('a[data-clinic-admin-link=clinic-admin-activity]').hidden", timeout=30000)
     assert page.locator("a[data-clinic-admin-link=clinic-admin-pools]").is_visible()
-    page.goto(base + "/" + PAGES["clinic-admin-activity"][0])
+    page.goto(_canonical(base, PAGES["clinic-admin-activity"][0]))
     _mounted(page)
-    page.locator("[data-testid=clinic-admin-denied]").wait_for(state="visible", timeout=30000)
+    denied = page.get_by_test_id("clinic-admin-denied")
+    expect(denied).to_have_attribute("role", "status")
+    expect(denied).to_contain_text("Aktivität und Audit")
+    assert page.url == _canonical(base, PAGES["clinic-admin-activity"][0])
+    assert page.request.get(base + "/api/clinic/v1/statistics/aggregates").status == 403
+    assert not page.get_by_test_id("clinic-activity-view").count()
     assert not js_errors, js_errors
 
 
@@ -170,9 +183,12 @@ def test_withheld_page_is_hidden_and_not_shown_on_403(live_server, browser):
     page.wait_for_function("document.querySelector('a[data-clinic-admin-link=clinic-admin-users]').hidden", timeout=30000)
     assert page.locator("a[data-clinic-admin-link=clinic-admin-authors]").is_hidden()
     assert page.locator("a[data-clinic-admin-link=clinic-admin-pools]").is_visible()
-    page.goto(base + "/" + PAGES["clinic-admin-users"][0])
+    page.goto(_canonical(base, PAGES["clinic-admin-users"][0]))
     _mounted(page)
-    page.locator("[data-testid=clinic-admin-denied]").wait_for(state="visible", timeout=30000)
+    denied = page.get_by_test_id("clinic-admin-denied")
+    expect(denied).to_have_attribute("role", "status")
+    expect(denied).to_contain_text("Benutzer und Rollen")
+    assert page.url == _canonical(base, PAGES["clinic-admin-users"][0])
     assert page.locator("[data-testid=clinic-users-view]").count() == 0
     assert not js_errors, js_errors
 
