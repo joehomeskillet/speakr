@@ -8,6 +8,17 @@ Das Projekt richtet sich an Kliniken und Entwicklungsteams, die einen Diktat- un
 
 **Benutzerhandbuch:** [Deutsch](https://joehomeskillet.github.io/speakr/de/) · [English](https://joehomeskillet.github.io/speakr/)
 
+**Windows-Dateiimport (x64) · unsignierte Testversion:** [EXE herunterladen](https://github.com/joehomeskillet/speakr/releases/download/windows-import-v0.11.1-preview.1/Speakr-Import-win-x64-preview.exe) · [SHA-256 prüfen und Serveradresse einrichten](https://joehomeskillet.github.io/speakr/de/user-guide/companion-apps/#windows-importagent)
+
+<details>
+<summary>Windows-Importagent einrichten</summary>
+
+| HTTPS-Adresse der Klinik eingeben | Gespeicherte Adresse |
+| --- | --- |
+| ![Serveradresse im Windows-Importagenten](docs/images/clinic/windows-import-server.png) | ![Bestätigung nach dem Speichern](docs/images/clinic/windows-import-gespeichert.png) |
+
+</details>
+
 > [!IMPORTANT]
 > **Entwicklungsstand.** Der Fork ist nicht für den Produktivbetrieb freigegeben. Die Entwicklungsvorgaben des Projekts erlauben nur synthetische Daten; verwenden Sie keine echten Patientendaten. Was belegt ist und was fehlt, steht unter [Stand der Ablösung](#stand-der-ablösung).
 

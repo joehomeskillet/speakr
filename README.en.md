@@ -8,6 +8,17 @@ The project is for clinics and development teams who want to evaluate or extend 
 
 **User manual:** [English](https://joehomeskillet.github.io/speakr/) · [Deutsch](https://joehomeskillet.github.io/speakr/de/)
 
+**Windows file import (x64) · unsigned preview:** [Download the EXE](https://github.com/joehomeskillet/speakr/releases/download/windows-import-v0.11.1-preview.1/Speakr-Import-win-x64-preview.exe) · [Verify SHA-256 and set the server address](https://joehomeskillet.github.io/speakr/user-guide/companion-apps/#windows-import-agent)
+
+<details>
+<summary>Set up the Windows import agent</summary>
+
+| Enter the clinic's HTTPS address | Saved address |
+| --- | --- |
+| ![Server address in the Windows import agent](docs/images/clinic/windows-import-server.png) | ![Confirmation after saving the address](docs/images/clinic/windows-import-gespeichert.png) |
+
+</details>
+
 > [!IMPORTANT]
 > **Development status.** This fork is not ready for production use. The project's development rules permit synthetic data only; do not use real patient data. See [Replacement status](#replacement-status) for what has been verified and what is still missing.
 
