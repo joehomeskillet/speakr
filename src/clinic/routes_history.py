@@ -34,12 +34,13 @@ _PROBLEMS = {
 }
 
 
-def _problem(status: int, *, conflict: bool = False) -> Response:
+def _problem(status: int, *, conflict: bool = False, generation: int | None = None) -> Response:
     code, title = _PROBLEMS[status]
     if conflict:
         code, title = 'IDEMPOTENCY_CONFLICT', 'Anfrageschlüssel bereits verwendet'
+    extra = {} if generation is None else {'current_generation': generation}
     response = jsonify(type='about:blank', title=title, status=status, code=code,
-                       correlation_id=str(uuid4()))
+                       correlation_id=str(uuid4()), **extra)
     response.status_code = status
     response.mimetype = 'application/problem+json'
     response.headers['Cache-Control'] = 'no-store'
@@ -95,13 +96,26 @@ def _history(dictation: ClinicDictation) -> list[JSON]:
     return events + sorted(timed, key=lambda row: (row['at'], row['action'] == 'superseded', row['id']))
 
 
+def may_take_over(user: User, dictation: ClinicDictation) -> bool:
+    """Takeover authority (W13): an active site admin or a lead of the dictation's staff pool."""
+    from src.clinic import worklist_entries
+    from src.clinic.admin_dictation_access import _is_active_site_admin
+
+    if _is_active_site_admin(db.session, db.session.get(User, user.id)):
+        return True
+    return dictation.pool_id is not None and dictation.pool_id in worklist_entries._led_author_pools(user.id)
+
+
 def create_blueprint(
     *, authorize: Callable[[User, str, ClinicDictation], bool], run_once: RunOnce,
     dictation_snapshot: Callable[[ClinicDictation], JSON],
+    takeover_allowed: Callable[[User, ClinicDictation], bool] = may_take_over,
 ) -> Blueprint:
     """Mount with trusted channel and current object policy (`history`/`review`).
 
     `review` requires explicit review authority in addition to edit scope.
+    Lease takeover is decided by `takeover_allowed` (default: admin or pool lead)
+    and answers 403 without it (404 when the object policy hides the dictation); it also needs an explicit `{"confirm": true}`.
     `run_once` uses the parity dispatcher transaction/receipt protocol and must
     begin a real outer transaction before invoking a lease service savepoint.
     The release response uses the worklist's contract Dictation serializer.
@@ -147,11 +161,40 @@ def create_blueprint(
                      actor_kind='session', actor_user_id=current_user.id, details={'part': 'history'})
         return jsonify(dictation_id=dictation.id, events=events)
 
+    def takeover_target(dictation_id: UUID) -> ClinicDictation:
+        dictation = db.session.get(ClinicDictation, str(dictation_id))
+        if dictation is None:
+            abort(404)
+        require_takeover(dictation)
+        return dictation
+
+    def require_takeover(dictation: ClinicDictation) -> None:
+        """Object policy first (hidden stays 404, deny exceptions win), then takeover authority."""
+        from src.clinic.admin_dictation_access import _is_active_site_admin
+
+        visible = authorize(current_user, 'history', dictation)
+        admin = _is_active_site_admin(db.session, db.session.get(User, current_user.id))
+        if not (takeover_allowed(current_user, dictation) and (admin or visible)):
+            abort(403 if visible else 404)
+
+    def holder_fields(row: lease.ClinicReviewLease | None, now: datetime) -> JSON:
+        if row is None:
+            return dict(holder_user_id=None, holder_name=None, until=None, generation=0, held=False)
+        holder = db.session.get(User, row.holder_user_id)
+        return dict(holder_user_id=row.holder_user_id, holder_name=(holder.name or holder.username) if holder else None,
+                    until=_utc(row.expires_at), generation=row.generation, held=row.expires_at > now)
+
+    @bp.get(f'{PATH}/leases', defaults={'operation': 'get'})
     @bp.post(f'{PATH}/leases', defaults={'operation': 'acquire'})
     @bp.post(f'{PATH}/leases/renew', defaults={'operation': 'renew'})
     @bp.post(f'{PATH}/leases/release', defaults={'operation': 'release'})
+    @bp.post(f'{PATH}/leases/takeover', defaults={'operation': 'takeover'})
     def review_lease(dictation_id: UUID, operation: str) -> Response:
-        dictation = object_for(dictation_id, 'review')
+        if operation == 'get':
+            dictation = object_for(dictation_id, 'history')
+            now = datetime.now(timezone.utc)
+            return jsonify(dictation_id=dictation.id, **holder_fields(lease.current(dictation.id), now))
+        dictation = takeover_target(dictation_id) if operation == 'takeover' else object_for(dictation_id, 'review')
         actor, target = current_user.id, dictation.id
         request.max_content_length = min(4096, request.max_content_length or 4096)
         try:
@@ -159,6 +202,10 @@ def create_blueprint(
             proof = request.get_json() if request.get_data() or operation != 'acquire' else {}
             if operation == 'acquire':
                 if proof != {}:
+                    abort(400)
+                lease_id, generation = None, None
+            elif operation == 'takeover':
+                if not isinstance(proof, dict) or proof.keys() != {'confirm'} or proof['confirm'] is not True:
                     abort(400)
                 lease_id, generation = None, None
             else:
@@ -172,28 +219,49 @@ def create_blueprint(
             abort(400)
 
         def apply() -> JSON:
-            locked = object_for(dictation_id, 'review', lock=True)
+            if operation == 'takeover':
+                locked = db.session.get(ClinicDictation, str(dictation_id), populate_existing=True, with_for_update=True)
+                if locked is None:
+                    abort(404)
+                require_takeover(locked)
+            else:
+                locked = object_for(dictation_id, 'review', lock=True)
             now = datetime.now(timezone.utc)
             if operation != 'release':
                 live_session.assert_edit_allowed(target, actor, now)
+            previous = None
+            if operation in ('acquire', 'takeover'):
+                lease.audit_lapse(locked, now)
             if operation == 'acquire':
                 row = lease.acquire(target, actor, now)
+            elif operation == 'takeover':
+                row, taken = lease.takeover(target, actor, now)
+                previous = taken[0] if taken and taken[0] != actor else None
             else:
                 row = lease.assert_current(target, actor, generation, now)
                 if row.id != lease_id:
                     abort(409)
                 if operation == 'release':
                     lease.release(row, generation, now, user_id=actor)
+                    lease.audit_operation('release', row, actor, locked)
                     return dict(dictation_snapshot(locked), etag=dictation_etag(locked))
                 row = lease.heartbeat(row, generation, now, user_id=actor)
-            return dict(dictation_id=target, lease_id=row.id, generation=row.generation,
-                        expires_at=_utc(row.expires_at), etag=dictation_etag(locked))
+            lease.audit_operation(operation, row, actor, locked, previous_holder=previous)
+            result = dict(dictation_id=target, lease_id=row.id, generation=row.generation,
+                          holder_user_id=row.holder_user_id, until=_utc(row.expires_at),
+                          expires_at=_utc(row.expires_at), etag=dictation_etag(locked))
+            if operation == 'takeover':
+                result['previous_holder_user_id'] = previous
+            return result
 
         digest = sha256(f'{lease_id}:{generation}'.encode()).hexdigest()
+        if operation == 'takeover':
+            digest = sha256(b'takeover:confirmed').hexdigest()
         try:
             return jsonify(run_once((actor, operation, target, key), digest, apply))
         except lease.LeaseConflict as error:
-            return _problem({lease.FOREIGN_HOLDER: 423, lease.NOT_FOUND: 404}.get(error.reason, 409))
+            status = {lease.FOREIGN_HOLDER: 423, lease.NOT_FOUND: 404}.get(error.reason, 409)
+            return _problem(status, generation=error.generation)
         except live_session.LiveSessionError as error:
             if error.code != live_session.SPEECH_LOCK_HELD:
                 raise
