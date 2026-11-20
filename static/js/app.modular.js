@@ -504,7 +504,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             const clinicListMount = ref(null);
             // Browser history carries only the ID. Names come from a row opened on this page.
             const clinicOpenedRows = reactive(new Map());
-            const clinicCorrectionRow = computed(() => clinicOpenedRows.get(clinicCorrectionId.value) || {});
+            const clinicCorrectionRow = computed(() => clinicOpenedRows.get(clinicCorrectionId.value) || {
+                dictator: 'Nicht angegeben',
+                pool: 'Nicht angegeben',
+            });
             const clinicCorrectionMount = ref(null);
             const clinicViewMount = ref(null);
             // The tab view a correction was opened from; closing returns there.
