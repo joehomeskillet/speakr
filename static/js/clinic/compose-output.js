@@ -25,12 +25,19 @@
 
 import { createClinicApiClient } from './api-client.js';
 import { surfaceFor } from './tokens.js';
+import { V8_PAGE } from './compose-import.js';
 import { ClipboardCopy, createClipboardCopy } from './clipboard-ui.js';
 
 export const COMPOSE_OUTPUT_VERSION = 1;
 
 export const TEXT = Object.freeze({
     title: 'Ausgabe',
+    eyebrow: 'Arbeitsliste',
+    subline: 'Freigegebene Version ausgeben und den Status jedes Ausgabekanals getrennt verfolgen.',
+    colTarget: 'Ziel',
+    colStatus: 'Status',
+    colAction: 'Aktion',
+    clipboardHint: 'Explizite Browseraktion. Es wird nichts automatisch übertragen.',
     loading: 'Laden …',
     loadFailed: 'Die Ausgabeziele konnten nicht geladen werden.',
     reload: 'Erneut laden',
@@ -118,7 +125,7 @@ export function createOutputViewController(options) {
 
     const surfaceOf = (name) => surfaceFor(name);
     const setResult = (format, status, label, surface, job) => {
-        results.value = { ...results.value, [format]: { phase: status, label, surface: surfaceOf(surface), job: job || null } };
+        results.value = { ...results.value, [format]: { phase: status, label, tone: surface, surface: surfaceOf(surface), job: job || null } };
     };
 
     async function load() {
@@ -207,6 +214,9 @@ export function createOutputViewController(options) {
     };
 }
 
+// Tag modifier of the shared V8 stylesheet per status surface name.
+const TAG_CLASS = Object.freeze({ pending: 'wait', processing: 'wait', success: '', warning: 'wait', error: 'error', normal: 'neutral' });
+
 export const OutputView = {
     name: 'ClinicOutputView',
     components: { ClipboardCopy },
@@ -218,33 +228,58 @@ export const OutputView = {
     setup(props) {
         const c = createOutputViewController({ client: props.client, dictationId: props.dictationId, vue: props.vue || undefined });
         c.load();
-        const style = (s) => (s ? { background: s.background, color: s.color, borderColor: s.border } : null);
-        return { c, TEXT, style };
+        const tagClass = (r) => TAG_CLASS[r && r.tone] || '';
+        return { c, TEXT, tagClass };
     },
     template: `
-<section aria-labelledby="out-title" data-testid="output-view">
-  <h2 id="out-title">{{ TEXT.title }}</h2>
-  <p v-if="c.phase.value === 'loading'" role="status" aria-live="polite">{{ TEXT.loading }}</p>
-  <div v-else-if="c.phase.value === 'failed'" role="alert">
+<section class="${V8_PAGE}" aria-labelledby="out-title" data-testid="output-view">
+  <div class="pagehead">
+    <div>
+      <div class="eyebrow">{{ TEXT.eyebrow }}</div>
+      <h1 id="out-title">{{ TEXT.title }}</h1>
+      <p class="subline">{{ TEXT.subline }}</p>
+    </div>
+  </div>
+  <p v-if="c.phase.value === 'loading'" class="result-count" role="status" aria-live="polite">{{ TEXT.loading }}</p>
+  <div v-else-if="c.phase.value === 'failed'" class="panel" role="alert">
     <p>{{ TEXT.loadFailed }}</p>
-    <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" @click="c.load()">{{ TEXT.reload }}</button>
+    <button type="button" @click="c.load()">{{ TEXT.reload }}</button>
   </div>
   <template v-else>
-    <p v-if="c.releasedRevisionId.value" data-testid="revision">{{ TEXT.revision }}: {{ c.releasedRevisionId.value }}</p>
-    <p v-else data-testid="not-released">{{ TEXT.notReleased }}</p>
-    <ul :aria-label="TEXT.targets">
-      <li v-for="t in c.targets.value.filter((x) => x.channel !== 'clipboard')" :key="t.id" :data-target="t.id">
-        <span>{{ t.label }}</span>
-        <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem"
-                :disabled="!c.canExport(t.id)" @click="c.exportTo(t.id)">{{ TEXT.export }}</button>
-        <span v-if="!t.available" data-testid="unavailable">{{ t.reason }}</span>
-        <span v-if="c.results.value[t.id]" role="status" aria-live="polite" :data-phase="c.results.value[t.id].phase"
-              :style="style(c.results.value[t.id].surface)">{{ c.results.value[t.id].label }}</span>
-        <button v-if="c.results.value[t.id] && c.results.value[t.id].job && ['pending', 'unknown'].includes(c.results.value[t.id].phase)"
-                type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" @click="c.refreshStatus(t.id)">{{ TEXT.status }}</button>
-      </li>
-    </ul>
-    <ClipboardCopy v-if="c.releasedRevisionId.value" :client="client" :dictation-id="dictationId" :revision-id="c.releasedRevisionId.value" />
+    <div class="grid">
+      <section class="panel" aria-labelledby="out-targets">
+        <h2 id="out-targets">{{ TEXT.targets }}</h2>
+        <p v-if="c.releasedRevisionId.value" class="text-status" data-testid="revision">{{ TEXT.revision }}: {{ c.releasedRevisionId.value }}</p>
+        <p v-else class="note warning" data-testid="not-released">{{ TEXT.notReleased }}</p>
+        <div class="table-wrap" style="margin-top: 14px">
+          <table :aria-label="TEXT.targets">
+            <thead><tr><th scope="col">{{ TEXT.colTarget }}</th><th scope="col">{{ TEXT.colStatus }}</th><th scope="col">{{ TEXT.colAction }}</th></tr></thead>
+            <tbody>
+              <tr v-for="t in c.targets.value.filter((x) => x.channel !== 'clipboard')" :key="t.id" :data-target="t.id">
+                <td><strong>{{ t.label }}</strong></td>
+                <td>
+                  <span v-if="!t.available" class="tag wait" data-testid="unavailable">{{ t.reason }}</span>
+                  <span v-if="c.results.value[t.id]" class="tag dot" :class="tagClass(c.results.value[t.id])" role="status" aria-live="polite"
+                        :data-phase="c.results.value[t.id].phase">{{ c.results.value[t.id].label }}</span>
+                </td>
+                <td>
+                  <div class="actions">
+                    <button type="button" class="small primary" :disabled="!c.canExport(t.id)" @click="c.exportTo(t.id)">{{ TEXT.export }}</button>
+                    <button v-if="c.results.value[t.id] && c.results.value[t.id].job && ['pending', 'unknown'].includes(c.results.value[t.id].phase)"
+                            type="button" class="small" @click="c.refreshStatus(t.id)">{{ TEXT.status }}</button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section v-if="c.releasedRevisionId.value" class="panel" aria-labelledby="out-clip">
+        <h2 id="out-clip">{{ TEXT.clipboard }}</h2>
+        <p class="hint">{{ TEXT.clipboardHint }}</p>
+        <ClipboardCopy class="actions" :client="client" :dictation-id="dictationId" :revision-id="c.releasedRevisionId.value" />
+      </section>
+    </div>
   </template>
 </section>`,
 };

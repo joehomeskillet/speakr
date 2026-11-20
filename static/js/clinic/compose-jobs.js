@@ -14,15 +14,33 @@
  */
 
 import { surfaceFor } from './tokens.js';
+import { ACTION_TABLE, V8_PAGE } from './compose-import.js';
 import { LABELS as JOB_LABELS, TRAY_AUTOSTART_PARITY, useJobs } from './jobs-ui.js';
 
 export { TRAY_AUTOSTART_PARITY };
+
+const ICON_REFRESH = '<svg class="ui-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 11a9 9 0 1 1 2 7M3 4v7h7"/></svg>';
 
 export const COMPOSE_JOBS_VERSION = 1;
 export const FILTER_ALL = 'all';
 
 export const TEXT = Object.freeze({
     title: 'Verarbeitung',
+    eyebrow: 'Verwaltung',
+    eyebrowScoped: 'Diktat',
+    subline: 'Aufträge, Fehler und unklare Ausgabestände nachvollziehen. Nur bereinigte Auftragsdaten werden angezeigt.',
+    sublineScoped: 'Aufträge dieses Diktats und ihr aktueller Zustand.',
+    statDone: 'Abgeschlossen',
+    statDoneNote: 'Aufträge insgesamt',
+    statFailedNote: 'Manueller Versuch möglich',
+    statFailedNoteReadOnly: 'Nur Anzeige',
+    statStuckNote: 'Ohne Fortschritt',
+    statFailed: 'Fehlgeschlagen',
+    statShown: 'Angezeigt',
+    statShownNote: 'Nach Filter',
+    rulesTitle: 'Wiederholungsregeln',
+    rulesCorrected: 'Bereits korrigierte Textrevisionen dürfen durch eine erneute Spracherkennung nicht still ersetzt werden.',
+    rulesUnknown: 'Ein unklarer Zustand ist kein gewöhnlicher Fehler und erlaubt keinen blinden Neuversand. Zuerst abgleichen.',
     health: 'Zustand der Verarbeitung',
     refresh: JOB_LABELS.reload,
     retry: JOB_LABELS.retry,
@@ -166,7 +184,7 @@ export function createJobsViewController(options) {
 
     return {
         vue: V, jobs, state: jobs.state, filter, filterOptions: options_, rows, denied, scoped: () => Boolean(scope()),
-        load, retry, setFilter, dispose, canRetryJob: jobs.canRetryJob,
+        load, retry, setFilter, dispose, canRetry: opts.canRetry === true, canRetryJob: jobs.canRetryJob,
         text: TEXT, surface: rowSurface, filterLabel, errorText: () => errorText(jobs.state.value.error),
     };
 }
@@ -196,57 +214,71 @@ export const JobsView = {
         return { c };
     },
     template: `
-<section class="clinic-jobs-view surface flex flex-col gap-4 p-4 md:p-6" data-testid="clinic-jobs-view" aria-labelledby="cjv-title"
+<section class="${V8_PAGE} clinic-jobs-view" data-testid="clinic-jobs-view" aria-labelledby="cjv-title"
          :data-scoped="c.scoped() ? 'true' : 'false'">
-  <header class="flex flex-wrap items-center justify-between gap-3">
-    <h1 id="cjv-title" class="t-heading">{{ c.scoped() ? c.text.scopedTitle : c.text.title }}</h1>
-    <div class="flex flex-wrap items-center gap-3">
-      <label class="t-meta flex items-center gap-2">{{ c.text.filter }}
-        <select class="field field--sm" data-testid="state-filter" :value="c.filter.value" @change="c.setFilter($event.target.value)">
-          <option v-for="key in c.filterOptions.value" :key="key" :value="key">{{ c.filterLabel(key) }}</option>
-        </select>
-      </label>
-      <button type="button" class="btn btn--ghost"
-              :disabled="c.state.value.loading" :aria-busy="c.state.value.loading ? 'true' : 'false'"
-              data-testid="reload" @click="c.load()">{{ c.text.refresh }}</button>
+  <div class="pagehead">
+    <div>
+      <div class="eyebrow">{{ c.scoped() ? c.text.eyebrowScoped : c.text.eyebrow }}</div>
+      <h1 id="cjv-title">{{ c.scoped() ? c.text.scopedTitle : c.text.title }}&nbsp;<span class="count-pill align-middle" data-testid="job-count">{{ c.rows.value.length }}</span></h1>
+      <p class="subline">{{ c.scoped() ? c.text.sublineScoped : c.text.subline }}</p>
     </div>
-  </header>
-  <div role="status" aria-live="polite" class="t-meta" data-testid="status">{{ c.state.value.loading ? c.text.loading : c.state.value.notice }}</div>
-  <div v-if="c.state.value.error" role="alert" class="pill-status pill-status--danger" data-testid="load-error"
+    <div class="head-actions">
+      <button type="button" :disabled="c.state.value.loading" :aria-busy="c.state.value.loading ? 'true' : 'false'"
+              data-testid="reload" @click="c.load()">${ICON_REFRESH}<span>{{ c.text.refresh }}</span></button>
+    </div>
+  </div>
+  <div role="status" aria-live="polite" class="result-count" data-testid="status">{{ c.state.value.loading ? c.text.loading : c.state.value.notice }}</div>
+  <div v-if="c.state.value.error" role="alert" class="note burgundy" data-testid="load-error"
        :data-denied="c.denied.value ? 'true' : 'false'">{{ c.errorText() }}</div>
   <template v-if="!c.denied.value">
-    <p v-if="!c.scoped()" data-testid="health" class="t-body" role="region" :aria-label="c.text.health">
-      {{ c.state.value.progress.completed }}/{{ c.state.value.progress.total }}
-      · {{ c.text.stuckIds }} {{ c.state.value.stuckIds.length }}
-    </p>
-    <p v-if="!c.rows.value.length" data-testid="empty-state" class="t-body">{{ c.scoped() ? c.text.scopedEmpty : (c.state.value.failures.length ? c.text.emptyFiltered : c.text.empty) }}</p>
-    <div v-else class="overflow-x-auto">
-      <table class="w-full text-left table-auto" :aria-label="c.text.list" data-testid="job-list">
-        <thead>
-          <tr class="t-label">
-            <th scope="col" class="py-2 pr-2 md:pr-3">{{ c.text.colJob }}</th>
-            <th scope="col" class="py-2 pr-3 hidden md:table-cell">{{ c.text.colType }}</th>
-            <th scope="col" class="py-2 pr-3">{{ c.text.colState }}</th>
-            <th scope="col" class="py-2 text-right">{{ c.text.colAction }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="f in c.rows.value" :key="f.id" :data-id="f.id" class="t-body border-t border-[var(--border-primary)]">
-            <td class="py-2 pr-2 md:pr-3 align-top">{{ f.id }}<span class="t-meta block md:hidden">{{ f.jobType }}</span></td>
-            <td class="py-2 pr-3 hidden md:table-cell">{{ f.jobType }}</td>
-            <td class="py-2 pr-2 md:pr-3">
-              <span class="pill-status whitespace-normal break-words" :class="f.unknown ? 'pill-status--warn' : 'pill-status--danger'">{{ c.surface(f).label }}: {{ f.errorClass }}</span>
-            </td>
-            <td class="py-2 text-right">
-              <button v-if="f.unknown || c.canRetryJob(f)" type="button" class="btn btn--ghost btn--sm max-w-[7rem] whitespace-normal leading-tight"
-                      data-testid="retry" :disabled="c.state.value.busy === f.id"
-                      :aria-label="(f.unknown ? c.text.reconcile : c.text.retry) + ', Auftrag ' + f.id"
-                      @click="c.retry(f.id)">{{ f.unknown ? c.text.reconcile : c.text.retry }}</button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+    <div v-if="!c.scoped()" class="stats" data-testid="health" role="region" :aria-label="c.text.health">
+      <div class="stat"><span>{{ c.text.statDone }}</span><strong>{{ c.state.value.progress.completed }}/{{ c.state.value.progress.total }}</strong><small>{{ c.text.statDoneNote }}: {{ c.state.value.progress.total }}</small></div>
+      <div class="stat"><span>{{ c.text.statFailed }}</span><strong>{{ c.state.value.progress.failed }}</strong><small>{{ c.canRetry ? c.text.statFailedNote : c.text.statFailedNoteReadOnly }}</small></div>
+      <div class="stat"><span>{{ c.text.stuckIds }}</span><strong>{{ c.state.value.stuckIds.length }}</strong><small>{{ c.text.statStuckNote }}</small></div>
+      <div class="stat"><span>{{ c.text.statShown }}</span><strong>{{ c.rows.value.length }}</strong><small>{{ c.text.statShownNote }}</small></div>
     </div>
+    <section class="panel" aria-labelledby="cjv-list">
+      <h2 id="cjv-list">{{ c.text.list }}</h2>
+      <div class="filterbar">
+        <div class="field">
+          <label for="cjv-filter">{{ c.text.filter }}</label>
+          <select id="cjv-filter" data-testid="state-filter" :value="c.filter.value" @change="c.setFilter($event.target.value)">
+            <option v-for="key in c.filterOptions.value" :key="key" :value="key">{{ c.filterLabel(key) }}</option>
+          </select>
+        </div>
+      </div>
+      <p v-if="!c.rows.value.length" class="empty" data-testid="empty-state">{{ c.scoped() ? c.text.scopedEmpty : (c.state.value.failures.length ? c.text.emptyFiltered : c.text.empty) }}</p>
+      <div v-else class="table-wrap">
+        <table class="${ACTION_TABLE}" :aria-label="c.text.list" data-testid="job-list">
+          <thead>
+            <tr>
+              <th scope="col">{{ c.text.colJob }}</th>
+              <th scope="col" class="max-md:hidden">{{ c.text.colType }}</th>
+              <th scope="col">{{ c.text.colState }}</th>
+              <th scope="col">{{ c.text.colAction }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="f in c.rows.value" :key="f.id" :data-id="f.id">
+              <td><strong>{{ f.id }}</strong></td>
+              <td class="max-md:hidden">{{ f.jobType }}</td>
+              <td><span class="tag dot max-md:[overflow-wrap:anywhere]" :class="f.unknown ? 'wait' : 'error'">{{ c.surface(f).label }}: {{ f.errorClass }}</span></td>
+              <td>
+                <button v-if="f.unknown || c.canRetryJob(f)" type="button" class="small"
+                        data-testid="retry" :disabled="c.state.value.busy === f.id"
+                        :aria-label="(f.unknown ? c.text.reconcile : c.text.retry) + ', Auftrag ' + f.id"
+                        @click="c.retry(f.id)">{{ f.unknown ? c.text.reconcile : c.text.retry }}</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <section v-if="!c.scoped()" class="panel" aria-labelledby="cjv-rules" style="margin-top: 20px">
+      <h2 id="cjv-rules">{{ c.text.rulesTitle }}</h2>
+      <p class="hint">{{ c.text.rulesCorrected }}</p>
+      <p class="hint">{{ c.text.rulesUnknown }}</p>
+    </section>
   </template>
 </section>`,
 };

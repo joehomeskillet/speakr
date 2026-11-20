@@ -23,7 +23,32 @@
 
 import { surfaceFor } from './tokens.js';
 
+import { formatMoment } from './compose-archive.js';
+
 export const COMPOSE_IMPORT_VERSION = 1;
+
+/** Byte count as "182 KB" / "18.4 MB"; anything that is not a number is shown as received. */
+export function formatSize(value) {
+    const n = Number(value);
+    if (value === null || value === undefined || value === '' || !Number.isFinite(n) || n < 0) return value === null || value === undefined || value === '' ? '–' : String(value);
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return Math.round(n / 1024) + ' KB';
+    return (n / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+/** UTC instant as "dd.mm.yyyy hh:mm" in Europe/Zurich; missing or unparsable input is shown as received. */
+export function formatWhen(value) {
+    if (value === null || value === undefined || value === '') return '–';
+    return formatMoment(value) || String(value);
+}
+
+/**
+ * Root classes of every V8 operations page. The element rules of static/css/clinic-v8.css sit in :where()
+ * and load before tailwind.css, so the Tailwind base reset wins over them (headings, buttons) and the shell's
+ * .primary (burgundy, 11px) wins over the page button. These variants restore the prototype values at the
+ * view root; they can go once the stylesheet outranks the reset.
+ */
+export const V8_PAGE = 'v8-page text-sm [&_.stack]:grid-cols-[minmax(0,1fr)] [&_.field]:border-0 [&_.field]:bg-transparent [&_.field]:rounded-none [&_.field]:p-0 [&_h1]:text-[30px] [&_h1]:leading-[1.2] [&_h1]:font-bold [&_h1]:tracking-[-0.8px] [&_h1]:mb-[9px] max-[760px]:[&_h1]:text-[26px] [&_h2]:text-base [&_h2]:leading-[1.35] [&_h2]:font-bold [&_h2]:tracking-[-0.2px] [&_h2]:mb-[14px] [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mb-[10px] [&_button]:text-sm [&_button]:font-semibold [&_button]:px-[13px] [&_button]:py-[9px] [&_p]:mb-3 [&_.subline]:mb-0 [&_.subline]:text-[var(--muted)] [&_.panel_.empty]:min-h-0 [&_.panel_.empty]:block max-[760px]:[&_table]:whitespace-normal max-[760px]:[&_.tag]:whitespace-normal max-[760px]:[&_.small]:min-h-[44px] [&_.primary]:bg-[var(--ink)] [&_.primary]:border-[var(--ink)] [&_.primary]:text-white [&_.primary]:text-sm [&_.primary]:font-semibold [&_.primary]:px-[13px] [&_.primary]:py-[9px] [&_.small]:text-xs [&_.small]:px-[9px] [&_.small]:py-[5px]';
 
 export const ENDPOINTS = Object.freeze({
     intents: '/imports/intents',
@@ -33,8 +58,19 @@ export const ENDPOINTS = Object.freeze({
     retry: (id) => '/imports/intents/' + encodeURIComponent(id) + '/retry',
 });
 
+// Keep the action column readable on narrow screens, even with long source IDs or error codes.
+export const ACTION_TABLE = 'max-md:[&_th]:px-1.5 max-md:[&_td]:px-1.5 max-md:[&_td:first-child]:[overflow-wrap:anywhere]';
+
 export const TEXT = Object.freeze({
     title: 'Dateien und Geräteimport',
+    eyebrow: 'Aufnahmen',
+    subline: 'Importaufträge, Geräteinventar und Klärliste. Dateien ohne eindeutige Zuordnung bleiben sichtbar, bis ein Auftrag ausdrücklich zugewiesen wird.',
+    colSource: 'Quelle',
+    colFiles: 'Dateien',
+    colStatus: 'Status',
+    colCreated: 'Erstellt',
+    colFile: 'Datei',
+    colAction: 'Aktion',
     refresh: 'Aktualisieren',
     loading: 'Laden …',
     list: 'Importaufträge',
@@ -67,13 +103,19 @@ export const STATUS = Object.freeze({
     CANCELLED: { label: 'Abgebrochen', surface: 'normal' },
     FAILED: { label: 'Fehlgeschlagen', surface: 'error' },
 });
+// Tag modifier of the shared V8 stylesheet per status surface.
+const TAG_CLASS = Object.freeze({ pending: 'wait', success: '', warning: 'wait', error: 'error', normal: 'neutral' });
 const RETRYABLE = new Set(['FAILED', 'EXPIRED']);
 
 export function statusView(status) {
     const known = STATUS[String(status || '').toUpperCase()];
     const entry = known || { label: status ? String(status) : '–', surface: 'normal' };
     const s = surfaceFor(entry.surface);
-    return { label: entry.label, style: { background: s.background, color: s.color, border: '1px solid ' + s.border } };
+    return {
+        label: entry.label,
+        tag: TAG_CLASS[entry.surface] ?? 'neutral',
+        style: { background: s.background, color: s.color, border: '1px solid ' + s.border },
+    };
 }
 
 /** W13: only active admins and pool leads see the clarification list. */
@@ -231,79 +273,106 @@ export function createImportController(deps) {
         askAssign, cancelAssign, confirmAssign, retry, dispose,
         isBusy: (action, id) => Boolean(state.busy[action + ':' + id]),
         retryable: (row) => RETRYABLE.has(String(row && row.status).toUpperCase()),
-        statusView, text: TEXT,
+        statusView, text: TEXT, size: formatSize, when: formatWhen,
     };
 }
 
-const button = 'class="px-3 py-2 border rounded" style="min-height: 2.75rem"';
+const ICON_REFRESH = '<svg class="ui-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 11a9 9 0 1 1 2 7M3 4v7h7"/></svg>';
 
 export const IMPORT_TEMPLATE = `
-<section class="clinic-import-view" data-testid="clinic-import-view" aria-labelledby="civ-title">
-  <h1 id="civ-title" class="text-lg font-semibold">{{ c.text.title }}</h1>
-  <button type="button" ${button} data-testid="reload" :disabled="c.state.loading" @click="c.load()">{{ c.text.refresh }}</button>
-  <p v-if="c.state.notice" role="status" aria-live="polite" data-testid="notice">{{ c.state.notice }}</p>
-  <p v-if="c.state.loading" role="status" aria-live="polite">{{ c.text.loading }}</p>
-
-  <h2 class="font-semibold mt-3">{{ c.text.list }}</h2>
-  <p v-if="c.state.intentsError" role="alert" data-testid="intents-error">{{ c.state.intentsError }}</p>
-  <p v-else-if="!c.state.intents.length" data-testid="intents-empty">{{ c.text.listEmpty }}</p>
-  <div v-else class="overflow-x-auto">
-    <table class="w-full" aria-label="Importaufträge" data-testid="intent-list">
-      <thead><tr><th scope="col">Quelle</th><th scope="col">Dateien</th><th scope="col">Status</th><th scope="col">Erstellt</th><th scope="col"></th></tr></thead>
-      <tbody>
-        <tr v-for="row in c.state.intents" :key="row.id" data-intent :data-id="row.id">
-          <td>{{ row.source_ref }}</td>
-          <td>{{ (row.expected_files || []).length }}</td>
-          <td><span class="px-2 py-1 rounded text-xs" :style="c.statusView(row.status).style">{{ c.statusView(row.status).label }}</span></td>
-          <td>{{ row.created_at }}</td>
-          <td>
-            <button v-if="c.retryable(row)" type="button" ${button} data-testid="retry"
-                    :disabled="c.isBusy('retry', row.id)" @click="c.retry(row.id)">{{ c.text.retry }}</button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+<section class="${V8_PAGE} clinic-import-view" data-testid="clinic-import-view" aria-labelledby="civ-title">
+  <div class="pagehead">
+    <div>
+      <div class="eyebrow">{{ c.text.eyebrow }}</div>
+      <h1 id="civ-title">{{ c.text.title }}&nbsp;<span class="count-pill align-middle" data-testid="intent-count">{{ c.state.intents.length }}</span></h1>
+      <p class="subline">{{ c.text.subline }}</p>
+    </div>
+    <div class="head-actions">
+      <button type="button" data-testid="reload" :disabled="c.state.loading" @click="c.load()">${ICON_REFRESH}<span>{{ c.text.refresh }}</span></button>
+    </div>
   </div>
+  <p v-if="c.state.notice" class="note" role="status" aria-live="polite" data-testid="notice">{{ c.state.notice }}</p>
+  <p v-if="c.state.loading" class="result-count" role="status" aria-live="polite">{{ c.text.loading }}</p>
 
-  <h2 class="font-semibold mt-3">{{ c.text.inventory }}</h2>
-  <p class="text-sm" style="color: var(--text-secondary)">{{ c.text.inventoryNote }}</p>
-  <p v-if="c.state.inventoryError" role="alert" data-testid="inventory-error">{{ c.state.inventoryError }}</p>
-  <p v-else-if="!c.state.inventory.length" data-testid="inventory-empty">{{ c.text.inventoryEmpty }}</p>
-  <div v-else class="overflow-x-auto">
-    <table class="w-full" aria-label="Geräteinventar" data-testid="inventory-list">
-      <thead><tr><th scope="col">Quelle</th><th scope="col">Datei</th><th scope="col">Grösse</th><th scope="col">Aufnahmedatum</th><th scope="col">Stand</th></tr></thead>
-      <tbody>
-        <tr v-for="(item, i) in c.state.inventory" :key="item.source_id + '|' + item.snapshot_version + '|' + i">
-          <td>{{ item.source_id }}</td><td>{{ item.relative_path }}</td><td>{{ item.size }}</td>
-          <td>{{ item.mtime_utc || '–' }}</td><td>{{ item.snapshot_version }}</td>
-        </tr>
-      </tbody>
-    </table>
+  <div class="stack">
+    <section class="panel" aria-labelledby="civ-list">
+      <h2 id="civ-list">{{ c.text.list }}</h2>
+      <p v-if="c.state.intentsError" class="note warning" role="alert" data-testid="intents-error">{{ c.state.intentsError }}</p>
+      <p v-else-if="!c.state.intents.length" class="empty" data-testid="intents-empty">{{ c.text.listEmpty }}</p>
+      <div v-else class="table-wrap">
+        <table class="${ACTION_TABLE}" aria-label="Importaufträge" data-testid="intent-list">
+          <thead><tr><th scope="col">{{ c.text.colSource }}</th><th scope="col" class="max-md:hidden">{{ c.text.colFiles }}</th><th scope="col">{{ c.text.colStatus }}</th><th scope="col" class="max-md:hidden">{{ c.text.colCreated }}</th><th scope="col" :aria-label="c.text.colAction"></th></tr></thead>
+          <tbody>
+            <tr v-for="row in c.state.intents" :key="row.id" data-intent :data-id="row.id">
+              <td><strong>{{ row.source_ref }}</strong></td>
+              <td class="max-md:hidden">{{ (row.expected_files || []).length }}</td>
+              <td><span class="tag dot" :class="c.statusView(row.status).tag">{{ c.statusView(row.status).label }}</span></td>
+              <td class="max-md:hidden" :title="row.created_at">{{ c.when(row.created_at) }}</td>
+              <td>
+                <button v-if="c.retryable(row)" type="button" class="small" data-testid="retry"
+                        :disabled="c.isBusy('retry', row.id)" @click="c.retry(row.id)">{{ c.text.retry }}</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="civ-inv">
+      <h2 id="civ-inv">{{ c.text.inventory }}</h2>
+      <p class="hint">{{ c.text.inventoryNote }}</p>
+      <p v-if="c.state.inventoryError" class="note warning" role="alert" data-testid="inventory-error">{{ c.state.inventoryError }}</p>
+      <p v-else-if="!c.state.inventory.length" class="empty" data-testid="inventory-empty">{{ c.text.inventoryEmpty }}</p>
+      <div v-else class="table-wrap">
+        <table aria-label="Geräteinventar" data-testid="inventory-list">
+          <thead><tr><th scope="col">Quelle</th><th scope="col">Datei</th><th scope="col">Grösse</th><th scope="col">Aufnahmedatum</th><th scope="col">Stand</th></tr></thead>
+          <tbody>
+            <tr v-for="(item, i) in c.state.inventory" :key="item.source_id + '|' + item.snapshot_version + '|' + i">
+              <td>{{ item.source_id }}</td><td><strong>{{ item.relative_path }}</strong></td><td :title="item.size">{{ c.size(item.size) }}</td>
+              <td>{{ c.when(item.mtime_utc) }}</td><td>{{ item.snapshot_version }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section v-if="c.canClarify" class="panel" aria-labelledby="civ-clar" data-testid="clarification">
+      <h2 id="civ-clar">{{ c.text.clarification }}</h2>
+      <p class="hint">{{ c.text.clarificationHint }}</p>
+      <p v-if="c.state.clarificationDenied" class="note warning" role="alert" data-testid="clarification-denied">{{ c.text.denied }}</p>
+      <p v-else-if="c.state.unassignedError" class="note warning" role="alert">{{ c.state.unassignedError }}</p>
+      <p v-else-if="!c.state.unassigned.length" class="empty" data-testid="clarification-empty">{{ c.text.clarificationEmpty }}</p>
+      <div v-else class="table-wrap">
+        <table class="${ACTION_TABLE} max-md:table-fixed" aria-label="Klärliste">
+          <thead><tr><th scope="col">{{ c.text.colFile }}</th><th scope="col">{{ c.text.colAction }}</th></tr></thead>
+          <tbody>
+            <template v-for="item in c.state.unassigned" :key="item.id">
+              <tr data-unassigned :data-id="item.id">
+                <td><strong>{{ item.relative_path }}</strong><small>{{ item.source_id }}</small></td>
+                <td>
+                  <button v-if="c.state.pending !== item.id" type="button" class="small" data-testid="assign" @click="c.askAssign(item.id)">{{ c.text.assign }}</button>
+                </td>
+              </tr>
+              <tr v-if="c.state.pending === item.id">
+                <td colspan="2">
+                  <div class="actions">
+                    <label class="w-full md:w-auto md:flex md:items-center md:gap-2">{{ c.text.intent }}
+                      <select v-model="choice[item.id]" class="block min-w-0 md:w-auto">
+                        <option v-for="i in c.state.intents.filter((r) => r.status === 'OPEN')" :key="i.id" :value="i.id">{{ i.source_ref }}</option>
+                      </select>
+                    </label>
+                    <button type="button" class="small primary" data-testid="confirm-assign" :disabled="c.isBusy('assign', item.id) || !choice[item.id]"
+                            @click="c.confirmAssign(item.id, choice[item.id], item.snapshot_version)">{{ c.text.confirm }}</button>
+                    <button type="button" class="small" @click="c.cancelAssign()">{{ c.text.cancel }}</button>
+                  </div>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </section>
   </div>
-
-  <section v-if="c.canClarify" aria-labelledby="civ-clar" data-testid="clarification">
-    <h2 id="civ-clar" class="font-semibold mt-3">{{ c.text.clarification }}</h2>
-    <p class="text-sm">{{ c.text.clarificationHint }}</p>
-    <p v-if="c.state.clarificationDenied" role="alert" data-testid="clarification-denied">{{ c.text.denied }}</p>
-    <p v-else-if="c.state.unassignedError" role="alert">{{ c.state.unassignedError }}</p>
-    <p v-else-if="!c.state.unassigned.length" data-testid="clarification-empty">{{ c.text.clarificationEmpty }}</p>
-    <ul v-else aria-label="Klärliste">
-      <li v-for="item in c.state.unassigned" :key="item.id" data-unassigned :data-id="item.id">
-        <span>{{ item.relative_path }} ({{ item.source_id }})</span>
-        <template v-if="c.state.pending === item.id">
-          <label>{{ c.text.intent }}
-            <select v-model="choice[item.id]">
-              <option v-for="i in c.state.intents.filter((r) => r.status === 'OPEN')" :key="i.id" :value="i.id">{{ i.source_ref }}</option>
-            </select>
-          </label>
-          <button type="button" ${button} data-testid="confirm-assign" :disabled="c.isBusy('assign', item.id) || !choice[item.id]"
-                  @click="c.confirmAssign(item.id, choice[item.id], item.snapshot_version)">{{ c.text.confirm }}</button>
-          <button type="button" ${button} @click="c.cancelAssign()">{{ c.text.cancel }}</button>
-        </template>
-        <button v-else type="button" ${button} data-testid="assign" @click="c.askAssign(item.id)">{{ c.text.assign }}</button>
-      </li>
-    </ul>
-  </section>
 </section>`;
 
 export const ImportView = {
