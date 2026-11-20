@@ -99,6 +99,13 @@
             <a href="/account" class="block px-4 py-2 hover:bg-[var(--bg-tertiary)] transition-colors">
                 <i class="fas fa-cog mr-2 w-4 text-center"></i><span v-text="t('nav.settings')"></span>
             </a>
+            {% if clinic_mode %}
+            {#- Ressourcen is a view of the clinic shell (index.html); the hash link works from every page. -#}
+            <a href="/#/ressourcen" data-testid="nav-clinic-resources" @click="isUserMenuOpen = false"
+               class="block px-4 py-2 hover:bg-[var(--bg-tertiary)] transition-colors">
+                <i class="fas fa-book mr-2 w-4 text-center"></i><span>Ressourcen</span>
+            </a>
+            {% endif %}
             {% if current_user.is_admin %}
             <a href="/admin" class="block px-4 py-2 hover:bg-[var(--bg-tertiary)] transition-colors">
                 <i class="fas fa-user-shield mr-2 w-4 text-center"></i>

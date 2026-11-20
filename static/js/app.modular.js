@@ -277,16 +277,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     const appRootElement = document.getElementById('app');
     if (appRootElement?.dataset?.clinicMode === 'True') {
         try {
-            const [{ createClinicApiClient }, { registerWorklistView }, { registerResourcesView }, { registerCorrectionView }] = await Promise.all([
+            const [{ createClinicApiClient }, { registerWorklistView }, { registerResourcesView }, { registerCorrectionView }, { registerRecordingsView }] = await Promise.all([
                 import('./clinic/api-client.js'),
                 import('./clinic/compose-worklist.js'),
                 import('./clinic/compose-resources.js'),
                 import('./clinic/compose-correction.js'),
+                import('./clinic/compose-recordings.js'),
             ]);
             clinicWorklist = {
                 registerWorklistView,
                 registerResourcesView,
                 registerCorrectionView,
+                registerRecordingsView,
                 client: createClinicApiClient(),
                 user: { id: appRootElement.dataset.currentUserId, role: appRootElement.dataset.clinicRole || 'author' },
             };
@@ -326,27 +328,91 @@ document.addEventListener('DOMContentLoaded', async () => {
             // null lets the user land on their recordings list and open
             // the modal explicitly via the New Recording button.
             // In clinic mode the worklist ('clinic-worklist') is the landing view.
-            const currentView = ref(clinicWorklist ? 'clinic-worklist' : null);
+            // The clinic shell has two primary tabs and keeps its view in the URL hash:
+            // 'clinic-recordings' (Aufnahmen, landing view), 'clinic-worklist' (Arbeitsliste),
+            // 'clinic-resources' (header menu) and 'clinic-correction' (#/diktat, entered from a list).
+            const CLINIC_VIEW_HASH = {
+                'clinic-recordings': '#/aufnahmen',
+                'clinic-worklist': '#/arbeitsliste',
+                'clinic-resources': '#/ressourcen',
+                'clinic-correction': '#/diktat',
+            };
+            const clinicViewFromHash = () => Object.keys(CLINIC_VIEW_HASH)
+                .find((view) => view !== 'clinic-correction' && CLINIC_VIEW_HASH[view] === window.location.hash) || 'clinic-recordings';
+            const currentView = ref(clinicWorklist ? clinicViewFromHash() : null);
             // Clinic correction view ('clinic-correction'): the dictation it shows.
             const clinicCorrectionId = ref(null);
             const clinicCorrectionMount = ref(null);
+            const clinicViewMount = ref(null);
+            // The tab view a correction was opened from; closing returns there.
+            const clinicOrigin = ref('clinic-recordings');
+            // Set when the correction is left towards another view (tab, menu link, browser back).
+            let clinicPendingView = null;
+            const clinicActiveTab = computed(() => (currentView.value === 'clinic-correction' ? clinicOrigin.value : currentView.value));
             // The worklist reports { dictationId, mode }; author_case keeps its current behaviour.
             const openClinicDictation = (payload) => {
                 if (!payload || (payload.mode !== 'correction' && payload.mode !== 'player')) return;
                 if (payload.dictationId === undefined || payload.dictationId === null) return;
+                if (currentView.value !== 'clinic-correction') clinicOrigin.value = currentView.value === 'clinic-worklist' ? 'clinic-worklist' : 'clinic-recordings';
                 clinicCorrectionId.value = String(payload.dictationId);
                 currentView.value = 'clinic-correction';
             };
             // The view emits `close` only after it saved; it stays open when the save fails.
             const closeClinicCorrection = () => {
+                const target = clinicPendingView || clinicOrigin.value;
+                clinicPendingView = null;
                 clinicCorrectionId.value = null;
-                currentView.value = 'clinic-worklist';
+                currentView.value = target;
             };
             // Page-level back control: goes through the view's own close so unsaved text is saved first.
             const requestClinicCorrectionClose = () => {
                 const button = clinicCorrectionMount.value?.querySelector('[data-testid="close"]');
                 if (button) button.click(); else closeClinicCorrection();
             };
+            // Tab and menu navigation; out of a correction it goes through the view's own close (saves first).
+            const goClinicView = (view) => {
+                if (currentView.value === 'clinic-correction') {
+                    clinicPendingView = view;
+                    requestClinicCorrectionClose();
+                } else {
+                    currentView.value = view;
+                }
+            };
+            if (clinicWorklist) {
+                // The view is in the URL: one history entry per view, so back/forward and direct links work.
+                const syncClinicHash = (view) => {
+                    const hash = CLINIC_VIEW_HASH[view];
+                    if (!hash || window.location.hash === hash) return;
+                    window.history.pushState({ clinicView: view, dictationId: clinicCorrectionId.value, origin: clinicOrigin.value }, '', hash);
+                };
+                if (CLINIC_VIEW_HASH[currentView.value] !== window.location.hash) {
+                    window.history.replaceState(window.history.state, '', CLINIC_VIEW_HASH[currentView.value]);
+                }
+                watch(currentView, syncClinicHash, { flush: 'sync' });
+                window.addEventListener('popstate', () => {
+                    const state = window.history.state || {};
+                    const reopen = window.location.hash === CLINIC_VIEW_HASH['clinic-correction'] && state.dictationId !== undefined && state.dictationId !== null;
+                    const target = reopen ? 'clinic-correction' : clinicViewFromHash();
+                    if (currentView.value === 'clinic-correction' && target !== 'clinic-correction') {
+                        goClinicView(target);
+                        return;
+                    }
+                    if (reopen) {
+                        clinicCorrectionId.value = String(state.dictationId);
+                        clinicOrigin.value = state.origin === 'clinic-worklist' ? 'clinic-worklist' : 'clinic-recordings';
+                    }
+                    currentView.value = target;
+                });
+                // Keyboard focus follows the switch: it moves to the heading of the view that is shown.
+                watch(currentView, () => setTimeout(() => {
+                    const root = document.querySelector('[data-clinic-shell-view]:not([style*="display: none"])');
+                    const heading = root && root.querySelector('h1, h2, [role="heading"]');
+                    const target = heading || root;
+                    if (!target) return;
+                    if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
+                    target.focus();
+                }, 50), { flush: 'post' });
+            }
             const createClinicAudioContext = () => new (window.AudioContext || window.webkitAudioContext)();
             const clinicAudioContextFactory = (window.AudioContext || window.webkitAudioContext) ? createClinicAudioContext : undefined;
             // Upload visibility is a modal flag, not a currentView value,
@@ -419,7 +485,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             // --- UI State ---
             const browser = ref('unknown');
-            const isSidebarCollapsed = ref(false);
+            // Clinic shell: there is no sidebar to open.
+            const isSidebarCollapsed = ref(!!clinicWorklist);
             const searchTipsExpanded = ref(false);
             const isUserMenuOpen = ref(false);
             // Detail-header "assign folder" dropdown (replaces a raw <select>
@@ -2924,6 +2991,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 filterTags, filterSpeakers, filterDatePreset, filterDateRange, filterAudioRemoved,
                 filterNeedsTranscription, filterNeedsSummary, filterNeedsSpeakers,
                 parseServerInstant,
+                clinicShell: !!clinicWorklist,
                 composerText: () => chatComposable.assistant.input,
                 locale: () => window.i18n?.getIntlLocale?.(),
             });
@@ -5058,7 +5126,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 clinicWorklistEnabled: !!clinicWorklist,
                 clinicClient: clinicWorklist ? clinicWorklist.client : null,
                 clinicUser: clinicWorklist ? clinicWorklist.user : null,
-                clinicCorrectionId, clinicCorrectionMount, openClinicDictation, closeClinicCorrection,
+                clinicCorrectionId, clinicCorrectionMount, clinicViewMount, clinicOrigin, clinicActiveTab, goClinicView,
+                openClinicDictation, closeClinicCorrection,
                 requestClinicCorrectionClose, clinicAudioContextFactory
             };
         },
@@ -5090,6 +5159,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         clinicWorklist.registerWorklistView(app);
         clinicWorklist.registerResourcesView(app);
         clinicWorklist.registerCorrectionView(app);
+        clinicWorklist.registerRecordingsView(app);
     }
 
     app.mount('#app');

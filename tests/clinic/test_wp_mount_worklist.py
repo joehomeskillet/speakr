@@ -137,8 +137,9 @@ def test_browser_login_worklist_row_and_open(live_server):
             page.wait_for_load_state("load")
             assert "/login" not in page.url
 
-            # The worklist is the landing view after login.
+            # Aufnahmen is the landing view after login (v8-03); the worklist is the second tab.
             page.goto(live_server + "/")
+            page.locator("[data-testid=nav-clinic-worklist]").click()
             view = page.locator("[data-testid=clinic-worklist-view]")
             try:
                 view.wait_for(state="visible", timeout=20000)

@@ -24,6 +24,7 @@ export function usePhoneLayout({
     filterTags, filterSpeakers, filterDatePreset, filterDateRange, filterAudioRemoved,
     filterNeedsTranscription, filterNeedsSummary, filterNeedsSpeakers,
     parseServerInstant, composerText = () => '', locale = () => undefined,
+    clinicShell = false,
 }) {
     const { ref, computed, watch, nextTick } = Vue;
 
@@ -60,7 +61,8 @@ export function usePhoneLayout({
 
     // ---- the list as a screen ---------------------------------------------
 
-    const phoneListOpen = computed(() => phoneListShown({
+    // CLINIC_MODE has no recording list (templates/index.html does not render it): never a list screen.
+    const phoneListOpen = computed(() => !clinicShell && phoneListShown({
         isPhone: isMobile.value,
         sidebarCollapsed: isSidebarCollapsed.value,
         view: currentView.value,

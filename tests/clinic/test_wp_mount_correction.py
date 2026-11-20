@@ -178,6 +178,7 @@ def _launch(p):
 
 def _open_from_worklist(page, base):
     page.goto(base + "/")
+    page.locator("[data-testid=nav-clinic-worklist]").click()  # Aufnahmen is the landing view (v8-03)
     view = page.locator("[data-testid=clinic-worklist-view]")
     view.wait_for(state="visible", timeout=30000)
     row = page.locator("[data-row]").first
@@ -238,6 +239,7 @@ def test_typist_opens_corrects_saves_and_returns(live_server):
             page.wait_for_function(
                 "document.querySelector('.clinic-correction-modes').dataset.mode === 'type_while_playing'")
             page.reload()
+            page.locator("[data-testid=nav-clinic-worklist]").click()  # Aufnahmen is the landing view (v8-03)
             page.locator("[data-testid=clinic-worklist-view]").wait_for(state="visible", timeout=30000)
             _open_from_worklist(page, base)
             page.wait_for_function(
@@ -268,6 +270,7 @@ def test_user_without_rights_gets_denied_state(live_server):
         try:
             page = _login(browser, base, STRANGER)
             page.goto(base + "/")
+            page.locator("[data-testid=nav-clinic-worklist]").click()  # Aufnahmen is the landing view (v8-03)
             page.locator("[data-testid=clinic-worklist-view]").wait_for(state="visible", timeout=30000)
             assert page.locator("[data-row]").count() == 0  # the worklist offers no row to open
             # The stranger cannot pick the row, so the page handler of the worklist's open event is
@@ -304,4 +307,4 @@ def test_import_graph_is_clinic_gated_and_dynamic():
     assert "import('./clinic/compose-correction.js')" in src
     assert "registerCorrectionView(app)" in src
     assert src.count("createClinicApiClient()") == 1, "one shared api-client"
-    assert src.count("ref(clinicWorklist ? 'clinic-worklist' : null)") == 1
+    assert src.count("ref(clinicWorklist ? clinicViewFromHash() : null)") == 1
