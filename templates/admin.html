@@ -4753,6 +4753,7 @@ Summarization Instructions:
          No interpolation braces here: Jinja would evaluate them, so the template uses v-text. -->
     <script type="module">
         import { createClinicApiClient } from "{{ url_for('static', filename='js/clinic/api-client.js', v=app_version) }}";
+        import { getUploadCsrfToken } from "{{ url_for('static', filename='js/modules/csrf.js', v=app_version) }}";
         import { createAccountsAdmin, AccountsAdminPanel } from "{{ url_for('static', filename='js/clinic/accounts-ui.js', v=app_version) }}";
         import { createPoolsComponent } from "{{ url_for('static', filename='js/clinic/pools-ui.js', v=app_version) }}";
         import { createGrantsComponent } from "{{ url_for('static', filename='js/clinic/grants-ui.js', v=app_version) }}";
@@ -4762,12 +4763,59 @@ Summarization Instructions:
         import { columnsComponent } from "{{ url_for('static', filename='js/clinic/columns-ui.js', v=app_version) }}";
         import { createRegexRulesComponent } from "{{ url_for('static', filename='js/clinic/regex-ui.js', v=app_version) }}";
         import { createPreferencesComponent } from "{{ url_for('static', filename='js/clinic/preferences-ui.js', v=app_version) }}";
+        import { registerAdminPoolsView } from "{{ url_for('static', filename='js/clinic/compose-admin-pools.js', v=app_version) }}";
+        import { registerAuthorsView } from "{{ url_for('static', filename='js/clinic/compose-authors.js', v=app_version) }}";
+        import { registerUsersView } from "{{ url_for('static', filename='js/clinic/compose-users.js', v=app_version) }}";
+        import { registerVocabularyView } from "{{ url_for('static', filename='js/clinic/compose-vocabulary.js', v=app_version) }}";
+        import { registerCommandsTemplatesView } from "{{ url_for('static', filename='js/clinic/compose-commands-templates.js', v=app_version) }}";
+        import { registerAsrProfilesView } from "{{ url_for('static', filename='js/clinic/compose-asr-profiles.js', v=app_version) }}";
+        import { registerImportView } from "{{ url_for('static', filename='js/clinic/compose-import.js', v=app_version) }}";
+        import { registerJobsView } from "{{ url_for('static', filename='js/clinic/compose-jobs.js', v=app_version) }}";
+        import { registerActivityView } from "{{ url_for('static', filename='js/clinic/compose-activity.js', v=app_version) }}";
 
         const { createApp, reactive, ref, computed, markRaw, onMounted } = window.Vue;
         const root = document.getElementById('clinic-admin-root');
         const team = root.dataset.mode === 'team';
         const userId = Number(root.dataset.userId);
         const client = createClinicApiClient();
+
+        // Same-origin client for the admin routes outside /api/clinic/v1 (same call shape as the clinic client):
+        // /admin/users (src/api/admin.py) and /api/admin/clinic/training/* (routes_training.py, written as /admin/clinic/training/*).
+        function createAdminClient() {
+            let controllers = new Set();
+            const OUTCOME = { 400: 'validation', 422: 'validation', 401: 'permission', 403: 'permission', 409: 'conflict', 412: 'conflict' };
+            const MESSAGE = { permission: 'Keine Berechtigung für diese Aktion.', validation: 'Die Eingabe ist ungültig.', conflict: 'Der Stand ist veraltet.', network: 'Die Verbindung ist fehlgeschlagen.', cancelled: 'Die Anfrage wurde abgebrochen.', UNKNOWN: 'Das Ergebnis ist unbekannt.' };
+            const row = (outcome, status, code, data) => Object.assign({ outcome, status, code: code || null, correlationId: null, message: MESSAGE[outcome] || '' }, outcome === 'ok' ? { data } : {});
+            async function request(path, options) {
+                const opts = options || {};
+                if (typeof path !== 'string' || !path.startsWith('/admin/') || /:\/\/|\/\/|\.\.|\\/.test(path)) return row('validation', null, 'INVALID_PAYLOAD');
+                const url = path.startsWith('/admin/clinic/') ? '/api' + path : path;
+                const method = String(opts.method || 'GET').toUpperCase();
+                const unsafe = method !== 'GET' && method !== 'HEAD';
+                const controller = new AbortController();
+                controllers.add(controller);
+                try {
+                    const headers = { Accept: 'application/json' };
+                    if (unsafe) { const token = await getUploadCsrfToken(); headers['X-CSRFToken'] = token; headers['X-CSRF-Token'] = token; }
+                    const init = { method, credentials: 'same-origin', cache: 'no-store', headers, signal: controller.signal };
+                    if (unsafe && opts.body !== undefined) { headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(opts.body); }
+                    const response = await (window.originalFetch || window.fetch)(url, init);
+                    const text = await response.text();
+                    let data = null;
+                    try { data = text ? JSON.parse(text) : null; } catch (e) { if (response.ok) return row('UNKNOWN', response.status, 'UNKNOWN'); }
+                    if (response.ok) return row('ok', response.status, null, data);
+                    const code = data && typeof data.code === 'string' && /^[A-Za-z0-9_]{1,80}$/.test(data.code) ? data.code : null;
+                    return row(OUTCOME[response.status] || (response.status >= 500 || response.status === 408 || response.status === 429 ? 'network' : 'UNKNOWN'), response.status, code);
+                } catch (error) {
+                    return error && error.name === 'AbortError' ? row('cancelled', null, 'CANCELLED') : row('network', null, 'NETWORK');
+                } finally {
+                    controllers.delete(controller);
+                }
+            }
+            function switchContext() { controllers.forEach((c) => c.abort()); controllers = new Set(); }
+            return { request, switchContext };
+        }
+        const adminClient = createAdminClient();
 
         // Grants are read per user: the panel starts on the viewer's own id. The API decides who may read or change.
         const GrantsHost = {
@@ -4825,7 +4873,7 @@ Summarization Instructions:
 
         // probe: GET that decides, on the team page, whether the API authorises the panel for this account.
         const defs = [
-            { id: 'accounts', label: 'Konten', probe: '/admin/users', comp: AccountsAdminPanel, props: { controller: createAccountsAdmin({ client, reactive }) } },
+            { id: 'accounts', label: 'Konten', probe: '/admin/users', comp: AccountsAdminPanel, props: { controller: createAccountsAdmin({ client: adminClient, reactive }) } },
             { id: 'pools', label: 'Pools', probe: '/pools', comp: createPoolsComponent(window.Vue, client), props: {} },
             { id: 'grants', label: 'Fachrechte', probe: '/identity/users/' + userId + '/grants', comp: GrantsHost, props: {} },
             { id: 'directory', label: 'Verzeichnis', probe: '/directory/capability', comp: 'clinic-directory-review', props: { client, currentUser: { is_admin: !team } } },
@@ -4836,23 +4884,43 @@ Summarization Instructions:
             { id: 'preferences', label: 'Vorgaben', probe: '/preferences/recipient-default', comp: createPreferencesComponent(window.Vue, client, {}), props: {} },
         ].map((d) => Object.assign(d, { comp: typeof d.comp === 'string' ? d.comp : markRaw(d.comp) }));
 
+        // V8 administration pages (compose-*.js, registered on this app below). Own navigation row, same probe pattern:
+        // the page stays hidden when the API answers 403/404. The component tag carries the module's registered name.
+        const v8props = { client, currentUser: { id: userId, is_admin: !team } };
+        const v8defs = [
+            { id: 'admin-pools', label: 'Schreibkräfte-Pools', probe: '/pool-admin/pools', comp: 'clinic-admin-pools-view', props: { client, userClient: client } },
+            { id: 'authors', label: 'Diktierende und Autorenpools', probe: '/admin/users', probeVia: adminClient, comp: 'clinic-authors-view', props: v8props },
+            { id: 'users', label: 'Benutzer und Rollen', probe: '/admin/users', probeVia: adminClient, comp: 'clinic-users-view', props: { ...v8props, adminClient } },
+            { id: 'vocabulary', label: 'Wortschatz', probe: '/vocabulary/search?scope=user&q=&mode=contains&status=all', comp: 'clinic-vocabulary-view', props: v8props },
+            { id: 'commands-templates', label: 'Befehle und Vorlagen', probe: '/resources/commands', comp: 'clinic-commands-templates-view', props: v8props },
+            { id: 'asr-profiles', label: 'Sprachprofile', probe: '/admin/clinic/training/schedule', probeVia: adminClient, comp: 'clinic-asr-profiles-view', props: { ...v8props, adminClient } },
+            { id: 'import', label: 'Import', probe: '/imports/intents', comp: 'clinic-import-view', props: v8props },
+            { id: 'jobs', label: 'Verarbeitung', probe: '/jobs/health', comp: 'clinic-jobs-view', props: { client, canRetry: !team } },
+            { id: 'activity', label: 'Aktivität und Audit', probe: '/statistics/aggregates', comp: 'clinic-activity-view', props: v8props },
+        ].map((d) => Object.assign(d, { v8: true }));
+        const allDefs = defs.concat(v8defs);
+
         const Root = {
             setup() {
                 const shown = ref(team ? [] : defs);
+                const shownV8 = ref(team ? [] : v8defs);
                 const withheld = ref([]);
                 const probing = ref(team);
                 const activeId = ref(team ? null : defs[0].id);
-                const active = computed(() => defs.find((d) => d.id === activeId.value) || null);
+                const active = computed(() => allDefs.find((d) => d.id === activeId.value) || null);
+                const viewTestId = computed(() => (active.value && active.value.v8 ? 'clinic-v8-view-' : 'clinic-view-') + (active.value ? active.value.id : ''));
                 const withheldText = computed(() => 'Für dieses Konto nicht freigegeben: ' + withheld.value.join(', ') + '.');
                 async function probe() {
-                    const results = await Promise.all(defs.map((d) => (d.probe ? client.request(d.probe) : Promise.resolve({ outcome: 'ok' }))));
+                    const results = await Promise.all(allDefs.map((d) => (d.probe ? (d.probeVia || client).request(d.probe) : Promise.resolve({ outcome: 'ok' }))));
                     shown.value = defs.filter((d, i) => results[i].outcome === 'ok');
+                    shownV8.value = v8defs.filter((d, i) => results[defs.length + i].outcome === 'ok');
                     withheld.value = defs.filter((d, i) => results[i].outcome !== 'ok').map((d) => d.label);
-                    activeId.value = shown.value.length ? shown.value[0].id : null;
+                    const first = shown.value[0] || shownV8.value[0];
+                    activeId.value = first ? first.id : null;
                     probing.value = false;
                 }
                 onMounted(() => { if (team) probe(); });
-                return { shown, withheld, withheldText, probing, activeId, active };
+                return { shown, shownV8, withheld, withheldText, probing, activeId, active, viewTestId };
             },
             template: `
 <section aria-labelledby="clinic-admin-title" data-testid="clinic-admin">
@@ -4865,7 +4933,12 @@ Summarization Instructions:
               :aria-current="d.id === activeId ? 'page' : null" :data-testid="'clinic-panel-' + d.id"
               @click="activeId = d.id"><span v-text="d.label"></span></button>
     </nav>
-    <div v-if="active" :key="active.id" :data-testid="'clinic-view-' + active.id">
+    <nav v-if="shownV8.length" class="tabs mb-4" aria-label="Klinik-Verwaltung, Seiten" data-testid="clinic-v8-nav">
+      <button v-for="d in shownV8" :key="d.id" type="button" class="tab" :class="{ 'is-active': d.id === activeId }"
+              :aria-current="d.id === activeId ? 'page' : null" :data-testid="'clinic-v8-panel-' + d.id"
+              @click="activeId = d.id"><span v-text="d.label"></span></button>
+    </nav>
+    <div v-if="active" :key="active.id" :data-testid="viewTestId">
       <component :is="active.comp" v-bind="active.props" @open-accounts="activeId = 'accounts'"></component>
     </div>
   </template>
@@ -4877,6 +4950,8 @@ Summarization Instructions:
         function mountClinic() {
             const app = createApp(Root);
             registerDirectoryReview(app);
+            [registerAdminPoolsView, registerAuthorsView, registerUsersView, registerVocabularyView, registerCommandsTemplatesView,
+                registerAsrProfilesView, registerImportView, registerJobsView, registerActivityView].forEach((register) => register(app));
             app.mount(document.getElementById('clinic-admin-root'));
         }
         const host = document.getElementById('app');
