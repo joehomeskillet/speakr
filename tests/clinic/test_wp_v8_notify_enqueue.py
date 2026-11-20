@@ -147,6 +147,36 @@ def exercise(app):
     with app.app_context():
         assert ProcessingJob.query.filter_by(job_type='clinic_notify').count() == 7
 
+        recording_id = db.session.get(ClinicDictation, did).recording_id
+    check_concurrent_reservation(app, author, recording_id)
+
+
+def check_concurrent_reservation(app, author, recording_id):
+    """A second process can win after the lookup and before our first flush."""
+    from sqlalchemy import event
+    from sqlalchemy.orm import Session
+
+    transition = str(uuid4())
+    params = {'transition_id': transition, 'clinic_operation_key': transition}
+    winner_ids = []
+
+    def competing_insert(session, *_):
+        if any(isinstance(job, ProcessingJob) and job.notify_transition_id == transition for job in session.new):
+            with db.engine.begin() as conn:
+                result = conn.execute(ProcessingJob.__table__.insert().values(
+                    user_id=author, recording_id=recording_id, job_type='clinic_notify',
+                    notify_transition_id=transition, params=json.dumps(params)))
+                winner_ids.append(result.inserted_primary_key[0])
+
+    with app.app_context():
+        event.listen(Session, 'before_flush', competing_insert)
+        try:
+            found = job_queue.enqueue(author, recording_id, 'clinic_notify', params)
+        finally:
+            event.remove(Session, 'before_flush', competing_insert)
+        assert winner_ids == [found]
+        assert ProcessingJob.query.filter_by(notify_transition_id=transition).one().id == found
+
 
 def run_in_isolated_database(directory):
     path = Path(directory) / 'notices.db'

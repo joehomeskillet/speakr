@@ -1172,9 +1172,8 @@ class FairJobQueue:
                     is_new_upload=is_new_upload,
                     restore_state=json.dumps(restore_state) if restore_state else None
                 )
-                db.session.add(job)
-
-                # Update recording status based on job type
+                # Read the recording before adding the job: a lookup would otherwise
+                # autoflush the insert outside the IntegrityError handler below.
                 recording = db.session.get(Recording, recording_id)
                 if recording:
                     if is_background(job_type):
@@ -1185,6 +1184,7 @@ class FairJobQueue:
                     else:
                         recording.status = 'QUEUED'
 
+                db.session.add(job)
                 try:
                     db.session.commit()
                 except IntegrityError:
