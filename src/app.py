@@ -1175,7 +1175,7 @@ def register_clinic_worklist(flask_app):
         'clinic.metadata': ('edit',), 'clinic.archive': ('edit',), 'clinic.release': ('release',),
         'clinic.review': ('edit', 'release'), 'clinic.accept': ('release',),
         'clinic.reopen': ('release',), 'clinic.dictate': ('edit',), 'history': ('view',),
-        'review': ('edit', 'release'), 'regex_preview': ('edit',), 'regex_apply': ('edit',),
+        'review': ('edit',), 'regex_preview': ('edit',), 'regex_apply': ('edit',),
         'rename': ('edit',), 'priority': ('edit',), 'reassign': ('edit', 'release'),
     }
 
@@ -1204,7 +1204,7 @@ def register_clinic_worklist(flask_app):
         try:
             return ledger.current(SCOPE_DICTATION, dictation.id)
         except PolicyError:
-            return ledger.publish(SCOPE_DICTATION, dictation.id, required=True,
+            return ledger.publish(SCOPE_DICTATION, dictation.id, required=False,
                                   approver_user_ids=(), now=datetime.now(timezone.utc))
 
     def stamp(value):
