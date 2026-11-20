@@ -1426,7 +1426,8 @@ def register_clinic_audio(flask_app):
     flask_app.register_blueprint(routes_live.create_blueprint(
         lambda actor, dictation_id: may(actor, 'edit', db.session.get(ClinicDictation, dictation_id)),
         IngestService(startup.originals_root(flask_app))))
-    flask_app.register_blueprint(routes_correction.create_blueprint(authorize=lambda user, name, dictation: may(user.id, name, dictation), run_once=run_once))
+    flask_app.register_blueprint(routes_correction.create_blueprint(
+        authorize=lambda user, name, dictation: may(user.id, name, dictation), run_once=run_once, require_if_match=True))
     flask_app.register_blueprint(routes_tts.TtsApi(tts_load, lambda: None, None).blueprint)
 
 

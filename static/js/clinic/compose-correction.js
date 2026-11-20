@@ -443,9 +443,16 @@ export function createCorrectionViewController(options) {
         if (disposed) return false;
         // A save can settle an older pending operation and leave newer text dirty (reconcile first),
         // or the text can change while the save is awaited: save again, bounded, until nothing is dirty.
-        for (let pass = 0; editor.dirty.value; pass += 1) {
+        // A save already in flight (autosave follow-up) is awaited, not counted as a failure or a pass.
+        for (let pass = 0; editor.dirty.value;) {
             const res = pass > CLOSE_EXTRA_SAVES ? null : await save();
             if (disposed) return false;
+            if (res && res.state === 'saving') {
+                await saver.whenSettled();
+                if (disposed) return false;
+                continue;
+            }
+            pass += 1;
             if (!res || !res.ok) {
                 closeMessage.value = TEXT.closeFailed;
                 return false;

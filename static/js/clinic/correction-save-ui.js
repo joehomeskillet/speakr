@@ -18,7 +18,7 @@
  *     returns state ref ('saved' | 'unsaved' | 'saving' | 'conflict' | 'lost'),
  *             message, resumePosition (ms or null), stateVersion, error refs,
  *             and the methods save(), touch(), loadResume(), reloadLatest(),
- *             refresh(), setPosition(ms), dispose().
+ *             refresh(), setPosition(ms), whenSettled(), dispose().
  *
  * V8 autosave contract (UI8-004):
  *   - One write request per editor at a time. Later edits stay dirty and become the next request
@@ -167,6 +167,7 @@ export function useCorrectionSave(options) {
     let pending = null;
     let timer = null;
     let inflight = false;
+    let running = null;
     let resave = false; // a save was asked for while another one was in flight
     let terminal = null; // 'conflict' | 'lost' until the user resolves it
     let disposed = false;
@@ -392,14 +393,22 @@ export function useCorrectionSave(options) {
         const digest = JSON.stringify(body);
         inflight = true;
         set('saving');
-        if (reconcileFirst && pending && pending.unclear && pending.digest !== digest) {
-            // The earlier answer was lost and the text moved on: learn that result before any new key is used.
+        running = (async () => {
+            if (reconcileFirst && pending && pending.unclear && pending.digest !== digest) {
+                // The earlier answer was lost and the text moved on: learn that result before any new key is used.
+                return settle(await transmit(pending), pending);
+            }
+            if (!pending || pending.digest !== digest) {
+                pending = { key: newKey(), digest, body, sent: body.text, ifMatch: ifMatchFor(gen), unclear: false };
+            }
             return settle(await transmit(pending), pending);
-        }
-        if (!pending || pending.digest !== digest) {
-            pending = { key: newKey(), digest, body, sent: body.text, ifMatch: ifMatchFor(gen), unclear: false };
-        }
-        return settle(await transmit(pending), pending);
+        })();
+        return running;
+    }
+
+    /** Resolves when the request in flight (if any) has been settled. */
+    function whenSettled() {
+        return inflight && running ? running.then(() => undefined, () => undefined) : Promise.resolve();
     }
 
     /** Conflict choice: keep the local text on top of the newest server revision. Nothing is discarded. */
@@ -413,7 +422,7 @@ export function useCorrectionSave(options) {
         pending = null;
         terminal = null;
         conflict.value = null;
-        refresh();
+        touch(); // the kept text is saved by the normal debounce
         return { ok: true, state: state.value };
     }
 
@@ -471,7 +480,7 @@ export function useCorrectionSave(options) {
 
     return {
         state, message, resumePosition, stateVersion, retries, conflict,
-        save, touch, loadResume, reloadLatest, refresh, setPosition, dispose,
+        save, whenSettled, touch, loadResume, reloadLatest, refresh, setPosition, dispose,
         keepMine, takeServer, compare,
     };
 }

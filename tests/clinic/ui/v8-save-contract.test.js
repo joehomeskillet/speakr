@@ -13,6 +13,7 @@ const base = '/dictations/' + D;
 const ok = (data) => ({ outcome: 'ok', status: 200, data });
 const bad = (outcome, status, code) => ({ outcome, status, code: code || null, message: '' });
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function makeServer(extra) {
     const s = {
@@ -25,6 +26,7 @@ function makeServer(extra) {
         request: vi.fn(async (path, options) => {
             const method = (options && options.method) || 'GET';
             const key = method + ' ' + path;
+            if (method === 'GET' && s.getMs) await sleep(s.getMs);
             if (key === 'GET ' + base + '/correction') {
                 return ok({
                     dictation_id: D, text_revision_id: s.rev, text: s.text, etag: s.etag(), links: [],
@@ -44,6 +46,7 @@ function makeServer(extra) {
             const entry = { key: options.idempotencyKey, ifMatch: options.ifMatch, body: options.body };
             s.saves.push(entry);
             try {
+                if (s.saveMs) await sleep(s.saveMs);
                 if (s.gate) await s.gate.promise;
                 const digest = JSON.stringify(options.body);
                 const stored = s.ops.get(options.idempotencyKey);
@@ -398,6 +401,42 @@ describe('V8 controller wiring', () => {
         expect(c.editor.dirty.value).toBe(false);
         expect(onClose).toHaveBeenCalledTimes(1);
         c.dispose();
+    });
+
+    it('close() waits for an autosave follow-up that is already in flight instead of failing', async () => {
+        const server = makeServer({ dropAck: true });
+        const onClose = vi.fn();
+        const c = createCorrectionViewController({ client: server.client, dictationId: D, currentUser: user, contract: 'v8', onClose, autosaveMs: 600000 });
+        await c.start();
+        await c.editor.acquire();
+        c.editor.setText('eins');
+        await c.save();
+        c.editor.setText('eins zwei');
+        server.dropAck = false;
+        server.saveMs = 50; // real latency: the follow-up timer fires while the alignment GET is awaited
+        server.getMs = 20;
+        const closed = await c.close();
+        expect(closed).toBe(true);
+        expect(c.closeMessage.value).toBe('');
+        expect(server.text).toBe('eins zwei');
+        expect(c.editor.dirty.value).toBe(false);
+        expect(server.maxInflight).toBe(1);
+        expect(onClose).toHaveBeenCalledTimes(1);
+        c.dispose();
+    });
+
+    it('keep-mine schedules the normal autosave for the kept text', async () => {
+        const server = makeServer();
+        const timers = [];
+        const { editor, saver } = await tab(server, { autosaveMs: 1000, setTimer: (fn, ms) => { timers.push(ms); return timers.length; }, clearTimer: () => {} });
+        editor.setText('lokal');
+        server.rev = 'rev-x';
+        const lost = await saver.save();
+        expect(lost.state).toBe('conflict');
+        timers.length = 0;
+        const kept = await saver.keepMine();
+        expect(kept.ok).toBe(true);
+        expect(timers).toEqual([1000]);
     });
 
     it('close() stays open and reports a failure when the text is still dirty after the bounded passes', async () => {
