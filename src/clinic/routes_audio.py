@@ -10,6 +10,8 @@ from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
+import os
+import tempfile
 from uuid import UUID, uuid4
 
 from flask import Blueprint, Response, abort, jsonify, request, session
@@ -26,6 +28,7 @@ from src.clinic.parity_dispatch import JSON, CommandProblem, RunOnce
 from src.database import db
 from src.models import User
 from src.services import audit
+from src.services.waveform_peaks import PeaksError, compute_peaks
 
 PATH = '/api/clinic/v1/dictations/<uuid:dictation_id>'
 DERIVED_MIME = 'audio/wav'
@@ -155,7 +158,7 @@ def create_blueprint(
 
     @bp.after_request
     def no_store(response: Response) -> Response:
-        response.headers['Cache-Control'] = 'no-store'
+        response.headers.setdefault('Cache-Control', 'no-store')
         return response
 
     @bp.get(f'{PATH}/audio-revisions/current')
@@ -268,6 +271,51 @@ def create_blueprint(
         response = Response(rendered.wav, mimetype=DERIVED_MIME)
         response.headers['ETag'] = revision_etag(head.id)
         response.headers['X-Audio-Revision'] = head.id
+        return response
+
+    @bp.get(f'{PATH}/audio-revisions/<uuid:revision_id>/peaks')
+    def peaks(dictation_id: UUID, revision_id: UUID) -> Response:
+        """Waveform peaks of exactly one audio revision, for the correction view.
+
+        Same object policy as the correction view; a foreign dictation, an unknown
+        dictation and a revision that is not this dictation's all answer 404. The
+        peaks are computed by the upstream routine from the rendered revision. The
+        body is the binary peaks file only (no transcript text); the ETag is the
+        immutable revision, so an unchanged revision is answered 304 without a render.
+        """
+        dictation = object_for(dictation_id, 'correction_read')
+        revision = db.session.get(audio_revisions.ClinicAudioRevision, str(revision_id))
+        if revision is None or revision.dictation_id != dictation.id:
+            abort(404)
+        token = f'{revision.id}.peaks'
+        if request.if_none_match.contains(token):
+            response = Response(status=304)
+            response.headers['ETag'] = f'"{token}"'
+            response.headers['Cache-Control'] = 'private, no-cache'
+            return response
+        try:
+            edl = audio_revisions.get_revision_edl(dictation, revision)
+            wav = audio_render.render_audio(edl, load_sources(dictation, edl)).wav
+        except audio_revisions.AudioRevisionNotFoundError:
+            abort(404)
+        except audio_revisions.AudioRevisionError:
+            abort(503)
+        handle, path = tempfile.mkstemp(suffix='.wav')
+        try:
+            with os.fdopen(handle, 'wb') as out:
+                out.write(wav)
+            data = compute_peaks(path)
+        except PeaksError:
+            abort(503)
+        finally:
+            os.unlink(path)
+        audit.record('recording.content.read', recording_id=dictation.recording_id,
+                     actor_kind='session', actor_user_id=current_user.id, details={'part': 'audio_peaks'})
+        response = Response(data, mimetype='application/octet-stream')
+        response.headers['ETag'] = f'"{token}"'
+        response.headers['Cache-Control'] = 'private, no-cache'
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['X-Audio-Revision'] = revision.id
         return response
 
     return bp
