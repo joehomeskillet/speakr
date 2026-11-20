@@ -113,7 +113,7 @@ def create_blueprint(
 
     `review` requires explicit review authority in addition to edit scope.
     Lease takeover is decided by `takeover_allowed` (default: admin or pool lead)
-    and answers 403 without it; it also needs an explicit `{"confirm": true}`.
+    and answers 403 without it (404 when the object policy hides the dictation); it also needs an explicit `{"confirm": true}`.
     `run_once` uses the parity dispatcher transaction/receipt protocol and must
     begin a real outer transaction before invoking a lease service savepoint.
     The release response uses the worklist's contract Dictation serializer.
@@ -163,9 +163,17 @@ def create_blueprint(
         dictation = db.session.get(ClinicDictation, str(dictation_id))
         if dictation is None:
             abort(404)
-        if not takeover_allowed(current_user, dictation):
-            abort(403)
+        require_takeover(dictation)
         return dictation
+
+    def require_takeover(dictation: ClinicDictation) -> None:
+        """Object policy first (hidden stays 404, deny exceptions win), then takeover authority."""
+        from src.clinic.admin_dictation_access import _is_active_site_admin
+
+        visible = authorize(current_user, 'history', dictation)
+        admin = _is_active_site_admin(db.session, db.session.get(User, current_user.id))
+        if not (takeover_allowed(current_user, dictation) and (admin or visible)):
+            abort(403 if visible else 404)
 
     def holder_fields(row: lease.ClinicReviewLease | None, now: datetime) -> JSON:
         if row is None:
@@ -211,8 +219,9 @@ def create_blueprint(
         def apply() -> JSON:
             if operation == 'takeover':
                 locked = db.session.get(ClinicDictation, str(dictation_id), populate_existing=True, with_for_update=True)
-                if locked is None or not takeover_allowed(current_user, locked):
-                    abort(403)
+                if locked is None:
+                    abort(404)
+                require_takeover(locked)
             else:
                 locked = object_for(dictation_id, 'review', lock=True)
             now = datetime.now(timezone.utc)

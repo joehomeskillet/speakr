@@ -73,9 +73,10 @@ def world(monkeypatch):
             receipts[scope] = digest, result
             return result
 
+        hidden = set()  # users the object policy hides this dictation from
         everyone = set(ids.values())
         app.register_blueprint(create_blueprint(
-            authorize=lambda user, _action, _target: user.id in everyone, run_once=once,
+            authorize=lambda user, _action, _target: user.id in everyone and user.id not in hidden, run_once=once,
             dictation_snapshot=lambda row: {"id": row.id}))
 
         login = LoginManager(app)
@@ -107,7 +108,7 @@ def world(monkeypatch):
                 return client.get(url)
             return client.post(url, headers=headers, json=body) if body is not None else client.post(url, headers=headers)
 
-        yield dict(app=app, ids=ids, did=did, recording_id=recording_id, call=call)
+        yield dict(app=app, ids=ids, did=did, recording_id=recording_id, call=call, hidden=hidden)
 
 
 def _rows(world):
@@ -216,3 +217,53 @@ def test_expiry_is_audited_once_and_release_is_not_expiry(world):
     assert rows[3][2] == "generation:2"
     stored = db.session.query(AuditEvent).order_by(AuditEvent.id).all()
     assert stored[3].actor_user_id == ids["b"] and stored[3].actor_kind == "system"
+
+def test_takeover_hidden_dictation_is_404_and_deny_exception_wins(world):
+    ids = world["ids"]
+    world["call"]("a", "post")
+    world["hidden"].add(ids["b"])
+    assert world["call"]("b", "post", "/takeover", {"confirm": True}).status_code == 404
+    # A pool lead whom the object policy denies (deny exception) cannot take over either.
+    world["hidden"].add(ids["lead"])
+    assert world["call"]("lead", "post", "/takeover", {"confirm": True}).status_code == 404
+    assert lease.current(world["did"]).holder_user_id == ids["a"]
+    assert lease.current(world["did"]).generation == 1
+    # An active site admin keeps takeover authority (W12).
+    world["hidden"].add(ids["admin"])
+    assert world["call"]("admin", "post", "/takeover", {"confirm": True}).status_code == 200
+
+
+def test_takeover_by_current_holder_moves_generation(world):
+    held = world["call"]("lead", "post")
+    again = world["call"]("lead", "post", "/takeover", {"confirm": True})
+    assert again.status_code == 200 and again.json["generation"] == 2
+    assert again.json["previous_holder_user_id"] is None
+    stale = world["call"]("lead", "post", "/renew", _proof(held))
+    assert stale.status_code == 409 and stale.json["current_generation"] == 2
+    assert _rows(world)[-1][:3] == ["lease.takeover", f"dictation:{world['did']}", "generation:2"]
+
+
+def test_expire_row_carries_expiry_time(world):
+    first = world["call"]("a", "post")
+    world["call"]("a", "post", "/release", _proof(first))
+    world["call"]("b", "post")
+    row = lease.current(world["did"])
+    expiry = datetime.now(timezone.utc) - timedelta(seconds=30)
+    row.expires_at = expiry
+    db.session.commit()
+    world["call"]("a", "post")
+    event = db.session.query(AuditEvent).order_by(AuditEvent.id).all()[3]
+    assert event.details["fields"][0] == "lease.expire"
+    assert abs((event.created_at - expiry.replace(tzinfo=None)).total_seconds()) < 1
+
+
+def test_real_save_path_rejects_old_generation_after_takeover(world):
+    from src.clinic.correction_transaction import save_correction_transaction
+
+    held = world["call"]("a", "post")
+    assert world["call"]("lead", "post", "/takeover", {"confirm": True}).status_code == 200
+    dictation = db.session.get(ClinicDictation, world["did"])
+    with pytest.raises(lease.LeaseConflict) as error:
+        save_correction_transaction(dictation, world["ids"]["a"], text="x", audio_position_ms=0,
+                                    lease_generation=held.json["generation"])
+    assert error.value.reason == lease.STALE_GENERATION and error.value.generation == 2

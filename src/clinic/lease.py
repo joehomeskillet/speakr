@@ -138,8 +138,8 @@ def takeover(
     The generation increases by one, so the previous holder's next save or
     renew fails with a stale generation. Returns the lease and
     ``(previous_holder_user_id, previous_generation)``, or ``None`` when no
-    lease existed. A holder who already has the active lease keeps it unchanged.
-    The caller decides whether the actor may take over.
+    lease existed. The generation also moves when the caller already holds the
+    active lease, so a second tab invalidates the first tab's requests. The caller decides whether the actor may take over.
     """
     now = _require_now(now)
     seconds, _heartbeat = review_intervals(duration, heartbeat_interval)
@@ -156,10 +156,6 @@ def takeover(
             raise LeaseConflict(NOT_FOUND)
     _stamp(row)
     previous = (row.holder_user_id, row.generation)
-    if row.holder_user_id == user_id and row.expires_at > now:
-        row.expires_at = expires
-        db.session.flush()
-        return row, previous
     if not _take_over(row, user_id, expires):
         raise LeaseConflict(STALE_GENERATION, row)
     return row, previous
@@ -179,6 +175,7 @@ def audit_operation(
     *,
     previous_holder: int | None = None,
     actor_kind: str = "session",
+    created_at: datetime | None = None,
 ) -> None:
     """Add one audit row for a lease operation to the caller's transaction.
 
@@ -191,6 +188,7 @@ def audit_operation(
     audit.record_in_tx(
         AUDIT_EVENT, recording_id=dictation.recording_id, actor_kind=actor_kind,
         actor_user_id=actor_user_id, target_user_id=previous_holder, details={"fields": fields},
+        created_at=created_at,
     )
 
 
@@ -198,7 +196,9 @@ def audit_lapse(dictation: ClinicDictation, now: datetime) -> bool:
     """Audit an expired grant once, when it is first seen.
 
     Expiry has no event of its own, so it is recorded when the lapsed lease is
-    next looked at by an acquire or takeover. A grant that ended by release, or
+    next looked at by an acquire or takeover. The row carries the expiry time,
+    not the detection time. A lease nobody looks at again gets no row (a periodic
+    sweep is a handover item). A grant that ended by release, or
     was already recorded as expired, writes nothing. Returns True on a new row.
     """
     now = _require_now(now)
@@ -219,7 +219,8 @@ def audit_lapse(dictation: ClinicDictation, now: datetime) -> bool:
         fields = (event.details or {}).get("fields") or []
         if marker in fields and generation in fields and fields[0] in ("lease.release", "lease.expire"):
             return False
-    audit_operation("expire", row, row.holder_user_id, dictation, actor_kind="system")
+    audit_operation("expire", row, row.holder_user_id, dictation, actor_kind="system",
+                    created_at=row.expires_at.astimezone(timezone.utc).replace(tzinfo=None))
     return True
 
 
