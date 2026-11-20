@@ -13,7 +13,7 @@ from flask import Blueprint, Response, abort, jsonify, session
 from flask_login import current_user
 from werkzeug.exceptions import HTTPException
 
-from src.clinic import revisions, workflow
+from src.clinic import audio_revisions, revisions, workflow
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.models import ClinicDictation
 from src.clinic.pools import ClinicAuthorPool, ClinicPoolRoute, ClinicStaffPool
@@ -60,6 +60,10 @@ def _capabilities(user: User, dictation: ClinicDictation, flow, snap: dict,
     if flow is None:
         return dict(allowed_actions=[], transitions={}, binding={})
     allowed, transitions = [], {}
+    if (flow.status == workflow.DRAFT and user.id == dictation.author_user_id
+            and authorize(user, 'clinic.dictate', dictation) is True):
+        allowed.append('send')
+        transitions['send'] = workflow.PREP_ONLINE
     for name, (permission, trigger) in _ACTIONS.items():
         target = workflow._destination(flow.status, trigger, flow.acceptance_required, flow.resume_status)
         if target is None or target[0] != _REQUIRED_TARGET.get(name, target[0]):
@@ -161,6 +165,31 @@ def create_blueprint(
                 output='RELEASED' if snap['active_release_id'] else 'NOT_RELEASED',
             ),
             **_capabilities(current_user, dictation, flow, snap, authorize),
+        )
+
+    @bp.get('/api/clinic/v1/dictations/<uuid:dictation_id>/review')
+    def get_review(dictation_id: UUID) -> Response:
+        dictation = db.session.get(ClinicDictation, str(dictation_id))
+        if dictation is None or not authorize(current_user, 'history', dictation):
+            abort(404)
+        flow = db.session.get(workflow.ClinicWorkflowDictation, dictation.id)
+        head = revisions.current_revision(dictation)
+        if flow is None or flow.status in (workflow.DRAFT, workflow.TO_ARCHIVE) or head is None:
+            abort(404)
+        snap = dictation_snapshot(dictation)
+        capabilities = _capabilities(current_user, dictation, flow, snap, authorize)
+        binding = capabilities.pop('binding')
+        audio = audio_revisions.current_audio_revision(dictation)
+        audit.record('recording.content.read', recording_id=dictation.recording_id,
+                     actor_kind='session', actor_user_id=current_user.id, details={'part': 'review'})
+        return jsonify(
+            dictation_id=dictation.id, etag=snap['etag'], revision=dictation.version_counter,
+            asr_status=snap['asr_state'], status=flow.status,
+            binding=dict(text_revision_id=binding['textRevisionId'],
+                         audio_revision_id=None if audio is None else audio.id,
+                         context_revision_id=binding['contextRevisionId'],
+                         acceptance_rule_id=None, release=binding.get('release', {})),
+            **capabilities,
         )
 
     return bp

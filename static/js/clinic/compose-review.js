@@ -217,7 +217,7 @@ export function createReviewViewController(options) {
     // The workflow module sends the commands; its client is wrapped to await the in-flight call.
     const track = (p) => { lastCall = p; return p; };
     const workflowClient = {
-        request: (p, o) => track(scoped.request(p, o)),
+        request: (p, o) => o?.method === 'POST' ? track(scoped.request(p, o)) : scoped.request(p, o),
         command: (b, o) => track(scoped.command(b, o)),
         switchContext: (n) => scoped.switchContext(n),
     };

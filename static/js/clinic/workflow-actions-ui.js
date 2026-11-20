@@ -15,6 +15,7 @@ const ROOT = '/api/clinic/v1/dictations/';
 // group: separate sections; confirm: explicit confirmation before sending;
 // reason: free text required; kind: parity command or dictation route.
 export const ACTIONS = Object.freeze({
+    send: { group: 'correction', kind: 'route', path: 'send', confirm: true, de: 'Einreichen' },
     submit: { group: 'acceptance', kind: 'command', command: 'request_acceptance', de: 'Zur Abnahme einreichen' },
     accept: { group: 'acceptance', kind: 'command', command: 'decide_acceptance', decision: 'accept', de: 'Zusätzlich abnehmen' },
     reject: { group: 'correction', kind: 'command', command: 'decide_acceptance', decision: 'return', confirm: true, reason: true, de: 'Zur Korrektur zurückweisen' },
@@ -31,6 +32,7 @@ export const GROUPS = Object.freeze({
 });
 
 const CONFIRM_TEXT = Object.freeze({
+    send: 'Das Diktat wird zur Bearbeitung eingereicht.',
     reject: 'Das Diktat wird zur Korrektur zurückgewiesen.',
     reopen: 'Das freigegebene Diktat wird wieder geöffnet.',
     release: 'Die geprüften Versionen und der Kontext werden endgültig freigegeben.',
@@ -161,6 +163,7 @@ export function createWorkflowActions(options) {
         const spec = ACTIONS[id];
         const b = state.binding;
         if (spec.kind === 'route') {
+            if (id === 'send') return {};
             if (id === 'archive') return { action: 'archive', confirm: true };
             return Object.assign({}, b.release, { confirmed_content: true, confirmed_context: true });
         }
@@ -179,12 +182,25 @@ export function createWorkflowActions(options) {
 
     async function send(id) {
         const spec = ACTIONS[id];
+        const dictationId = state.dictationId;
+        const etag = state.etag;
         const sig = id + '|' + state.etag;
         if (!pending || pending.sig !== sig) pending = { sig: sig, key: uuid() };
         state.busy = true;
         state.error = null;
         let res;
         try {
+            if (id === 'release' && !state.binding.release?.lease_id) {
+                const lease = await client.request(ROOT + state.dictationId + '/leases');
+                if (state.dictationId !== dictationId || state.etag !== etag) return { outcome: 'cancelled' };
+                if (lease.outcome !== 'ok' || !lease.data?.held || !lease.data?.lease_id) {
+                    state.error = lease.outcome === 'ok' ? 'Bearbeitung zuerst anfordern.' : lease.message;
+                    return { outcome: lease.outcome === 'ok' ? 'validation' : lease.outcome, message: state.error };
+                }
+                state.binding.release = Object.assign({}, state.binding.release, {
+                    lease_id: lease.data.lease_id, lease_generation: lease.data.generation,
+                });
+            }
             if (spec.kind === 'command') {
                 const envelope = { command: spec.command, request_id: pending.key, expected_revision: state.revision, payload: body(id) };
                 res = await client.command(envelope, { idempotencyKey: pending.key });
