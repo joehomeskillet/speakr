@@ -606,7 +606,7 @@ const ReviewBody = {
     <div class="grid">
       <section class="panel" :aria-label="TEXT.changes">
         <h2 style="${H2}">{{ TEXT.text }}</h2>
-        <div :aria-label="TEXT.text" data-testid="review-text">
+        <div data-testid="review-text">
           <p v-if="manual" class="hint" role="note">{{ TEXT.manual }}</p>
           <p class="revision" role="group" :aria-label="TEXT.text" style="white-space: pre-wrap; margin: 0 0 18px">
             <template v-for="seg in segments" :key="seg.start">
@@ -619,7 +619,7 @@ const ReviewBody = {
             </template>
           </p>
         </div>
-        <div class="player compact-player" style="flex-wrap: wrap; margin-bottom: 0" :aria-label="TEXT.player" data-testid="player">
+        <div class="player compact-player" role="group" style="flex-wrap: wrap; margin-bottom: 0" :aria-label="TEXT.player" data-testid="player">
           <audio controls preload="metadata" style="flex: 1 1 260px; min-width: 0; width: 100%" :ref="c.bindAudio" :src="audio.status === 'ready' ? audio.src : null" :aria-label="TEXT.audio"></audio>
           <p v-if="audio.status !== 'ready' && audio.status !== 'idle' && audio.status !== 'loading'" class="hint" style="flex-basis: 100%; margin: 0" role="note">{{ audio.message }}</p>
         </div>
@@ -628,7 +628,7 @@ const ReviewBody = {
       <div class="stack">
         <section class="panel" :aria-label="TEXT.actions" data-testid="actions">
           <h2 style="${H2}">{{ TEXT.decisionState }}</h2>
-          <div v-if="c.acceptanceView()" :aria-label="TEXT.acceptance" data-testid="acceptance">
+          <div v-if="c.acceptanceView()" role="group" :aria-label="TEXT.acceptance" data-testid="acceptance">
             <p class="text-status" style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px">
               <span>{{ TEXT.acceptance }}</span>
               <span class="tag" :style="toneBox(c.acceptanceView().tone)" data-testid="acceptance-state" :data-state="c.acceptanceView().state">{{ c.acceptanceView().label }}</span>
@@ -639,7 +639,7 @@ const ReviewBody = {
             <p v-if="c.acceptanceView().reason" class="hint" data-testid="acceptance-reason"><strong>{{ TEXT.rejectReason }}:</strong> {{ c.acceptanceView().reason }}</p>
           </div>
           <div v-if="c.actions().some(a => ['accept', 'reject', 'release'].includes(a.id)) && lease.mayAcquire === true"
-               class="actions text-sm" aria-label="Bearbeitungssperre">
+               class="actions text-sm" role="group" aria-label="Bearbeitungssperre">
             <button v-if="['idle', 'error', 'lost'].includes(lease.status)" type="button" class="button secondary"
                     :style="FOCUS" @click="c.editor.acquire()" data-testid="begin-review">Prüfung beginnen</button>
             <span role="status" aria-live="polite">{{ lease.message }}</span>

@@ -16,6 +16,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
+from flask import g
 from sqlalchemy import text
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -36,6 +37,7 @@ def _user():
                 password='x')
     db.session.add(user)
     db.session.commit()
+    g.queue_progress_user_ids.append(user.id)
     return user
 
 
@@ -83,8 +85,16 @@ def _mine(user_id, job_id):
 @pytest.fixture
 def ctx():
     with app.app_context():
+        g.queue_progress_user_ids = []
         yield
         db.session.rollback()
+        # The poll reads committed rows on another connection. Retire only
+        # this test's data before a subsequent recovery can requeue its jobs.
+        owners = g.queue_progress_user_ids
+        ProcessingJob.query.filter(ProcessingJob.user_id.in_(owners)).delete()
+        Recording.query.filter(Recording.user_id.in_(owners)).delete()
+        User.query.filter(User.id.in_(owners)).delete()
+        db.session.commit()
 
 
 @pytest.fixture

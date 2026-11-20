@@ -246,6 +246,7 @@ export function toViewRow(item) {
         status: badge.label,
         statusStyle: badge.style,
         processing: processingLabel(item.processing_status),
+        processingActive: ['QUEUED', 'PENDING', 'PROCESSING', 'RUNNING'].includes(String(item.processing_status || '').toUpperCase()),
         duration: seconds === null ? TEXT.none : formatAudioDuration(seconds),
         caseDisplay: item.case_display || '',
         workflowStatus: item.workflow_status || null,
@@ -481,11 +482,12 @@ export function createRecordingsController(options) {
         return applyFilters();
     }
 
-    async function refreshIfChanged() {
+    async function refreshIfChanged(whileProcessing = null) {
         const revision = client.dictationChanges;
-        if (!state.loaded || state.loading || disposed || loadedRevision === revision) return null;
+        if (!state.loaded || state.loading || disposed) return null;
+        if (whileProcessing ? state.loadingMore || !whileProcessing() : loadedRevision === revision) return null;
         // Rebuild the visible window with fresh cursors. Keep the old rows/scroll until all needed pages arrive.
-        state.loading = true;
+        if (!whileProcessing) state.loading = true; // A background check keeps the list mounted and focused.
         state.loadingMore = false;
         let rows = [];
         let cursor = null;
@@ -494,6 +496,7 @@ export function createRecordingsController(options) {
         do {
             response = await fetchPage(cursor);
             if (!response) return null;
+            if (whileProcessing && !whileProcessing() && response.outcome !== 'permission') return null;
             if (response.outcome !== 'ok') {
                 state.loading = false;
                 fail(response);

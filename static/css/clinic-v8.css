@@ -95,6 +95,7 @@
 :where(.v8-ui) :where(.v8-page *,.v8-chrome *).filterbar .field{margin:0;flex:0 1 175px}
 :where(.v8-ui) :where(.v8-page *,.v8-chrome *).filterbar .field.search{flex:1 1 240px}
 .v8-ui .filterbar input,.v8-ui .filterbar select{min-height:38px!important;padding:8px 10px!important;font-size:12px}
+.v8-ui .clinic-archive-view .filterbar select{padding-inline-end:var(--sp-6)!important}
 .v8-ui .result-count{font-size:11px;color:var(--v8-muted);margin-bottom:10px}
 .v8-ui .table-wrap{overflow:auto;max-width:100%;border:1px solid var(--line);border-radius:8px}
 .v8-ui :where(:is(.v8-page,.v8-chrome) table){width:100%;border-collapse:collapse;text-align:left;font-size:12px;white-space:nowrap}

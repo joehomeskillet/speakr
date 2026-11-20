@@ -185,6 +185,13 @@ def test_review_and_release_current_bound_versions(review_scene, tmp_path):
 
             page.get_by_test_id("clinic-dictation-link-review").click()
             review = page.get_by_test_id("clinic-review-view")
+            expect(review.get_by_test_id("player")).to_have_role("group")
+            expect(review.get_by_role("group", name="Wiedergabe")).to_be_visible()
+            expect(review.get_by_role("group", name="Abnahmestand")).to_be_visible()
+            expect(review.get_by_role("group", name="Bearbeitungssperre").get_by_role("status")).to_be_attached()
+            review_text = review.get_by_test_id("review-text")
+            assert not review_text.get_attribute("aria-label")
+            expect(review_text.get_by_role("group", name="Prüftext")).to_be_visible()
             audio = review.locator("audio")
             expect(audio).to_have_attribute("src", re.compile(binding["audio_revision_id"]))
             audio.focus()
