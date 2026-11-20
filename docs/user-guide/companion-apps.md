@@ -8,7 +8,7 @@ For an approved dictation recorder, select **Verwaltung & Seiten → Dateien und
 
 ## Windows import agent
 
-Version `windows-import-v0.11.1-preview.1` is an unsigned Windows x64 preview for evaluation. It has no clinical production approval.
+Version `windows-import-v0.11.1-preview.1` is an unsigned Windows x64 preview for evaluation. It includes its .NET runtime and has no clinical production approval.
 
 The import agent sends files from approved recorders and folders to your clinic without changing them. Download the [Windows x64 executable](https://github.com/joehomeskillet/speakr/releases/download/windows-import-v0.11.1-preview.1/Speakr-Import-win-x64-preview.exe) and its [SHA-256 checksum](https://github.com/joehomeskillet/speakr/releases/download/windows-import-v0.11.1-preview.1/SHA256SUMS.txt) from the same version.
 

@@ -4,7 +4,7 @@ Clinic fork agent that imports dictation files from explicitly configured folder
 
 ## Windows x64 preview
 
-Download the [standalone preview executable](https://github.com/joehomeskillet/speakr/releases/download/windows-import-v0.11.1-preview.1/Speakr-Import-win-x64-preview.exe) and [SHA256SUMS.txt](https://github.com/joehomeskillet/speakr/releases/download/windows-import-v0.11.1-preview.1/SHA256SUMS.txt) for `windows-import-v0.11.1-preview.1`. The preview is unsigned and intended for evaluation. Compare the digest below with the line for the same filename in `SHA256SUMS.txt` before opening the executable.
+Download the [standalone preview executable](https://github.com/joehomeskillet/speakr/releases/download/windows-import-v0.11.1-preview.1/Speakr-Import-win-x64-preview.exe) and [SHA256SUMS.txt](https://github.com/joehomeskillet/speakr/releases/download/windows-import-v0.11.1-preview.1/SHA256SUMS.txt) for `windows-import-v0.11.1-preview.1`. The preview bundles its .NET runtime. It is unsigned and intended for evaluation. Compare the digest below with the line for the same filename in `SHA256SUMS.txt` before opening the executable.
 
 ```powershell
 Get-FileHash -Algorithm SHA256 .\Speakr-Import-win-x64-preview.exe
