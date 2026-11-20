@@ -26,7 +26,7 @@
 
 import { TokenContractError, surfaceFor } from './tokens.js';
 import { STATUS_LABELS, formatAudioDuration, formatPriority } from './worklist-ui.js';
-import { createDetailClient } from './compose-worklist.js';
+import { createDetailClient, statusTone } from './compose-worklist.js';
 import { WORKFLOW_ACTIONS_TEMPLATE, createWorkflowActions } from './workflow-actions-ui.js';
 import { createHistoryComponent } from './history-ui.js';
 import { createLeaseController, createLeaseStatusComponent } from './lease-ui.js';
@@ -363,73 +363,86 @@ const DetailBody = {
             const s = surfaceOrNormal(name);
             return { background: s.background, color: s.color, border: '1px solid ' + s.border };
         };
-        return { c, parts, TEXT, box, status: c.status, message: c.message, leaseState: c.leaseState };
+        const workflowAxis = (axes) => (axes || []).find((a) => a.key === 'workflow') || {};
+        // Header pill: the workflow status axis in the colour of the V8 status pills.
+        const tone = (axes) => statusTone(workflowAxis(axes).value);
+        const axisText = (axes) => workflowAxis(axes).text || TEXT.notAvailable;
+        return { c, parts, TEXT, box, tone, axisText, status: c.status, message: c.message, leaseState: c.leaseState };
     },
     template: `
-<section class="clinic-detail-view" data-testid="clinic-detail-view" aria-labelledby="cdv-title" :aria-busy="status === 'loading' ? 'true' : 'false'">
-  <nav class="flex flex-wrap items-center gap-2">
-    <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" data-testid="back" @click="c.back()">{{ TEXT.back }}</button>
-    <h1 id="cdv-title" class="text-lg font-semibold">{{ TEXT.title }}</h1>
-  </nav>
-
-  <p v-if="status === 'loading' && !c.data.value" role="status" aria-live="polite" data-testid="loading-state">{{ TEXT.loading }}</p>
-  <div v-if="status === 'denied'" role="alert" class="mt-2 p-2 rounded" :style="box('error')" data-testid="denied-state">{{ message }}</div>
-  <div v-else-if="status === 'error'" role="alert" class="mt-2 p-2 rounded" :style="box('error')" data-testid="load-error">
-    {{ message }}
-    <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" @click="c.load()">{{ TEXT.retry }}</button>
+<section class="v8-page clinic-detail-view" data-testid="clinic-detail-view" aria-labelledby="cdv-title" :aria-busy="status === 'loading' ? 'true' : 'false'">
+  <div class="record-backbar">
+    <button type="button" class="back-link" data-testid="back" @click="c.back()">← {{ TEXT.back }}</button>
   </div>
-  <div v-else-if="status === 'offline'" role="status" class="mt-2 p-2 rounded" :style="box('warning')" data-testid="offline-state">
+
+  <p v-if="status === 'loading' && !c.data.value" role="status" aria-live="polite" class="note" data-testid="loading-state">{{ TEXT.loading }}</p>
+  <div v-if="status === 'denied'" role="alert" class="note burgundy" data-testid="denied-state">{{ message }}</div>
+  <div v-else-if="status === 'error'" role="alert" class="note burgundy" data-testid="load-error" style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
     {{ message }}
-    <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" @click="c.load()">{{ TEXT.retry }}</button>
+    <button type="button" class="secondary" @click="c.load()">{{ TEXT.retry }}</button>
+  </div>
+  <div v-else-if="status === 'offline'" role="status" class="note warning" data-testid="offline-state" style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+    {{ message }}
+    <button type="button" class="secondary" @click="c.load()">{{ TEXT.retry }}</button>
   </div>
 
   <template v-if="c.header()">
-    <header class="mt-3" data-testid="detail-header">
-      <dl class="grid gap-2 sm:grid-cols-3">
-        <div><dt class="text-xs" style="color: var(--text-secondary)">{{ TEXT.author }}</dt><dd data-testid="author">{{ c.header().author }}</dd></div>
-        <div><dt class="text-xs" style="color: var(--text-secondary)">{{ TEXT.pool }}</dt><dd data-testid="pool">{{ c.header().pool }}</dd></div>
-        <div><dt class="text-xs" style="color: var(--text-secondary)">{{ TEXT.takeover }}</dt><dd data-testid="takeover">{{ c.header().takeover }}</dd></div>
-      </dl>
+    <header class="record-detail-heading" data-testid="detail-header">
+      <div>
+        <div class="eyebrow">{{ c.header().recordingTime }}</div>
+        <h1 id="cdv-title" tabindex="-1" style="font-weight: 700">{{ TEXT.title }}</h1>
+        <p>{{ TEXT.author }}: {{ c.header().author }} · {{ TEXT.pool }}: {{ c.header().pool }}</p>
+      </div>
+      <span class="status" :class="tone(c.header().axes)">{{ axisText(c.header().axes) }}</span>
     </header>
 
-    <section class="mt-3" :aria-label="TEXT.metadata" data-testid="metadata">
-      <h2 class="font-semibold">{{ TEXT.metadata }}</h2>
-      <dl class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-        <div>
-          <dt class="text-xs" style="color: var(--text-secondary)">{{ TEXT.recordingTime }}</dt>
-          <dd data-testid="recording-time">{{ c.header().recordingTime }}
-            <span v-if="c.header().recordingFallback" class="px-2 py-1 rounded text-xs" :style="box('warning')" data-testid="fallback-mark">{{ TEXT.fallbackMark }}</span>
-          </dd>
-        </div>
-        <div><dt class="text-xs" style="color: var(--text-secondary)">{{ TEXT.duration }}</dt><dd>{{ c.header().duration }}</dd></div>
-        <div><dt class="text-xs" style="color: var(--text-secondary)">{{ TEXT.priority }}</dt><dd>{{ c.header().priority }}</dd></div>
-        <div><dt class="text-xs" style="color: var(--text-secondary)">{{ TEXT.deadline }}</dt><dd>{{ c.header().deadline }}</dd></div>
-        <div v-if="c.header().caseId"><dt class="text-xs" style="color: var(--text-secondary)">{{ TEXT.caseId }}</dt><dd data-testid="case-id">{{ c.header().caseId }}</dd></div>
-      </dl>
-    </section>
+    <div class="record-detail-grid">
+      <div style="display: grid; gap: 22px; align-content: start; min-width: 0">
+        <section class="panel" :aria-label="TEXT.axes" data-testid="status-axes">
+          <h2 style="font-weight: 700">{{ TEXT.axes }}</h2>
+          <ul class="chiprow" style="list-style: none; margin: 0; padding: 0">
+            <li v-for="axis in c.header().axes" :key="axis.key" :data-axis="axis.key" :data-value="axis.value" class="tag" :style="axis.style">
+              <span>{{ axis.label }}:</span> {{ axis.text }}
+            </li>
+          </ul>
+        </section>
 
-    <section class="mt-3" :aria-label="TEXT.axes" data-testid="status-axes">
-      <h2 class="font-semibold">{{ TEXT.axes }}</h2>
-      <ul class="flex flex-wrap gap-2">
-        <li v-for="axis in c.header().axes" :key="axis.key" :data-axis="axis.key" :data-value="axis.value" class="px-2 py-1 border rounded" :style="axis.style">
-          <span class="text-xs">{{ axis.label }}:</span> {{ axis.text }}
-        </li>
-      </ul>
-    </section>
+        <section class="panel" :aria-label="TEXT.actions" data-testid="actions">
+          <h2 style="font-weight: 700">{{ TEXT.actions }}</h2>
+          <div class="actions">
+            <button type="button" class="primary" data-testid="open-editor"
+                    :disabled="!c.canOpenEditor()" @click="c.openEditor()">{{ TEXT.openEditor }}</button>
+          </div>
+          <p v-if="c.leaseBlocksOpen()" role="note" class="hint" style="margin: 12px 0 0">{{ TEXT.openBlocked }}</p>
+          <component :is="parts.Lease" v-if="leaseState" :state="leaseState" :run="c.leaseRun" />
+          <component :is="parts.Workflow" v-if="!c.offline()" :wf="c.workflow" />
+        </section>
 
-    <section class="mt-3" :aria-label="TEXT.actions" data-testid="actions">
-      <h2 class="font-semibold">{{ TEXT.actions }}</h2>
-      <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" data-testid="open-editor"
-              :disabled="!c.canOpenEditor()" @click="c.openEditor()">{{ TEXT.openEditor }}</button>
-      <p v-if="c.leaseBlocksOpen()" role="note">{{ TEXT.openBlocked }}</p>
-      <component :is="parts.Lease" v-if="leaseState" :state="leaseState" :run="c.leaseRun" />
-      <component :is="parts.Workflow" v-if="!c.offline()" :wf="c.workflow" />
-    </section>
+        <details class="panel" data-testid="history-panel">
+          <summary style="cursor: pointer; font-weight: 700">{{ TEXT.history }}</summary>
+          <component :is="parts.History" :client="c.detailClient" :dictation-id="dictationId" />
+        </details>
+      </div>
 
-    <details class="mt-3" data-testid="history-panel">
-      <summary>{{ TEXT.history }}</summary>
-      <component :is="parts.History" :client="c.detailClient" :dictation-id="dictationId" />
-    </details>
+      <section class="record-metadata" :aria-label="TEXT.metadata" data-testid="metadata">
+        <h2>{{ TEXT.metadata }}</h2>
+        <dl>
+          <div class="metadata-pair"><dt>{{ TEXT.author }}</dt><dd data-testid="author">{{ c.header().author }}</dd></div>
+          <div class="metadata-pair"><dt>{{ TEXT.pool }}</dt><dd data-testid="pool">{{ c.header().pool }}</dd></div>
+          <div class="metadata-pair"><dt>{{ TEXT.takeover }}</dt><dd data-testid="takeover">{{ c.header().takeover }}</dd></div>
+          <div class="metadata-pair">
+            <dt>{{ TEXT.recordingTime }}</dt>
+            <dd data-testid="recording-time">{{ c.header().recordingTime }}
+              <span v-if="c.header().recordingFallback" class="tag wait" data-testid="fallback-mark">{{ TEXT.fallbackMark }}</span>
+            </dd>
+          </div>
+          <div class="metadata-pair"><dt>{{ TEXT.duration }}</dt><dd>{{ c.header().duration }}</dd></div>
+          <div class="metadata-pair"><dt>{{ TEXT.priority }}</dt><dd>{{ c.header().priority }}</dd></div>
+          <div class="metadata-pair"><dt>{{ TEXT.deadline }}</dt><dd>{{ c.header().deadline }}</dd></div>
+          <div v-if="c.header().caseId" class="metadata-pair"><dt>{{ TEXT.caseId }}</dt><dd data-testid="case-id">{{ c.header().caseId }}</dd></div>
+        </dl>
+      </section>
+    </div>
   </template>
 </section>`,
 };

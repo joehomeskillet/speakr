@@ -55,23 +55,109 @@ export const TEXT = Object.freeze({
     history: 'Verlauf',
     close: 'Details schliessen',
     noPool: 'Kein Pool zugewiesen',
+    eyebrow: 'Aufnahmenverwaltung',
+    subline: 'Diktate nach Schreibkräfte-Pool und diktierender Person bearbeiten.',
+    entries: 'Einträge',
+    kpiAll: 'Alle Diktate',
+    kpiOpen: 'Offen',
+    kpiWorking: 'In Bearbeitung',
+    kpiDone: 'Abgeschlossen',
+    summary: 'Zusammenfassung',
+    listTitle: 'Diktate',
+    sortLabel: 'Sortierung',
+    sortNone: 'Standardreihenfolge',
+    sortBy: 'Sortiert nach',
+    dictation: 'Diktat / Aufnahme',
+    recording: 'Aufnahme',
+    selectAll: 'Alle sichtbaren Einträge auswählen',
+    selectRow: 'Eintrag auswählen',
+    selected: 'ausgewählt',
+    clearSelection: 'Auswahl aufheben',
+    pagerCount: 'Einträge',
+    pagerFor: 'Seite',
+    hintSelect: 'Eintrag auswählen, um Details anzuzeigen',
+    updated: 'Aktualisiert',
+    refreshing: 'Aktualisiere …',
+    chips: 'Statusfilter',
+    detailInfo: 'Eckdaten',
 });
 
 // Columns the layout may order, sort and group. Title, notes and recipient are
 // left out on purpose (W16); no Fall-ID column until the contract provides one.
+// The order is the default column order of the V8 worklist (Status, Priorität, Pool, Diktiert von, Quelle, Dauer, ...).
 export const LIST_COLUMNS = Object.freeze([
     { key: 'status', label: 'Status' },
     { key: 'priority', label: 'Priorität' },
-    { key: 'deadline_at', label: 'Frist' },
-    { key: 'dictated_by', label: 'Diktiert von' },
     { key: 'staff_pools', label: 'Schreibkräfte-Pool' },
+    { key: 'dictated_by', label: 'Diktiert von' },
+    { key: 'source_kind', label: 'Quelle' },
+    { key: 'duration_seconds', label: 'Dauer' },
+    { key: 'created_at', label: 'Erstellt' },
+    { key: 'deadline_at', label: 'Frist' },
     { key: 'lease_holder', label: 'Übernommen von' },
     { key: 'assignee_user_id', label: 'Zugewiesen an' },
     { key: 'assigned_at', label: 'Zugewiesen' },
-    { key: 'created_at', label: 'Erstellt' },
-    { key: 'duration_seconds', label: 'Dauer' },
-    { key: 'source_kind', label: 'Quelle' },
 ].map((c) => Object.freeze(c)));
+
+// Column key to the width class of the V8 worklist table (clinic-v8.css).
+const COL_CLASS = Object.freeze({
+    status: 'statuscol', priority: 'priocol', staff_pools: 'poolcol', dictated_by: 'dictatorcol',
+    source_kind: 'sourcecol', duration_seconds: 'timecol', created_at: 'datecol',
+});
+
+// Columns shown by default (the V8 prototype table).
+const V8_COLUMNS = Object.freeze(['status', 'priority', 'staff_pools', 'dictated_by', 'source_kind', 'duration_seconds', 'created_at']);
+
+// Contract enum of the recording source (WorklistRow.source_kind) as German labels.
+export const SOURCE_LABELS = Object.freeze({
+    device: 'Diktiergerät', browser: 'Mikrofon', manual_file: 'Upload', simulator: 'Simulator', audio: 'Audio', document: 'Dokument',
+});
+
+export function sourceLabel(value) {
+    if (value === null || value === undefined || value === '') return '–';
+    return Object.prototype.hasOwnProperty.call(SOURCE_LABELS, value) ? SOURCE_LABELS[value] : String(value);
+}
+
+const OPEN_STATUSES = Object.freeze(['aufgabe', 'neu_angelegt', 'vorbereitung_offline', 'vorbereitung_online', 'zu_schreiben']);
+const WORKING_STATUSES = Object.freeze(['in_bearbeitung', 'zu_korrigieren', 'abzunehmen']);
+const DONE_STATUSES = Object.freeze(['abgenommen', 'fertiggestellt', 'zu_archivieren', 'zu_loeschen']);
+
+/** KPI and chip bucket of a workflow status: open, working or done. An unknown status counts as open. */
+export function statusBucket(status) {
+    const key = String(status || '').trim().toLowerCase();
+    if (WORKING_STATUSES.includes(key)) return 'working';
+    if (DONE_STATUSES.includes(key)) return 'done';
+    return 'open';
+}
+
+/** Pill colour class of the V8 status pill (neu, in-arbeit, wartet, erledigt). */
+export function statusTone(status) {
+    const key = String(status || '').trim().toLowerCase();
+    if (key === 'abzunehmen') return 'wartet';
+    const bucket = statusBucket(key);
+    return bucket === 'done' ? 'erledigt' : bucket === 'working' ? 'in-arbeit' : 'neu';
+}
+
+/** Per-bucket counts of the loaded rows. */
+export function countBuckets(rows) {
+    const out = { all: 0, open: 0, working: 0, done: 0 };
+    for (const row of rows || []) {
+        if (!row) continue;
+        out.all += 1;
+        out[statusBucket(row.status)] += 1;
+    }
+    return out;
+}
+
+// Sort choices of the toolbar select: value is "key:direction" (priority ascending puts Dringend first).
+export const SORT_CHOICES = Object.freeze([
+    { value: '', label: 'Standardreihenfolge' },
+    { value: 'created_at:desc', label: 'Neueste zuerst' },
+    { value: 'created_at:asc', label: 'Älteste zuerst' },
+    { value: 'priority:asc', label: 'Priorität' },
+    { value: 'deadline_at:asc', label: 'Frist' },
+    { value: 'duration_seconds:desc', label: 'Längste zuerst' },
+]);
 
 export const ROLE_KEYS = Object.freeze(['dictated_by', 'staff_pools', 'lease_holder']);
 
@@ -154,6 +240,7 @@ export function cellText(row, key) {
     if (key === 'status') return statusBadge(row).label;
     if (key === 'priority') return formatPriority(value);
     if (key === 'duration_seconds') return formatAudioDuration(value);
+    if (key === 'source_kind') return sourceLabel(value);
     if (ROLE_KEYS.includes(key)) return roleText(key, value);
     return value === null || value === undefined || value === '' ? '–' : String(value);
 }
@@ -201,7 +288,8 @@ export function createWorklistViewController(options) {
     const reactive = (V && V.reactive) || ((o) => o);
     const computed = (V && V.computed) || ((fn) => ({ get value() { return fn(); } }));
 
-    const view = reactive({ page: 1, filterId: null, search: '', total: null });
+    const view = reactive({ page: 1, filterId: null, search: '', total: null, chip: 'all' });
+    const checked = reactive({}); // dictation id -> true; only the bulk-selection checkboxes, no clinical data
     const panels = reactive({ protection: false, acceptance: false, history: false });
     const selectedId = ref(null);
     const leaseState = shallowRef(null);
@@ -250,6 +338,16 @@ export function createWorklistViewController(options) {
         onApply: ({ filterId, query }) => applyFilter(filterId, query),
     });
     const layout = useWorklistLayout({ client, columns: LIST_COLUMNS, reactive });
+
+    // V8 default arrangement: the server's stored default lists every column visible in its own order. As long as
+    // the layout is the untouched default (version 0: nothing stored yet, nothing edited), show the eight V8 columns in V8 order.
+    // Local only: nothing is saved until the user saves the Ansicht.
+    function applyV8Default() {
+        if (layout.state.version !== 0 || layout.state.dirty) return;
+        const byKey = new Map(layout.state.layout.columns.map((c) => [c.key, c]));
+        const cols = LIST_COLUMNS.map(({ key }) => ({ ...(byKey.get(key) || { key, width: 140 }), visible: V8_COLUMNS.includes(key) }));
+        layout.state.layout = { ...layout.state.layout, columns: cols };
+    }
 
     const paused = computed(() => Boolean(view.filterId || view.search) || view.page > 1);
 
@@ -300,10 +398,59 @@ export function createWorklistViewController(options) {
     const hasNext = () => (pages() !== null ? view.page < pages() : worklist.rows.value.length >= PAGE_SIZE);
 
     // --- display ------------------------------------------------------------
+    const counts = computed(() => countBuckets(worklist.rows.value));
+    // The status chips narrow the loaded page of rows; the KPI cards always count all loaded rows.
+    const chipRows = computed(() => (view.chip === 'all'
+        ? worklist.rows.value
+        : worklist.rows.value.filter((r) => statusBucket(r.status) === view.chip)));
     const displayed = computed(() => flattenGroups(
-        layout.applyToRows(worklist.rows.value),
+        layout.applyToRows(chipRows.value),
         layout.state.layout.group_by,
     ));
+    const shownRows = () => displayed.value.filter((i) => i.kind === 'row').map((i) => i.row);
+
+    function setChip(chip) {
+        view.chip = ['open', 'working', 'done'].includes(chip) ? chip : 'all';
+    }
+
+    // Bulk selection by checkbox. Independent of the detail selection (the row click).
+    const isChecked = (row) => Boolean(checked[rowKey(row)]);
+    function toggleChecked(row) {
+        const id = rowKey(row);
+        if (id === null) return;
+        if (checked[id]) delete checked[id]; else checked[id] = true;
+    }
+    const allChecked = () => { const list = shownRows(); return list.length > 0 && list.every(isChecked); };
+    function toggleAll() {
+        const list = shownRows();
+        const every = list.length > 0 && list.every(isChecked);
+        for (const row of list) {
+            const id = rowKey(row);
+            if (every) delete checked[id]; else checked[id] = true;
+        }
+    }
+    function clearChecked() { for (const id of Object.keys(checked)) delete checked[id]; }
+    const checkedCount = () => worklist.rows.value.filter(isChecked).length;
+
+    // Toolbar sort select over the layout module's sort state.
+    const sortValue = () => {
+        const first = layout.state.layout.sort[0];
+        return first ? first[0] + ':' + first[1] : '';
+    };
+    function setSort(value) {
+        const [key, dir] = String(value || '').split(':');
+        layout.setSort(key || null, dir);
+    }
+    const sortNote = () => {
+        const choice = SORT_CHOICES.find((c) => c.value === sortValue());
+        if (choice) return choice.value ? TEXT.sortBy + ': ' + choice.label : TEXT.sortNone;
+        const first = layout.state.layout.sort[0];
+        return TEXT.sortBy + ': ' + layout.labelOf(first[0]);
+    };
+    const sortMark = (key) => {
+        const s = layout.state.layout.sort.find((e) => e[0] === key);
+        return s ? (s[1] === 'asc' ? '↑' : '↓') : '';
+    };
     // The legacy author column is replaced by the three role columns; a layout that
     // does not list them yet gets them at the author column's place.
     const columns = () => {
@@ -443,6 +590,7 @@ export function createWorklistViewController(options) {
         if (started || disposed) return;
         started = true;
         await Promise.all([layout.load(), refresh.start()]);
+        applyV8Default();
         syncDetail();
     }
 
@@ -453,9 +601,12 @@ export function createWorklistViewController(options) {
         closeLease();
         workflow.cancel();
         refresh.logout();
+        clearChecked();
         selectedId.value = null;
         detailId = null;
     }
+
+    const priorityToneOf = (row) => (Number(row.priority) === 128 ? 'high' : Number(row.priority) === 0 && row.priority !== '' && row.priority != null ? 'low' : 'normal');
 
     const surfaceStyle = (name, extra) => {
         const s = surfaceFor(name);
@@ -468,10 +619,26 @@ export function createWorklistViewController(options) {
         start, dispose, reload, select, open, canOpen, onRowKey, goto, pages, hasNext, applyFilter,
         key: rowKey, cell: cellText, badge: statusBadge, text: TEXT,
         emptyCell: (row, key) => !ROLE_KEYS.includes(key) && key !== 'status' && cellText(row, key) === '–',
-        priorityTone: (row) => (Number(row.priority) === 128 ? 'high' : Number(row.priority) === 0 && row.priority !== '' && row.priority != null ? 'low' : 'normal'),
+        priorityTone: priorityToneOf,
         pageLabel: () => 'Seite ' + view.page + (pages() === null ? '' : ' von ' + pages()),
         errorStyle: surfaceStyle('error', (s) => ({ border: '1px solid ' + s.border })),
         selectedStyle: surfaceStyle('normal', () => ({ borderLeft: '4px solid var(--border-focus)' })),
+        counts, chipRows, setChip, isChecked, toggleChecked, allChecked, toggleAll, clearChecked, checkedCount,
+        sortChoices: SORT_CHOICES, sortValue, setSort, sortNote, sortMark, shownRows,
+        colClass: (key) => COL_CLASS[key] || '',
+        // Columns the stylesheet has no width class for (Frist, Übernommen von, ...) keep the layout width.
+        colStyle: (col) => (COL_CLASS[col.key] ? null : { width: (Number(col.width) || 140) + 'px' }),
+        statusTone: (row) => statusTone(row.status),
+        prioClass: (row) => ({ high: 'hoch', low: 'niedrig', normal: 'mittel' })[priorityToneOf(row)],
+        sourceText: (row) => sourceLabel(row.source_kind),
+        updatedLabel: () => {
+            const at = refresh.lastUpdate.value;
+            return at instanceof Date && !Number.isNaN(at.getTime())
+                ? TEXT.updated + ' ' + String(at.getHours()).padStart(2, '0') + ':' + String(at.getMinutes()).padStart(2, '0')
+                : refresh.lastUpdateLabel.value;
+        },
+        pagerInfo: () => 'Seite ' + view.page + (pages() === null ? '' : ' von ' + pages()) + ' · '
+            + (Number.isInteger(view.total) ? view.total : worklist.rows.value.length) + ' ' + TEXT.pagerCount,
     };
 }
 
@@ -515,113 +682,182 @@ export const WorklistView = {
         return { c, parts };
     },
     template: `
-<section class="clinic-worklist-view cl-view" data-testid="clinic-worklist-view" aria-labelledby="cwv-title">
-  <div class="cl-head">
-    <h1 id="cwv-title" class="cl-title">{{ c.text.title }}</h1>
-    <span class="cl-sub" data-testid="result-count">{{ c.worklist.totals.value.totalCount }} Diktate ({{ c.worklist.totals.value.formattedTotalDuration }})</span>
+<section class="v8-page clinic-worklist-view" data-testid="clinic-worklist-view" aria-labelledby="cwv-title">
+  <div class="page-head">
+    <div>
+      <div class="eyebrow">{{ c.text.eyebrow }}</div>
+      <div class="hline">
+        <h1 id="cwv-title" tabindex="-1">{{ c.text.title }}</h1>
+        <span class="count-pill" data-testid="result-count">{{ c.counts.value.all }} {{ c.text.entries }}</span>
+      </div>
+      <p class="subtitle">{{ c.text.subline }}</p>
+    </div>
+    <div class="page-actions">
+      <span role="status" aria-live="polite" class="last-update" data-testid="last-update">{{ c.updatedLabel() }}</span>
+      <button type="button" class="icon-btn" data-testid="refresh-button"
+              :aria-label="c.text.refresh" :title="c.text.refresh"
+              :disabled="c.refresh.isRefreshing.value" :aria-busy="c.refresh.isRefreshing.value ? 'true' : 'false'"
+              @click="c.reload()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.6-4.5M4 4v5h5M4 13a8 8 0 0 0 14.6 4.5M20 20v-5h-5"/></svg>{{ c.text.refresh }}</button>
+    </div>
   </div>
   <div v-if="c.refresh.refreshError.value || (c.worklist.errorMessage.value && !c.worklist.isPermissionLost.value)"
-       role="alert" class="cl-alert" :style="c.errorStyle" data-testid="load-error">
+       role="alert" class="note burgundy" data-testid="load-error" style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 16px">
     <span>{{ c.refresh.refreshError.value || c.worklist.errorMessage.value }}</span>
-    <button type="button" class="btn btn--ghost btn--sm" @click="c.reload()">{{ c.text.retry }}</button>
+    <button type="button" class="secondary" @click="c.reload()">{{ c.text.retry }}</button>
   </div>
-  <div v-if="c.worklist.isPermissionLost.value" role="alert" class="cl-alert" :style="c.errorStyle" data-testid="permission-loss-state">
+  <div v-if="c.worklist.isPermissionLost.value" role="alert" class="note burgundy" data-testid="permission-loss-state" style="margin: 0 0 16px">
     {{ c.worklist.errorMessage.value || c.text.denied }}
   </div>
   <template v-else>
-    <WorklistFiltersPanel :controller="c.filters">
-      <template #start>
-        <button type="button" class="btn btn--ghost btn--icon cl-btn" data-testid="refresh-button"
-                :aria-label="c.text.refresh" :title="c.text.refresh"
-                :disabled="c.refresh.isRefreshing.value" :aria-busy="c.refresh.isRefreshing.value ? 'true' : 'false'"
-                @click="c.reload()"><i class="fa-solid fa-rotate" :class="c.refresh.isRefreshing.value ? 'cl-spin' : ''" aria-hidden="true"></i></button>
-        <span role="status" aria-live="polite" class="cl-last-update" data-testid="last-update">{{ c.refresh.lastUpdateLabel.value }}</span>
-      </template>
-      <template #end>
-        <component :is="parts.Layout" :layout="c.layout" />
-      </template>
-    </WorklistFiltersPanel>
-    <p v-if="c.paused.value" class="cl-hint">{{ c.text.paused }}</p>
-    <header class="cl-totals" role="region" aria-label="Statusübersicht" data-testid="status-totals">
-      <span v-for="g in c.worklist.totals.value.groups" :key="g.status" class="cl-chip"
-            :style="{ background: g.surface.background, color: g.surface.color, border: '1px solid ' + g.surface.border }">
-        {{ g.label }}: {{ g.count }} ({{ g.formattedDuration }})
-      </span>
-    </header>
-    <div class="cl-body" :class="c.selectedId.value ? 'lg:grid-cols-2' : ''">
-      <div class="cl-list">
-        <p class="sr-only" id="cwv-keys">{{ c.text.keys }}</p>
-        <div v-if="c.worklist.isLoading.value" class="cl-state" role="status" aria-live="polite" data-testid="loading-state">
-          <span class="cl-state__icon"><i class="fa-solid fa-spinner cl-spin" aria-hidden="true"></i></span>
-          <p class="cl-state__body">{{ c.text.loading }}</p>
-        </div>
-        <div v-else-if="!c.worklist.rows.value.length" class="cl-state" data-testid="empty-state">
-          <span class="cl-state__icon"><i class="fa-regular fa-folder-open" aria-hidden="true"></i></span>
-          <p class="cl-state__title">{{ c.text.empty }}</p>
-          <p v-if="c.view.filterId || c.view.search" class="cl-state__body">{{ c.text.noMatch }}</p>
-        </div>
-        <div v-else class="cl-tablewrap">
-          <table class="cl-table w-full" role="grid" aria-label="Arbeitsliste" aria-describedby="cwv-keys">
-            <thead>
-              <tr>
-                <th v-for="col in c.columns()" :key="col.key" scope="col" v-bind="c.headerAttrs(col.key)"
-                    :class="col.key === 'duration_seconds' ? 'cl-num' : ''"
-                    @keydown="c.layout.onKeydown(col.key, $event)" @click="c.layout.cycleSort(col.key)">{{ col.label }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <template v-for="item in c.displayed.value" :key="item.key">
-                <tr v-if="item.kind === 'group'" class="cl-group">
-                  <th scope="rowgroup" :colspan="c.columns().length" style="text-align: left"
-                      :style="{ paddingLeft: (0.75 + item.depth) + 'rem' }">{{ item.label }}</th>
+    <section class="metrics" :aria-label="c.text.summary" data-testid="status-totals">
+      <div class="metric"><div><div class="metric-label">{{ c.text.kpiAll }}</div><div class="metric-number" data-kpi="all">{{ c.counts.value.all }}</div></div>
+        <div class="metric-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16M4 12h16M4 19h16"/></svg></div></div>
+      <div class="metric"><div><div class="metric-label">{{ c.text.kpiOpen }}</div><div class="metric-number" data-kpi="open">{{ c.counts.value.open }}</div></div>
+        <div class="metric-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5"/></svg></div></div>
+      <div class="metric"><div><div class="metric-label">{{ c.text.kpiWorking }}</div><div class="metric-number" data-kpi="working">{{ c.counts.value.working }}</div></div>
+        <div class="metric-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg></div></div>
+      <div class="metric"><div><div class="metric-label">{{ c.text.kpiDone }}</div><div class="metric-number" data-kpi="done">{{ c.counts.value.done }}</div></div>
+        <div class="metric-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></div></div>
+    </section>
+    <section class="workspace" :aria-label="c.text.title" style="overflow: visible">
+      <WorklistFiltersPanel :controller="c.filters">
+        <template #start>
+          <span class="viewtitle">{{ c.text.listTitle }}</span>
+          <span class="viewhelp" data-testid="sort-note">{{ c.paused.value ? c.text.paused : c.sortNote() }}</span>
+        </template>
+        <template #end>
+          <component :is="parts.Layout" :layout="c.layout" />
+        </template>
+        <template #toolbar>
+          <div class="chiprow" role="group" :aria-label="c.text.chips" style="display: contents">
+            <button type="button" class="filter-pill" :class="c.view.chip === 'all' ? 'active' : ''" data-chip="all" :aria-pressed="c.view.chip === 'all' ? 'true' : 'false'" @click="c.setChip('all')">Alle <span class="num-circle">{{ c.counts.value.all }}</span></button>
+            <button type="button" class="filter-pill" :class="c.view.chip === 'open' ? 'active' : ''" data-chip="open" :aria-pressed="c.view.chip === 'open' ? 'true' : 'false'" @click="c.setChip('open')">{{ c.text.kpiOpen }} <span class="num-circle">{{ c.counts.value.open }}</span></button>
+            <button type="button" class="filter-pill" :class="c.view.chip === 'working' ? 'active' : ''" data-chip="working" :aria-pressed="c.view.chip === 'working' ? 'true' : 'false'" @click="c.setChip('working')">{{ c.text.kpiWorking }} <span class="num-circle">{{ c.counts.value.working }}</span></button>
+            <button type="button" class="filter-pill" :class="c.view.chip === 'done' ? 'active' : ''" data-chip="done" :aria-pressed="c.view.chip === 'done' ? 'true' : 'false'" @click="c.setChip('done')">{{ c.text.kpiDone }} <span class="num-circle">{{ c.counts.value.done }}</span></button>
+          </div>
+          <span class="toolbar-right">
+            <select class="select" style="width: auto; height: auto; min-height: 34px; appearance: auto" :aria-label="c.text.sortLabel" :value="c.sortValue()" @change="c.setSort($event.target.value)">
+              <option v-for="o in c.sortChoices" :key="o.value" :value="o.value">{{ o.label }}</option>
+              <option v-if="!c.sortChoices.some((o) => o.value === c.sortValue())" :value="c.sortValue()">{{ c.sortNote() }}</option>
+            </select>
+          </span>
+        </template>
+      </WorklistFiltersPanel>
+      <p v-if="c.paused.value" class="sr-only cl-sr-only">{{ c.text.paused }}</p>
+      <div class="listhead">
+        <strong data-testid="list-count">{{ c.shownRows().length }} sichtbare von {{ c.counts.value.all }} Diktaten ({{ c.worklist.totals.value.formattedTotalDuration }})</strong>
+        <span>{{ c.text.hintSelect }}</span>
+      </div>
+      <p class="sr-only cl-sr-only" id="cwv-keys">{{ c.text.keys }}</p>
+      <div class="cl-body" :class="c.selectedId.value ? 'lg:grid-cols-2' : ''" style="display: block">
+        <div class="listbody" :class="c.selectedId.value ? 'has-detail' : ''">
+          <div class="table-container">
+            <div v-if="c.worklist.isLoading.value" class="empty" data-layout="cl-state" role="status" aria-live="polite" data-testid="loading-state">
+              <div class="empty-icon" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 3a9 9 0 1 0 9 9"/></svg></div>
+              <h2>{{ c.text.loading }}</h2>
+            </div>
+            <div v-else-if="!c.worklist.rows.value.length" class="empty" data-layout="cl-state" data-testid="empty-state">
+              <div class="empty-icon" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div>
+              <h2>{{ c.text.empty }}</h2>
+              <p v-if="c.view.filterId || c.view.search">{{ c.text.noMatch }}</p>
+            </div>
+            <table v-else class="worktable" data-layout="cl-table" role="grid" aria-label="Arbeitsliste" aria-describedby="cwv-keys">
+              <thead>
+                <tr>
+                  <th class="check"><input type="checkbox" :checked="c.allChecked()" :aria-label="c.text.selectAll" @change="c.toggleAll()"></th>
+                  <th class="titlecol" scope="col">{{ c.text.dictation }}</th>
+                  <th v-for="col in c.columns()" :key="col.key" scope="col" v-bind="c.headerAttrs(col.key)"
+                      :class="c.colClass(col.key)" :style="c.colStyle(col)" style="cursor: pointer"
+                      @keydown="c.layout.onKeydown(col.key, $event)" @click="c.layout.cycleSort(col.key)">{{ col.label }} {{ c.sortMark(col.key) }}</th>
                 </tr>
-                <tr v-else tabindex="0" class="cl-row" data-row :data-id="c.key(item.row)"
-                    :aria-selected="c.selectedId.value === c.key(item.row) ? 'true' : 'false'"
-                    @click="c.select(item.row)" @dblclick="c.open(item.row)" @keydown="c.onRowKey($event, item.row)">
-                  <td v-for="col in c.columns()" :key="col.key" :data-label="col.label"
-                      :class="[col.key === 'duration_seconds' ? 'cl-num' : (col.key === 'deadline_at' || col.key === 'created_at' || col.key === 'assigned_at') ? 'cl-nowrap' : '', c.emptyCell(item.row, col.key) ? 'cl-empty' : '']">
-                    <span v-if="col.key === 'status'" class="pill-status cl-pill" :style="c.badge(item.row).style">{{ c.badge(item.row).label }}</span>
-                    <span v-else-if="col.key === 'priority'" class="cl-prio" :class="'cl-prio--' + c.priorityTone(item.row)">{{ c.cell(item.row, col.key) }}</span>
-                    <template v-else>{{ c.cell(item.row, col.key) }}</template>
-                  </td>
-                </tr>
-              </template>
-            </tbody>
-          </table>
-          <nav class="cl-pager" aria-label="Seiten">
-            <button type="button" class="btn btn--ghost" :disabled="c.view.page <= 1" @click="c.goto(c.view.page - 1)">{{ c.text.prev }}</button>
-            <span aria-live="polite">{{ c.pageLabel() }}</span>
-            <button type="button" class="btn btn--ghost" :disabled="!c.hasNext()" @click="c.goto(c.view.page + 1)">{{ c.text.next }}</button>
-          </nav>
+              </thead>
+              <tbody>
+                <template v-for="item in c.displayed.value" :key="item.key">
+                  <tr v-if="item.kind === 'group'" class="group-row">
+                    <th scope="rowgroup" :colspan="c.columns().length + 2" style="text-align: left; background: var(--v8-s1); color: var(--v8-text)"
+                        :style="{ paddingLeft: (0.75 + item.depth) + 'rem' }">{{ item.label }}</th>
+                  </tr>
+                  <tr v-else tabindex="0" :class="c.selectedId.value === c.key(item.row) ? 'selected' : ''" data-row :data-id="c.key(item.row)"
+                      :aria-selected="c.selectedId.value === c.key(item.row) ? 'true' : 'false'"
+                      @click="c.select(item.row)" @dblclick="c.open(item.row)" @keydown="c.onRowKey($event, item.row)">
+                    <td class="check" @click.stop><input type="checkbox" class="rowcheck" :checked="c.isChecked(item.row)" :aria-label="c.text.selectRow + ': Diktat ' + c.key(item.row)" @change="c.toggleChecked(item.row)" @keydown.stop></td>
+                    <td>
+                      <div class="titlecell">
+                        <span class="mini-rec" aria-hidden="true">
+                          <svg v-if="item.row.source_kind === 'manual_file' || item.row.source_kind === 'document'" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 3h10l4 4v14H5zM15 3v6h5M9 12h6M9 16h6"/></svg>
+                          <svg v-else width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4M8 22h8"/></svg>
+                        </span>
+                        <span class="titletext"><strong>{{ c.text.detail }} #{{ c.key(item.row) }}</strong><small>{{ c.text.recording }}</small></span>
+                      </div>
+                    </td>
+                    <td v-for="col in c.columns()" :key="col.key" :data-label="col.label" :class="c.emptyCell(item.row, col.key) ? 'cl-empty' : ''">
+                      <span v-if="col.key === 'status'" class="status" data-layout="pill-status" :class="c.statusTone(item.row)">{{ c.badge(item.row).label }}</span>
+                      <span v-else-if="col.key === 'priority'" class="prio" style="white-space: normal" :class="c.prioClass(item.row)">{{ c.cell(item.row, col.key) }}</span>
+                      <span v-else-if="col.key === 'staff_pools'" class="pool-pill" :title="c.cell(item.row, col.key)">{{ c.cell(item.row, col.key) }}</span>
+                      <span v-else-if="col.key === 'dictated_by'" class="entity-name" :title="c.cell(item.row, col.key)">{{ c.cell(item.row, col.key) }}</span>
+                      <template v-else>{{ c.cell(item.row, col.key) }}</template>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+          <aside v-if="c.selectedId.value" class="detail" aria-labelledby="cwv-detail-title" data-testid="detail-panel"
+                 @keydown.esc="c.select(null)">
+            <div :key="c.selectedId.value">
+              <div class="detailhead">
+                <div><strong id="cwv-detail-title">{{ c.text.detail }} #{{ c.selectedId.value }}</strong><small>{{ c.text.detailInfo }}</small></div>
+                <button type="button" class="icon-button closebtn" data-testid="close-detail" :aria-label="c.text.close" :title="c.text.close"
+                        @click="c.select(null)"><svg class="ui-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+              </div>
+              <div class="detailcontent">
+                <div class="detailbadges" v-if="c.selectedRow.value">
+                  <span class="status" :class="c.statusTone(c.selectedRow.value)">{{ c.badge(c.selectedRow.value).label }}</span>
+                  <span class="prio" :class="c.prioClass(c.selectedRow.value)">{{ c.cell(c.selectedRow.value, 'priority') }}</span>
+                </div>
+                <div class="detail-info" v-if="c.selectedRow.value">
+                  <div class="detail-line"><span>Diktiert von</span><span>{{ c.cell(c.selectedRow.value, 'dictated_by') }}</span></div>
+                  <div class="detail-line"><span>Schreibkräfte-Pool</span><span>{{ c.cell(c.selectedRow.value, 'staff_pools') }}</span></div>
+                  <div class="detail-line"><span>Übernommen von</span><span>{{ c.cell(c.selectedRow.value, 'lease_holder') }}</span></div>
+                  <div class="detail-line"><span>Quelle</span><span>{{ c.cell(c.selectedRow.value, 'source_kind') }}</span></div>
+                  <div class="detail-line"><span>Dauer</span><span>{{ c.cell(c.selectedRow.value, 'duration_seconds') }}</span></div>
+                  <div class="detail-line"><span>Erstellt</span><span>{{ c.cell(c.selectedRow.value, 'created_at') }}</span></div>
+                </div>
+                <div class="detail-bottom">
+                  <button type="button" class="primary" data-testid="open-dictation"
+                          :disabled="!c.canOpen.value" @click="c.open()">{{ c.text.open }}</button>
+                </div>
+                <component :is="parts.Lease" v-if="c.leaseState.value" :state="c.leaseState.value" :run="c.leaseRun" />
+                <component :is="parts.Workflow" :wf="c.workflow" />
+                <details :open="c.panels.protection" @toggle="c.panels.protection = $event.target.open" style="margin-top: 14px; border-top: 1px solid var(--v8-line-2); padding-top: 4px">
+                  <summary style="cursor: pointer; min-height: 38px; display: flex; align-items: center; font-size: 12px; font-weight: 750">{{ c.text.protection }}</summary>
+                  <component :is="parts.Protection" v-if="c.panels.protection" :client="c.detailClient" :dictation-id="c.selectedId.value" />
+                </details>
+                <details :open="c.panels.acceptance" @toggle="c.panels.acceptance = $event.target.open" style="border-top: 1px solid var(--v8-line-2); padding-top: 4px">
+                  <summary style="cursor: pointer; min-height: 38px; display: flex; align-items: center; font-size: 12px; font-weight: 750">{{ c.text.acceptance }}</summary>
+                  <component :is="parts.Acceptance" v-if="c.panels.acceptance" :dictation-id="c.selectedId.value" />
+                </details>
+                <details :open="c.panels.history" @toggle="c.panels.history = $event.target.open" style="border-top: 1px solid var(--v8-line-2); padding-top: 4px">
+                  <summary style="cursor: pointer; min-height: 38px; display: flex; align-items: center; font-size: 12px; font-weight: 750">{{ c.text.history }}</summary>
+                  <component :is="parts.History" v-if="c.panels.history" :client="c.detailClient" :dictation-id="c.selectedId.value" />
+                </details>
+              </div>
+            </div>
+          </aside>
         </div>
       </div>
-      <aside v-if="c.selectedId.value" class="cl-detail" aria-labelledby="cwv-detail-title" data-testid="detail-panel"
-             @keydown.esc="c.select(null)">
-        <div :key="c.selectedId.value">
-          <h2 id="cwv-detail-title" class="cl-panel__title">{{ c.text.detail }}</h2>
-          <div class="cl-detail__actions">
-            <button type="button" class="btn btn--primary" data-testid="open-dictation"
-                    :disabled="!c.canOpen.value" @click="c.open()">{{ c.text.open }}</button>
-            <button type="button" class="btn btn--ghost" data-testid="close-detail"
-                    @click="c.select(null)">{{ c.text.close }}</button>
-          </div>
-          <component :is="parts.Lease" v-if="c.leaseState.value" :state="c.leaseState.value" :run="c.leaseRun" />
-          <component :is="parts.Workflow" :wf="c.workflow" />
-          <details :open="c.panels.protection" @toggle="c.panels.protection = $event.target.open">
-            <summary>{{ c.text.protection }}</summary>
-            <component :is="parts.Protection" v-if="c.panels.protection" :client="c.detailClient" :dictation-id="c.selectedId.value" />
-          </details>
-          <details :open="c.panels.acceptance" @toggle="c.panels.acceptance = $event.target.open">
-            <summary>{{ c.text.acceptance }}</summary>
-            <component :is="parts.Acceptance" v-if="c.panels.acceptance" :dictation-id="c.selectedId.value" />
-          </details>
-          <details :open="c.panels.history" @toggle="c.panels.history = $event.target.open">
-            <summary>{{ c.text.history }}</summary>
-            <component :is="parts.History" v-if="c.panels.history" :client="c.detailClient" :dictation-id="c.selectedId.value" />
-          </details>
+      <div v-if="c.checkedCount()" class="quick-actions show" data-testid="bulk-bar">
+        <strong>{{ c.checkedCount() }} {{ c.text.selected }}</strong>
+        <button type="button" class="secondary" @click="c.clearChecked()">{{ c.text.clearSelection }}</button>
+      </div>
+      <nav class="tablefooter" data-layout="cl-pager" aria-label="Seiten">
+        <span aria-live="polite">{{ c.pagerInfo() }}</span>
+        <div class="pagination">
+          <button type="button" class="icon-button page-icon" :aria-label="c.text.prev" :title="c.text.prev" :disabled="c.view.page <= 1" @click="c.goto(c.view.page - 1)"><svg class="ui-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m15 5-7 7 7 7"/></svg></button>
+          <button type="button" class="icon-button page-icon" :aria-label="c.text.next" :title="c.text.next" :disabled="!c.hasNext()" @click="c.goto(c.view.page + 1)"><svg class="ui-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m9 5 7 7-7 7"/></svg></button>
         </div>
-      </aside>
-    </div>
+      </nav>
+    </section>
   </template>
 </section>`,
 };
