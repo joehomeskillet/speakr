@@ -3,6 +3,155 @@
     Vue app; the other pages mount static/js/global-header.js on
     page-header.html, which provides the same state and methods, so every
     page shows the same header. Vue delimiters are ${ }. -#}
+{% if clinic_mode %}
+{#- CLINIC_MODE (v8-110): the header controls of the V8 prototype (03_Prototyp/index.html topbar): the menu
+    "Verwaltung & Seiten", the accent button "Neue Aufnahme", the connection indicator and the avatar with the
+    account menu. The wrapper carries the root class so the controls are styled on every page that includes
+    this template; display: contents keeps it out of the layout. -#}
+{%- if not v8_css_linked %}<link rel="stylesheet" href="{{ url_for('static', filename='css/clinic-v8.css', v=app_version) }}">{% endif %}
+<div class="v8-ui v8-chrome" style="display: contents">
+    {% include 'components/token_budget_indicator.html' %}
+
+    <!-- "Verwaltung & Seiten": the pages of the menu that exist in the app. The Verwaltung pages are the tabs of /admin. -->
+    <details class="v6-admin" data-testid="clinic-pages-menu" data-close-outside
+             @keydown.esc="if ($event.currentTarget.open) {
+                 $event.stopPropagation();
+                 $event.currentTarget.open = false;
+                 $event.currentTarget.querySelector('summary').focus();
+             }">
+        <summary aria-label="Verwaltung &amp; Seiten"><svg class="ui-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3" fill="currentColor"/><circle cx="15" cy="17" r="3" fill="currentColor"/></svg><span class="v8-menu-label">Verwaltung &amp; Seiten</span><svg class="ui-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></summary>
+        <div class="v6-menu" @click="if ($event.target.closest('a')) $event.currentTarget.parentElement.open = false;">
+            <section>
+                <h2>Diktat und Ausgabe</h2>
+                <a href="/#/neu">Neue Aufnahme</a>
+                <a href="/#/live">Live-Diktat</a>
+                <a href="/#/archiv">Archiv</a>
+                <a href="/#/import">Dateien und Geräteimport</a>
+            </section>
+            {% if current_user.is_admin %}
+            <section>
+                <h2>Organisation</h2>
+                <a href="/admin">Schreibkräfte-Pools</a>
+                <a href="/admin">Diktierende und Autorenpools</a>
+                <a href="/admin">Benutzer und Rollen</a>
+            </section>
+            <section>
+                <h2>Sprache und Verarbeitung</h2>
+                <a href="/admin">Wortschatz</a>
+                <a href="/admin">Sprachbefehle und Vorlagen</a>
+                <a href="/admin">ASR und Sprachprofile</a>
+                <a href="/admin">Verarbeitung</a>
+            </section>
+            {% endif %}
+            <section>
+                <h2>Betrieb und Zugriff</h2>
+                {% if current_user.is_admin %}
+                <a href="/admin">Aktivität und Audit</a>
+                <a href="/admin">Anmeldung und Zugriff</a>
+                {% endif %}
+                <a href="/#/einstellungen">Einstellungen</a>
+                <a href="/#/offline">Offline und Wiederherstellung</a>
+            </section>
+        </div>
+    </details>
+
+    <!-- Install PWA Button -->
+    <button v-if="showInstallButton && !isPWAInstalled" type="button" @click="promptInstall"
+            class="top-icon" :title="t('pwa.installApp')" :aria-label="t('pwa.installApp')">
+        <i class="fas fa-download" aria-hidden="true"></i>
+    </button>
+
+    <!-- New Recording Button -->
+    <a href="/#/neu" data-testid="nav-clinic-new" data-clinic-tooltip aria-label="Neue Aufnahme" class="top-action"><svg class="ui-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 4v16M4 12h16"/></svg><span>Neue Aufnahme</span></a>
+    {#- Connection indicator (icon only): opens Verbindungsstatus / Entwürfe. -#}
+    <a href="/#/offline" data-testid="nav-clinic-offline" data-clinic-connection data-clinic-tooltip data-online="true"
+       aria-label="Verbindungsstatus / Entwürfe" class="top-icon">
+        <i class="fas fa-wifi" aria-hidden="true"></i>
+    </a>
+
+    <!-- User menu: the avatar shows the initials -->
+    {% if current_user.is_authenticated %}
+    {% set _nm = ((current_user.name or current_user.username or '') ~ '')|trim %}
+    {% set _pp = _nm.split() %}
+    {% set _ini = (((_pp[0][0] ~ _pp[-1][0]) if _pp|length > 1 else _nm[:2]) or '?')|upper %}
+    <div class="v8-userwrap">
+        <button type="button" @click="isUserMenuOpen = !isUserMenuOpen"
+                data-user-menu-toggle
+                class="topavatar"
+                aria-haspopup="menu" :aria-expanded="isUserMenuOpen ? 'true' : 'false'"
+                :title="t('admin.userMenu')"
+                :aria-label="t('admin.userMenu')">
+            <span v-pre aria-hidden="true">{{ _ini }}</span>
+            <span v-if="unreadCount > 0"
+                  data-notification-badge
+                  class="v8-badge"
+                  v-text="unreadCount > 9 ? '9+' : unreadCount"></span>
+        </button>
+
+        <div v-if="isUserMenuOpen" data-user-menu-dropdown role="menu" class="v8-usermenu">
+            <button type="button" @click="toggleNotifications" data-notifications-toggle class="v8-item">
+                <i class="fas fa-bell" aria-hidden="true"></i><span v-text="t('nav.notifications')"></span>
+                <span v-if="unreadCount > 0" class="v8-badge" style="position: static; margin-left: auto"
+                      v-text="unreadCount > 9 ? '9+' : unreadCount"></span>
+            </button>
+            <div v-if="isNotificationsOpen" data-notifications-panel class="v8-notes">
+                <p v-if="notifications.length === 0" v-text="t('notifications.empty')"></p>
+                <div v-for="n in notifications" :key="n.id" style="display: flex; gap: 8px; align-items: flex-start; padding: 6px 0">
+                    <i class="fas" :class="n.level === 'error' ? 'fa-circle-exclamation' : (n.level === 'warning' ? 'fa-triangle-exclamation' : 'fa-circle-info')" aria-hidden="true"></i>
+                    <div style="flex: 1; min-width: 0">
+                        <p style="margin: 0; overflow-wrap: anywhere" v-text="notificationText(n)"></p>
+                        <a v-if="n.link" :href="n.link" style="padding: 0; min-height: 0" v-text="t('notifications.view')"></a>
+                    </div>
+                    <button type="button" @click.stop="dismissNotification(n.id)" :title="t('notifications.dismiss')"
+                            style="border: 0; background: transparent; cursor: pointer; padding: 0">
+                        <i class="fas fa-xmark" aria-hidden="true"></i>
+                    </button>
+                </div>
+            </div>
+            <hr>
+            <a href="/#/einstellungen" data-testid="nav-clinic-settings" role="menuitem" @click="isUserMenuOpen = false">
+                <i class="fas fa-sliders" aria-hidden="true"></i><span>Einstellungen</span>
+            </a>
+            <a href="/account" role="menuitem"><i class="fas fa-user-gear" aria-hidden="true"></i><span>Konto</span></a>
+            {#- Ressourcen is a view of the clinic shell (index.html); the hash link works from every page. -#}
+            <a href="/#/ressourcen" data-testid="nav-clinic-resources" role="menuitem" @click="isUserMenuOpen = false">
+                <i class="fas fa-book" aria-hidden="true"></i><span>Ressourcen</span>
+            </a>
+            {% if current_user.is_admin %}
+            <a href="/admin" role="menuitem"><i class="fas fa-user-shield" aria-hidden="true"></i><span v-text="t('admin.title')"></span></a>
+            {% elif is_group_admin or can_create_groups %}
+            <a href="/group-management" role="menuitem"><i class="fas fa-users-cog" aria-hidden="true"></i><span v-text="t('nav.groupManagement')"></span></a>
+            {% endif %}
+            {% if current_user.keyboard_shortcuts is not sameas false %}
+            <button type="button" data-shortcuts-help @click="isUserMenuOpen = false; openShortcutsHelp()" class="v8-item hidden md:flex">
+                <i class="fas fa-keyboard" aria-hidden="true"></i><span style="flex: 1" v-text="t('shortcuts.title')"></span><kbd class="kbd" aria-hidden="true">?</kbd>
+            </button>
+            {% endif %}
+            {% if help_center_url %}
+            <a href="{{ help_center_url }}" target="_blank" rel="noopener noreferrer">
+                <i class="fas fa-question-circle" aria-hidden="true"></i>
+                {% if help_center_label %}<span>{{ help_center_label }}</span>{% else %}<span v-text="t('nav.helpCenter')"></span>{% endif %}
+            </a>
+            {% endif %}
+            <hr>
+            <div @click="openColorSchemeModal" class="v8-item" role="menuitem" tabindex="0" @keydown.enter="openColorSchemeModal">
+                <i class="fas fa-palette" aria-hidden="true"></i><span v-text="t('modal.colorScheme')"></span>
+                <button type="button" @click.stop="toggleDarkMode" class="v8-theme" style="min-height: 0; padding: 2px"
+                        :title="isDarkMode ? t('nav.lightMode') : t('nav.darkMode')" :aria-label="isDarkMode ? t('nav.lightMode') : t('nav.darkMode')">
+                    <span :class="{ on: !isDarkMode }"><i class="fas fa-sun" aria-hidden="true" style="width: auto; color: inherit"></i></span>
+                    <span :class="{ on: isDarkMode }"><i class="fas fa-moon" aria-hidden="true" style="width: auto; color: inherit"></i></span>
+                </button>
+            </div>
+            <hr>
+            <form method="POST" action="/logout" style="margin: 0">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="v8-item" role="menuitem"><i class="fas fa-sign-out-alt" aria-hidden="true"></i><span>Abmelden</span></button>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% else %}
     {% include 'components/token_budget_indicator.html' %}
 
     <!-- Inquire / Install PWA / New Recording header buttons.
@@ -30,23 +179,9 @@
     </button>
 
     <!-- New Recording Button -->
-    {% if not clinic_mode %}
     <button @click="switchToUploadView" class="btn btn--sm btn--primary header-action" :aria-label="t('nav.newRecording')">
         <i class="fas fa-plus"></i><span class="header-action__label hidden sm:inline" v-text="t('nav.newRecording')"></span>
     </button>
-    {% else %}
-    {#- V8 menu views (v8-71): in CLINIC_MODE the V8 recording view replaces the upstream entry; the hash link works from every page. -#}
-    <a href="/#/neu" data-testid="nav-clinic-new" data-clinic-tooltip aria-label="Neue Aufnahme"
-       class="btn btn--sm btn--primary header-action">
-        <i class="fas fa-plus" aria-hidden="true"></i><span class="header-action__label hidden sm:inline">Neue Aufnahme</span>
-    </a>
-    {#- Connection indicator (icon only): opens Verbindungsstatus / Entwürfe. -#}
-    <a href="/#/offline" data-testid="nav-clinic-offline" data-clinic-connection data-clinic-tooltip data-online="true"
-       aria-label="Verbindungsstatus / Entwürfe" class="btn btn--icon header-action">
-        <i class="fas fa-wifi" aria-hidden="true"></i>
-    </a>
-    {#- end V8 menu views (v8-71) -#}
-    {% endif %}
 
     <!-- User menu -->
     {% if current_user.is_authenticated %}
@@ -113,19 +248,6 @@
             <a href="/account" class="block px-4 py-2 hover:bg-[var(--bg-tertiary)] transition-colors">
                 <i class="fas fa-cog mr-2 w-4 text-center"></i><span v-text="t('nav.settings')"></span>
             </a>
-            {% if clinic_mode %}
-            {#- Ressourcen is a view of the clinic shell (index.html); the hash link works from every page. -#}
-            <a href="/#/ressourcen" data-testid="nav-clinic-resources" @click="isUserMenuOpen = false"
-               class="block px-4 py-2 hover:bg-[var(--bg-tertiary)] transition-colors">
-                <i class="fas fa-book mr-2 w-4 text-center"></i><span>Ressourcen</span>
-            </a>
-            {#- V8 menu views (v8-71): personal settings (P19), a view of the clinic shell. -#}
-            <a href="/#/einstellungen" data-testid="nav-clinic-settings" @click="isUserMenuOpen = false"
-               class="block px-4 py-2 hover:bg-[var(--bg-tertiary)] transition-colors">
-                <i class="fas fa-sliders mr-2 w-4 text-center"></i><span>Einstellungen</span>
-            </a>
-            {#- end V8 menu views (v8-71) -#}
-            {% endif %}
             {% if current_user.is_admin %}
             <a href="/admin" class="block px-4 py-2 hover:bg-[var(--bg-tertiary)] transition-colors">
                 <i class="fas fa-user-shield mr-2 w-4 text-center"></i>
@@ -189,3 +311,4 @@
         </div>
     </div>
     {% endif %}
+{% endif %}
