@@ -95,7 +95,7 @@ def make_source_loader(root):
     """Build load_sources(dictation, edl) reading stored audio under `root`, read-only.
 
     Only sources named in the edit list are loaded, and each must belong to the dictation.
-    Originals are verified against their stored hash; everything is decoded to 16 kHz mono WAV
+    All sources are verified against their stored hash; everything is decoded to 16 kHz mono WAV
     in a temporary directory. Any problem raises AudioRevisionError (the route answers 503).
     """
     def load(dictation, edl):
@@ -118,8 +118,8 @@ def make_source_loader(root):
                 result = decoder.decode_to_wav(path, tmp)
                 if result.status != decoder.OK:
                     raise audio_revisions.AudioRevisionError('audio source cannot be decoded: ' + result.status)
-                if entry.source_type == audio_revisions.SOURCE_ORIGINAL and result.input_sha256 != row.content_hash:
-                    raise audio_revisions.AudioRevisionError('stored original does not match its hash')
+                if result.input_sha256 != row.content_hash:
+                    raise audio_revisions.AudioRevisionError('stored audio source does not match its hash')
                 sources[key] = AudioSource(Path(result.output_path).read_bytes(), result.input_sha256)
         return sources
     return load
