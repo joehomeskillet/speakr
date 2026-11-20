@@ -132,6 +132,9 @@ def test_review_and_release_current_bound_versions(review_scene, tmp_path):
                 assert _get(page, path + "/review")["revision"] == ready["revision"]
 
             page.get_by_test_id("clinic-dictation-link-detail").click()
+            with page.expect_response(lambda r: r.url.endswith("/leases") and r.request.method == "POST") as acquired:
+                page.locator(".clinic-lease").get_by_role("button", name="Bearbeiten", exact=True).click()
+            assert acquired.value.ok, acquired.value.text()
             with page.expect_response(lambda r: r.url.endswith("/parity/commands") and r.request.method == "POST") as sent:
                 page.get_by_role("button", name="Zur Abnahme einreichen", exact=True).click()
             assert sent.value.status == 200, sent.value.text()
@@ -145,12 +148,16 @@ def test_review_and_release_current_bound_versions(review_scene, tmp_path):
 
             page.get_by_test_id("clinic-dictation-link-review").click()
             review = page.get_by_test_id("clinic-review-view")
+            with page.expect_response(lambda r: r.url.endswith("/leases") and r.request.method == "POST") as review_lease:
+                review.get_by_test_id("begin-review").click()
+            assert review_lease.value.ok, review_lease.value.text()
             review.locator("[data-action=accept]").click()
             with page.expect_response(lambda r: r.url.endswith("/parity/commands") and r.request.method == "POST") as accepted:
                 review.get_by_test_id("confirm").click()
             assert accepted.value.status == 200, accepted.value.text()
             assert _get(page, path + "/review")["status"] == "abgenommen"
             review.locator("[data-action=release]").click()
+            expect(review.get_by_role("checkbox")).to_have_count(2)
             for checkbox in review.get_by_role("checkbox").all():
                 checkbox.check()
             page.set_viewport_size({"width": 1440, "height": 900})
