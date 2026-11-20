@@ -47,7 +47,11 @@ export const RecordingsView = {
             });
         }
         if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => c.dispose());
-        return { c, scroller, onScroll, filtersOpen, t: TEXT };
+        function rowContext(id) {
+            const row = c.state.rows.find((entry) => entry.dictationId === id);
+            return row && { dictator: row.author, pool: row.poolText };
+        }
+        return { c, scroller, onScroll, filtersOpen, t: TEXT, rowContext };
     },
     template: `
 <section class="clinic-recordings-view cl-view" data-testid="clinic-recordings-view" aria-labelledby="crv-title">

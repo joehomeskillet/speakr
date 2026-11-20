@@ -36,6 +36,7 @@ def created():
         yield users
         audit.flush()
         db.session.rollback()
+        reset_audit_settings()
         for user_id in users:
             LoginFailure.query.filter_by(user_id=user_id).delete()
         db.session.commit()

@@ -13,7 +13,7 @@ from flask_login import login_required, current_user, login_user
 from werkzeug.utils import secure_filename
 
 from src.clinic import identity
-from src.clinic.config import clinic_mode_enabled
+from src.clinic.config import clinic_mode_enabled, feature_locked
 from src.database import db
 from src.models import *
 from src.utils import *
@@ -367,7 +367,10 @@ def admin_get_users():
     if clinic_mode_enabled() and current_user.is_admin and page_ids:
         policies = {p.user_id: p for p in identity.ClinicAccountPolicy.query
                     .filter(identity.ClinicAccountPolicy.user_id.in_(page_ids)).all()}
-        for row in user_data:
+        group_grants_available = not feature_locked('internal_sharing')
+        for user, row in zip(users, user_data):
+            row['name'] = user.name
+            row['group_grants_available'] = group_grants_available
             if policy := policies.get(row['id']):
                 row.update(_clinic_account_fields(policy))
 

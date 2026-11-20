@@ -512,7 +512,16 @@ export const WorklistView = {
         const parts = buildParts(V, c.detailClient);
         if (typeof V.onMounted === 'function' && props.autoStart) V.onMounted(() => c.start());
         if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => c.dispose());
-        return { c, parts };
+        function rowContext(id) {
+            const row = c.worklist.selectedRow.value;
+            if (!row || rowKey(row) !== id) return null;
+            const visible = c.columns().map((col) => col.key);
+            return {
+                dictator: visible.includes('dictated_by') && row.dictated_by ? cellText(row, 'dictated_by') : null,
+                pool: visible.includes('staff_pools') ? cellText(row, 'staff_pools') : null,
+            };
+        }
+        return { c, parts, rowContext };
     },
     template: `
 <section class="clinic-worklist-view cl-view" data-testid="clinic-worklist-view" aria-labelledby="cwv-title">

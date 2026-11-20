@@ -71,3 +71,30 @@ def test_no_horizontal_page_overflow_at_390_px_for_the_four_identity_panels(live
         )
         assert not spilled, (panel, spilled)
     assert not js_errors, js_errors
+
+def test_clinic_admin_lands_on_accounts_with_the_active_tab_visible_on_mobile(live_server, browser):
+    base, _ids = live_server
+    page, js_errors = _login(browser, base, ADMIN_EMAIL)
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.goto(base + "/admin")
+    page.locator("#acc-title").wait_for(state="visible")
+    tab = page.get_by_test_id("admin-tab-clinic")
+    assert "is-active" in tab.get_attribute("class").split()
+    assert tab.evaluate("el => el.getBoundingClientRect().left >= 0 && el.getBoundingClientRect().right <= innerWidth")
+    assert not js_errors, js_errors
+
+def test_accounts_search_and_composed_create_action(live_server, browser):
+    base, _ids = live_server
+    page, js_errors = _open(browser, base, 1440, 900)
+    page.get_by_test_id("clinic-v8-panel-users").click()
+    view = page.get_by_test_id("clinic-users-view")
+    search = view.get_by_role("searchbox", name="Suche")
+    search.fill("W226TYPIST")
+    rows = view.locator("table tbody tr")
+    assert rows.count() == 1
+    assert "w226typist" in rows.inner_text()
+    search.fill("kein-treffer")
+    view.get_by_text("Keine passenden Konten.").wait_for()
+    view.get_by_role("button", name="Konto anlegen").click()
+    assert page.locator("#acc-username").evaluate("el => el === document.activeElement")
+    assert not js_errors, js_errors

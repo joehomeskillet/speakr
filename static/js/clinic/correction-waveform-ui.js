@@ -269,18 +269,18 @@ export const CorrectionWaveform = {
         return { ...wave, LABELS, WIDTH, surfaces, focusStyle, boxStyle, rect };
     },
     template: `
-<section class="clinic-correction-waveform" :aria-label="LABELS.title" :aria-busy="status === 'loading'" :data-status="status">
-  <h3>{{ LABELS.title }}</h3>
+<section class="clinic-correction-waveform" :aria-label="LABELS.title" :aria-busy="status === 'loading'" :data-status="status" style="display: grid; gap: 8px">
+  <h3 style="margin: 0">{{ LABELS.title }}</h3>
   <div v-if="status === 'error' || status === 'denied'" role="alert" :style="boxStyle(surfaces.problem)">
     {{ error && error.message }}
-    <button type="button" :style="focusStyle" @click="load()">{{ LABELS.retry }}</button>
+    <button type="button" class="small" :style="focusStyle" @click="load()">{{ LABELS.retry }}</button>
   </div>
   <div v-else-if="status === 'stale'" role="alert" :style="boxStyle(surfaces.uncertain)">
     {{ LABELS.stale }}
     <button type="button" :style="focusStyle" @click="load()">{{ LABELS.retry }}</button>
   </div>
-  <p v-else-if="status === 'none'" role="status">{{ LABELS.none }}</p>
-  <svg v-if="status === 'ready'" role="img" :aria-label="LABELS.waveform" :viewBox="'0 -1 ' + WIDTH + ' 2'" preserveAspectRatio="none" width="100%" height="64">
+  <p v-else-if="status === 'none'" role="status" class="hint" style="margin: 0">{{ LABELS.none }}</p>
+  <svg v-if="status === 'ready'" role="img" :aria-label="LABELS.waveform" :viewBox="'0 -1 ' + WIDTH + ' 2'" preserveAspectRatio="none" width="100%" height="64" style="color: var(--v8-muted); background: var(--v8-s1); border-radius: 8px">
     <line v-for="bar in bars" :key="bar.x" :x1="bar.x" :x2="bar.x" :y1="bar.y1" :y2="bar.y2" stroke="currentColor" stroke-width="1" vector-effect="non-scaling-stroke" />
     <template v-for="span in uncertainSpans" :key="'u' + span.id">
       <rect v-if="rect(span)" :x="rect(span).x" y="-1" :width="rect(span).w" height="2" fill="none"
@@ -289,28 +289,28 @@ export const CorrectionWaveform = {
     <rect v-if="currentPhrase && rect(currentPhrase)" :x="rect(currentPhrase).x" y="-1" :width="rect(currentPhrase).w" height="2"
       :fill="surfaces.current.background" fill-opacity="0.6" :stroke="surfaces.current.border" stroke-width="2" vector-effect="non-scaling-stroke" data-kind="current" />
   </svg>
-  <p class="clinic-correction-waveform-current" :aria-current="currentPhrase ? 'true' : null"
+  <p class="clinic-correction-waveform-current hint" style="margin: 0" :aria-current="currentPhrase ? 'true' : null"
     :style="currentPhrase ? boxStyle(surfaces.current) : {}">
     <strong>{{ LABELS.currentPhrase }}:</strong> {{ currentPhrase ? currentPhrase.text : LABELS.noCurrent }}
   </p>
-  <div class="clinic-correction-waveform-uncertain">
-    <strong>{{ LABELS.uncertain }}:</strong>
+  <div class="clinic-correction-waveform-uncertain hint">
+    <strong>{{ LABELS.uncertain }}:</strong>{{ ' ' }}
     <span v-if="!uncertainSpans.length">{{ LABELS.noUncertain }}</span>
-    <ul v-else>
+    <ul v-else class="chiprow" style="list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px">
       <li v-for="span in uncertainSpans" :key="span.id">
-        <button type="button" :style="{ ...focusStyle, ...boxStyle(surfaces.uncertain) }"
+        <button type="button" class="small" :style="{ ...focusStyle, ...boxStyle(surfaces.uncertain) }"
           :aria-label="LABELS.uncertainAria + ': ' + span.text" @click="seekToSpan(span)">{{ span.text }}</button>
       </li>
     </ul>
   </div>
-  <div class="clinic-correction-waveform-unaligned">
-    <strong>{{ LABELS.unaligned }}:</strong>
+  <div class="clinic-correction-waveform-unaligned hint">
+    <strong>{{ LABELS.unaligned }}:</strong>{{ ' ' }}
     <span v-if="!unalignedSpans.length">{{ LABELS.noUnaligned }}</span>
     <ul v-else>
       <li v-for="span in unalignedSpans" :key="span.start">{{ span.text }}</li>
     </ul>
   </div>
-  <div role="status" aria-live="polite">{{ announcement }}</div>
+  <div role="status" aria-live="polite" class="sr-only">{{ announcement }}</div>
 </section>`,
 };
 

@@ -233,6 +233,9 @@ export function useCorrectionEditor(options) {
 }
 
 /** Vue component. Props: client, dictationId, currentUser, vue. */
+/** Re-exported so the composed view reaches the toolbar controller through a module it already imports. */
+export { createCorrectionToolbar, FONT_SIZE, vTip } from './correction-toolbar-ui.js';
+
 export const CorrectionEditor = {
     name: 'ClinicCorrectionEditor',
     props: {
@@ -266,7 +269,7 @@ export const CorrectionEditor = {
         return { ...editor, LABELS, actions, surface, focusStyle, leaseRun, onText, onTemplate };
     },
     template: `
-<section class="clinic-correction" :aria-label="LABELS.title" :aria-busy="loading" :data-manual="manual">
+<section class="clinic-correction panel" :aria-label="LABELS.title" :aria-busy="loading" :data-manual="manual">
   <h2>{{ LABELS.title }}</h2>
   <div v-if="error" role="alert"
     :style="{ background: surface.background, color: surface.color, border: '1px solid ' + surface.border }">
@@ -278,7 +281,7 @@ export const CorrectionEditor = {
   <p v-if="manual && !loading && !error" role="note">{{ LABELS.manual }}</p>
   <div class="clinic-correction-lease" role="group" aria-label="Bearbeitungsstatus">
     <p role="status" aria-live="polite">{{ lease.message }}</p>
-    <button v-for="a in actions" :key="a.id" type="button" :disabled="a.disabled" :style="focusStyle"
+    <button v-for="a in actions" :key="a.id" type="button" class="small" :disabled="a.disabled" :style="focusStyle"
       @click="leaseRun[a.id] && leaseRun[a.id]()">{{ a.label }}</button>
   </div>
   <div class="clinic-correction-audio">
@@ -298,7 +301,7 @@ export const CorrectionEditor = {
   </ul>
   <label>
     {{ LABELS.text }}
-    <textarea rows="12" :style="focusStyle" :value="text" :readonly="!canEdit"
+    <textarea rows="12" class="editor" :style="focusStyle" :value="text" :readonly="!canEdit"
       :aria-readonly="String(!canEdit)" :aria-describedby="canEdit ? null : 'clinic-correction-readonly'"
       @input="onText"></textarea>
   </label>

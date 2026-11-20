@@ -412,3 +412,14 @@
     .cadm-table--stack .cadm-col-actions { width: auto; text-align: left; padding-top: var(--sp-2); }
     .cadm-table--stack .cadm-col-actions::before { display: none; }
 }
+
+.cadm-account-filters { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: end; }
+.cadm-account-filters label { display: grid; gap: var(--sp-1); flex: 1 1 10rem; min-width: 0; }
+.cadm-account-filters label.search { flex-grow: 3; }
+.cadm-account-filters input, .cadm-account-filters select { width: 100%; min-width: 0; }
+.cadm-account-summary.stats { display: flex; gap: var(--sp-3); flex-wrap: wrap; margin-block: var(--sp-3); }
+.cadm-account-summary.stats .stat {
+    display: inline-flex; align-items: baseline; gap: var(--sp-1);
+    background: transparent; padding: 0; border: 0; color: var(--text-muted);
+}
+.cadm-account-summary.stats .stat strong { font-size: inherit; margin: 0; }

@@ -313,7 +313,7 @@ export function createLeaseStatusComponent(vue) {
             return { actions };
         },
         template: `
-            <section class="clinic-lease" aria-label="Bearbeitungsstatus"
+            <section class="clinic-lease live-inline-status" aria-label="Bearbeitungsstatus"
                 :data-status="state.status"
                 :style="{ background: state.surface.background, color: state.surface.color, border: '1px solid ' + state.surface.border }">
                 <p role="status" aria-live="polite">
@@ -322,7 +322,7 @@ export function createLeaseStatusComponent(vue) {
                 <p v-if="state.conflict" role="alert">
                     Nicht gespeicherte Änderungen sind noch vorhanden. Bitte entscheiden.
                 </p>
-                <button v-for="a in actions" :key="a.id" type="button" :disabled="a.disabled"
+                <button v-for="a in actions" :key="a.id" type="button" class="small" :disabled="a.disabled"
                     @click="run[a.id]()">{{ a.label }}</button>
             </section>`,
     };
