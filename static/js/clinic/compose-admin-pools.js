@@ -536,6 +536,7 @@ export const ADMIN_POOLS_TEMPLATE = `
         <span class="tool-wrap"><button type="button" class="icon-button" :aria-label="c.text.resetFilter" :title="c.text.resetFilter" data-testid="pool-filter-reset" @click="c.state.filter = ''">${ICONS.restart}</button></span>
       </div>
       <p class="result-count" aria-live="polite" data-testid="pool-count">{{ c.countText() }}</p>
+      <p v-if="!c.selected() && c.visibleRows().length" class="hint" data-testid="detail-panel">{{ c.text.noSelection }}</p>
       <p v-if="!c.rows().length" class="empty" data-testid="empty-state">{{ c.text.empty }}</p>
       <p v-else-if="!c.visibleRows().length" class="empty" data-testid="filter-empty">{{ c.text.filterEmpty }}</p>
       <div v-else class="table-wrap">
@@ -561,8 +562,7 @@ export const ADMIN_POOLS_TEMPLATE = `
         </table>
       </div>
     </section>
-    <p v-if="!c.selected()" id="cap-detail-title" class="hint" data-testid="detail-panel">{{ c.text.noSelection }}</p>
-    <aside v-else class="grid equal" aria-labelledby="cap-detail-title" data-testid="detail-panel">
+    <aside v-if="c.selected()" class="grid equal" aria-labelledby="cap-detail-title" data-testid="detail-panel">
       <section class="panel" :key="c.state.selectedId">
         <h2 id="cap-detail-title">{{ c.text.detail }}: {{ c.selected().name }}</h2>
         <form class="field-grid" @submit.prevent="c.rename()">

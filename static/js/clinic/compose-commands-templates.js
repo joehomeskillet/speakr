@@ -176,7 +176,7 @@ export const COMMANDS_TEMPLATES_TEMPLATE = `
       <slot name="${EDITOR_HOOK.slot}"></slot>
       <p v-if="state.message" role="status" aria-live="polite" data-testid="state-message" class="note" :class="noteClass" :style="messageStyle">{{ state.message }}</p>
       <button type="button" class="small" v-if="state.status === 'error'" data-testid="retry" @click="reload">${TEXT.retry}</button>
-      <div class="panel" v-if="showChild">
+      <div class="panel" style="overflow-x:auto" v-if="showChild">
         <component :is="childComponent" v-bind="childProps" :key="state.epoch + ':' + state.kind"></component>
       </div>
     </div>
@@ -184,6 +184,7 @@ export const COMMANDS_TEMPLATES_TEMPLATE = `
 </section>`;
 
 function messageStyle(status) {
+    if (status === 'unavailable') return null; // The warning note supplies its own colours.
     const s = surfaceFor(status === 'error' || status === 'forbidden' ? 'error' : 'normal');
     return { background: s.background, color: s.color, borderColor: s.border };
 }

@@ -478,7 +478,7 @@
 .cadm .v8-admin-page .head-actions .primary,
 .cadm .v8-admin-page .cadm-form__actions .btn--primary {
     background: var(--ink);
-    color: var(--text-button);
+    color: var(--v8-on-ink, var(--text-button));
     border-color: var(--ink);
     font-size: var(--fs-body);
     padding-inline: var(--sp-4);
@@ -525,7 +525,7 @@
 .cadm .cadm-subsection-head .hint { margin: var(--sp-1) 0 0; color: var(--muted); }
 .cadm .cadm-subsection-head .field { flex: 0 1 18rem; margin: 0; }
 .cadm .clinic-users-view .grants-ui { padding: 0; border: 0; background: transparent; }
-.cadm .grants-ui .cadm-status { padding: 0; border: 0; }
+.cadm .grants-ui .cadm-status { padding: var(--sp-2) var(--sp-3); }
 .cadm .grants-ui .cadm-editor { background: transparent; border: 0; padding: 0; }
 .cadm .grants-ui .cadm-rows--grid { grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); }
 .cadm .grants-ui .cadm-rows--grid li { flex-direction: column; align-items: start; gap: var(--sp-1); }
@@ -549,4 +549,28 @@
     min-height: 0;
     padding: var(--sp-4);
     color: var(--v8-text-2);
+}
+
+.cadm .clinic-users-view .keyvalues dt { color: var(--v8-text-2); }
+.cadm .clinic-users-view .keyvalues dd { overflow-wrap: anywhere; }
+.cadm .v8-page .chiprow + .actions, .cadm .v8-page .actions + .hint { margin-top: var(--sp-3); }
+
+/* P13–P15 embed the existing vocabulary, command and ASR editors. */
+.cadm :is(.clinic-vocabulary-view,.clinic-commands-templates-view,.clinic-asr-profiles-view) .panel > section {
+    min-width: 0;
+}
+.cadm :is(.clinic-vocabulary-view,.clinic-commands-templates-view,.clinic-asr-profiles-view) .panel > section :where(label) {
+    display: block;
+    margin-block: var(--sp-3) var(--sp-1);
+    font-size: var(--fs-label);
+    font-weight: 600;
+}
+.cadm :is(.clinic-vocabulary-view,.clinic-commands-templates-view,.clinic-asr-profiles-view) .panel > section :is(input:not([type=checkbox],[type=radio]),select,textarea) {
+    max-width: 35rem;
+}
+.cadm :is(.clinic-vocabulary-view,.clinic-commands-templates-view,.clinic-asr-profiles-view) .panel > section > :is(form,table,fieldset,p[role=status]) {
+    margin-block: var(--sp-3);
+}
+.cadm :is(.clinic-vocabulary-view,.clinic-commands-templates-view,.clinic-asr-profiles-view) .panel > section > button + button {
+    margin-inline-start: var(--sp-1);
 }

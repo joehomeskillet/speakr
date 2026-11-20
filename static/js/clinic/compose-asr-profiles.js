@@ -322,10 +322,10 @@ const CONSENT_TEMPLATE = `
   <p>{{ view.statement.label }}: {{ view.statement.text }}</p>
   <div class="actions">
     <button type="button" class="primary" :style="primaryStyle" :disabled="!view.canGrant" @click="controller.grant()">Einwilligen</button>
-    <button type="button" v-if="!view.confirmingRevoke" :disabled="!view.canRevoke" @click="controller.requestRevoke()">Einwilligung widerrufen</button>
+    <button type="button" class="button" v-if="!view.confirmingRevoke" :disabled="!view.canRevoke" @click="controller.requestRevoke()">Einwilligung widerrufen</button>
     <span v-else class="actions" role="alertdialog" aria-label="Widerruf bestätigen">
       <button type="button" class="primary" :style="primaryStyle" @click="controller.confirmRevoke()">Widerruf bestätigen</button>
-      <button type="button" @click="controller.cancel()">Abbrechen</button>
+      <button type="button" class="button" @click="controller.cancel()">Abbrechen</button>
     </span>
   </div>
 </section>`;
@@ -340,12 +340,12 @@ const TRAINING_TEMPLATE = `
       <button type="button" class="small" v-if="view.error.retryable" @click="controller.load()">{{ text.retry }}</button></p>
     <p v-if="view.notice" role="status" aria-live="polite" class="note warning" data-testid="training-notice">{{ view.notice }}</p>
     <div class="chiprow" role="radiogroup" :aria-label="text.kind">
-      <button v-for="k in view.kinds" :key="k.value" type="button" role="radio"
+      <button v-for="k in view.kinds" :key="k.value" type="button" role="radio" class="filter-pill" :class="{ active: k.selected }"
         :aria-checked="k.selected ? 'true' : 'false'" :tabindex="k.selected ? 0 : -1"
         @click="controller.setKind(k.value)">{{ k.label }}</button>
     </div>
     <div class="actions">
-      <button type="button" :disabled="view.busy" @click="controller.prepare()">{{ text.prepare }}</button>
+      <button type="button" class="button" :disabled="view.busy" @click="controller.prepare()">{{ text.prepare }}</button>
       <button type="button" class="primary" :style="primaryStyle" :disabled="!view.canStart" @click="controller.start()">{{ text.start }}</button>
     </div>
     <p v-if="view.manifest" class="result-count" data-testid="manifest">{{ text.manifestItems }}: {{ view.manifest.items }}, {{ text.manifestExcluded }}: {{ view.manifest.excluded }}</p>
@@ -432,7 +432,7 @@ export function createSections(Vue) {
 }
 
 export const ASR_PROFILES_TEMPLATE = `
-<div class="v8-page">
+<div class="v8-page clinic-asr-profiles-view">
   <div class="pagehead">
     <div>
       <div class="eyebrow">${TEXT.eyebrow}</div>

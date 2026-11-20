@@ -159,7 +159,7 @@ export const VOCABULARY_VIEW_TEMPLATE = `
         :tabindex="state.active === t.id ? 0 : -1" @click="select(t.id)">{{ t.label }}</button>
     </div>
     <div role="tabpanel" :id="'cvv-panel-' + state.active" :aria-labelledby="'cvv-tab-' + state.active">
-      <div class="panel">
+      <div class="panel" style="overflow-x:auto">
         <component :is="activeComponent" v-bind="activeProps" :key="state.epoch + ':' + state.active"></component>
       </div>
     </div>
