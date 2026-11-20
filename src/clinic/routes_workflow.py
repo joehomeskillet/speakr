@@ -13,6 +13,14 @@ Parity commands ``request_acceptance`` (submit), ``decide_acceptance``
 (``accept``, ``return`` = reject) and ``reopen_dictation`` are registered on the shared
 ``ParityDispatch`` by ``register_commands``. Their ``expected_revision`` is
 ``ClinicDictation.version_counter + 1`` because parity revisions start at 1.
+
+With an ``AcceptanceLedger`` every accept or return is also stored there. The stored
+revision binds the text revision from the payload together with the audio and context
+heads the server reads at decision time (the pinned command schema has no fields for
+them). ``bound_decision`` hands release only a decision whose three revisions still
+match; anything else (older text, moved audio or context, unbound decision) is not an
+acceptance. ``acceptance_state`` reports the resulting state, including "Wiedervorlage"; release
+refusals carry it.
 """
 
 from __future__ import annotations
@@ -30,12 +38,20 @@ from flask_wtf.csrf import CSRFError, validate_csrf
 from werkzeug.exceptions import HTTPException
 from wtforms.validators import ValidationError
 
-from src.clinic import archive_policy, lease, live_session, policy, workflow
-from src.clinic import workflow_actions, workflow_finalize, workflow_metadata
-from src.clinic.acceptance_policy import AcceptancePolicyVersion
+import dataclasses
+
+from sqlalchemy import select
+from sqlalchemy.orm import aliased
+
+from src.clinic import acceptance_rules, archive_policy, audio_revisions, lease, live_session, policy
+from src.clinic import revisions, workflow, workflow_actions, workflow_finalize, workflow_metadata
+from src.clinic.acceptance_policy import SCOPE_DICTATION, AcceptanceLedger, AcceptancePolicyVersion, PolicyError
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.metadata_changes import ChangeError
-from src.clinic.models import ClinicContextRevision, ClinicDictation, ClinicRelease, ClinicReviewLease
+from src.clinic.models import (
+    ClinicAudioRevision, ClinicContextRevision, ClinicDictation, ClinicRelease, ClinicReviewLease,
+)
+from src.clinic.pool_policy import author_pool_ids
 from src.clinic.parity_dispatch import JSON, CommandProblem, ParityDispatch, RunOnce
 from src.database import db
 from src.models import Recording
@@ -89,11 +105,97 @@ def _result(request_id: str, revision: int) -> JSON:
             'revision': revision}
 
 
+_SEP = '|'
+_STATE_LABELS = {
+    'offen': 'Noch keine Entscheidung',
+    'angenommen': 'Abgenommen',
+    'zurueckgegeben': 'Zurückgegeben',
+    'wiedervorlage': 'Wiedervorlage: Text, Audio oder Kontext hat sich nach der Abnahme geändert',
+}
+
+
+def _leaf(model, dictation_id: str):
+    """The single revision of a dictation without a child, else None."""
+    child = aliased(model)
+    rows = db.session.scalars(select(model).where(
+        model.dictation_id == dictation_id,
+        ~select(child.id).where(child.dictation_id == dictation_id,
+                                child.parent_revision_id == model.id).exists())).all()
+    return rows[0] if len(rows) == 1 else None
+
+
+def _heads(dictation: ClinicDictation) -> tuple[str, str, str] | None:
+    """Current text, audio and context revision ids; None when one is missing or ambiguous."""
+    text = revisions.current_revision(dictation)
+    audio = audio_revisions.current_audio_revision(dictation) or _leaf(ClinicAudioRevision, dictation.id)
+    context = _leaf(ClinicContextRevision, dictation.id)
+    if text is None or audio is None or context is None:
+        return None
+    return text.id, audio.id, context.id
+
+
+def _latest(ledger: AcceptanceLedger, dictation: ClinicDictation):
+    """Last stored decision while its actor may still decide under the current policy."""
+    stored = ledger.decisions(SCOPE_DICTATION, dictation.id)
+    if not stored:
+        return None
+    last = stored[-1]
+    rule = ledger.current(SCOPE_DICTATION, dictation.id).as_rule()
+    if not acceptance_rules.can_decide(rule, last.decision.actor_id, last.actor_pool_ids):
+        return None
+    return last.decision
+
+
+def bound_decision(ledger: AcceptanceLedger, dictation: ClinicDictation, audio_id: str,
+                   context_id: str) -> acceptance_rules.AcceptanceDecision | None:
+    """Latest decision for ``finalize``, only if it was made for exactly this audio and context.
+
+    The returned accept carries the bare text revision id, so ``final_allowed`` still compares
+    it with the head. A decision of any other binding, or an unbound one, yields None.
+    """
+    try:
+        last = _latest(ledger, dictation)
+    except PolicyError:
+        return None
+    if last is None:
+        return None
+    text, sep, rest = last.revision_id.partition(_SEP)
+    if not sep:
+        return None
+    if last.kind == 'accept' and rest != f'{audio_id}{_SEP}{context_id}':
+        return None
+    return dataclasses.replace(last, revision_id=text)
+
+
+def acceptance_state(ledger: AcceptanceLedger, dictation: ClinicDictation) -> JSON:
+    """Where the acceptance of the current revisions stands (German label for the UI)."""
+    heads = _heads(dictation)
+    try:
+        last = _latest(ledger, dictation)
+    except PolicyError:
+        last = None
+    state = 'offen'
+    if last is not None:
+        bound = tuple(last.revision_id.split(_SEP))
+        same = heads is not None and bound == heads
+        if last.kind == 'accept':
+            state = 'angenommen' if same else 'wiedervorlage'
+        elif same:
+            state = 'zurueckgegeben'
+    keys = ('text_revision_id', 'audio_revision_id', 'context_revision_id')
+    return {'state': state, 'label': _STATE_LABELS[state],
+            'current': dict(zip(keys, heads)) if heads else None}
+
+
 def register_commands(
     dispatch: ParityDispatch, authorize: Authorize,
     acceptance_policy: Callable[[ClinicDictation], AcceptancePolicyVersion],
+    ledger: AcceptanceLedger | None = None,
 ) -> None:
-    """Bind the acceptance and reopen parity commands to ``workflow_actions``."""
+    """Bind the acceptance and reopen parity commands to ``workflow_actions``.
+
+    With ``ledger``, an accept or return is stored there bound to text, audio and context.
+    """
 
     def bind(command: str, action_for: Callable[[JSON], str | None]) -> None:
         def gate(actor: int, permission: str, payload: JSON) -> str | None:
@@ -114,6 +216,12 @@ def register_commands(
                 bound = db.session.get(ClinicContextRevision, context)
                 if bound is None or bound.dictation_id != target:
                     raise CommandProblem('INVALID_PAYLOAD')
+            heads = None
+            if ledger is not None and action in ('accept', 'reject'):
+                row = db.session.get(ClinicDictation, target, populate_existing=True)
+                heads = _heads(row)
+                if heads is None:
+                    raise CommandProblem('INVALID_PAYLOAD')
             try:
                 done = workflow_actions.apply_action(
                     target, action, actor_user_id=actor, expected_version=envelope['expected_revision'] - 1,
@@ -124,8 +232,21 @@ def register_commands(
                 code = str(error)
                 raise CommandProblem('REVISION_CONFLICT' if code in _CONFLICT
                                      else _PARITY.get(code, 'INVALID_PAYLOAD')) from error
+            except acceptance_rules.AcceptanceError as error:
+                raise CommandProblem('POLICY_DENIED' if error.code == 'forbidden'
+                                     else 'INVALID_PAYLOAD') from error
             except (lease.LeaseConflict, live_session.LiveSessionError) as error:
                 raise CommandProblem('REVISION_CONFLICT') from error
+            if heads is not None:
+                decided = done.acceptance or done.rejection
+                try:
+                    ledger.decide_acceptance(
+                        SCOPE_DICTATION, target, kind=decided.kind, actor_id=actor,
+                        actor_pool_ids=author_pool_ids(actor), revision_id=_SEP.join(heads),
+                        reason=payload.get('reason'), previous_assignee_id=decided.handler_id,
+                        now=decided.at)
+                except (PolicyError, acceptance_rules.AcceptanceError) as error:
+                    raise CommandProblem('POLICY_DENIED') from error
             return _result(envelope['request_id'], done.version + 1)
 
         dispatch.register(command, authorize=gate, revision=revision, execute=execute)
@@ -157,9 +278,15 @@ def create_blueprint(
     trusted_context: Callable, open_review_flags: Callable,
     acceptance_policy: Callable[[ClinicDictation], AcceptancePolicyVersion],
     job_type: str, book: archive_policy.ArchiveBook,
-    acceptance_decision: Callable[[ClinicDictation], Any] | None = None,
+    acceptance_decision: Callable[[ClinicDictation, str, str], Any] | None = None,
+    acceptance_ledger: AcceptanceLedger | None = None,
 ) -> Blueprint:
-    """Mount with the central policy callbacks; ``allowed_actions`` lists rename/priority/reassign."""
+    """Mount with the central policy callbacks; ``allowed_actions`` lists rename/priority/reassign.
+
+    ``acceptance_decision(dictation, audio_revision_id, context_revision_id)`` supplies the
+    decision bound to the release's audio and context (see ``bound_decision``).
+    ``acceptance_ledger`` adds the acceptance state to release refusals.
+    """
     bp = Blueprint('clinic_workflow', __name__)
 
     @bp.before_request
@@ -183,6 +310,14 @@ def create_blueprint(
     def no_store(response: Response) -> Response:
         response.headers['Cache-Control'] = 'no-store'
         return response
+
+    def _acceptance_extra(target: str, code: str) -> JSON:
+        """Release refusals caused by moved revisions carry the Wiedervorlage state."""
+        if acceptance_ledger is None or code not in ('stale_revision', 'acceptance_required'):
+            return {}
+        db.session.rollback()
+        row = db.session.get(ClinicDictation, target, populate_existing=True)
+        return {'acceptance': acceptance_state(acceptance_ledger, row)} if row else {}
 
     def command(dictation_id: UUID, name: str, permission: str, body: Any,
                 apply: Callable[[ClinicDictation, int, str, datetime], JSON], *, created: int = 200):
@@ -216,8 +351,9 @@ def create_blueprint(
         except (workflow.WorkflowError, ChangeError, archive_policy.ArchivePolicyError) as error:
             code = getattr(error, 'code', None) or str(error)
             if code in _CONFLICT or code.startswith('lease_'):
-                return _problem(409, code.upper(), state=_state(target))
-            return _problem(_STATUS.get(code, 422), code.upper())
+                return _problem(409, code.upper(), state=_state(target),
+                                **_acceptance_extra(target, code))
+            return _problem(_STATUS.get(code, 422), code.upper(), **_acceptance_extra(target, code))
         except (lease.LeaseConflict, live_session.LiveSessionError):
             return _problem(409, 'LEASE_CONFLICT', state=_state(target))
         response = jsonify(result)
@@ -269,7 +405,9 @@ def create_blueprint(
                 context_revision_id=body['context_revision_id'], document_type=body['document_type'],
                 job_type=job_type, trusted_context=trusted_context, open_review_flags=open_review_flags,
                 acceptance_policy=acceptance_policy,
-                acceptance_decision=acceptance_decision(row) if acceptance_decision else None)
+                acceptance_decision=acceptance_decision(
+                    row, body['original_version_id'], body['context_revision_id'])
+                if acceptance_decision else None)
             stored = db.session.get(ClinicRelease, done.release_id)
             return {'release_id': stored.id, 'dictation_id': row.id,
                     'original_version_id': stored.audio_revision_id,
