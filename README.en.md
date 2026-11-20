@@ -13,9 +13,9 @@ The project is for clinics and development teams who want to evaluate or extend 
 <details>
 <summary>Set up the Windows import agent</summary>
 
-| Enter the clinic's HTTPS address | Saved address |
+| Enter the clinic's HTTPS address | Address after reopening |
 | --- | --- |
-| ![Server address in the Windows import agent](docs/images/clinic/windows-import-server.png) | ![Confirmation after saving the address](docs/images/clinic/windows-import-gespeichert.png) |
+| ![Server address in the Windows import agent](docs/images/clinic/windows-import-server.png) | ![Previously saved server address shown after restart](docs/images/clinic/windows-import-gespeichert.png) |
 
 </details>
 
