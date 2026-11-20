@@ -28,6 +28,7 @@ import { TokenContractError, surfaceFor } from './tokens.js';
 import { STATUS_LABELS, formatAudioDuration, formatPriority } from './worklist-ui.js';
 import { createDetailClient, ensureHostedStyles, statusTone } from './compose-worklist.js';
 import { WORKFLOW_ACTIONS_TEMPLATE, createWorkflowActions } from './workflow-actions-ui.js';
+import { readAudioRevision } from './correction-editor-ui.js';
 import { createHistoryComponent } from './history-ui.js';
 import { createLeaseController, createLeaseStatusComponent } from './lease-ui.js';
 import { createContextBinding, CONTEXT_BIND_TEMPLATE } from './context-bind-ui.js';
@@ -59,6 +60,10 @@ export const TEXT = Object.freeze({
     noDeadline: 'Keine Frist',
     caseId: 'Fall-ID',
     noCaseId: 'Nicht zugeordnet',
+    listen: 'Diktat anhören',
+    audioLoading: 'Audio wird geladen …',
+    noPlayback: 'Für dieses Diktat ist keine Wiedergabe verfügbar.',
+    mediaFailed: 'Die Audiodatei lässt sich nicht abspielen.',
     axes: 'Statusdetails',
     axisProcessing: 'Verarbeitung',
     axisWorkflow: 'Arbeitsstand',
@@ -172,6 +177,7 @@ export function createDetailViewController(options) {
     const data = shallowRef(null); // last confirmed header; cleared on a refusal, kept on a network failure
     const leaseState = shallowRef(null);
     const confirmedAt = ref(null);
+    const audio = shallowRef(null);
     let lease = null; // { ctrl, unsubscribe }
     let handedOff = false;
     let disposed = false;
@@ -215,10 +221,24 @@ export function createDetailViewController(options) {
         } : null);
     }
 
+    async function loadAudio(mine) {
+        const response = await detailClient.request('/dictations/' + encodeURIComponent(dictationId) + '/audio-revisions/current');
+        if (!disposed && mine === seq && response.outcome !== 'cancelled') {
+            audio.value = readAudioRevision(dictationId, response);
+        }
+    }
+
+    function mediaFailed(event) {
+        if (audio.value?.src && event.currentTarget.getAttribute('src') === audio.value.src) {
+            audio.value = { status: 'error', src: null, message: TEXT.mediaFailed };
+        }
+    }
+
     async function load() {
         if (disposed) return null;
         const mine = (seq += 1);
         status.value = 'loading';
+        audio.value = null;
         contextBinding.reset();
         message.value = '';
         const res = await detailClient.request('/dictations/' + encodeURIComponent(dictationId) + '/detail');
@@ -228,7 +248,7 @@ export function createDetailViewController(options) {
             confirmedAt.value = Date.now();
             status.value = 'ready';
             applyWorkflow(res.data);
-            await contextBinding.load();
+            await Promise.all([contextBinding.load(), loadAudio(mine)]);
             return res;
         }
         if (res.outcome === 'network') {
@@ -323,7 +343,7 @@ export function createDetailViewController(options) {
 
     return {
         vue: V, status, message, data, leaseState, confirmedAt, leaseRun, workflow, detailClient,
-        header, offline, leaseBlocksOpen, canOpenEditor, contextBinding,
+        header, offline, leaseBlocksOpen, canOpenEditor, contextBinding, audio, mediaFailed,
         start, load, openEditor, back, dispose,
         text: TEXT,
     };
@@ -418,6 +438,16 @@ const DetailBody = {
 
     <div class="record-detail-grid">
       <div style="display: grid; gap: 22px; align-content: start; min-width: 0">
+        <section v-if="status === 'ready'" class="panel" :aria-label="TEXT.listen" data-testid="detail-playback">
+          <h2>{{ TEXT.listen }}</h2>
+          <audio v-if="c.audio.value?.src" :key="c.audio.value.src" :src="c.audio.value.src"
+                 controls controlslist="nodownload noremoteplayback" disableremoteplayback preload="metadata"
+                 :aria-label="TEXT.listen" style="display: block; width: 100%; min-width: 0"
+                 @error="c.mediaFailed"></audio>
+          <p v-else role="status" class="hint">{{ !c.audio.value ? TEXT.audioLoading :
+            (c.audio.value.status === 'unavailable' ? TEXT.noPlayback : c.audio.value.message) }}</p>
+        </section>
+
         <section class="panel" :aria-label="TEXT.axes" data-testid="status-axes">
           <h2 style="font-weight: 700">{{ TEXT.axes }}</h2>
           <ul class="chiprow" style="list-style: none; margin: 0; padding: 0">
