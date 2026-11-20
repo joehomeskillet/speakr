@@ -4862,7 +4862,7 @@ Summarization Instructions:
             padding: var(--sp-2) var(--sp-3); text-align: left; vertical-align: top; border-bottom: 1px solid var(--border-primary);
         }
         .clinic-authors-view thead { background: var(--bg-tertiary); }
-        .clinic-authors-view td:nth-child(3) span { padding: var(--sp-1); border-radius: var(--radius-sm); }
+        .clinic-authors-view td .tag { padding: var(--sp-1); border-radius: var(--radius-sm); }
         .clinic-authors-view .pools-ui > *, .clinic-authors-view .pools-ui article > * { margin-block-start: var(--sp-2); }
         .clinic-authors-view .pools-ui article + article { margin-block-start: var(--sp-3); }
         .clinic-authors-view .pools-ui form {
@@ -4894,12 +4894,11 @@ Summarization Instructions:
                 gap: var(--sp-2) var(--sp-3); padding: var(--sp-3); border-block-end: 1px solid var(--border-primary);
             }
             .clinic-authors-view tbody :is(th, td) { padding: 0; border: 0; }
-            .clinic-authors-view td:nth-child(3) { grid-area: 1 / 2; justify-self: end; }
+            .clinic-authors-view td:nth-child(5) { grid-area: 1 / 2; justify-self: end; }
             .clinic-authors-view td::before { display: block; color: var(--text-muted); font-size: var(--fs-meta); }
-            .clinic-authors-view td:nth-child(2)::before { content: 'Benutzer-ID' / ''; }
+            .clinic-authors-view td:nth-child(2)::before { content: 'Autorenpools' / ''; }
             .clinic-authors-view td:nth-child(4)::before { content: 'Diktierrolle' / ''; }
-            .clinic-authors-view td:nth-child(5)::before { content: 'Autorenpools' / ''; }
-            .clinic-authors-view td:nth-child(6)::before { content: 'Schreibkräfte-Pools' / ''; }
+            .clinic-authors-view td:nth-child(3)::before { content: 'Schreibkräfte-Pools' / ''; }
         }
     </style>
     <script type="module">
