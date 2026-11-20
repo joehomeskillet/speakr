@@ -18,18 +18,19 @@ Rules:
   send the revision it last read. A stale or replayed change gets 409.
 * A refused request writes nothing.
 
-shortcut: revision is the user's grant row count, which only grows while
-grants cannot be revoked; switch to a stored counter when revoke exists.
+All users share the pool service's stored grant revision.
 """
 
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from typing import Any
 
 from flask import Blueprint, abort, jsonify, request, session
 from flask_login import current_user
 from flask_wtf.csrf import CSRFError, validate_csrf
+from sqlalchemy import text
 from wtforms.validators import ValidationError as CsrfValidationError
 
 from src.clinic import pools
@@ -46,12 +47,19 @@ PATH = "/api/clinic/v1/identity/users/<int:user_id>/grants"
 WRITE_KEYS = frozenset({"expected_revision", "effect", "scope", "pool_id", "actions"})
 
 
-def revision(user_id: int) -> int:
-    return pools.ClinicVisibilityGrant.query.filter_by(user_id=user_id).count()
-
-
-def grant_list(user_id: int) -> dict[str, Any]:
+def grant_list(user_id: int, *, include_ids: bool = False) -> dict[str, Any]:
     """GrantList of the identity-web contract."""
+    revision = pools.grant_version()
+    authors = defaultdict(list)
+    if include_ids:
+        restrictions = (db.session.query(pools.ClinicGrantAuthor.grant_id, User.username)
+                        .join(User, User.id == pools.ClinicGrantAuthor.author_user_id)
+                        .join(pools.ClinicVisibilityGrant,
+                              pools.ClinicVisibilityGrant.id == pools.ClinicGrantAuthor.grant_id)
+                        .filter(pools.ClinicVisibilityGrant.user_id == user_id)
+                        .order_by(User.username))
+        for grant_id, username in restrictions:
+            authors[grant_id].append(username)
     rows = (
         pools.ClinicVisibilityGrant.query.filter_by(user_id=user_id)
         .order_by(pools.ClinicVisibilityGrant.created_at, pools.ClinicVisibilityGrant.id)
@@ -60,10 +68,14 @@ def grant_list(user_id: int) -> dict[str, Any]:
     items = []
     for row in rows:
         item = {"effect": row.effect, "scope": row.scope, "actions": list(pools._actions_of(row))}
+        if include_ids:
+            item["id"] = row.id
+            if row.id in authors:
+                item["author_names"] = authors[row.id]
         if row.pool_id is not None:
             item["pool_id"] = row.pool_id
         items.append(item)
-    return {"user_id": user_id, "revision": len(rows), "items": items}
+    return {"user_id": user_id, "revision": revision, "items": items}
 
 
 def _is_active_identity_admin(user: User) -> bool:
@@ -92,6 +104,7 @@ class GrantsApi:
         self.blueprint = Blueprint("clinic_grants", __name__)
         self.blueprint.add_url_rule(PATH, "read", self._read, methods=["GET"])
         self.blueprint.add_url_rule(PATH, "change", self._change, methods=["POST"])
+        self.blueprint.add_url_rule(PATH + "/<uuid:grant_id>", "change", self._change, methods=["DELETE"])
         self.blueprint.register_error_handler(CSRFError, lambda _error: _problem("FORBIDDEN"))
 
     @staticmethod
@@ -112,9 +125,10 @@ class GrantsApi:
             return _problem("FORBIDDEN")
         if db.session.get(User, user_id) is None:
             return _not_found()
-        return jsonify(grant_list(user_id))
+        edit_entries = request.args.get("entries") == "1" and _is_active_site_admin(db.session, actor)
+        return jsonify(grant_list(user_id, include_ids=edit_entries))
 
-    def _change(self, user_id: int):
+    def _change(self, user_id: int, grant_id=None):
         actor = self._actor()
         if actor is None:
             return _problem("UNAUTHORIZED")
@@ -126,16 +140,32 @@ class GrantsApi:
             logger.warning("clinic grants: change refused for actor %s on user %s", actor.id, user_id)
             return _problem("FORBIDDEN")
         try:
-            body = _parse_change(request.get_json(silent=True))
-            # Lock the target so two writers with the same revision cannot both pass.
-            if db.session.query(User).filter_by(id=user_id).with_for_update().one_or_none() is None:
+            body = request.get_json(silent=True)
+            if grant_id is None:
+                body = _parse_change(body)
+            elif (not isinstance(body, dict) or body.keys() != {"expected_revision"}
+                  or type(body["expected_revision"]) is not int or body["expected_revision"] < 0):
+                raise CommandProblem("INVALID_PAYLOAD")
+            if db.session.get(User, user_id) is None:
                 db.session.rollback()
                 return _not_found()
-            if revision(user_id) != body["expected_revision"]:
+            # Lock the shared counter through the service commit, including the first write.
+            db.session.execute(text(
+                "INSERT INTO clinic_grant_version (id, version) VALUES (1, 0) "
+                "ON CONFLICT (id) DO UPDATE SET version = clinic_grant_version.version"
+            ))
+            if pools.grant_version() != body["expected_revision"]:
                 raise CommandProblem("REVISION_CONFLICT")
-            change = pools.allow if body["effect"] == "allow" else pools.deny
-            change(user_id, body.get("scope"), actor_id=actor.id,
-                   pool_id=body.get("pool_id"), actions=body["actions"])
+            if grant_id is not None:
+                row = db.session.get(pools.ClinicVisibilityGrant, str(grant_id))
+                if row is None or row.user_id != user_id:
+                    db.session.rollback()
+                    return _not_found()
+                pools.revoke(row.id, actor_id=actor.id)
+            else:
+                change = pools.allow if body["effect"] == "allow" else pools.deny
+                change(user_id, body.get("scope"), actor_id=actor.id,
+                       pool_id=body.get("pool_id"), actions=body["actions"])
         except CommandProblem as error:
             db.session.rollback()
             return _problem(str(error))

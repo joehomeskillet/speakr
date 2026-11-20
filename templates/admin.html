@@ -4872,7 +4872,7 @@ Summarization Instructions:
         import { getUploadCsrfToken } from "{{ url_for('static', filename='js/modules/csrf.js', v=app_version) }}";
         import { createAccountsAdmin, AccountsAdminPanel } from "{{ url_for('static', filename='js/clinic/accounts-ui.js', v=app_version) }}";
         import { createPoolsComponent } from "{{ url_for('static', filename='js/clinic/pools-ui.js', v=app_version) }}";
-        import { createGrantsComponent } from "{{ url_for('static', filename='js/clinic/grants-ui.js', v=app_version) }}";
+        import { createGrantsComponent, loadGrantUsers } from "{{ url_for('static', filename='js/clinic/grants-ui.js', v=app_version) }}";
         import { registerDirectoryReview } from "{{ url_for('static', filename='js/clinic/directory-ui.js', v=app_version) }}";
         import { templatesComponent } from "{{ url_for('static', filename='js/clinic/templates-ui.js', v=app_version) }}";
         import { categoriesComponent } from "{{ url_for('static', filename='js/clinic/categories-ui.js', v=app_version) }}";
@@ -4974,28 +4974,41 @@ Summarization Instructions:
         const GrantsHost = {
             name: 'ClinicGrantsHost',
             setup() {
-                const draft = ref(String(userId));
+                const draft = ref('');
+                const users = ref([]);
+                const message = ref('');
                 const panel = ref(null);
                 const key = ref(0);
                 function open() {
-                    const id = Number(draft.value);
-                    panel.value = Number.isInteger(id) && id > 0
-                        ? markRaw(createGrantsComponent(window.Vue, client, { userId: id, canEdit: !team }))
+                    const selected = users.value.find(u => u.username === draft.value)
+                        || users.value.find(u => String(u.id) === draft.value);
+                    panel.value = selected
+                        ? markRaw(createGrantsComponent(window.Vue, client, { userId: selected.id, canEdit: !team }))
                         : null;
+                    if (selected) draft.value = selected.username;
+                    message.value = selected ? '' : 'Bitte einen Benutzer aus der Liste wählen.';
                     key.value += 1;
                 }
-                onMounted(open);
-                return { draft, panel, key, open };
+                onMounted(async () => {
+                    const result = await loadGrantUsers(adminClient);
+                    users.value = result.users;
+                    message.value = result.message;
+                    const current = users.value.find(u => u.id === userId);
+                    if (current) { draft.value = current.username; open(); }
+                });
+                return { draft, users, message, panel, key, open };
             },
             template: `
 <div>
   <form class="cadm-inline cadm-hostbar" @submit.prevent="open">
     <div class="cadm-field">
-      <label for="clinic-grants-user">Benutzer-ID</label>
-      <input id="clinic-grants-user" class="field" type="number" min="1" step="1" inputmode="numeric" v-model="draft">
+      <label for="clinic-grants-user">Benutzername</label>
+      <input id="clinic-grants-user" class="field" list="clinic-grant-users" autocomplete="off" :disabled="!users.length" v-model="draft" @input="panel = null">
+      <datalist id="clinic-grant-users"><option v-for="u in users" :key="u.id" :value="u.username"></option></datalist>
     </div>
-    <button type="submit" class="btn btn--ghost">Fachrechte laden</button>
+    <button type="submit" class="btn btn--ghost" :disabled="!users.length">Fachrechte laden</button>
   </form>
+  <p v-if="message" role="alert" v-text="message"></p>
   <component :is="panel" v-if="panel" :key="key"></component>
 </div>`,
         };

@@ -10,13 +10,14 @@
  * decided by the server and by the `canEdit` option, and the detailed owner
  * matrix stays pending.
  *
- * Reads use GET and writes use POST on /identity/users/{id}/grants through the
+ * Reads use GET, additions use POST and revocations use DELETE through the
  * shared api client. Every write carries the revision it last read; a conflict
  * keeps the newer server state and never overwrites it. Grant data stays in
  * memory only (no browser storage). Colours come only from the token contract.
  */
 
 import { surfaceFor } from './tokens.js';
+import { createPoolsStore } from './pools-ui.js';
 
 export const ACTIONS = Object.freeze(['view', 'play', 'edit', 'export', 'release']);
 export const SCOPES = Object.freeze(['own', 'pool', 'all']);
@@ -30,7 +31,7 @@ const LABELS = {
     'clinic.grants.scope.own': 'Eigene Diktate',
     'clinic.grants.scope.pool': 'Pool',
     'clinic.grants.scope.all': 'Alle Diktate',
-    'clinic.grants.pool': 'Pool-Kennung',
+    'clinic.grants.authorPool': 'Autorenpool',
     'clinic.grants.effect': 'Wirkung',
     'clinic.grants.effect.allow': 'Erlauben',
     'clinic.grants.effect.deny': 'Verweigern',
@@ -40,6 +41,13 @@ const LABELS = {
     'clinic.grants.action.edit': 'Bearbeiten',
     'clinic.grants.action.export': 'Exportieren',
     'clinic.grants.action.release': 'Freigeben',
+    'clinic.grants.action.delete': 'Löschen',
+    'clinic.grants.action.archive': 'Archivieren',
+    'clinic.grants.action.rename': 'Umbenennen',
+    'clinic.grants.action.priority': 'Priorität ändern',
+    'clinic.grants.action.audio_export': 'Audio exportieren',
+    'clinic.grants.action.reassign': 'Neu zuordnen',
+    'clinic.grants.action.reopen': 'Wieder öffnen',
     'clinic.grants.effective': 'Wirksames Ergebnis nach dem Speichern',
     'clinic.grants.effective.allowed': 'erlaubt',
     'clinic.grants.effective.denied': 'verweigert',
@@ -48,6 +56,7 @@ const LABELS = {
     'clinic.grants.existing': 'Bestehende Einträge',
     'clinic.grants.empty': 'Keine Einträge',
     'clinic.grants.save': 'Speichern',
+    'clinic.grants.revoke': 'Entziehen',
     'clinic.grants.reload': 'Aktuellen Stand laden',
     'clinic.grants.retry': 'Erneut versuchen',
     'clinic.grants.readonly': 'Nur Lesezugriff. Änderungen sind nur durch Administration möglich.',
@@ -55,7 +64,7 @@ const LABELS = {
     'clinic.grants.error.scope': 'Dieser Geltungsbereich wird nicht unterstützt.',
     'clinic.grants.error.effect': 'Diese Wirkung wird nicht unterstützt.',
     'clinic.grants.error.actions': 'Mindestens eine unterstützte Aktion wählen.',
-    'clinic.grants.error.pool': 'Für den Geltungsbereich Pool ist eine Pool-Kennung nötig.',
+    'clinic.grants.error.pool': 'Bitte einen Autorenpool wählen.',
     'clinic.grants.error.unsupported': 'Nicht unterstützte Angabe.',
 };
 
@@ -69,6 +78,17 @@ export function label(key) {
 }
 
 const DRAFT_KEYS = ['effect', 'scope', 'poolId', 'actions'];
+
+/** Return the account names visible to the admin, including later pages. */
+export async function loadGrantUsers(adminClient) {
+    const users = [];
+    for (let page = 1; ; page++) {
+        const res = await adminClient.request('/admin/users?sort=username&per_page=100&page=' + page);
+        if (res.outcome !== 'ok') return { users: [], message: res.message };
+        for (const { id, username } of res.data.users) users.push({ id, username });
+        if (!res.data.pagination?.has_next) return { users, message: '' };
+    }
+}
 
 /**
  * Validate a draft change. Returns {ok, errors} with label keys; nothing is
@@ -88,10 +108,12 @@ export function validateDraft(draft) {
 
 function normalize(items) {
     return (Array.isArray(items) ? items : []).map((item) => ({
+        id: item.id,
+        authorNames: item.author_names || [],
         effect: item.effect,
         scope: item.scope,
         poolId: item.pool_id == null ? null : String(item.pool_id),
-        actions: Array.isArray(item.actions) ? item.actions.filter((a) => ACTIONS.includes(a)) : [],
+        actions: Array.isArray(item.actions) ? item.actions : [],
     }));
 }
 
@@ -145,7 +167,8 @@ export function createGrantsStore(client, onChange, options) {
         state.status = 'loading';
         state.message = '';
         emit();
-        const res = await client.request('/identity/users/' + state.userId + '/grants');
+        const path = '/identity/users/' + state.userId + '/grants';
+        const res = await client.request(options?.canEdit ? path + '?entries=1' : path);
         if (res.outcome !== 'ok') return fail(res);
         const data = res.data || {};
         state.revision = Number.isInteger(data.revision) ? data.revision : 0;
@@ -157,7 +180,10 @@ export function createGrantsStore(client, onChange, options) {
     }
 
     async function send(write) {
-        const res = await client.request('/identity/users/' + state.userId + '/grants', { method: 'POST', body: write });
+        state.status = 'loading';
+        state.failedWrite = null;
+        emit();
+        const res = await client.request(write.path, { method: write.method, body: write.body });
         if (res.outcome === 'ok') {
             state.failedWrite = null;
             return load();
@@ -176,13 +202,21 @@ export function createGrantsStore(client, onChange, options) {
         },
         save(draft) {
             const check = validateDraft(draft);
-            if (!check.ok || state.revision === null || !state.canEdit) return Promise.resolve(null);
-            return send({
+            if (!check.ok || state.status !== 'ready' || !state.canEdit) return Promise.resolve(null);
+            const body = {
                 expected_revision: state.revision,
                 effect: draft.effect,
                 scope: draft.scope,
                 pool_id: draft.scope === 'pool' ? draft.poolId.trim() : null,
                 actions: ACTIONS.filter((a) => draft.actions.includes(a)),
+            };
+            return send({ path: '/identity/users/' + state.userId + '/grants', method: 'POST', body });
+        },
+        revoke(item) {
+            if (!item.id || state.status !== 'ready' || !state.canEdit) return Promise.resolve(null);
+            return send({
+                path: '/identity/users/' + state.userId + '/grants/' + encodeURIComponent(item.id),
+                method: 'DELETE', body: { expected_revision: state.revision },
             });
         },
         retry() {
@@ -204,7 +238,7 @@ export const GRANTS_TEMPLATE = `
       <p class="cadm-desc">{{ label('clinic.grants.description') }}</p>
     </div>
     <div class="cadm-panel__tools">
-      <button type="button" class="btn btn--ghost" @click="store.reload()"><i class="fas fa-sync-alt" aria-hidden="true"></i><span>{{ label('clinic.grants.reload') }}</span></button>
+      <button type="button" class="btn btn--ghost" :disabled="state.status === 'loading'" @click="reload"><i class="fas fa-sync-alt" aria-hidden="true"></i><span>{{ label('clinic.grants.reload') }}</span></button>
       <button type="button" class="btn btn--primary" v-if="state.failedWrite" @click="store.retry()">{{ label('clinic.grants.retry') }}</button>
     </div>
   </header>
@@ -217,12 +251,14 @@ export const GRANTS_TEMPLATE = `
     <h3 id="grants-existing" class="cadm-subtitle">{{ label('clinic.grants.existing') }}</h3>
     <ul aria-labelledby="grants-existing" class="cadm-rows" :class="{ 'cadm-rows--empty': !state.items.length }">
       <li v-if="!state.items.length">{{ label('clinic.grants.empty') }}</li>
-      <li v-for="(item, i) in state.items" :key="i">
+      <li v-for="(item, i) in state.items" :key="item.id || i">
         <span class="pill-status" :class="item.effect === 'deny' ? 'pill-status--danger' : 'pill-status--success'">{{ label('clinic.grants.effect.' + item.effect) }}</span>
-        <span>{{ label('clinic.grants.scope.' + item.scope) }}<span v-if="item.poolId"> ({{ item.poolId }})</span></span>
+        <span>{{ label('clinic.grants.scope.' + item.scope) }}<span v-if="item.poolId"> ({{ poolNames.get(item.poolId) || 'Poolname nicht verfügbar' }})</span></span>
+        <span v-if="item.authorNames.length">Nur für Diktate von {{ item.authorNames.join(', ') }}</span>
         <span class="cadm-badges">
           <span v-for="a in item.actions" :key="a" class="pill-status pill-status--info">{{ label('clinic.grants.action.' + a) }}</span>
         </span>
+        <button v-if="state.canEdit && item.id" type="button" class="btn btn--ghost" :disabled="state.status !== 'ready'" @click="store.revoke(item)">{{ label('clinic.grants.revoke') }}</button>
       </li>
     </ul>
   </div>
@@ -236,8 +272,12 @@ export const GRANTS_TEMPLATE = `
         </select>
       </div>
       <div class="cadm-field" v-if="draft.scope === 'pool'">
-        <label for="grants-pool">{{ label('clinic.grants.pool') }}</label>
-        <input id="grants-pool" class="field" type="text" autocomplete="off" v-model="draft.poolId">
+        <label for="grants-pool">{{ label('clinic.grants.authorPool') }}</label>
+        <select id="grants-pool" class="field" v-model="draft.poolId">
+          <option disabled value="">Autorenpool wählen</option>
+          <option v-for="pool in authorPools" :key="pool.id" :value="pool.id">{{ pool.name }}</option>
+        </select>
+        <span v-if="poolMessage" role="alert">{{ poolMessage }}</span>
       </div>
       <div class="cadm-field">
         <label for="grants-effect">{{ label('clinic.grants.effect') }}</label>
@@ -263,7 +303,7 @@ export const GRANTS_TEMPLATE = `
       </div>
       <ul v-if="errors.length" role="alert" class="banner banner--danger cadm-errors cadm-field--wide"><li v-for="e in errors" :key="e">{{ label(e) }}</li></ul>
       <div class="cadm-form__actions">
-        <button type="submit" class="btn btn--primary">{{ label('clinic.grants.save') }}</button>
+        <button type="submit" class="btn btn--primary" :disabled="state.status !== 'ready'">{{ label('clinic.grants.save') }}</button>
       </div>
     </div>
   </form>
@@ -277,6 +317,13 @@ export function createGrantsComponent(Vue, client, props) {
             const state = Vue.reactive({ status: 'idle', userId: null, revision: null, items: [], canEdit: true, failedWrite: null, message: '' });
             const store = createGrantsStore(client, (next) => Object.assign(state, next), props);
             const draft = Vue.reactive({ effect: 'allow', scope: 'own', poolId: '', actions: [] });
+            const authorPools = Vue.ref([]);
+            const poolMessage = Vue.ref('');
+            const pools = createPoolsStore(client, (next) => {
+                authorPools.value = next.pools.author;
+                poolMessage.value = next.message;
+            });
+            const poolNames = Vue.computed(() => new Map(authorPools.value.map((p) => [p.id, p.name])));
             const errors = Vue.ref([]);
             const preview = Vue.computed(() => effectiveActions(state.items, validateDraft(draft).ok ? draft : null));
             const surfaceStyle = Vue.computed(() => {
@@ -289,9 +336,13 @@ export function createGrantsComponent(Vue, client, props) {
                 errors.value = check.errors;
                 return check.ok ? store.save(draft) : null;
             }
-            Vue.onMounted(() => store.load(props && props.userId));
+            function reload() {
+                pools.load();
+                return store.load(props && props.userId);
+            }
+            Vue.onMounted(reload);
             return {
-                state, store, draft, errors, preview, surfaceStyle, submit, label,
+                state, store, draft, errors, preview, surfaceStyle, submit, label, authorPools, poolNames, poolMessage, reload,
                 actions: ACTIONS, scopes: SCOPES, effects: EFFECTS,
             };
         },
