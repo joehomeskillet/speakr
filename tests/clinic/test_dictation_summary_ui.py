@@ -217,3 +217,45 @@ def test_open_summary_tracks_saved_revision_with_pending_request(live_server, pe
             assert not page.js_errors
         finally:
             browser.close()
+
+
+def test_automatic_summary_waits_for_transcription_only_while_open(live_server):
+    base, did = live_server
+    calls = []
+    state = {"text": None, "status": "waiting_for_transcription", "may_generate": True}
+    with sync_playwright() as playwright:
+        browser = mount._launch(playwright)
+        try:
+            page = _login(browser, base)
+
+            def respond(route):
+                calls.append(route.request.method)
+                route.fulfill(json=state)
+
+            page.route(f"**/api/clinic/v1/dictations/{did}/summary", respond)
+            page.get_by_test_id("clinic-recordings-view").locator(f'[data-row][data-id="{did}"]').click()
+            card = page.get_by_test_id("clinic-correction-view").locator(".clinic-dictation-summary")
+            toggle = card.locator("summary")
+            expect(toggle).to_be_visible()
+            page.clock.install(time=1_700_000_000_000)
+            page.clock.pause_at(1_700_000_001_000)
+            toggle.click()
+            waiting = "Die Zusammenfassung wird nach der Transkription automatisch erstellt."
+            expect(card.get_by_role("status")).to_have_text(waiting)
+            expect(card.get_by_role("button")).to_have_count(0)
+            # The native toggle event follows the details element's immediate DOM change.
+            card.evaluate("el => { window.summaryClosed = new Promise(done => el.addEventListener('toggle', done, {once:true})); }")
+            toggle.click()
+            page.evaluate("window.summaryClosed.then(() => true)")
+            expect(card.get_by_role("status")).to_be_hidden()
+            page.clock.run_for(5100)
+            assert calls == ["GET"]
+            with page.expect_response(lambda r: r.url.endswith("/summary")):
+                toggle.click()
+            expect(card.get_by_role("status")).to_have_text(waiting)
+            state.update(text="Synthetischer Plan", status="ready")
+            page.clock.run_for(2600)
+            expect(card.locator(".clinic-summary-text")).to_have_text("Synthetischer Plan")
+            assert calls == ["GET", "GET", "GET"]
+        finally:
+            browser.close()

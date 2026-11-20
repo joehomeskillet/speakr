@@ -36,6 +36,8 @@ const PROPS = {
     dirty: { type: Boolean, default: false },
 };
 
+const isPending = (status) => ['waiting_for_transcription', 'queued', 'processing'].includes(status);
+
 const SummaryBody = {
     components: { SummaryText },
     props: PROPS,
@@ -51,6 +53,7 @@ const SummaryBody = {
         let timer;
         const messages = {
             empty: 'Für dieses Diktat liegt noch keine KI-Zusammenfassung vor.',
+            waiting_for_transcription: 'Die Zusammenfassung wird nach der Transkription automatisch erstellt.',
             queued: 'Die KI-Zusammenfassung wartet auf die Verarbeitung.',
             processing: 'Die KI-Zusammenfassung wird erstellt …',
             failed: 'Die Erstellung ist fehlgeschlagen.',
@@ -60,7 +63,7 @@ const SummaryBody = {
 
         async function refresh(generate = false) {
             if (disposed || !open || busy.value) return;
-            const active = ['queued', 'processing'].includes(data.value?.status);
+            const active = isPending(data.value?.status);
             if (generate && (data.value?.may_generate !== true || active || error.value)) return;
             const revision = props.textRevisionId;
             clearTimeout(timer);
@@ -72,7 +75,7 @@ const SummaryBody = {
                 if (disposed || revision !== props.textRevisionId) return;
                 if (result.outcome === 'ok' && Object.hasOwn(messages, result.data?.status)) {
                     data.value = result.data;
-                    if (open && ['queued', 'processing'].includes(data.value.status)) {
+                    if (open && isPending(data.value.status)) {
                         timer = setTimeout(() => refresh(), 2500);
                     }
                 } else {
@@ -115,7 +118,7 @@ const SummaryBody = {
             if (open) refresh();
         }
         onBeforeUnmount(() => { disposed = true; clearTimeout(timer); });
-        return { data, error, busy, submitting, messages, toggle, refresh };
+        return { data, error, busy, submitting, messages, toggle, refresh, isPending };
     },
     template: `
 <details class="panel clinic-dictation-summary" :open="expanded" @toggle="toggle">
@@ -126,7 +129,7 @@ const SummaryBody = {
     <SummaryText v-if="data?.text" :text="data.text" />
     <p v-if="dirty" class="hint">Die Zusammenfassung verwendet die zuletzt gespeicherte Textfassung.</p>
     <button v-if="error" type="button" class="button" :disabled="busy" @click="refresh()">Stand erneut laden</button>
-    <button v-else-if="data?.may_generate && !['queued', 'processing'].includes(data.status)"
+    <button v-else-if="data?.may_generate && !isPending(data.status)"
             type="button" class="button" :disabled="busy" @click="refresh(true)">
       {{ data.text ? 'Zusammenfassung neu erstellen' : 'Zusammenfassung erstellen' }}
     </button>
