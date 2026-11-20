@@ -59,6 +59,7 @@ function normalize(list) {
         id: String(pool.id),
         name: String(pool.name || ''),
         memberUserIds: Array.isArray(pool.member_user_ids) ? pool.member_user_ids.slice() : [],
+        memberRoles: Array.isArray(pool.members) ? pool.members.map(({ user_id, role }) => ({ userId: user_id, role })) : [],
     }));
 }
 
