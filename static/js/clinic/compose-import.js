@@ -23,7 +23,24 @@
 
 import { surfaceFor } from './tokens.js';
 
+import { formatMoment } from './compose-archive.js';
+
 export const COMPOSE_IMPORT_VERSION = 1;
+
+/** Byte count as "182 KB" / "18.4 MB"; anything that is not a number is shown as received. */
+export function formatSize(value) {
+    const n = Number(value);
+    if (value === null || value === undefined || value === '' || !Number.isFinite(n) || n < 0) return value === null || value === undefined || value === '' ? '–' : String(value);
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return Math.round(n / 1024) + ' KB';
+    return (n / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+/** UTC instant as "dd.mm.yyyy hh:mm" in Europe/Zurich; missing or unparsable input is shown as received. */
+export function formatWhen(value) {
+    if (value === null || value === undefined || value === '') return '–';
+    return formatMoment(value) || String(value);
+}
 
 /**
  * Root classes of every V8 operations page. The element rules of static/css/clinic-v8.css sit in :where()
@@ -31,7 +48,7 @@ export const COMPOSE_IMPORT_VERSION = 1;
  * .primary (burgundy, 11px) wins over the page button. These variants restore the prototype values at the
  * view root; they can go once the stylesheet outranks the reset.
  */
-export const V8_PAGE = 'v8-page text-sm [&_.stack]:grid-cols-[minmax(0,1fr)] [&_.field]:border-0 [&_.field]:bg-transparent [&_.field]:rounded-none [&_.field]:p-0 [&_h1]:text-[30px] [&_h1]:leading-[1.2] [&_h1]:font-bold [&_h1]:tracking-[-0.8px] [&_h1]:mb-[9px] max-[760px]:[&_h1]:text-[26px] [&_h2]:text-base [&_h2]:leading-[1.35] [&_h2]:font-bold [&_h2]:tracking-[-0.2px] [&_h2]:mb-[14px] [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mb-[10px] [&_button]:text-sm [&_button]:font-semibold [&_.primary]:bg-[var(--ink)] [&_.primary]:border-[var(--ink)] [&_.primary]:text-white [&_.primary]:text-sm [&_.primary]:font-semibold [&_.primary]:px-[13px] [&_.primary]:py-[9px] [&_.small]:text-xs [&_.small]:px-[9px] [&_.small]:py-[5px]';
+export const V8_PAGE = 'v8-page text-sm [&_.stack]:grid-cols-[minmax(0,1fr)] [&_.field]:border-0 [&_.field]:bg-transparent [&_.field]:rounded-none [&_.field]:p-0 [&_h1]:text-[30px] [&_h1]:leading-[1.2] [&_h1]:font-bold [&_h1]:tracking-[-0.8px] [&_h1]:mb-[9px] max-[760px]:[&_h1]:text-[26px] [&_h2]:text-base [&_h2]:leading-[1.35] [&_h2]:font-bold [&_h2]:tracking-[-0.2px] [&_h2]:mb-[14px] [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mb-[10px] [&_button]:text-sm [&_button]:font-semibold [&_button]:px-[13px] [&_button]:py-[9px] [&_p]:mb-3 [&_.subline]:mb-0 [&_.subline]:text-[var(--muted)] [&_.panel_.empty]:min-h-0 [&_.panel_.empty]:block max-[760px]:[&_table]:whitespace-normal max-[760px]:[&_.tag]:whitespace-normal max-[760px]:[&_.small]:min-h-[44px] [&_.primary]:bg-[var(--ink)] [&_.primary]:border-[var(--ink)] [&_.primary]:text-white [&_.primary]:text-sm [&_.primary]:font-semibold [&_.primary]:px-[13px] [&_.primary]:py-[9px] [&_.small]:text-xs [&_.small]:px-[9px] [&_.small]:py-[5px]';
 
 export const ENDPOINTS = Object.freeze({
     intents: '/imports/intents',
@@ -253,7 +270,7 @@ export function createImportController(deps) {
         askAssign, cancelAssign, confirmAssign, retry, dispose,
         isBusy: (action, id) => Boolean(state.busy[action + ':' + id]),
         retryable: (row) => RETRYABLE.has(String(row && row.status).toUpperCase()),
-        statusView, text: TEXT,
+        statusView, text: TEXT, size: formatSize, when: formatWhen,
     };
 }
 
@@ -281,13 +298,13 @@ export const IMPORT_TEMPLATE = `
       <p v-else-if="!c.state.intents.length" class="empty" data-testid="intents-empty">{{ c.text.listEmpty }}</p>
       <div v-else class="table-wrap">
         <table aria-label="Importaufträge" data-testid="intent-list">
-          <thead><tr><th scope="col">{{ c.text.colSource }}</th><th scope="col">{{ c.text.colFiles }}</th><th scope="col">{{ c.text.colStatus }}</th><th scope="col">{{ c.text.colCreated }}</th><th scope="col" :aria-label="c.text.colAction"></th></tr></thead>
+          <thead><tr><th scope="col">{{ c.text.colSource }}</th><th scope="col" class="max-md:hidden">{{ c.text.colFiles }}</th><th scope="col">{{ c.text.colStatus }}</th><th scope="col" class="max-md:hidden">{{ c.text.colCreated }}</th><th scope="col" :aria-label="c.text.colAction"></th></tr></thead>
           <tbody>
             <tr v-for="row in c.state.intents" :key="row.id" data-intent :data-id="row.id">
               <td><strong>{{ row.source_ref }}</strong></td>
-              <td>{{ (row.expected_files || []).length }}</td>
+              <td class="max-md:hidden">{{ (row.expected_files || []).length }}</td>
               <td><span class="tag dot" :class="c.statusView(row.status).tag">{{ c.statusView(row.status).label }}</span></td>
-              <td>{{ row.created_at }}</td>
+              <td class="max-md:hidden" :title="row.created_at">{{ c.when(row.created_at) }}</td>
               <td>
                 <button v-if="c.retryable(row)" type="button" class="small" data-testid="retry"
                         :disabled="c.isBusy('retry', row.id)" @click="c.retry(row.id)">{{ c.text.retry }}</button>
@@ -308,8 +325,8 @@ export const IMPORT_TEMPLATE = `
           <thead><tr><th scope="col">Quelle</th><th scope="col">Datei</th><th scope="col">Grösse</th><th scope="col">Aufnahmedatum</th><th scope="col">Stand</th></tr></thead>
           <tbody>
             <tr v-for="(item, i) in c.state.inventory" :key="item.source_id + '|' + item.snapshot_version + '|' + i">
-              <td>{{ item.source_id }}</td><td><strong>{{ item.relative_path }}</strong></td><td>{{ item.size }}</td>
-              <td>{{ item.mtime_utc || '–' }}</td><td>{{ item.snapshot_version }}</td>
+              <td>{{ item.source_id }}</td><td><strong>{{ item.relative_path }}</strong></td><td :title="item.size">{{ c.size(item.size) }}</td>
+              <td>{{ c.when(item.mtime_utc) }}</td><td>{{ item.snapshot_version }}</td>
             </tr>
           </tbody>
         </table>

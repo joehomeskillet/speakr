@@ -22,7 +22,7 @@
  */
 
 import { surfaceFor } from './tokens.js';
-import { V8_PAGE } from './compose-import.js';
+import { V8_PAGE, formatWhen } from './compose-import.js';
 import { createHistoryComponent } from './history-ui.js';
 import { formatAudioDuration } from './worklist-ui.js';
 
@@ -295,7 +295,7 @@ export const ACTIVITY_TEMPLATE = `
       </div>
     </div>
     <div class="stack">
-    <section role="region" aria-label="${LABELS.historyTitle}" data-testid="history-section" class="panel [&_.clinic-history>h2]:sr-only [&_ol]:m-0 [&_ol]:p-0 [&_ol]:list-none [&_ol]:grid [&_ol]:gap-3 [&_li]:rounded-lg [&_li]:p-4 [&_li]:border [&_li]:text-xs [&_li]:leading-relaxed [&_dl]:grid [&_dl]:grid-cols-[max-content_1fr] [&_dl]:gap-x-4 [&_dl]:gap-y-1 [&_dl]:mt-2 [&_dl]:mb-0 [&_dt]:text-[var(--muted)] [&_dd]:m-0 [&_dd]:break-all [&_nav]:flex [&_nav]:items-center [&_nav]:gap-3 [&_nav]:mt-4 [&_nav]:text-xs">
+    <section role="region" aria-label="${LABELS.historyTitle}" data-testid="history-section" class="panel [&_li]:!bg-[var(--surface)] [&_li]:!text-[var(--v8-text)] [&_li]:!border-[var(--line)] [&_.clinic-history>h2]:sr-only [&_ol]:m-0 [&_ol]:p-0 [&_ol]:list-none [&_ol]:grid [&_ol]:gap-3 [&_li]:rounded-lg [&_li]:p-4 [&_li]:border [&_li]:text-xs [&_li]:leading-relaxed [&_dl]:grid [&_dl]:grid-cols-[max-content_1fr] [&_dl]:gap-x-4 [&_dl]:gap-y-1 [&_dl]:mt-2 [&_dl]:mb-0 [&_dt]:text-[var(--muted)] [&_dd]:m-0 [&_dd]:break-all [&_nav]:flex [&_nav]:items-center [&_nav]:gap-3 [&_nav]:mt-4 [&_nav]:text-xs">
       <h2 v-if="!historyOnly">${LABELS.historyTitle}</h2>
       <form v-if="!historyOnly" class="filterbar" @submit.prevent="openHistory()">
         <div class="field search">
@@ -360,7 +360,7 @@ export const ACTIVITY_TEMPLATE = `
           <div><dt>${LABELS.timeBasis}</dt><dd>{{ state.view.provenance.timeBasis }}</dd></div>
           <div><dt>${LABELS.zone}</dt><dd>{{ state.view.provenance.zone }}</dd></div>
           <div><dt>${LABELS.window}</dt><dd>{{ state.view.provenance.window }} {{ state.view.provenance.start }} - {{ state.view.provenance.end }}</dd></div>
-          <div><dt>${LABELS.asOf}</dt><dd>{{ state.view.provenance.asOf }}</dd></div>
+          <div><dt>${LABELS.asOf}</dt><dd>{{ formatWhen(state.view.provenance.asOf) }}</dd></div>
           <div><dt>${LABELS.excluded}</dt><dd>{{ state.view.provenance.excluded }}</dd></div>
         </dl>
         <div v-if="state.status === 'ready'" class="table-wrap">
@@ -411,6 +411,7 @@ export const ActivityView = {
             state: ctrl.state,
             client: props.client,
             historyOnly,
+            formatWhen,
             load: () => (historyOnly.value ? null : ctrl.load()),
             toggleGroup: ctrl.toggleGroup,
             openHistory: ctrl.openHistory,

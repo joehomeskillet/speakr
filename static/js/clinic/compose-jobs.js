@@ -31,6 +31,9 @@ export const TEXT = Object.freeze({
     subline: 'Aufträge, Fehler und unklare Ausgabestände nachvollziehen. Nur bereinigte Auftragsdaten werden angezeigt.',
     sublineScoped: 'Aufträge dieses Diktats und ihr aktueller Zustand.',
     statDone: 'Abgeschlossen',
+    statDoneNote: 'Aufträge insgesamt',
+    statFailedNote: 'Manueller Versuch möglich',
+    statFailedNoteReadOnly: 'Nur Anzeige',
     statFailed: 'Fehlgeschlagen',
     statShown: 'Angezeigt',
     statShownNote: 'Nach Filter',
@@ -180,7 +183,7 @@ export function createJobsViewController(options) {
 
     return {
         vue: V, jobs, state: jobs.state, filter, filterOptions: options_, rows, denied, scoped: () => Boolean(scope()),
-        load, retry, setFilter, dispose, canRetryJob: jobs.canRetryJob,
+        load, retry, setFilter, dispose, canRetry: opts.canRetry === true, canRetryJob: jobs.canRetryJob,
         text: TEXT, surface: rowSurface, filterLabel, errorText: () => errorText(jobs.state.value.error),
     };
 }
@@ -228,8 +231,8 @@ export const JobsView = {
        :data-denied="c.denied.value ? 'true' : 'false'">{{ c.errorText() }}</div>
   <template v-if="!c.denied.value">
     <div v-if="!c.scoped()" class="stats" data-testid="health" role="region" :aria-label="c.text.health">
-      <div class="stat"><span>{{ c.text.statDone }}</span><strong>{{ c.state.value.progress.completed }}/{{ c.state.value.progress.total }}</strong><small>Aufträge insgesamt: {{ c.state.value.progress.total }}</small></div>
-      <div class="stat"><span>{{ c.text.statFailed }}</span><strong>{{ c.state.value.progress.failed }}</strong><small>Manueller Versuch möglich</small></div>
+      <div class="stat"><span>{{ c.text.statDone }}</span><strong>{{ c.state.value.progress.completed }}/{{ c.state.value.progress.total }}</strong><small>{{ c.text.statDoneNote }}: {{ c.state.value.progress.total }}</small></div>
+      <div class="stat"><span>{{ c.text.statFailed }}</span><strong>{{ c.state.value.progress.failed }}</strong><small>{{ c.canRetry ? c.text.statFailedNote : c.text.statFailedNoteReadOnly }}</small></div>
       <div class="stat"><span>{{ c.text.stuckIds }}</span><strong>{{ c.state.value.stuckIds.length }}</strong><small>Ohne Fortschritt</small></div>
       <div class="stat"><span>{{ c.text.statShown }}</span><strong>{{ c.rows.value.length }}</strong><small>{{ c.text.statShownNote }}</small></div>
     </div>
@@ -249,7 +252,7 @@ export const JobsView = {
           <thead>
             <tr>
               <th scope="col">{{ c.text.colJob }}</th>
-              <th scope="col">{{ c.text.colType }}</th>
+              <th scope="col" class="max-md:hidden">{{ c.text.colType }}</th>
               <th scope="col">{{ c.text.colState }}</th>
               <th scope="col">{{ c.text.colAction }}</th>
             </tr>
@@ -257,7 +260,7 @@ export const JobsView = {
           <tbody>
             <tr v-for="f in c.rows.value" :key="f.id" :data-id="f.id">
               <td><strong>{{ f.id }}</strong></td>
-              <td>{{ f.jobType }}</td>
+              <td class="max-md:hidden">{{ f.jobType }}</td>
               <td><span class="tag dot" :class="f.unknown ? 'wait' : 'error'">{{ c.surface(f).label }}: {{ f.errorClass }}</span></td>
               <td>
                 <button v-if="f.unknown || c.canRetryJob(f)" type="button" class="small"
