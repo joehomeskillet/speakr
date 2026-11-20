@@ -214,6 +214,7 @@ def _show_admin_pools(page, base: str) -> None:
     _open_admin(page, base)
     nav = page.get_by_role("navigation", name="Verwaltung", exact=True)
     pools = nav.get_by_role("button", name="Schreibkräfte-Pools", exact=True)
+    pools.wait_for(state="visible", timeout=SHOW_TIMEOUT_MS)
     assert pools.count() == 1
     pools.click()
     view = page.get_by_test_id("clinic-v8-view-admin-pools")
