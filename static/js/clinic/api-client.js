@@ -189,7 +189,7 @@ export function createClinicApiClient() {
         try {
             const token = unsafe ? await getUploadCsrfToken() : null;
             if (seen !== generation || controller.signal.aborted) return result('cancelled', { code: 'CANCELLED' });
-            let body;
+            let body = unsafe ? opts.formData : undefined;
             if (unsafe && opts.body !== undefined) {
                 try {
                     body = JSON.stringify(opts.body);

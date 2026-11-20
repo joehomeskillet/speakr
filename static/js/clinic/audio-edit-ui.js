@@ -75,10 +75,12 @@ export function createAudioEditController(options) {
     let note = '';
     let busy = false;
     let invalidated = [];
+    let disposed = false;
+    let upload = null;
     let pending = null; // { digest, key } kept after an unknown outcome so a retry replays
 
     function canWrite() {
-        return Boolean(lease && lease.canWrite()) && revisionId !== null && status !== 'idle';
+        return !disposed && Boolean(lease && lease.canWrite()) && revisionId !== null && status === 'ready';
     }
 
     function snapshot() {
@@ -115,13 +117,16 @@ export function createAudioEditController(options) {
 
     async function load() {
         const res = await client.request(base + '/audio-revisions/current');
-        if (res.outcome === 'cancelled') return snapshot();
+        if (disposed || res.outcome === 'cancelled') return snapshot();
         if (res.outcome !== 'ok' || !res.data || typeof res.data.revision_id !== 'string' || !Array.isArray(res.data.segments)) {
             status = 'error';
             return setNote(res.message || MESSAGES.invalid);
         }
         revisionId = res.data.revision_id;
         segments = res.data.segments;
+        if (Number.isSafeInteger(res.data.undo_depth)) undoDepth = res.data.undo_depth;
+        if (Number.isSafeInteger(res.data.redo_depth)) redoDepth = res.data.redo_depth;
+        options.onRevision?.(revisionId);
         status = 'ready';
         selection = null;
         note = '';
@@ -201,7 +206,7 @@ export function createAudioEditController(options) {
         emit();
         const res = await client.request(base + '/audio-edits', { method: 'POST', idempotencyKey: pending.key, body });
         busy = false;
-        if (res.outcome === 'cancelled') return setNote('');
+        if (disposed || res.outcome === 'cancelled') return setNote('');
         if (res.outcome === 'ok') {
             pending = null;
             invalidated = invalidated.concat((res.data && res.data.invalidated_link_ids) || []);
@@ -226,9 +231,44 @@ export function createAudioEditController(options) {
         return setNote(res.message);
     }
 
+    async function applyFile(operation, file) {
+        if (!file || !selection || !['insert', 'overwrite'].includes(operation)) return setNote(MESSAGES.invalid);
+        if (busy || !canWrite()) return setNote(busy ? MESSAGES.busy : MESSAGES.readOnly);
+        const at = selection.startMs;
+        const generation = lease.getState().generation;
+        const head = revisionId;
+        // A lost upload response can be replayed with its original key, even before the edit was sent.
+        if (!upload || upload.file !== file || upload.head !== head || upload.generation !== generation) {
+            upload = { file, head, generation, key: newKey(), segmentId: null };
+        }
+        if (!upload.segmentId) {
+            const data = new FormData();
+            data.append('file', file);
+            data.append('audio_revision_id', head);
+            data.append('lease_generation', String(generation));
+            busy = true;
+            emit();
+            const result = await client.request(base + '/audio-segments', {
+                method: 'POST', formData: data, idempotencyKey: upload.key,
+            });
+            busy = false;
+            if (disposed || result.outcome === 'cancelled') return snapshot();
+            if (result.outcome !== 'ok' || !result.data?.segment_id) {
+                if (result.outcome === 'conflict') await load();
+                return setNote(result.message || MESSAGES.invalid);
+            }
+            upload.segmentId = result.data.segment_id;
+        }
+        if (!canWrite() || lease.getState().generation !== generation || revisionId !== head) {
+            return setNote(MESSAGES.stale);
+        }
+        return send(operation, { positionMs: at, sourceSegmentId: upload.segmentId });
+    }
+
     return {
         load,
         select,
+        applyFile,
         preview,
         derivedUrl,
         insert: (params) => send('insert', params),
@@ -243,7 +283,7 @@ export function createAudioEditController(options) {
         acknowledgeStale() { if (status === 'stale') { status = 'ready'; return setNote(''); } return snapshot(); },
         getState: snapshot,
         subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
-        dispose() { listeners.clear(); segments = []; selection = null; invalidated = []; pending = null; },
+        dispose() { disposed = true; upload = null; listeners.clear(); segments = []; selection = null; invalidated = []; pending = null; },
     };
 }
 
@@ -274,7 +314,6 @@ export function useAudioEdit(options, vue) {
 
 /** Component: toolbar with live status region; native buttons and Ctrl+Z / Ctrl+Shift+Z. */
 export function createAudioEditComponent(vue) {
-    const V = vue || globalThis.Vue;
     return {
         name: 'ClinicAudioEdit',
         props: {
@@ -282,12 +321,15 @@ export function createAudioEditComponent(vue) {
             controller: { type: Object, required: true },
             sourceSegmentId: { type: String, default: null },
             insertDurationMs: { type: Number, default: undefined },
+            file: { default: null },
         },
         setup(props) {
+            const V = vue || globalThis.Vue;
             const actions = V.computed(() => audioEditActions(props.state));
             function run(id) {
                 const c = props.controller;
                 if (id === 'insert' || id === 'overwrite') {
+                    if (props.file) return c.applyFile(id, props.file);
                     return c[id]({ sourceSegmentId: props.sourceSegmentId, durationMs: props.insertDurationMs });
                 }
                 return c[id]();
@@ -305,6 +347,8 @@ export function createAudioEditComponent(vue) {
                 :data-status="state.status" @keydown="onKey"
                 :style="{ background: state.surface.background, color: state.surface.color, border: '1px solid ' + state.surface.border }">
                 <p role="status" aria-live="polite">{{ state.message }}</p>
+                <button v-if="state.status === 'stale'" type="button" class="button small" @click="controller.acknowledgeStale()">Aktuellen Stand bearbeiten</button>
+                <button v-if="state.status === 'error'" type="button" class="button small" @click="controller.load()">Erneut laden</button>
                 <p v-if="state.needsAnchorReview" role="alert">
                     Textmarken wurden ungültig. Bitte prüfen und bestätigen.
                     <button type="button" @click="controller.acknowledgeAnchors()">Geprüft</button>
@@ -313,7 +357,7 @@ export function createAudioEditComponent(vue) {
                     Auswahl: {{ state.selection.startMs }} bis {{ state.selection.endMs }} ms
                     von {{ state.durationMs }} ms
                 </p>
-                <button v-for="a in actions" :key="a.id" type="button" :disabled="a.disabled"
+                <button v-for="a in actions" :key="a.id" class="button small" type="button" :disabled="a.disabled || (['insert', 'overwrite'].includes(a.id) && !sourceSegmentId && !file)"
                     :aria-keyshortcuts="a.shortcut" @click="run(a.id)">{{ a.label }}</button>
             </section>`,
     };
