@@ -1304,7 +1304,7 @@ def register_clinic_worklist(flask_app):
         return db.session.get(User, user_id) is not None and account is not None and account.status == 'active'
 
     flask_app.register_blueprint(routes_acceptance_policy.create_blueprint(
-        authorize=policy_authorize, ledger=ledger, default_required=lambda _dictation: False,
+        authorize=policy_authorize, ledger=ledger, default_required=lambda _dictation: True,
         is_acceptance_member=is_acceptance_member, record_audit=record_audit))
     # --- v8-74: acceptance policy publication (end) ---
 
