@@ -78,11 +78,11 @@ function makeRefs(vue) {
 }
 
 // One min/max column per drawn bucket of the level that fits the width, at most WIDTH columns.
-function barsFor(peaks) {
+export function barsFor(peaks, columns = WIDTH) {
     if (!peaks || !peaks.levels.length || !(peaks.duration > 0)) return [];
-    const pps = WIDTH / peaks.duration;
+    const pps = columns / peaks.duration;
     const level = peaks.levels[levelFor(peaks.levels, pps)];
-    const step = Math.max(1, Math.ceil(level.length / WIDTH));
+    const step = Math.max(1, Math.ceil(level.length / columns));
     const out = [];
     for (let i = 0; i < level.length; i += step) {
         let lo = 0;

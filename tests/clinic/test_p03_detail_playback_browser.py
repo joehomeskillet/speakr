@@ -14,19 +14,25 @@ from test_wp_rest27_repeat_ui import _repeat_server
 
 
 @pytest.fixture
-def detail_server(tmp_path_factory):
+def detail_server(tmp_path_factory, request):
     # Extend the established synthetic clinic fixture. The typist inherits view via their
     # assigned pool, and has only a play grant. The author can see the case but is denied play and edit.
     server = mount.SERVER.replace('actions=("play", "edit", "release")', 'actions=("play",)')
     server = server.replace('    rec = Recording(', '''    pools.deny(author.id, "pool", actor_id=admin.id, pool_id=pool.id, actions=("play", "edit"))
     rec = Recording(''', 1)
     # Four distinct square waves make cutting out the second interval byte-verifiable.
-    server = server.replace("with app.app_context():", """with app.app_context():
+    variable_envelope = getattr(request, "param", None) == "variable_envelope"
+    server = server.replace("with app.app_context():", f"""with app.app_context():
+    from math import sin
+    def sample(i, half_period):
+        amplitude = int(12000 * (.03 + abs(sin(i / 1850)) ** 2)) if {variable_envelope!r} else 3000
+        return (amplitude if i // half_period % 2 else -amplitude).to_bytes(2, "little", signed=True)
+
     audio_buffer = BytesIO()
     with wave.open(audio_buffer, "wb") as wav:
         wav.setparams((1, 2, 16000, 0, "NONE", "not compressed"))
         for half_period in (40, 32, 25, 20):
-            wav.writeframes(b"".join((3000 if i // half_period % 2 else -3000).to_bytes(2, "little", signed=True)
+            wav.writeframes(b"".join(sample(i, half_period)
                                     for i in range(16000)))
     audio_bytes = audio_buffer.getvalue()""", 1)
     server = server.replace('    init_audio_revision(dic, original, 4000)', '''    init_audio_revision(dic, original, 4000)
@@ -37,10 +43,13 @@ def detail_server(tmp_path_factory):
         yield from _repeat_server(tmp_path_factory)
 
 
-def _detail(browser, base, username, did, size):
+def _detail(browser, base, username, did, size, *, peaks_offline=False):
     page = mount._login(browser, base, username)
     page.set_viewport_size(size)
     page.get_by_test_id("clinic-recordings-view").locator(f'[data-row][data-id="{did}"]').click()
+    if peaks_offline:
+        # Only the optional waveform transport is unavailable. All permission, WAV and edit routes remain real.
+        page.route("**/audio-revisions/*/peaks", lambda route: route.abort("connectionfailed"))
     events = []
     page.on("request", lambda r: events.append((r.method, urlsplit(r.url).path)))
     with page.expect_response(lambda r: urlsplit(r.url).path.endswith("/audio-revisions/current")) as head:
@@ -61,7 +70,7 @@ def test_read_only_detail_plays_seeks_cut_audio_without_a_lease_or_export(detail
     with sync_playwright() as p:
         browser = mount._launch(p)
         try:
-            page, panel, head, events = _detail(browser, base, mount.TYPIST, did, size)
+            page, panel, head, events = _detail(browser, base, mount.TYPIST, did, size, peaks_offline=True)
             assert head.status == 200
             rev = head.json()["revision_id"]
             audio = panel.get_by_label("Diktat anhören", exact=True)
