@@ -13,7 +13,8 @@ only through the configured adapter (MockKIS on staging, DisabledAdapter in prod
   target ``kis``, without an enabled adapter, or without a trusted context. An UNKNOWN outcome
   is returned to the queue, which records it as unresolved and never resends.
 - ``clinic_notify``: in-app notice through ``clinic_notify_handler`` with the real
-  visibility check (central pool policy; an active admin sees everything, W12).
+  visibility check (an active site admin sees everything, W12, decided like the admin gate in
+  ``admin_dictation_access``; everyone else goes through the central pool policy).
 """
 
 from __future__ import annotations
@@ -72,15 +73,17 @@ def output_handler(adapter_for):
 
 
 def can_see(user_id: int, item) -> bool:
-    """Whether the user may see the dictation of a workflow row (pool policy; admin sees all)."""
+    """Whether the user may see the dictation of a workflow row (active site admin sees all; else pool policy)."""
+    from src.clinic.admin_dictation_access import can_open_content
     from src.models import User
 
     dictation = db.session.get(ClinicDictation, item.id)
     user = db.session.get(User, user_id)
     if dictation is None or user is None:
         return False
-    subject = policy.build_subject(user_id, is_admin=bool(user.is_admin))
-    return pool_policy.decide(subject, "view", dictation).allowed
+    if can_open_content(db.session, user, dictation.recording_id, "audio").reason == "admin_full":
+        return True
+    return pool_policy.decide(policy.build_subject(user_id), "view", dictation).allowed
 
 
 def register_clinic_job_handlers(flask_app) -> None:
@@ -91,6 +94,7 @@ def register_clinic_job_handlers(flask_app) -> None:
         "clinic_output": output_handler(lambda: routes_output.configured_adapter(flask_app)),
         "clinic_notify": jq.clinic_notify_handler(can_see),
     }
-    assert set(handlers) == set(jq.CLINIC_JOBS), "every CLINIC_JOBS type needs a handler"
+    if set(handlers) != set(jq.CLINIC_JOBS):
+        raise RuntimeError("every CLINIC_JOBS type needs a handler")
     for job_type, handler in handlers.items():
         jq.register_clinic_handler(job_type, handler)

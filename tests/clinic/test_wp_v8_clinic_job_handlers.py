@@ -13,6 +13,7 @@ import pytest
 from flask import Flask
 
 from src.clinic import kis, workflow
+from src.clinic.identity import ClinicAccountPolicy
 from src.clinic.job_handlers import register_clinic_job_handlers
 from src.clinic.models import ClinicContextRevision, ClinicDictation, ClinicRelease
 from src.database import db
@@ -67,10 +68,13 @@ def env(monkeypatch, tmp_path):
     with app.app_context():
         db.create_all()
         users = {}
-        for name in ("author", "other"):
-            users[name] = User(username=name, email=f"{name}@example.invalid", password="x")
+        for name in ("author", "other", "admin", "idle_admin"):
+            users[name] = User(username=name, email=f"{name}@example.invalid", password="x",
+                               is_admin=name.endswith("admin"))
             db.session.add(users[name])
         db.session.flush()
+        db.session.add(ClinicAccountPolicy(user_id=users["admin"].id, status="active"))
+        db.session.add(ClinicAccountPolicy(user_id=users["idle_admin"].id, status="disabled"))
         ids = {name: user.id for name, user in users.items()}
         recording = Recording(user_id=ids["author"], title="Synthetic")
         db.session.add(recording)
@@ -120,6 +124,27 @@ def test_notify_does_not_reach_a_user_without_view_access(env):
     assert db.session.query(Notification).count() == 0
 
 
+def _notify_assignee(env, name):
+    item = db.session.get(workflow.ClinicWorkflowDictation, env.dictation)
+    item.assignee_user_id = env.ids[name]
+    db.session.commit()
+    return _run(env, "clinic_notify", clinic_operation_key=f"wf-1:accepted:{name}", event="accepted",
+                dictation_id=env.dictation, actor_user_id=env.ids["author"], expected_version=0)
+
+
+def test_notify_reaches_an_active_admin_without_a_grant(env):
+    job = _notify_assignee(env, "admin")
+    assert job.status == "completed", job.error_message
+    (row,) = db.session.query(Notification).all()
+    assert row.user_id == env.ids["admin"]
+
+
+def test_notify_does_not_reach_an_inactive_admin_without_a_grant(env):
+    job = _notify_assignee(env, "idle_admin")
+    assert job.status == "completed", job.error_message
+    assert db.session.query(Notification).count() == 0
+
+
 def test_output_without_target_is_a_permanent_refusal_and_sends_nothing(env, monkeypatch):
     sent = []
     monkeypatch.setattr(kis, "deliver", lambda *a, **k: sent.append(a))
@@ -149,13 +174,17 @@ def test_output_with_mock_adapter_but_untrusted_context_is_refused(env, monkeypa
 def test_output_delivers_once_through_the_adapter_when_trusted(env, monkeypatch):
     monkeypatch.setenv("CLINIC_PROFILE", "staging")
     monkeypatch.setattr("src.clinic.finalize_gates.trusted_context", lambda *_: True)
-    env.app.extensions["clinic_kis_adapter"] = kis.MockKisAdapter()
+    adapter = env.app.extensions["clinic_kis_adapter"] = kis.MockKisAdapter()
     calls = []
     real = kis.deliver
     monkeypatch.setattr(kis, "deliver", lambda *a, **k: calls.append(a[3]) or real(*a, **k))
     job = _run(env, "clinic_output", clinic_release_id=env.release, target="kis")
     assert calls == [f"export:{env.release}"]
     assert job.status == "completed", job.error_message
+    assert list(adapter.documents) == [f"export:{env.release}"]
+    again = _run(env, "clinic_output", clinic_release_id=env.release, target="kis")
+    assert again.status == "failed"  # the queue's delivery marker blocks a second send
+    assert len(adapter.documents) == 1
 
 
 def test_finalize_job_checks_the_release_binding(env):
