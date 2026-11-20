@@ -1,51 +1,37 @@
-# Contributing to Speakr
+# Contributing to the Speakr clinic fork · Beiträge zur Klinikversion
 
-Thank you for your interest in contributing to Speakr! We appreciate your time and effort in helping improve this project.
+## Kurzeinstieg auf Deutsch
 
-## Ways to Contribute
+1. Prüfe den [Entwicklungsstand auf `dev`](https://github.com/joehomeskillet/speakr/tree/dev). `main` enthält die veröffentlichte Version. Für Änderungen am Handbuch findest du hier die [deutsche](docs/de/index.md) und die [englische Fassung](docs/index.md).
+2. Erstelle einen eigenen GitHub-Fork von `joehomeskillet/speakr`. Starte deinen Arbeitsbranch vom aktuellen `dev` der Klinikversion. Die Git-Befehle im nächsten Abschnitt funktionieren auch, wenn dein Fork nur `main` enthält.
+3. Issues und Discussions sind hier deaktiviert. Einen Fehler kannst du mit einem kleinen reproduzierbaren Test als Pull Request melden. Verwende ausschliesslich synthetische Daten, auch für Audio, Protokolle und Screenshots. Gib die ausgeführten Tests und ihre Ergebnisse an.
+4. Lade deinen Branch in deinen eigenen Fork hoch. Öffne den [Vergleich mit `dev`](https://github.com/joehomeskillet/speakr/compare/dev...dev?expand=1) und wähle **compare across forks**. Als Ziel wählst du `joehomeskillet/speakr` mit `dev`, als Quelle deinen Fork mit deinem Arbeitsbranch.
 
-There are many ways to contribute to Speakr:
+## Contribute in English
 
-- **Report Bugs**: [Open an issue](https://github.com/murtaza-nasir/speakr/issues) describing the problem
-- **Suggest Features**: [Start a discussion](https://github.com/murtaza-nasir/speakr/discussions) about your idea
-- **Improve Documentation**: Help us make our docs clearer and more comprehensive
-- **Translate**: Help translate Speakr into more languages
-- **Sponsor**: Support the project financially to enable continued development
+This independent fork develops browser-based clinic dictation. [`main`](https://github.com/joehomeskillet/speakr/tree/main) holds releases. [`dev`](https://github.com/joehomeskillet/speakr/tree/dev) is the integration branch and the base for contributor pull requests. Code fixes, regression tests, handbook edits and translations are welcome.
 
-## Code Contributions
+Fork **joehomeskillet/speakr** on GitHub. Replace `YOUR-USERNAME` below with your account. In this checkout, `origin` is your personal fork and `clinic` is the public clinic repository.
 
-We welcome code contributions! However, due to the dual-licensing nature of Speakr (AGPLv3 and Commercial), all code contributions are subject to our Contributor License Agreement (CLA).
+```bash
+git clone https://github.com/YOUR-USERNAME/speakr.git
+cd speakr
+git remote add clinic https://github.com/joehomeskillet/speakr.git
+git fetch clinic dev
+git switch -c my-change FETCH_HEAD
+```
 
-### Contributor License Agreement (CLA)
+The clinic fork has Issues and Discussions disabled. To report a clinic bug, submit a minimal synthetic reproducer as a test or a fix with a regression test. Describe what you expected and what happened. For a handbook change, check the corresponding page in both languages.
 
-Speakr is dual-licensed under:
-1. **AGPLv3** - Open source license for the community
-2. **Commercial License** - For organizations that cannot comply with AGPLv3
+Run the tests for the area you changed. Include the commands and results in your PR, and identify any checks still pending. Use synthetic content throughout, including recordings, transcripts, logs, screenshots and fixtures. Keep patient data and credentials out of submissions.
 
-The CLA allows us to:
-- Accept your valuable contributions
-- Include them in both the open source and commercial versions
-- Maintain flexibility to update licenses if needed in the future
-- Protect the project from legal issues
+After committing your changes, push your working branch to your personal fork (`git push -u origin my-change`). Open the [comparison against clinic `dev`](https://github.com/joehomeskillet/speakr/compare/dev...dev?expand=1). Choose **compare across forks**, set the base to **joehomeskillet/speakr · dev** and select your personal fork and working branch as the head. Check the displayed diff before opening the pull request.
 
-**Important**: You retain copyright ownership of your contribution. The CLA simply grants us permission to use it.
+### License and upstream contributions
 
-### Accepting the CLA
+The clinic fork ships the [GNU Affero General Public License v3](LICENSE). The [retained CLA](CLA.md) is the original Speakr project's contributor agreement. Its grants name the upstream Speakr maintainers as recipients. Submitting a clinic PR does not constitute acceptance of that agreement or grant its rights to the clinic maintainers.
 
-**By submitting a pull request to this repository, you agree to the terms of our [Contributor License Agreement](CLA.md).**
-
-Please review the [CLA document](CLA.md) before submitting your contribution. When you open a PR, our bot will post a reminder about the CLA terms.
-
-### Contribution Process
-
-1. **Fork** the repository
-2. **Create a branch** for your feature: `git checkout -b feature/my-awesome-feature`
-3. **Make your changes** following our coding standards
-4. **Test your changes** thoroughly
-5. **Commit** with clear, descriptive messages (see our commit policy below)
-6. **Push** to your fork: `git push origin feature/my-awesome-feature`
-7. **Open a Pull Request** with a clear description of your changes
-8. **Respond to feedback** from maintainers
+The original project's bug-reporting channels, CLA process and commercial licensing offer concern upstream Speakr. If you can reproduce a problem in upstream Speakr itself or intend to contribute there, consult the [upstream contribution guide](https://github.com/murtaza-nasir/speakr/blob/48d3018fb7d80b77f897bedd86bcc89b5034d1f5/CONTRIBUTING.md) and [upstream CLA](https://github.com/murtaza-nasir/speakr/blob/48d3018fb7d80b77f897bedd86bcc89b5034d1f5/CLA.md) at this fork's pinned base.
 
 ### Coding Standards
 
@@ -132,19 +118,19 @@ Verify with:
 ```bash
 python -m pytest -q tests/test_migration_compatibility.py tests/test_upgrade_path.py \
     tests/test_migration_drop_not_null.py tests/test_migration_infrastructure.py
-
-# and against a real PostgreSQL, which the tests skip without one
-docker compose -f docker-compose.postgres.yml up -d postgres
-TEST_DATABASE_URI=postgresql://speakr:speakr@localhost:5432/speakr python -m pytest -q \
-    tests/test_postgres_migrations.py tests/test_migration_drop_not_null.py
 ```
 
-The whole suite also runs on PostgreSQL in CI (`python-tests-postgres`). To run it locally,
-create an empty database used only by the tests and pass it in `PYTEST_DATABASE_URI`:
+For the PostgreSQL checks, use a local PostgreSQL role that can create databases.
+Create two empty, disposable databases. The migration tests drop every table in
+their test database during teardown. The following example uses local socket
+authentication and separate databases for the migration tests and the full suite.
 
 ```bash
-docker compose -f docker-compose.postgres.yml exec postgres createdb -U speakr speakr_suite
-PYTEST_DATABASE_URI=postgresql://speakr:speakr@localhost:5432/speakr_suite python -m pytest -q tests/
+createdb speakr_migration_test
+createdb speakr_suite_test
+TEST_DATABASE_URI=postgresql:///speakr_migration_test python -m pytest -q \
+    tests/test_postgres_migrations.py tests/test_migration_drop_not_null.py
+PYTEST_DATABASE_URI=postgresql:///speakr_suite_test python -m pytest -q tests/
 ```
 
 `TEST_DATABASE_URI` is read only by the migration tests, which drop every table when they
@@ -244,7 +230,7 @@ Optional longer explanation if needed
 ### Pull Request Guidelines
 
 - Keep PRs focused on a single feature or bug fix
-- Reference related issues: `Fixes #123` or `Relates to #456`
+- Link related pull requests or commits where they help explain the change
 - Provide clear description of what changed and why
 - Include screenshots for UI changes
 - Ensure all tests pass (if applicable)
@@ -252,25 +238,18 @@ Optional longer explanation if needed
 
 ## Development Setup
 
-See [CLAUDE.md](CLAUDE.md) for detailed development setup instructions.
+Start with the [clinic work order](clinic-spec/CLAUDE.md) for scope and the [project checks](AGENTS.md#gate) for the full test sequence. Clinic modules live in `src/clinic/` and clinic tests in `tests/clinic/`. For a container-based evaluation, follow the [clinic installation guide](docs/getting-started/installation.md).
 
 ### Quick Start
 
 ```bash
-# Clone your fork
-git clone https://github.com/YOUR-USERNAME/speakr.git
-cd speakr
-
-# Set up development environment
-docker-compose -f docker-compose.dev.yml up -d --build
-
-# Or for local development
+# From the root of your working branch
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install --require-hashes --no-deps -r requirements.lock -r requirements-dev.lock   # the app and the test tools
 python scripts/download_offline_deps.py   # vendor JavaScript, CSS and fonts
 scripts/build_css.sh                      # static/css/tailwind.css (Linux x64/arm64)
-python src/app.py --debug
+python -m pytest tests/clinic -q -p no:cacheprovider
 ```
 
 The Tailwind stylesheet is compiled from the templates and scripts. After a change to the Tailwind classes in a template or script, run `scripts/build_css.sh` again, or keep `scripts/build_css.sh --watch` running. Only complete class names written out in the source are compiled; a class name assembled from parts at runtime (for example `bg-${color}-500`) is missing from the stylesheet.
@@ -285,30 +264,6 @@ Every Python package, including the dependencies of dependencies, is pinned with
 - The locked packages are checked against the published advisories with `scripts/audit-dependencies.sh` (pip-audit), in CI and before every release. An advisory that does not apply to Speakr is listed in `scripts/audit-exceptions.txt` with a reason and a review date.
 - PRs that change dependencies, the Dockerfile, workflows or scripts, or that add minified, binary or encoded content, are reviewed line by line, so their review can take longer.
 
-## What Happens After You Submit a PR?
-
-1. **CLA Reminder**: Our bot posts a reminder about the CLA terms (by submitting, you've accepted them)
-2. **Automated Tests**: CI/CD pipeline runs (if configured)
-3. **Code Review**: Maintainers review your code
-4. **Feedback**: You may be asked to make changes
-5. **Merge**: Once approved, we merge your PR!
-
-## Other Ways to Help
-
-There are many ways to contribute without code:
-
-- **Bug Reports**: Detailed bug reports are incredibly valuable
-- **Feature Requests**: Share your ideas and use cases
-- **Documentation**: Typo fixes, clarifications, examples
-- **Translations**: Help translate the UI
-- **Community Support**: Help others in discussions and issues
-- **Spread the Word**: Blog posts, social media, talks about Speakr
-
-## Questions?
-
-- **General Questions**: [GitHub Discussions](https://github.com/murtaza-nasir/speakr/discussions)
-- **Bug Reports**: [GitHub Issues](https://github.com/murtaza-nasir/speakr/issues)
-
 ## Code of Conduct
 
 Be respectful, inclusive, and professional. We're all here to build something great together.
@@ -320,11 +275,3 @@ Be respectful, inclusive, and professional. We're all here to build something gr
 - Show empathy towards others
 
 Violations may result in being blocked from contributing.
-
-## License
-
-By contributing to Speakr, you agree that your contributions will be licensed under the project's dual-license model (AGPLv3 and Commercial), as specified in the [CLA](CLA.md).
-
----
-
-**Thank you for contributing to Speakr!** 🎉
