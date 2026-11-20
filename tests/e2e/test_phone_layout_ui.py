@@ -388,8 +388,9 @@ def test_one_top_bar_with_back_title_star_and_more(phone):
     phone.list_in_place()
     menu = phone.open_sheet("[data-phone-menu]", "menu")
     entries = menu.locator("[data-phone-menu-item]").evaluate_all("(els) => els.map((el) => el.dataset.phoneMenuItem)")
-    for entry in ("notifications", "shares", "settings", "scheme", "dark", "signout"):
+    for entry in ("notifications", "settings", "admin", "scheme", "dark", "signout"):
         assert entry in entries, entries
+    assert "shares" not in entries, entries
     assert menu.locator('a[href="/account"]').count() == 1
     phone.shot("phone-layout-test-menu")
     phone.close_sheet()
