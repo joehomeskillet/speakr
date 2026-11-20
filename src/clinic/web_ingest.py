@@ -31,7 +31,7 @@ from datetime import datetime, timezone
 
 from flask import current_app, jsonify
 
-from src.clinic import pool_policy, startup
+from src.clinic import pool_policy, pools, startup
 from src.clinic.ingest import IngestError, IngestService
 from src.clinic.models import ClinicDictation
 from src.clinic.workflow import DRAFT, ClinicWorkflowDictation
@@ -48,9 +48,16 @@ _CHUNK = 1024 * 1024
 
 
 def author_pool_for(user_id: int) -> str | None:
-    """One author pool per user is the clinic rule; a user in none has no pool."""
-    ids = sorted(pool_policy.author_pool_ids(user_id))
-    return ids[0] if ids else None
+    """One author pool per user is the clinic rule; a user in none has no pool.
+
+    Inactive or out-of-validity pools are skipped (first remaining id wins).
+    """
+    now = datetime.now(timezone.utc)
+    for pool_id in sorted(pool_policy.author_pool_ids(user_id)):
+        pool = db.session.get(pools.ClinicAuthorPool, pool_id)
+        if pool is not None and pools.is_routable(pool, now):
+            return pool_id
+    return None
 
 
 def _utc(naive: datetime) -> datetime:

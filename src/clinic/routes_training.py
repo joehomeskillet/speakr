@@ -23,7 +23,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
-from flask import Blueprint, abort, jsonify, request
+from flask import Blueprint, abort, jsonify, request, session
 from flask_login import current_user
 
 from src.clinic.admin_dictation_access import _is_active_site_admin
@@ -72,7 +72,8 @@ def _refuse(code: str):
 def _guard():
     if not clinic_mode_enabled():
         abort(404)
-    if not current_user.is_authenticated:
+    if not (current_user.is_authenticated and current_user.is_active
+            and session.get("_user_id") == current_user.get_id()):
         return _reply({"error": "unauthenticated", "code": "unauthenticated"}, 401)
     if not _is_active_site_admin(db.session, current_user):
         return _refuse("unauthorized")

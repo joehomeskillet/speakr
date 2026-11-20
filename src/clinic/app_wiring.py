@@ -14,7 +14,9 @@ from sqlalchemy.exc import IntegrityError
 from src.clinic import audio_revisions, decoder, dictation_lock
 from src.clinic.audio_render import AudioSource
 from src.clinic.models import ClinicOriginal
-from src.clinic.pools import ClinicAuthorPool, ClinicAuthorPoolMember
+from datetime import datetime, timezone
+
+from src.clinic.pools import ClinicAuthorPool, ClinicAuthorPoolMember, is_routable
 from src.database import db
 from src.services.storage.locator import local_path_from_key
 
@@ -22,15 +24,20 @@ from src.services.storage.locator import local_path_from_key
 def choose_author_pool(user_id):
     """Author pool id of the user, or None when the user is in none.
 
-    The model has no "active pool" flag, so the rule is: the member pool with the
-    alphabetically first name (pool names are unique), pool id as the final tie-break.
-    The same input always gives the same pool, independent of row or UUID order.
+    The rule: among the member pools that are routable now (active, inside valid_from /
+    valid_to; a null bound is open), the one with the alphabetically first name (pool names
+    are unique), pool id as the final tie-break. The same input always gives the same pool,
+    independent of row or UUID order.
     """
-    row = (db.session.query(ClinicAuthorPool.id)
-           .join(ClinicAuthorPoolMember, ClinicAuthorPoolMember.pool_id == ClinicAuthorPool.id)
-           .filter(ClinicAuthorPoolMember.user_id == user_id)
-           .order_by(ClinicAuthorPool.name, ClinicAuthorPool.id).first())
-    return row[0] if row else None
+    now = datetime.now(timezone.utc)
+    pools = (db.session.query(ClinicAuthorPool)
+             .join(ClinicAuthorPoolMember, ClinicAuthorPoolMember.pool_id == ClinicAuthorPool.id)
+             .filter(ClinicAuthorPoolMember.user_id == user_id)
+             .order_by(ClinicAuthorPool.name, ClinicAuthorPool.id).all())
+    for pool in pools:
+        if is_routable(pool, now):
+            return pool.id
+    return None
 
 
 class ClinicDictationProtection(db.Model):
