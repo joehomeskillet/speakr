@@ -3,6 +3,7 @@
 import copy
 import json
 import uuid
+from pathlib import Path
 
 import pytest
 from sqlalchemy import event
@@ -16,7 +17,7 @@ from src.clinic.registry import create_clinic_tables
 from src.clinic.revisions import add_asr_revision
 from src.models import Recording, User
 
-SCHEMA_PATH = "/root/work/wp-backlog/ui-v8/contracts/editor-alignment.schema.json"
+SCHEMA_PATH = Path(__file__).resolve().parents[1] / "fixtures/schemas/editor-alignment.schema.json"
 DOC = json.loads(r'''{"document_schema_version":"1.0","nodes":[{"text_node_id":"node-1","kind":"text","block_type":"paragraph","tokens":[{"token_id":"token-1","kind":"word","text":"Die","marks":[]},{"token_id":"token-2","kind":"separator","text":" ","marks":[]},{"token_id":"token-3","kind":"word","text":"Unterlagen","marks":[]},{"token_id":"token-4","kind":"separator","text":" ","marks":[]},{"token_id":"token-5","kind":"word","text":"sind","marks":[]},{"token_id":"token-6","kind":"separator","text":" ","marks":[]},{"token_id":"token-7","kind":"word","text":"bereit","marks":[]},{"token_id":"token-8","kind":"separator","text":".","marks":[]}]}]}''')
 EX_SUCCEEDED = json.loads(r'''{"schema_version":"2.0","recording_id":"4524","audio_revision_id":"AR-DEMO-3","transcript_revision_id":"TR-DEMO-5","alignment_revision_id":"ALIGN-DEMO-5","document_hash":"00500e8209beafa824c46e90ecb2e30a1b9c5fdccc85ec73f5ddf146a8f640f5","time_unit":"ms","audio_duration_ms":2500,"state":"succeeded","source":{"kind":"demo","engine":"synthetic-fixture","model_revision":"fixture-1","tokenization_version":"canonical-token-1"},"created_at":"2026-11-19T17:00:01Z","items":[{"word_id":"token-1","text_node_id":"node-1","token_index":0,"displayed_text":"Die","state":"valid","start_ms":200,"end_ms":430,"reason_code":null},{"word_id":"token-3","text_node_id":"node-1","token_index":2,"displayed_text":"Unterlagen","state":"valid","start_ms":480,"end_ms":1150,"reason_code":null},{"word_id":"token-5","text_node_id":"node-1","token_index":4,"displayed_text":"sind","state":"valid","start_ms":1200,"end_ms":1450,"reason_code":null},{"word_id":"token-7","text_node_id":"node-1","token_index":6,"displayed_text":"bereit","state":"valid","start_ms":1500,"end_ms":2010,"reason_code":null}],"quality":{"valid_words":4,"unaligned_words":0,"stale_words":0,"coverage":1,"warnings":[]}}''')
 EX_PARTIAL = json.loads(r'''{"schema_version":"2.0","recording_id":"4524","audio_revision_id":"AR-DEMO-3","transcript_revision_id":"TR-DEMO-5","alignment_revision_id":"ALIGN-DEMO-5-PARTIAL","document_hash":"00500e8209beafa824c46e90ecb2e30a1b9c5fdccc85ec73f5ddf146a8f640f5","time_unit":"ms","audio_duration_ms":2500,"state":"partial","source":{"kind":"demo","engine":"synthetic-fixture","model_revision":"fixture-1","tokenization_version":"canonical-token-1"},"created_at":"2026-11-19T17:00:01Z","items":[{"word_id":"token-1","text_node_id":"node-1","token_index":0,"displayed_text":"Die","state":"valid","start_ms":200,"end_ms":430,"reason_code":null},{"word_id":"token-3","text_node_id":"node-1","token_index":2,"displayed_text":"Unterlagen","state":"valid","start_ms":480,"end_ms":1150,"reason_code":null},{"word_id":"token-5","text_node_id":"node-1","token_index":4,"displayed_text":"sind","state":"valid","start_ms":1200,"end_ms":1450,"reason_code":null},{"word_id":"token-7","text_node_id":"node-1","token_index":6,"displayed_text":"bereit","state":"unaligned","start_ms":null,"end_ms":null,"reason_code":"NO_VERIFIED_TIMING"}],"quality":{"valid_words":3,"unaligned_words":1,"stale_words":0,"coverage":0.75,"warnings":["PARTIAL_ALIGNMENT"]}}''')
@@ -297,7 +298,7 @@ def test_demo_source_is_rejected(clinic_db):
 
 
 def test_enums_and_keys_come_from_the_schema(clinic_db):
-    schema = json.load(open(SCHEMA_PATH))["$defs"]
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))["$defs"]
     assert set(al.STATES) == set(schema["AlignmentRevision"]["properties"]["state"]["enum"])
     assert set(al.SOURCE_KINDS) == set(schema["AlignmentSource"]["properties"]["kind"]["enum"]) - {"demo"}
     assert set(al.OPERATION_STATES) == set(schema["JobOperation"]["properties"]["state"]["enum"])

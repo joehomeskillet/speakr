@@ -1,0 +1,875 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:speakr:suedhang:editor-alignment:2.0",
+  "title": "Speakr Südhang – kanonische Editor-/Alignmentverträge 2.0",
+  "description": "V8-Sollvertrag, nicht vorhandene API oder Produktionsnachweis. IDs binden stabile Knoten und Token; absolute Zeichenpositionen sind keine kanonischen Anker. Dokumentmodell hier ist ein verlustfrei abzugleichender Transportentwurf, keine Ersetzung vorhandener Richtextfunktionen.",
+  "$ref": "#/$defs/AlignmentRevision",
+  "$defs": {
+    "Id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^\\S+$"
+    },
+    "Hash": {
+      "description": "SHA-256 über canonical_document gemäss deterministischer JSON-/UTF-8-Referenzfunktion content_hash in validate_contracts.py; siehe README.md. Kein Authentizitäts- oder Rechtenachweis.",
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "StrongETag": {
+      "type": "string",
+      "pattern": "^\"[A-Za-z0-9._:-]+\"$"
+    },
+    "Token": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "token_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "kind": {
+          "enum": [
+            "word",
+            "separator"
+          ]
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "marks": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "bold",
+              "italic",
+              "underline",
+              "superscript",
+              "subscript"
+            ]
+          }
+        }
+      },
+      "required": [
+        "token_id",
+        "kind",
+        "text",
+        "marks"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "word"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "text": {
+                "pattern": "^\\S+$"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "ObjectReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "node_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "kind": {
+          "const": "object_reference"
+        },
+        "object_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "object_revision_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "alt_text": {
+          "type": "string"
+        },
+        "object_type": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "node_id",
+        "kind",
+        "object_id",
+        "object_revision_id",
+        "alt_text",
+        "object_type"
+      ]
+    },
+    "TextNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "text_node_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "kind": {
+          "const": "text"
+        },
+        "block_type": {
+          "enum": [
+            "paragraph",
+            "heading",
+            "list_item"
+          ]
+        },
+        "tokens": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Token"
+          }
+        }
+      },
+      "required": [
+        "text_node_id",
+        "kind",
+        "block_type",
+        "tokens"
+      ]
+    },
+    "CanonicalDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "document_schema_version": {
+          "const": "1.0"
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/TextNode"
+              },
+              {
+                "$ref": "#/$defs/ObjectReference"
+              }
+            ]
+          }
+        }
+      },
+      "required": [
+        "document_schema_version",
+        "nodes"
+      ]
+    },
+    "Lease": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "lease_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "holder_user_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "tab_instance_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "heartbeat_after_ms": {
+          "type": "integer",
+          "minimum": 1000
+        },
+        "state": {
+          "enum": [
+            "active",
+            "expired",
+            "released",
+            "revoked"
+          ]
+        }
+      },
+      "required": [
+        "lease_id",
+        "generation",
+        "holder_user_id",
+        "tab_instance_id",
+        "expires_at",
+        "heartbeat_after_ms",
+        "state"
+      ]
+    },
+    "SaveCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "2.0"
+        },
+        "client_edit_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "base_transcript_revision_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "audio_revision_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "lease_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "lease_generation": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "canonical_document": {
+          "$ref": "#/$defs/CanonicalDocument"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/Hash"
+        }
+      },
+      "required": [
+        "schema_version",
+        "client_edit_id",
+        "base_transcript_revision_id",
+        "audio_revision_id",
+        "lease_id",
+        "lease_generation",
+        "canonical_document",
+        "content_hash"
+      ]
+    },
+    "TranscriptRevision": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "2.0"
+        },
+        "recording_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "transcript_revision_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "parent_revision_id": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "revision_no": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "canonical_document": {
+          "$ref": "#/$defs/CanonicalDocument"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/Hash"
+        },
+        "created_by_user_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "schema_version",
+        "recording_id",
+        "transcript_revision_id",
+        "parent_revision_id",
+        "revision_no",
+        "canonical_document",
+        "content_hash",
+        "created_by_user_id",
+        "created_at"
+      ]
+    },
+    "AlignmentSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "asr",
+            "forced_alignment",
+            "manual_verified",
+            "demo"
+          ]
+        },
+        "engine": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model_revision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tokenization_version": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "kind",
+        "engine",
+        "model_revision",
+        "tokenization_version"
+      ]
+    },
+    "Quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "valid_words": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unaligned_words": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stale_words": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "coverage": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "warnings": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]*$"
+          }
+        }
+      },
+      "required": [
+        "valid_words",
+        "unaligned_words",
+        "stale_words",
+        "coverage",
+        "warnings"
+      ]
+    },
+    "AlignmentItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "word_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "text_node_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "token_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "displayed_text": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S+$"
+        },
+        "state": {
+          "enum": [
+            "valid",
+            "unaligned",
+            "stale"
+          ]
+        },
+        "start_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "end_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "reason_code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "word_id",
+        "text_node_id",
+        "token_index",
+        "displayed_text",
+        "state",
+        "start_ms",
+        "end_ms",
+        "reason_code"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "valid"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "start_ms": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "end_ms": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "reason_code": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "start_ms": {
+                "type": "null"
+              },
+              "end_ms": {
+                "type": "null"
+              },
+              "reason_code": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[A-Z][A-Z0-9_]*$"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "AlignmentRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "2.0"
+        },
+        "audio_revision_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "transcript_revision_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "document_hash": {
+          "$ref": "#/$defs/Hash"
+        }
+      },
+      "required": [
+        "schema_version",
+        "audio_revision_id",
+        "transcript_revision_id",
+        "document_hash"
+      ]
+    },
+    "ApiProblem": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "message": {
+          "type": "string"
+        },
+        "request_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "current_transcript_revision_id": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "current_etag": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/StrongETag"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "request_id",
+        "current_transcript_revision_id",
+        "current_etag",
+        "retryable"
+      ]
+    },
+    "LeaseAcquire": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tab_instance_id": {
+          "$ref": "#/$defs/Id"
+        }
+      },
+      "required": [
+        "tab_instance_id"
+      ]
+    },
+    "LeaseCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "lease_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "lease_id",
+        "generation"
+      ]
+    },
+    "AlignmentRevision": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "2.0"
+        },
+        "recording_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "audio_revision_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "transcript_revision_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "alignment_revision_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "document_hash": {
+          "$ref": "#/$defs/Hash"
+        },
+        "time_unit": {
+          "const": "ms"
+        },
+        "audio_duration_ms": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "state": {
+          "enum": [
+            "pending",
+            "succeeded",
+            "partial",
+            "failed",
+            "stale"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/AlignmentSource"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AlignmentItem"
+          }
+        },
+        "quality": {
+          "$ref": "#/$defs/Quality"
+        }
+      },
+      "required": [
+        "schema_version",
+        "recording_id",
+        "audio_revision_id",
+        "transcript_revision_id",
+        "alignment_revision_id",
+        "document_hash",
+        "time_unit",
+        "audio_duration_ms",
+        "state",
+        "source",
+        "created_at",
+        "items",
+        "quality"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "enum": [
+                  "pending",
+                  "failed"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "items": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "succeeded"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "items": {
+                "minItems": 1,
+                "items": {
+                  "properties": {
+                    "state": {
+                      "const": "valid"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "JobOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "operation_type": {
+          "enum": [
+            "transcript_save",
+            "alignment"
+          ]
+        },
+        "recording_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "state": {
+          "enum": [
+            "pending",
+            "succeeded",
+            "failed",
+            "superseded"
+          ]
+        },
+        "job_id": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "result_transcript_revision_id": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "result_alignment_revision_id": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "request_fingerprint": {
+          "$ref": "#/$defs/Hash"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "operation_id",
+        "operation_type",
+        "recording_id",
+        "state",
+        "job_id",
+        "result_transcript_revision_id",
+        "result_alignment_revision_id",
+        "request_fingerprint",
+        "created_at"
+      ]
+    },
+    "SaveResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "2.0"
+        },
+        "client_edit_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "operation_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "revision": {
+          "$ref": "#/$defs/TranscriptRevision"
+        },
+        "etag": {
+          "$ref": "#/$defs/StrongETag"
+        },
+        "alignment_state": {
+          "enum": [
+            "pending",
+            "stale",
+            "unaligned"
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "client_edit_id",
+        "operation_id",
+        "revision",
+        "etag",
+        "alignment_state"
+      ]
+    },
+    "EditorSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "2.0"
+        },
+        "recording_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "audio_revision_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "audio_duration_ms": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "transcript": {
+          "$ref": "#/$defs/TranscriptRevision"
+        },
+        "etag": {
+          "$ref": "#/$defs/StrongETag",
+          "description": "Starker Validator der zugehörigen Transkriptressource; kein HTTP-ETag der zusammengesetzten Editorantwort."
+        },
+        "lease": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Lease"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "alignment": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/AlignmentRevision"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "can_edit": {
+          "type": "boolean"
+        },
+        "autosave_enabled": {
+          "type": "boolean"
+        },
+        "autosave_debounce_ms": {
+          "type": "integer",
+          "minimum": 250
+        },
+        "browser_persistence_allowed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schema_version",
+        "recording_id",
+        "audio_revision_id",
+        "audio_duration_ms",
+        "transcript",
+        "etag",
+        "lease",
+        "alignment",
+        "can_edit",
+        "autosave_enabled",
+        "autosave_debounce_ms",
+        "browser_persistence_allowed"
+      ]
+    }
+  }
+}

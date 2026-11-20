@@ -6,7 +6,7 @@ The real application is used with its clinic guard enabled. Synthetic rows only.
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 
 import pytest
 from sqlalchemy import func
@@ -107,15 +107,19 @@ def test_every_declared_filter_and_empty_result():
     with app.app_context():
         admin, author, typist = _user('admin', is_admin=True), _user('author'), _user('typist')
         rec_id = _recording(author, 'Gallenblase links')
+        recording = db.session.get(Recording, rec_id)
+        # UTC timestamps on opposite sides of local midnight in Zurich.
+        recording.created_at = datetime(2030, 1, 1, 22, 30)
+        recording.updated_at = datetime(2030, 1, 1, 23, 30)
         db.session.add(ClinicWorkflowDictation(
             id=str(uuid.uuid4()), author_user_id=author, assignee_user_id=typist, pool_id='pool-w308',
             status=TO_WRITE, priority=128, deadline_date=date(2030, 1, 2), deadline_at=resolve_deadline(date(2030, 1, 2), None)))
         db.session.commit()
     client = login(admin)
-    today = date.today().isoformat()
     cases = {
         'name=Gallenblase': {rec_id}, 'author_user_id=%d' % author: {rec_id},
-        'created_on=' + today: {rec_id}, 'updated_on=' + today: {rec_id},
+        'created_on=2030-01-01': {rec_id}, 'updated_on=2030-01-02': {rec_id},
+        'created_on=2030-01-02': set(), 'updated_on=2030-01-01': set(),
     }
     for query, expected in cases.items():
         got = client.get(f'{LIST}?{query}&author_user_id={author}').get_json()
