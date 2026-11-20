@@ -137,12 +137,16 @@ def clinic_notify_handler(can_see):
         if not transition_id:
             raise ClinicJobRefused(f"[{correlation_id}] notify job has no transition_id")
         try:
+            acceptor_ids = params.get('acceptor_ids') or ()
+            if params['event'] == 'acceptance_requested' and _notify_transition_id(params):
+                from src.clinic.notify_enqueue import acceptors
+                acceptor_ids = set(acceptor_ids).intersection(acceptors(params['dictation_id']))
             result = workflow_notifications.emit(
                 params['event'], params['dictation_id'],
                 transition_id=transition_id,
                 actor_user_id=params['actor_user_id'],
                 expected_version=params['expected_version'],
-                acceptor_ids=params.get('acceptor_ids') or (),
+                acceptor_ids=acceptor_ids,
                 can_see=can_see, context=params.get('context'))
         except workflow.WorkflowError as error:
             raise ClinicJobRefused(f"[{correlation_id}] {error}") from error
@@ -157,6 +161,14 @@ def clinic_operation_key(params):
         for name in CLINIC_OPERATION_PARAMS:
             if params.get(name):
                 return name, params[name]
+    return None
+
+
+def _notify_transition_id(params):
+    """New workflow notices use their durable transition ID as the operation key."""
+    transition_id = params.get('transition_id')
+    if transition_id and clinic_operation_key(params) == ('clinic_operation_key', transition_id):
+        return transition_id
     return None
 
 
@@ -1118,11 +1130,17 @@ class FairJobQueue:
 
             with self._enqueue_lock:
                 operation = clinic_operation_key(params) if clinic_mode_enabled() else None
+                transition_id = _notify_transition_id(params) if job_type == 'clinic_notify' and operation else None
+                jobs = ProcessingJob.query.filter_by(recording_id=recording_id, job_type=job_type)
+                if transition_id:
+                    existing = jobs.filter_by(notify_transition_id=transition_id).first()
+                    if existing:
+                        return existing.id
                 if operation:
                     # One job per operation key and type, even after the first
                     # one ended (a retry must not schedule the work again).
-                    for row in ProcessingJob.query.filter_by(
-                            recording_id=recording_id, job_type=job_type).order_by(ProcessingJob.id):
+                    older_jobs = jobs.filter_by(notify_transition_id=None) if transition_id else jobs
+                    for row in older_jobs.order_by(ProcessingJob.id):
                         try:
                             stored = json.loads(row.params) if row.params else {}
                         except ValueError:
@@ -1132,11 +1150,9 @@ class FairJobQueue:
 
                 # Check for existing active job of the SAME TYPE for this recording
                 # Allow different job types to coexist (e.g., transcribe and summarize)
-                existing = ProcessingJob.query.filter(
-                    ProcessingJob.recording_id == recording_id,
-                    ProcessingJob.job_type == job_type,
-                    ProcessingJob.status.in_(['queued', 'processing'])
-                ).first()
+                active = jobs.filter_by(notify_transition_id=None).filter(
+                    ProcessingJob.status.in_(['queued', 'processing']))
+                existing = None if transition_id else active.first()
 
                 if existing and operation:
                     # An active job of another operation is not this one's job.
@@ -1151,6 +1167,7 @@ class FairJobQueue:
                     user_id=user_id,
                     recording_id=recording_id,
                     job_type=job_type,
+                    notify_transition_id=transition_id,
                     params=json.dumps(params) if params else None,
                     is_new_upload=is_new_upload,
                     restore_state=json.dumps(restore_state) if restore_state else None
@@ -1177,11 +1194,12 @@ class FairJobQueue:
                     # winner so callers still see one job id per recording and
                     # type.
                     db.session.rollback()
-                    existing = ProcessingJob.query.filter(
-                        ProcessingJob.recording_id == recording_id,
-                        ProcessingJob.job_type == job_type,
-                        ProcessingJob.status.in_(['queued', 'processing'])
-                    ).first()
+                    if transition_id:
+                        winner = jobs.filter_by(notify_transition_id=transition_id).first()
+                        if winner:
+                            return winner.id
+                        raise
+                    existing = active.first()
                     if existing and operation:
                         try:
                             won = clinic_operation_key(json.loads(existing.params or '{}'))

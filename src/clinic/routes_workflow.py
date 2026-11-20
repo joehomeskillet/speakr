@@ -49,6 +49,7 @@ from src.clinic import revisions, workflow, workflow_actions, workflow_finalize,
 from src.clinic.acceptance_policy import SCOPE_DICTATION, AcceptanceLedger, AcceptancePolicyVersion, PolicyError
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.metadata_changes import ChangeError
+from src.clinic.notify_enqueue import record_notice
 from src.clinic.models import (
     ClinicAudioRevision, ClinicContextRevision, ClinicDictation, ClinicRelease, ClinicReviewLease,
 )
@@ -257,7 +258,13 @@ def register_commands(
                         now=decided.at)
                 except (PolicyError, acceptance_rules.AcceptanceError) as error:
                     raise CommandProblem('POLICY_DENIED') from error
-            return _result(envelope['request_id'], done.version + 1)
+            result = _result(envelope['request_id'], done.version + 1)
+            event = {'submit': 'acceptance_requested', 'reject': 'acceptance_rejected',
+                     'accept': 'accepted'}.get(action)
+            if event:
+                record_notice(event, db.session.get(ClinicDictation, target), actor,
+                              done.version, result['command_id'])
+            return result
 
         dispatch.register(command, authorize=gate, revision=revision, execute=execute)
 
@@ -359,6 +366,8 @@ def create_blueprint(
         except CommandProblem as error:
             if str(error) == 'IDEMPOTENCY_CONFLICT':
                 return _problem(409, 'IDEMPOTENCY_CONFLICT')
+            if str(error) == 'DEPENDENCY_UNAVAILABLE':
+                return _problem(503, 'DEPENDENCY_UNAVAILABLE')
             raise
         except (workflow.WorkflowError, ChangeError, archive_policy.ArchivePolicyError) as error:
             code = getattr(error, 'code', None) or str(error)
@@ -442,6 +451,7 @@ def create_blueprint(
                     row, body['original_version_id'], body['context_revision_id'])
                 if acceptance_decision else None)
             stored = db.session.get(ClinicRelease, done.release_id)
+            record_notice('completed', row, current_user.id, done.version, stored.id)
             return {'release_id': stored.id, 'dictation_id': row.id,
                     'original_version_id': stored.audio_revision_id,
                     'transcript_revision_id': stored.transcript_revision_id,

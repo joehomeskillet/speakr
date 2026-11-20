@@ -54,6 +54,14 @@ def scope_key(scope) -> str:
 
 
 def run_once(scope, digest, operation):
+    if scope[1] in {"request_acceptance", "decide_acceptance", "save:text", "release"}:
+        from src.clinic.notify_enqueue import run_once_with_notice
+
+        return run_once_with_notice(_commit_once, scope, digest, operation)
+    return _commit_once(scope, digest, operation)
+
+
+def _commit_once(scope, digest, operation):
     key = scope_key(scope)
     existing = db.session.get(ClinicParityReceipt, key)
     if existing is not None:
