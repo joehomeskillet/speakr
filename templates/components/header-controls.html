@@ -8,8 +8,8 @@
     "Verwaltung & Seiten", the accent button "Neue Aufnahme", the connection indicator and the avatar with the
     account menu. The wrapper carries the root class so the controls are styled on every page that includes
     this template; display: contents keeps it out of the layout. -#}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/clinic-v8.css', v=app_version) }}">
-<div class="v8-ui" style="display: contents">
+{%- if not v8_css_linked %}<link rel="stylesheet" href="{{ url_for('static', filename='css/clinic-v8.css', v=app_version) }}">{% endif %}
+<div class="v8-ui v8-chrome" style="display: contents">
     {% include 'components/token_budget_indicator.html' %}
 
     <!-- "Verwaltung & Seiten": the pages of the menu that exist in the app. The Verwaltung pages are the tabs of /admin. -->

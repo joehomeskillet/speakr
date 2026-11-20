@@ -67,7 +67,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tokens.css', v=app_version) }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css', v=app_version) }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/primitives.css', v=app_version) }}">
-    {% if clinic_mode %}<link rel="stylesheet" href="{{ url_for('static', filename='css/clinic-v8.css', v=app_version) }}">{% endif %}
+    {% if clinic_mode %}{% set v8_css_linked = true %}<link rel="stylesheet" href="{{ url_for('static', filename='css/clinic-v8.css', v=app_version) }}">{% endif %}
     <link rel="stylesheet" href="{{ url_for('static', filename='css/clinic-lists.css', v=app_version) }}">
     <!-- The phone layout of the recording page and the recording list (below 768px) -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/phone.css', v=app_version) }}">
@@ -127,7 +127,7 @@
             (menu "Verwaltung & Seiten", Neue Aufnahme, connection indicator, avatar with the account menu). -#}
         {#- The wrapper keeps the header out of the UI themes' "#app > header" rules: the V8 topbar does not follow a theme. -#}
         <div style="display: contents">
-        <header class="topbar" data-testid="clinic-header">
+        <header class="topbar v8-chrome" data-testid="clinic-header">
             <a class="brand-link" href="/#/aufnahmen" aria-label="Speakr – Aufnahmen"><span class="logo" aria-hidden="true"></span><span class="brand">Speakr</span></a>
             <!-- Primary tabs (CLINIC_MODE only): Aufnahmen and Arbeitsliste; Ressourcen and the other pages are in the menus. The view is kept in the URL hash (#/aufnahmen, #/arbeitsliste, #/ressourcen, #/diktat). No patient data is shown. -->
             <nav v-if="clinicWorklistEnabled" class="topnav" aria-label="Klinik" data-testid="clinic-primary-nav">

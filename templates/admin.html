@@ -21,7 +21,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tokens.css', v=app_version) }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css', v=app_version) }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/primitives.css', v=app_version) }}">
-    {% if clinic_mode %}<link rel="stylesheet" href="{{ url_for('static', filename='css/clinic-v8.css', v=app_version) }}">{% endif %}
+    {% if clinic_mode %}{% set v8_css_linked = true %}<link rel="stylesheet" href="{{ url_for('static', filename='css/clinic-v8.css', v=app_version) }}">{% endif %}
     {% include 'includes/i18n_bootstrap.html' %}
     <script src="{{ url_for('static', filename='js/i18n.js', v=app_version) }}"></script>
     <!-- Service worker registration, and what is removed from the browser at sign-out -->

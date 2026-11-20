@@ -56,11 +56,11 @@ def _render_admin(tmp_path: Path, clinic: bool) -> str:
 
 def test_clinic_pages_link_the_stylesheet_and_set_the_root_class(tmp_path):
     index = _render(tmp_path, True)
-    assert "css/clinic-v8.css" in index
+    assert index.count("css/clinic-v8.css") == 1  # the header controls do not link it a second time
     assert re.search(r'id="app"[^>]*class="[^"]*\bv8-ui\b', index, re.S)
-    assert 'class="topbar"' in index and 'data-testid="clinic-primary-nav"' in index
+    assert 'class="topbar v8-chrome"' in index and 'data-testid="clinic-primary-nav"' in index
     admin = _render_admin(tmp_path, True)
-    assert "css/clinic-v8.css" in admin
+    assert admin.count("css/clinic-v8.css") == 1
     assert re.search(r'<body class="[^"]*\bv8-ui\b', admin)
 
 
@@ -96,7 +96,8 @@ def test_every_rule_is_scoped_under_the_root_class():
             else:
                 for sel in re.split(r",(?![^(]*\))", head):
                     sel = sel.strip()
-                    if not (sel.startswith(".v8-ui") or sel.startswith(":where(.v8-ui)") or sel.startswith(".dark .v8-ui")
+                    if not (sel.startswith(".v8-ui") or sel.startswith(":where(.v8-ui)") or sel.startswith(":where(.v8-page,.v8-chrome)")
+                            or sel.startswith(".v8-page") or sel.startswith(".v8-chrome") or sel.startswith(".dark .v8-ui")
                             or sel.startswith('[data-theme="dark"] .v8-ui')):
                         unscoped.append(sel)
             pos = end
