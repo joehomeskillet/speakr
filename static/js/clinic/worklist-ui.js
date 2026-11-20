@@ -386,8 +386,8 @@ export const ClinicWorklist = Object.freeze({
     <table v-else class="clinic-worklist-table" role="grid" aria-label="Arbeitsliste">
         <thead>
             <tr>
-                <th scope="col">Titel</th><th scope="col">Status</th><th scope="col">Autor</th>
-                <th scope="col">Priorität</th><th scope="col">Frist</th><th scope="col">Bearbeiter</th>
+                <th scope="col">Titel</th><th scope="col">Status</th><th scope="col">Diktiert von</th>
+                <th scope="col">Priorität</th><th scope="col">Frist</th><th scope="col">Zugewiesen an</th>
                 <th scope="col">Erstellt</th><th scope="col">Dauer</th>
             </tr>
         </thead>

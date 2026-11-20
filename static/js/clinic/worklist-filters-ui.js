@@ -22,7 +22,9 @@ export const MAX_FILTERS = 20;
 export const MAX_NAME_LENGTH = 60;
 export const MAX_CONDITIONS = 20;
 export const MAX_QUERY_LENGTH = 200;
-export const FIELDS = ['status', 'priority', 'author', 'pool', 'title', 'created', 'deadline', 'assignee', 'audio_seconds'];
+// V8 P02: staff_pool and lease_holder filter by ID; author is "Diktiert von". The server-side
+// field list (src/clinic/saved_filters.py) must accept staff_pool and lease_holder before use.
+export const FIELDS = ['status', 'priority', 'author', 'staff_pool', 'lease_holder', 'pool', 'title', 'created', 'deadline', 'assignee', 'audio_seconds'];
 export const OPERATORS = ['eq', 'ne', 'contains', 'startswith', 'lt', 'le', 'gt', 'ge', 'in', 'is_null'];
 
 const META_KEY = /^[a-z0-9_]{1,40}$/;
@@ -51,8 +53,9 @@ export const LABELS = Object.freeze({
         in: 'ist eines von', is_null: 'ist leer',
     },
     fields: {
-        status: 'Status', priority: 'Priorität', author: 'Autor', pool: 'Pool', title: 'Titel',
-        created: 'Erstellt', deadline: 'Frist', assignee: 'Zuständig', audio_seconds: 'Audiodauer',
+        status: 'Status', priority: 'Priorität', author: 'Diktiert von (ID)', staff_pool: 'Schreibkräfte-Pool (ID)',
+        lease_holder: 'Übernommen von (ID)', pool: 'Autorenpool', title: 'Titel',
+        created: 'Erstellt', deadline: 'Frist', assignee: 'Zugewiesen an', audio_seconds: 'Audiodauer',
     },
     errors: {
         name_required: 'Bitte einen Namen eingeben.',
