@@ -312,26 +312,35 @@ export const VOCABULARY_TEMPLATE = `
   <p v-else-if="state.status === 'ready'" class="empty" role="status">
     <slot name="empty" :scope="state.scope" :query="state.query">{{ label('clinic.vocabulary.empty') }} für diese Auswahl. Suche oder Status anpassen.</slot>
   </p>
-  <div class="actions">
-    <button type="button" class="small" @click="store.reload()">{{ label('clinic.vocabulary.reload') }}</button>
-    <button type="button" class="small" v-if="state.failedWrite" @click="store.retry()">{{ label('clinic.vocabulary.retry') }}</button>
-    <button type="button" class="small" @click="addSelected()">{{ label('clinic.vocabulary.addSelection') }}</button>
-  </div>
-  <form @submit.prevent="doImport()">
-    <div class="field" style="border:0;padding:0;box-shadow:none;background:none">
-      <label for="voc-import">{{ label('clinic.vocabulary.importLabel') }}</label>
-      <textarea id="voc-import" rows="4" v-model="importDraft"></textarea>
+  <section class="voc-editor" aria-labelledby="voc-editor-title">
+    <header class="voc-editor-head">
+      <h3 id="voc-editor-title">Wortliste bearbeiten</h3>
+      <div class="actions">
+        <button type="button" class="small" @click="store.reload()">{{ label('clinic.vocabulary.reload') }}</button>
+        <button type="button" class="small" v-if="state.failedWrite" @click="store.retry()">{{ label('clinic.vocabulary.retry') }}</button>
+        <button type="button" class="small" @click="addSelected()">{{ label('clinic.vocabulary.addSelection') }}</button>
+      </div>
+    </header>
+    <div class="voc-editor-body">
+      <form @submit.prevent="doImport()">
+        <label for="voc-import">{{ label('clinic.vocabulary.importLabel') }}</label>
+        <textarea id="voc-import" rows="4" aria-describedby="voc-import-format" v-model="importDraft"></textarea>
+        <small id="voc-import-format">Ein Eintrag pro Zeile.</small>
+        <button type="submit" class="primary">{{ label('clinic.vocabulary.import') }}</button>
+      </form>
+      <div class="voc-editor-export">
+        <h4>Export</h4>
+        <div class="actions">
+          <button type="button" class="small" @click="store.exportList(false)">{{ label('clinic.vocabulary.export') }}</button>
+          <button type="button" class="small" @click="store.exportList(true)">{{ label('clinic.vocabulary.exportEffective') }}</button>
+        </div>
+        <template v-if="state.exportText">
+          <label for="voc-export">{{ label('clinic.vocabulary.exported') }}</label>
+          <textarea id="voc-export" rows="4" readonly :value="state.exportText"></textarea>
+        </template>
+      </div>
     </div>
-    <button type="submit" class="small">{{ label('clinic.vocabulary.import') }}</button>
-  </form>
-  <div class="actions">
-    <button type="button" class="small" @click="store.exportList(false)">{{ label('clinic.vocabulary.export') }}</button>
-    <button type="button" class="small" @click="store.exportList(true)">{{ label('clinic.vocabulary.exportEffective') }}</button>
-  </div>
-  <div v-if="state.exportText" class="field" style="border:0;padding:0;box-shadow:none;background:none">
-    <label for="voc-export">{{ label('clinic.vocabulary.exported') }}</label>
-    <textarea id="voc-export" rows="4" readonly :value="state.exportText"></textarea>
-  </div>
+  </section>
   <p class="note">Eine aktive Wortliste ist keine garantierte Enginewirkung. Fehlende Fähigkeiten müssen gesondert nachgewiesen werden.</p>
 </section>`;
 
