@@ -16,4 +16,4 @@ def clinic_asset_version(release: str, static_folder: str) -> str:
                 digest.update(path.relative_to(root).as_posix().encode() + b"\0")
                 with path.open("rb") as asset:
                     digest.update(file_digest(asset, "sha256").digest())
-    return f"{release}-{digest.hexdigest()[:20]}"
+    return f"{release}-clinic-{digest.hexdigest()[:20]}"
