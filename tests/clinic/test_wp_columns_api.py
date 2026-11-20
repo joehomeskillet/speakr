@@ -633,9 +633,9 @@ def test_http_put_layout_precondition_required_428(http_app):
 @pytest.mark.parametrize(
     ("hdr_if_match", "hdr_idempotency"),
     [
-        ("0", str(uuid4())),  # unquoted If-Match
-        ('"-1"', str(uuid4())),  # negative version
-        ('"abc"', str(uuid4())),  # non-numeric version
+        ("0", "11111111-1111-4111-8111-111111111111"),  # unquoted If-Match
+        ('"-1"', "22222222-2222-4222-8222-222222222222"),  # negative version
+        ('"abc"', "33333333-3333-4333-8333-333333333333"),  # non-numeric version
         ('"0"', "not-a-uuid"),  # invalid idempotency key
         ('"0"', ""),  # empty idempotency key
     ],

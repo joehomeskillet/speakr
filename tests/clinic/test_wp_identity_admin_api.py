@@ -61,7 +61,7 @@ def test_pending_edit_duplicate_and_explicit_role_checks(admin_client):
         assert user.name == 'Neuer Name' and user.password is None
         event = AuditEvent.query.filter_by(event='admin.user.changed', target_user_id=user.id).one()
         assert event.actor_user_id == actor and event.details == {'fields': ['name']}
-    listing = client.get('/admin/users').json['users']
+    listing = client.get('/admin/users?search=pending_user&per_page=1000').json['users']
     assert next(user for user in listing if user['id'] == row['id'])['version'] == updated.json['version']
     disabled = command(client, 'PUT', target, expected_version=updated.json['version'], status='disabled')
     assert disabled.json['status'] == 'disabled'
