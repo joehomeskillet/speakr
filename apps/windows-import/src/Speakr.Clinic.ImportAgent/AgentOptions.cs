@@ -42,9 +42,18 @@ public sealed class AgentOptions
     // Server base URL must be absolute https: no cleartext transfer of dictation originals.
     public Uri RequireHttpsServer()
     {
-        if (!Uri.TryCreate(ServerBaseUrl, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
-            throw new InvalidOperationException("ServerBaseUrl must be an absolute https URL.");
-        return uri;
+        return ParseServerAddress(ServerBaseUrl);
+    }
+
+    public static Uri ParseServerAddress(string? value)
+    {
+        var address = value?.Trim() ?? "";
+        if (!Uri.TryCreate(address, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps
+            || !uri.IsWellFormedOriginalString() || uri.Host.Length == 0 || uri.UserInfo.Length != 0
+            || address.Contains('?') || address.Contains('#') || address.Split('/')[2].Contains('@'))
+            throw new InvalidOperationException("Die HTTPS-Serveradresse darf keine Zugangsdaten, Suchparameter oder Fragmentkennung enthalten.");
+        // The import API uses relative routes. A configured path is a directory prefix.
+        return uri.AbsolutePath.EndsWith('/') ? uri : new Uri(uri.AbsoluteUri + "/");
     }
 
     public bool SimulatorMode => string.Equals(Mode, "simulator", StringComparison.Ordinal);
