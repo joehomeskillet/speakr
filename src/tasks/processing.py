@@ -1572,6 +1572,16 @@ _TRANSCRIPT_STATE_FIELDS = (
 )
 
 
+def _link_asr_segments_at_ingest(dictation, asr_text, stored, model_ref):
+    """CLINIC_MODE: store the ASR revision and its timed segment links; never fails the ASR run."""
+    from src.clinic.correction import ingest_asr_result
+    try:
+        with db.session.begin_nested():
+            ingest_asr_result(dictation, asr_text, stored, model_ref)
+    except Exception as link_err:
+        current_app.logger.warning(f"ASR segment links of dictation {dictation.id} not stored: {link_err}")
+
+
 def _handle_late_asr(recording, prior, model_ref):
     """CLINIC_MODE: an ASR result that arrives after a human revision is a side revision.
 
@@ -1580,19 +1590,21 @@ def _handle_late_asr(recording, prior, model_ref):
     Without a human head nothing changes.
     """
     from src.clinic.models import ClinicDictation, ClinicOriginal
-    from src.clinic.revisions import KIND_HUMAN, add_asr_revision, current_revision
+    from src.clinic.revisions import KIND_HUMAN, current_revision
     dictation = ClinicDictation.query.filter_by(recording_id=recording.id).first()
     if dictation is None:
         return
     head = current_revision(dictation)
+    asr_text = _plain_transcript_text(recording.transcription)
+    stored = recording.transcription
     if head is None or head.kind != KIND_HUMAN:
+        _link_asr_segments_at_ingest(dictation, asr_text, stored, model_ref)
         return
     original = db.session.get(ClinicOriginal, head.original_version_id)
-    asr_text = _plain_transcript_text(recording.transcription)
     for field, value in prior.items():
         setattr(recording, field, value)
     if original is not None and asr_text.strip():
-        add_asr_revision(dictation, original, asr_text, model_ref)
+        _link_asr_segments_at_ingest(dictation, asr_text, stored, model_ref)
         current_app.logger.info(f"Late ASR result of recording {recording.id} kept as a side revision")
 
 
