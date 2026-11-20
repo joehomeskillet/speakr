@@ -220,10 +220,38 @@ def test_recorder_view_hides_the_empty_shell_container(live_server, width, heigh
             browser.close()
 
 
+@pytest.mark.parametrize("width,height", VIEWPORTS)
+def test_no_upstream_placeholder_and_shell_fills_main(live_server, width, height):
+    from playwright.sync_api import sync_playwright
+
+    base, dictation = live_server
+    with sync_playwright() as p:
+        browser = _launch(p)
+        try:
+            page = _login(browser, base, width, height)
+            _stub_recordings_api(page, dictation)
+            page.goto(base + "/")
+            page.locator("[data-testid=clinic-recordings-view]").wait_for(state="visible", timeout=30000)
+            for tab, view in (("nav-recordings", "clinic-recordings-view"), ("nav-clinic-worklist", "clinic-worklist-view")):
+                page.locator(f"[data-testid={tab}]").click()
+                page.locator(f"[data-testid={view}]").wait_for(state="visible", timeout=30000)
+                # The upstream empty-state placeholder is not in the DOM at all.
+                assert page.locator("main.main-content .min-h-\\[60vh\\]").count() == 0  # the empty-state container
+                assert "Aufnehmen oder hochladen" not in page.locator("main.main-content").inner_text()
+                main_h = page.locator("main.main-content").evaluate("el => el.getBoundingClientRect().height")
+                nav_h = page.locator("[data-testid=clinic-primary-nav]").evaluate("el => el.getBoundingClientRect().height")
+                shell_h = page.locator("[data-clinic-shell-view]").evaluate("el => el.getBoundingClientRect().height")
+                assert shell_h >= main_h - nav_h - 2, (shell_h, main_h, nav_h)
+            assert not page.js_errors, page.js_errors
+        finally:
+            browser.close()
+
+
 def test_clinic_page_has_no_sidebar_markup(tmp_path):
     out = _render(tmp_path, True)
     assert 'data-clinic-mode="True"' in out
     assert "<aside" not in out
+    assert "emptyState.readyToCapture" not in out  # upstream empty-state placeholder (detail view) is not rendered
     assert 'class="sidebar-list' not in out and "sidebar-content-wrapper" not in out
     assert "isMobile ? 'ph-list'" not in out
     assert "<clinic-recordings-view" in out and "<clinic-worklist-view" in out
@@ -235,6 +263,6 @@ def test_clinic_page_has_no_sidebar_markup(tmp_path):
 def test_upstream_page_still_renders_the_sidebar(tmp_path):
     out = _render(tmp_path, False)
     assert 'data-clinic-mode="False"' in out
-    assert "<aside" in out and "sidebar-content-wrapper" in out and "isMobile ? 'ph-list'" in out
+    assert "<aside" in out and "emptyState.readyToCapture" in out and "sidebar-content-wrapper" in out and "isMobile ? 'ph-list'" in out
     assert "clinic-primary-nav" not in out and "clinic-recordings-view" not in out
     assert "nav-clinic-resources" not in out

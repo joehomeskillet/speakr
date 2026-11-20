@@ -183,8 +183,10 @@
                 <!-- Recording View -->
                 {% include 'components/recording-view.html' %}
 
-                <!-- Detail View -->
+                <!-- Detail View (upstream; its only entry point is the recording sidebar, so CLINIC_MODE does not render it) -->
+                {% if not clinic_mode %}
                 {% include 'components/detail-view.html' %}
+                {% endif %}
             </main>
         </div>
 
