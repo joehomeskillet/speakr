@@ -9,19 +9,19 @@
  * are scoped the same way, for the same reason.
  * Colours: ink #1C3D42, burgundy #7A1C3E, canvas #F7F6F2 come from tokens.css where it has them.
  * Dark mode: .dark .v8-ui below (neutral surfaces, borders and text follow the variables). */
-.v8-ui{color-scheme:light;--ink:var(--brand-primary,#1C3D42);--ink2:#355158;--muted:#647579;--brand:var(--brand-primary,#1C3D42);--brand2:#2f5e62;--burgundy:var(--brand-accent,#7A1C3E);--cream:#F7F6F2;--canvas:var(--brand-canvas,#F7F6F2);--surface:var(--ui-surface,#fff);--line:#dfe6e4;--soft:#eef3f1;--warning:#876326;--danger:#9a354a;--radius:12px;--shadow:0 2px 10px #18363a08;--v8-text:#254046;--v8-text-2:#46616a;--v8-muted:#839194;--v8-s1:#f6f9f8;--v8-s2:#eef3f1;--v8-line-2:#e9eeec}
-.dark .v8-ui,[data-theme="dark"] .v8-ui{color-scheme:dark;--ink:#2f5e62;--ink2:#D0DCDA;--muted:#B6C5C3;--burgundy:#9B2F55;--line:var(--ui-border,#426166);--soft:#315158;--shadow:0 2px 10px #0006;--v8-text:var(--ui-text,#F7F6F2);--v8-text-2:var(--ui-text-muted,#D0DCDA);--v8-muted:#A9BDB9;--v8-s1:#21474D;--v8-s2:#315158;--v8-line-2:#335257}
-:where(.v8-page,.v8-chrome) *{box-sizing:border-box}
+.v8-ui{color-scheme:light;--v8-menu-hover-text:var(--brand-accent);--ink:var(--brand-primary,#1C3D42);--ink2:#355158;--muted:#647579;--brand:var(--brand-primary,#1C3D42);--brand2:#2f5e62;--burgundy:var(--brand-accent,#7A1C3E);--cream:#F7F6F2;--canvas:var(--brand-canvas,#F7F6F2);--surface:var(--ui-surface,#fff);--line:#dfe6e4;--soft:#eef3f1;--warning:#876326;--danger:#9a354a;--radius:12px;--shadow:0 2px 10px #18363a08;--v8-text:#254046;--v8-text-2:#46616a;--v8-muted:#839194;--v8-s1:#f6f9f8;--v8-s2:#eef3f1;--v8-line-2:#e9eeec}
+:where(.v8-ui):is(.dark .v8-ui,[data-theme="dark"] .v8-ui){color-scheme:dark;--v8-menu-hover-text:var(--v8-text);--ink:#2f5e62;--ink2:#D0DCDA;--muted:#B6C5C3;--burgundy:#9B2F55;--line:var(--ui-border,#426166);--soft:#315158;--shadow:0 2px 10px #0006;--v8-text:var(--ui-text,#F7F6F2);--v8-text-2:var(--ui-text-muted,#D0DCDA);--v8-muted:#A9BDB9;--v8-s1:#21474D;--v8-s2:#315158;--v8-line-2:#335257}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *){box-sizing:border-box}
 .v8-ui{background:var(--canvas);color:var(--v8-text)}
-:where(.v8-page,.v8-chrome) a{color:var(--v8-text);text-underline-offset:3px}
-:where(.v8-page,.v8-chrome) button,:where(.v8-page,.v8-chrome) input,:where(.v8-page,.v8-chrome) select,:where(.v8-page,.v8-chrome) textarea{font:inherit}
-:where(.v8-page,.v8-chrome) button,:where(.v8-page,.v8-chrome) a,:where(.v8-page,.v8-chrome) input,:where(.v8-page,.v8-chrome) select,:where(.v8-page,.v8-chrome) textarea,:where(.v8-page,.v8-chrome) summary{outline-offset:4px}
-:where(.v8-page,.v8-chrome) button:focus-visible,:where(.v8-page,.v8-chrome) a:focus-visible,:where(.v8-page,.v8-chrome) input:focus-visible,:where(.v8-page,.v8-chrome) select:focus-visible,:where(.v8-page,.v8-chrome) textarea:focus-visible,:where(.v8-page,.v8-chrome) summary:focus-visible{outline:3px solid #ba8196}
-:where(.v8-page,.v8-chrome) button,:where(.v8-page,.v8-chrome) a,:where(.v8-page,.v8-chrome) summary{-webkit-tap-highlight-color:transparent}
-:where(.v8-page,.v8-chrome) button{cursor:pointer}
-:where(.v8-page,.v8-chrome) button:disabled{cursor:default;opacity:.5}
-:where(.v8-page,.v8-chrome) button,.v8-ui .button{border:1px solid var(--line);border-radius:8px;background-color:var(--surface);padding:9px 13px;font-weight:600;color:var(--v8-text);text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:38px}
-.v8-ui .button:hover,:where(.v8-page,.v8-chrome) button:hover:not(:disabled){background:var(--v8-s1);border-color:#b9c9c4}
+:where(.v8-ui) a:where(.v8-page *,.v8-chrome *){color:var(--v8-text);text-underline-offset:3px}
+:where(.v8-ui) button:where(.v8-page *,.v8-chrome *),:where(.v8-ui) input:where(.v8-page *,.v8-chrome *),:where(.v8-ui) select:where(.v8-page *,.v8-chrome *),:where(.v8-ui) textarea:where(.v8-page *,.v8-chrome *){font:inherit}
+:where(.v8-ui) button:where(.v8-page *,.v8-chrome *),:where(.v8-ui) a:where(.v8-page *,.v8-chrome *),:where(.v8-ui) input:where(.v8-page *,.v8-chrome *),:where(.v8-ui) select:where(.v8-page *,.v8-chrome *),:where(.v8-ui) textarea:where(.v8-page *,.v8-chrome *),:where(.v8-ui) summary:where(.v8-page *,.v8-chrome *){outline-offset:4px}
+:where(.v8-ui) button:where(.v8-page *,.v8-chrome *):focus-visible,:where(.v8-ui) a:where(.v8-page *,.v8-chrome *):focus-visible,:where(.v8-ui) input:where(.v8-page *,.v8-chrome *):focus-visible,:where(.v8-ui) select:where(.v8-page *,.v8-chrome *):focus-visible,:where(.v8-ui) textarea:where(.v8-page *,.v8-chrome *):focus-visible,:where(.v8-ui) summary:where(.v8-page *,.v8-chrome *):focus-visible{outline:3px solid #ba8196}
+:where(.v8-ui) button:where(.v8-page *,.v8-chrome *),:where(.v8-ui) a:where(.v8-page *,.v8-chrome *),:where(.v8-ui) summary:where(.v8-page *,.v8-chrome *){-webkit-tap-highlight-color:transparent}
+:where(.v8-ui) button:where(.v8-page *,.v8-chrome *){cursor:pointer}
+:where(.v8-ui) button:where(.v8-page *,.v8-chrome *):disabled{cursor:default;opacity:.5}
+:where(.v8-ui) button:where(.v8-page *,.v8-chrome *),.v8-ui .button{border:1px solid var(--line);border-radius:8px;background-color:var(--surface);padding:9px 13px;font-weight:600;color:var(--v8-text);text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:38px}
+.v8-ui .button:hover,:where(.v8-ui) button:where(.v8-page *,.v8-chrome *):hover:not(:disabled){background:var(--v8-s1);border-color:#b9c9c4}
 .v8-ui .primary{background:var(--ink);border-color:var(--ink);color:white}
 .v8-ui .primary:hover:not(:disabled){background:#2c565b;color:white}
 .v8-ui .accent{background:var(--burgundy);border-color:var(--burgundy);color:#fff}
@@ -33,18 +33,18 @@
 .v8-ui .breadcrumb a{text-decoration:none}
 .v8-ui .eyebrow{font-size:10px;font-weight:750;letter-spacing:1.5px;text-transform:uppercase;color:var(--v8-muted);margin-bottom:5px}
 .v8-ui .pagehead{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;margin-bottom:20px}
-:where(.v8-page,.v8-chrome) h1{font-size:30px;line-height:1.2;font-weight:700;letter-spacing:-.8px;margin:0 0 9px}
-:where(.v8-page,.v8-chrome) h2{font-size:16px;line-height:1.35;margin:0 0 14px;letter-spacing:-.2px}
-:where(.v8-page,.v8-chrome) h3{font-size:14px;margin:0 0 10px}
-:where(.v8-page,.v8-chrome) p{margin:0 0 12px}
+:where(.v8-ui) h1:where(.v8-page *,.v8-chrome *){font-size:30px;line-height:1.2;font-weight:700;letter-spacing:-.8px;margin:0 0 9px}
+:where(.v8-ui) h2:where(.v8-page *,.v8-chrome *){font-size:16px;line-height:1.35;margin:0 0 14px;letter-spacing:-.2px}
+:where(.v8-ui) h3:where(.v8-page *,.v8-chrome *){font-size:14px;margin:0 0 10px}
+:where(.v8-ui) p:where(.v8-page *,.v8-chrome *){margin:0 0 12px}
 .v8-ui .subline{color:var(--v8-muted);max-width:830px;margin:0;font-size:13px}
 .v8-ui .head-actions,.v8-ui .actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
 .v8-ui .head-actions{padding-top:6px}
 .v8-ui .preview-strip{font-size:11px;display:flex;align-items:center;gap:9px;justify-content:space-between;padding:9px 12px;background:var(--v8-s2);border:1px solid var(--line);border-radius:8px;margin:0 0 20px;color:var(--v8-text-2)}
 .v8-ui .preview-tag{font-weight:700;color:var(--v8-text)}
-:where(.v8-page,.v8-chrome) .grid{display:grid;grid-template-columns:1.6fr 1fr;gap:20px;align-items:start}
-:where(.v8-page,.v8-chrome) .grid.equal{grid-template-columns:1fr 1fr}
-:where(.v8-page,.v8-chrome) .grid.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).grid{display:grid;grid-template-columns:1.6fr 1fr;gap:20px;align-items:start}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).grid.equal{grid-template-columns:1fr 1fr}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).grid.three{grid-template-columns:repeat(3,minmax(0,1fr))}
 .v8-ui .stack{display:grid;gap:20px}
 .v8-ui .panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:22px;box-shadow:var(--shadow);min-width:0}
 .v8-ui .panel-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
@@ -65,14 +65,14 @@
 .v8-ui .stat span{font-size:11px;color:var(--v8-muted);display:block;margin-bottom:6px}
 .v8-ui .stat strong{font-size:24px;line-height:1.2;font-weight:650;letter-spacing:-.5px}
 .v8-ui .stat small{font-size:11px;color:var(--v8-muted);display:block;margin-top:6px}
-:where(.v8-page,.v8-chrome) .field{display:grid;gap:6px;margin:0 0 16px}
-:where(.v8-page,.v8-chrome) .field label,:where(.v8-page,.v8-chrome) .field>span{font-weight:650;font-size:12px}
-:where(.v8-page,.v8-chrome) .field small{font-size:11px;color:var(--v8-muted)}
-:where(.v8-page,.v8-chrome) input:not([type=checkbox]):not([type=radio]):not([type=range]),:where(.v8-page,.v8-chrome) select,:where(.v8-page,.v8-chrome) textarea{width:100%;padding:10px 11px;border:1px solid #ccd8d3;border-radius:7px;color:var(--v8-text);background-color:var(--surface);min-height:40px}
-.v8-page input[readonly]{background:var(--v8-s1)!important;color:var(--v8-text-2)!important}
-:where(.v8-page,.v8-chrome) textarea{resize:vertical;min-height:100px;line-height:1.65}
-.v8-page input[type=checkbox],.v8-page input[type=radio]{accent-color:var(--ink);width:16px;height:16px}
-.v8-page input[type=range]{accent-color:var(--ink);width:100%}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).field{display:grid;gap:6px;margin:0 0 16px}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).field label,:where(.v8-ui) :where(.v8-page *,.v8-chrome *).field>span{font-weight:650;font-size:12px}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).field small{font-size:11px;color:var(--v8-muted)}
+:where(.v8-ui) input:where(.v8-page *,.v8-chrome *):not([type=checkbox]):not([type=radio]):not([type=range]),:where(.v8-ui) select:where(.v8-page *,.v8-chrome *),:where(.v8-ui) textarea:where(.v8-page *,.v8-chrome *){width:100%;padding:10px 11px;border:1px solid #ccd8d3;border-radius:7px;color:var(--v8-text);background-color:var(--surface);min-height:40px}
+:where(.v8-ui) input:is(.v8-page *)[readonly]{background:var(--v8-s1)!important;color:var(--v8-text-2)!important}
+:where(.v8-ui) textarea:where(.v8-page *,.v8-chrome *){resize:vertical;min-height:100px;line-height:1.65}
+:where(.v8-ui) input:is(.v8-page *)[type=checkbox],:where(.v8-ui) input:is(.v8-page *)[type=radio]{accent-color:var(--ink);width:16px;height:16px}
+:where(.v8-ui) input:is(.v8-page *)[type=range]{accent-color:var(--ink);width:100%}
 .v8-ui .field-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 18px}
 .v8-ui .field-grid .full{grid-column:1/-1}
 .v8-ui .inline-label{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:500}
@@ -87,24 +87,24 @@
 .v8-ui .keyvalues dd{margin:0;font-weight:600}
 .v8-ui .keyvalues>div:last-child{border:0}
 .v8-ui .filterbar{display:flex;align-items:end;gap:10px;flex-wrap:wrap;margin-bottom:16px}
-:where(.v8-page,.v8-chrome) .filterbar .field{margin:0;flex:0 1 175px}
-:where(.v8-page,.v8-chrome) .filterbar .field.search{flex:1 1 240px}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).filterbar .field{margin:0;flex:0 1 175px}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).filterbar .field.search{flex:1 1 240px}
 .v8-ui .filterbar input,.v8-ui .filterbar select{min-height:38px!important;padding:8px 10px!important;font-size:12px}
 .v8-ui .result-count{font-size:11px;color:var(--v8-muted);margin-bottom:10px}
 .v8-ui .table-wrap{overflow:auto;max-width:100%;border:1px solid var(--line);border-radius:8px}
-:where(.v8-page,.v8-chrome) table{width:100%;border-collapse:collapse;text-align:left;font-size:12px;white-space:nowrap}
-:where(.v8-page,.v8-chrome) thead{background:var(--v8-s1)}
-:where(.v8-page,.v8-chrome) th:where(:not([scope=row])){font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:650;color:var(--v8-text-2);padding:12px 14px;border-bottom:1px solid var(--line)}
-:where(.v8-page,.v8-chrome) td{padding:13px 14px;border-bottom:1px solid var(--v8-line-2);vertical-align:middle}
-:where(.v8-page,.v8-chrome) tbody tr:last-child td{border-bottom:0}
-:where(.v8-page,.v8-chrome) tbody tr:hover{background:var(--surface)}
-:where(.v8-page,.v8-chrome) td strong{display:block;color:var(--v8-text);font-weight:650}
-:where(.v8-page,.v8-chrome) td small{display:block;font-size:10px;color:var(--v8-muted);margin-top:3px}
+:where(.v8-ui) table:where(.v8-page *,.v8-chrome *){width:100%;border-collapse:collapse;text-align:left;font-size:12px;white-space:nowrap}
+:where(.v8-ui) thead:where(.v8-page *,.v8-chrome *){background:var(--v8-s1)}
+:where(.v8-ui) th:where(.v8-page *,.v8-chrome *):where(:not([scope=row])){font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:650;color:var(--v8-text-2);padding:12px 14px;border-bottom:1px solid var(--line)}
+:where(.v8-ui) td:where(.v8-page *,.v8-chrome *){padding:13px 14px;border-bottom:1px solid var(--v8-line-2);vertical-align:middle}
+:where(.v8-ui) tbody:where(.v8-page *,.v8-chrome *) tr:last-child td{border-bottom:0}
+:where(.v8-ui) tbody:where(.v8-page *,.v8-chrome *) tr:hover{background:var(--surface)}
+:where(.v8-ui) td:where(.v8-page *,.v8-chrome *) strong{display:block;color:var(--v8-text);font-weight:650}
+:where(.v8-ui) td:where(.v8-page *,.v8-chrome *) small{display:block;font-size:10px;color:var(--v8-muted);margin-top:3px}
 .v8-ui .wrap{white-space:normal;min-width:200px;max-width:380px}
-:where(.v8-page,.v8-chrome) .tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:18px;overflow:auto}
-:where(.v8-page,.v8-chrome) .tabs button{white-space:nowrap;border:0;border-bottom:3px solid transparent;border-radius:0;background:transparent;padding:10px 14px;font-weight:600;color:var(--v8-text-2)}
-:where(.v8-page,.v8-chrome) .tabs button[aria-selected=true]{color:var(--v8-text);border-bottom-color:var(--burgundy)}
-:where(.v8-page,.v8-chrome) .empty{border:1px dashed var(--line);padding:28px;text-align:center;font-size:13px;color:var(--v8-muted);border-radius:8px}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:18px;overflow:auto}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).tabs button{white-space:nowrap;border:0;border-bottom:3px solid transparent;border-radius:0;background:transparent;padding:10px 14px;font-weight:600;color:var(--v8-text-2)}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).tabs button[aria-selected=true]{color:var(--v8-text);border-bottom-color:var(--burgundy)}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).empty{border:1px dashed var(--line);padding:28px;text-align:center;font-size:13px;color:var(--v8-muted);border-radius:8px}
 .v8-ui .timeline{list-style:none;margin:0;padding:0}
 .v8-ui .timeline li{padding:0 0 20px 20px;border-left:1px solid var(--line);position:relative}
 .v8-ui .timeline li:last-child{padding-bottom:0;border-left-color:transparent}
@@ -121,7 +121,7 @@
 .v8-ui .recording .wave i{background:var(--burgundy)}
 .v8-ui .recording .wave{animation:breathe 1s ease-in-out infinite alternate}
 @keyframes breathe{from{opacity:.5}to{opacity:1}}
-@media(prefers-reduced-motion:reduce){:where(.v8-page,.v8-chrome) *{animation:none!important;scroll-behavior:auto!important}}
+@media(prefers-reduced-motion:reduce){:where(.v8-ui) :where(.v8-page *,.v8-chrome *){animation:none!important;scroll-behavior:auto!important}}
 .v8-ui .editorbar{display:flex;gap:4px;align-items:center;flex-wrap:wrap;padding:8px;border:1px solid var(--line);border-bottom:0;border-radius:8px 8px 0 0;background:var(--v8-s1)}
 .v8-ui .editorbar button{font-size:11px;min-height:28px;padding:4px 9px;background:var(--surface)}
 .v8-ui .editor{border-radius:0 0 8px 8px!important;min-height:350px;padding:20px!important;font-size:14px;line-height:1.85;box-shadow:inset 0 1px 3px #1c3d4204}
@@ -138,10 +138,10 @@
 .v8-ui .compare{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .v8-ui .revision{border:1px solid var(--line);border-radius:8px;padding:17px;font-size:12px;line-height:1.8}
 .v8-ui .revision h3{font-size:11px;text-transform:uppercase;color:var(--v8-muted)}
-:where(.v8-page,.v8-chrome) del{background:#f8e9ed;text-decoration-color:#ab586f;color:#85435a}
-:where(.v8-page,.v8-chrome) ins{background:#e5f0e9;text-decoration:none;color:#315f47}
+:where(.v8-ui) del:where(.v8-page *,.v8-chrome *){background:#f8e9ed;text-decoration-color:#ab586f;color:#85435a}
+:where(.v8-ui) ins:where(.v8-page *,.v8-chrome *){background:#e5f0e9;text-decoration:none;color:#315f47}
 .v8-ui .footerline{display:flex;justify-content:space-between;gap:16px;font-size:10px;color:var(--v8-muted);border-top:1px solid var(--line);margin-top:28px;padding-top:15px}
-:where(.v8-page,.v8-chrome) .separator{border:0;border-top:1px solid var(--line);margin:18px 0}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).separator{border:0;border-top:1px solid var(--line);margin:18px 0}
 .v8-ui .notice-dot{height:6px;width:6px;border-radius:50%;display:inline-block;background:var(--burgundy);margin-right:5px}
 .v8-ui .login-wrap{max-width:900px;margin:12px auto}
 .v8-ui .access-card{max-width:440px;margin:0 auto}
@@ -149,8 +149,8 @@
 .v8-ui .state-box h3{font-size:15px}
 .v8-ui .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);max-width:min(600px,calc(100vw - 32px));background:var(--ink);color:white;border-radius:9px;box-shadow:0 6px 25px #1c3d4230;padding:13px 18px;font-size:12px;z-index:100}
 .v8-ui .toast:empty{display:none}
-:where(.v8-page,.v8-chrome) dialog{width:min(560px,calc(100vw - 32px));border:1px solid var(--line);border-radius:13px;padding:24px;color:var(--v8-text);box-shadow:0 20px 80px #1c3d4238}
-:where(.v8-page,.v8-chrome) dialog::backdrop{background:#122e3155}
+:where(.v8-ui) dialog:where(.v8-page *,.v8-chrome *){width:min(560px,calc(100vw - 32px));border:1px solid var(--line);border-radius:13px;padding:24px;color:var(--v8-text);box-shadow:0 20px 80px #1c3d4238}
+:where(.v8-ui) dialog:where(.v8-page *,.v8-chrome *)::backdrop{background:#122e3155}
 .v8-ui dialog .dialoghead{display:flex;justify-content:space-between;gap:15px;align-items:center;margin-bottom:15px}
 .v8-ui dialog .dialoghead h2{margin:0}
 .v8-ui dialog .actions{justify-content:flex-end;margin-top:18px}
@@ -165,13 +165,13 @@
 .v8-ui .nowrap{white-space:nowrap}
 .v8-ui .visually-hidden{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .v8-ui [hidden]{display:none!important}
-@media(max-width:1100px){:where(.v8-page,.v8-chrome) .grid{grid-template-columns:1.3fr 1fr}
+@media(max-width:1100px){:where(.v8-ui) :where(.v8-page *,.v8-chrome *).grid{grid-template-columns:1.3fr 1fr}
 .v8-ui .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
 .v8-ui .metadata{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:760px){.v8-ui .pagehead{display:block}
-:where(.v8-page,.v8-chrome) h1{font-size:26px}
+:where(.v8-ui) h1:where(.v8-page *,.v8-chrome *){font-size:26px}
 .v8-ui .head-actions{margin-top:14px}
-:where(.v8-page,.v8-chrome) .grid,:where(.v8-page,.v8-chrome) .grid.equal,:where(.v8-page,.v8-chrome) .grid.three,.v8-ui .compare{grid-template-columns:1fr}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).grid,:where(.v8-ui) :where(.v8-page *,.v8-chrome *).grid.equal,:where(.v8-ui) :where(.v8-page *,.v8-chrome *).grid.three,.v8-ui .compare{grid-template-columns:1fr}
 .v8-ui .panel{padding:17px}
 .v8-ui .field-grid{grid-template-columns:1fr}
 .v8-ui .metadata{grid-template-columns:1fr 1fr;gap:13px}
@@ -179,7 +179,7 @@
 .v8-ui .stats{gap:9px}
 .v8-ui .stat{padding:13px}
 .v8-ui .stat strong{font-size:22px}
-:where(.v8-page,.v8-chrome) .filterbar .field{flex:1 1 150px}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).filterbar .field{flex:1 1 150px}
 .v8-ui .footerline{flex-direction:column;gap:5px}
 .v8-ui .editor{min-height:300px}
 .v8-ui .paper{padding:20px}
@@ -187,15 +187,15 @@
 .v8-ui .player .row{flex-wrap:wrap}
 .v8-ui .player .row input[type=range]{min-width:120px}
 .v8-ui .keyvalues>div{grid-template-columns:1fr 1fr}}
-@media print{.v8-ui .breadcrumb,.v8-ui .preview-strip,.v8-ui .head-actions,.v8-ui .filterbar,.v8-ui .actions,:where(.v8-page,.v8-chrome) .tabs,:where(.v8-page,.v8-chrome) button,.v8-ui .toast{display:none!important}
+@media print{.v8-ui .breadcrumb,.v8-ui .preview-strip,.v8-ui .head-actions,.v8-ui .filterbar,.v8-ui .actions,:where(.v8-ui) :where(.v8-page *,.v8-chrome *).tabs,:where(.v8-ui) button:where(.v8-page *,.v8-chrome *),.v8-ui .toast{display:none!important}
 .v8-ui{background:var(--surface)}
 .v8-ui .panel{box-shadow:none;break-inside:avoid}
-:where(.v8-page,.v8-chrome) .grid,:where(.v8-page,.v8-chrome) .grid.equal{display:block}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).grid,:where(.v8-ui) :where(.v8-page *,.v8-chrome *).grid.equal{display:block}
 .v8-ui .panel{margin-bottom:16px}
 .v8-ui .footerline{font-size:9px}
 .v8-ui .editor{border:1px solid var(--line)!important}
 .v8-ui .table-wrap{overflow:visible}
-:where(.v8-page,.v8-chrome) table{white-space:normal}}
+:where(.v8-ui) table:where(.v8-page *,.v8-chrome *){white-space:normal}}
 .v8-ui .ui-icon{display:block;flex:none;width:20px;height:20px;vertical-align:middle;pointer-events:none}
 .v8-ui .tool-wrap{position:relative;display:inline-flex;vertical-align:middle;flex:none}
 .v8-ui .icon-button{display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;min-height:38px;padding:0;border:1px solid transparent;border-radius:7px;background:transparent;color:var(--v8-text-2);gap:0}
@@ -207,12 +207,12 @@
 .v8-ui .icon-button.save-button.has-changes{background:#7A1C3E;border-color:#7A1C3E}
 .v8-ui .icon-button.record-button{color:#7A1C3E;background:#f6eaef;border-color:#ebd2dc}
 .v8-ui .icon-button .ui-icon{width:19px;height:19px}
-:where(.v8-page,.v8-chrome) .tooltip{position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);z-index:200;max-width:260px;width:max-content;padding:8px 11px;border-radius:7px;background:#1C3D42;color:white;font-size:11px;font-weight:500;line-height:1.45;box-shadow:0 5px 18px #12303526;pointer-events:auto;visibility:hidden;opacity:0;text-align:center;white-space:normal}
-:where(.v8-page,.v8-chrome) .tooltip kbd{display:block;color:#c8d9d2;font-family:inherit;font-size:10px;margin-top:3px}
-:where(.v8-page,.v8-chrome) .tool-wrap:focus-within>.tooltip[data-visible=true],:where(.v8-page,.v8-chrome) .tooltip[data-visible=true]{opacity:1;visibility:visible}
-:where(.v8-page,.v8-chrome) .tool-wrap[data-tooltip-dismissed]>.tooltip{opacity:0;visibility:hidden}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).tooltip{position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);z-index:200;max-width:260px;width:max-content;padding:8px 11px;border-radius:7px;background:#1C3D42;color:white;font-size:11px;font-weight:500;line-height:1.45;box-shadow:0 5px 18px #12303526;pointer-events:auto;visibility:hidden;opacity:0;text-align:center;white-space:normal}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).tooltip kbd{display:block;color:#c8d9d2;font-family:inherit;font-size:10px;margin-top:3px}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).tool-wrap:focus-within>.tooltip[data-visible=true],:where(.v8-ui) :where(.v8-page *,.v8-chrome *).tooltip[data-visible=true]{opacity:1;visibility:visible}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).tool-wrap[data-tooltip-dismissed]>.tooltip{opacity:0;visibility:hidden}
 .v8-ui .button>.ui-icon,.v8-ui button:not(.icon-button)>.ui-icon{width:17px;height:17px}
-:where(.v8-page,.v8-chrome) .dialoghead>.tool-wrap .tooltip{top:calc(100% + 8px);bottom:auto;left:auto;right:0;transform:none}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).dialoghead>.tool-wrap .tooltip{top:calc(100% + 8px);bottom:auto;left:auto;right:0;transform:none}
 .v8-ui .editor-page .breadcrumb{display:none}
 .v8-ui .editor-page .pagehead{margin-bottom:12px;align-items:center}
 .v8-ui .editor-page .pagehead h1{font-size:24px;margin:0 0 4px}
@@ -304,7 +304,7 @@
 .v8-ui .context-drawer .keyvalues{font-size:11px}
 .v8-ui .context-drawer .actions{margin-top:14px}
 .v8-ui .context-drawer .actions button{font-size:12px}
-:where(.v8-page,.v8-chrome) .context-drawer .tooltip{top:calc(100% + 7px);bottom:auto}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).context-drawer .tooltip{top:calc(100% + 7px);bottom:auto}
 .v8-ui .editor-workspace.is-focus{position:fixed;inset:0;z-index:100;display:flex;flex-direction:column;border:0;border-radius:0;height:100dvh;max-height:100dvh;background:var(--surface);padding:0;box-shadow:none}
 .v8-ui .is-focus>.editor-document{flex:1;display:flex;flex-direction:column;min-height:0}
 .v8-ui .is-focus .writing-surface{flex:1;min-height:0}
@@ -357,16 +357,16 @@
 .v8-ui .case-option{order:5}
 .v8-ui .find-count{order:6;margin-left:auto}
 .v8-ui .replace-row .hint{display:none}
-:where(.v8-page,.v8-chrome) .tooltip{max-width:180px}
-:where(.v8-page,.v8-chrome) .toolbar-group:first-child .tool-wrap:first-child .tooltip,:where(.v8-page,.v8-chrome) .player-controls>.tool-wrap:first-child .tooltip{left:0;transform:none}
-:where(.v8-page,.v8-chrome) .toolbar-group:last-child>.tool-wrap:last-child .tooltip{left:auto;right:0;transform:none}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).tooltip{max-width:180px}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).toolbar-group:first-child .tool-wrap:first-child .tooltip,:where(.v8-ui) :where(.v8-page *,.v8-chrome *).player-controls>.tool-wrap:first-child .tooltip{left:0;transform:none}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).toolbar-group:last-child>.tool-wrap:last-child .tooltip{left:auto;right:0;transform:none}
 .v8-ui .shortcut-list>div{align-items:flex-start;font-size:10px}
 .v8-ui .shortcut-list dd{white-space:normal}
 .v8-ui .context-drawer{width:min(420px,100vw);padding:20px}
 .v8-ui .is-focus .editor{height:100%;min-height:0!important}
 .v8-ui .is-focus .editor-workflow>.hint{display:none}}
 @media(pointer:coarse){.v8-ui .symbol-toolbar .icon-button,.v8-ui .compact-player .icon-button,.v8-ui .recorder-controls .icon-button{width:44px;height:44px;min-height:44px}}
-@media print{.v8-ui .symbol-toolbar,.v8-ui .compact-player,.v8-ui .compact-recorder,.v8-ui .context-tools,.v8-ui .editor-workflow,.v8-ui .editor-popover,.v8-ui .editor-find,:where(.v8-page,.v8-chrome) .tooltip{display:none!important}
+@media print{.v8-ui .symbol-toolbar,.v8-ui .compact-player,.v8-ui .compact-recorder,.v8-ui .context-tools,.v8-ui .editor-workflow,.v8-ui .editor-popover,.v8-ui .editor-find,:where(.v8-ui) :where(.v8-page *,.v8-chrome *).tooltip{display:none!important}
 .v8-ui .editor-workspace{box-shadow:none;border:1px solid var(--line)}
 .v8-ui .editor-workspace .editor{height:auto;min-height:500px;padding:20px!important}
 .v8-ui .document-context{display:block}
@@ -387,22 +387,22 @@
 .v8-ui .word-sync-controls{margin-left:auto;padding-left:4px}
 .v8-ui .compact-player .time{margin-left:0}
 .v8-ui .word-sync-info{padding:6px 12px;font-size:9px;min-height:28px}
-:where(.v8-page,.v8-chrome) .word-sync-controls>.tool-wrap:last-child .tooltip{left:auto;right:0;transform:none}}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).word-sync-controls>.tool-wrap:last-child .tooltip{left:auto;right:0;transform:none}}
 @media print{.v8-ui .word-backdrop,.v8-ui .word-sync-info,.v8-ui .word-sync-controls{display:none!important}
 .v8-ui .editor-workspace .has-word-sync>.editor{background:var(--surface)}}
-:where(.v8-page,.v8-chrome) .tooltip::after{content:"";position:absolute;left:0;right:0;top:100%;height:10px}
-:where(.v8-page,.v8-chrome) .editor-toolbar .tooltip::after,:where(.v8-page,.v8-chrome) .editor-toolbar-secondary .tooltip::after{top:100%;bottom:auto}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).tooltip::after{content:"";position:absolute;left:0;right:0;top:100%;height:10px}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).editor-toolbar .tooltip::after,:where(.v8-ui) :where(.v8-page *,.v8-chrome *).editor-toolbar-secondary .tooltip::after{top:100%;bottom:auto}
 .v8-ui .word-backdrop mark{display:inline;padding:0;margin:0;border:0;font:inherit;letter-spacing:inherit;line-height:inherit;color:transparent;background:transparent}
-:where(.v8-page,.v8-chrome) .dialoghead>.tool-wrap .tooltip::after,:where(.v8-page,.v8-chrome) .context-drawer .tooltip::after{top:auto;bottom:100%}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).dialoghead>.tool-wrap .tooltip::after,:where(.v8-ui) :where(.v8-page *,.v8-chrome *).context-drawer .tooltip::after{top:auto;bottom:100%}
 /* ---- index.html shell and page styles ---- */
-:where(.v8-page,.v8-chrome) *{box-sizing:border-box}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *){box-sizing:border-box}
 .v8-ui{background:var(--canvas);color:var(--v8-text)}
-.v8-chrome,.v8-page{font:13px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
-:where(.v8-page,.v8-chrome) button,:where(.v8-page,.v8-chrome) input,:where(.v8-page,.v8-chrome) select{font:inherit}
-:where(.v8-page,.v8-chrome) button{cursor:pointer}
-:where(.v8-page,.v8-chrome) button:focus-visible,:where(.v8-page,.v8-chrome) input:focus-visible,:where(.v8-page,.v8-chrome) select:focus-visible{outline:3px solid #7bb4bc;outline-offset:2px}
-:where(.v8-page,.v8-chrome) svg{flex:none}
-:where(.v8-page,.v8-chrome) a{color:inherit;text-decoration:none}
+.v8-ui:where(.v8-chrome,.v8-page),:where(.v8-ui) :is(.v8-chrome,.v8-page){font:13px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+:where(.v8-ui) button:where(.v8-page *,.v8-chrome *),:where(.v8-ui) input:where(.v8-page *,.v8-chrome *),:where(.v8-ui) select:where(.v8-page *,.v8-chrome *){font:inherit}
+:where(.v8-ui) button:where(.v8-page *,.v8-chrome *){cursor:pointer}
+:where(.v8-ui) button:where(.v8-page *,.v8-chrome *):focus-visible,:where(.v8-ui) input:where(.v8-page *,.v8-chrome *):focus-visible,:where(.v8-ui) select:where(.v8-page *,.v8-chrome *):focus-visible{outline:3px solid #7bb4bc;outline-offset:2px}
+:where(.v8-ui) svg:where(.v8-page *,.v8-chrome *){flex:none}
+:where(.v8-ui) a:where(.v8-page *,.v8-chrome *){color:inherit;text-decoration:none}
 .v8-ui .topbar{background:#1c3d42;color:#fff;display:flex;align-items:center;gap:12px;padding:0 21px;box-shadow:0 1px 2px #0002;z-index:3}
 .v8-ui .logo{width:23px;height:25px;position:relative}
 .v8-ui .logo::before,.v8-ui .logo::after{content:"";display:block;position:absolute;left:2px;width:20px;height:11px;border-radius:3px;transform:skew(-18deg) rotate(-31deg)}
@@ -451,9 +451,9 @@
 .v8-ui .divider-v{height:22px;width:1px;background:#e3e8e6;margin:0 2px}
 .v8-ui .filter-pill{height:35px;display:flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:0 11px;color:var(--v8-text-2);font-weight:650;font-size:12px}
 .v8-ui .filter-pill:hover{background:var(--v8-s1)}
-:where(.v8-page,.v8-chrome) .filter-pill.active{background:#edf6f4;border-color:#a6cecb;color:#265e60}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).filter-pill.active{background:#edf6f4;border-color:#a6cecb;color:#265e60}
 .v8-ui .num-circle{background:var(--v8-s2);border-radius:99px;padding:1px 6px;font-size:10px;color:var(--v8-text-2)}
-:where(.v8-page,.v8-chrome) .filter-pill.active .num-circle{background:#cee6e2;color:#2b6866}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).filter-pill.active .num-circle{background:#cee6e2;color:#2b6866}
 .v8-ui .toolbar-right{margin-left:auto;display:flex;gap:7px}
 .v8-ui .advanced{display:none;border-top:1px solid var(--v8-line-2);margin-top:13px;padding-top:12px;gap:10px;align-items:center;flex-wrap:wrap}
 .v8-ui .advanced.show{display:flex}
@@ -520,7 +520,7 @@
 .v8-ui .wave i{display:block;background:#8aaba9;border-radius:99px;flex:1;min-width:2px}
 .v8-ui .detail-tabs{display:flex;gap:6px;padding:3px;background:var(--v8-s2);border-radius:8px;margin-bottom:15px}
 .v8-ui .detail-tabs button{border:0;background:transparent;border-radius:6px;flex:1;padding:8px 0;color:var(--v8-muted);font-size:11px;font-weight:750}
-:where(.v8-page,.v8-chrome) .detail-tabs button.active{background:var(--surface);color:var(--v8-text);box-shadow:0 1px 3px #204d4718}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).detail-tabs button.active{background:var(--surface);color:var(--v8-text);box-shadow:0 1px 3px #204d4718}
 .v8-ui .detail-info{min-height:158px}
 .v8-ui .detail-line{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--v8-line-2);font-size:11px}
 .v8-ui .detail-line span:first-child{color:var(--v8-muted)}
@@ -531,11 +531,11 @@
 .v8-ui .primary:hover{background:#64243d}
 .v8-ui .secondary{background:var(--surface);color:var(--v8-text-2);border:1px solid var(--line);border-radius:8px;padding:9px 11px;font-weight:750;font-size:11px}
 .v8-ui .secondary:hover{background:var(--v8-s1)}
-:where(.v8-page,.v8-chrome) .empty{min-height:355px;display:flex;align-items:center;justify-content:center;padding:30px;flex-direction:column;text-align:center;color:var(--v8-muted)}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).empty{min-height:355px;display:flex;align-items:center;justify-content:center;padding:30px;flex-direction:column;text-align:center;color:var(--v8-muted)}
 .v8-ui .empty-icon{height:57px;width:57px;border-radius:17px;background:var(--v8-s2);display:grid;place-items:center;color:var(--v8-muted);font-size:26px;margin-bottom:12px}
-:where(.v8-page,.v8-chrome) .empty h2{font-size:17px;color:var(--v8-text);margin:0 0 5px}
-:where(.v8-page,.v8-chrome) .empty p{max-width:420px;margin:0 0 16px;font-size:12px;line-height:1.7}
-:where(.v8-page,.v8-chrome) .empty .empty-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).empty h2{font-size:17px;color:var(--v8-text);margin:0 0 5px}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).empty p{max-width:420px;margin:0 0 16px;font-size:12px;line-height:1.7}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).empty .empty-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
 .v8-ui .hide{display:none!important}
 .v8-ui .microhelp{display:inline-block;color:var(--v8-muted);font-size:10px;margin-top:8px}
 .v8-ui .quick-actions{display:none;border-top:1px solid var(--line);background:var(--v8-s1);padding:10px 14px;align-items:center;gap:10px;font-size:11px;color:var(--v8-text-2)}
@@ -574,7 +574,7 @@
 .v8-ui .topnav{display:flex;height:100%;align-items:center;gap:5px;margin-left:28px}
 .v8-ui .topnav a{display:flex;align-items:center;min-height:40px;padding:0 18px;color:#d7e3e1;font-size:13px;font-weight:650;border-radius:8px}
 .v8-ui .topnav a:hover{background:#315257;color:#fff}
-:where(.v8-page,.v8-chrome) .topnav a.active{background:var(--v8-s1);color:var(--v8-text)}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).topnav a.active{background:var(--v8-s1);color:var(--v8-text)}
 .v8-ui .topnav a:focus-visible,.v8-ui .brand-link:focus-visible{outline:3px solid #9ac9ca;outline-offset:3px}
 .v8-ui .top-action{min-height:39px;background:#7a1c3e;border-color:#a35872;padding:7px 16px}
 .v8-ui .top-action:hover{background:#8c2a4b}
@@ -647,7 +647,7 @@
 .v8-ui .transcript-panel,.v8-ui .record-metadata{background:var(--surface);border:1px solid var(--line);border-radius:12px;min-width:0;overflow:hidden;align-self:start}
 .v8-ui .record-tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);padding:0 20px}
 .v8-ui .record-tabs button{border:0;background:none;color:var(--v8-muted);border-bottom:3px solid transparent;padding:16px 10px 13px;font-weight:650;font-size:12px;min-height:48px}
-:where(.v8-page,.v8-chrome) .record-tabs button.active{color:var(--v8-text);border-color:#3f7168}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).record-tabs button.active{color:var(--v8-text);border-color:#3f7168}
 .v8-ui .recording-content{padding:27px 30px;min-height:290px}
 .v8-ui .transcript-label{font-size:10px;font-weight:650;letter-spacing:.06em;color:var(--v8-muted);text-transform:uppercase}
 .v8-ui .transcript-paragraph{display:flex;gap:18px;margin-top:23px}
@@ -743,7 +743,7 @@
 .v8-ui .record-empty{padding:45px 20px}
 .v8-ui .record-empty h2{font-size:18px}
 .v8-ui .record-empty p{font-size:12px}}
-@media(prefers-reduced-motion:reduce){:where(.v8-page,.v8-chrome) *{transition:none!important;scroll-behavior:auto!important}}
+@media(prefers-reduced-motion:reduce){:where(.v8-ui) :where(.v8-page *,.v8-chrome *){transition:none!important;scroll-behavior:auto!important}}
 .v8-ui .record-role-filters{display:flex;align-items:flex-end;gap:12px;margin:12px 1px 0;flex-wrap:wrap}
 .v8-ui .record-role-filters>label{display:flex;flex-direction:column;gap:5px;min-width:220px;max-width:345px;flex:1}
 .v8-ui .record-role-filters>label>span{font-size:11px;color:var(--v8-text-2);font-weight:650}
@@ -796,16 +796,14 @@
 .v8-ui .v6-admin summary::-webkit-details-marker{display:none}
 .v8-ui .v6-admin summary:after{content:"⌄";margin-left:8px}
 .v8-ui .v6-admin summary:focus-visible,.v8-ui .v6-menu a:focus-visible{outline:3px solid #d7a1b5;outline-offset:3px}
-.v8-ui{--v8-menu-hover-text:var(--brand-accent)}
-:is(.dark,[data-theme="dark"]) .v8-ui{--v8-menu-hover-text:var(--v8-text)}
 .v8-ui .v6-menu{position:absolute;right:0;top:43px;width:520px;max-width:calc(100vw - 30px);max-height:74vh;overflow:auto;display:grid;grid-template-columns:1fr 1fr;gap:15px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--v8-text);padding:18px;box-shadow:0 12px 40px #1c3d4228;z-index:90}
 /* The standalone header applies its text color through an ID selector. */
-:is(.v8-ui,#global-header .v8-ui) .v6-menu h2{color:var(--v8-text-2)}
-:is(.v8-ui,#global-header .v8-ui) .v6-menu a{color:var(--v8-text)}
+.v8-ui:is(#app,#global-header *) .v6-menu h2{color:var(--v8-text-2)}
+.v8-ui:is(#app,#global-header *) .v6-menu a{color:var(--v8-text)}
 .v8-ui .v6-menu h2{font-size:10px;text-transform:uppercase;letter-spacing:.8px;margin:0 0 7px}
 .v8-ui .v6-menu a{display:block;padding:6px 7px;font-size:12px;border-radius:6px}
-:is(.v8-ui,#global-header .v8-ui) :is(.v6-menu a,.v8-usermenu a,.v8-usermenu .v8-item):hover{background:var(--v8-s2);color:var(--v8-menu-hover-text)}
-:is(.v8-ui,#global-header .v8-ui) .v8-usermenu :is(a,.v8-item):hover>span:not(.v8-badge){color:inherit}
+.v8-ui:is(#app,#global-header *) :is(.v6-menu a,.v8-usermenu a,.v8-usermenu .v8-item):hover{background:var(--v8-s2);color:var(--v8-menu-hover-text)}
+.v8-ui:is(#app,#global-header *) .v8-usermenu :is(a,.v8-item):hover>span:not(.v8-badge){color:inherit}
 .v8-ui .v6-context-link{display:inline-flex;align-items:center;padding:8px 12px;border:1px solid var(--line);border-radius:8px;font-size:12px}
 .v8-ui .topbar{z-index:80}
 .v8-ui .v6-preview-note{margin:0 0 16px;font-size:11px;color:var(--v8-text-2);padding:8px 11px;border:1px solid var(--line);background:var(--v8-s1);border-radius:7px}
@@ -828,19 +826,19 @@
 .v8-ui .icon-button.play-btn{border-radius:50%;background:#315b56;color:#fff}
 .v8-ui .icon-button.closebtn{width:32px;height:32px;min-height:32px;border:0;background:transparent}
 .v8-ui .icon-button.page-icon{width:28px;height:28px;min-height:28px}
-:where(.v8-page,.v8-chrome) .tooltip{position:absolute;left:50%;bottom:calc(100% + 7px);transform:translateX(-50%);background:#1c3d42;color:#fff;border-radius:7px;padding:8px 10px;font-size:11px;line-height:1.4;white-space:normal;width:max-content;max-width:240px;opacity:0;visibility:hidden;pointer-events:auto;z-index:200;box-shadow:0 6px 20px #12352426}
-:where(.v8-page,.v8-chrome) .tool-wrap:focus-within>.tooltip[data-visible=true],:where(.v8-page,.v8-chrome) .tooltip[data-visible=true]{opacity:1;visibility:visible}
-:where(.v8-page,.v8-chrome) .tool-wrap[data-tooltip-dismissed]>.tooltip{opacity:0;visibility:hidden}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).tooltip{position:absolute;left:50%;bottom:calc(100% + 7px);transform:translateX(-50%);background:#1c3d42;color:#fff;border-radius:7px;padding:8px 10px;font-size:11px;line-height:1.4;white-space:normal;width:max-content;max-width:240px;opacity:0;visibility:hidden;pointer-events:auto;z-index:200;box-shadow:0 6px 20px #12352426}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).tool-wrap:focus-within>.tooltip[data-visible=true],:where(.v8-ui) :where(.v8-page *,.v8-chrome *).tooltip[data-visible=true]{opacity:1;visibility:visible}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).tool-wrap[data-tooltip-dismissed]>.tooltip{opacity:0;visibility:hidden}
 .v8-ui .v6-admin summary{display:flex;align-items:center;gap:6px}
 .v8-ui .v6-admin summary:after{display:none}
 .v8-ui .v6-admin summary .ui-icon{width:16px;height:16px}
 .v8-ui .top-action{display:inline-flex;align-items:center;gap:7px}
 .v8-ui .top-action>.ui-icon{width:16px;height:16px}
-:where(.v8-page,.v8-chrome) .record-stepper .tooltip,:where(.v8-page,.v8-chrome) .detailhead .tooltip{top:calc(100% + 7px);bottom:auto;left:auto;right:0;transform:none}
-:where(.v8-page,.v8-chrome) .pool-dialog .tool-wrap .tooltip{top:calc(100% + 7px);bottom:auto;left:auto;right:0;transform:none}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).record-stepper .tooltip,:where(.v8-ui) :where(.v8-page *,.v8-chrome *).detailhead .tooltip{top:calc(100% + 7px);bottom:auto;left:auto;right:0;transform:none}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).pool-dialog .tool-wrap .tooltip{top:calc(100% + 7px);bottom:auto;left:auto;right:0;transform:none}
 @media(pointer:coarse){.v8-ui .icon-button.step-btn,.v8-ui .icon-button.closebtn{min-width:44px;min-height:44px}}
-:where(.v8-page,.v8-chrome) .tooltip::after{content:"";position:absolute;left:0;right:0;top:100%;height:9px}
-:where(.v8-page,.v8-chrome) .record-stepper .tooltip::after,:where(.v8-page,.v8-chrome) .detailhead .tooltip::after,:where(.v8-page,.v8-chrome) .pool-dialog .tool-wrap .tooltip::after{top:auto;bottom:100%}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).tooltip::after{content:"";position:absolute;left:0;right:0;top:100%;height:9px}
+:where(.v8-ui) :where(.v8-page *,.v8-chrome *).record-stepper .tooltip::after,:where(.v8-ui) :where(.v8-page *,.v8-chrome *).detailhead .tooltip::after,:where(.v8-ui) :where(.v8-page *,.v8-chrome *).pool-dialog .tool-wrap .tooltip::after{top:auto;bottom:100%}
 
 /* ---- Integration in the clinic shell (v8-110) ---- */
 .v8-ui .topbar{flex:none;min-height:64px;position:relative}
@@ -881,8 +879,8 @@
 /* The avatar keeps its fill on hover (the base button hover would turn it near-white). */
 .v8-ui button.topavatar:hover:not(:disabled){background:#4a7276;border-color:#7a9a9d;color:#fff}
 /* Form fields stay at 16px: the editor surface always, all controls on phones (no zoom on focus). */
-.v8-page textarea,.v8-page [data-testid=text]{font-size:16px}
-@media(max-width:760px){.v8-page :is(input,select,textarea){font-size:16px!important}}
+:where(.v8-ui) textarea:is(.v8-page *),:where(.v8-ui) [data-testid=text]:is(.v8-page *){font-size:16px}
+@media(max-width:760px){:where(.v8-ui) :is(input,select,textarea):is(.v8-page *){font-size:16px!important}}
 /* Phone header: the wrapped topbar keeps the prototype insets (14px) and its controls a 44x44 hit area. */
 @media(max-width:700px){.v8-ui .topbar{padding:14px 12px}}
 @media(max-width:760px){.v8-ui .topbar .top-icon,.v8-ui .topbar .top-action,.v8-ui .topbar .v6-admin summary,.v8-ui .topbar button.topavatar{position:relative}
