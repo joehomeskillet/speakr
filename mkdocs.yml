@@ -18,6 +18,7 @@ theme:
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
+        name_de: Dunkles Farbschema aktivieren
     # Dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
@@ -26,10 +27,9 @@ theme:
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
+        name_de: Helles Farbschema aktivieren
 
   features:
-    - navigation.instant
-    - navigation.instant.progress
     - navigation.tracking
     - navigation.tabs
     - navigation.tabs.sticky
@@ -50,6 +50,9 @@ theme:
     - content.code.copy
     - content.code.annotate
     - content.tooltips
+
+hooks:
+  - scripts/handbook_language.py
 
 plugins:
   - search:
@@ -80,7 +83,6 @@ markdown_extensions:
   - tables
   - toc:
       permalink: true
-      title: On this page
 
   # Python Markdown Extensions
   - pymdownx.arithmatex:
