@@ -3,13 +3,17 @@
  * Handles microphone/system audio recording with visualizers and wake lock
  */
 
-import * as RecordingDB from '../db/recording-persistence.js';
+import * as RawRecordingDB from '../db/recording-persistence.js';
+import { gateRecordingDB } from '../../clinic/persistence-gate.js';
 import * as ServerSessions from '../db/server-recording-sessions.js';
 import {
     findExternalAudioInputCandidates,
     getAudioInputCandidateSignature,
     shouldAutoOfferExternalAudioInput
 } from '../utils/platform.js';
+
+// CLINIC_MODE: no IndexedDB audio copy unless the server device policy allows it.
+const RecordingDB = gateRecordingDB(RawRecordingDB);
 
 export function buildMicrophoneConstraints(deviceId = '', disableAudioProcessing = false) {
     const constraints = {
