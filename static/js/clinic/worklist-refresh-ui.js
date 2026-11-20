@@ -1,5 +1,5 @@
 /**
- * Worklist refresh layer: manual refresh, recording-change cursor polling,
+ * Worklist refresh layer: manual refresh, snapshot or change-feed polling,
  * out-of-order response discard and logout teardown on top of useWorklist.
  * Reuses ui-token-contract and api-client; clinical data stays in memory.
  */
@@ -176,8 +176,9 @@ export function useWorklistRefresh(options = {}) {
         }
     };
 
-    /** Reads the feed from the stored cursor and applies it. */
+    /** Reads the feed from the stored cursor, or reloads rows without a feed. */
     const pollChanges = async () => {
+        if (!fetchChanges) return refresh();
         const { seen, signal } = nextRequest();
         isRefreshing.value = true;
         try {
@@ -252,7 +253,7 @@ export function useWorklistRefresh(options = {}) {
         if (isRunning.value) return;
         isRunning.value = true;
         const seen = generation;
-        if (!cursor) await primeCursor(seen);
+        if (fetchChanges && !cursor) await primeCursor(seen);
         if (!isRunning.value) return;
         await refresh();
         schedule();
