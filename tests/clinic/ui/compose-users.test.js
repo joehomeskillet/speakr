@@ -146,6 +146,26 @@ describe('users view composition', () => {
         expect(view.select('nope')).toBe(false);
     });
 
+    it('requests editable grant entries only while the viewer is a site admin', async () => {
+        const Vue = fakeVue();
+        const client = fakeClient(routes);
+        const props = { client, currentUser: { id: 1, is_admin: true }, vue: Vue };
+        const view = UsersView.setup(props);
+        await Vue.hooks.mounted[0]();
+        view.select('grants');
+        view.selectUser(2);
+        const adminGrants = view.activeComponent.value.setup();
+        await adminGrants.reload();
+        expect(adminGrants.state.canEdit).toBe(true);
+        expect(client.request).toHaveBeenCalledWith('/identity/users/2/grants?entries=1');
+
+        props.currentUser.is_admin = false;
+        const readOnlyGrants = view.activeComponent.value.setup();
+        await readOnlyGrants.reload();
+        expect(readOnlyGrants.state.canEdit).toBe(false);
+        expect(client.request).toHaveBeenCalledWith('/identity/users/2/grants');
+    });
+
     it('scopes state to the current user and drops it on user change', async () => {
         const Vue = fakeVue();
         const client = fakeClient(routes);

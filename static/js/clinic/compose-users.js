@@ -276,10 +276,12 @@ export const UsersView = {
         const poolsPanel = Vue.markRaw(createPoolsPanel(Vue));
         const grantsCache = {};
         const grantsFor = (userId) => {
-            if (!grantsCache[userId]) {
-                grantsCache[userId] = Vue.markRaw(createGrantsComponent(Vue, props.client, { userId, canEdit: true }));
+            const canEdit = props.currentUser?.is_admin === true;
+            const key = userId + ':' + canEdit;
+            if (!grantsCache[key]) {
+                grantsCache[key] = Vue.markRaw(createGrantsComponent(Vue, props.client, { userId, canEdit }));
             }
-            return grantsCache[userId];
+            return grantsCache[key];
         };
         const activeComponent = Vue.computed(() => {
             const id = ctrl.state.active;

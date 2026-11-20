@@ -10,26 +10,33 @@ def test_named_grant_and_revoke_change_next_protected_request(app_base, browser,
     try:
         page = admin.new_page()
         page.goto(app_base + "/admin")
-        page.get_by_test_id("admin-tab-clinic").click()
-        page.get_by_test_id("clinic-panel-grants").click()
-        view = page.get_by_test_id("clinic-view-grants")
-        view.get_by_label("Benutzername").fill("lead-v860")
-        view.get_by_role("button", name="Fachrechte laden").click()
+        page.get_by_role("button", name="Benutzer und Rollen", exact=True).click()
+        expect(page).to_have_url(app_base + "/admin#/benutzer")
+        users = page.get_by_test_id("clinic-users-view")
+        users.get_by_role("button", name="Fachrechte", exact=True).click()
+        view = users.get_by_role("region", name="Fachrechte", exact=True)
+        user_id = view.get_by_label("Benutzer", exact=True).select_option(label="lead-v860")[0]
         view.get_by_label("Geltungsbereich").select_option("pool")
         view.get_by_label("Autorenpool").select_option(label="Autoren V860")
         view.get_by_label("Abspielen").check()
 
         api = app_base + "/api/clinic/v1"
+        own_grants = api + f"/identity/users/{user_id}/grants"
+        assert lead.request.get(app_base + "/admin").status == 403
+        assert lead.request.get(own_grants).status == 200
         row = author.request.get(api + "/recordings").json()["items"][0]
         audio = api + f"/dictations/{row['dictation_id']}/audio-revisions/current"
         assert lead.request.get(audio).status == 404
         with page.expect_response(lambda r: r.url.endswith("/grants") and r.request.method == "POST") as saved:
             view.get_by_role("button", name="Speichern").click()
         assert saved.value.status == 200
+        assert saved.value.url == own_grants
         revision = saved.value.json()["revision"]
         revoke = view.get_by_role("listitem").filter(has_text="Autoren V860").get_by_role("button", name="Entziehen")
         expect(revoke).to_be_enabled()
         assert lead.request.get(audio).status == 200
+        own_entry, = lead.request.get(own_grants + "?entries=1").json()["items"]
+        assert own_entry["actions"] == ["play"] and "id" not in own_entry
 
         with page.expect_response(lambda r: r.request.method == "DELETE") as removed:
             revoke.click()
