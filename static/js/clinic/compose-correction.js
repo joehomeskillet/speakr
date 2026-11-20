@@ -34,7 +34,7 @@ import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
 import { useCorrectionEditor } from './correction-editor-ui.js';
 import { LABELS as ALIGN_LABELS, createPlaybackHighlighter, useCorrectionAlignment } from './correction-alignment-ui.js';
 import { CorrectionWaveform } from './correction-waveform-ui.js';
-import { PlaybackTempo } from './playback-tempo-ui.js';
+import { PlaybackTempo, usePlaybackTempo } from './playback-tempo-ui.js';
 import { MODES, useCorrectionModes } from './correction-modes-ui.js';
 import { useCorrectionSave } from './correction-save-ui.js';
 import { AudioMarkers } from './audio-markers-ui.js';
@@ -87,6 +87,7 @@ export const TEXT = Object.freeze({
     unsaved: 'Nicht gespeicherte Änderungen sind vorhanden.',
     manual: 'Keine automatische Erkennung vorhanden. Bitte manuell transkribieren.',
     loading: 'Wird geladen …',
+    pedalStatus: 'Pedalstatus',
     keys: 'Tastatur: Strg + S speichert. Im Transkript hält die Wiedergabe beim Tippen an, wenn der Modus «Auf zu hörendes Wort zeigen» gewählt ist. Das Audio wird mit den Tasten des Players bedient.',
 });
 
@@ -208,6 +209,10 @@ export function createCorrectionViewController(options) {
     let disposed = false;
     const stops = [];
     const audioListeners = [];
+    let tempo = null;
+    let pedal = null;
+    let pedalReady = Promise.resolve(null);
+    const pedalStatus = ref('');
 
     // contract 'v8': shared lease controller, reconcile before a new key, +-5 s step. Without it the pre-V8 behaviour stays.
     const v8 = opts.contract === 'v8';
@@ -277,6 +282,7 @@ export function createCorrectionViewController(options) {
             if (typeof node.removeEventListener === 'function') node.removeEventListener(name, fn);
         }
         if (highlighter) { highlighter.dispose(); highlighter = null; }
+        if (tempo) { tempo.dispose(); tempo = null; }
         if (gain) { gain.dispose(); gain = null; }
         if (gainContext && typeof gainContext.close === 'function') Promise.resolve(gainContext.close()).catch(() => {});
         gainContext = null;
@@ -309,6 +315,8 @@ export function createCorrectionViewController(options) {
         });
         listen('pause', () => { if (gain) gain.stop(); });
         listen('ended', () => { if (gain) gain.stop(); });
+        // Same tempo controller the player buttons use (seek, rewind); the pedal calls it too.
+        tempo = usePlaybackTempo({ audio: el, onSync });
         // Highlight follows the real media position (rAF while playing, events otherwise); it never touches focus or editor state.
         highlighter = createPlaybackHighlighter({ alignment, audio: el, root: alignmentRoot });
     }
@@ -438,9 +446,45 @@ export function createCorrectionViewController(options) {
     const leaseRun = { acquire: editor.acquire, release: editor.release, takeOver: editor.takeOver };
     const leaseButtons = () => leaseActions(editor.lease.value).filter((a) => typeof leaseRun[a.id] === 'function');
 
+    // --- foot pedal, keyboard mode (PAR-OPS-001) -----------------------------
+    // The pedal calls the same functions as the player controls: modeAudio (play, pause) and the tempo
+    // controller (rewind, skip). No playback action mutates data; `mutating` stays empty and canMutate
+    // follows the lease so a future mutating command cannot bypass it. The module is loaded on demand.
+    function startPedal() {
+        if (opts.pedal === false) return Promise.resolve(null);
+        return import('./pedal-ui.js').then((mod) => {
+            if (disposed) return null;
+            pedal = mod.createPedalController({
+                vue: api,
+                commands: {
+                    play: () => modeAudio.play(),
+                    pause: () => modeAudio.pause(),
+                    playPause: () => (modeAudio.isPlaying() ? modeAudio.pause() : modeAudio.play()),
+                    rewind: (s) => { if (tempo) tempo.rewind(s); },
+                    skip: (s) => { if (tempo) tempo.skip(s); },
+                },
+                mutating: [],
+                canMutate: () => Boolean(editor.canEdit.value),
+                ...(opts.pedalOptions || {}),
+            });
+            pedal.attach();
+            pedalStatus.value = pedal.status.value;
+            return pedal;
+        }).catch(() => null);
+    }
+
+    /** Applies and stores new pedal settings (settings page); keeps the status line in step. */
+    function setPedalSettings(next) {
+        if (!pedal) return null;
+        const applied = pedal.setSettings(next);
+        pedalStatus.value = pedal.status.value;
+        return applied;
+    }
+
     async function start() {
         if (disposed) return null;
         modes.start();
+        pedalReady = startPedal();
         return load();
     }
 
@@ -474,6 +518,8 @@ export function createCorrectionViewController(options) {
         const holdsLease = editor.lease.value && editor.lease.value.status === 'held';
         disposed = true;
         for (const stop of stops.splice(0)) if (typeof stop === 'function') stop();
+        if (pedal) { pedal.detach(); pedal = null; }
+        pedalStatus.value = '';
         unbindAudio();
         audioEl.value = null;
         const released = holdsLease ? editor.release() : null; // writes stop first, then the server is told
@@ -493,6 +539,7 @@ export function createCorrectionViewController(options) {
         peaksKey, peaksFetch,
         stepSeconds: v8 ? STEP_SECONDS_V8 : STEP_SECONDS,
         leaseRun, leaseButtons,
+        pedalStatus, pedalReady: () => pedalReady, pedal: () => pedal, setPedalSettings,
         start, load, save, setText, reloadLatest, keepMine, takeServer, compare: () => saver.compare(), close, dispose, syncRevision,
         client: scoped, bindAudio, bindAlignmentRoot, alignmentNotice, onSync, onShortcut, onKeydown, onInput, onSelect, onTemplate, seekToResume, getPositionMs, seek,
         text: TEXT,
@@ -556,6 +603,7 @@ export const CorrectionBody = {
             mode: m.mode, modeStatus: m.status, modeError: m.error, modeAnnouncement: m.announcement,
             ready: c.ready, loadGeneration: c.loadGeneration, revisionGeneration: c.revisionGeneration,
             audioEl: c.audioEl, gainState: c.gainState, closeMessage: c.closeMessage, resumeLabel: c.resumeLabel,
+            pedalStatus: c.pedalStatus,
         };
     },
     template: `
@@ -641,6 +689,7 @@ export const CorrectionBody = {
           <audio controls preload="metadata" :ref="c.bindAudio" :src="audio.status === 'ready' ? audio.src : null" :aria-label="TEXT.audio"></audio>
           <p v-if="audio.status !== 'ready' && audio.status !== 'idle' && audio.status !== 'loading'" role="note">{{ audio.message }}</p>
           <PlaybackTempo v-if="audioEl" :audio="audioEl" :step-seconds="c.stepSeconds" :on-sync="c.onSync" />
+          <p v-if="pedalStatus" role="status" :aria-label="TEXT.pedalStatus" data-testid="pedal-status">{{ pedalStatus }}</p>
           <PlaybackGain v-if="gainState" :state="gainState.value" :controller="c.gain()" />
           <fieldset class="clinic-correction-modes" :aria-busy="modeStatus === 'saving'" :data-mode="mode">
             <legend>{{ TEXT.mode }}</legend>
