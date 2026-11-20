@@ -128,6 +128,7 @@ def _exercise():
             assert db.session.get(workflow.ClinicWorkflowDictation, target).status == status
             event = AuditEvent.query.filter_by(recording_id=row.recording_id, event='recording.edited').one()
             assert event.actor_user_id == author and event.details['fields'] == ['workflow_status', 'workflow_send']
+        assert ProcessingJob.query.filter_by(job_type='clinic_notify').count() == 0
         pools.deny(author, 'own', actions=['edit'], actor_id=other)
     assert post(idle, key=key).status_code == 403
 
