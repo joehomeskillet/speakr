@@ -138,6 +138,24 @@ def test_time_source_recording_time_leads_and_fallback_is_marked(clinic_on, orig
                   if o.dictation_id in {d.id for d in _dictations(author['id'])}}
         assert set(by_ref) == {'recording', 'upload'}
         assert by_ref['recording'].created_at.replace(tzinfo=None).isoformat() == '2026-03-02T08:15:00'
+        entry = {e.row['dictation_id']: e for e in worklist_entries.load_entries(author['id'])}
+        assert entry[by_ref['recording'].dictation_id].row['created_at'].startswith('2026-03-02T08:15:00')
+
+
+def test_file_last_modified_alone_is_marked_as_file_time(clinic_on, originals, author):
+    # 2026-03-02T08:15:00Z in milliseconds
+    _post(author['id'], client_upload_id='cu-f1', file_last_modified='1772439300000')
+    with app.app_context():
+        refs = [o.origin_ref for o in ClinicOriginal.query.all()
+                if o.dictation_id in {d.id for d in _dictations(author['id'])}]
+        assert len(refs) == 1 and refs[0].endswith(':time=file')
+
+
+def test_cancel_during_request_leaves_no_dictation(clinic_on, originals, author):
+    with patch('src.services.upload_cancel.register_recording', return_value=True):
+        response = _post(author['id'], client_upload_id='cu-cancel-1')
+    assert response.status_code == 409
+    assert _dictations(author['id']) == []
 
 
 def test_clinic_mode_off_creates_no_dictation(clinic_off, author):

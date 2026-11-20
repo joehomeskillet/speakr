@@ -12,7 +12,10 @@ dictation to the logged-in author and the author's pool, and adds the work-list 
   sent no id. The same key and bytes return the existing dictation.
 * Time: the recording time (form, file name, file date, embedded metadata) when the upload
   pipeline found one; otherwise the upload time. Which one was used is written into the
-  receipt (``origin_ref``: ``time=recording`` or ``time=upload``).
+  receipt (``origin_ref``: ``time=recording`` ``time=recording``, ``time=file`` (file system date, marked) or ``time=upload``).
+* Handover (not reached by the single hook): multi-file join uploads, server-side recorder
+  sessions (``/upload/session/<sid>/finalize``) and share_target create no dictation; a cancel
+  after the request finished (``upload_cancel.cancel_upload``) leaves the bound dictation.
 * Failure: the half-made upload recording is removed and a visible error is returned. The
   stored original file stays under its key, so a retry reuses it (no orphan row).
 
@@ -62,6 +65,19 @@ def _sha256(path: str) -> str:
     return digest.hexdigest()
 
 
+def _time_source(form, now: datetime, meeting_date: datetime | None) -> str:
+    """Label the time: recording (form, recorder, embedded), file (file mtime) or upload."""
+    if meeting_date is None or meeting_date is now:
+        return 'upload'
+    if form.get('meeting_date') or str(form.get('from_recorder', '')).lower() == 'true':
+        return 'recording'
+    try:
+        mtime = datetime.fromtimestamp(int(form.get('file_last_modified')) / 1000, tz=timezone.utc)
+    except (TypeError, ValueError, OSError):
+        return 'recording'
+    return 'file' if meeting_date == mtime.replace(tzinfo=None) else 'recording'
+
+
 def _refuse(recording, storage, code: str, message: str, status: int):
     """Remove the upload recording so no stray row remains, then answer visibly."""
     from src.services.upload_cancel import discard_unannounced_recording
@@ -85,7 +101,7 @@ def register_upload(*, owner, recording, storage, form, now: datetime,
         return _refuse(recording, storage, 'clinic_no_author_pool', MSG_NO_POOL, 403)
 
     from src.services.upload_cancel import client_upload_id_from
-    time_source = 'upload' if meeting_date is None or meeting_date is now else 'recording'
+    time_source = _time_source(form, now, meeting_date)
     moment = _utc(now if time_source == 'upload' else meeting_date)
     origin = 'web-recorder' if str(form.get('from_recorder', '')).lower() == 'true' else 'web-upload'
     try:
@@ -106,7 +122,7 @@ def register_upload(*, owner, recording, storage, form, now: datetime,
         if db.session.get(ClinicWorkflowDictation, dictation.id) is None:
             db.session.add(ClinicWorkflowDictation(
                 id=dictation.id, author_user_id=owner.id, pool_id=dictation.pool_id,
-                status=DRAFT, audio_seconds=int(recording.audio_duration_seconds or 0)))
+                status=DRAFT, created_at=moment, audio_seconds=int(recording.audio_duration_seconds or 0)))
         db.session.commit()
     except IngestError as error:
         logger.warning('web ingest refused for user %s: %s', owner.id, error.code)
