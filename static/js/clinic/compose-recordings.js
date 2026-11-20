@@ -11,7 +11,7 @@
  * Colours come from tokens.js. Nothing is written to browser storage or URLs.
  */
 
-import { RECORDINGS_PAGE_SIZE, TEXT, createRecordingsController } from './recordings-ui.js';
+import { PERIODS, RECORDINGS_PAGE_SIZE, TEXT, createRecordingsController } from './recordings-ui.js';
 
 export const COMPOSE_RECORDINGS_VERSION = 1;
 export { RECORDINGS_PAGE_SIZE, createRecordingsController };
@@ -51,49 +51,66 @@ export const RecordingsView = {
             const row = c.state.rows.find((entry) => entry.dictationId === id);
             return row && { dictator: row.author, pool: row.poolText };
         }
-        return { c, scroller, onScroll, filtersOpen, t: TEXT, rowContext };
+        return { c, scroller, onScroll, filtersOpen, t: TEXT, periods: PERIODS, rowContext };
     },
     template: `
-<section class="clinic-recordings-view cl-view" data-testid="clinic-recordings-view" aria-labelledby="crv-title">
-  <div class="cl-head">
-    <h1 id="crv-title" class="cl-title">{{ t.title }}</h1>
-    <span v-if="c.state.loaded" class="cl-sub" data-testid="result-count">{{ c.countLabel() }}</span>
-    <span class="cl-toolbar__spacer" aria-hidden="true"></span>
-    <button type="button" class="btn btn--ghost btn--icon" :aria-label="t.refresh" :title="t.refresh"
-            :disabled="c.state.loading" @click="c.load()"><i class="fa-solid fa-rotate" :class="c.state.loading ? 'cl-spin' : ''" aria-hidden="true"></i></button>
-    <button type="button" class="btn btn--ghost cl-filters-toggle" data-testid="filters-toggle" aria-controls="crv-filters"
-            :aria-expanded="filtersOpen ? 'true' : 'false'" @click="filtersOpen = !filtersOpen">
-      <i class="fa-solid fa-sliders" aria-hidden="true"></i>{{ t.filters }}
-      <span v-if="c.activeFilterCount()" class="cl-badge"><span class="cl-sr-only">{{ t.activeFilters }}: </span>{{ c.activeFilterCount() }}</span>
-    </button>
+<section class="clinic-recordings-view cl-view content-inner v8-page" data-testid="clinic-recordings-view" aria-labelledby="crv-title">
+  <div class="page-head recordings-head">
+    <div>
+      <div class="eyebrow">{{ t.eyebrow }}</div>
+      <div class="hline"><h1 id="crv-title" class="cl-title" tabindex="-1">{{ t.title }}</h1><span v-if="c.state.loaded" class="count-pill" data-testid="total-count">{{ c.totalLabel() }}</span></div>
+      <p class="subtitle">{{ t.subtitle }}</p>
+    </div>
+    <div class="page-actions">
+      <button type="button" class="btn btn--ghost btn--icon" :aria-label="t.refresh" :title="t.refresh"
+              :disabled="c.state.loading" @click="c.load()"><i class="fa-solid fa-rotate" :class="c.state.loading ? 'cl-spin' : ''" aria-hidden="true"></i></button>
+      <button type="button" class="btn btn--ghost md:hidden" data-testid="filters-toggle" aria-controls="crv-filters"
+              :aria-expanded="filtersOpen ? 'true' : 'false'" @click="filtersOpen = !filtersOpen">
+        <i class="fa-solid fa-sliders" aria-hidden="true"></i>{{ t.filters }}
+        <span v-if="c.activeFilterCount()" class="count-pill"><span class="cl-sr-only">{{ t.activeFilters }}: </span>{{ c.activeFilterCount() }}</span>
+      </button>
+    </div>
   </div>
-  <form id="crv-filters" class="cl-filterbar" role="search" :aria-label="t.filters" data-testid="filters"
-        :data-collapsed="filtersOpen ? 'false' : 'true'" @submit.prevent="c.applyFilters()">
-    <label class="cl-label">{{ t.authorId }}
-      <input type="text" class="field" data-testid="filter-author" list="crv-authors" autocomplete="off"
-             :placeholder="t.authorAny" :value="c.picker.author" @input="c.pick('author', $event.target.value)">
-      <datalist id="crv-authors"><option v-for="o in c.options.authors" :key="o.value" :value="o.label"></option></datalist>
-    </label>
-    <label class="cl-label">{{ t.poolId }}
-      <input type="text" class="field" data-testid="filter-pool" list="crv-pools" autocomplete="off"
-             :placeholder="t.poolAny" :value="c.picker.pool" @input="c.pick('pool', $event.target.value)">
-      <datalist id="crv-pools"><option v-for="o in c.options.pools" :key="o.value" :value="o.label"></option></datalist>
-    </label>
-    <label class="cl-label">{{ t.status }}
-      <select class="field" data-testid="filter-status" v-model="c.state.draft.status">
+  <!-- Filter card (prototype record-toolbar). The server filters by author, pool, status and period; the search runs over the loaded rows. -->
+  <form id="crv-filters" role="search" :aria-label="t.filters" data-testid="filters"
+        :data-collapsed="filtersOpen ? 'false' : 'true'" :class="filtersOpen ? '' : 'hidden md:block'" @submit.prevent="c.applyFilters()">
+    <div class="record-toolbar">
+      <label class="record-search" :title="t.loadedOnly">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>
+        <input type="search" style="border: 0; padding: 0; min-height: 0; height: auto; background: transparent; box-shadow: none; font-size: 13px" data-testid="filter-search" :aria-label="t.searchLabel" :placeholder="t.searchPlaceholder" autocomplete="off" v-model="c.state.query">
+      </label>
+      <select class="record-select" style="appearance: auto; width: auto; font-size: 12px" data-testid="filter-status" :aria-label="t.statusLabel" v-model="c.state.draft.status" @change="c.applyFilters()">
         <option value="">{{ t.statusAny }}</option>
         <option v-for="(label, key) in c.statusOptions" :key="key" :value="key">{{ label }}</option>
       </select>
-    </label>
-    <label class="cl-label">{{ t.from }}
-      <input type="date" class="field" data-testid="filter-from" v-model="c.state.draft.from">
-    </label>
-    <label class="cl-label">{{ t.to }}
-      <input type="date" class="field" data-testid="filter-to" v-model="c.state.draft.to">
-    </label>
-    <div class="cl-filterbar__actions">
-      <button type="submit" class="btn btn--primary" data-testid="apply">{{ t.apply }}</button>
-      <button type="button" class="btn btn--ghost" data-testid="reset" @click="c.resetFilters()">{{ t.reset }}</button>
+      <select class="record-select" style="appearance: auto; width: auto; font-size: 12px" data-testid="filter-period" :aria-label="t.periodLabel" :value="c.picker.period"
+              @change="c.setPeriod($event.target.value); if ($event.target.value !== 'custom') c.applyFilters()">
+        <option v-for="p in periods" :key="p.key" :value="p.key">{{ p.label }}</option>
+      </select>
+    </div>
+    <div class="record-role-filters">
+      <label><span>{{ t.authorId }}</span>
+        <input type="text" class="record-select" style="font-size: 12px" data-testid="filter-author" list="crv-authors" autocomplete="off"
+               :placeholder="t.authorAny" :value="c.picker.author" @input="c.pick('author', $event.target.value)">
+        <datalist id="crv-authors"><option v-for="o in c.options.authors" :key="o.value" :value="o.label"></option></datalist>
+      </label>
+      <label><span>{{ t.poolId }}</span>
+        <input type="text" class="record-select" style="font-size: 12px" data-testid="filter-pool" list="crv-pools" autocomplete="off"
+               :placeholder="t.poolAny" :value="c.picker.pool" @input="c.pick('pool', $event.target.value)">
+        <datalist id="crv-pools"><option v-for="o in c.options.pools" :key="o.value" :value="o.label"></option></datalist>
+      </label>
+      <template v-if="c.picker.period === 'custom'">
+        <label><span>{{ t.from }}</span>
+          <input type="date" class="record-select" style="font-size: 12px" data-testid="filter-from" v-model="c.state.draft.from">
+        </label>
+        <label><span>{{ t.to }}</span>
+          <input type="date" class="record-select" style="font-size: 12px" data-testid="filter-to" v-model="c.state.draft.to">
+        </label>
+      </template>
+      <div class="page-actions">
+        <button type="submit" class="btn btn--primary primary" style="background: var(--ink); border-color: var(--ink); font-size: 12px; min-height: 40px" data-testid="apply">{{ t.apply }}</button>
+        <button type="button" class="btn btn--ghost" style="font-size: 12px; min-height: 40px" data-testid="reset" @click="c.resetFilters()">{{ t.reset }}</button>
+      </div>
     </div>
   </form>
   <div v-if="c.state.denied" role="alert" class="cl-alert" data-testid="denied-state">{{ t.denied }}</div>
@@ -102,68 +119,51 @@ export const RecordingsView = {
       <span><span v-if="c.state.stale">{{ t.stale }} </span>{{ c.state.error }}</span>
       <button type="button" class="btn btn--ghost btn--sm" @click="c.load()">{{ t.retry }}</button>
     </div>
-    <div v-if="c.state.loading" class="cl-state" role="status" aria-live="polite" data-testid="loading-state">
-      <span class="cl-state__icon"><i class="fa-solid fa-spinner cl-spin" aria-hidden="true"></i></span>
-      <p class="cl-state__body">{{ t.loading }}</p>
+    <div v-if="c.state.loaded && !c.state.error" class="record-list-meta">
+      <p role="status" aria-live="polite" data-testid="result-count">{{ c.countLabel() }}</p>
+      <div class="record-order"><span class="sort-label">{{ t.sortLabel }}</span><span class="sort-label">{{ t.sortNewest }}</span></div>
     </div>
-    <div v-else-if="c.state.loaded && !c.state.rows.length && !c.state.error" class="cl-state" data-testid="empty-state">
-      <span class="cl-state__icon"><i class="fa-regular fa-folder-open" aria-hidden="true"></i></span>
-      <p class="cl-state__title">{{ c.hasFilters() ? t.noMatch : t.empty }}</p>
-      <button v-if="c.hasFilters()" type="button" class="btn btn--ghost" @click="c.resetFilters()">{{ t.reset }}</button>
+    <div v-if="c.state.loading" class="record-empty" role="status" aria-live="polite" data-testid="loading-state">
+      <i class="fa-solid fa-spinner cl-spin" aria-hidden="true"></i>
+      <p>{{ t.loading }}</p>
     </div>
-    <div v-if="c.state.rows.length" ref="scroller" class="cl-scroller" data-testid="scroller" @scroll="onScroll">
-      <section v-for="(g, gi) in c.groups()" :key="'d:' + g.day" class="cl-day" :aria-label="g.label">
-        <h2 class="cl-day__heading" data-testid="day-heading">{{ g.label }}<span class="cl-day__count">{{ g.rows.length }}</span></h2>
-        <div class="cl-tablewrap hidden md:block">
-          <table class="cl-table cl-table--fixed w-full hidden md:table" data-testid="table">
-            <colgroup>
-              <col class="c-time"><col class="c-author"><col class="c-pool"><col class="c-lease"><col class="c-status"><col class="c-duration"><col class="c-case">
-            </colgroup>
-            <thead :class="gi > 0 ? 'cl-sr-only' : ''">
-              <tr>
-                <th scope="col">{{ t.time }}</th>
-                <th scope="col">{{ t.author }}</th>
-                <th scope="col">{{ t.pool }}</th>
-                <th scope="col">{{ t.lease }}</th>
-                <th scope="col">{{ t.status }}</th>
-                <th scope="col" class="cl-num">{{ t.duration }}</th>
-                <th scope="col">{{ t.caseId }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="r in g.rows" :key="r.key" class="cl-row" data-row :data-id="r.dictationId">
-                <td class="cl-nowrap">
-                  <a href="#" class="cl-link" data-testid="open-link" :aria-label="t.open + ': ' + r.time + ', ' + r.author" @click.prevent="c.open(r)">{{ r.time }}</a>
-                  <span v-if="r.isFallback" class="cl-fallback" data-testid="fallback" :title="r.fallbackTip" :aria-label="r.fallbackTip">{{ r.fallbackLabel }}</span>
-                </td>
-                <td data-cell="author" :title="r.author">{{ r.author }}</td>
-                <td data-cell="pool" :title="r.poolText" :class="r.pools.length ? '' : 'cl-muted'">{{ r.poolText }}</td>
-                <td data-cell="lease" :class="r.leaseHolder === '–' ? 'cl-muted' : ''">{{ r.leaseHolder }}</td>
-                <td><span class="pill-status cl-pill" :style="r.statusStyle" :title="r.processing">{{ r.status }}</span></td>
-                <td class="cl-num">{{ r.duration }}</td>
-                <td data-cell="case">{{ r.caseDisplay }}</td>
-              </tr>
-            </tbody>
-          </table>
+    <div v-else-if="c.state.loaded && !c.visibleRows().length && !c.state.error" class="record-empty" data-testid="empty-state">
+      <h2 style="font-size: 20px; font-weight: 700; color: var(--ink)">{{ c.hasFilters() || c.hasQuery() ? t.noMatch : t.empty }}</h2>
+      <p>{{ c.hasFilters() || c.hasQuery() ? t.noMatchHint : t.emptyHint }}</p>
+      <button v-if="c.hasFilters() || c.hasQuery()" type="button" class="btn btn--ghost" @click="c.resetFilters()">{{ t.reset }}</button>
+    </div>
+    <!-- One responsive list for desktop and phone: the grid of .recording-row changes at the prototype breakpoints.
+         The former copies (table "hidden md:table" and cards) are gone; the role cells keep their data-cell markers. -->
+    <div v-if="c.visibleRows().length" ref="scroller" class="record-timeline" data-testid="scroller" @scroll="onScroll">
+      <section v-for="g in c.groups()" :key="'d:' + g.day" class="date-group" :aria-label="g.caption ? g.title + ', ' + g.caption : g.title">
+        <div class="date-heading">
+          <h2 data-testid="day-heading">{{ g.title }}</h2>
+          <span v-if="g.caption" class="date-caption">{{ g.caption }}</span>
+          <span class="group-count">{{ g.countText }}</span>
         </div>
-        <ul class="cl-cards md:hidden list-none p-0 m-0" data-testid="cards">
-          <li v-for="r in g.rows" :key="'c:' + r.key" class="cl-card" data-card :data-id="r.dictationId">
-            <div class="cl-card__top">
-              <span>
-                <a href="#" class="cl-link" data-testid="open-link" :aria-label="t.open + ': ' + r.time + ', ' + r.author" @click.prevent="c.open(r)">{{ r.time }}</a>
-                <span v-if="r.isFallback" class="cl-fallback" data-testid="fallback" :title="r.fallbackTip" :aria-label="r.fallbackTip">{{ r.fallbackLabel }}</span>
+        <div class="record-group-list" data-testid="cards">
+          <a v-for="r in g.rows" :key="r.key" href="#" class="recording-row" style="text-decoration: none" data-row data-card :data-id="r.dictationId" data-testid="open-link"
+             :aria-label="t.open + ': ' + r.time + ', ' + r.author" @click.prevent="c.open(r)">
+            <time class="record-time">{{ r.time }}</time>
+            <span class="record-icon" aria-hidden="true">
+              <svg v-if="r.sourceKind === 'upload'" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+              <svg v-else width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4M8 22h8"/></svg>
+            </span>
+            <span class="record-text">
+              <span class="record-title">{{ r.heading }}</span>
+              <span class="record-roles">
+                <span class="record-role"><span class="record-role-label">{{ t.author }}:</span> <span class="dictator-name" data-cell="author" :title="r.author">{{ r.author }}</span></span>
+                <span class="record-role"><span class="record-role-label">{{ t.pool }}:</span> <span class="pool-name" data-cell="pool" :title="r.poolText">{{ r.poolText }}</span></span>
+                <span v-if="r.hasLease" class="record-role"><span class="record-role-label">{{ t.lease }}:</span> <span data-cell="lease">{{ r.leaseHolder }}</span></span>
               </span>
-              <span class="pill-status cl-pill" :style="r.statusStyle">{{ r.status }}</span>
-            </div>
-            <dl>
-              <dt>{{ t.author }}</dt><dd>{{ r.author }}</dd>
-              <dt>{{ t.pool }}</dt><dd>{{ r.poolText }}</dd>
-              <dt>{{ t.lease }}</dt><dd>{{ r.leaseHolder }}</dd>
-              <template v-if="r.caseDisplay"><dt>{{ t.caseId }}</dt><dd>{{ r.caseDisplay }}</dd></template>
-              <dt>{{ t.duration }}</dt><dd>{{ r.duration }}</dd>
-            </dl>
-          </li>
-        </ul>
+              <span class="record-subtitle" :class="r.isFallback ? 'date-fallback' : ''">#{{ r.dictationId }}<span v-if="r.fallbackText" data-testid="fallback" :title="r.fallbackTip" :aria-label="r.fallbackTip"> · {{ r.fallbackText }}</span><span v-else-if="r.isFallback" data-testid="fallback" :title="r.fallbackTip" :aria-label="r.fallbackTip"> · {{ r.fallbackLabel }}</span></span>
+            </span>
+            <span class="status" :style="r.statusStyle" :title="r.processing">{{ r.status }}</span>
+            <span class="record-source">{{ r.sourceLabel }}</span>
+            <span class="record-duration">{{ r.duration }}</span>
+            <span class="record-chevron" aria-hidden="true">›</span>
+          </a>
+        </div>
       </section>
       <div v-if="c.state.nextCursor" class="cl-more">
         <button type="button" class="btn btn--ghost" data-testid="load-more" :disabled="c.state.loadingMore" @click="c.loadMore()">

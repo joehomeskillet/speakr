@@ -24,6 +24,27 @@ const ACTIVE_STATUS_LABELS = Object.freeze(Object.fromEntries(
 
 export const TEXT = Object.freeze({
     title: 'Aufnahmen',
+    eyebrow: 'Deine Aufnahmen',
+    subtitle: 'Alle Aufnahmen an einem Ort, nach Aufnahmezeit geordnet.',
+    searchLabel: 'Aufnahmen durchsuchen',
+    searchPlaceholder: 'Person, Pool oder Fall-ID suchen …',
+    periodAny: 'Gesamter Zeitraum',
+    periodToday: 'Heute',
+    period7: 'Letzte 7 Tage',
+    period30: 'Letzte 30 Tage',
+    periodCustom: 'Eigener Zeitraum',
+    periodLabel: 'Zeitraum der Aufnahme',
+    statusLabel: 'Status der Aufnahme',
+    sortLabel: 'Aufnahmedatum',
+    sortNewest: 'Neueste zuerst',
+    resultOf: '{n} von {m} Aufnahmen',
+    dictation: 'Diktat',
+    sourceMic: 'Mikrofon',
+    sourceImport: 'Import',
+    today: 'Heute',
+    yesterday: 'Gestern',
+    emptyHint: 'Neue Aufnahmen erscheinen hier, nach Aufnahmezeit geordnet.',
+    noMatchHint: 'Passe die Suche oder die Filter an, um Aufnahmen anzuzeigen.',
     loading: 'Laden …',
     loadMore: 'Mehr laden',
     loadingMore: 'Lädt weitere Aufnahmen …',
@@ -63,12 +84,15 @@ export const TEXT = Object.freeze({
     from: 'Von',
     to: 'Bis',
     fallbackBadge: 'erfasst',
+    fallbackImportedText: 'Importdatum',
+    fallbackCreatedText: 'Erstelldatum',
     fallbackImported: 'Ersatzzeit: importiert am. Dies ist nicht die Aufnahmezeit.',
     fallbackCreated: 'Ersatzzeit: erstellt am. Dies ist nicht die Aufnahmezeit.',
     fallbackUnknown: 'Ersatzzeit. Dies ist nicht die Aufnahmezeit.',
 });
 
 const WEEKDAYS = Object.freeze(['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag']);
+const MONTHS = Object.freeze(['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember']);
 const DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 /** "2026-11-20" (Zurich day from the server) to "Freitag, 20.11.2026"; unknown input gives "Ohne Datum". */
@@ -77,6 +101,67 @@ export function formatDay(day) {
     if (!m) return 'Ohne Datum';
     const weekday = WEEKDAYS[new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).getUTCDay()];
     return weekday + ', ' + m[3] + '.' + m[2] + '.' + m[1];
+}
+
+/** "2026-11-20" to "Freitag, 20. November 2026"; unknown input gives "Ohne Datum". */
+export function formatLongDay(day) {
+    const m = DAY.exec(String(day || ''));
+    if (!m) return 'Ohne Datum';
+    const weekday = WEEKDAYS[new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).getUTCDay()];
+    return weekday + ', ' + Number(m[3]) + '. ' + MONTHS[+m[2] - 1] + ' ' + m[1];
+}
+
+const dayFormat = typeof Intl !== 'undefined'
+    ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Zurich', year: 'numeric', month: '2-digit', day: '2-digit' })
+    : null;
+
+/** Current Zurich day as "YYYY-MM-DD" (the clock of the browser, never a demo date). */
+export function zurichToday(now) {
+    const at = now instanceof Date ? now : new Date();
+    return dayFormat ? dayFormat.format(at) : at.toISOString().slice(0, 10);
+}
+
+/** Shifts a "YYYY-MM-DD" day by whole days. */
+export function shiftDay(day, delta) {
+    const m = DAY.exec(String(day || ''));
+    if (!m) return '';
+    return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3] + delta)).toISOString().slice(0, 10);
+}
+
+/** Period choices of the filter card. The keys "all" and "custom" carry no preset range. */
+export const PERIODS = Object.freeze([
+    { key: 'all', label: TEXT.periodAny },
+    { key: 'today', label: TEXT.periodToday, days: 1 },
+    { key: 'week', label: TEXT.period7, days: 7 },
+    { key: 'month', label: TEXT.period30, days: 30 },
+    { key: 'custom', label: TEXT.periodCustom },
+]);
+
+/** { from, to } of a preset period ending today; empty strings for "all" and "custom". */
+export function periodRange(key, today) {
+    const preset = PERIODS.find((p) => p.key === key && p.days);
+    const end = today || zurichToday();
+    return preset ? { from: shiftDay(end, 1 - preset.days), to: end } : { from: '', to: '' };
+}
+
+/** The period key that describes a from/to pair: "all" without dates, a preset when the range matches, else "custom". */
+export function periodOf(from, to, today) {
+    if (!from && !to) return 'all';
+    const hit = PERIODS.find((p) => {
+        if (!p.days) return false;
+        const r = periodRange(p.key, today);
+        return r.from === from && r.to === to;
+    });
+    return hit ? hit.key : 'custom';
+}
+
+/** Group heading: "Heute" / "Gestern" with the long date as caption, else the long date alone. */
+export function dayHeading(day, today) {
+    const now = today || zurichToday();
+    const long = formatLongDay(day);
+    if (day && day === now) return { title: TEXT.today, caption: long };
+    if (day && day === shiftDay(now, -1)) return { title: TEXT.yesterday, caption: long };
+    return { title: long, caption: '' };
 }
 
 const timeFormat = typeof Intl !== 'undefined'
@@ -132,18 +217,31 @@ export function toViewRow(item) {
         duration: seconds === null ? TEXT.none : formatAudioDuration(seconds),
         caseDisplay: item.case_display || '',
         workflowStatus: item.workflow_status || null,
+        heading: item.case_display ? TEXT.caseId + ' ' + item.case_display : TEXT.dictation,
+        hasLease: nameOf(item.lease_holder) !== null,
+        sourceKind: source === 'imported' ? 'upload' : 'mic',
+        sourceLabel: source === 'recorded' ? TEXT.sourceMic : (source === 'imported' ? TEXT.sourceImport : ''),
+        fallbackText: source === 'imported' ? TEXT.fallbackImportedText : (source === 'created' ? TEXT.fallbackCreatedText : ''),
+        searchText: [nameOf(item.dictated_by), pools.join(' '), item.case_display, '#' + item.dictation_id, item.dictation_id].filter(Boolean).join(' ').toLowerCase(),
     };
 }
 
 /** Consecutive rows with the same day become one group; server order is kept. */
-export function groupByDay(rows) {
+export function groupByDay(rows, today) {
     const groups = [];
     for (const row of rows) {
         const last = groups[groups.length - 1];
         if (last && last.day === row.day) last.rows.push(row);
-        else groups.push({ day: row.day, label: formatDay(row.day), rows: [row] });
+        else groups.push({ day: row.day, label: formatDay(row.day), ...dayHeading(row.day, today), rows: [row] });
     }
+    for (const g of groups) g.countText = g.rows.length === 1 ? TEXT.countOne : TEXT.countMany.replace('{n}', String(g.rows.length));
     return groups;
+}
+
+/** Client-side text search over the loaded rows: every word must occur in author, pool, Fall-ID or ID. */
+export function matchesQuery(row, query) {
+    const words = String(query || '').toLowerCase().split(/\s+/).filter(Boolean);
+    return words.every((w) => row.searchText.includes(w));
 }
 
 /**
@@ -227,11 +325,11 @@ export function createRecordingsController(options) {
     const state = reactive({
         rows: [], nextCursor: null, loaded: false, loading: false, loadingMore: false,
         error: null, denied: false, stale: false,
-        filters: { ...emptyFilters() }, draft: { ...emptyFilters() },
+        filters: { ...emptyFilters() }, draft: { ...emptyFilters() }, query: '',
     });
     const registry = { authors: new Map(), pools: new Map() };
     const optionState = reactive({ authors: [], pools: [] });
-    const picker = reactive({ author: '', pool: '' });
+    const picker = reactive({ author: '', pool: '', period: 'all' });
     const registryOf = (kind) => (kind === 'pool' ? registry.pools : registry.authors);
     const fieldOf = (kind) => (kind === 'pool' ? 'pool_id' : 'author_id');
     // Text shown in a name field: the name of a known ID, else the ID as typed.
@@ -239,6 +337,7 @@ export function createRecordingsController(options) {
     const refreshPickers = () => {
         picker.author = textOf('author', state.draft.author_id);
         picker.pool = textOf('pool', state.draft.pool_id);
+        picker.period = periodOf(state.draft.from, state.draft.to);
     };
     const refreshOptions = () => {
         optionState.authors = optionList(registry.authors, state.filters.author_id);
@@ -251,6 +350,12 @@ export function createRecordingsController(options) {
         const hit = [...registryOf(kind)].find(([, name]) => name === typed);
         state.draft[fieldOf(kind)] = hit ? hit[0] : (/^\d+$/.test(typed) ? typed : '');
     }
+    /** The period select was changed: a preset fills the date range, "custom" keeps the dates for the date fields. */
+    function setPeriod(key) {
+        picker.period = PERIODS.some((p) => p.key === key) ? key : 'all';
+        if (picker.period !== 'custom') Object.assign(state.draft, periodRange(picker.period));
+    }
+    const visibleRows = () => (String(state.query || '').trim() ? state.rows.filter((r) => matchesQuery(r, state.query)) : state.rows);
     let scrollTop = 0;
     let sequence = 0;
     let disposed = false;
@@ -330,6 +435,7 @@ export function createRecordingsController(options) {
     }
 
     function resetFilters() {
+        state.query = '';
         state.draft = { ...emptyFilters() };
         refreshPickers();
         return applyFilters();
@@ -379,10 +485,16 @@ export function createRecordingsController(options) {
     }
 
     return {
-        state, start, load, loadMore, applyFilters, resetFilters, setScroll, open, dispose, options: optionState, picker, pick,
+        state, start, load, loadMore, applyFilters, resetFilters, setScroll, open, dispose, options: optionState, picker, pick, setPeriod, visibleRows,
         activeFilterCount: () => FILTER_KEYS.filter((k) => String(state.filters[k] || '').trim() !== '').length,
-        countLabel: () => (state.rows.length === 1 ? TEXT.countOne : TEXT.countMany.replace('{n}', String(state.rows.length))) + (state.nextCursor ? '+' : ''),
-        scrollTop: () => scrollTop, hasFilters, groups: () => groupByDay(state.rows),
+        countLabel: () => {
+            const n = visibleRows().length;
+            if (n !== state.rows.length) return TEXT.resultOf.replace('{n}', String(n)).replace('{m}', String(state.rows.length));
+            return (n === 1 ? TEXT.countOne : TEXT.countMany.replace('{n}', String(n))) + (state.nextCursor ? '+' : '');
+        },
+        totalLabel: () => String(state.rows.length) + (state.nextCursor ? '+' : ''),
+        hasQuery: () => String(state.query || '').trim() !== '',
+        scrollTop: () => scrollTop, hasFilters, groups: () => groupByDay(visibleRows()),
         text: TEXT, statusOptions: ACTIVE_STATUS_LABELS,
         errorStyle: (() => {
             const s = surfaceFor('error');
