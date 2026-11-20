@@ -387,8 +387,9 @@ def run_startup_tasks(app):
         # upload and enqueue it. Only the owner elected below runs workers.
         bind_job_queue(app)
 
-        if background_tasks_skipped():
-            app.logger.debug("SPEAKR_SKIP_BACKGROUND_TASKS is set: no background work started here")
+        from src.clinic.config import web_only
+        if web_only() or background_tasks_skipped():
+            app.logger.debug("No background work starts in this process")
             return
 
         # Everything below that runs in the background goes through

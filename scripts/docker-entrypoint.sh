@@ -1,6 +1,14 @@
 #!/bin/bash
 set -e
 
+# A clinic web-only replica serves on an existing installation. Startup in src.app
+# verifies clinic mode, the shared key, storage and schema before accepting requests.
+case "${CLINIC_WEB_ONLY:-0}" in
+    1) exec "$@" ;;
+    0) ;;
+    *) echo "CLINIC_WEB_ONLY must be 0 or 1" >&2; exit 64 ;;
+esac
+
 # Create necessary directories
 mkdir -p /data/uploads /data/instance
 chmod 755 /data/uploads /data/instance
