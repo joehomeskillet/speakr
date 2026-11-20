@@ -64,6 +64,7 @@ export function useWorklistRefresh(options = {}) {
     const tokenVersion = options.tokenVersion !== undefined ? options.tokenVersion : TOKEN_CONTRACT_VERSION;
     const intervalMs = options.intervalMs !== undefined ? options.intervalMs : 30000;
     const fetchChanges = options.fetchChanges || fetchRecordingChanges;
+    const usesRecordingFeed = fetchChanges === fetchRecordingChanges;
     const mapRecording = options.mapRecording || ((recording) => recording);
     const now = options.now || (() => new Date());
 
@@ -76,6 +77,7 @@ export function useWorklistRefresh(options = {}) {
     const isRunning = make(false);
 
     let cursor = options.initialCursor || null;
+    let invalidated = false;
     let generation = 0; // bumped on every new request and on stop: older answers are discarded
     let controller = null;
     let timer = null;
@@ -114,6 +116,7 @@ export function useWorklistRefresh(options = {}) {
         else worklist.selectRow(idx);
     };
 
+    // Custom delta readers supply their own rows and retain their local scope rules.
     const applyChanges = (changes) => {
         const role = { role: worklist.currentRole.value, userId: worklist.currentUserId.value };
         let list = [...worklist.rows.value];
@@ -152,7 +155,8 @@ export function useWorklistRefresh(options = {}) {
                 const items = Array.isArray(raw) ? raw : [];
                 worklist.isPermissionLost.value = false;
                 worklist.errorMessage.value = null;
-                commitRows(filterRowsByRole(items, { role: worklist.currentRole.value, userId: worklist.currentUserId.value }));
+                commitRows(items);
+                invalidated = false;
                 touch();
                 return response;
             }
@@ -198,10 +202,19 @@ export function useWorklistRefresh(options = {}) {
                     return response;
                 }
                 failures = 0;
-                applyChanges(response.data.changes);
+                if (usesRecordingFeed) {
+                    // The recording feed uses recording IDs and a different object policy.
+                    // Reload the clinic projection before showing any changed rows.
+                    invalidated ||= Array.isArray(response.data.changes) && response.data.changes.length > 0;
+                } else {
+                    applyChanges(response.data.changes);
+                }
                 if (response.data.next_cursor) cursor = response.data.next_cursor;
-                touch();
-                if (!response.data.has_more) return response;
+                if (!response.data.has_more) {
+                    if (invalidated) return refresh();
+                    touch();
+                    return response;
+                }
                 response = await fetchChanges(cursor, { signal });
             }
         } finally {
@@ -260,6 +273,7 @@ export function useWorklistRefresh(options = {}) {
     const logout = () => {
         stop();
         cursor = null;
+        invalidated = false;
         worklist.clearClinicalData();
         worklist.errorMessage.value = null;
         client.switchContext({ accountId: null, dictationId: null });
