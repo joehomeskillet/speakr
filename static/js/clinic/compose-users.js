@@ -52,11 +52,7 @@ export const LABELS = Object.freeze({
     statActive: 'Aktive Konten',
     statDisabled: 'Deaktivierte Konten',
     statAdmins: 'Administration',
-    rolesTitle: 'Rollen und Zugriff',
-    rolesText: 'Rollen erlauben Funktionen. Poolbezüge und Fachrechte werden je Benutzer unter den Bereichen oben geändert.',
     rolesNote: 'Der Zugriff auf ein konkretes Diktat bleibt zusätzlich an Benutzer, Pools und Objektberechtigungen gebunden. Eine Identitätsrolle gibt keinen Diktatzugriff.',
-    identityTitle: 'Anmeldung und Zugriff',
-    identityText: 'Wählen Sie das Konto, dessen Anmelderichtlinie Sie prüfen oder ändern möchten.',
     identityLink: 'Anmelderichtlinie öffnen',
 });
 
@@ -225,6 +221,15 @@ export const USERS_TEMPLATE = `
       </div>
       <p v-if="state.active === 'grants' && state.selectedId === null" class="hint" role="status">{{ labels.pickUser }}</p>
       <component v-else :is="activeComponent" v-bind="activeProps" :key="state.epoch + ':' + state.active + ':' + state.selectedId"></component>
+      <div v-if="state.active === 'accounts'" class="cadm-login-shortcut">
+        <label for="usr-login-account">Anmelderichtlinie für</label>
+        <select id="usr-login-account" :value="state.selectedId ?? ''" @change="selectUser($event.target.value)">
+          <option value="">Konto wählen</option>
+          <option v-for="a in accounts.accounts" :key="a.id" :value="a.id">{{ a.username }}</option>
+        </select>
+        <button type="button" class="button" :disabled="state.selectedId === null || accounts.busy || (accounts.draft && accounts.draft.id !== state.selectedId)" @click="openLoginPolicy">{{ labels.identityLink }}</button>
+      </div>
+      <p v-if="state.active === 'grants'" class="hint">{{ labels.rolesNote }}</p>
       <a v-if="state.active === 'accounts' && accounts.draft && accounts.draft.mode === 'edit'"
          :href="'/admin#/system/audit?konto=' + encodeURIComponent(accounts.draft.id)" class="button">
         Systemaktivität dieses Kontos
@@ -235,25 +240,6 @@ export const USERS_TEMPLATE = `
       <div class="stat"><span>{{ labels.statActive }}</span><strong>{{ stats.active }}</strong></div>
       <div class="stat"><span>{{ labels.statDisabled }}</span><strong>{{ stats.disabled }}</strong></div>
       <div class="stat"><span>{{ labels.statAdmins }}</span><strong>{{ stats.admins }}</strong></div>
-    </div>
-    <div v-if="accounts.loaded && state.active === 'accounts'" class="grid equal" style="margin-top: 20px">
-      <section class="panel" aria-labelledby="usr-note-roles">
-        <h2 id="usr-note-roles">{{ labels.rolesTitle }}</h2>
-        <p class="hint">{{ labels.rolesText }}</p>
-        <div class="note">{{ labels.rolesNote }}</div>
-      </section>
-      <section class="panel" aria-labelledby="usr-note-identity">
-        <h2 id="usr-note-identity">{{ labels.identityTitle }}</h2>
-        <p class="hint">{{ labels.identityText }}</p>
-        <label class="field" for="usr-login-account">
-          {{ labels.user }}
-          <select id="usr-login-account" :value="state.selectedId ?? ''" @change="selectUser($event.target.value)">
-            <option value="">Konto wählen</option>
-            <option v-for="a in accounts.accounts" :key="a.id" :value="a.id">{{ a.username }}</option>
-          </select>
-        </label>
-        <button type="button" class="button" :disabled="state.selectedId === null || accounts.busy || (accounts.draft && accounts.draft.id !== state.selectedId)" @click="openLoginPolicy">{{ labels.identityLink }}</button>
-      </section>
     </div>
   </template>
 </div>`;

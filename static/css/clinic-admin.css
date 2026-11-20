@@ -52,6 +52,7 @@
     flex-direction: column;
     gap: 2px;
 }
+.cadm-nav__items { display: contents; }
 .cadm-nav__label {
     margin: 0 0 var(--sp-1);
     padding: 0 var(--sp-3);
@@ -384,9 +385,10 @@
         border-bottom: var(--border-hairline) solid var(--border-primary);
         scrollbar-width: thin;
     }
-    .cadm-nav__group { flex-direction: row; align-items: center; gap: var(--sp-1); flex: 0 0 auto; }
+    .cadm-nav__group { align-items: stretch; gap: 0; flex: 0 0 auto; }
+    .cadm-nav__items { display: flex; gap: var(--sp-1); }
     .cadm-nav__group + .cadm-nav__group { padding-left: var(--sp-3); border-left: var(--border-hairline) solid var(--border-primary); }
-    .cadm-nav__label { margin: 0 var(--sp-1) 0 0; padding: 0; white-space: nowrap; }
+    .cadm-nav__label { position: sticky; left: 0; align-self: flex-start; margin: 0; padding: 0; white-space: nowrap; }
     .cadm-nav__item { width: auto; white-space: nowrap; padding: var(--sp-2) var(--sp-3); }
     .cadm-nav__notice { white-space: nowrap; }
     .cadm-nav__item.is-active { box-shadow: inset 0 -3px 0 var(--border-accent); border-radius: var(--radius-md) var(--radius-md) 0 0; }
@@ -443,6 +445,9 @@
 .cadm-account-filters label { display: grid; gap: var(--sp-1); flex: 1 1 10rem; min-width: 0; }
 .cadm-account-filters label.search { flex-grow: 3; }
 .cadm-account-filters input, .cadm-account-filters select { width: 100%; min-width: 0; }
+.cadm-login-shortcut { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-3); }
+.cadm .cadm-login-shortcut label { font-size: var(--fs-label); font-weight: 600; }
+.cadm .cadm-login-shortcut select { flex: 0 1 15rem; width: auto; max-width: 100%; min-width: 0; }
 .cadm-account-summary.stats { display: flex; gap: var(--sp-3); flex-wrap: wrap; margin-block: var(--sp-3); }
 .cadm-account-summary.stats .stat {
     display: inline-flex; align-items: baseline; gap: var(--sp-1);
