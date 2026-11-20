@@ -87,12 +87,13 @@ def can_see(user_id: int, item) -> bool:
 
 
 def register_clinic_job_handlers(flask_app) -> None:
-    from src.clinic import routes_output
+    from src.clinic import alignment_job, routes_output
 
     handlers = {
         "clinic_finalize": finalize_handler(),
         "clinic_output": output_handler(lambda: routes_output.configured_adapter(flask_app)),
         "clinic_notify": jq.clinic_notify_handler(can_see),
+        "clinic_alignment": alignment_job.handle,  # v8-84 job type; v8-86 also registers it at mount
     }
     if set(handlers) != set(jq.CLINIC_JOBS):
         raise RuntimeError("every CLINIC_JOBS type needs a handler")
