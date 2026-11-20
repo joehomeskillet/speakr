@@ -32,7 +32,7 @@
 import { createClinicApiClient } from './api-client.js';
 import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
 import { useCorrectionEditor } from './correction-editor-ui.js';
-import { useCorrectionAlignment } from './correction-alignment-ui.js';
+import { LABELS as ALIGN_LABELS, createPlaybackHighlighter, useCorrectionAlignment } from './correction-alignment-ui.js';
 import { CorrectionWaveform } from './correction-waveform-ui.js';
 import { PlaybackTempo } from './playback-tempo-ui.js';
 import { MODES, useCorrectionModes } from './correction-modes-ui.js';
@@ -46,6 +46,11 @@ export const COMPOSE_CORRECTION_VERSION = 1;
 /** The upstream player (modules/composables/audioPlayer.js) defines no skip step, so the view uses 3 s. */
 export const STEP_SECONDS = 3;
 
+/** V8 editor contract (UI8-004): skip and rewind step in seconds. Used when the controller runs with contract 'v8'. */
+export const STEP_SECONDS_V8 = 5;
+/** Extra save passes close() may run after the first one while edits are still dirty. */
+const CLOSE_EXTRA_SAVES = 2;
+
 export const TEXT = Object.freeze({
     title: 'Korrektur',
     dictation: 'Diktat',
@@ -56,6 +61,12 @@ export const TEXT = Object.freeze({
     noTemplate: 'Keine Vorlage gewählt',
     seekSelection: 'Zur Auswahl im Audio springen',
     reload: 'Aktuellen Stand laden',
+    conflictChoice: 'Eigenen Text und Serverstand vergleichen und bewusst wählen.',
+    keepMine: 'Eigenen Text behalten',
+    takeServer: 'Serverstand übernehmen',
+    compare: 'Vergleichen',
+    mine: 'Eigener Text',
+    server: 'Serverstand',
     retry: 'Erneut versuchen',
     text: 'Transkript',
     player: 'Wiedergabe',
@@ -100,13 +111,51 @@ const isNode = (n) => n !== null && typeof n === 'object';
  */
 export function scopedClient(client) {
     if (!client || typeof client.request !== 'function') throw new Error('client is required');
+    const shared = releaseState(client);
     return {
-        request: (path, options) => client.request(path, options),
+        request: (path, options) => {
+            if (LEASE_RELEASE.test(String(path))) return trackRelease(shared, client.request(path, options));
+            return shared.gate ? shared.gate.then(() => client.request(path, options)) : client.request(path, options);
+        },
         command: (body, options) => client.command(body, options),
         switchContext(next) {
-            if (next && next.dictationId !== null && next.dictationId !== undefined) client.switchContext(next);
+            if (!next || next.dictationId === null || next.dictationId === undefined) return;
+            if (shared.pending.size === 0) {
+                client.switchContext(next);
+                return;
+            }
+            // A lease release of the previous dictation is still in flight. A context switch would abort it
+            // and the server would keep the lease until it expires, so the switch waits for the release and
+            // requests of the new dictation queue behind it.
+            shared.next = next;
+            shared.gate = Promise.allSettled([...shared.pending]).then(() => {
+                const queued = shared.next;
+                shared.next = null;
+                shared.gate = null;
+                if (queued) client.switchContext(queued);
+            });
         },
     };
+}
+
+const LEASE_RELEASE = /\/leases\/release$/;
+const releaseStates = new WeakMap();
+
+function releaseState(client) {
+    let shared = releaseStates.get(client);
+    if (!shared) {
+        shared = { pending: new Set(), gate: null, next: null };
+        releaseStates.set(client, shared);
+    }
+    return shared;
+}
+
+function trackRelease(shared, promise) {
+    const tracked = Promise.resolve(promise);
+    shared.pending.add(tracked);
+    const done = () => { shared.pending.delete(tracked); };
+    tracked.then(done, done);
+    return tracked;
 }
 
 /**
@@ -153,12 +202,18 @@ export function createCorrectionViewController(options) {
     const closeMessage = ref('');
     let gain = null;
     let gainContext = null;
+    let highlighter = null;
+    let alignmentRoot = null;
     let knownRevision;
     let disposed = false;
     const stops = [];
     const audioListeners = [];
 
-    const editor = useCorrectionEditor({ client, dictationId, currentUser: user, vue: V || undefined });
+    // contract 'v8': shared lease controller, reconcile before a new key, +-5 s step. Without it the pre-V8 behaviour stays.
+    const v8 = opts.contract === 'v8';
+    const editor = useCorrectionEditor({
+        client, dictationId, currentUser: user, vue: V || undefined, exposeLeaseController: v8,
+    });
 
     const position = () => {
         const el = audioEl.value;
@@ -185,6 +240,8 @@ export function createCorrectionViewController(options) {
     const saver = useCorrectionSave({
         editor, client, dictationId, getPositionMs, vue: V || undefined,
         lease: createLeaseAdapter(editor, V),
+        ...(opts.autosaveMs !== undefined ? { autosaveMs: opts.autosaveMs } : {}),
+        ...(v8 ? { reconcileFirst: true } : {}),
         ...(opts.saveOptions || {}),
     });
 
@@ -196,11 +253,30 @@ export function createCorrectionViewController(options) {
         return 'Letzte gespeicherte Position: ' + pad(Math.floor(total / 60)) + ':' + pad(total % 60);
     });
 
+    // --- waveform peaks (V8 P06) ---------------------------------------------
+    // The waveform module asks for a URL by recording id; the view answers it from the peaks route of the
+    // audio revision the editor currently shows. No revision, a 404, or a 503 DEPENDENCY_UNAVAILABLE (no durable
+    // audio source) reads as "no peaks" (honest fallback text); every other failure stays a load failure.
+    const peaksKey = () => editor.audio.value.revisionId || null;
+    async function peaksFetch(_url, init) {
+        const revision = peaksKey();
+        if (!revision) return { status: 404 };
+        const url = '/api/clinic/v1/dictations/' + encodeURIComponent(dictationId)
+            + '/audio-revisions/' + encodeURIComponent(revision) + '/peaks';
+        const res = await (opts.peaksFetch || ((u, i) => fetch(u, i)))(url, init);
+        if (res && res.status === 503 && typeof res.clone === 'function') {
+            const body = await res.clone().json().catch(() => null);
+            if (body && body.code === 'DEPENDENCY_UNAVAILABLE') return { status: 404 };
+        }
+        return res;
+    }
+
     // --- audio wiring -------------------------------------------------------
     function unbindAudio() {
         for (const [node, name, fn] of audioListeners.splice(0)) {
             if (typeof node.removeEventListener === 'function') node.removeEventListener(name, fn);
         }
+        if (highlighter) { highlighter.dispose(); highlighter = null; }
         if (gain) { gain.dispose(); gain = null; }
         if (gainContext && typeof gainContext.close === 'function') Promise.resolve(gainContext.close()).catch(() => {});
         gainContext = null;
@@ -233,8 +309,21 @@ export function createCorrectionViewController(options) {
         });
         listen('pause', () => { if (gain) gain.stop(); });
         listen('ended', () => { if (gain) gain.stop(); });
-        listen('timeupdate', () => { alignment.highlightAt(position()); });
+        // Highlight follows the real media position (rAF while playing, events otherwise); it never touches focus or editor state.
+        highlighter = createPlaybackHighlighter({ alignment, audio: el, root: alignmentRoot });
     }
+
+    /** Element holding the aligned words; the highlighter marks [data-link] children and follows them. */
+    function bindAlignmentRoot(node) {
+        alignmentRoot = isNode(node) ? node : null;
+        if (highlighter) highlighter.setRoot(alignmentRoot);
+    }
+
+    /** Honest notice for the current binding: "nicht ausgerichtet" or the coarse segment highlight. */
+    const alignmentNotice = api.computed(() => {
+        alignment.status.value; alignment.currentWord.value; // dependencies
+        return highlighter ? highlighter.notice() : (alignment.status.value === 'stale' || alignment.status.value === 'error' ? ALIGN_LABELS.notAligned : '');
+    });
 
     /** Tempo sync (seek, rate change): the current word follows the player. */
     function onSync(event) {
@@ -271,6 +360,22 @@ export function createCorrectionViewController(options) {
     async function save() {
         const res = await saver.save();
         if (res && res.ok) await syncRevision();
+        return res;
+    }
+
+    /** Conflict choice: keep the local text on the newest server revision. */
+    function keepMine() {
+        return saver.keepMine();
+    }
+
+    /** Conflict choice: adopt the server text; the new revision's alignment is loaded again. */
+    async function takeServer() {
+        const res = await saver.takeServer();
+        if (res && res.ok) {
+            knownRevision = editor.textRevisionId.value;
+            loadGeneration.value += 1;
+            await alignment.refresh();
+        }
         return res;
     }
 
@@ -342,8 +447,18 @@ export function createCorrectionViewController(options) {
     /** Unsaved edits are saved before the page is told to close; a failed save keeps the view open. */
     async function close() {
         if (disposed) return false;
-        if (editor.dirty.value) {
-            const res = await save();
+        // A save can settle an older pending operation and leave newer text dirty (reconcile first),
+        // or the text can change while the save is awaited: save again, bounded, until nothing is dirty.
+        // A save already in flight (autosave follow-up) is awaited, not counted as a failure or a pass.
+        for (let pass = 0; editor.dirty.value;) {
+            const res = pass > CLOSE_EXTRA_SAVES ? null : await save();
+            if (disposed) return false;
+            if (res && res.state === 'saving') {
+                await saver.whenSettled();
+                if (disposed) return false;
+                continue;
+            }
+            pass += 1;
             if (!res || !res.ok) {
                 closeMessage.value = TEXT.closeFailed;
                 return false;
@@ -375,10 +490,11 @@ export function createCorrectionViewController(options) {
         vue: V, api, editor, alignment, modes, saver, gain: () => gain,
         ready, loadGeneration, revisionGeneration, audioEl, gainState, closeMessage, resumeLabel,
         recordingId: () => opts.recordingId || editor.audio.value.recordingId || null,
-        stepSeconds: STEP_SECONDS,
+        peaksKey, peaksFetch,
+        stepSeconds: v8 ? STEP_SECONDS_V8 : STEP_SECONDS,
         leaseRun, leaseButtons,
-        start, load, save, setText, reloadLatest, close, dispose, syncRevision,
-        client: scoped, bindAudio, onSync, onShortcut, onKeydown, onInput, onSelect, onTemplate, seekToResume, getPositionMs, seek,
+        start, load, save, setText, reloadLatest, keepMine, takeServer, compare: () => saver.compare(), close, dispose, syncRevision,
+        client: scoped, bindAudio, bindAlignmentRoot, alignmentNotice, onSync, onShortcut, onKeydown, onInput, onSelect, onTemplate, seekToResume, getPositionMs, seek,
         text: TEXT,
     };
 }
@@ -399,7 +515,7 @@ const BODY_PROPS = {
 };
 
 /** Inner body: one instance per dictation. The outer view re-keys it, which disposes everything. */
-const CorrectionBody = {
+export const CorrectionBody = {
     name: 'ClinicCorrectionBody',
     components: { CorrectionWaveform, AudioMarkers, PlaybackTempo, PlaybackGain },
     props: BODY_PROPS,
@@ -412,12 +528,14 @@ const CorrectionBody = {
             dictationId: props.dictationId,
             currentUser: props.currentUser,
             vue: props.vue || undefined,
+            contract: 'v8', // the mounted view runs the V8 save contract: lease controller, reconcile first, +-5 s step
             recordingId: props.recordingId || undefined,
             createAudioContext: props.createAudioContext || undefined,
             onClose: () => { if (ctx && typeof ctx.emit === 'function') ctx.emit('close'); },
         });
         if (typeof V.onMounted === 'function') V.onMounted(() => { c.start(); });
         if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => c.dispose());
+        const showDiff = V.ref(false);
         const e = c.editor;
         const a = c.alignment;
         const s = c.saver;
@@ -429,7 +547,7 @@ const CorrectionBody = {
             return {};
         };
         return {
-            c, FOCUS, MODES, box, styleFor, TEXT,
+            c, FOCUS, MODES, box, styleFor, TEXT, showDiff,
             text: e.text, canEdit: e.canEdit, dirty: e.dirty, loading: e.loading, error: e.error, manual: e.manual,
             lease: e.lease, audio: e.audio, template: e.template, templates: e.templates, templatesError: e.templatesError,
             editorAnnouncement: e.announcement,
@@ -501,9 +619,10 @@ const CorrectionBody = {
             {{ alignStatus === 'error' && alignError ? alignError.message : 'Die Audio-Zuordnung ist veraltet.' }}
             <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" @click="c.alignment.refresh()">{{ TEXT.retry }}</button>
           </div>
-          <p role="group" :aria-label="TEXT.alignmentText">
+          <p v-if="alignmentNotice" role="note" data-testid="alignment-notice">{{ alignmentNotice }}</p>
+          <p role="group" :aria-label="TEXT.alignmentText" :ref="c.bindAlignmentRoot">
             <template v-for="seg in segments" :key="seg.start">
-              <span v-if="seg.aligned" role="button" tabindex="0" :data-start="seg.start"
+              <span v-if="seg.aligned" role="button" tabindex="0" :data-start="seg.start" :data-link="seg.linkId"
                     :aria-label="TEXT.wordAria + ': ' + seg.text" :aria-current="currentWord && currentWord.id === seg.linkId ? 'true' : null"
                     :style="{ ...FOCUS, ...styleFor(seg) }"
                     @click="c.alignment.seekToSegment(seg)" @keydown.enter.prevent="c.alignment.seekToSegment(seg)"
@@ -542,7 +661,7 @@ const CorrectionBody = {
         </section>
 
         <CorrectionWaveform :key="'w' + loadGeneration" :editor="c.editor" :alignment="c.alignment" :client="c.client"
-                            :dictation-id="dictationId" :recording-id="c.recordingId()" :vue="c.vue" />
+                            :dictation-id="dictationId" :recording-id="c.peaksKey()" :fetch-fn="c.peaksFetch" :vue="c.vue" />
       </div>
     </div>
 
@@ -557,8 +676,14 @@ const CorrectionBody = {
               :disabled="saveState === 'saving' || saveState === 'saved'" data-testid="save" @click="c.save()">{{ TEXT.save }}</button>
       <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS"
               :disabled="c.saver.resumePosition.value === null" data-testid="resume" @click="c.seekToResume()">{{ TEXT.resume }}</button>
-      <button v-if="saveState === 'conflict'" type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS"
-              data-testid="reload-latest" @click="c.reloadLatest()">{{ TEXT.reload }}</button>
+            <div v-if="saveState === 'conflict'" role="group" :aria-label="TEXT.conflictChoice" data-testid="conflict-choice">
+        <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" data-testid="keep-mine" @click="c.keepMine()">{{ TEXT.keepMine }}</button>
+        <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" data-testid="take-server" @click="c.takeServer()">{{ TEXT.takeServer }}</button>
+        <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" data-testid="compare" :aria-expanded="String(showDiff)" @click="showDiff = !showDiff">{{ TEXT.compare }}</button>
+        <ul v-if="showDiff" data-testid="diff">
+          <li v-for="(row, i) in (c.compare() || [])" :key="i" :data-kind="row.kind">{{ row.kind === 'mine' ? TEXT.mine + ': ' : (row.kind === 'server' ? TEXT.server + ': ' : '') }}{{ row.text }}</li>
+        </ul>
+      </div>
     </section>
   </template>
   <div role="status" aria-live="polite">{{ editorAnnouncement }}</div>

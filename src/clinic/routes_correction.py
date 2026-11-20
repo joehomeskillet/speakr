@@ -51,16 +51,28 @@ _PROBLEMS = {
     409: ('REVISION_CONFLICT', 'Versionskonflikt'),
     413: ('PAYLOAD_TOO_LARGE', 'Anfrage zu gross'),
     423: ('LOCKED', 'Diktat ist gesperrt'),
+    428: ('PRECONDITION_REQUIRED', 'If-Match fehlt'),
     503: ('DEPENDENCY_UNAVAILABLE', 'Dienst nicht verfügbar'),
 }
 MAX_BODY_BYTES = 2 * 1024 * 1024
 _WORD = re.compile(r'\S+')
+# V8 autosave contract: strong validator "<text revision id | none>[.g<lease generation>]".
+_IF_MATCH = re.compile(r'^"([0-9A-Za-z-]{1,64})(?:\.g(\d{1,9}))?"$')
+LEASE_STALE = 'LEASE_STALE'
 
 
-def _problem(status: int, *, conflict: bool = False) -> Response:
-    code, title = _PROBLEMS[status]
+def etag_for(head: ClinicTranscriptRevision | None, generation: int | None) -> str:
+    """Strong ETag of the transcript resource: text revision plus lease generation (0 = no lease row)."""
+    return f'"{head.id if head else "none"}.g{generation or 0}"'
+
+
+def _problem(status: int, *, conflict: bool = False, code: str | None = None) -> Response:
+    code_, title = _PROBLEMS[status]
     if conflict:
-        code, title = 'IDEMPOTENCY_CONFLICT', 'Anfrageschlüssel bereits verwendet'
+        code_, title = 'IDEMPOTENCY_CONFLICT', 'Anfrageschlüssel bereits verwendet'
+    elif code:
+        code_ = code
+    code = code_
     response = jsonify(type='about:blank', title=title, status=status, code=code,
                        correlation_id=str(uuid4()))
     response.status_code = status
@@ -148,8 +160,13 @@ def _marker_json(marker: corr.ClinicMarker) -> JSON:
                      marker_version=n) for n, e in enumerate(corr.marker_events(marker), 1)])
 
 
-def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool], run_once: RunOnce) -> Blueprint:
+def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool], run_once: RunOnce,
+                     require_if_match: bool = False) -> Blueprint:
     """Mount with the trusted session channel and current object policy.
+
+    ``require_if_match`` is the V8 autosave contract: a save without ``If-Match`` answers 428
+    PRECONDITION_REQUIRED. The default (False) keeps the pre-V8 behaviour (header optional); the app mount
+    must still pass ``require_if_match=True`` (handover: src/app.py registers it without the flag; the app-mount owner also updates tests/clinic/test_wp_routes_audio.py to send If-Match). A header that is sent is always enforced: a stale revision or lease generation answers 409.
 
     ``run_once`` is the parity dispatcher transaction/receipt protocol keyed by
     (actor, operation, dictation, Idempotency-Key); it commits on success and
@@ -209,7 +226,9 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
         except corr.CorrectionConflict as error:
             return _problem(423 if str(error) == lease.FOREIGN_HOLDER else 409)
         except lease.LeaseConflict as error:
-            return _problem(423 if error.reason == lease.FOREIGN_HOLDER else 409)
+            if error.reason == lease.FOREIGN_HOLDER:
+                return _problem(423)
+            return _problem(409, code=LEASE_STALE)
         except live_session.LiveSessionError as error:
             if error.reason != live_session.SPEECH_LOCK_HELD:
                 raise
@@ -231,8 +250,10 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
         head = revisions.current_revision(dictation)
         state = corr.get_state(dictation, current_user.id)
         body = head.body if head else ''
+        held = lease.current(dictation.id)
+        etag = etag_for(head, held.generation if held else None)
         out: JSON = dict(
-            dictation_id=dictation.id, text_revision_id=head.id if head else None, text=body,
+            dictation_id=dictation.id, text_revision_id=head.id if head else None, text=body, etag=etag,
             state=None if state is None else dict(version=state.version, audio_position_ms=state.audio_position_ms),
             links=[_link_json(row, body) for row in corr.effective_links(dictation, head)] if head else [],
             markers=[_marker_json(m) for m in corr.list_markers(dictation)])
@@ -244,7 +265,9 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
             link = corr.link_at_text(dictation, head, cp) if head else None
             out['selection'] = (dict(aligned=False) if link is None
                                 else dict(aligned=True, **_link_json(link, body)))
-        return jsonify(out)
+        response = jsonify(out)
+        response.headers['ETag'] = etag
+        return response
 
     @bp.post(f'{PATH}/save')
     def save(dictation_id: UUID) -> Response:
@@ -263,9 +286,26 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
                 expected_rev = _uuid(expected_rev)
             except (ValueError, TypeError, AttributeError):
                 abort(400)
+        object_for(dictation_id, 'correction_edit')
+        if_match = request.headers.get('If-Match')
+        precondition = None
+        if if_match is None:
+            if require_if_match:
+                return _problem(428)
+        else:
+            precondition = _IF_MATCH.match(if_match.strip())
+            if precondition is None:
+                abort(400)
 
         def apply(dictation: ClinicDictation, actor: int) -> JSON:
+            # Lease first: a foreign holder answers 423 and a stale generation 409 LEASE_STALE
+            # before the text precondition is looked at.
+            held = lease.assert_current(dictation.id, actor, generation, datetime.now(timezone.utc))
             head = revisions.current_revision(dictation)
+            if precondition is not None:
+                rev, gen = precondition.group(1), precondition.group(2)
+                if rev != (head.id if head else 'none') or (gen is not None and int(gen) != held.generation):
+                    raise corr.CorrectionConflict('text changed since it was read')
             if (head.id if head else None) != expected_rev:
                 raise corr.CorrectionConflict('text changed since it was read')
             try:
@@ -280,8 +320,9 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
                 raise
             except Exception as error:
                 raise CommandProblem('DEPENDENCY_UNAVAILABLE') from error
-            return dict(text_revision_id=revision.id, state_version=state.version,
-                        audio_position_ms=state.audio_position_ms, derived_links=linked)
+            return dict(text_revision_id=revision.id, etag=etag_for(revision, held.generation),
+                        state_version=state.version, audio_position_ms=state.audio_position_ms,
+                        derived_links=linked)
 
         return write(dictation_id, 'save', 'text', data, apply)
 

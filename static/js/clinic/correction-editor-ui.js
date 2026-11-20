@@ -11,12 +11,15 @@
  * requests from the injected api-client.js client.
  *
  * Exports (consumed by w150 alignment, w152/w156 playback, w154 save, w212):
- *   useCorrectionEditor({ client, dictationId, currentUser, vue? }) returns
+ *   useCorrectionEditor({ client, dictationId, currentUser, vue?, exposeLeaseController? }) returns
  *     state refs  text, textRevisionId, etag, dirty, manual, loading, error,
  *                 lease (snapshot incl. generation), audio, template,
  *                 templates, canEdit, announcement
  *     methods     load({ discard? }), applyTemplate(templateId), setText(text),
  *                 acquire(), release(), takeOver(), dispose(), audioSource()
+ *     leaseController  only with the option exposeLeaseController: the single lease controller of
+ *                 this editor (lease-ui.js), so the save module shares one proof, one generation
+ *                 and one unsaved marker (compose-correction.js passes it for contract 'v8')
  *     `text` is the editable text model, `textRevisionId` / `etag` the
  *     revision the text was read at (send as expected_text_revision_id and
  *     If-Match on save). `lease.generation` is the lease_generation to send.
@@ -170,7 +173,10 @@ export function useCorrectionEditor(options) {
         }
         text.value = data.text;
         textRevisionId.value = data.text_revision_id;
-        etag.value = data.text_revision_id ? '"' + data.text_revision_id + '"' : null;
+        // The server issues the validator (revision + lease generation); an older server only names the revision.
+        etag.value = typeof data.etag === 'string' && data.etag
+            ? data.etag
+            : (data.text_revision_id ? '"' + data.text_revision_id + '"' : null);
         manual.value = data.text === '';
         dirty.value = false;
         audio.value = aud.outcome === 'cancelled' ? { ...audio.value, status: 'idle' } : readAudio(aud);
@@ -221,6 +227,7 @@ export function useCorrectionEditor(options) {
         text, textRevisionId, etag, dirty, manual, loading, error, audio, template,
         templates: manager.state, templatesError, lease: leaseState, canEdit, announcement,
         load, applyTemplate, setText, dispose, audioSource,
+        ...(opts.exposeLeaseController === true ? { leaseController: lease } : {}),
         acquire: lease.acquire, release: lease.release, takeOver: lease.takeOver,
     };
 }

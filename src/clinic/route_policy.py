@@ -211,7 +211,7 @@ _CLINIC_METADATA_FIELDS_ADMIN = _split("""
 # handler authenticates the session, checks CSRF on writes and decides the object through
 # the central policy (pool_policy.decide) before it reads or changes anything.
 _CLINIC_AUDIO = _split("""
-    clinic_audio.get_current clinic_audio.edit clinic_audio.derived
+    clinic_audio.get_current clinic_audio.edit clinic_audio.derived clinic_audio.peaks
     clinic_dictation_properties.validate clinic_dictation_properties.protection_state
     clinic_dictation_properties.set_protection clinic_dictation_properties.unlock
     clinic_bundle.export clinic_bundle.import_session
