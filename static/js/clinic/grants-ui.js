@@ -19,7 +19,7 @@
 import { surfaceFor } from './tokens.js';
 import { createPoolsStore } from './pools-ui.js';
 
-export const ACTIONS = Object.freeze(['view', 'play', 'edit', 'export', 'audio_export', 'release']);
+export const ACTIONS = Object.freeze(['view', 'play', 'edit', 'export', 'audio_export', 'release', 'archive']);
 export const SCOPES = Object.freeze(['own', 'pool', 'all']);
 export const EFFECTS = Object.freeze(['allow', 'deny']);
 
