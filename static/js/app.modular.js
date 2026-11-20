@@ -275,7 +275,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     // One api-client is shared by every clinic view on this page.
     let clinicWorklist = null;
     const appRootElement = document.getElementById('app');
-    if (appRootElement?.dataset?.clinicMode === 'True') {
+    const clinicMode = appRootElement?.dataset?.clinicMode === 'True';
+    if (clinicMode) {
         try {
             const [{ createClinicApiClient }, { registerWorklistView }, { registerResourcesView }, { registerCorrectionView }, { registerRecordingsView }] = await Promise.all([
                 import('./clinic/api-client.js'),
@@ -3449,6 +3450,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             // Fetch job queue status from backend (with debounce protection)
             const fetchJobQueueStatus = async (force = false) => {
+                if (clinicMode) return; // v8-148: clinic processing uses its own job view.
                 const now = Date.now();
                 // Debounce: skip if fetched recently (unless forced)
                 if (!force && (now - lastJobQueueFetch) < JOB_QUEUE_FETCH_DEBOUNCE) {
@@ -3473,7 +3475,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             // Start polling job queue status
             const startJobQueuePolling = () => {
-                if (jobQueuePollInterval) return;
+                if (clinicMode || jobQueuePollInterval) return; // v8-148
                 fetchJobQueueStatus(true); // Fetch immediately (forced)
                 jobQueuePollInterval = setInterval(() => fetchJobQueueStatus(true), JOB_QUEUE_POLL_INTERVAL);
             };
@@ -3493,6 +3495,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             // successful finalize so the sidebar and processing-queue panel
             // update live, exactly like a drag-drop upload.
             utils.onServerRecordingQueued = async () => {
+                if (clinicMode) return; // v8-148: the upstream sidebar is absent.
                 try { await recordingsComposable.loadRecordings(); } catch (_) { /* non-fatal */ }
                 await fetchJobQueueStatus(true);
                 startJobQueuePolling();
@@ -4734,7 +4737,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // the name only becomes tag ids once the tags are in, and the
                 // filter has to be in place for the very first page fetch so
                 // the user never sees the unfiltered list flash past.
-                const deepLinkLabelName = parseLabelPath(window.location.pathname);
+                const deepLinkLabelName = clinicMode ? null : parseLabelPath(window.location.pathname); // v8-148
 
                 let labelDeepLinkResolved = false;
                 if (deepLinkLabelName) {
@@ -4754,12 +4757,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                 }
 
-                // Load initial data
+                // v8-148: clinic boot keeps tags and token budget.
                 await Promise.all([
-                    recordingsComposable.loadRecordings(1, false, searchQuery.value),
+                    ...(!clinicMode ? [recordingsComposable.loadRecordings(1, false, searchQuery.value)] : []),
                     ...(deepLinkLabelName ? [] : [recordingsComposable.loadTags()]),
-                    recordingsComposable.loadFolders(),
-                    recordingsComposable.loadSpeakers(),
+                    ...(!clinicMode ? [recordingsComposable.loadFolders(), recordingsComposable.loadSpeakers()] : []),
                     loadTokenBudget()
                 ]);
 
@@ -4781,7 +4783,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (wantUploadDeepLink) {
                     await nextTick();
                     uiComposable.switchToUploadView();
-                } else if (deepLinkRecordingId) {
+                } else if (!clinicMode && deepLinkRecordingId) { // v8-148: upstream detail is absent.
                     // Honour the /recordings/<id> deep link now that data is loaded.
                     await recordingsComposable.selectRecordingById(deepLinkRecordingId);
                     if (deepLinkSeekSeconds !== null) {
@@ -4810,7 +4812,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                         customBanner.value = config.custom_banner || '';
                         canDeleteRecordings.value = config.can_delete_recordings !== false;
                         enableAudioRemovedFilter.value = config.enable_audio_removed_filter === true;
-                        foldersEnabled.value = config.enable_folders === true;
+                        foldersEnabled.value = !clinicMode && config.enable_folders === true; // v8-148
                         maxConcurrentUploads.value = config.max_concurrent_uploads || 3;
                         // Video / audio-only upload config. videoRetention from
                         // the server controls whether the "Keep audio only"

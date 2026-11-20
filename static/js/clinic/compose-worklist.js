@@ -23,7 +23,7 @@
 
 import { TOKEN_CONTRACT_VERSION, TokenContractError, surfaceFor } from './tokens.js';
 import { ROLE_AUTHOR, STATUS_LABELS, formatAudioDuration, formatPriority, getOpenMode, resolveStatusSurface } from './worklist-ui.js';
-import { fetchRecordingChanges, formatLastUpdate, useWorklistRefresh } from './worklist-refresh-ui.js';
+import { formatLastUpdate, useWorklistRefresh } from './worklist-refresh-ui.js';
 import { WorklistFiltersPanel, createWorklistFilters } from './worklist-filters-ui.js';
 import { WorklistLayoutControls, useWorklistLayout } from './worklist-layout-ui.js';
 import { DictationProtectionComponent } from './dictation-protection-ui.js';
@@ -233,7 +233,7 @@ export function createWorklistViewController(options) {
         userId: user.id,
         tokenVersion: TOKEN_CONTRACT_VERSION,
         intervalMs: options.intervalMs,
-        fetchChanges: options.fetchChanges || fetchRecordingChanges,
+        fetchChanges: options.fetchChanges || null, // v8-148: poll the clinic worklist rows by default.
         mapRecording,
         now: options.now,
         Vue: V || undefined,
