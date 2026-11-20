@@ -8,8 +8,12 @@ permissions:
 
 jobs:
   cla-reminder:
-    # Bots (Dependabot) do not sign the CLA
-    if: github.event_name == 'pull_request_target' && github.event.pull_request.user.type != 'Bot'
+    # Only the original Speakr repository sends its contributor reminder.
+    if: >-
+      github.server_url == 'https://github.com' &&
+      github.repository == 'murtaza-nasir/speakr' &&
+      github.event_name == 'pull_request_target' &&
+      github.event.pull_request.user.type != 'Bot'
     runs-on: ubuntu-latest
     steps:
       - name: "Post CLA Reminder"
@@ -21,9 +25,11 @@ jobs:
               console.log('No PR number found, skipping');
               return;
             }
+            const repository = context.payload.repository;
+            const branchPath = repository.default_branch.split('/').map(encodeURIComponent).join('/');
             const body = `Thank you for your contribution!
 
-            By submitting this pull request, you agree to the terms of our [Contributor License Agreement (CLA)](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/master/CLA.md).
+            By submitting this pull request, you agree to the terms of our [Contributor License Agreement (CLA)](${repository.html_url}/blob/${branchPath}/CLA.md).
 
             **Key points:**
             - You retain copyright ownership of your contribution
