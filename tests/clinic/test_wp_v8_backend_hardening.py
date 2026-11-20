@@ -9,6 +9,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from flask import session as flask_session
+from flask_wtf.csrf import generate_csrf
 
 from clinic_support import login
 from src.app import app
@@ -40,6 +42,40 @@ def test_training_anonymous_is_401_and_browser_session_still_works(clinic_db):  
     assert r.status_code == 200, r.get_data(as_text=True)
     assert app.test_client().get(P + "/schedule").status_code == 401
     assert app.test_client().post(P + "/runs", json={}).status_code == 401
+
+
+def test_training_guard_rejects_inactive_user_and_session_mismatch(clinic_db):  # noqa: F811
+    _mount()
+    admin = _scene()
+    client = login(admin.id)
+    assert client.get(P + "/schedule").status_code == 200
+    user_cls = type(admin)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(user_cls, "is_active", property(lambda self: False), raising=False)
+        assert client.get(P + "/schedule").status_code == 401
+    assert client.get(P + "/schedule").status_code == 200
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(user_cls, "get_id", lambda self: "not-the-session-user", raising=False)
+        assert client.get(P + "/schedule").status_code == 401
+    assert client.get(P + "/schedule").status_code == 200
+
+
+def test_training_post_without_csrf_header_is_403(clinic_db, monkeypatch):  # noqa: F811
+    _mount()
+    admin = _scene()
+    monkeypatch.setitem(app.config, "WTF_CSRF_ENABLED", True)
+    client = login(admin.id)
+    body = {"kind": "language_model", "scope": "author", "expected_profile_version": 1}
+    refused = client.post(P + "/runs", json=body)
+    assert refused.status_code == 403, refused.get_data(as_text=True)
+    assert refused.get_json()["code"] == "csrf_failed"
+    with app.test_request_context():
+        token = generate_csrf()
+        raw = flask_session["csrf_token"]
+    with client.session_transaction() as sess:
+        sess["csrf_token"] = raw
+    ok = client.post(P + "/runs", json=body, headers={"X-CSRFToken": token})
+    assert ok.status_code in (200, 201), ok.get_data(as_text=True)
 
 
 # --- (2) pools: author pool default ---------------------------------------------------------
