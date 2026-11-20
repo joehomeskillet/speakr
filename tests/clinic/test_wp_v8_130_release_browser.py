@@ -184,9 +184,14 @@ def test_review_and_release_current_bound_versions(review_scene, tmp_path):
             audio.press("Space")
             page.wait_for_function("document.querySelector('[data-testid=clinic-review-view] audio').currentTime > 0.2")
             audio.press("Space")
+            acceptance = review.locator("[data-action=accept]")
+            expect(acceptance).to_be_disabled()
+            expect(review.locator("#crv-why-accept")).to_be_visible()
+            expect(acceptance).to_have_accessible_description(re.compile("Prüfung beginnen"))
             with page.expect_response(lambda r: r.url.endswith("/leases") and r.request.method == "POST") as review_lease:
                 review.get_by_test_id("begin-review").click()
             assert review_lease.value.ok, review_lease.value.text()
+            expect(acceptance).to_be_enabled()
             # A trusted new case also invalidates the already rendered P07 decision.
             context_update = page.request.post(path + "/context", headers=_headers(page, base),
                                                data={"case_reference": "SYN-0131"})

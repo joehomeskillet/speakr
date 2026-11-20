@@ -68,6 +68,7 @@ function fakeClient(model, overrides = {}) {
         'GET /dictations/d1/acceptance-policy': () => ok({ version: 2, acceptance_required: true, approver_ids: [7], decisions: [{ kind: 'reject', actor_id: 3, actor_name: 'Dr. Alt', revision_id: 'r0', reason: 'Dosis unklar', policy_version: 2 }] }),
         'POST /dictations/d1/releases': () => ok({ released: true }),
         'GET /dictations/d1/leases': () => ok({ held: true, lease_id: 'l1', generation: 1 }),
+        'POST /dictations/d1/leases': () => ok({ lease_id: 'l1', generation: 1, expires_at: new Date(Date.now() + 60000).toISOString() }),
         'POST /dictations/d1/archive': () => ok({ archived: true }),
         ...overrides,
     };
@@ -202,6 +203,9 @@ describe('compose-review loading and revision display', () => {
 describe('compose-review accept flow', () => {
     it('needs an explicit confirmation, then sends the decision bound to the reviewed text revision', async () => {
         const { c, client } = await opened();
+        expect(c.actions().find(a => a.id === 'accept')).toMatchObject({ disabled: true, why: TEXT.beginAcceptance });
+        expect(await c.request('accept')).toMatchObject({ ok: false, code: 'blocked' });
+        await c.editor.acquire();
         expect(await c.request('accept')).toEqual({ ok: true });
         expect(c.confirming.value).toBe('accept');
         expect(client.commands).toHaveLength(0);
@@ -216,9 +220,21 @@ describe('compose-review accept flow', () => {
         c.dispose();
     });
 
+    it('keeps acceptance blocked while another reviewer holds the lease', async () => {
+        const { c, client } = await opened(server(), {
+            'POST /dictations/d1/leases': () => fail('locked', 423, 'foreign lease'),
+        });
+        await c.editor.acquire();
+        expect(c.actions().find(a => a.id === 'accept')).toMatchObject({ disabled: true, why: TEXT.foreignAcceptance });
+        expect(await c.request('accept')).toMatchObject({ ok: false, code: 'blocked' });
+        expect(client.commands).toHaveLength(0);
+        c.dispose();
+    });
+
     it('reloads the authoritative state after the decision', async () => {
         const { c, client } = await opened();
         const before = client.calls.filter((x) => x.path.endsWith('/review')).length;
+        await c.editor.acquire();
         await c.request('accept');
         await c.confirm();
         expect(client.calls.filter((x) => x.path.endsWith('/review')).length).toBe(before + 1);
@@ -226,6 +242,7 @@ describe('compose-review accept flow', () => {
 
     it('cancel drops the confirmation without sending', async () => {
         const { c, client } = await opened();
+        await c.editor.acquire();
         await c.request('accept');
         c.cancel();
         expect(c.confirming.value).toBeNull();
@@ -327,6 +344,7 @@ describe('compose-review blockers (W11)', () => {
 
     it('keeps the other decisions available while markers are open', async () => {
         const { c } = await opened(withMarkers());
+        await c.editor.acquire();
         for (const id of ['accept', 'reject', 'archive']) expect(c.actions().find((a) => a.id === id).disabled).toBe(false);
     });
 
@@ -350,6 +368,7 @@ describe('compose-review newer revision (Wiedervorlage)', () => {
 
     it('blocks the confirm of A when an autosave created B after the confirmation opened', async () => {
         const { c, client, model } = await opened();
+        await c.editor.acquire();
         await c.request('accept');
         model.head = 'r2';
         const res = await c.confirm();
@@ -381,6 +400,7 @@ describe('compose-review newer revision (Wiedervorlage)', () => {
 
     it('treats a server conflict as a Wiedervorlage and keeps the dialog message', async () => {
         const { c } = await opened(server(), { command: () => fail('conflict', 409, 'x', 'STALE_VERSION') });
+        await c.editor.acquire();
         await c.request('accept');
         const res = await c.confirm();
         expect(res).toMatchObject({ ok: false, code: 'conflict', message: TEXT.conflict });
@@ -399,6 +419,7 @@ describe('compose-review offline, release of other revisions and cleanup', () =>
 
     it('never builds a decision for a revision other than the bound one', async () => {
         const { c, client } = await opened();
+        await c.editor.acquire();
         await c.request('accept');
         await c.confirm();
         expect(client.commands[0].body.payload.text_revision_id).toBe('r1');
@@ -518,6 +539,7 @@ describe('compose-review acceptance state (v8-74 route)', () => {
 
     it('keeps accept and reject on the workflow command and reloads the state afterwards', async () => {
         const { c, client } = await withState(states.offen);
+        await c.editor.acquire();
         await c.request('accept');
         await c.confirm();
         expect(client.commands).toHaveLength(1);
