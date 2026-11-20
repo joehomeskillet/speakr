@@ -799,14 +799,14 @@ export const CorrectionAlignment = {
         return { ...align, LABELS, surfaces, focusStyle, styleFor, onSelect, onWord };
     },
     template: `
-<section class="clinic-correction-alignment" :aria-label="LABELS.title" :aria-busy="status === 'loading'" :data-status="status">
+<section class="clinic-correction-alignment v8-page" :aria-label="LABELS.title" :aria-busy="status === 'loading'" :data-status="status">
   <h3>{{ LABELS.title }}</h3>
-  <div v-if="status === 'error'" role="alert"
+  <div v-if="status === 'error'" class="note" role="alert"
     :style="{ background: surfaces.problem.background, color: surfaces.problem.color, border: '1px solid ' + surfaces.problem.border }">
     {{ error && error.message }}
     <button type="button" :style="focusStyle" @click="refresh()">{{ LABELS.retry }}</button>
   </div>
-  <div v-else-if="status === 'stale'" role="alert"
+  <div v-else-if="status === 'stale'" class="note" role="alert"
     :style="{ background: surfaces.unaligned.background, color: surfaces.unaligned.color, border: '1px solid ' + surfaces.unaligned.border }">
     {{ LABELS.stale }}
     <button type="button" :style="focusStyle" @click="refresh()">{{ LABELS.refresh }}</button>
@@ -823,7 +823,7 @@ export const CorrectionAlignment = {
     </template>
   </p>
   <button type="button" :style="focusStyle" :disabled="status !== 'ready'" @click="seekToSelection()">{{ LABELS.seekSelection }}</button>
-  <div role="status" aria-live="polite">{{ announcement }}</div>
+  <div class="clinic-constituent-status" role="status" aria-live="polite">{{ status === 'error' || status === 'stale' ? '' : announcement }}</div>
 </section>`,
 };
 

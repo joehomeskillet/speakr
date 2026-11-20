@@ -72,6 +72,7 @@ export const LABELS = Object.freeze({
 });
 
 const DEFAULTS = Object.freeze({ rewindMs: 2000, resumeIdleMs: 1500, tickMs: 250 });
+let nextViewId = 0;
 
 function isMode(value) { return MODES.some((m) => m.id === value); }
 
@@ -275,24 +276,25 @@ export const CorrectionModes = {
         const focusStyle = { '--focus-outline': FOCUS_INDICATOR.outline, '--focus-offset': FOCUS_INDICATOR.outlineOffset };
         const problemStyle = { background: problem.background, color: problem.color, border: '1px solid ' + problem.border };
         function choose(id) { return modes.setMode(id); }
-        return { ...modes, LABELS, focusStyle, problemStyle, choose };
+        const groupId = 'clinic-correction-mode-' + (++nextViewId);
+        return { ...modes, LABELS, focusStyle, problemStyle, choose, groupId };
     },
     template: `
-<fieldset class="clinic-correction-modes" :aria-busy="status === 'saving'" :data-mode="mode">
+<fieldset class="clinic-correction-modes v8-page" :aria-busy="status === 'saving'" :data-mode="mode">
   <legend>{{ LABELS.title }}</legend>
   <div role="radiogroup" :aria-label="LABELS.group">
     <label v-for="opt in options" :key="opt.id" class="clinic-correction-mode">
-      <input type="radio" name="clinic-correction-mode" :value="opt.id" :checked="mode === opt.id"
-        :aria-describedby="'clinic-correction-mode-' + opt.id" :style="focusStyle" @change="choose(opt.id)">
+      <input type="radio" :name="groupId" :value="opt.id" :checked="mode === opt.id"
+        :aria-describedby="groupId + '-' + opt.id" :style="focusStyle" @change="choose(opt.id)">
       <span>{{ opt.label }}</span>
-      <small :id="'clinic-correction-mode-' + opt.id">{{ opt.hint }}</small>
+      <small :id="groupId + '-' + opt.id">{{ opt.hint }}</small>
     </label>
   </div>
-  <div v-if="status === 'error'" role="alert" :style="problemStyle">
+  <div v-if="status === 'error'" class="note" role="alert" :style="problemStyle">
     {{ error && error.message }}
-    <button type="button" :style="focusStyle" @click="choose(mode)">{{ LABELS.retry }}</button>
+    <button type="button" class="small" :style="focusStyle" @click="choose(mode)">{{ LABELS.retry }}</button>
   </div>
-  <div role="status" aria-live="polite">{{ announcement }}</div>
+  <div class="clinic-constituent-status" role="status" aria-live="polite">{{ status === 'error' ? '' : announcement }}</div>
 </fieldset>`,
 };
 
