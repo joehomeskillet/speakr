@@ -255,6 +255,47 @@ describe('compose-offline: with policy', () => {
         expect(onLoggedOut).toHaveBeenCalledTimes(1);
     });
 
+    it('a discard is not reported as a browser eviction on refresh or the next save', async () => {
+        const t = await unlocked();
+        await t.c.saveDraft(rec(0), { text: SECRET });
+        t.c.askDiscard(t.c.state.drafts[0].key);
+        await t.c.confirmDiscard();
+        expect(t.c.state.lost).toBe(0);
+        await t.c.refresh();
+        expect(t.c.state.lost).toBe(0);
+        expect(t.c.state.notice).not.toBe(TEXT.lost);
+        await t.c.saveDraft(rec(1), { text: SECRET });
+        expect(t.c.state.lost).toBe(0);
+        expect(t.c.state.notice).not.toBe(TEXT.lost);
+        // a real eviction is still reported
+        t.storage.m.clear();
+        await t.c.refresh();
+        expect(t.c.state.lost).toBe(1);
+        expect(t.c.state.notice).toBe(TEXT.lost);
+    });
+
+    it('saving a draft does not re-check the grant', async () => {
+        const t = await unlocked();
+        const calls = t.client.request.mock.calls.length;
+        await t.c.saveDraft(rec(0), { text: SECRET });
+        await t.c.saveDraft(rec(1), { text: SECRET });
+        expect(t.client.request.mock.calls.length).toBe(calls);
+        t.client.state.next = { outcome: 'network', status: 503 };
+        expect((await t.c.saveDraft(rec(2), { text: SECRET })).saved).toBe(true);
+        expect(t.c.state.phase).toBe('unlocked');
+    });
+
+    it('after logout a connection event or refresh keeps the view denied', async () => {
+        const t = await unlocked();
+        await t.c.logout();
+        t.connection.fns.forEach((f) => f());
+        await t.c.refresh();
+        await Promise.resolve();
+        expect(t.connection.fns).toEqual([]);
+        expect(t.c.state.phase).toBe('denied');
+        expect(t.c.state.notice).toBe(TEXT.loggedOut);
+    });
+
     it('offline: lists drafts, never asks the server and never purges', async () => {
         const t = await unlocked();
         await t.c.saveDraft(rec(), { text: SECRET });

@@ -152,9 +152,12 @@ export function createOfflineViewController(options) {
         notice: '',
         noticeKind: 'normal',
         busy: false,
+        loggedOut: false,
     });
 
+    let stop = () => {};
     let disposed = false;
+    let loggedOut = false;
     let everAuthorized = false;
     const say = (text, kind) => { state.notice = text; state.noticeKind = kind || 'normal'; };
 
@@ -201,7 +204,7 @@ export function createOfflineViewController(options) {
 
     /** Fresh grant check and inventory. Offline the grant is not asked. Online but unreachable or signed out: drafts are kept, never purged. */
     async function refresh() {
-        if (disposed) return;
+        if (disposed || loggedOut) return;
         state.busy = true;
         try {
             state.online = connection.isOnline();
@@ -235,7 +238,17 @@ export function createOfflineViewController(options) {
         if (state.phase !== 'locked' && state.phase !== 'unlocked') return { saved: false, code: 'POLICY_DENIED' };
         if (state.phase !== 'unlocked') return { saved: false, code: 'LOCKED' };
         const res = await store.save(binding, value);
-        await refresh();
+        // Inventory and quota only: the grant is re-checked by start, connection events, unlock, restore and the refresh button.
+        try {
+            const rec = await store.reconcile();
+            state.drafts = await listDrafts();
+            Object.assign(state, { unsaved: rec.unsaved, lost: rec.lost, quotaBytes: rec.quotaBytes, usedBytes: rec.usedBytes });
+            if (rec.lost) say(TEXT.lost, 'error');
+            else if (rec.unsaved) say(TEXT.unsaved, 'warning');
+            else if (state.online) say(TEXT.unlocked, 'success');
+        } catch (e) {
+            say(TEXT.restoreFailed, 'error');
+        }
         return res;
     }
 
@@ -295,21 +308,34 @@ export function createOfflineViewController(options) {
         const key = state.pendingDiscard;
         state.pendingDiscard = null;
         if (!key || !storage || !state.drafts.some((d) => d.key === key)) return false;
+        // The store tracks the keys it wrote. Reconcile around the removal so the deliberate
+        // discard is not counted as a browser eviction; real losses are still reported.
+        let lost = 0;
+        if (store) lost += (await store.reconcile()).lost;
         await storage.remove(key);
+        if (store) {
+            const rec = await store.reconcile();
+            lost += Math.max(0, rec.lost - 1);
+            Object.assign(state, { unsaved: rec.unsaved, quotaBytes: rec.quotaBytes, usedBytes: rec.usedBytes });
+        }
+        state.lost = lost;
         state.drafts = await listDrafts();
-        say(TEXT.discarded, 'success');
+        if (lost) say(TEXT.lost, 'error');
+        else say(TEXT.discarded, 'success');
         return true;
     }
 
     /** Logout: purge every stored draft of this user and profile, lock the key, drop plaintext. */
     async function logout() {
+        loggedOut = true;
+        stop();
+        state.loggedOut = true;
         if (store) { await store.purge(); store.release(); } else crypto.lock();
         Object.assign(state, { phase: 'denied', drafts: [], unsaved: 0, lost: 0, usedBytes: 0, passphrase: '', pendingDiscard: null });
         say(TEXT.loggedOut, 'normal');
         if (typeof opts.onLoggedOut === 'function') opts.onLoggedOut();
     }
 
-    let stop = () => {};
     function start() {
         stop = connection.subscribe(() => { refresh(); });
         return refresh();
@@ -406,7 +432,7 @@ export const OfflineView = {
     </section>
     <button v-else type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" data-testid="lock" @click="c.lock()">{{ TEXT.lock }}</button>
   </template>
-  <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" data-testid="refresh" :disabled="s.busy" @click="c.refresh()">{{ TEXT.refresh }}</button>
+  <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" data-testid="refresh" v-if="!s.loggedOut" :disabled="s.busy" @click="c.refresh()">{{ TEXT.refresh }}</button>
   <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" data-testid="logout" @click="c.logout()">{{ TEXT.logout }}</button>
   <p>{{ TEXT.keys }}</p>
 </section>`,
