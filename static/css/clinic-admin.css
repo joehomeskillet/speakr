@@ -468,6 +468,50 @@
     .cadm .cadm-account-filters label:last-child { grid-column: 1 / -1; }
 }
 
+.cadm .cadm-mobile-filter, .cadm .cadm-account-disclosure { display: none; }
+@media (max-width: 640px) {
+    .cadm .cadm-mobile-filter { display: inline-flex; justify-self: start; }
+    .cadm .cadm-account-filters:not(.filters-open) label:not(.search) { display: none; }
+    .cadm .cadm-account-filters .cadm-mobile-filter { grid-column: 1 / -1; }
+    .cadm .cadm-account-table tbody { gap: 0; }
+    .cadm .cadm-account-table tbody tr {
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        padding: var(--sp-1) var(--sp-2);
+        border: 0;
+        border-bottom: var(--border-hairline) solid var(--border-primary);
+        border-radius: 0;
+        background: transparent;
+    }
+    .cadm .cadm-account-table td { grid-column: 1 / -1; }
+    .cadm .cadm-account-table td.cadm-account-status {
+        grid-column: 2;
+        grid-row: 1;
+        display: block;
+    }
+    .cadm .cadm-account-table .cadm-account-status::before,
+    .cadm .cadm-account-table .cadm-account-name,
+    .cadm .cadm-account-table tr:not(.account-open) th small,
+    .cadm .cadm-account-table tr:not(.account-open) td:not(.cadm-account-status) { display: none; }
+    .cadm .cadm-account-disclosure {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        width: 100%;
+        justify-content: flex-start;
+        min-height: 44px;
+        padding: 0;
+        text-align: start;
+        color: var(--text-primary);
+        background: transparent;
+        border: 0;
+        overflow-wrap: anywhere;
+    }
+    .cadm .cadm-account-disclosure i { color: var(--text-muted); font-size: var(--fs-label); }
+    .cadm .cadm-account-disclosure[aria-expanded="true"] i { transform: rotate(90deg); }
+    .cadm .cadm-account-disclosure:focus-visible { outline: 2px solid var(--border-accent); }
+}
+
 /* P10–P12 share the prototype's flat filter rows, table surfaces and primary actions. */
 .cadm .v8-admin-page .field:is(div, label) {
     padding: 0;

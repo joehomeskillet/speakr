@@ -117,3 +117,38 @@ def test_accounts_search_and_composed_create_action(live_server, browser):
     view.get_by_role("button", name="Konto anlegen").click()
     expect(page.locator("#acc-username")).to_be_focused()
     assert not js_errors, js_errors
+
+
+def test_mobile_accounts_show_logins_status_and_keyboard_operable_details(live_server, browser):
+    base, _ids = live_server
+    page, js_errors = _open(browser, base, 390, 844)
+    view = page.get_by_test_id("clinic-users-view")
+    rows = view.locator("tbody tr")
+    disclosure = view.get_by_role("button", name="Kontodetails: w226typist")
+    expect(disclosure).to_be_visible()
+    third_row = rows.nth(2).bounding_box()
+    assert third_row["y"] + third_row["height"] <= 844
+    row = rows.filter(has_text="w226typist")
+    expect(row.locator(".cadm-account-status")).to_be_visible()
+    edit = row.get_by_role("button", name="Bearbeiten: w226typist")
+    expect(edit).not_to_be_visible()
+    disclosure.focus()
+    disclosure.press("Enter")
+    expect(disclosure).to_have_attribute("aria-expanded", "true")
+    edit.click()
+    username = view.locator("#acc-username")
+    expect(username).to_have_value("w226typist")
+    username.press("Escape")
+    expect(edit).to_be_focused()
+    disclosure.press("Space")
+    expect(edit).not_to_be_visible()
+    toggle = view.get_by_role("button", name="Filter und Sortierung")
+    toggle.press("Enter")
+    sort = view.get_by_role("combobox", name="Sortierung", exact=True)
+    with page.expect_response(lambda r: "/admin/users?" in r.url and "order=desc" in r.url and r.status == 200):
+        sort.select_option("username:desc")
+    expect(rows.first).to_contain_text("w226typist")
+    toggle.press("Space")
+    expect(sort).not_to_be_visible()
+    expect(toggle).to_contain_text("aktiv")
+    assert not js_errors, js_errors
