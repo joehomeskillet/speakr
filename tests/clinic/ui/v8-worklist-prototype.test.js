@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+    HOSTED_CSS,
     LIST_COLUMNS,
     WorklistView,
     cellText,
@@ -78,6 +79,30 @@ describe('V8 worklist controller', () => {
         c.dispose();
     });
 
+    it('shows the filter-empty state and closes the excluded detail when a chip has no matches', async () => {
+        const c = controllerFor([rows[0]]);
+        await c.start();
+        c.select(rows[0]);
+        c.setChip('done');
+        expect(c.counts.value.all).toBe(1);
+        expect(c.chipRows.value).toHaveLength(0);
+        expect(c.selectedId.value).toBeNull();
+        expect(c.pagerInfo()).toContain('0 sichtbar');
+        expect(WorklistView.template).toMatch(/v-else-if="!c\.chipRows\.value\.length"[^>]*data-testid="empty-state"/);
+        expect(WorklistView.template).toContain('c.worklist.rows.value.length ? c.text.noMatch : c.text.empty');
+        c.setChip('all');
+        expect(c.shownRows()).toHaveLength(1);
+        c.dispose();
+    });
+
+    it('hides the list heading and its selection hint for an empty list', async () => {
+        const c = controllerFor([]);
+        await c.start();
+        expect(c.chipRows.value).toHaveLength(0);
+        expect(WorklistView.template).toMatch(/<div v-if="c\.chipRows\.value\.length" class="listhead">[^]*?c\.text\.hintSelect[^]*?<\/div>/);
+        c.dispose();
+    });
+
     it('shows the V8 column set in V8 order as long as no layout is stored (version 0)', async () => {
         const c = controllerFor(rows, { version: 0, layout: { version: 1, columns: LIST_COLUMNS.map((x) => ({ key: x.key, width: 140, visible: true })), sort: [], group_by: [] } });
         await c.start();
@@ -102,6 +127,16 @@ describe('V8 worklist controller', () => {
         expect(c.sortMark('priority')).toBe('↑');
         c.setSort('');
         expect(c.sortValue()).toBe('');
+        c.dispose();
+    });
+
+    it('disables the sort select when the layout is read-only', async () => {
+        const c = controllerFor(rows);
+        await c.start();
+        c.layout.state.canEdit = false;
+        c.setSort('priority:asc');
+        expect(c.sortValue()).toBe('');
+        expect(WorklistView.template).toMatch(/<select[^>]+:disabled="!c\.layout\.state\.canEdit"[^>]+:value="c\.sortValue\(\)"/);
         c.dispose();
     });
 
@@ -139,6 +174,12 @@ describe('V8 worklist controller', () => {
 
 describe('V8 prototype markup', () => {
     const tpl = WorklistView.template;
+
+    it('ellipsizes the priority text and exposes its full value in the title', () => {
+        expect(cellText(row('1', { priority: 0 }), 'priority')).toBe('Bei Gelegenheit');
+        expect(tpl).toMatch(/class="prio"[^>]*:title="c\.cell\(item\.row, col\.key\)"><span>{{ c\.cell\(item\.row, col\.key\) }}/);
+        expect(HOSTED_CSS).toMatch(/\.worktable \.prio span\{[^}]*text-overflow:ellipsis/);
+    });
 
     it('follows the DOM of the prototype Arbeitsliste page', () => {
         for (const part of [
