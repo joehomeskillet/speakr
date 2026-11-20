@@ -18,6 +18,7 @@ from src.clinic.pools import ClinicAuthorPool, ClinicPoolRoute, ClinicStaffPool
 from src.clinic.worklist_layout import LayoutStore
 from src.models import Group, GroupMembership, Recording, User
 from src.services import audit
+from test_pools import pool_db as pool_db  # remove this scene's upstream groups and memberships
 
 
 @pytest.fixture(autouse=True)
@@ -42,7 +43,7 @@ def _user(name, *, full_name=None, is_admin=False):
 
 
 @pytest.fixture
-def scene():
+def scene(pool_db):
     with app.app_context():
         admin = _user("admin", is_admin=True)
         author = _user("author", full_name="Dr. Anna Autorin")
