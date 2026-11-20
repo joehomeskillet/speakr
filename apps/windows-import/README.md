@@ -2,6 +2,16 @@
 
 Clinic fork agent that imports dictation files from explicitly configured folders or removable-device roots. It is a machine principal. It is not a speaker, a recorder, or a remote-control client.
 
+## Windows x64 preview
+
+Download the [standalone preview executable](https://github.com/joehomeskillet/speakr/releases/download/windows-import-v0.11.1-preview.1/Speakr-Import-win-x64-preview.exe) and [SHA256SUMS.txt](https://github.com/joehomeskillet/speakr/releases/download/windows-import-v0.11.1-preview.1/SHA256SUMS.txt) for `windows-import-v0.11.1-preview.1`. The preview is unsigned and intended for evaluation. Compare the digest below with the line for the same filename in `SHA256SUMS.txt` before opening the executable.
+
+```powershell
+Get-FileHash -Algorithm SHA256 .\Speakr-Import-win-x64-preview.exe
+```
+
+Follow the illustrated instructions in [Deutsch](../../docs/de/user-guide/companion-apps.md#windows-importagent) or [English](../../docs/user-guide/companion-apps.md#windows-import-agent) to set the clinic's HTTPS server address. Open the verified EXE in a writable folder or run `.\Speakr-Import-win-x64-preview.exe --configure`. Saving writes `import-server.json` beside the EXE. For a dialog-only test, a separate portable folder is enough. In a service installation, restrict write access to authorized operators. A working import also requires a registered machine identity, a client certificate and approved sources.
+
 ## Scope
 
 The library watches only configured absolute roots (not recursive unless that root says so). A file enters the inventory after the configured number of unchanged size and mtime samples at least `StabilityIntervalSeconds` apart. The inventory is relative path, size, mtime and SHA-256. Bytes are copied into a bounded AES-GCM spool (random nonce, entry name bound as AAD, size taken from the directory, not from an index file) and uploaded unchanged. A committed entry leaves the spool on the next pass; entries of vanished or changed versions are dropped.

@@ -8,6 +8,17 @@ The project is for clinics and development teams who want to evaluate or extend 
 
 **User manual:** [English](https://joehomeskillet.github.io/speakr/) · [Deutsch](https://joehomeskillet.github.io/speakr/de/)
 
+**Windows file import (x64) · unsigned preview:** [Download the EXE](https://github.com/joehomeskillet/speakr/releases/download/windows-import-v0.11.1-preview.1/Speakr-Import-win-x64-preview.exe) · [Verify SHA-256 and set the server address](https://joehomeskillet.github.io/speakr/user-guide/companion-apps/#windows-import-agent)
+
+<details>
+<summary>Set up the Windows import agent</summary>
+
+| Enter the clinic's HTTPS address | Saved address |
+| --- | --- |
+| ![Server address in the Windows import agent](docs/images/clinic/windows-import-server.png) | ![Confirmation after saving the address](docs/images/clinic/windows-import-gespeichert.png) |
+
+</details>
+
 > [!IMPORTANT]
 > **Development status.** This fork is not ready for production use. The project's development rules permit synthetic data only; do not use real patient data. See [Replacement status](#replacement-status) for what has been verified and what is still missing.
 
@@ -94,7 +105,7 @@ The clinic features are active only when `CLINIC_MODE=1` is set. Regardless of t
 
 ### Optional
 
-- **Windows file import** ([`apps/windows-import`](apps/windows-import/README.md)): a .NET 10 agent uploads dictation files from explicitly approved folders or removable drives, unchanged, over HTTPS with a client certificate (mTLS). It does not record, play back, edit text or program devices. An author hint from the DS2 file header grants no permissions.
+- **Windows file import** ([Download the EXE](https://github.com/joehomeskillet/speakr/releases/download/windows-import-v0.11.1-preview.1/Speakr-Import-win-x64-preview.exe) · [`apps/windows-import`](apps/windows-import/README.md)): a .NET 10 agent uploads dictation files from explicitly approved folders or removable drives, unchanged, over HTTPS with a client certificate (mTLS). It does not record, play back, edit text or program devices. An author hint from the DS2 file header grants no permissions.
 - **AI summary:** Open a dictation and expand “KI-Zusammenfassung”. With editing permission, you can request a summary of the current saved text. When automatic summaries are enabled, this runs once after the first successful recognition of a new dictation. The job checks the permission, text revision and local text model. After a correction, you can request a new summary.
 - **Model selection:** Site administrators can view and change the effective local model IDs for CPU recognition, GPU recognition and summaries under “Modellwahl”. New jobs use the saved settings. Changing the summary model leaves the title and chat defaults intact.
 
