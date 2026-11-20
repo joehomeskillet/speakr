@@ -74,3 +74,37 @@ def test_standard_admin_retains_its_existing_tab_and_user_inventory(tmp_path):
     assert "clinic-admin-system-nav" not in html
     assert "data-user-sort-compact" in html
     assert "activeTab = 'users'" in html
+
+@pytest.mark.parametrize("width,height", [(320, 700), (390, 844), (1440, 900)])
+def test_account_actions_and_active_pool_group_have_clear_context(live_server, browser, width, height):
+    base, _ = live_server
+    page, _ = _login(browser, base, ADMIN_EMAIL)
+    page.set_viewport_size({"width": width, "height": height})
+    page.goto(base + "/admin")
+    users = page.get_by_test_id("clinic-users-view")
+    user_region = users.get_by_role("region", name="Konten", exact=True)
+    user_region.get_by_label("Anmelderichtlinie für").wait_for()
+    assert user_region.get_by_role("button", name="Anmelderichtlinie öffnen").is_visible()
+    role_note = users.get_by_text("Eine Identitätsrolle gibt keinen Diktatzugriff.", exact=False)
+    assert not role_note.is_visible()
+    users.get_by_role("button", name="Fachrechte", exact=True).click()
+    assert role_note.is_visible()
+    assert not users.get_by_label("Anmelderichtlinie für").is_visible()
+
+    nav = page.get_by_test_id("clinic-v8-nav")
+    pool = nav.get_by_role("button", name="Schreibkräfte-Pools", exact=True)
+    pool.focus()
+    pool.press("Enter")
+    page.get_by_test_id("clinic-v8-view-admin-pools").wait_for()
+    page.wait_for_function("""() => {
+      const nav = document.querySelector('[data-testid="clinic-v8-nav"]');
+      const item = nav.querySelector('[aria-current="page"]');
+      const label = item.closest('[role="group"]').querySelector('.cadm-nav__label');
+      const bounds = nav.getBoundingClientRect();
+      return [item, label].every(el => {
+        const r = el.getBoundingClientRect();
+        return r.left >= bounds.left - 1 && r.right <= bounds.right + 1;
+      });
+    }""")
+    assert pool.get_attribute("aria-current") == "page"
+    assert pool.evaluate("el => el === document.activeElement")

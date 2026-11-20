@@ -242,9 +242,11 @@
                 <teleport v-if="activeTab !== 'mounting'" to="#clinic-admin-system-nav">
                   <div class="cadm-nav__group" role="group" aria-labelledby="admin-system-label">
                     <p id="admin-system-label" class="cadm-nav__label">System</p>
-                    <a href="#/system/statistik" class="cadm-nav__item" :class="{ 'is-active': activeTab === 'stats' }" :aria-current="activeTab === 'stats' ? 'page' : null">Systemstatistik</a>
-                    <a href="#/system/einstellungen" class="cadm-nav__item" :class="{ 'is-active': activeTab === 'settings' }" :aria-current="activeTab === 'settings' ? 'page' : null">Systemeinstellungen</a>
-                    <a href="#/system/audit" class="cadm-nav__item" data-audit-tab :class="{ 'is-active': activeTab === 'audit' }" :aria-current="activeTab === 'audit' ? 'page' : null">System-Auditprotokoll</a>
+                    <div class="cadm-nav__items">
+                      <a href="#/system/statistik" class="cadm-nav__item" :class="{ 'is-active': activeTab === 'stats' }" :aria-current="activeTab === 'stats' ? 'page' : null">Systemstatistik</a>
+                      <a href="#/system/einstellungen" class="cadm-nav__item" :class="{ 'is-active': activeTab === 'settings' }" :aria-current="activeTab === 'settings' ? 'page' : null">Systemeinstellungen</a>
+                      <a href="#/system/audit" class="cadm-nav__item" data-audit-tab :class="{ 'is-active': activeTab === 'audit' }" :aria-current="activeTab === 'audit' ? 'page' : null">System-Auditprotokoll</a>
+                    </div>
                   </div>
                 </teleport>
                 <teleport v-if="activeTab !== 'mounting'" to="#clinic-admin-system-content">
@@ -5270,9 +5272,11 @@ Summarization Instructions:
       <nav v-if="groups.length || !team || withheld.length" class="cadm-nav" aria-label="Verwaltung" data-testid="clinic-v8-nav">
         <div v-for="g in groups" :key="g.id" class="cadm-nav__group" role="group" :data-testid="g.id === 'policy' ? 'clinic-policy-nav' : null" :aria-labelledby="'cadm-group-' + g.id">
           <p class="cadm-nav__label" :id="'cadm-group-' + g.id" v-text="g.label"></p>
-          <button v-for="d in g.items" :key="d.id" type="button" class="cadm-nav__item" :class="{ 'is-active': d.id === activeId }"
-                  :aria-current="d.id === activeId ? 'page' : null" :data-testid="(d.policy ? 'clinic-policy-panel-' : d.v8 ? 'clinic-v8-panel-' : 'clinic-panel-') + d.id"
-                  @click="open(d.id)"><span v-if="d.id === 'users'" data-testid="admin-tab-clinic" :class="{ 'is-active': d.id === activeId }" v-text="d.label"></span><span v-else v-text="d.label"></span></button>
+          <div class="cadm-nav__items">
+            <button v-for="d in g.items" :key="d.id" type="button" class="cadm-nav__item" :class="{ 'is-active': d.id === activeId }"
+                    :aria-current="d.id === activeId ? 'page' : null" :data-testid="(d.policy ? 'clinic-policy-panel-' : d.v8 ? 'clinic-v8-panel-' : 'clinic-panel-') + d.id"
+                    @click="open(d.id)"><span v-if="d.id === 'users'" data-testid="admin-tab-clinic" :class="{ 'is-active': d.id === activeId }" v-text="d.label"></span><span v-else v-text="d.label"></span></button>
+          </div>
         </div>
         <div v-if="!team" id="clinic-admin-system-nav"></div>
         <p v-if="withheld.length" role="status" class="cadm-nav__notice" data-testid="clinic-admin-withheld" v-text="withheldText"></p>
