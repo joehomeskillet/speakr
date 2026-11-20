@@ -277,20 +277,22 @@ export function createLiveSessionComponent(vue) {
             return { actions };
         },
         template: `
-            <section class="clinic-live" aria-label="Live-Transkription" :data-status="state.status">
-                <p role="status" aria-live="polite">{{ state.message }}</p>
-                <ol class="clinic-live-phrases" aria-label="Sätze">
+            <section class="clinic-live v8-page state-box" aria-label="Live-Transkription" :data-status="state.status">
+                <p role="status" aria-live="polite" class="text-status" style="margin: 0 0 10px">{{ state.message }}</p>
+                <ol class="clinic-live-phrases" aria-label="Sätze" style="list-style: none; margin: 0; padding: 0; display: grid; gap: 4px">
                     <li v-for="p in state.phrases" :key="p.generation + '-' + p.sequence"
                         :data-state="p.state"
-                        :style="{ background: p.view.surface.background, color: p.view.surface.color, border: '1px solid ' + p.view.surface.border }">
-                        <span>{{ p.text }}</span>
-                        <small>{{ p.view.position }}: <strong>{{ p.view.label }}</strong></small>
+                        style="display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; padding: 8px 0; border-bottom: 1px solid var(--v8-line-2)">
+                        <span style="flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere">{{ p.text }}</span>
+                        <small class="tag" :class="p.state === 'final_unsaved' ? 'wait' : (p.state === 'stale' ? 'error' : 'neutral')">{{ p.view.position }}: <strong style="display: inline">{{ p.view.label }}</strong></small>
                     </li>
-                    <li v-if="state.partial" data-state="partial" aria-label="Vorläufig"><em>{{ state.partial }}</em></li>
+                    <li v-if="state.partial" data-state="partial" aria-label="Vorläufig" style="padding: 8px 0; color: var(--v8-muted)"><em>{{ state.partial }}</em></li>
                 </ol>
-                <p v-if="state.hasUnsaved" role="alert">Nicht gespeicherte Sätze sind noch nicht dauerhaft.</p>
-                <button v-for="a in actions" :key="a.id" type="button" :disabled="a.disabled"
-                    @click="run[a.id]()">{{ a.label }}</button>
+                <p v-if="state.hasUnsaved" role="alert" class="note warning">Nicht gespeicherte Sätze sind noch nicht dauerhaft.</p>
+                <div class="actions" style="margin-top: 12px">
+                    <button v-for="a in actions" :key="a.id" type="button" class="button small" :disabled="a.disabled"
+                        @click="run[a.id]()">{{ a.label }}</button>
+                </div>
             </section>`,
     };
 }

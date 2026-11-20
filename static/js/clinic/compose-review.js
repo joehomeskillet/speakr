@@ -47,6 +47,15 @@ import { ACTIONS, createWorkflowActions } from './workflow-actions-ui.js';
 
 export const COMPOSE_REVIEW_VERSION = 1;
 
+// clinic-v8.css states heading, button and form-control styles with zero-specificity element selectors; the Tailwind
+// base layer, loaded after it, resets those. These strings restate them where this page needs them.
+const H1 = 'font-size: clamp(26px, 4vw, 30px); line-height: 1.2; font-weight: 700; letter-spacing: -.8px; margin: 0 0 9px';
+const H2 = 'font-size: 16px; line-height: 1.35; font-weight: 700; letter-spacing: -.2px; margin: 0 0 14px';
+const H3 = 'font-size: 14px; line-height: 1.35; font-weight: 700; margin: 0 0 10px';
+const FIELD = 'display: grid; gap: 6px; margin: 0 0 16px; min-width: 0';
+const LABEL = 'font-size: 12px; font-weight: 650';
+const TEXTAREA = 'width: 100%; min-height: 100px; padding: 10px 11px; border: 1px solid var(--line); border-radius: 7px; background-color: var(--surface); color: var(--v8-text); font: inherit; line-height: 1.65';
+
 export const TEXT = Object.freeze({
     title: 'Prüfen und Freigeben',
     dictation: 'Diktat',
@@ -80,6 +89,7 @@ export const TEXT = Object.freeze({
     textRevision: 'Text',
     audioRevision: 'Audio',
     contextRevision: 'Kontext',
+    noValue: '–',
     details: 'Revisionsdetails',
     text: 'Prüftext',
     player: 'Wiedergabe',
@@ -104,6 +114,12 @@ export const TEXT = Object.freeze({
     contextChecked: 'Kontext geprüft',
     confirm: 'Bestätigen',
     cancel: 'Abbrechen',
+    eyebrow: 'Arbeitsliste',
+    subline: 'Änderungen nachvollziehen und die korrigierte Textrevision bewusst bestätigen.',
+    evidence: 'Revisionsnachweis',
+    decisionState: 'Prüfentscheidung',
+    changes: 'Text und Quelle',
+    textShort: 'Textrevision',
     keys: 'Tastatur: Der Player und der Prüftext sind nacheinander erreichbar. Entscheidungen werden nur über benannte Schaltflächen mit Bestätigung ausgelöst.',
 });
 
@@ -470,6 +486,7 @@ export function createReviewViewController(options) {
 }
 
 const FOCUS = { '--focus-outline': FOCUS_INDICATOR.outline, '--focus-offset': FOCUS_INDICATOR.outlineOffset };
+const PRIMARY = 'background: var(--ink); border-color: var(--ink); color: white';
 const box = (name) => {
     const s = surfaceFor(name);
     return { background: s.background, color: s.color, border: '1px solid ' + s.border };
@@ -510,7 +527,8 @@ const ReviewBody = {
             return {};
         };
         return {
-            c, FOCUS, box, styleFor, TEXT, wf: c.wf,
+            c, FOCUS, short: (v) => (typeof v === 'string' && v.length > 13 ? v.slice(0, 8) + '…' : v), box, styleFor, TEXT, wf: c.wf,
+            toneBox: (tone) => box({ success: 'success', warn: 'warning', danger: 'error', info: 'pending' }[tone] || 'normal'),
             status: c.status, review: c.review, newer: c.newer, confirming: c.confirming, reason: c.reason, error: c.error,
             reasonInvalid: c.reasonInvalid, contentChecked: c.contentChecked, contextChecked: c.contextChecked,
             audio: c.editor.audio, manual: c.editor.manual,
@@ -519,114 +537,130 @@ const ReviewBody = {
         };
     },
     template: `
-<section class="clinic-review-view" data-testid="clinic-review-view" aria-labelledby="crv-title" :aria-busy="status === 'loading' ? 'true' : 'false'">
-  <header class="flex flex-wrap items-center gap-2">
-    <h1 id="crv-title" class="text-lg font-semibold">{{ TEXT.title }}</h1>
-    <span class="text-sm" style="color: var(--text-secondary)">{{ TEXT.dictation }} {{ c.dictationId }}</span>
-    <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" data-testid="correct" @click="c.correct()">{{ TEXT.correct }}</button>
-    <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" data-testid="close" @click="c.close()">{{ TEXT.close }}</button>
-  </header>
-  <p class="sr-only" id="crv-keys">{{ TEXT.keys }}</p>
-  <div v-if="status === 'loading'" role="status" aria-live="polite" data-testid="loading-state">{{ TEXT.loading }}</div>
-  <p v-if="status === 'none'" role="note" data-testid="no-review">{{ TEXT.noReview }}</p>
-  <p v-if="status === 'denied'" role="alert" class="p-2 rounded" :style="box('warning')" data-testid="denied">{{ TEXT.denied }}</p>
-  <div v-if="status === 'error'" role="alert" class="p-2 rounded" :style="box('error')" data-testid="load-error">
+<section class="clinic-review-view v8-page" data-testid="clinic-review-view" aria-labelledby="crv-title" :aria-busy="status === 'loading' ? 'true' : 'false'">
+  <nav class="breadcrumb" aria-label="Pfad"><span>Speakr</span><span aria-hidden="true">›</span><span>{{ TEXT.eyebrow }}</span><span aria-hidden="true">›</span><span aria-current="page">{{ TEXT.title }}</span></nav>
+  <div class="pagehead">
+    <div>
+      <div class="eyebrow">{{ TEXT.eyebrow }}</div>
+      <h1 id="crv-title" style="${H1}">{{ TEXT.title }}</h1>
+      <p class="subline">{{ TEXT.subline }}</p>
+    </div>
+    <div class="head-actions">
+      <span class="tag neutral" data-testid="dictation-id">{{ TEXT.dictation }} {{ c.dictationId }}</span>
+      <span v-if="status === 'ready'" class="tag burgundy" :title="c.revisionSummary().text">{{ TEXT.textShort }} {{ short(c.revisionSummary().text) || TEXT.noValue }}</span>
+      <button type="button" class="button" :style="FOCUS" data-testid="correct" @click="c.correct()">{{ TEXT.correct }}</button>
+      <button type="button" class="button quiet" :style="FOCUS" data-testid="close" @click="c.close()">{{ TEXT.close }}</button>
+    </div>
+  </div>
+  <p class="visually-hidden" id="crv-keys">{{ TEXT.keys }}</p>
+  <div v-if="status === 'loading'" class="state-box" role="status" aria-live="polite" data-testid="loading-state">{{ TEXT.loading }}</div>
+  <p v-if="status === 'none'" class="empty" role="note" data-testid="no-review">{{ TEXT.noReview }}</p>
+  <p v-if="status === 'denied'" role="alert" class="note warning" data-testid="denied">{{ TEXT.denied }}</p>
+  <div v-if="status === 'error'" role="alert" class="note burgundy" data-testid="load-error">
     {{ TEXT.failed }}
-    <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" @click="c.load()">{{ TEXT.retry }}</button>
+    <button type="button" class="button small" style="margin-left: 8px" :style="FOCUS" @click="c.load()">{{ TEXT.retry }}</button>
   </div>
 
   <template v-if="status === 'ready'">
-    <div v-if="newer" role="alert" class="mt-2 p-2 rounded" :style="box('warning')" data-testid="wiedervorlage">
+    <div v-if="newer" role="alert" class="note warning" style="margin: 0 0 16px" data-testid="wiedervorlage">
       <strong>{{ TEXT.wiedervorlage }}</strong> {{ TEXT.newerRevision }}
-      <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" data-testid="reload" @click="c.load()">{{ TEXT.reload }}</button>
+      <button type="button" class="button small" style="margin-left: 8px" :style="FOCUS" data-testid="reload" @click="c.load()">{{ TEXT.reload }}</button>
     </div>
 
-    <section v-if="c.acceptanceView()" class="notice mt-3" :class="'notice--' + c.acceptanceView().tone"
-             :aria-label="TEXT.acceptance" data-testid="acceptance">
-      <div class="notice__body">
-        <h2 class="notice__title flex flex-wrap items-center gap-2">{{ TEXT.acceptance }}
-          <span class="pill-status" :class="'pill-status--' + c.acceptanceView().tone" data-testid="acceptance-state" :data-state="c.acceptanceView().state">{{ c.acceptanceView().label }}</span>
-        </h2>
-        <p class="notice__message mt-1" data-testid="acceptance-required">{{ c.acceptanceView().required ? TEXT.required : TEXT.notRequired }}</p>
-        <p v-if="c.acceptanceView().acceptedRevision" class="notice__message mt-1" data-testid="acceptance-revision">{{ TEXT.acceptedRevision }}: {{ TEXT.textRevision }} {{ c.acceptanceView().acceptedRevision }}</p>
-        <p v-if="c.acceptanceView().moved" class="notice__message mt-1" data-testid="acceptance-moved">{{ TEXT.movedSince }}</p>
-        <p v-if="c.acceptanceView().reason" class="notice__message mt-1" data-testid="acceptance-reason"><strong>{{ TEXT.rejectReason }}:</strong> {{ c.acceptanceView().reason }}</p>
-      </div>
-    </section>
+    <dl class="metadata" :aria-label="TEXT.head" data-testid="head">
+      <div v-if="review.author_name"><dt>{{ TEXT.author }}</dt><dd>{{ review.author_name }}</dd></div>
+      <div v-if="review.pool_name"><dt>{{ TEXT.pool }}</dt><dd>{{ review.pool_name }}</dd></div>
+      <div v-if="review.corrected_by_name"><dt>{{ TEXT.correctedBy }}</dt><dd>{{ review.corrected_by_name }}</dd></div>
+      <div><dt>{{ TEXT.reviewed }}</dt><dd data-testid="reviewed">{{ TEXT.textRevision }} {{ c.revisionSummary().text }}</dd></div>
+    </dl>
 
-    <section class="mt-3" :aria-label="TEXT.head" data-testid="head">
-      <dl class="grid gap-1">
-        <div v-if="review.author_name"><dt class="inline font-semibold">{{ TEXT.author }}: </dt><dd class="inline">{{ review.author_name }}</dd></div>
-        <div v-if="review.pool_name"><dt class="inline font-semibold">{{ TEXT.pool }}: </dt><dd class="inline">{{ review.pool_name }}</dd></div>
-        <div v-if="review.corrected_by_name"><dt class="inline font-semibold">{{ TEXT.correctedBy }}: </dt><dd class="inline">{{ review.corrected_by_name }}</dd></div>
-        <div><dt class="inline font-semibold">{{ TEXT.reviewed }}: </dt><dd class="inline" data-testid="reviewed">{{ TEXT.textRevision }} {{ c.revisionSummary().text }}</dd></div>
-      </dl>
-      <details class="mt-1">
-        <summary>{{ TEXT.details }}</summary>
-        <p data-testid="revisions">{{ TEXT.textRevision }}: {{ c.revisionSummary().text }} · {{ TEXT.audioRevision }}: {{ c.revisionSummary().audio }} · {{ TEXT.contextRevision }}: {{ c.revisionSummary().context }}</p>
-        <p>{{ review.context_trusted ? TEXT.contextTrusted : TEXT.contextMissing }}</p>
-        <p data-testid="rule">{{ c.policy.state.required ? TEXT.required : TEXT.notRequired }}</p>
-        <h3 class="font-semibold">{{ TEXT.decisions }}</h3>
-        <ul v-if="c.policy.state.decisions.length" role="list">
-          <li v-for="(d, i) in c.policy.state.decisions" :key="i">{{ d.label }} · {{ d.actorName }}<span v-if="d.reason"> · {{ d.reason }}</span></li>
-        </ul>
-        <p v-else>{{ TEXT.noDecisions }}</p>
-      </details>
-    </section>
-
-    <section v-if="c.markers().length" class="mt-3 p-2 rounded" :style="box('warning')" :aria-label="TEXT.blockers" data-testid="blockers">
-      <h2 class="font-semibold">{{ TEXT.blockers }} ({{ c.markers().length }})</h2>
+    <section v-if="c.markers().length" class="note warning" style="margin: 0 0 16px" :aria-label="TEXT.blockers" data-testid="blockers">
+      <h3 style="${H3}">{{ TEXT.blockers }} ({{ c.markers().length }})</h3>
       <p>{{ TEXT.blockersHint }}</p>
-      <ul role="list"><li v-for="b in c.markers()" :key="b.id">{{ b.label }}</li></ul>
+      <ul role="list" style="margin: 0; padding-left: 18px; list-style: disc"><li v-for="b in c.markers()" :key="b.id">{{ b.label }}</li></ul>
     </section>
 
-    <div class="grid gap-4 lg:grid-cols-2 mt-3">
-      <section :aria-label="TEXT.text" data-testid="review-text">
-        <h2 class="font-semibold">{{ TEXT.text }}</h2>
-        <p v-if="manual" role="note">{{ TEXT.manual }}</p>
-        <p role="group" :aria-label="TEXT.text" style="white-space: pre-wrap">
-          <template v-for="seg in segments" :key="seg.start">
-            <span v-if="seg.aligned" role="button" tabindex="0" :data-start="seg.start" :aria-label="TEXT.wordAria + ': ' + seg.text"
-                  :aria-current="currentWord && currentWord.id === seg.linkId ? 'true' : null" :style="{ ...FOCUS, ...styleFor(seg) }"
-                  @click="c.alignment.seekToSegment(seg)" @keydown.enter.prevent="c.alignment.seekToSegment(seg)"
-                  @keydown.space.prevent="c.alignment.seekToSegment(seg)">{{ seg.text }}</span>
-            <span v-else :data-start="seg.start" :data-unaligned="seg.flagged || seg.unavailable ? 'true' : null"
-                  :title="seg.flagged ? TEXT.unaligned : null" :style="styleFor(seg)">{{ seg.text }}</span>
-          </template>
-        </p>
+    <div class="grid">
+      <section class="panel" :aria-label="TEXT.changes">
+        <h2 style="${H2}">{{ TEXT.text }}</h2>
+        <div :aria-label="TEXT.text" data-testid="review-text">
+          <p v-if="manual" class="hint" role="note">{{ TEXT.manual }}</p>
+          <p class="revision" role="group" :aria-label="TEXT.text" style="white-space: pre-wrap; margin: 0 0 18px">
+            <template v-for="seg in segments" :key="seg.start">
+              <span v-if="seg.aligned" role="button" tabindex="0" :data-start="seg.start" :aria-label="TEXT.wordAria + ': ' + seg.text"
+                    :aria-current="currentWord && currentWord.id === seg.linkId ? 'true' : null" :style="{ ...FOCUS, ...styleFor(seg) }"
+                    @click="c.alignment.seekToSegment(seg)" @keydown.enter.prevent="c.alignment.seekToSegment(seg)"
+                    @keydown.space.prevent="c.alignment.seekToSegment(seg)">{{ seg.text }}</span>
+              <span v-else :data-start="seg.start" :data-unaligned="seg.flagged || seg.unavailable ? 'true' : null"
+                    :title="seg.flagged ? TEXT.unaligned : null" :style="styleFor(seg)">{{ seg.text }}</span>
+            </template>
+          </p>
+        </div>
+        <div class="player compact-player" style="flex-wrap: wrap; margin-bottom: 0" :aria-label="TEXT.player" data-testid="player">
+          <audio controls preload="metadata" style="flex: 1 1 260px; min-width: 0; width: 100%" :ref="c.bindAudio" :src="audio.status === 'ready' ? audio.src : null" :aria-label="TEXT.audio"></audio>
+          <p v-if="audio.status !== 'ready' && audio.status !== 'idle' && audio.status !== 'loading'" class="hint" style="flex-basis: 100%; margin: 0" role="note">{{ audio.message }}</p>
+        </div>
       </section>
-      <section :aria-label="TEXT.player" data-testid="player">
-        <h2 class="font-semibold">{{ TEXT.player }}</h2>
-        <audio controls preload="metadata" :ref="c.bindAudio" :src="audio.status === 'ready' ? audio.src : null" :aria-label="TEXT.audio"></audio>
-        <p v-if="audio.status !== 'ready' && audio.status !== 'idle' && audio.status !== 'loading'" role="note">{{ audio.message }}</p>
-      </section>
+
+      <div class="stack">
+        <section class="panel" :aria-label="TEXT.actions" data-testid="actions">
+          <h2 style="${H2}">{{ TEXT.decisionState }}</h2>
+          <div v-if="c.acceptanceView()" :aria-label="TEXT.acceptance" data-testid="acceptance">
+            <p class="text-status" style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px">
+              <span>{{ TEXT.acceptance }}</span>
+              <span class="tag" :style="toneBox(c.acceptanceView().tone)" data-testid="acceptance-state" :data-state="c.acceptanceView().state">{{ c.acceptanceView().label }}</span>
+            </p>
+            <p class="hint" data-testid="acceptance-required">{{ c.acceptanceView().required ? TEXT.required : TEXT.notRequired }}</p>
+            <p v-if="c.acceptanceView().acceptedRevision" class="hint" data-testid="acceptance-revision">{{ TEXT.acceptedRevision }}: {{ TEXT.textRevision }} {{ c.acceptanceView().acceptedRevision }}</p>
+            <p v-if="c.acceptanceView().moved" class="note warning" style="margin-top: 0" data-testid="acceptance-moved">{{ TEXT.movedSince }}</p>
+            <p v-if="c.acceptanceView().reason" class="hint" data-testid="acceptance-reason"><strong>{{ TEXT.rejectReason }}:</strong> {{ c.acceptanceView().reason }}</p>
+          </div>
+          <p v-if="c.readOnly()" class="note" role="note" data-testid="read-only">{{ TEXT.readOnly }}</p>
+          <div class="actions text-sm" style="margin-top: 14px">
+            <button v-for="a in c.actions()" :key="a.id" type="button" class="button" style="min-height: 2.75rem"
+                    :style="[FOCUS, a.id === 'accept' ? '${PRIMARY}' : null]" :disabled="a.disabled" :data-action="a.id" :aria-describedby="a.why ? 'crv-why-' + a.id : null"
+                    @click="c.request(a.id)">{{ a.label }}</button>
+          </div>
+          <template v-for="a in c.actions()" :key="'w' + a.id"><span v-if="a.why" :id="'crv-why-' + a.id" class="visually-hidden">{{ a.why }}</span></template>
+
+          <form v-if="confirming" role="alertdialog" aria-labelledby="crv-confirm" class="state-box" style="margin-top: 16px"
+                data-testid="confirm-form" @submit.prevent="c.confirm()" @keydown.esc="c.cancel()">
+            <p id="crv-confirm">{{ c.confirmText(confirming) }}</p>
+            <div v-if="confirming === 'reject'" style="${FIELD}">
+              <label style="${LABEL}" for="crv-reason">{{ TEXT.reason }}</label>
+              <textarea style="${TEXTAREA}" id="crv-reason" :ref="setReasonNode" v-model="reason" maxlength="2000"
+                        :aria-invalid="reasonInvalid ? 'true' : 'false'" aria-describedby="crv-error" data-testid="reason"></textarea>
+            </div>
+            <div v-if="confirming === 'release'" class="checkboxes">
+              <label class="inline-label"><input type="checkbox" v-model="contentChecked"> {{ TEXT.contentChecked }}</label>
+              <label class="inline-label"><input type="checkbox" v-model="contextChecked"> {{ TEXT.contextChecked }}</label>
+            </div>
+            <div class="actions text-sm">
+              <button type="submit" class="button" style="min-height: 2.75rem; ${PRIMARY}" :style="FOCUS" :disabled="wf.state.busy" data-testid="confirm">{{ TEXT.confirm }}</button>
+              <button type="button" class="button" style="min-height: 2.75rem" :style="FOCUS" data-testid="cancel" @click="c.cancel()">{{ TEXT.cancel }}</button>
+            </div>
+          </form>
+          <p id="crv-error" role="alert" class="text-status error" style="margin-top: 12px" data-testid="error">{{ error }}</p>
+          <div class="note" role="note">{{ TEXT.separate }}</div>
+        </section>
+
+        <section class="panel" :aria-label="TEXT.evidence">
+          <h2 style="${H2}">{{ TEXT.evidence }}</h2>
+          <dl class="keyvalues" data-testid="revisions">
+            <div><dt>{{ TEXT.textRevision }}</dt><dd>{{ c.revisionSummary().text || TEXT.noValue }}</dd></div>
+            <div><dt>{{ TEXT.audioRevision }}</dt><dd>{{ c.revisionSummary().audio || TEXT.noValue }}</dd></div>
+            <div><dt>{{ TEXT.contextRevision }}</dt><dd>{{ c.revisionSummary().context || TEXT.noValue }}</dd></div>
+            <div><dt>{{ TEXT.acceptance }}</dt><dd data-testid="rule">{{ c.policy.state.required ? TEXT.required : TEXT.notRequired }}</dd></div>
+          </dl>
+          <p class="hint" style="margin-top: 12px">{{ review.context_trusted ? TEXT.contextTrusted : TEXT.contextMissing }}</p>
+          <h3 style="${H3}; margin-top: 16px">{{ TEXT.decisions }}</h3>
+          <ul v-if="c.policy.state.decisions.length" class="timeline" role="list">
+            <li v-for="(d, i) in c.policy.state.decisions" :key="i"><strong>{{ d.label }}</strong><p>{{ d.actorName }}<span v-if="d.reason"> · {{ d.reason }}</span></p></li>
+          </ul>
+          <p v-else class="hint">{{ TEXT.noDecisions }}</p>
+        </section>
+      </div>
     </div>
-
-    <section class="mt-3" :aria-label="TEXT.actions" data-testid="actions">
-      <h2 class="font-semibold">{{ TEXT.actions }}</h2>
-      <p v-if="c.readOnly()" role="note" data-testid="read-only">{{ TEXT.readOnly }}</p>
-      <p role="note">{{ TEXT.separate }}</p>
-      <button v-for="a in c.actions()" :key="a.id" type="button" class="px-3 py-2 border rounded mr-2" style="min-height: 2.75rem"
-              :style="FOCUS" :disabled="a.disabled" :data-action="a.id" :aria-describedby="a.why ? 'crv-why-' + a.id : null"
-              @click="c.request(a.id)">{{ a.label }}</button>
-      <template v-for="a in c.actions()" :key="'w' + a.id"><span v-if="a.why" :id="'crv-why-' + a.id" class="sr-only">{{ a.why }}</span></template>
-
-      <form v-if="confirming" role="alertdialog" aria-labelledby="crv-confirm" class="mt-3 p-3 border rounded"
-            data-testid="confirm-form" @submit.prevent="c.confirm()" @keydown.esc="c.cancel()">
-        <p id="crv-confirm">{{ c.confirmText(confirming) }}</p>
-        <label v-if="confirming === 'reject'" class="block">{{ TEXT.reason }}
-          <textarea :ref="setReasonNode" v-model="reason" class="block w-full border rounded" maxlength="2000"
-                    :aria-invalid="reasonInvalid ? 'true' : 'false'" aria-describedby="crv-error" data-testid="reason"></textarea>
-        </label>
-        <template v-if="confirming === 'release'">
-          <label class="block"><input type="checkbox" v-model="contentChecked"> {{ TEXT.contentChecked }}</label>
-          <label class="block"><input type="checkbox" v-model="contextChecked"> {{ TEXT.contextChecked }}</label>
-        </template>
-        <button type="submit" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" :disabled="wf.state.busy" data-testid="confirm">{{ TEXT.confirm }}</button>
-        <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" data-testid="cancel" @click="c.cancel()">{{ TEXT.cancel }}</button>
-      </form>
-      <p id="crv-error" role="alert" class="mt-2" style="color: var(--text-danger-strong)" data-testid="error">{{ error }}</p>
-    </section>
   </template>
 </section>`,
 };
