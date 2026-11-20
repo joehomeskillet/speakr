@@ -93,12 +93,14 @@
     <script src="{{ url_for('static', filename='js/markdown-safe.js', v=app_version) }}"></script>
     <script src="{{ url_for('static', filename='vendor/js/easymde.min.js', v=app_version) }}"></script>
     <script src="{{ url_for('static', filename='js/timezone-sync.js', v=app_version) }}" defer></script>
+    {% if clinic_mode %}<!-- Verwaltung pages (v8-114): last stylesheet, so its element rules win over the preflight -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/clinic-v8-admin.css', v=app_version) }}" data-clinic-v8-admin>{% endif %}
 </head>
 <body class="h-full bg-[var(--bg-primary)] text-[var(--text-primary)] transition-colors duration-300">
     <div id="app" v-cloak
          data-use-asr-endpoint="{{ use_asr_endpoint }}"
          data-clinic-mode="{{ 'True' if clinic_mode else 'False' }}"
-         {% if clinic_mode %}data-clinic-role="{{ clinic_role or 'author' }}"{% endif %}
+         {% if clinic_mode %}data-clinic-role="{{ clinic_role or 'author' }}" data-clinic-admin="{{ 'True' if current_user.is_admin else 'False' }}"{% endif %}
          data-connector-supports-diarization="{{ connector_supports_diarization }}"
          data-connector-supports-speaker-count="{{ connector_supports_speaker_count }}"
          data-connector-supports-exact-speaker-count="{{ connector_supports_exact_speaker_count }}"
@@ -269,6 +271,35 @@
                     <clinic-offline-view v-else-if="currentView === 'clinic-offline'" :client="clinicClient" :who="clinicUser"></clinic-offline-view>
                 </div>
                 <!-- end V8 menu views (v8-71) -->
+                <!-- V8 Verwaltung views (v8-114): the administration pages inside the clinic shell. Hash routes #/verwaltung/<page>;
+                     the page is shown only when the API authorises its probe (templates/admin.html rule). The page head (eyebrow,
+                     title, subline, actions) belongs to the page component. -->
+                <div v-if="clinicWorklistEnabled && clinicAdminView"
+                     data-testid="clinic-admin-view" data-clinic-shell-view :data-admin-view="clinicAdminView.view"
+                     class="flex-1 overflow-y-auto content v8-page">
+                    <div class="breadcrumb" data-testid="clinic-admin-breadcrumb">
+                        <a href="#/aufnahmen" @click.prevent="goClinicView('clinic-recordings')">Speakr</a><span>›</span><span>Verwaltung</span><span>›</span><span v-text="clinicAdminView.label"></span>
+                    </div>
+                    <p v-if="clinicAdminAccess === null" role="status" aria-live="polite" data-testid="clinic-admin-probing">Berechtigungen werden geprüft …</p>
+                    <div v-else-if="!clinicAdminAllowed(clinicAdminView)" role="alert" class="note warning" data-testid="clinic-admin-denied">
+                        Diese Seite ist für dieses Konto nicht freigegeben.
+                        <a href="#/aufnahmen" @click.prevent="goClinicView('clinic-recordings')">Zu den Aufnahmen</a>
+                    </div>
+                    <div v-else-if="clinicAdminView.sub" class="v8-admin-page" :class="{ 'v8-admin-plain': !clinicAdminOwnHead }" data-testid="clinic-admin-plain">
+                        <div v-if="!clinicAdminOwnHead" class="pagehead">
+                            <div>
+                                <div class="eyebrow">Verwaltung</div>
+                                <h1 class="page-title" v-text="clinicAdminView.label"></h1>
+                                <p class="subline" v-text="clinicAdminView.sub"></p>
+                            </div>
+                        </div>
+                        <div ref="clinicAdminBody" :class="clinicAdminOwnHead ? null : 'panel admin-plain-card'">
+                            <component :is="clinicAdminView.tag" :key="clinicAdminView.view" v-bind="clinicAdminProps(clinicAdminView)"></component>
+                        </div>
+                    </div>
+                    <component v-else :is="clinicAdminView.tag" :key="clinicAdminView.view" v-bind="clinicAdminProps(clinicAdminView)"></component>
+                </div>
+                <!-- end V8 Verwaltung views (v8-114) -->
                 {% endif %}
 
                 <!-- Recording View -->

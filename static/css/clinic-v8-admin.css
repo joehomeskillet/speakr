@@ -1,0 +1,204 @@
+/* clinic-v8-admin.css | v8-114 | Page rules of the Verwaltung compositions (Schreibkräfte-Pools, Diktierende, Benutzer, and the pages in the
+ * generic card). Shared by the clinic shell (templates/index.html) and the /admin Klinik tab: each composition links this file once
+ * next to clinic-v8.css, so both mounts draw the same page. */
+/* Administration pages (v8-114): the element and class rules of clinic-v8.css that are written at zero specificity
+   (:where(.v8-page ...)) lose to the preflight and to the app classes (.field, .grid, .tabs, .empty). The same rules,
+   raised to the specificity of an element selector, for the pages that mark their root with .v8-admin-page. */
+.v8-ui [data-testid=clinic-admin-view],.v8-ui .v8-admin-page{font-family:Inter,"Segoe UI",Arial,sans-serif;--v8-muted:color-mix(in srgb,var(--muted) 90%,var(--v8-text-2))}
+*:where(.v8-admin-page *){box-sizing:border-box}
+a:where(.v8-admin-page *){color:var(--v8-text);text-underline-offset:3px}
+button:where(.v8-admin-page *),input:where(.v8-admin-page *),select:where(.v8-admin-page *),textarea:where(.v8-admin-page *){font:inherit}
+button:where(.v8-admin-page *),a:where(.v8-admin-page *),input:where(.v8-admin-page *),select:where(.v8-admin-page *),textarea:where(.v8-admin-page *),summary:where(.v8-admin-page *){outline-offset:4px}
+button:focus-visible:where(.v8-admin-page *),a:focus-visible:where(.v8-admin-page *),input:focus-visible:where(.v8-admin-page *),select:focus-visible:where(.v8-admin-page *),textarea:focus-visible:where(.v8-admin-page *),summary:focus-visible:where(.v8-admin-page *){outline:3px solid #ba8196}
+button:where(.v8-admin-page *),a:where(.v8-admin-page *),summary:where(.v8-admin-page *){-webkit-tap-highlight-color:transparent}
+button:where(.v8-admin-page *){cursor:pointer}
+button:disabled:where(.v8-admin-page *){cursor:default;opacity:.5}
+button:where(.v8-admin-page *){border:1px solid var(--line);border-radius:8px;background-color:var(--surface);padding:9px 13px;font-weight:600;color:var(--v8-text);text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:38px}
+button:hover:not(:disabled):where(.v8-admin-page *){background:var(--v8-s1);border-color:#b9c9c4}
+h1:where(.v8-admin-page *){font-size:30px;line-height:1.2;font-weight:700;letter-spacing:-.8px;margin:0 0 9px}
+h2:where(.v8-admin-page *){font-size:16px;line-height:1.35;margin:0 0 14px;letter-spacing:-.2px}
+h3:where(.v8-admin-page *){font-size:14px;margin:0 0 10px}
+p:where(.v8-admin-page *){margin:0 0 12px}
+.grid:where(.v8-admin-page *){display:grid;grid-template-columns:1.6fr 1fr;gap:20px;align-items:start}
+.grid.equal:where(.v8-admin-page *){grid-template-columns:1fr 1fr}
+.grid.three:where(.v8-admin-page *){grid-template-columns:repeat(3,minmax(0,1fr))}
+.field:where(.v8-admin-page *){display:grid;gap:6px;margin:0 0 16px}
+.field label:where(.v8-admin-page *),.field>span:where(.v8-admin-page *){font-weight:650;font-size:12px}
+.field small:where(.v8-admin-page *){font-size:11px;color:var(--v8-muted)}
+input:not([type=checkbox]):not([type=radio]):not([type=range]):where(.v8-admin-page *),select:where(.v8-admin-page *),textarea:where(.v8-admin-page *){width:100%;padding:10px 11px;border:1px solid #ccd8d3;border-radius:7px;color:var(--v8-text);background-color:var(--surface);min-height:40px}
+textarea:where(.v8-admin-page *){resize:vertical;min-height:100px;line-height:1.65}
+.filterbar .field:where(.v8-admin-page *){margin:0;flex:0 1 175px}
+.filterbar .field.search:where(.v8-admin-page *){flex:1 1 240px}
+table:where(.v8-admin-page *){width:100%;border-collapse:collapse;text-align:left;font-size:12px;white-space:nowrap}
+thead:where(.v8-admin-page *){background:var(--v8-s1)}
+th:where(:not([scope=row])):where(.v8-admin-page *){font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:650;color:var(--v8-text-2);padding:12px 14px;border-bottom:1px solid var(--line)}
+td:where(.v8-admin-page *){padding:13px 14px;border-bottom:1px solid var(--v8-line-2);vertical-align:middle}
+tbody tr:last-child td:where(.v8-admin-page *){border-bottom:0}
+tbody tr:hover:where(.v8-admin-page *){background:var(--surface)}
+td strong:where(.v8-admin-page *){display:block;color:var(--v8-text);font-weight:650}
+td small:where(.v8-admin-page *){display:block;font-size:10px;color:var(--v8-muted);margin-top:3px}
+.tabs button:where(.v8-admin-page *){font-size:14px}
+.tabs:where(.v8-admin-page *){display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:18px;overflow:auto}
+.tabs button:where(.v8-admin-page *){white-space:nowrap;border:0;border-bottom:3px solid transparent;border-radius:0;background:transparent;padding:10px 14px;font-weight:600;color:var(--v8-text-2)}
+.tabs button[aria-selected=true]:where(.v8-admin-page *){color:var(--v8-text);border-bottom-color:var(--burgundy)}
+.empty:where(.v8-admin-page *){border:1px dashed var(--line);padding:28px;text-align:center;font-size:13px;color:var(--v8-muted);border-radius:8px}
+/* Overrides inside an admin page: the shell rules above (primary, icon-button, field) are written for other views. */
+.v8-ui .v8-admin-page .field:not(:where(input,select,textarea)){appearance:auto;width:auto;min-height:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;font-size:inherit;margin:0 0 16px}
+.v8-ui .v8-admin-page .filterbar .field{margin:0}
+.v8-ui .v8-admin-page .primary{background:var(--ink);border-color:var(--ink);color:#fff;padding:9px 13px;font-size:inherit;font-weight:600}
+.v8-ui .v8-admin-page .primary:hover:not(:disabled){background:#2c565b;border-color:#2c565b;color:#fff}
+.v8-ui .v8-admin-page .small{padding:5px 9px;min-height:30px;font-size:12px}
+.v8-ui .v8-admin-page .danger{color:var(--danger)}
+.v8-ui .v8-admin-page .icon-button{width:38px;height:38px;min-height:38px;padding:0;border-color:transparent;background:transparent;border-radius:7px;color:var(--v8-text-2)}
+.v8-ui .v8-admin-page .icon-button:hover:not(:disabled){background:var(--v8-s2);border-color:var(--line);color:var(--v8-text)}
+.v8-ui .v8-admin-page .subline{margin:0}
+.v8-ui .v8-admin-page .pagehead h1{margin:0 0 9px}
+.v8-ui .v8-admin-page .panel h2,.v8-ui .v8-admin-page .panel h3{font-weight:700}
+.v8-ui .v8-admin-page h1{font-weight:700}
+.v8-ui .v8-admin-page .empty{display:block;min-height:0;border:1px dashed var(--line);padding:28px;text-align:center;font-size:13px;color:var(--v8-muted);border-radius:8px;margin:0 0 12px}
+.v8-ui .v8-admin-page .stat strong{font-weight:650}
+.v8-ui .v8-admin-page .stats,.v8-ui .v8-admin-page .grid{margin-bottom:20px}
+.v8-ui .v8-admin-page .grid > .panel{margin:0}
+.v8-ui .v8-admin-page .note p{margin:6px 0 0}
+.v8-ui .v8-admin-page .table-wrap table{margin:0}
+.v8-ui .v8-admin-page th[scope=row] strong{display:block;color:var(--v8-text);font-weight:650}
+.v8-ui .v8-admin-page th[scope=row] small{display:block;font-size:10px;font-weight:400;color:var(--v8-muted);margin-top:3px}
+.v8-ui .v8-admin-page th[scope=row]{font-weight:inherit;padding:13px 14px;border-bottom:1px solid var(--v8-line-2);text-align:left}
+.v8-ui .v8-admin-page tbody tr:last-child th[scope=row]{border-bottom:0}
+.v8-ui .v8-admin-page tbody tr.is-selected{background:var(--v8-s1)}
+.v8-ui .v8-admin-page td.wrap,.v8-ui .v8-admin-page th.wrap{white-space:normal;min-width:200px;max-width:380px}
+.v8-ui .v8-admin-page ul,.v8-ui .v8-admin-page ol{margin:0;padding:0}
+.v8-ui .v8-admin-page dl{margin:0}
+.v8-ui .v8-admin-page dd{margin:0}
+.v8-ui .v8-admin-page fieldset{min-width:0}
+.v8-ui .v8-admin-page legend{padding:0}
+.v8-ui .v8-admin-page .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.v8-ui .v8-admin-page label{display:block}
+.v8-ui .v8-admin-page input[type=search]{-webkit-appearance:none;appearance:none}
+.v8-ui .v8-admin-page input,.v8-ui .v8-admin-page select,.v8-ui .v8-admin-page textarea{font-size:13px}
+.v8-ui .v8-admin-page .filterbar input,.v8-ui .v8-admin-page .filterbar select{font-size:12px}
+.v8-ui .v8-admin-page .tag{font-size:11px}
+.v8-ui [data-clinic-shell-view] :is(h1,h2,h3)[tabindex="-1"]:focus{outline:none}
+/* accounts-ui.js panel inside an admin page: no inner box, table with the card border, compact row buttons. */
+.v8-ui .v8-admin-page section[aria-labelledby=acc-title]{border:0!important;padding:0!important;background:transparent!important;display:block;min-width:0}
+.v8-ui .v8-admin-page section[aria-labelledby=acc-title] > *+*{margin-top:12px}
+        .v8-ui .v8-admin-page section[aria-labelledby=acc-title] > h2{margin:0}
+.v8-ui .v8-admin-page section[aria-labelledby=acc-title] > p{margin:0;font-size:12px;color:var(--v8-muted)}
+.v8-ui .v8-admin-page section[aria-labelledby=acc-title] > button{justify-self:start}
+.v8-ui .v8-admin-page section[aria-labelledby=acc-title] table{display:block;max-width:100%;overflow-x:auto;border:1px solid var(--line);border-radius:8px}
+.v8-ui .v8-admin-page section[aria-labelledby=acc-title] td button{margin-right:6px;min-height:30px;padding:5px 9px;font-size:12px}
+.v8-ui .users-form-only form{display:flex;flex-wrap:wrap;align-items:center;gap:8px;max-width:420px}
+.v8-ui .users-form-only form > :not(button){flex-basis:100%}
+.v8-ui .users-form-only form label{font-size:12px;font-weight:650}
+.v8-ui .users-form-only form label:not(:first-child){margin-top:6px}
+.v8-ui .users-form-only form label:has(input){display:flex;align-items:center;gap:8px}
+.v8-ui .users-form-only form input[type=checkbox]{accent-color:var(--ink)}
+.v8-ui .users-form-only form button:has(+ button[type=submit]){background:var(--ink);border-color:var(--ink);color:var(--ui-text-inverse,white)}
+.v8-ui .users-form-only form button[type=submit]{display:none}
+.v8-ui .v8-admin-page .user-picker{max-width:320px}
+.v8-ui:is(#app,#global-header *) .v6-menu a[data-clinic-admin-link][aria-current=page]{background:var(--v8-s2);color:var(--v8-menu-hover-text)}
+/* pools-ui.js (editing of pool memberships) inside an admin page: pools as cards, members as rows. */
+.v8-ui .v8-admin-page .pools-ui{display:grid;gap:14px}
+.v8-ui .v8-admin-page .pools-ui > h2{font-size:14px;margin:0}
+.v8-ui .v8-admin-page .pools-ui > p{font-size:12px;color:var(--v8-muted);margin:0}
+.v8-ui .v8-admin-page .pools-ui > button{justify-self:start}
+.v8-ui .v8-admin-page .pools-ui > section{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;margin:0}
+.v8-ui .v8-admin-page .pools-ui > section > h3{grid-column:1/-1;margin:0}
+.v8-ui .v8-admin-page .pools-ui article{border:1px solid var(--line);border-radius:10px;background:var(--v8-s1);padding:14px;min-width:0}
+.v8-ui .v8-admin-page .pools-ui article h4{font-size:13px;font-weight:700;margin:0 0 8px}
+.v8-ui .v8-admin-page .pools-ui li{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid var(--v8-line-2);font-size:12px;list-style:none}
+.v8-ui .v8-admin-page .pools-ui li button{min-height:28px;padding:3px 9px;font-size:12px}
+.v8-ui .v8-admin-page .pools-ui form{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.v8-ui .v8-admin-page .pools-ui form label{flex:1 1 100%;font-weight:650;font-size:12px}
+.v8-ui .v8-admin-page .pools-ui form input{flex:1 1 120px;min-height:34px;width:auto}
+.v8-ui .v8-admin-page .pools-ui [role=alertdialog]{border:1px solid var(--line);background:var(--v8-s1);color:var(--v8-text);border-radius:8px;padding:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.v8-ui .v8-admin-page .pools-ui [role=alertdialog] p{flex:1 1 100%;margin:0}
+@media(max-width:1100px){.grid.equal:where(.v8-admin-page *){grid-template-columns:1fr 1fr}}
+@media(max-width:760px){h1:where(.v8-admin-page *){font-size:26px}
+.grid:where(.v8-admin-page *),.grid.equal:where(.v8-admin-page *),.grid.three:where(.v8-admin-page *){grid-template-columns:1fr}
+.filterbar .field:where(.v8-admin-page *){flex:1 1 150px}}
+
+/* Dark theme: notes and error lines keep readable text on a dark surface (the light palette has burgundy text on teal). */
+.v8-ui{--v8-err-bg:#f9edf0;--v8-err-text:#8d2c48;--v8-err-line:#ead7df;--v8-warn-bg:#faf6ec;--v8-warn-text:#695529;--v8-warn-line:#e8dcc1}
+.dark .v8-ui,[data-theme="dark"] .v8-ui{--v8-err-bg:#43212f;--v8-err-text:#f4d5df;--v8-err-line:#7d3b54;--v8-warn-bg:#3b3320;--v8-warn-text:#f1e3b8;--v8-warn-line:#6b5a2e}
+.v8-ui .v8-admin-page .note.burgundy{background:var(--v8-err-bg);border-color:var(--v8-err-line);color:var(--v8-err-text)}
+.v8-ui .v8-admin-page .note.warning{background:var(--v8-warn-bg);border-color:var(--v8-warn-line);color:var(--v8-warn-text)}
+.v8-ui [data-testid=clinic-admin-denied].note{background:var(--v8-warn-bg);border-color:var(--v8-warn-line);color:var(--v8-warn-text)}
+.v8-ui [data-testid=clinic-admin-denied] a{color:inherit}
+
+/* Spacing between the cards of a page (prototype: 20 px). */
+.v8-ui .v8-admin-page > .panel,.v8-ui .v8-admin-page > aside{margin-bottom:20px}
+.v8-ui .v8-admin-page > .hint{margin:0 0 20px}
+.v8-ui .v8-admin-page .table-wrap + .hint{margin-top:14px}
+
+/* Benutzer und Rollen: the account table card is drawn by compose-users.js; of accounts-ui.js only the editor, the error line and the
+   one-time code stay visible (its title, hint, create button and table repeat the card). The panel is hidden while it has nothing to show. */
+.v8-ui .v8-admin-page .users-form-only section[aria-labelledby=acc-title] > :is(h2,table,button,p:not([role])){display:none}
+.v8-ui .v8-admin-page .users-form-only:not(:has(form,[role=alert],[role=status])){display:none}
+.v8-ui .v8-admin-page td.row-actions{white-space:nowrap}
+.v8-ui .v8-admin-page td.row-actions .icon-button{width:34px;height:34px;min-height:34px}
+.v8-ui .v8-admin-page td.row-actions .icon-button + .icon-button{margin-left:2px}
+
+/* Pages without their own V8 page head (v8-114): the shell draws eyebrow, title and subline, the page body sits in one card.
+   The components (vocabulary, commands, ASR, jobs, activity, import) bring plain label/input/button siblings and utility classes,
+   so the rules below name every control: label above its field, field and button with a gap, status lines as notes. */
+.v8-ui .v8-admin-plain .page-title{font-size:30px;line-height:1.2;font-weight:700;letter-spacing:-.8px;margin:0 0 9px;color:var(--v8-text)}
+.v8-ui .v8-admin-plain .admin-plain-card{padding:22px 24px;min-width:0;overflow-x:auto}
+.v8-ui .v8-admin-plain .admin-plain-card > :is(section,div){display:block;min-width:0;padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;border-radius:0!important}
+.v8-ui .v8-admin-plain .admin-plain-card :is(section,div,form,fieldset,header){min-width:0}
+.v8-ui .v8-admin-plain .admin-plain-card > :is(section,div) > :is(h1,h2):first-child,.v8-ui .v8-admin-plain .admin-plain-card > section > header > h1{display:none}
+.v8-ui .v8-admin-plain .admin-plain-card h2{font-size:15px;line-height:1.35;font-weight:700;margin:24px 0 10px}
+.v8-ui .v8-admin-plain .admin-plain-card h3{font-size:14px;line-height:1.35;font-weight:700;margin:20px 0 8px}
+.v8-ui .v8-admin-plain .admin-plain-card :is(h2,h3):first-child{margin-top:0}
+.v8-ui .v8-admin-plain .admin-plain-card :is(p,ul,ol,dl){margin:0 0 12px;font-size:13px;line-height:1.6}
+.v8-ui .v8-admin-plain .admin-plain-card :is(ul,ol){padding-left:18px}
+.v8-ui .v8-admin-plain .admin-plain-card :is(ul,ol):empty{display:none}
+.v8-ui .v8-admin-plain .admin-plain-card :is(section,div):last-child > :is(p,ul,table):last-child{margin-bottom:0}
+.v8-ui .v8-admin-plain .admin-plain-card section + section,.v8-ui .v8-admin-plain .admin-plain-card section + div[role=tabpanel]{margin-top:22px;padding-top:20px;border-top:1px solid var(--v8-line-2)}
+/* Legacy controls also appear in the P13–P15 panels and the selected user's detail tabs. */
+.v8-ui :is(.v8-admin-plain .admin-plain-card,
+           [data-testid=clinic-admin-plain] .panel:has(> :where(section:not(.panel))),
+           :where(.clinic-users-view) .panel[role=region]:not(:where(.users-form-only))){
+  & :is(p,div)[style*="background"],& p[role=status][style]{padding:10px 14px;border:1px solid var(--line);border-radius:8px}
+  & :is(form,fieldset){display:block}
+  & form + form{margin-top:18px}
+  & label{display:block;font-size:12px;font-weight:650;line-height:1.4;margin:16px 0 6px}
+  & label:first-child{margin-top:0}
+  & label:has(> :is(input[type=checkbox],input[type=radio])){display:flex;align-items:center;gap:8px;font-weight:500;font-size:13px;margin:6px 16px 6px 0}
+  & .grants-ui fieldset label{font-size:12px;font-weight:650}
+  & .grants-ui > ul + form,& .grants-ui [role=group] + button{margin-top:16px}
+  & label:has(> select){display:grid;gap:6px;margin:0}
+  & :where(input:not([type=checkbox]):not([type=radio]),select,textarea){display:block;width:100%;max-width:560px;min-height:40px;padding:10px 11px;border:1px solid var(--line);border-radius:7px;background-color:var(--surface);color:var(--v8-text);font-size:13px;box-shadow:none}
+  & select:not([multiple]){appearance:none;padding-right:36px;font-weight:400}
+  & label > select{min-width:140px;height:38px;min-height:38px;margin:0;padding-block:4px}
+  & textarea{min-height:100px;line-height:1.65;resize:vertical}
+  & fieldset{margin:16px 0 18px;padding:12px 14px;border:1px solid var(--line);border-radius:8px;display:flex;flex-wrap:wrap;gap:0 18px}
+  & legend{padding:0 6px;font-size:12px;font-weight:650}
+  & button{margin:0;padding:9px 14px;min-height:38px;font-size:13px;line-height:1.3}
+  & .flex:has(> label > select){align-items:flex-end}
+  & :is(input,select,textarea,table,p,ul,ol,fieldset,label) + button{margin-top:12px}
+  & :is(section,div,fieldset,form):has(> button + button):not([role=tablist]){display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+  & :is(section,div,fieldset,form):has(> button + button) > :not(button){flex-basis:100%;min-width:0}
+  & :is(section,div,fieldset,form):has(> button + button) > button{margin:0}
+  & :is(section,div):has(> button + button) > form{margin-block:4px}
+  & button + :is(p,table,label,h2,h3,form){margin-top:14px}
+  & :is(input,select,textarea,ul) + :is(p,div,table){margin-top:12px}
+  & :is(.flex,[role=radiogroup],[role=tablist]) > :is(button,label){margin:0}
+  & [role=radiogroup]{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
+  & [role=radiogroup] > button[aria-checked=true]{background:var(--ink);border-color:var(--ink);color:#fff}
+  & button:is(.primary,.btn--primary,[type=submit]){background:var(--ink);border-color:var(--ink);color:#fff}
+  & button:is(.primary,.btn--primary,[type=submit]):hover:not(:disabled){background:#2c565b;border-color:#2c565b;color:#fff}
+}
+.v8-ui .v8-admin-plain .admin-plain-card :is(button,a,input,select,textarea):not(:focus-visible){outline:none!important}
+.v8-ui .v8-admin-plain .admin-plain-card :is(button,a,input,select,textarea):focus-visible{outline:2px solid var(--v8-text)!important;outline-offset:2px!important}
+.v8-ui .v8-admin-plain .admin-plain-card :is(.tag,.pill,.badge){display:inline-flex}
+.v8-ui .v8-admin-plain .admin-plain-card :is(.tabs,[role=tablist]){display:flex;gap:4px;border-bottom:1px solid var(--line);overflow:auto;margin:0 0 18px}
+.v8-ui .v8-admin-plain .admin-plain-card :is(.tabs,[role=tablist]) button{border:0;border-bottom:3px solid transparent;border-radius:0;background:transparent;color:var(--v8-text-2);padding:10px 14px;margin:0}
+.v8-ui .v8-admin-plain .admin-plain-card :is(.tabs,[role=tablist]) button:is([aria-selected=true],[aria-current=true],.active){color:var(--v8-text);border-bottom-color:var(--burgundy)}
+.v8-ui .v8-admin-plain .admin-plain-card table{display:table;margin:12px 0;border:1px solid var(--line);border-radius:8px;border-collapse:separate;border-spacing:0;overflow:hidden}
+.v8-ui .v8-admin-page .pools-ui :is(p,div)[style*="background"]{padding:10px 14px;border:1px solid var(--line);border-radius:8px}
+.v8-ui .v8-admin-plain .admin-plain-card [role=alert]{padding:10px 14px;border:1px solid var(--v8-err-line);border-radius:8px;background:var(--v8-err-bg);color:var(--v8-err-text)}
+.v8-ui .v8-admin-plain .admin-plain-card [role=alert] + :is([role=alert],h2,h3,section){margin-top:12px}
+.v8-ui .v8-admin-plain .admin-plain-card dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 16px}
+.v8-ui .v8-admin-plain .admin-plain-card dd{margin:0}
+@media(max-width:760px){.v8-ui .v8-admin-plain .page-title{font-size:26px}.v8-ui .v8-admin-plain .admin-plain-card{padding:16px}}
