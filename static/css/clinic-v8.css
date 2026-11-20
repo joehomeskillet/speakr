@@ -646,6 +646,42 @@
 .v8-ui .record-detail-grid{display:grid;grid-template-columns:minmax(0,1fr) 292px;gap:22px}
 .v8-ui .transcript-panel,.v8-ui .record-metadata{background:var(--surface);border:1px solid var(--line);border-radius:12px;min-width:0;overflow:hidden;align-self:start}
 .v8-ui .record-tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);padding:0 20px}
+/* Origin-aware controls shared by the six hosted dictation views. */
+.v8-ui .dictation-chrome {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.v8-ui .dictation-chrome > .button { flex: none; }
+.v8-ui .dictation-chrome .record-tabs {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 0;
+}
+.v8-ui .dictation-chrome .record-tabs button {
+  flex: none;
+  white-space: nowrap;
+  color: var(--v8-text-2);
+}
+.v8-ui .dictation-chrome .record-tabs button[aria-current="page"] {
+  color: var(--v8-text);
+  border-bottom-color: currentColor;
+}
+.v8-ui .dictation-chrome .record-tabs button:focus-visible { outline-offset: -3px; }
+.v8-ui .clinic-correction-view .pagehead:has(.dictation-chrome) {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+}
+.v8-ui .clinic-correction-view .head-actions:has(.dictation-chrome) { order: -1; display: block; margin: 0; }
+[data-testid="clinic-dictation-mount"] .clinic-review-view .head-actions > [data-testid="close"] { display: none; }
+@media (max-width: 700px) {
+  .v8-ui .dictation-chrome { flex-direction: column; align-items: flex-start; gap: .25rem; }
+  .v8-ui .dictation-chrome .record-tabs { width: 100%; }
+}
 .v8-ui .record-tabs button{border:0;background:none;color:var(--v8-muted);border-bottom:3px solid transparent;padding:16px 10px 13px;font-weight:650;font-size:12px;min-height:48px}
 :where(.v8-ui) :where(.v8-page *,.v8-chrome *).record-tabs button.active{color:var(--v8-text);border-color:#3f7168}
 .v8-ui .recording-content{padding:27px 30px;min-height:290px}
@@ -886,7 +922,6 @@
 @media(max-width:760px){.v8-ui .topbar .top-icon,.v8-ui .topbar .top-action,.v8-ui .topbar .v6-admin summary,.v8-ui .topbar button.topavatar{position:relative}
 .v8-ui .topbar .top-icon::after,.v8-ui .topbar .top-action::after,.v8-ui .topbar .v6-admin summary::after,.v8-ui .topbar button.topavatar::after{content:"";display:block;position:absolute;left:50%;top:50%;width:max(100%,44px);height:max(100%,44px);transform:translate(-50%,-50%)}}
 
-.v8-ui .workbench-links { display: flex; flex-wrap: wrap; gap: var(--ui-space-2); margin-block: var(--ui-space-4); }
 
 .v8-ui .clinic-worklist-view :is(.listhead > span, .worktable th, .titletext small, .tablefooter > span) {
   color: var(--v8-text-2);
