@@ -4776,6 +4776,33 @@ Summarization Instructions:
         .acc-note[data-kind="error"] { color: var(--text-danger); }
         .acc-decisions-title { margin: var(--sp-2) 0 0; }
         .acc-host input:focus-visible, .acc-host button:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
+        /* Sprachprofile page (v8-56 markup is classless): element selectors under the view root, colours from theme tokens only. */
+        /* Keep the tab rows from widening the panel: a wide row let a tab click scroll the whole page container sideways. */
+        [data-testid="clinic-admin"] { max-width: 100%; min-width: 0; overflow-x: clip; }
+        [data-testid="clinic-admin"] .tabs { max-width: 100%; overflow-x: auto; }
+        .clinic-asr-profiles-view { max-width: 56rem; display: flex; flex-direction: column; gap: var(--sp-5, 1.5rem); min-width: 0; color: var(--text-primary); }
+        .clinic-asr-profiles-view > h2 { margin: 0; font-size: var(--fs-heading, 1.25rem); font-weight: 600; }
+        .clinic-asr-profiles-view section { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-3); min-width: 0; padding: var(--sp-4); border: 1px solid var(--border-primary); border-radius: var(--radius-md, 8px); background: var(--bg-secondary); }
+        .clinic-asr-profiles-view section > h2, .clinic-asr-profiles-view section > h3 { margin: 0; font-size: var(--fs-subhead, 1.0625rem); font-weight: 600; }
+        .clinic-asr-profiles-view p { margin: 0; max-width: 100%; overflow-wrap: anywhere; }
+        .clinic-asr-profiles-view p[role="status"], .clinic-asr-profiles-view p[role="alert"], .clinic-asr-profiles-view p[style] { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-primary); border-radius: var(--radius-md, 8px); font-size: var(--fs-meta, 0.875rem); }
+        .clinic-asr-profiles-view label { font-size: var(--fs-meta, 0.875rem); font-weight: 500; color: var(--text-secondary); }
+        .clinic-asr-profiles-view select { width: 100%; max-width: 24rem; min-height: 2.25rem; padding: var(--sp-1) 2rem var(--sp-1) var(--sp-3); background-color: var(--bg-input, var(--bg-secondary)); color: var(--text-primary); border: 1px solid var(--border-secondary, var(--border-primary)); border-radius: var(--radius-md, 8px); font-size: var(--fs-body); }
+        .clinic-asr-profiles-view ul { list-style: none; margin: 0; padding: 0; width: 100%; border: 1px solid var(--border-primary); border-radius: var(--radius-md, 8px); }
+        .clinic-asr-profiles-view li { padding: var(--sp-2) var(--sp-3); }
+        .clinic-asr-profiles-view li + li { border-top: 1px solid var(--border-primary); }
+        .clinic-asr-profiles-view [role="radiogroup"] { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+        .clinic-asr-profiles-view button { display: inline-flex; align-items: center; justify-content: center; min-height: 2.25rem; padding: var(--sp-1) var(--sp-4); background: transparent; color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: var(--radius-md, 8px); font-size: var(--fs-body); font-weight: 500; cursor: pointer; }
+        .clinic-asr-profiles-view button:hover:not(:disabled) { background: var(--bg-tertiary); }
+        .clinic-asr-profiles-view button:disabled { opacity: 0.55; cursor: not-allowed; }
+        .clinic-asr-profiles-view button[role="radio"][aria-checked="true"] { background: var(--bg-button); color: var(--text-button); border-color: var(--bg-button); }
+        .clinic-asr-profiles-view button[role="radio"][aria-checked="true"]:hover:not(:disabled) { background: var(--bg-button-hover); }
+        .clinic-asr-profiles-view table { width: 100%; border-collapse: collapse; font-size: var(--fs-meta, 0.875rem); }
+        .clinic-asr-profiles-view th, .clinic-asr-profiles-view td { padding: var(--sp-2) var(--sp-3); text-align: left; vertical-align: middle; border-bottom: 1px solid var(--border-primary); overflow-wrap: break-word; }
+        .clinic-asr-profiles-view th { font-weight: 600; color: var(--text-secondary); }
+        .clinic-asr-profiles-view td[style] { border-radius: var(--radius-md, 8px); }
+        .clinic-asr-profiles-view select:focus-visible, .clinic-asr-profiles-view button:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
+        @media (max-width: 40rem) { .clinic-asr-profiles-view section { padding: var(--sp-3); } .clinic-asr-profiles-view select { max-width: none; } }
     </style>
     <script type="module">
         import { createClinicApiClient } from "{{ url_for('static', filename='js/clinic/api-client.js', v=app_version) }}";
