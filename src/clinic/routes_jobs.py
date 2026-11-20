@@ -38,7 +38,7 @@ from wtforms.validators import ValidationError
 from src.clinic import job_health, policy, pool_policy
 from src.clinic.admin_dictation_access import _is_active_site_admin
 from src.clinic.config import clinic_mode_enabled
-from src.clinic.models import ClinicDictation
+from src.clinic.web_ingest import dictations_for_recordings
 from src.clinic.parity_dispatch import CommandProblem
 from src.database import db
 from src.models import ProcessingJob, Recording
@@ -88,16 +88,14 @@ def _recent_jobs() -> list[ProcessingJob]:
     return db.session.query(ProcessingJob).order_by(ProcessingJob.id.desc()).limit(SCAN_LIMIT).all()
 
 
-def visible_jobs(user, jobs: list[ProcessingJob]) -> list[ProcessingJob]:
+def visible_jobs(user, jobs: list[ProcessingJob], *, dictations=None) -> list[ProcessingJob]:
     """The jobs `user` may see: all for operations, else those of viewable dictations."""
     if is_operations(user):
         return list(jobs)
     subject = policy.build_subject(user.id, False)
     recording_ids = {job.recording_id for job in jobs}
-    dictations = {}
-    if recording_ids:
-        dictations = {row.recording_id: row for row in db.session.query(ClinicDictation).filter(
-            ClinicDictation.recording_id.in_(recording_ids))}
+    if dictations is None:
+        dictations = dictations_for_recordings(recording_ids)
     owners = {}
     allowed: dict[int, bool] = {}
     for recording_id in recording_ids:
@@ -136,7 +134,9 @@ def _retried_ids(jobs: list[ProcessingJob]) -> set[int]:
 def health_payload(user, now: datetime | None = None) -> dict:
     """Redacted health summary for `user`; failed rows that already have a retry job are left out."""
     now = now or datetime.now(timezone.utc)
-    jobs = visible_jobs(user, _recent_jobs())
+    recent = _recent_jobs()
+    dictations = dictations_for_recordings(job.recording_id for job in recent)
+    jobs = visible_jobs(user, recent, dictations=dictations)
     retried = _retried_ids(jobs)
     by_id = {job.id: job for job in jobs}
     rows = [{
@@ -149,11 +149,16 @@ def health_payload(user, now: datetime | None = None) -> dict:
     for failure in summary.recent_failures:
         job = by_id[failure.id]
         failures.append({
+            "dictation_id": (dictations[job.recording_id].id if job.recording_id in dictations else None),
             "id": failure.id, "job_type": failure.job_type, "error_class": failure.error_class,
             "message": failure.message, "state": _state(job), "version": job.retry_count,
             "finished_at": failure.finished_at.isoformat() if failure.finished_at else None,
         })
     return {
+        "jobs": [{"id": job.id, "dictation_id": (dictations[job.recording_id].id
+                  if job.recording_id in dictations else None), "job_type": job.job_type,
+                  "state": _state(job), "version": job.retry_count}
+                 for job in jobs if job.status != "failed" or job.id not in retried],
         "counts": summary.counts, "stuck_ids": list(summary.stuck_ids),
         "oldest_queued_age_s": summary.oldest_queued_age_s, "recent_failures": failures,
         "can_retry": is_operations(user),

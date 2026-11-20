@@ -9,46 +9,62 @@ from src.models import ProcessingJob, Recording
 _ASR_JOBS = ('transcribe', 'reprocess_transcription', 'convert', 'stitch', 'merge')
 
 
-def _recording_ids(session, dictation):
+def asr_outcomes(dictations):
+    """Detailed outcomes in batches; no per-dictation original or job scans."""
+    from collections import defaultdict
     from src.clinic.legacy_backfill import ORIGIN_REF_PREFIXES
-    from src.clinic.models import ClinicOriginal
-
-    ids = {dictation.recording_id}
-    refs = session.query(ClinicOriginal.origin_ref).filter_by(dictation_id=dictation.id)
-    for (ref,) in refs:
-        if ref.startswith(ORIGIN_REF_PREFIXES):
-            parts = ref.split(':', 3)
-            if len(parts) == 4 and parts[2].isascii() and parts[2].isdigit():
-                number = int(parts[2])
-                if 0 < number <= 2**63 - 1:
-                    ids.add(number)
-    return ids
-
-
-def asr_outcome(dictation):
-    from src.clinic.models import ClinicTranscriptRevision
+    from src.clinic.models import ClinicOriginal, ClinicTranscriptRevision
     from src.clinic.revisions import KIND_ASR
 
-    session = object_session(dictation)
-    # A late ASR tip also counts when a human revision is the visible head.
-    if session.query(ClinicTranscriptRevision.id).filter_by(
-        dictation_id=dictation.id, kind=KIND_ASR
-    ).first():
-        return 'done'
-    anchor = session.get(Recording, dictation.recording_id)
-    recordings = session.query(Recording.id).filter(
-        Recording.id.in_(_recording_ids(session, dictation)), Recording.user_id == anchor.user_id
-    )
-    jobs = session.query(ProcessingJob.status).filter(
-        ProcessingJob.recording_id.in_(recordings),
-        ProcessingJob.job_type.in_(_ASR_JOBS),
-    )
-    states = {status for (status,) in jobs}
-    if states.intersection(('queued', 'processing')):
-        return 'running'
-    if 'failed' in states or recordings.filter(Recording.status == 'FAILED').first():
-        return 'failed'
-    return 'none'
+    items = list(dictations)
+    outcomes = {}
+    for start in range(0, len(items), 500):
+        part = items[start:start + 500]
+        session = object_session(part[0])
+        ids = [d.id for d in part]
+        links = {d.id: {d.recording_id} for d in part}
+        for did, ref in session.query(ClinicOriginal.dictation_id, ClinicOriginal.origin_ref).filter(
+                ClinicOriginal.dictation_id.in_(ids)):
+            if ref and ref.startswith(ORIGIN_REF_PREFIXES):
+                fields = ref.split(':', 3)
+                if len(fields) == 4 and fields[2].isascii() and fields[2].isdigit():
+                    number = int(fields[2])
+                    if 0 < number <= 2**63 - 1:
+                        links[did].add(number)
+        recording_ids = set().union(*links.values())
+        recordings = {r.id: r for r in session.query(Recording).filter(Recording.id.in_(recording_ids))}
+        states = defaultdict(set)
+        for rid, state in session.query(ProcessingJob.recording_id, ProcessingJob.status).filter(
+                ProcessingJob.recording_id.in_(recording_ids), ProcessingJob.job_type.in_(_ASR_JOBS)):
+            states[rid].add(state)
+        # A late ASR tip also counts when a human revision is the visible head.
+        done = {did for (did,) in session.query(ClinicTranscriptRevision.dictation_id).filter(
+            ClinicTranscriptRevision.dictation_id.in_(ids), ClinicTranscriptRevision.kind == KIND_ASR).distinct()}
+        for d in part:
+            anchor = recordings.get(d.recording_id)
+            linked = [recordings[rid] for rid in links[d.id] if rid in recordings and anchor is not None
+                      and recordings[rid].user_id == anchor.user_id]
+            job_states = set().union(*(states[r.id] for r in linked))
+            if d.id in done:
+                outcome = 'completed'
+            elif 'processing' in job_states:
+                outcome = 'processing'
+            elif 'queued' in job_states:
+                outcome = 'queued'
+            elif 'failed' in job_states or any(r.status == 'FAILED' for r in linked):
+                outcome = 'failed'
+            else:
+                outcome = 'none'
+            outcomes[d.id] = outcome
+    return outcomes
+
+
+def asr_outcome(dictation, *, outcomes=None, detailed=False):
+    """Preserve workflow semantics; list consumers may request detailed states."""
+    state = (asr_outcomes([dictation]) if outcomes is None else outcomes)[dictation.id]
+    if detailed:
+        return state
+    return {'completed': 'done', 'queued': 'running', 'processing': 'running'}.get(state, state)
 
 
 def settle(session, dictation_id):

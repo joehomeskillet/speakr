@@ -195,6 +195,13 @@ export function statusBadge(status) {
     }
 }
 
+export function processingLabel(state) {
+    return ({ QUEUED: 'Transkription wartet', PENDING: 'Transkription wartet',
+        PROCESSING: 'Transkription läuft', RUNNING: 'Transkription läuft',
+        FAILED: 'Transkription fehlgeschlagen', COMPLETED: 'Transkription abgeschlossen',
+        SUCCEEDED: 'Transkription abgeschlossen' })[String(state || '').toUpperCase()] || '';
+}
+
 const nameOf = (person) => (person && typeof person.display_name === 'string' && person.display_name ? person.display_name : null);
 
 /** Prototype status tint class of a workflow status; unknown statuses keep the neutral first tint. */
@@ -235,7 +242,7 @@ export function toViewRow(item) {
         leaseHolder: nameOf(item.lease_holder) || TEXT.none,
         status: badge.label,
         statusStyle: badge.style,
-        processing: item.processing_status || '',
+        processing: processingLabel(item.processing_status),
         duration: seconds === null ? TEXT.none : formatAudioDuration(seconds),
         caseDisplay: item.case_display || '',
         workflowStatus: item.workflow_status || null,
