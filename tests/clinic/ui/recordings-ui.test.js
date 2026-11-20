@@ -168,6 +168,32 @@ describe('recordings controller', () => {
         expect(reopened.scrollTop()).toBe(321);
     });
 
+    it('updates a processing window without collapsing its pages, filter or scroll', async () => {
+        const client = fakeClient([ok([]), ok([item('1')], 'old'), ok([item('2', { processing_status: 'queued' })]),
+            ok([item('3')], 'fresh'), ok([item('2', { processing_status: 'completed' })], 'more')]);
+        const c = make(client);
+        await c.start();
+        c.state.draft.pool_id = '4';
+        await c.applyFilters();
+        await c.loadMore();
+        c.setScroll(321);
+        c.state.query = 'Muster';
+        const active = () => c.visibleRows().some(row => row.processingActive);
+        const checking = c.refreshIfChanged(active);
+        expect(c.state.loading).toBe(false);
+        expect(c.state.rows.map(row => row.key)).toEqual(['1', '2']);
+        await checking;
+        expect(client.request.mock.calls.at(-1)[0]).toContain('cursor=fresh');
+        expect(c.state.rows.map(row => row.key)).toEqual(['3', '2']);
+        expect(c.state.nextCursor).toBe('more');
+        expect(c.state.filters.pool_id).toBe('4');
+        expect(c.state.query).toBe('Muster');
+        expect(c.scrollTop()).toBe(321);
+        expect(active()).toBe(false);
+        expect(await c.refreshIfChanged(active)).toBeNull();
+        expect(client.request).toHaveBeenCalledTimes(5);
+    });
+
     it('open reports the worklist payload', async () => {
         const onOpen = vi.fn();
         const c = make(fakeClient([ok([item('7'), item('8', { workflow_status: 'zu_korrigieren' })])]), { onOpen });

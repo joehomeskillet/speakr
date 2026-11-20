@@ -68,8 +68,28 @@ export const RecordingsView = {
             if (isWindow(host)) window.scrollTo(0, c.scrollTop());
             else host.scrollTop = c.scrollTop();
         };
+        const active = V.ref(false);
+        const pageVisible = V.ref(typeof document !== 'undefined' && !document.hidden);
+        const visibilityChanged = () => { pageVisible.value = !document.hidden; };
+        const shouldPoll = () => active.value && pageVisible.value && !c.state.denied
+            && c.visibleRows().some(row => row.processingActive);
+        if (props.autoStart && typeof V.watch === 'function') {
+            let pending = false;
+            V.watch(shouldPoll, (enabled, previous, onCleanup) => {
+                if (!enabled) return;
+                const timer = setInterval(async () => {
+                    if (pending || !shouldPoll()) return;
+                    pending = true;
+                    try { await c.refreshIfChanged(shouldPoll); }
+                    finally { pending = false; }
+                }, 5000); // Same cadence as the active job queue.
+                onCleanup(() => clearInterval(timer));
+            });
+        }
         if (typeof V.onMounted === 'function' && props.autoStart) {
             V.onMounted(async () => {
+                active.value = true;
+                if (typeof document !== 'undefined') document.addEventListener('visibilitychange', visibilityChanged);
                 await c.start();
                 if (typeof V.nextTick === 'function') await V.nextTick();
                 host = findHost();
@@ -79,14 +99,18 @@ export const RecordingsView = {
         }
         if (typeof V.onActivated === 'function' && props.autoStart) {
             V.onActivated(async () => {
+                active.value = true;
                 if (await c.refreshIfChanged()) {
                     await V.nextTick();
                     restoreScroll();
                 }
             });
         }
+        if (typeof V.onDeactivated === 'function') V.onDeactivated(() => { active.value = false; });
         if (typeof V.onBeforeUnmount === 'function') {
             V.onBeforeUnmount(() => {
+                active.value = false;
+                if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', visibilityChanged);
                 if (host && typeof host.removeEventListener === 'function') host.removeEventListener('scroll', onHostScroll);
                 c.dispose();
             });
