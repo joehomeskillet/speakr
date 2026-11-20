@@ -4,6 +4,15 @@
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>Speakr.Clinic.ImportAgent.Worker</RootNamespace>
   </PropertyGroup>
+  <!-- The published Windows worker includes its small configuration dialog.
+       The headless core and its tests also build on non-Windows hosts. -->
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) Or '$(RuntimeIdentifier)' == 'win-x64'">
+    <DefineConstants>$(DefineConstants);IMPORT_WINDOWS_DIALOG</DefineConstants>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) Or '$(RuntimeIdentifier)' == 'win-x64'">
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" PrivateAssets="all" />
+  </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Speakr.Clinic.ImportAgent.Tests" />
   </ItemGroup>
