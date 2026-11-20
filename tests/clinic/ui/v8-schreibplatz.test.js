@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { CorrectionView, TEXT } from '../../../static/js/clinic/compose-correction.js';
-import { MARKER_TEXT, createCorrectionToolbar } from '../../../static/js/clinic/correction-toolbar-ui.js';
+import { createCorrectionToolbar, vTip } from '../../../static/js/clinic/correction-toolbar-ui.js';
 import { createCorrectionToolbar as reExported } from '../../../static/js/clinic/correction-editor-ui.js';
 import { PlaybackTempo } from '../../../static/js/clinic/playback-tempo-ui.js';
 
@@ -62,21 +62,22 @@ describe('V8 Schreibplatz markup (prototype structure, test ids kept)', () => {
 });
 
 describe('toolbar additions for the V8 toolbar row', () => {
-    it('inserts the review marker at the caret as one undo step', () => {
+    it('never writes demo text into the transcript when the marker tool is used', () => {
         const editor = fakeEditor('Text');
         editor.st.start = editor.st.end = 4;
         const toolbar = createCorrectionToolbar({ editor });
-        expect(toolbar.insertMarker()).toBe(true);
-        expect(editor.st.text).toBe('Text' + MARKER_TEXT);
-        toolbar.undo();
-        expect(editor.st.text).toBe('Text');
-    });
-
-    it('blocks the marker without a lease', () => {
-        const editor = fakeEditor('Text');
-        const toolbar = createCorrectionToolbar({ editor, canEdit: () => false });
         expect(toolbar.insertMarker()).toBe(false);
         expect(editor.st.text).toBe('Text');
+        expect(toolbar.getState().message).toContain('Prüfmarken');
+        expect(toolbar.getState().canUndo).toBe(false);
+    });
+
+    it('renders the marker button aria-disabled and the tooltips as role=tooltip, not as title', () => {
+        const t = body();
+        expect(t).toMatch(/aria-disabled="true" data-tool="marker"/);
+        expect(t).toContain('v-tip=');
+        expect(t).not.toMatch(/\stitle="/);
+        expect(typeof vTip.mounted).toBe('function');
     });
 
     it('reset drops undo and redo after the text was replaced from outside', () => {

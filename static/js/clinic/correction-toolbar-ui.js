@@ -34,8 +34,6 @@
 export const FONT_SIZE = Object.freeze({ min: 14, max: 22, step: 2, start: 16 });
 export const HISTORY_LIMIT = 500;
 const PARAGRAPH_BREAK = '\n\n';
-/** Plain-text review marker inserted by the marker tool. */
-export const MARKER_TEXT = '[Prüfen: offene Stelle]';
 
 export const TEXT = Object.freeze({
     toolbar: 'Werkzeuge der Korrektur',
@@ -48,6 +46,7 @@ export const TEXT = Object.freeze({
     more: 'Weitere Werkzeuge',
     paragraph: 'Absatz einfügen',
     marker: 'Prüfmarke einfügen',
+    markerUnavailable: 'Prüfmarken setzt der Server. Das Einfügen aus der Werkzeugleiste ist noch nicht angebunden; es wird kein Text in das Transkript geschrieben.',
     shortcuts: 'Tastenkürzel',
     query: 'Suchen nach',
     replacement: 'Ersetzen durch',
@@ -278,14 +277,12 @@ export function createCorrectionToolbar(options) {
             commit(text, next, next);
             return true;
         },
+        // Review marks (W11) are server-side flags that block release. The toolbar never writes demo text into
+        // the clinical transcript; until it is wired to the server mark path it only explains why it does nothing.
         insertMarker() {
-            if (blocked()) return false;
-            const cur = sync();
-            const from = Math.min(cur.start, cur.end);
-            const text = cur.text.slice(0, from) + MARKER_TEXT + cur.text.slice(Math.max(cur.start, cur.end));
-            const next = from + MARKER_TEXT.length;
-            commit(text, next, next);
-            return true;
+            state.message = TEXT.markerUnavailable;
+            emit();
+            return false;
         },
         openSearch() {
             state.searchOpen = true;
@@ -590,3 +587,46 @@ export function mountCorrectionToolbar(hostElement, toolbar, mountOptions) {
         },
     };
 }
+
+/**
+ * Vue directive for the .tool-wrap element around an icon button: renders the tooltip of
+ * the V8 stylesheet (.tool-wrap > .tooltip) with the label and the shortcut, links it with
+ * aria-describedby, shows it on hover and on keyboard focus and closes it with Escape.
+ * Usage: v-tip="{ label, keys }". Text is set with textContent only.
+ */
+let tipCounter = 0;
+export const vTip = {
+    mounted(el, binding) {
+        const doc = el.ownerDocument;
+        const tip = doc.createElement('span');
+        tip.className = 'tooltip';
+        tip.setAttribute('role', 'tooltip');
+        tip.setAttribute('aria-hidden', 'true');
+        tip.id = 'clinic-tip-' + (++tipCounter);
+        const label = doc.createElement('span');
+        label.setAttribute('data-tooltip-label', '');
+        tip.appendChild(label);
+        const keys = doc.createElement('kbd');
+        tip.appendChild(keys);
+        el.appendChild(tip);
+        const button = el.querySelector('button');
+        if (button) button.setAttribute('aria-describedby', tip.id);
+        const show = () => { tip.setAttribute('data-visible', 'true'); tip.setAttribute('aria-hidden', 'false'); };
+        const hide = () => { tip.removeAttribute('data-visible'); tip.setAttribute('aria-hidden', 'true'); };
+        el.addEventListener('mouseenter', show);
+        el.addEventListener('mouseleave', hide);
+        el.addEventListener('focusin', show);
+        el.addEventListener('focusout', hide);
+        el.addEventListener('keydown', (event) => { if (event.key === 'Escape') hide(); });
+        el._tip = { label, keys };
+        vTip.updated(el, binding);
+    },
+    updated(el, binding) {
+        const t = el._tip;
+        if (!t) return;
+        const v = binding.value || {};
+        t.label.textContent = v.label || '';
+        t.keys.textContent = v.keys || '';
+        t.keys.hidden = !v.keys;
+    },
+};

@@ -234,7 +234,7 @@ export function useCorrectionEditor(options) {
 
 /** Vue component. Props: client, dictationId, currentUser, vue. */
 /** Re-exported so the composed view reaches the toolbar controller through a module it already imports. */
-export { createCorrectionToolbar, FONT_SIZE, MARKER_TEXT } from './correction-toolbar-ui.js';
+export { createCorrectionToolbar, FONT_SIZE, vTip } from './correction-toolbar-ui.js';
 
 export const CorrectionEditor = {
     name: 'ClinicCorrectionEditor',

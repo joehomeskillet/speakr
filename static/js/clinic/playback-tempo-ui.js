@@ -20,6 +20,7 @@
  */
 
 import { surfaceFor } from './tokens.js';
+import { vTip } from './correction-toolbar-ui.js';
 
 export const TEMPO_MIN = 0.5;
 export const TEMPO_MAX = 2.0;
@@ -254,20 +255,20 @@ export const PlaybackTempo = {
     template: `
         <div role="group" aria-label="Wiedergabe" class="tempo-controls" style="display: contents">
             <div class="player-controls">
-                <span class="tool-wrap">
+                <span class="tool-wrap" v-tip="{ label: playing ? clockLabels.pause : clockLabels.play }">
                     <button type="button" class="icon-button" :disabled="!audio" :aria-label="playing ? clockLabels.pause : clockLabels.play"
-                        :title="playing ? clockLabels.pause : clockLabels.play" data-testid="play-toggle" @click="toggle()">
+                        data-testid="play-toggle" @click="toggle()">
                         <svg v-if="!playing" class="ui-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m8 4 12 8-12 8z" fill="currentColor" stroke="none"/></svg>
                         <svg v-else class="ui-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M7 4v16M17 4v16" stroke-width="5"/></svg>
                     </button>
                 </span>
-                <span class="tool-wrap">
-                    <button type="button" class="icon-button" :disabled="!audio" :aria-label="labels.rewind" :title="labels.rewind" @click="tempo.rewind(stepSeconds)">
+                <span class="tool-wrap" v-tip="{ label: labels.rewind }">
+                    <button type="button" class="icon-button" :disabled="!audio" :aria-label="labels.rewind" @click="tempo.rewind(stepSeconds)">
                         <svg class="ui-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 8a9 9 0 1 1 1 11M4 3v5h5"/><text x="9" y="17" font-size="10" fill="currentColor" stroke="none" font-family="Arial,sans-serif">{{ stepSeconds }}</text></svg>
                     </button>
                 </span>
-                <span class="tool-wrap">
-                    <button type="button" class="icon-button" :disabled="!audio" :aria-label="labels.skip" :title="labels.skip" @click="tempo.skip(stepSeconds)">
+                <span class="tool-wrap" v-tip="{ label: labels.skip }">
+                    <button type="button" class="icon-button" :disabled="!audio" :aria-label="labels.skip" @click="tempo.skip(stepSeconds)">
                         <svg class="ui-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 8a9 9 0 1 0-1 11m1-16v5h-5"/><text x="9" y="17" font-size="10" fill="currentColor" stroke="none" font-family="Arial,sans-serif">{{ stepSeconds }}</text></svg>
                     </button>
                 </span>

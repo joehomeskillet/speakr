@@ -31,7 +31,7 @@
 
 import { createClinicApiClient } from './api-client.js';
 import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
-import { createCorrectionToolbar, useCorrectionEditor } from './correction-editor-ui.js';
+import { createCorrectionToolbar, useCorrectionEditor, vTip } from './correction-editor-ui.js';
 import { LABELS as ALIGN_LABELS, createPlaybackHighlighter, useCorrectionAlignment } from './correction-alignment-ui.js';
 import { CorrectionWaveform } from './correction-waveform-ui.js';
 import { PlaybackTempo, usePlaybackTempo } from './playback-tempo-ui.js';
@@ -75,6 +75,12 @@ export const TEXT = Object.freeze({
     redo: 'Wiederholen',
     paragraph: 'Absatz einfügen',
     marker: 'Prüfmarke einfügen',
+    markerTip: 'Prüfmarke einfügen (noch nicht angebunden)',
+    ctxAssignment: 'Zuständigkeit und Übernahme',
+    ctxMarks: 'Prüfmarken und Hinweise',
+    ctxOptions: 'Diktatdetails und Wiedergabeoptionen',
+    closeContext: 'Kontext schliessen',
+    ctxClosed: 'Kontextbereich',
     find: 'Im Text suchen',
     replace: 'Suchen und Ersetzen',
     fontDown: 'Text kleiner anzeigen',
@@ -612,6 +618,8 @@ const ICON_PATHS = Object.freeze({
     highlight: '<path d="m8 13 7-9 5 4-7 9zM8 13l-3 6h6M3 22h18M13 6l5 4"/>',
     'follow-word': '<path d="M4 5h9M4 10h7M4 15h9m4-12v16m-4-4 4 4 4-4M4 21h7"/>',
     refresh: '<path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/>',
+    users: '<circle cx="9" cy="8" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 5a3 3 0 0 1 0 6m2 4a5 5 0 0 1 3 5"/>',
+    settings: '<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>',
     target: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3"/>'
 });
 
@@ -624,6 +632,43 @@ const UiIcon = {
     },
     template: '<svg class="ui-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" v-html="markup()"></svg>',
 };
+
+/**
+ * Page-local rules on top of clinic-v8.css (owned by v8-110): narrow-screen wrapping of the status row,
+ * theme-aware colours for the dirty status line and the key chips, lease buttons, the context drawer
+ * and the spacing of the child panels. Tokens only, so light and dark both work.
+ */
+const LOCAL_CSS = `
+.v8-ui .editor-page .editor-status{flex-wrap:wrap}
+.v8-ui .editor-page .editor-status>[role=status]{flex:1 1 220px;min-width:0}
+.v8-ui .editor-page .editor-status-right{flex-wrap:wrap;white-space:normal;min-width:0}
+.v8-ui .editor-page .editor-workspace[data-dirty=true] .editor-status>[role=status]{color:var(--v8-text);font-weight:650}
+.v8-ui .editor-page .editor-workspace[data-dirty=true] .status-dot{background:var(--burgundy)}
+.v8-ui .editor-page .shortcut-list kbd{background:var(--v8-s2);color:var(--v8-text);border-color:var(--line)}
+.v8-ui .editor-page .live-inline-status .button{min-height:32px;padding:5px 12px;font-size:12px}
+.v8-ui .editor-page .live-inline-status .button:not(.primary){color:var(--v8-text)}
+.v8-ui .editor-page .live-inline-status .button:disabled{opacity:.55}
+.v8-ui .editor-page .context-drawer{background:var(--surface);color:var(--v8-text);border:1px solid var(--line);box-shadow:0 12px 40px rgb(0 0 0 / .22);z-index:120}
+.v8-ui .editor-page .context-drawer:not([data-open]){transform:translateX(calc(100% + 40px));pointer-events:none;box-shadow:none}
+.v8-ui .editor-page .context-drawer .dialoghead{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.v8-ui .editor-page .context-drawer h2{font-size:16px;font-weight:700;letter-spacing:-.2px;color:var(--v8-text);margin:0}
+.v8-ui .editor-page .context-drawer h3{font-size:13px;font-weight:700;color:var(--v8-text);margin:0 0 6px}
+.v8-ui .editor-page .context-drawer .panel-header h2{font-size:14px}
+.v8-ui .editor-page .context-drawer .hint{font-size:11px;color:var(--v8-text-2)}
+.v8-ui .editor-page .context-drawer .keyvalues{margin:0}
+.v8-ui .editor-page .context-drawer .keyvalues>div{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--v8-line-2)}
+.v8-ui .editor-page .context-drawer .keyvalues dt{color:var(--v8-text-2)}
+.v8-ui .editor-page .context-drawer .keyvalues dd{margin:0;font-weight:600;text-align:right}
+.v8-ui .editor-page .clinic-audio-markers-actions{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+.v8-ui .editor-page .clinic-audio-markers ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.v8-ui .editor-page .clinic-audio-markers li{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:8px;border-radius:8px}
+.v8-ui .editor-page .clinic-correction-waveform-uncertain,.v8-ui .editor-page .clinic-correction-waveform-unaligned{font-size:12px}
+.v8-ui .editor-page .editor-aux{display:grid;gap:14px;margin-top:16px}
+.v8-ui .editor-page .panel-header h2{font-size:14px;font-weight:700;letter-spacing:-.1px;color:var(--v8-text)}
+.v8-ui .editor-page .sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+@media(max-width:700px){.v8-ui .editor-page .editor-popover{position:static;width:auto;max-height:none;margin:8px 12px}}
+`;
+const LOCAL_CSS_ID = 'clinic-v8-schreibplatz-local';
 
 const FOCUS = { '--focus-outline': FOCUS_INDICATOR.outline, '--focus-offset': FOCUS_INDICATOR.outlineOffset };
 const box = (name) => {
@@ -646,6 +691,7 @@ const BODY_PROPS = {
 export const CorrectionBody = {
     name: 'ClinicCorrectionBody',
     components: { CorrectionWaveform, AudioMarkers, PlaybackTempo, PlaybackGain, UiIcon },
+    directives: { tip: vTip },
     props: BODY_PROPS,
     emits: ['close'],
     setup(props, ctx) {
@@ -663,6 +709,12 @@ export const CorrectionBody = {
         });
         if (typeof V.onMounted === 'function') V.onMounted(() => { c.start(); });
         if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => c.dispose());
+        if (typeof document !== 'undefined' && document.head && !document.getElementById(LOCAL_CSS_ID)) {
+            const styleEl = document.createElement('style');
+            styleEl.id = LOCAL_CSS_ID;
+            styleEl.textContent = LOCAL_CSS;
+            document.head.appendChild(styleEl);
+        }
         const showDiff = V.ref(false);
         const e = c.editor;
         const a = c.alignment;
@@ -752,12 +804,26 @@ export const CorrectionBody = {
         const WORKER = { held: TEXT.workerHeld, foreign: TEXT.workerForeign, lost: TEXT.workerLost };
         const workerLabel = () => WORKER[e.lease.value.status] || TEXT.workerFree;
         const templatesOpen = V.ref(false);
+        const drawer = V.ref('');
+        const DRAWER_TITLES = { assignment: TEXT.ctxAssignment, marks: TEXT.ctxMarks, options: TEXT.ctxOptions };
+        const drawerTitle = () => DRAWER_TITLES[drawer.value] || '';
+        const toggleDrawer = (id) => {
+            drawer.value = drawer.value === id ? '' : id;
+            if (drawer.value) {
+                later(() => {
+                    const close = typeof document !== 'undefined' ? document.querySelector('[data-testid="drawer-close"]') : null;
+                    if (close) close.focus();
+                });
+            }
+        };
+        // saveMessage already says "Nicht gespeicherte Änderungen." while dirty; do not repeat it.
+        const unsavedSuffix = () => Boolean(e.dirty.value) && !/nicht gespeicherte/i.test(String(s.message.value || ''));
         const pickTemplate = (id) => { templatesOpen.value = false; if (id) e.applyTemplate(id); };
         const toolStatus = () => tbState.value.readOnlyReason || tbState.value.message || '';
         return {
             c, FOCUS, MODES, box, styleFor, TEXT, showDiff,
             tb, tbState, textEl, setTextEl, fontPx, focusMode, shortcutsOpen, highlightOn, followOn, onTextInput, onTextKeydown, onFindKeydown,
-            onQuery, onReplacement, onCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate,
+            onQuery, onReplacement, onCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, toggleDrawer, unsavedSuffix,
             text: e.text, canEdit: e.canEdit, dirty: e.dirty, loading: e.loading, error: e.error, manual: e.manual,
             lease: e.lease, audio: e.audio, template: e.template, templates: e.templates, templatesError: e.templatesError,
             editorAnnouncement: e.announcement,
@@ -775,7 +841,7 @@ export const CorrectionBody = {
   <div class="pagehead">
     <div>
       <div class="eyebrow">{{ TEXT.eyebrow }}</div>
-      <h1 id="ccv-title" style="font-weight: 700; letter-spacing: -.8px; color: var(--ink)">{{ TEXT.page }}</h1>
+      <h1 id="ccv-title" style="font-weight: 700; letter-spacing: -.8px; color: var(--v8-text)">{{ TEXT.page }}</h1>
       <p class="subline">{{ TEXT.subline }}</p>
     </div>
     <div class="head-actions">
@@ -798,12 +864,24 @@ export const CorrectionBody = {
     <div class="editor-heading">
       <div class="document-title">
         <UiIcon name="snippet" />
-        <h2 style="font-weight: 700; color: var(--ink)">{{ TEXT.dictation }}</h2>
+        <h2 style="font-weight: 700; color: var(--v8-text)">{{ TEXT.dictation }}</h2>
         <span class="document-id">#{{ dictationId }}</span>
       </div>
       <div class="context-tools">
-        <span class="tool-wrap">
-          <button type="button" class="icon-button" :style="FOCUS" :disabled="loading || dirty" :aria-label="TEXT.reload" :title="TEXT.reload"
+        <span class="tool-wrap" v-tip="{ label: TEXT.ctxAssignment }">
+          <button type="button" class="icon-button" :style="FOCUS" :disabled="!ready" :aria-label="TEXT.ctxAssignment" :aria-expanded="String(drawer === 'assignment')"
+                  aria-haspopup="dialog" aria-controls="ccv-drawer" data-context-toggle="assignment" @click="toggleDrawer('assignment')"><UiIcon name="users" /></button>
+        </span>
+        <span class="tool-wrap" v-tip="{ label: TEXT.ctxMarks }">
+          <button type="button" class="icon-button" :style="FOCUS" :disabled="!ready" :aria-label="TEXT.ctxMarks" :aria-expanded="String(drawer === 'marks')"
+                  aria-haspopup="dialog" aria-controls="ccv-drawer" data-context-toggle="marks" @click="toggleDrawer('marks')"><UiIcon name="marker" /></button>
+        </span>
+        <span class="tool-wrap" v-tip="{ label: TEXT.ctxOptions }">
+          <button type="button" class="icon-button" :style="FOCUS" :disabled="!ready" :aria-label="TEXT.ctxOptions" :aria-expanded="String(drawer === 'options')"
+                  aria-haspopup="dialog" aria-controls="ccv-drawer" data-context-toggle="options" @click="toggleDrawer('options')"><UiIcon name="settings" /></button>
+        </span>
+        <span class="tool-wrap" v-tip="{ label: TEXT.reload }">
+          <button type="button" class="icon-button" :style="FOCUS" :disabled="loading || dirty" :aria-label="TEXT.reload"
                   data-testid="reload" @click="c.load()"><UiIcon name="refresh" /></button>
         </span>
       </div>
@@ -818,7 +896,7 @@ export const CorrectionBody = {
     <div class="live-inline-status" role="group" :aria-label="TEXT.lease" data-testid="lease-bar"
          style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
       <span role="status" aria-live="polite" :style="{ color: lease.surface.color }">{{ lease.message }}</span>
-      <button v-for="b in c.leaseButtons()" :key="b.id" type="button" class="small" :style="FOCUS" :disabled="b.disabled"
+      <button v-for="b in c.leaseButtons()" :key="b.id" type="button" :class="['button', 'small', b.id === 'acquire' ? 'primary' : '']" :style="FOCUS" :disabled="b.disabled"
               :data-action="b.id" @click="c.leaseRun[b.id]()">{{ b.label }}</button>
     </div>
 
@@ -827,13 +905,13 @@ export const CorrectionBody = {
         <audio preload="metadata" hidden :ref="c.bindAudio" :src="audio.status === 'ready' ? audio.src : null" :aria-label="TEXT.audio"></audio>
         <PlaybackTempo v-if="audioEl" :audio="audioEl" :step-seconds="c.stepSeconds" :on-sync="c.onSync" />
         <span class="word-sync-controls">
-          <span class="tool-wrap">
+          <span class="tool-wrap" v-tip="{ label: highlightOn ? TEXT.highlightOn : TEXT.highlightOff }">
             <button type="button" class="icon-button" :style="FOCUS" :aria-pressed="String(highlightOn)" :aria-label="highlightOn ? TEXT.highlightOn : TEXT.highlightOff"
-                    :title="highlightOn ? TEXT.highlightOn : TEXT.highlightOff" data-testid="highlight-toggle" @click="highlightOn = !highlightOn"><UiIcon name="highlight" /></button>
+                    data-testid="highlight-toggle" @click="highlightOn = !highlightOn"><UiIcon name="highlight" /></button>
           </span>
-          <span class="tool-wrap">
+          <span class="tool-wrap" v-tip="{ label: TEXT.follow }">
             <button type="button" class="icon-button" :style="FOCUS" :aria-pressed="String(followOn)" :aria-label="TEXT.follow"
-                    :title="TEXT.follow" data-testid="follow-toggle" @click="followOn = !followOn"><UiIcon name="follow-word" /></button>
+                    data-testid="follow-toggle" @click="followOn = !followOn"><UiIcon name="follow-word" /></button>
           </span>
         </span>
       </div>
@@ -846,40 +924,40 @@ export const CorrectionBody = {
       <div class="editor-document" @keydown.esc="shortcutsOpen = false; templatesOpen = false">
         <div class="editorbar symbol-toolbar" role="toolbar" :aria-label="TEXT.toolbar" data-testid="toolbar">
           <div class="toolbar-group">
-            <span class="tool-wrap"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.undo" :title="TEXT.undo + ' (Strg/Cmd+Z)'"
+            <span class="tool-wrap" v-tip="{ label: TEXT.undo, keys: 'Strg/Cmd+Z' }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.undo"
                     :aria-disabled="tbState.canUndo ? null : 'true'" data-tool="undo" @click="tb.undo()"><UiIcon name="undo" /></button></span>
-            <span class="tool-wrap"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.redo" :title="TEXT.redo + ' (Strg/Cmd+Umschalt+Z)'"
+            <span class="tool-wrap" v-tip="{ label: TEXT.redo, keys: 'Strg/Cmd+Umschalt+Z' }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.redo"
                     :aria-disabled="tbState.canRedo ? null : 'true'" data-tool="redo" @click="tb.redo()"><UiIcon name="redo" /></button></span>
           </div>
           <div class="toolbar-group">
-            <span class="tool-wrap"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.paragraph" :title="TEXT.paragraph + ' (Strg/Cmd+Enter)'"
+            <span class="tool-wrap" v-tip="{ label: TEXT.paragraph, keys: 'Strg/Cmd+Enter' }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.paragraph"
                     data-tool="paragraph" @click="tb.insertParagraph()"><UiIcon name="paragraph" /></button></span>
-            <span class="tool-wrap"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.marker" :title="TEXT.marker + ' (Strg/Cmd+Umschalt+M)'"
-                    data-tool="marker" @click="tb.insertMarker()"><UiIcon name="marker" /></button></span>
-            <span class="tool-wrap"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.templateMenu" :title="TEXT.templateMenu"
+            <span class="tool-wrap" v-tip="{ label: TEXT.markerTip, keys: 'Strg/Cmd+Umschalt+M' }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.marker"
+                    aria-disabled="true" data-tool="marker" @click="tb.insertMarker()"><UiIcon name="marker" /></button></span>
+            <span class="tool-wrap" v-tip="{ label: TEXT.templateMenu }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.templateMenu"
                     :aria-expanded="String(templatesOpen)" aria-controls="ccv-templates" :disabled="!canEdit" data-tool="template" @click="templatesOpen = !templatesOpen; shortcutsOpen = false"><UiIcon name="snippet" /></button></span>
           </div>
           <div class="toolbar-group">
-            <span class="tool-wrap"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.find" :title="TEXT.find + ' (Strg/Cmd+F)'"
+            <span class="tool-wrap" v-tip="{ label: TEXT.find, keys: 'Strg/Cmd+F' }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.find"
                     :aria-expanded="String(tbState.searchOpen)" data-tool="search" @click="tb.toggleSearch()"><UiIcon name="search" /></button></span>
-            <span class="tool-wrap"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.replace" :title="TEXT.replace"
+            <span class="tool-wrap" v-tip="{ label: TEXT.replace }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.replace"
                     :aria-expanded="String(tbState.searchOpen)" data-tool="replace" @click="tb.openSearch()"><UiIcon name="replace" /></button></span>
           </div>
           <div class="toolbar-group font-group">
-            <span class="tool-wrap"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.fontDown" :title="TEXT.fontDown"
+            <span class="tool-wrap" v-tip="{ label: TEXT.fontDown }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.fontDown"
                     :aria-disabled="tbState.fontMin ? 'true' : null" data-tool="fontDown" @click="tb.fontDown()"><UiIcon name="font-down" /></button></span>
             <span class="font-size" role="status" data-testid="font-size">{{ fontPx }} px</span>
-            <span class="tool-wrap"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.fontUp" :title="TEXT.fontUp"
+            <span class="tool-wrap" v-tip="{ label: TEXT.fontUp }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.fontUp"
                     :aria-disabled="tbState.fontMax ? 'true' : null" data-tool="fontUp" @click="tb.fontUp()"><UiIcon name="font-up" /></button></span>
-            <span class="tool-wrap"><button type="button" class="icon-button" :style="FOCUS" :aria-label="focusMode ? TEXT.focusOff : TEXT.focusOn" :title="focusMode ? TEXT.focusOff : TEXT.focusOn"
+            <span class="tool-wrap" v-tip="{ label: focusMode ? TEXT.focusOff : TEXT.focusOn }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="focusMode ? TEXT.focusOff : TEXT.focusOn"
                     :aria-pressed="String(focusMode)" data-tool="focus" @click="tb.toggleFocus()"><UiIcon :name="focusMode ? 'unfocus' : 'focus'" /></button></span>
-            <span class="tool-wrap"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.shortcuts" :title="TEXT.shortcuts + ' (F1)'"
+            <span class="tool-wrap" v-tip="{ label: TEXT.shortcuts, keys: 'F1' }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.shortcuts"
                     :aria-expanded="String(shortcutsOpen)" data-tool="shortcuts" @click="shortcutsOpen = !shortcutsOpen; templatesOpen = false"><UiIcon name="keyboard" /></button></span>
           </div>
           <span class="toolbar-spacer"></span>
           <div class="toolbar-group">
-            <span class="tool-wrap"><button type="button" class="icon-button save-button" :class="{ 'has-changes': dirty }" :style="FOCUS"
-                    :aria-label="dirty ? TEXT.saveDirty : TEXT.save" :title="TEXT.save + ' (Strg/Cmd+S)'"
+            <span class="tool-wrap" v-tip="{ label: TEXT.save, keys: 'Strg/Cmd+S' }"><button type="button" class="icon-button save-button" :class="{ 'has-changes': dirty }" :style="FOCUS"
+                    :aria-label="dirty ? TEXT.saveDirty : TEXT.save"
                     :disabled="saveState === 'saving' || saveState === 'saved'" data-testid="save" @click="c.save()"><UiIcon name="save" /></button></span>
           </div>
         </div>
@@ -889,9 +967,9 @@ export const CorrectionBody = {
             <input type="text" :aria-label="TEXT.query" :placeholder="TEXT.query" :value="tbState.query" data-testid="search-query" @input="onQuery" @keydown="onFindKeydown">
             <label class="case-option"><input type="checkbox" :checked="tbState.caseSensitive" data-testid="search-case" @change="onCase"> {{ TEXT.caseSensitive }}</label>
             <span class="find-count" role="status" data-testid="search-count">{{ countLabel() }}</span>
-            <span class="tool-wrap"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.prev" :title="TEXT.prev" @click="tb.step(-1)"><UiIcon name="previous" /></button></span>
-            <span class="tool-wrap"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.next" :title="TEXT.next" @click="tb.step(1)"><UiIcon name="next" /></button></span>
-            <span class="tool-wrap"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.closeSearch" :title="TEXT.closeSearch" @click="tb.closeSearch()"><UiIcon name="close" /></button></span>
+            <span class="tool-wrap" v-tip="{ label: TEXT.prev }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.prev" @click="tb.step(-1)"><UiIcon name="previous" /></button></span>
+            <span class="tool-wrap" v-tip="{ label: TEXT.next }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.next" @click="tb.step(1)"><UiIcon name="next" /></button></span>
+            <span class="tool-wrap" v-tip="{ label: TEXT.closeSearch }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.closeSearch" @click="tb.closeSearch()"><UiIcon name="close" /></button></span>
           </div>
           <div class="replace-row">
             <input type="text" :aria-label="TEXT.replacement" :placeholder="TEXT.replacement" :value="tbState.replacement" data-testid="search-replacement" @input="onReplacement">
@@ -903,7 +981,7 @@ export const CorrectionBody = {
         <div v-if="shortcutsOpen" class="editor-popover shortcut-popover" role="dialog" :aria-label="TEXT.shortcuts">
           <div class="popover-heading">
             <strong>{{ TEXT.shortcuts }}</strong>
-            <button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.shortcutsClose" :title="TEXT.shortcutsClose" @click="shortcutsOpen = false"><UiIcon name="close" /></button>
+            <span class="tool-wrap" v-tip="{ label: TEXT.shortcutsClose }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.shortcutsClose" @click="shortcutsOpen = false"><UiIcon name="close" /></button></span>
           </div>
           <dl class="shortcut-list">
             <div v-for="row in SHORTCUTS" :key="row[0]"><dt>{{ row[0] }}</dt><dd><kbd>{{ row[1] }}</kbd></dd></div>
@@ -913,7 +991,7 @@ export const CorrectionBody = {
         <div v-if="templatesOpen" id="ccv-templates" class="editor-popover" role="dialog" :aria-label="TEXT.templateMenu" data-testid="template-menu" style="left: 13px">
           <div class="popover-heading">
             <strong>{{ TEXT.template }}</strong>
-            <button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.close" :title="TEXT.close" @click="templatesOpen = false"><UiIcon name="close" /></button>
+            <span class="tool-wrap" v-tip="{ label: TEXT.close }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.close" @click="templatesOpen = false"><UiIcon name="close" /></button></span>
           </div>
           <div class="snippet-options">
             <button type="button" class="snippet-option" :style="FOCUS" :disabled="!canEdit" :aria-pressed="String(!template)" @click="pickTemplate('')">
@@ -944,7 +1022,7 @@ export const CorrectionBody = {
 
       <div class="editor-status" :data-state="saveState" data-testid="save-state"
            :style="saveState === 'error' || saveState === 'conflict' ? { color: 'var(--danger)' } : {}">
-        <span role="status" aria-live="polite"><span class="status-dot" aria-hidden="true"></span>{{ saveMessage }}<template v-if="dirty"> · {{ TEXT.unsaved }}</template></span>
+        <span role="status" aria-live="polite"><span class="status-dot" aria-hidden="true"></span>{{ saveMessage }}<template v-if="unsavedSuffix()"> · {{ TEXT.unsaved }}</template></span>
         <span class="editor-status-right">
           <span role="note">{{ resumeLabel }}</span>
           <button type="button" class="small" :style="FOCUS" :disabled="c.saver.resumePosition.value === null" data-testid="resume" @click="c.seekToResume()">{{ TEXT.resume }}</button>
@@ -964,8 +1042,50 @@ export const CorrectionBody = {
     </template>
   </section>
 
-  <div v-if="ready" class="grid" style="margin-top: 20px">
-    <div style="display: grid; gap: 20px; min-width: 0">
+  <div v-if="ready" class="editor-aux">
+    <section class="panel" :aria-label="TEXT.options">
+      <div class="panel-header"><h2>{{ TEXT.mode }}</h2></div>
+      <fieldset class="clinic-correction-modes" :aria-busy="modeStatus === 'saving'" :data-mode="mode" style="border: 0; padding: 0; margin: 0">
+        <legend class="sr-only">{{ TEXT.mode }}</legend>
+          <div role="radiogroup" :aria-label="TEXT.modeGroup" style="display: grid; gap: 8px">
+          <label v-for="opt in MODES" :key="opt.id" class="inline-label" style="display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: start">
+            <input type="radio" name="clinic-correction-view-mode" :value="opt.id" :checked="mode === opt.id"
+                   :aria-describedby="'ccv-mode-' + opt.id" :style="FOCUS" @change="c.modes.setMode(opt.id)">
+            <span>{{ opt.label }}</span>
+            <small :id="'ccv-mode-' + opt.id" class="hint" style="grid-column: 2; margin: 0">{{ opt.hint }}</small>
+          </label>
+        </div>
+        <div v-if="modeStatus === 'error'" role="alert" class="note" :style="box('error')">
+          {{ modeError && modeError.message }}
+          <button type="button" class="small" :style="FOCUS" @click="c.modes.setMode(mode)">{{ TEXT.modeRetry }}</button>
+        </div>
+        <div role="status" aria-live="polite" class="sr-only">{{ modeAnnouncement }}</div>
+      </fieldset>
+    </section>
+    <section class="panel">
+      <CorrectionWaveform :key="'w' + loadGeneration" :editor="c.editor" :alignment="c.alignment" :client="c.client"
+                          :dictation-id="dictationId" :recording-id="c.peaksKey()" :fetch-fn="c.peaksFetch" :vue="c.vue" />
+    </section>
+
+  </div>
+
+  <div v-if="ready" id="ccv-drawer" class="context-drawer" role="dialog" aria-modal="false" :aria-label="drawerTitle() || TEXT.ctxClosed" :inert="!drawer" :aria-hidden="drawer ? null : 'true'" :data-open="drawer ? 'true' : null"
+       data-testid="context-drawer" @keydown.esc="drawer = ''">
+    <div class="dialoghead">
+      <h2>{{ drawerTitle() }}</h2>
+      <span class="tool-wrap" v-tip="{ label: TEXT.closeContext }">
+        <button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.closeContext" data-testid="drawer-close" @click="drawer = ''"><UiIcon name="close" /></button>
+      </span>
+    </div>
+    <div v-show="!drawer || drawer === 'assignment'" style="display: grid; gap: 14px; min-width: 0">
+      <p class="hint" style="margin: 0">{{ lease.message }}</p>
+      <dl class="keyvalues">
+        <div><dt>{{ TEXT.dictatedBy }}</dt><dd>{{ dictator || TEXT.notProvided }}</dd></div>
+        <div><dt>{{ TEXT.pool }}</dt><dd>{{ pool || TEXT.notProvided }}</dd></div>
+        <div><dt>{{ TEXT.editing }}</dt><dd>{{ workerLabel() }}</dd></div>
+      </dl>
+    </div>
+    <div v-show="!drawer || drawer === 'marks'" style="display: grid; gap: 20px; min-width: 0">
       <section class="panel" :aria-label="TEXT.alignment" :data-status="alignStatus" data-testid="alignment">
         <div class="panel-header">
           <h2>{{ TEXT.alignment }}</h2>
@@ -990,35 +1110,14 @@ export const CorrectionBody = {
       </section>
 
       <section class="panel">
-        <CorrectionWaveform :key="'w' + loadGeneration" :editor="c.editor" :alignment="c.alignment" :client="c.client"
-                            :dictation-id="dictationId" :recording-id="c.peaksKey()" :fetch-fn="c.peaksFetch" :vue="c.vue" />
-      </section>
-
-      <section class="panel">
         <AudioMarkers :key="'m' + loadGeneration + '-' + revisionGeneration" :editor="c.editor" :alignment="c.alignment" :client="c.client"
                       :dictation-id="dictationId" :get-position-ms="c.getPositionMs" :seek="c.seek" :vue="c.vue" />
       </section>
     </div>
 
-    <div style="display: grid; gap: 20px; min-width: 0">
+    <div v-show="!drawer || drawer === 'options'" style="display: grid; gap: 20px; min-width: 0">
       <section class="panel" :aria-label="TEXT.options">
         <div class="panel-header"><h2>{{ TEXT.options }}</h2></div>
-        <fieldset class="clinic-correction-modes" :aria-busy="modeStatus === 'saving'" :data-mode="mode" style="border: 0; padding: 0; margin: 0 0 14px">
-          <legend style="font-weight: 600; margin-bottom: 6px">{{ TEXT.mode }}</legend>
-          <div role="radiogroup" :aria-label="TEXT.modeGroup" style="display: grid; gap: 8px">
-            <label v-for="opt in MODES" :key="opt.id" class="inline-label" style="display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: start">
-              <input type="radio" name="clinic-correction-view-mode" :value="opt.id" :checked="mode === opt.id"
-                     :aria-describedby="'ccv-mode-' + opt.id" :style="FOCUS" @change="c.modes.setMode(opt.id)">
-              <span>{{ opt.label }}</span>
-              <small :id="'ccv-mode-' + opt.id" class="hint" style="grid-column: 2; margin: 0">{{ opt.hint }}</small>
-            </label>
-          </div>
-          <div v-if="modeStatus === 'error'" role="alert" class="note" :style="box('error')">
-            {{ modeError && modeError.message }}
-            <button type="button" class="small" :style="FOCUS" @click="c.modes.setMode(mode)">{{ TEXT.modeRetry }}</button>
-          </div>
-          <div role="status" aria-live="polite" class="sr-only">{{ modeAnnouncement }}</div>
-        </fieldset>
         <PlaybackGain v-if="gainState" :state="gainState.value" :controller="c.gain()" />
       </section>
     </div>

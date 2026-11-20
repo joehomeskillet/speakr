@@ -294,7 +294,7 @@ export const CorrectionWaveform = {
     <strong>{{ LABELS.currentPhrase }}:</strong> {{ currentPhrase ? currentPhrase.text : LABELS.noCurrent }}
   </p>
   <div class="clinic-correction-waveform-uncertain hint">
-    <strong>{{ LABELS.uncertain }}:</strong>
+    <strong>{{ LABELS.uncertain }}:</strong>{{ ' ' }}
     <span v-if="!uncertainSpans.length">{{ LABELS.noUncertain }}</span>
     <ul v-else class="chiprow" style="list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px">
       <li v-for="span in uncertainSpans" :key="span.id">
@@ -304,13 +304,13 @@ export const CorrectionWaveform = {
     </ul>
   </div>
   <div class="clinic-correction-waveform-unaligned hint">
-    <strong>{{ LABELS.unaligned }}:</strong>
+    <strong>{{ LABELS.unaligned }}:</strong>{{ ' ' }}
     <span v-if="!unalignedSpans.length">{{ LABELS.noUnaligned }}</span>
     <ul v-else>
       <li v-for="span in unalignedSpans" :key="span.start">{{ span.text }}</li>
     </ul>
   </div>
-  <div role="status" aria-live="polite">{{ announcement }}</div>
+  <div role="status" aria-live="polite" class="sr-only">{{ announcement }}</div>
 </section>`,
 };
 
