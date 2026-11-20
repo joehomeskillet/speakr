@@ -24,7 +24,7 @@ from src.app import app, db
 from src.init_db import initialize_database
 from src.models import Recording, User
 from src.clinic import context_grants, policy, workflow
-from src.clinic.acceptance_policy import AcceptanceLedger
+from src.clinic.acceptance_policy import SCOPE_DICTATION, AcceptanceLedger
 from src.clinic.context_grants import ClinicContextGrantUse, ContextGrantError, VerifiedContextGrant
 from src.clinic.kis import KisAdapter
 from src.clinic.models import (ClinicAudioRevision, ClinicContextRevision, ClinicDictation, ClinicOriginal,
@@ -152,9 +152,13 @@ if mode == "production":
     out["prod_unbound"] = release(ca, ha, did, revs, ctx)
     print("RESULT:" + json.dumps(out)); sys.exit(0)
 
-# staging: first the acceptance ledger is left as wired (required, no approver).
+# Require acceptance without an approver for this staging dictation.
 did, revs, revision, error = bound_dictation("n-accept")
 out["bind_error"] = error
+with app.app_context():
+    AcceptanceLedger().publish(SCOPE_DICTATION, did, required=True, approver_user_ids=(), now=NOW)
+    workflow.set_acceptance(db.session(), did, True)
+    db.session.commit()
 out["bound_acceptance_gate"] = release(ca, ha, did, revs, revision)
 
 # Then relax only the acceptance ledger default, which another package wires, to reach finalize.

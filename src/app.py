@@ -1148,7 +1148,7 @@ def register_clinic_worklist(flask_app):
     Called at startup only in clinic mode, after register_clinic_resources, and reuses its
     parity dispatcher and receipt runner. Object decisions go through pool_policy.decide.
     Stores are process-local; release stays fail-closed until a trusted-context source and
-    the review-flag count (W11) exist, and the acceptance ledger starts as "required, no approver".
+    the review-flag count (W11) exist, and the acceptance ledger starts as "not required, no approver".
     """
     from datetime import datetime, timezone
 
@@ -1175,7 +1175,7 @@ def register_clinic_worklist(flask_app):
         'clinic.metadata': ('edit',), 'clinic.archive': ('edit',), 'clinic.release': ('release',),
         'clinic.review': ('edit', 'release'), 'clinic.accept': ('release',),
         'clinic.reopen': ('release',), 'clinic.dictate': ('edit',), 'history': ('view',),
-        'review': ('edit', 'release'), 'regex_preview': ('edit',), 'regex_apply': ('edit',),
+        'review': ('edit',), 'regex_preview': ('edit',), 'regex_apply': ('edit',),
         'rename': ('edit',), 'priority': ('edit',), 'reassign': ('edit', 'release'),
     }
 
@@ -1204,7 +1204,7 @@ def register_clinic_worklist(flask_app):
         try:
             return ledger.current(SCOPE_DICTATION, dictation.id)
         except PolicyError:
-            return ledger.publish(SCOPE_DICTATION, dictation.id, required=True,
+            return ledger.publish(SCOPE_DICTATION, dictation.id, required=False,
                                   approver_user_ids=(), now=datetime.now(timezone.utc))
 
     def stamp(value):

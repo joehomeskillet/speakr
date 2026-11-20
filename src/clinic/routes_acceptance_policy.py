@@ -7,9 +7,9 @@ policy version; a stale version gets 409 with the authoritative ``{version}``.
 A body equal to the current policy is a retry and changes nothing, so it
 creates no second version and no second audit row.
 
-The blueprint is not mounted here; the app wiring injects the callbacks. A published version and
-its audit row are committed here (the ledger itself never commits); a refused write is audited
-as a denied ``recording.edited`` (field names only) and committed on its own.
+The app wiring injects the callbacks. A published version, the workflow flag and the audit row
+are committed together. A refused write is audited as a denied ``recording.edited`` (field names
+only) and committed on its own.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ from flask_wtf.csrf import CSRFError, validate_csrf
 from werkzeug.exceptions import HTTPException
 from wtforms.validators import ValidationError
 
+from src.clinic import workflow
 from src.clinic.acceptance_policy import SCOPE_DICTATION, AcceptanceLedger, PolicyError
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.models import ClinicDictation
@@ -62,7 +63,8 @@ def create_blueprint(
 ) -> Blueprint:
     """``authorize`` decides read and write per object (author, pool lead, admin).
 
-    ``default_required`` supplies the flag shown before a first version exists;
+    Before the first version, the workflow flag is used when present and
+    ``default_required`` supplies the fallback for dictations without a workflow row.
     ``is_acceptance_member`` is the w014 membership check for each approver.
     """
     bp = Blueprint('clinic_acceptance_policy', __name__)
@@ -102,12 +104,16 @@ def create_blueprint(
         except PolicyError:
             return None
 
+    def initial_required(row: ClinicDictation) -> bool:
+        item = db.session.get(workflow.ClinicWorkflowDictation, row.id)
+        return item.acceptance_required if item is not None else bool(default_required(row))
+
     @bp.get(PATH)
     def read(dictation_id: UUID):
         row = visible(dictation_id)
         stored = current(row)
         if stored is None:
-            return jsonify(_view(0, bool(default_required(row)), ()))
+            return jsonify(_view(0, initial_required(row), ()))
         return jsonify(_view(stored.version, stored.required, stored.approver_user_ids))
 
     @bp.put(PATH)
@@ -135,6 +141,11 @@ def create_blueprint(
         if any(type(item) is not int for item in ids) or not all(is_acceptance_member(i) for i in ids):
             return _problem(422, 'INVALID_APPROVER')
         required, approvers = body['acceptance_required'], frozenset(ids)
+        # Serialize with finalization. SQLite needs an outer transaction before the ledger's savepoint.
+        connection = db.session.connection()
+        if connection.dialect.name == 'sqlite' and not connection.connection.driver_connection.in_transaction:
+            connection.exec_driver_sql('BEGIN IMMEDIATE')
+        db.session.refresh(row, with_for_update=True)
         stored = current(row)
         version = stored.version if stored else 0
         if stored and stored.required is required and stored.approver_user_ids == approvers:
@@ -145,16 +156,19 @@ def create_blueprint(
         try:
             record_audit([{'actor_id': current_user.id, 'dictation_id': row.id,
                            'field': 'acceptance_policy',
-                           'old': _view(version, stored.required if stored else bool(default_required(row)),
+                           'old': _view(version, stored.required if stored else initial_required(row),
                                         stored.approver_user_ids if stored else ()),
                            'new': _view(version + 1, required, approvers), 'at': now}])
         except Exception:
+            db.session.rollback()
             return _problem(503, 'AUDIT_UNAVAILABLE')
         created = ledger.publish(
             SCOPE_DICTATION, row.id, required=required, approver_user_ids=approvers,
             approver_pool_ids=stored.approver_pool_ids if stored else (),
             deny_user_ids=stored.deny_user_ids if stored else (),
             now=now, expected_version=version)
+        if db.session.get(workflow.ClinicWorkflowDictation, row.id) is not None:
+            workflow.set_acceptance(db.session(), row.id, created.required)
         db.session.commit()
         return jsonify(_view(created.version, created.required, created.approver_user_ids))
 
