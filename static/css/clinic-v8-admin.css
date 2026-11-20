@@ -3,36 +3,36 @@
  * next to clinic-v8.css, so both mounts draw the same page. */
 /* Administration pages (v8-114): the element and class rules of clinic-v8.css that are written at zero specificity
    (:where(.v8-page ...)) lose to the preflight and to the app classes (.field, .grid, .tabs, .empty). The same rules,
-   raised to the specificity of an element selector, for the pages that mark their root with .v8-admin-page. */
+   scoped to .v8-admin-page. The html prefix lets element defaults outrank preflight while yielding to classes. */
 .v8-ui [data-testid=clinic-admin-view],.v8-ui .v8-admin-page{font-family:Inter,"Segoe UI",Arial,sans-serif;--v8-muted:color-mix(in srgb,var(--muted) 90%,var(--v8-text-2))}
-*:where(.v8-admin-page *){box-sizing:border-box}
-a:where(.v8-admin-page *){color:var(--v8-text);text-underline-offset:3px}
-button:where(.v8-admin-page *),input:where(.v8-admin-page *),select:where(.v8-admin-page *),textarea:where(.v8-admin-page *){font:inherit}
-button:where(.v8-admin-page *),a:where(.v8-admin-page *),input:where(.v8-admin-page *),select:where(.v8-admin-page *),textarea:where(.v8-admin-page *),summary:where(.v8-admin-page *){outline-offset:4px}
+html *:where(.v8-admin-page *){box-sizing:border-box}
+html a:where(.v8-admin-page *){color:var(--v8-text);text-underline-offset:3px}
+html button:where(.v8-admin-page *),html input:where(.v8-admin-page *),html select:where(.v8-admin-page *),html textarea:where(.v8-admin-page *){font:inherit}
+html button:where(.v8-admin-page *),html a:where(.v8-admin-page *),html input:where(.v8-admin-page *),html select:where(.v8-admin-page *),html textarea:where(.v8-admin-page *),html summary:where(.v8-admin-page *){outline-offset:4px}
 button:focus-visible:where(.v8-admin-page *),a:focus-visible:where(.v8-admin-page *),input:focus-visible:where(.v8-admin-page *),select:focus-visible:where(.v8-admin-page *),textarea:focus-visible:where(.v8-admin-page *),summary:focus-visible:where(.v8-admin-page *){outline:3px solid #ba8196}
-button:where(.v8-admin-page *),a:where(.v8-admin-page *),summary:where(.v8-admin-page *){-webkit-tap-highlight-color:transparent}
-button:where(.v8-admin-page *){cursor:pointer}
+html button:where(.v8-admin-page *),html a:where(.v8-admin-page *),html summary:where(.v8-admin-page *){-webkit-tap-highlight-color:transparent}
+html button:where(.v8-admin-page *){cursor:pointer}
 button:disabled:where(.v8-admin-page *){cursor:default;opacity:.5}
-button:where(.v8-admin-page *){border:1px solid var(--line);border-radius:8px;background-color:var(--surface);padding:9px 13px;font-weight:600;color:var(--v8-text);text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:38px}
+html button:where(.v8-admin-page *){border:1px solid var(--line);border-radius:8px;background-color:var(--surface);padding:9px 13px;font-weight:600;color:var(--v8-text);text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:38px}
 button:hover:not(:disabled):where(.v8-admin-page *){background:var(--v8-s1);border-color:#b9c9c4}
-h1:where(.v8-admin-page *){font-size:30px;line-height:1.2;font-weight:700;letter-spacing:-.8px;margin:0 0 9px}
-h2:where(.v8-admin-page *){font-size:16px;line-height:1.35;margin:0 0 14px;letter-spacing:-.2px}
-h3:where(.v8-admin-page *){font-size:14px;margin:0 0 10px}
-p:where(.v8-admin-page *){margin:0 0 12px}
+html h1:where(.v8-admin-page *){font-size:30px;line-height:1.2;font-weight:700;letter-spacing:-.8px;margin:0 0 9px}
+html h2:where(.v8-admin-page *){font-size:16px;line-height:1.35;margin:0 0 14px;letter-spacing:-.2px}
+html h3:where(.v8-admin-page *){font-size:14px;margin:0 0 10px}
+html p:where(.v8-admin-page *){margin:0 0 12px}
 .grid:where(.v8-admin-page *){display:grid;grid-template-columns:1.6fr 1fr;gap:20px;align-items:start}
 .grid.equal:where(.v8-admin-page *){grid-template-columns:1fr 1fr}
 .grid.three:where(.v8-admin-page *){grid-template-columns:repeat(3,minmax(0,1fr))}
 .field:where(.v8-admin-page *){display:grid;gap:6px;margin:0 0 16px}
 .field label:where(.v8-admin-page *),.field>span:where(.v8-admin-page *){font-weight:650;font-size:12px}
 .field small:where(.v8-admin-page *){font-size:11px;color:var(--v8-muted)}
-input:not([type=checkbox]):not([type=radio]):not([type=range]):where(.v8-admin-page *),select:where(.v8-admin-page *),textarea:where(.v8-admin-page *){width:100%;padding:10px 11px;border:1px solid #ccd8d3;border-radius:7px;color:var(--v8-text);background-color:var(--surface);min-height:40px}
-textarea:where(.v8-admin-page *){resize:vertical;min-height:100px;line-height:1.65}
+input:not([type=checkbox]):not([type=radio]):not([type=range]):where(.v8-admin-page *),html select:where(.v8-admin-page *),html textarea:where(.v8-admin-page *){width:100%;padding:10px 11px;border:1px solid #ccd8d3;border-radius:7px;color:var(--v8-text);background-color:var(--surface);min-height:40px}
+html textarea:where(.v8-admin-page *){resize:vertical;min-height:100px;line-height:1.65}
 .filterbar .field:where(.v8-admin-page *){margin:0;flex:0 1 175px}
 .filterbar .field.search:where(.v8-admin-page *){flex:1 1 240px}
-table:where(.v8-admin-page *){width:100%;border-collapse:collapse;text-align:left;font-size:12px;white-space:nowrap}
-thead:where(.v8-admin-page *){background:var(--v8-s1)}
-th:where(:not([scope=row])):where(.v8-admin-page *){font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:650;color:var(--v8-text-2);padding:12px 14px;border-bottom:1px solid var(--line)}
-td:where(.v8-admin-page *){padding:13px 14px;border-bottom:1px solid var(--v8-line-2);vertical-align:middle}
+html table:where(.v8-admin-page *){width:100%;border-collapse:collapse;text-align:left;font-size:12px;white-space:nowrap}
+html thead:where(.v8-admin-page *){background:var(--v8-s1)}
+html th:where(:not([scope=row])):where(.v8-admin-page *){font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:650;color:var(--v8-text-2);padding:12px 14px;border-bottom:1px solid var(--line)}
+html td:where(.v8-admin-page *){padding:13px 14px;border-bottom:1px solid var(--v8-line-2);vertical-align:middle}
 tbody tr:last-child td:where(.v8-admin-page *){border-bottom:0}
 tbody tr:hover:where(.v8-admin-page *){background:var(--surface)}
 td strong:where(.v8-admin-page *){display:block;color:var(--v8-text);font-weight:650}
@@ -115,7 +115,7 @@ td small:where(.v8-admin-page *){display:block;font-size:10px;color:var(--v8-mut
 .v8-ui .v8-admin-page .pools-ui [role=alertdialog]{border:1px solid var(--line);background:var(--v8-s1);color:var(--v8-text);border-radius:8px;padding:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .v8-ui .v8-admin-page .pools-ui [role=alertdialog] p{flex:1 1 100%;margin:0}
 @media(max-width:1100px){.grid.equal:where(.v8-admin-page *){grid-template-columns:1fr 1fr}}
-@media(max-width:760px){h1:where(.v8-admin-page *){font-size:26px}
+@media(max-width:760px){html h1:where(.v8-admin-page *){font-size:26px}
 .grid:where(.v8-admin-page *),.grid.equal:where(.v8-admin-page *),.grid.three:where(.v8-admin-page *){grid-template-columns:1fr}
 .filterbar .field:where(.v8-admin-page *){flex:1 1 150px}}
 

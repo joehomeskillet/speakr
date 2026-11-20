@@ -67,7 +67,11 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tokens.css', v=app_version) }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css', v=app_version) }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/primitives.css', v=app_version) }}">
-    {% if clinic_mode %}{% set v8_css_linked = true %}<link rel="stylesheet" href="{{ url_for('static', filename='css/clinic-v8.css', v=app_version) }}">{% endif %}
+    {% if clinic_mode %}
+    {% set v8_css_linked = true %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/clinic-v8.css', v=app_version) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/clinic-v8-admin.css', v=app_version) }}" data-clinic-v8-admin>
+    {% endif %}
     <link rel="stylesheet" href="{{ url_for('static', filename='css/clinic-lists.css', v=app_version) }}">
     <!-- The phone layout of the recording page and the recording list (below 768px) -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/phone.css', v=app_version) }}">
@@ -93,8 +97,6 @@
     <script src="{{ url_for('static', filename='js/markdown-safe.js', v=app_version) }}"></script>
     <script src="{{ url_for('static', filename='vendor/js/easymde.min.js', v=app_version) }}"></script>
     <script src="{{ url_for('static', filename='js/timezone-sync.js', v=app_version) }}" defer></script>
-    {% if clinic_mode %}<!-- Verwaltung pages (v8-114): last stylesheet, so its element rules win over the preflight -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/clinic-v8-admin.css', v=app_version) }}" data-clinic-v8-admin>{% endif %}
 </head>
 <body class="h-full bg-[var(--bg-primary)] text-[var(--text-primary)] transition-colors duration-300">
     <div id="app" v-cloak

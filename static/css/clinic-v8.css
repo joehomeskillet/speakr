@@ -677,14 +677,14 @@
   gap: 0;
 }
 .v8-ui .clinic-correction-view .pagehead > .dictation-chrome { order: -1; }
-.clinic-correction-view .pagehead:has(> .dictation-chrome) > .head-actions > [data-testid="close"],
-[data-testid="clinic-dictation-mount"] .clinic-review-view .head-actions > [data-testid="close"] { display: none; }
-.clinic-correction-view .pagehead:has(> .dictation-chrome) > .head-actions { margin: 0; }
+.v8-ui .clinic-correction-view .pagehead:has(> .dictation-chrome) > .head-actions > [data-testid="close"],
+.v8-ui [data-testid="clinic-dictation-mount"] .clinic-review-view .head-actions > [data-testid="close"] { display: none; }
+.v8-ui .clinic-correction-view .pagehead:has(> .dictation-chrome) > .head-actions { margin: 0; }
 @media (max-width: 700px) {
   .v8-ui .dictation-chrome { flex-direction: column; align-items: flex-start; gap: .25rem; }
   .v8-ui .dictation-chrome .record-tabs { width: 100%; }
-  [data-testid="clinic-correction-mount"] .document-title { flex-wrap: wrap; gap: .25rem; }
-  [data-testid="clinic-correction-mount"] .document-id { display: block; overflow: hidden; text-overflow: ellipsis; }
+  .v8-ui [data-testid="clinic-correction-mount"] .document-title { flex-wrap: wrap; gap: .25rem; }
+  .v8-ui [data-testid="clinic-correction-mount"] .document-id { display: block; overflow: hidden; text-overflow: ellipsis; }
 }
 .v8-ui .record-tabs button{border:0;background:none;color:var(--v8-muted);border-bottom:3px solid transparent;padding:16px 10px 13px;font-weight:650;font-size:12px;min-height:48px}
 :where(.v8-ui) :where(.v8-page *,.v8-chrome *).record-tabs button.active{color:var(--v8-text);border-color:#3f7168}
