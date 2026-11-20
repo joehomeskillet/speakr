@@ -42,6 +42,7 @@ export const TEXT = Object.freeze({
     paused: 'Die automatische Aktualisierung ist pausiert, solange ein Filter aktiv ist oder eine andere Seite angezeigt wird.',
     loading: 'Laden …',
     empty: 'Keine Diktate vorhanden.',
+    noMatch: 'Keine Treffer für den gewählten Filter oder die Suche.',
     denied: 'Keine Berechtigung für diese Aktion.',
     failed: 'Die Arbeitsliste konnte nicht geladen werden.',
     prev: 'Vorherige Seite',
@@ -134,9 +135,22 @@ export function statusBadge(row) {
     }
 }
 
+const DATE_COLUMNS = Object.freeze(['deadline_at', 'created_at', 'assigned_at']);
+const dateTimeFormat = typeof Intl !== 'undefined'
+    ? new Intl.DateTimeFormat('de-CH', { timeZone: 'Europe/Zurich', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+    : null;
+
+/** UTC instant to "20.11.2026, 07:21" in Europe/Zurich; unparsable input is shown as received. */
+export function formatDateTime(value) {
+    const at = new Date(value);
+    if (!dateTimeFormat || Number.isNaN(at.getTime())) return String(value);
+    return dateTimeFormat.format(at);
+}
+
 /** Cell text for one layout column. */
 export function cellText(row, key) {
     const value = row[key];
+    if (DATE_COLUMNS.includes(key) && value !== null && value !== undefined && value !== '') return formatDateTime(value);
     if (key === 'status') return statusBadge(row).label;
     if (key === 'priority') return formatPriority(value);
     if (key === 'duration_seconds') return formatAudioDuration(value);
@@ -453,6 +467,8 @@ export function createWorklistViewController(options) {
         worklist, refresh, filters, layout, workflow, detailClient, displayed, columns, headerAttrs,
         start, dispose, reload, select, open, canOpen, onRowKey, goto, pages, hasNext, applyFilter,
         key: rowKey, cell: cellText, badge: statusBadge, text: TEXT,
+        emptyCell: (row, key) => !ROLE_KEYS.includes(key) && key !== 'status' && cellText(row, key) === '–',
+        priorityTone: (row) => (Number(row.priority) === 128 ? 'high' : Number(row.priority) === 0 && row.priority !== '' && row.priority != null ? 'low' : 'normal'),
         pageLabel: () => 'Seite ' + view.page + (pages() === null ? '' : ' von ' + pages()),
         errorStyle: surfaceStyle('error', (s) => ({ border: '1px solid ' + s.border })),
         selectedStyle: surfaceStyle('normal', () => ({ borderLeft: '4px solid var(--border-focus)' })),
@@ -499,79 +515,96 @@ export const WorklistView = {
         return { c, parts };
     },
     template: `
-<section class="clinic-worklist-view" data-testid="clinic-worklist-view" aria-labelledby="cwv-title">
-  <h1 id="cwv-title" class="text-lg font-semibold">{{ c.text.title }}</h1>
-  <div class="flex flex-wrap items-center gap-2 mt-2" data-testid="refresh-bar">
-    <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem"
-            :disabled="c.refresh.isRefreshing.value" :aria-busy="c.refresh.isRefreshing.value ? 'true' : 'false'"
-            @click="c.reload()">{{ c.text.refresh }}</button>
-    <span role="status" aria-live="polite" data-testid="last-update">{{ c.refresh.lastUpdateLabel.value }}</span>
-    <span v-if="c.paused.value" class="text-sm" style="color: var(--text-secondary)">{{ c.text.paused }}</span>
+<section class="clinic-worklist-view cl-view" data-testid="clinic-worklist-view" aria-labelledby="cwv-title">
+  <div class="cl-head">
+    <h1 id="cwv-title" class="cl-title">{{ c.text.title }}</h1>
+    <span class="cl-sub" data-testid="result-count">{{ c.worklist.totals.value.totalCount }} Diktate ({{ c.worklist.totals.value.formattedTotalDuration }})</span>
   </div>
   <div v-if="c.refresh.refreshError.value || (c.worklist.errorMessage.value && !c.worklist.isPermissionLost.value)"
-       role="alert" class="mt-2 p-2 rounded" :style="c.errorStyle" data-testid="load-error">
-    {{ c.refresh.refreshError.value || c.worklist.errorMessage.value }}
-    <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" @click="c.reload()">{{ c.text.retry }}</button>
+       role="alert" class="cl-alert" :style="c.errorStyle" data-testid="load-error">
+    <span>{{ c.refresh.refreshError.value || c.worklist.errorMessage.value }}</span>
+    <button type="button" class="btn btn--ghost btn--sm" @click="c.reload()">{{ c.text.retry }}</button>
   </div>
-  <div v-if="c.worklist.isPermissionLost.value" role="alert" class="mt-2 p-2 rounded" :style="c.errorStyle" data-testid="permission-loss-state">
+  <div v-if="c.worklist.isPermissionLost.value" role="alert" class="cl-alert" :style="c.errorStyle" data-testid="permission-loss-state">
     {{ c.worklist.errorMessage.value || c.text.denied }}
   </div>
   <template v-else>
-    <div class="mt-3">
-      <WorklistFiltersPanel :controller="c.filters" />
-    </div>
-    <component :is="parts.Layout" :layout="c.layout" />
-    <header class="flex flex-wrap gap-2 mt-3" role="region" aria-label="Statusübersicht" data-testid="status-totals">
-      <span>{{ c.worklist.totals.value.totalCount }} Diktate ({{ c.worklist.totals.value.formattedTotalDuration }})</span>
-      <span v-for="g in c.worklist.totals.value.groups" :key="g.status" class="px-2 py-1 rounded text-xs"
+    <WorklistFiltersPanel :controller="c.filters">
+      <template #start>
+        <button type="button" class="btn btn--ghost btn--icon cl-btn" data-testid="refresh-button"
+                :aria-label="c.text.refresh" :title="c.text.refresh"
+                :disabled="c.refresh.isRefreshing.value" :aria-busy="c.refresh.isRefreshing.value ? 'true' : 'false'"
+                @click="c.reload()"><i class="fa-solid fa-rotate" :class="c.refresh.isRefreshing.value ? 'cl-spin' : ''" aria-hidden="true"></i></button>
+        <span role="status" aria-live="polite" class="cl-last-update" data-testid="last-update">{{ c.refresh.lastUpdateLabel.value }}</span>
+      </template>
+      <template #end>
+        <component :is="parts.Layout" :layout="c.layout" />
+      </template>
+    </WorklistFiltersPanel>
+    <p v-if="c.paused.value" class="cl-hint">{{ c.text.paused }}</p>
+    <header class="cl-totals" role="region" aria-label="Statusübersicht" data-testid="status-totals">
+      <span v-for="g in c.worklist.totals.value.groups" :key="g.status" class="cl-chip"
             :style="{ background: g.surface.background, color: g.surface.color, border: '1px solid ' + g.surface.border }">
         {{ g.label }}: {{ g.count }} ({{ g.formattedDuration }})
       </span>
     </header>
-    <div class="grid gap-4 mt-3" :class="c.selectedId.value ? 'lg:grid-cols-2' : ''">
-      <div class="overflow-x-auto">
+    <div class="cl-body" :class="c.selectedId.value ? 'lg:grid-cols-2' : ''">
+      <div class="cl-list">
         <p class="sr-only" id="cwv-keys">{{ c.text.keys }}</p>
-        <div v-if="c.worklist.isLoading.value" role="status" aria-live="polite" data-testid="loading-state">{{ c.text.loading }}</div>
-        <p v-else-if="!c.worklist.rows.value.length" data-testid="empty-state">{{ c.text.empty }}</p>
-        <table v-else class="w-full" role="grid" aria-label="Arbeitsliste" aria-describedby="cwv-keys">
-          <thead>
-            <tr>
-              <th v-for="col in c.columns()" :key="col.key" scope="col" v-bind="c.headerAttrs(col.key)"
-                  @keydown="c.layout.onKeydown(col.key, $event)" @click="c.layout.cycleSort(col.key)">{{ col.label }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <template v-for="item in c.displayed.value" :key="item.key">
-              <tr v-if="item.kind === 'group'">
-                <th scope="rowgroup" :colspan="c.columns().length" style="text-align: left"
-                    :style="{ paddingLeft: item.depth + 'rem' }">{{ item.label }}</th>
+        <div v-if="c.worklist.isLoading.value" class="cl-state" role="status" aria-live="polite" data-testid="loading-state">
+          <span class="cl-state__icon"><i class="fa-solid fa-spinner cl-spin" aria-hidden="true"></i></span>
+          <p class="cl-state__body">{{ c.text.loading }}</p>
+        </div>
+        <div v-else-if="!c.worklist.rows.value.length" class="cl-state" data-testid="empty-state">
+          <span class="cl-state__icon"><i class="fa-regular fa-folder-open" aria-hidden="true"></i></span>
+          <p class="cl-state__title">{{ c.text.empty }}</p>
+          <p v-if="c.view.filterId || c.view.search" class="cl-state__body">{{ c.text.noMatch }}</p>
+        </div>
+        <div v-else class="cl-tablewrap">
+          <table class="cl-table w-full" role="grid" aria-label="Arbeitsliste" aria-describedby="cwv-keys">
+            <thead>
+              <tr>
+                <th v-for="col in c.columns()" :key="col.key" scope="col" v-bind="c.headerAttrs(col.key)"
+                    :class="col.key === 'duration_seconds' ? 'cl-num' : ''"
+                    @keydown="c.layout.onKeydown(col.key, $event)" @click="c.layout.cycleSort(col.key)">{{ col.label }}</th>
               </tr>
-              <tr v-else tabindex="0" data-row :data-id="c.key(item.row)"
-                  :aria-selected="c.selectedId.value === c.key(item.row) ? 'true' : 'false'"
-                  :style="c.selectedId.value === c.key(item.row) ? c.selectedStyle : null"
-                  @click="c.select(item.row)" @dblclick="c.open(item.row)" @keydown="c.onRowKey($event, item.row)">
-                <td v-for="col in c.columns()" :key="col.key">
-                  <span v-if="col.key === 'status'" class="px-2 py-1 rounded text-xs" :style="c.badge(item.row).style">{{ c.badge(item.row).label }}</span>
-                  <template v-else>{{ c.cell(item.row, col.key) }}</template>
-                </td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
-        <nav class="flex items-center gap-2 mt-2" aria-label="Seiten">
-          <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :disabled="c.view.page <= 1" @click="c.goto(c.view.page - 1)">{{ c.text.prev }}</button>
-          <span aria-live="polite">{{ c.pageLabel() }}</span>
-          <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :disabled="!c.hasNext()" @click="c.goto(c.view.page + 1)">{{ c.text.next }}</button>
-        </nav>
+            </thead>
+            <tbody>
+              <template v-for="item in c.displayed.value" :key="item.key">
+                <tr v-if="item.kind === 'group'" class="cl-group">
+                  <th scope="rowgroup" :colspan="c.columns().length" style="text-align: left"
+                      :style="{ paddingLeft: (0.75 + item.depth) + 'rem' }">{{ item.label }}</th>
+                </tr>
+                <tr v-else tabindex="0" class="cl-row" data-row :data-id="c.key(item.row)"
+                    :aria-selected="c.selectedId.value === c.key(item.row) ? 'true' : 'false'"
+                    @click="c.select(item.row)" @dblclick="c.open(item.row)" @keydown="c.onRowKey($event, item.row)">
+                  <td v-for="col in c.columns()" :key="col.key" :data-label="col.label"
+                      :class="[col.key === 'duration_seconds' ? 'cl-num' : (col.key === 'deadline_at' || col.key === 'created_at' || col.key === 'assigned_at') ? 'cl-nowrap' : '', c.emptyCell(item.row, col.key) ? 'cl-empty' : '']">
+                    <span v-if="col.key === 'status'" class="pill-status cl-pill" :style="c.badge(item.row).style">{{ c.badge(item.row).label }}</span>
+                    <span v-else-if="col.key === 'priority'" class="cl-prio" :class="'cl-prio--' + c.priorityTone(item.row)">{{ c.cell(item.row, col.key) }}</span>
+                    <template v-else>{{ c.cell(item.row, col.key) }}</template>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <nav class="cl-pager" aria-label="Seiten">
+            <button type="button" class="btn btn--ghost" :disabled="c.view.page <= 1" @click="c.goto(c.view.page - 1)">{{ c.text.prev }}</button>
+            <span aria-live="polite">{{ c.pageLabel() }}</span>
+            <button type="button" class="btn btn--ghost" :disabled="!c.hasNext()" @click="c.goto(c.view.page + 1)">{{ c.text.next }}</button>
+          </nav>
+        </div>
       </div>
-      <aside v-if="c.selectedId.value" aria-labelledby="cwv-detail-title" data-testid="detail-panel"
+      <aside v-if="c.selectedId.value" class="cl-detail" aria-labelledby="cwv-detail-title" data-testid="detail-panel"
              @keydown.esc="c.select(null)">
         <div :key="c.selectedId.value">
-          <h2 id="cwv-detail-title" class="font-semibold">{{ c.text.detail }}</h2>
-          <button type="button" class="px-3 py-2 border rounded mt-2" style="min-height: 2.75rem" data-testid="close-detail"
-                  @click="c.select(null)">{{ c.text.close }}</button>
-          <button type="button" class="px-3 py-2 border rounded mt-2" style="min-height: 2.75rem" data-testid="open-dictation"
-                  :disabled="!c.canOpen.value" @click="c.open()">{{ c.text.open }}</button>
+          <h2 id="cwv-detail-title" class="cl-panel__title">{{ c.text.detail }}</h2>
+          <div class="cl-detail__actions">
+            <button type="button" class="btn btn--primary" data-testid="open-dictation"
+                    :disabled="!c.canOpen.value" @click="c.open()">{{ c.text.open }}</button>
+            <button type="button" class="btn btn--ghost" data-testid="close-detail"
+                    @click="c.select(null)">{{ c.text.close }}</button>
+          </div>
           <component :is="parts.Lease" v-if="c.leaseState.value" :state="c.leaseState.value" :run="c.leaseRun" />
           <component :is="parts.Workflow" :wf="c.workflow" />
           <details :open="c.panels.protection" @toggle="c.panels.protection = $event.target.open">
