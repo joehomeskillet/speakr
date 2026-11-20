@@ -12,10 +12,10 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='vendor/css/fontawesome.min.css', v=app_version) }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tokens.css', v=app_version) }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css', v=app_version) }}">
-
     {# CLINIC_MODE login is the only caller passing ClinicLoginForm; auth.py is not touched. #}
     {% set clinic_login = form.__class__.__name__ == 'ClinicLoginForm' %}
-    {% macro password_toggle() %}{% if clinic_login %}<button type="button" data-password-toggle="password" aria-pressed="false" aria-controls="password" aria-label="Passwort anzeigen" class="absolute inset-y-0 right-0 mt-1 px-3 flex items-center text-[var(--text-muted)] hover:text-[var(--text-secondary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)] rounded-md"><i class="fas fa-eye" aria-hidden="true"></i></button>{% endif %}{% endmacro %}
+    {% if clinic_login %}<link rel="stylesheet" href="{{ url_for('static', filename='css/clinic-v8.css', v=app_version) }}">{% endif %}
+
     <!-- Loading overlay to prevent FOUC -->
     {% include 'includes/loading_overlay.html' %}
 
@@ -61,6 +61,108 @@
     <!-- What is removed from the browser after a sign-out (no service worker is registered here) -->
     <script src="{{ url_for('static', filename='js/service-worker-client.js', v=app_version) }}"></script>
 </head>
+{% if clinic_login %}
+<body class="v8-ui">
+    <header class="topbar" role="banner">
+        <a class="brand-link" href="{{ url_for('recordings.index') }}">
+            <span class="logo" aria-hidden="true"></span>
+            <span class="brand">Speakr</span>
+        </a>
+    </header>
+    <main id="main" class="v8-page mx-auto w-full max-w-[1600px] px-4 sm:px-8 py-6 [&_h1]:text-[30px] [&_h1]:max-[760px]:text-[26px] [&_h1]:font-bold [&_h1]:leading-[1.2] [&_h1]:tracking-[-0.8px] [&_h1]:mb-[9px] [&_h1]:text-[color:var(--v8-text)] [&_h2]:text-[16px] [&_h2]:font-bold [&_h2]:leading-[1.35] [&_h2]:tracking-[-0.2px] [&_h2]:mb-[14px] [&_h2]:text-[color:var(--v8-text)] [&_button]:px-[13px]">
+        <nav class="breadcrumb" aria-label="Brotkrumennavigation">
+            <a href="{{ url_for('recordings.index') }}">Speakr</a><span aria-hidden="true">›</span><span>Zugriff</span><span aria-hidden="true">›</span><span aria-current="page">{{ t('authPages.loginTitle') }}</span>
+        </nav>
+        <div class="pagehead">
+            <div>
+                <div class="eyebrow">Zugriff</div>
+                <h1 class="[font-family:Inter,Segoe_UI,Arial,sans-serif]">{{ t('authPages.loginTitle') }}</h1>
+                <p class="subline">Lokale Anmeldung am Arbeitsplatz. Der Zugriff richtet sich nach Ihrer Rolle und Ihren Berechtigungen.</p>
+            </div>
+            <div class="head-actions"></div>
+        </div>
+        <div class="login-wrap">
+            <div class="grid equal">
+                <section class="panel" aria-labelledby="login-panel-title">
+                    <h2 id="login-panel-title">{{ t('authPages.loginTitle') }}</h2>
+
+                    {% with messages = get_flashed_messages(with_categories=true) %}
+                        {% for category, message in messages %}
+                            <div class="note {% if category == 'danger' %}burgundy{% elif category != 'success' %}warning [.dark_&]:!bg-[var(--v8-s2)] [[data-theme=dark]_&]:!bg-[var(--v8-s2)] [.dark_&]:!border-[color:var(--line)] [[data-theme=dark]_&]:!border-[color:var(--line)]{% endif %}
+                                        {% if category != 'success' %}[.dark_&]:!text-[color:var(--v8-text)] [[data-theme=dark]_&]:!text-[color:var(--v8-text)]{% endif %}"
+                                 role="{{ 'alert' if category == 'danger' else 'status' }}" style="margin-top:0;margin-bottom:16px">{{ message }}</div>
+                        {% endfor %}
+                    {% endwith %}
+
+                    {% if sso_enabled %}
+                    <form method="GET" action="{{ url_for('auth.sso_login') }}" class="mb-4">
+                        <button type="submit" class="primary !text-white !bg-[var(--ink)] !border-[color:var(--ink)] !text-[13px] !font-semibold hover:!bg-[var(--brand2)] w-full"><i class="fas fa-cloud" aria-hidden="true"></i> {{ t('authPages.signInWith', provider=sso_provider_name) }}</button>
+                    </form>
+                    {% if not password_login_disabled %}
+                    <p class="hint text-center" style="margin-bottom:16px">{{ t('common.or') }}</p>
+                    {% endif %}
+                    {% endif %}
+
+                    {% if password_login_disabled %}
+                    <button type="button" onclick="document.getElementById('admin-login-form').classList.toggle('hidden')" class="w-full"><i class="fas fa-lock" aria-hidden="true"></i> {{ t('authPages.adminLogin') }}</button>
+                    <form id="admin-login-form" method="POST" action="{{ url_for('auth.login') }}" class="hidden mt-4">
+                        {{ form.hidden_tag() }}
+                        <div class="flex flex-col gap-1.5 mb-4 [&_label]:text-xs [&_label]:font-bold">
+                            {{ form.email.label(text=t('account.email')) }}
+                            {{ form.email(placeholder=t('authPages.adminEmailPlaceholder')) }}
+                        </div>
+                        <div class="flex flex-col gap-1.5 mb-4 [&_label]:text-xs [&_label]:font-bold">
+                            {{ form.password.label(text=t('account.password')) }}
+                            {{ form.password(placeholder=t('account.password')) }}
+                        </div>
+                        <div class="actions"><button type="submit" class="primary !text-white !bg-[var(--ink)] !border-[color:var(--ink)] !text-[13px] !font-semibold hover:!bg-[var(--brand2)] w-full">{{ t('authPages.signIn') }}</button></div>
+                    </form>
+                    {% else %}
+                    <form method="POST" action="{{ url_for('auth.login') }}">
+                        {{ form.hidden_tag() }}
+                        <div class="flex flex-col gap-1.5 mb-4 [&_label]:text-xs [&_label]:font-bold">
+                            {{ form.email.label(text=t('account.email')) }}
+                            {{ form.email(class="!border-[color:var(--danger)]" if form.email.errors else "") }}
+                            {% for error in form.email.errors %}<span class="text-status error">{{ error }}</span>{% endfor %}
+                        </div>
+                        <div class="flex flex-col gap-1.5 mb-4 [&_label]:text-xs [&_label]:font-bold">
+                            {{ form.password.label(text=t('account.password')) }}
+                            <div class="relative">
+                                {{ form.password(class=("!border-[color:var(--danger)] " if form.password.errors else "") ~ "pr-10") }}
+                                <button type="button" data-password-toggle="password" aria-pressed="false" aria-controls="password" aria-label="Passwort anzeigen" class="absolute inset-y-0 right-0 px-3 flex items-center !min-h-0 !border-0 !bg-transparent text-[var(--v8-muted)] hover:!bg-transparent hover:text-[var(--v8-text)] rounded-lg"><i class="fas fa-eye" aria-hidden="true"></i></button>
+                            </div>
+                            {% for error in form.password.errors %}<span class="text-status error">{{ error }}</span>{% endfor %}
+                        </div>
+                        <div class="actions">{{ form.submit(value=t('authPages.loginTitle'), class="primary !text-white !bg-[var(--ink)] !border-[color:var(--ink)] !text-[13px] !font-semibold hover:!bg-[var(--brand2)] w-full") }}</div>
+                    </form>
+                    {% endif %}
+                </section>
+
+                <section class="panel" aria-labelledby="login-access-title">
+                    <h2 id="login-access-title">Identität und Zugriff</h2>
+                    <span class="tag neutral">{% if sso_enabled %}Lokal · {{ sso_provider_name }}{% else %}Lokal{% endif %}</span>
+                    <dl class="keyvalues">
+                        <div><dt>Lokale Anmeldung</dt><dd>{% if password_login_disabled %}Nur Administration{% else %}Aktiv{% endif %}</dd></div>
+                        <div><dt>Einmalanmeldung</dt><dd>{% if sso_enabled %}{{ sso_provider_name }}{% else %}Nicht eingerichtet{% endif %}</dd></div>
+                    </dl>
+                    <div class="note">Bei einem Benutzerwechsel müssen vorhandene Diktat- und Kontextbezüge erneut geprüft werden. Ein geöffnetes Objekt wird nicht still dem neuen Konto zugeordnet.</div>
+                </section>
+            </div>
+        </div>
+        <footer class="footerline"><span>Speakr &copy; {{ now.year }}</span></footer>
+    </main>
+
+    <script src="{{ url_for('static', filename='js/clinic/login-ui.js', v=app_version) }}"></script>
+    <script>
+        // Hide loading overlay when page is ready
+        document.addEventListener('DOMContentLoaded', function() {
+            if (window.AppLoader) {
+                AppLoader.waitForReady();
+            }
+        });
+    </script>
+</body>
+{% else %}
 <body class="bg-[var(--bg-primary)] text-[var(--text-primary)]">
     <div class="container mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col min-h-screen">
         <header class="flex justify-between items-center mb-6 pb-4 border-b border-[var(--border-primary)]">
@@ -92,10 +194,10 @@
                         <button type="submit" class="w-full inline-flex items-center justify-center px-4 py-2 bg-[var(--bg-button)] text-[var(--text-button)] rounded-md hover:bg-[var(--bg-button-hover)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border-focus)] transition-colors duration-200">
                             <i class="fas fa-cloud mr-2"></i> {{ t('authPages.signInWith', provider=sso_provider_name) }}
                         </button>
-                        {% if not clinic_login %}<label class="inline-flex items-center text-sm text-[var(--text-secondary)]">
+                        <label class="inline-flex items-center text-sm text-[var(--text-secondary)]">
                             <input type="checkbox" name="remember" value="1" class="h-4 w-4 text-[var(--text-accent)] focus:ring-[var(--ring-focus)] border-[var(--border-secondary)] rounded">
                             <span class="ml-2">{{ t('authPages.rememberMe') }}</span>
-                        </label>{% endif %}
+                        </label>
                     </form>
                     {% if not password_login_disabled %}
                     <div class="flex items-center text-xs text-[var(--text-muted)]">
@@ -146,27 +248,23 @@
                     <div class="mb-4">
                         {{ form.password.label(text=t('account.password'), class="block text-sm font-medium text-[var(--text-secondary)] mb-1") }}
                         {% if form.password.errors %}
-                            {% if clinic_login %}<div class="relative">{% endif %}
-                            {{ form.password(class="mt-1 block w-full rounded-md border-[var(--border-danger)] shadow-sm focus:border-[var(--border-focus)] focus:ring-[var(--ring-focus)] focus:ring-opacity-50 bg-[var(--bg-input)] text-[var(--text-primary)]" ~ (" pr-10" if clinic_login else "")) }}
-                            {{ password_toggle() }}{% if clinic_login %}</div>{% endif %}
+                            {{ form.password(class="mt-1 block w-full rounded-md border-[var(--border-danger)] shadow-sm focus:border-[var(--border-focus)] focus:ring-[var(--ring-focus)] focus:ring-opacity-50 bg-[var(--bg-input)] text-[var(--text-primary)]") }}
                             <div class="text-[var(--text-danger)] text-xs mt-1">
                                 {% for error in form.password.errors %}
                                     <span>{{ error }}</span>
                                 {% endfor %}
                             </div>
                         {% else %}
-                            {% if clinic_login %}<div class="relative">{% endif %}
-                            {{ form.password(class="mt-1 block w-full rounded-md border-[var(--border-secondary)] shadow-sm focus:border-[var(--border-focus)] focus:ring-[var(--ring-focus)] focus:ring-opacity-50 bg-[var(--bg-input)] text-[var(--text-primary)]" ~ (" pr-10" if clinic_login else "")) }}
-                            {{ password_toggle() }}{% if clinic_login %}</div>{% endif %}
+                            {{ form.password(class="mt-1 block w-full rounded-md border-[var(--border-secondary)] shadow-sm focus:border-[var(--border-focus)] focus:ring-[var(--ring-focus)] focus:ring-opacity-50 bg-[var(--bg-input)] text-[var(--text-primary)]") }}
                         {% endif %}
                     </div>
 
-                    {% if not clinic_login %}<div class="flex items-center justify-between mb-6">
+                    <div class="flex items-center justify-between mb-6">
                         <div class="flex items-center">
                             {{ form.remember(class="h-4 w-4 text-[var(--text-accent)] focus:ring-[var(--ring-focus)] border-[var(--border-secondary)] rounded") }}
                             {{ form.remember.label(text=t('authPages.rememberMe'), class="ml-2 block text-sm text-[var(--text-secondary)]") }}
                         </div>
-                    </div>{% endif %}
+                    </div>
 
                     <div class="flex flex-col space-y-4">
                         {{ form.submit(value=t('authPages.loginTitle'), class="w-full py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-[var(--text-button)] bg-[var(--bg-button)] hover:bg-[var(--bg-button-hover)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border-focus)]") }}
@@ -181,7 +279,6 @@
         </footer>
     </div>
 
-    {% if clinic_login %}<script src="{{ url_for('static', filename='js/clinic/login-ui.js', v=app_version) }}"></script>{% endif %}
     <script>
         // Hide loading overlay when page is ready
         document.addEventListener('DOMContentLoaded', function() {
@@ -191,4 +288,5 @@
         });
     </script>
 </body>
+{% endif %}
 </html>
