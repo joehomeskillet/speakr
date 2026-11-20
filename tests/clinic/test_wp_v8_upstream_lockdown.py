@@ -112,12 +112,12 @@ def test_clinic_mode_off_renders_every_entry_as_before(upstream_pages, page, ent
 def test_clinic_mode_keeps_the_functional_entries(clinic_pages, upstream_pages):
     for marker in ('id="tab-account"', 'id="tab-preferences"', 'id="tab-organize"', 'id="tab-templates"', 'id="tab-about"'):
         assert marker in clinic_pages["/account"], marker
-    # stats, settings and the audit tab stay: their routes (admin.admin_get_stats, admin.admin_get_settings,
-    # admin.admin_audit_log) are in route_policy._ADMIN (lines 175-181), not in _DISABLED
-    for marker in ("activeTab = 'stats'", "activeTab = 'settings'", "activeTab = 'audit'"):
-        assert marker in clinic_pages["/admin"], marker
-    assert 'data-testid="admin-tab-clinic"' in clinic_pages["/admin"]
-    assert "admin-tab-clinic" not in upstream_pages["/admin"]
+    for slug, upstream_tab in (("statistik", "stats"), ("einstellungen", "settings"), ("audit", "audit")):
+        assert clinic_pages["/admin"].count(f'href="#/system/{slug}"') == 1, slug
+        assert f"activeTab = '{upstream_tab}'" in upstream_pages["/admin"], upstream_tab
+    assert 'id="clinic-admin-root"' in clinic_pages["/admin"]
+    assert 'id="clinic-admin-root"' not in upstream_pages["/admin"]
+
 
 
 def test_upstream_pages_carry_no_clinic_module(upstream_pages):
@@ -125,11 +125,17 @@ def test_upstream_pages_carry_no_clinic_module(upstream_pages):
     assert "/static/js/clinic/" not in upstream_pages["/account"]
 
 
-def test_inline_clinic_script_is_unchanged_in_the_pages():
-    # the lockdown does not touch the inline clinic script: one api client, one Vue app per page
+def test_clinic_pages_mount_one_app_with_reachable_grants_and_rules():
+    # One API client and one Vue app serve each administration page.
     for name in ("admin.html", "group-admin.html"):
         src = (ROOT / "templates" / name).read_text(encoding="utf-8")
         assert src.count("createClinicApiClient()") == 1, name
         assert src.count("createApp(Root)") == 1, name
-        assert "ClinicGrantsHost" in src and "ClinicRegexHost" in src, name
+        assert "ClinicRegexHost" in src, name
+        if name == "group-admin.html":
+            assert "ClinicGrantsHost" in src
+        else:
+            assert "clinic-users-view" in src
+            users_view = (ROOT / "static/js/clinic/compose-users.js").read_text(encoding="utf-8")
+            assert "createGrantsComponent" in users_view and "Fachrechte" in users_view
         assert "admin-clinic-tab.js" not in src, name
