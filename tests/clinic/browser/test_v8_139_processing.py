@@ -5,9 +5,8 @@ from playwright.sync_api import expect
 import v8_browser_support as support
 
 
-@pytest.fixture(scope='session', autouse=True)
-def processing_seed():
-    previous = support.SERVER
+@pytest.fixture(scope='module')
+def app_base(tmp_path_factory):
     seed = '''
 with app.app_context():
     from src.models import ProcessingJob
@@ -30,11 +29,11 @@ with app.app_context():
             job_type='transcribe', status=state, error_message='ValueError: synthetic' if state == 'failed' else None))
     db.session.commit()
 '''
-    support.SERVER = previous.replace('from src.app import app, db',
+    source = support.SERVER.replace('from src.app import app, db',
         "import os\nos.environ['SPEAKR_SKIP_BACKGROUND_TASKS'] = 'true'\nfrom src.app import app, db"
     ).replace('server = make_server', seed + '\nserver = make_server')
-    yield
-    support.SERVER = previous
+    with support.serve_app(tmp_path_factory.mktemp('processing'), source) as base:
+        yield base
 
 
 @pytest.mark.parametrize('size', support.VIEWPORTS)
