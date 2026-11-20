@@ -619,31 +619,6 @@
     .cadm .clinic-asr-profiles-view .asr-panels { grid-template-columns: minmax(0, 1fr); }
 }
 
-.cadm .clinic-vocabulary-view form:has(> #voc-q) {
-    display: grid;
-    grid-template-columns: minmax(8rem, 2fr) repeat(2, minmax(6rem, 1fr)) auto;
-    grid-template-areas: "query-label mode-label status-label ." "query mode status search";
-    align-items: end;
-    gap: var(--sp-1) var(--sp-3);
-}
-.cadm .clinic-vocabulary-view label[for="voc-q"] { grid-area: query-label; }
-.cadm .clinic-vocabulary-view #voc-q { grid-area: query; }
-.cadm .clinic-vocabulary-view label[for="voc-mode"] { grid-area: mode-label; }
-.cadm .clinic-vocabulary-view #voc-mode { grid-area: mode; }
-.cadm .clinic-vocabulary-view label[for="voc-filter"] { grid-area: status-label; }
-.cadm .clinic-vocabulary-view #voc-filter { grid-area: status; }
-.cadm .clinic-vocabulary-view form:has(> #voc-q) > button { grid-area: search; }
-.cadm .clinic-vocabulary-view form:has(> #voc-pool) {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: var(--sp-1) var(--sp-2);
-    align-items: end;
-    max-width: 35rem;
-}
-.cadm .clinic-vocabulary-view form:has(> #voc-pool) label { grid-column: 1 / -1; }
-@media (max-width: 760px) {
-    .cadm .clinic-vocabulary-view form:has(> #voc-q) {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        grid-template-areas: "query-label query-label" "query query" "mode-label status-label" "mode status" "search .";
-    }
-}
+.cadm .clinic-vocabulary-view .vocabulary-ui > .filterbar { margin-block: 0; }
+.cadm .clinic-vocabulary-view .vocabulary-ui .filterbar label { margin: 0; }
+.cadm .clinic-vocabulary-view .vocabulary-ui .filterbar select { appearance: auto; }

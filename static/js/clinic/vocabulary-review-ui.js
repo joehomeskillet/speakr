@@ -33,7 +33,7 @@ const STATUS_SURFACE = Object.freeze({
 });
 
 const LABELS = Object.freeze({
-    'clinic.vocabularyReview.title': 'Vokabular prüfen',
+    'clinic.vocabularyReview.title': 'Wortschatz prüfen',
     'clinic.vocabularyReview.acceptUser': 'Für mich übernehmen',
     'clinic.vocabularyReview.acceptPool': 'Für den Pool übernehmen',
     'clinic.vocabularyReview.reject': 'Ablehnen',
@@ -42,6 +42,13 @@ const LABELS = Object.freeze({
     'clinic.vocabularyReview.retry': 'Erneut versuchen',
     'clinic.vocabularyReview.reload': 'Neu laden',
     'clinic.vocabularyReview.history': 'Verlauf der Prüfungen',
+    'clinic.vocabularyReview.loading': 'Vorschläge werden geladen …',
+    'clinic.vocabularyReview.unknown': 'Unbekannter Status',
+    'clinic.vocabularyReview.action.user': 'Für mich übernommen',
+    'clinic.vocabularyReview.action.pool': 'Für den Pool übernommen',
+    'clinic.vocabularyReview.action.reject': 'Abgelehnt',
+    'clinic.vocabularyReview.action.defer': 'Zurückgestellt',
+    'clinic.vocabularyReview.action.undo': 'Rückgängig gemacht',
     'clinic.vocabularyReview.empty': 'Keine Vorschläge zu prüfen.',
     'clinic.vocabularyReview.stale': 'Der Stand ist veraltet. Bitte neu laden.',
     'clinic.vocabularyReview.poolDenied': 'Keine Berechtigung, für den Pool zu übernehmen.',
@@ -232,7 +239,7 @@ export function createVocabularyReviewController(deps) {
                     spokenForm: i.spoken_form || '',
                     operation: i.operation,
                     status: i.status,
-                    statusLabel: label('clinic.vocabularyReview.status.' + i.status),
+                    statusLabel: label('clinic.vocabularyReview.' + (Object.hasOwn(STATUS_SURFACE, i.status) ? 'status.' + i.status : 'unknown')),
                     surface: surfaceFor(STATUS_SURFACE[i.status] || 'normal'),
                     stale: i.stale,
                     notice: i.stale ? label('clinic.vocabularyReview.stale')
@@ -246,7 +253,13 @@ export function createVocabularyReviewController(deps) {
                     },
                 };
             }),
-            history: state.history,
+            history: state.history.map((h) => ({
+                ...h,
+                writtenForm: itemById(h.itemId)?.written_form || 'Wortschatzeintrag',
+                actionLabel: label('clinic.vocabularyReview.action.' + h.action),
+                statusLabel: label('clinic.vocabularyReview.' + (Object.hasOwn(STATUS_SURFACE, h.status) ? 'status.' + h.status : 'unknown')),
+            })),
+            loading: state.loading,
             error: err,
             errorSurface: err ? surfaceFor('error') : null,
             stale: state.stale,
@@ -268,6 +281,7 @@ export function createVocabularyReviewController(deps) {
                 retry: label('clinic.vocabularyReview.retry'),
                 reload: label('clinic.vocabularyReview.reload'),
                 history: label('clinic.vocabularyReview.history'),
+                loading: label('clinic.vocabularyReview.loading'),
             },
         };
     }
@@ -311,3 +325,35 @@ export function useVocabularyReview(deps) {
     controller.subscribe(() => { view.value = controller.view(); });
     return { controller, view };
 }
+
+export const REVIEW_TEMPLATE = `
+<section class="v8-page stack" :aria-busy="view.loading || view.busy" role="region" :aria-label="view.title" @keydown="onKey">
+  <h2 >{{ view.title }}</h2>
+  <p v-if="view.loading" role="status">{{ view.labels.loading }}</p>
+  <div v-if="view.error" class="note burgundy" role="alert">
+    {{ errorMessage(view.error) }}
+    <button class="small" type="button" v-if="view.error.retryable" @click="controller.retry()">{{ view.labels.retry }}</button>
+  </div>
+  <p v-else-if="view.empty" class="empty" role="status">{{ view.empty }}</p>
+  <button class="small" type="button" v-if="view.stale" @click="controller.load()">{{ view.labels.reload }}</button>
+  <ul v-if="view.items.length" class="stack" role="list" :aria-label="view.title">
+    <li v-for="i in view.items" :key="i.id" :data-id="i.id" tabindex="0" class="panel stack">
+      <div class="actions">
+        <strong>{{ i.writtenForm }}</strong> <span v-if="i.spokenForm">({{ i.spokenForm }})</span>
+        <span class="tag" :style="surfaceStyle(i.surface)">{{ i.statusLabel }}</span>
+      </div>
+      <p v-if="i.notice" role="status">{{ i.notice }}</p>
+      <div class="actions">
+        <button class="small" type="button" :disabled="!i.actions.acceptUser.enabled" @click="controller.acceptUser(i.id)">{{ view.labels.acceptUser }}</button>
+        <button class="small" type="button" :disabled="!i.actions.acceptPool.enabled" @click="controller.acceptPool(i.id)">{{ view.labels.acceptPool }}</button>
+        <button class="small" type="button" :disabled="!i.actions.reject.enabled" @click="controller.reject(i.id)">{{ view.labels.reject }}</button>
+        <button class="small" type="button" :disabled="!i.actions.defer.enabled" @click="controller.defer(i.id)">{{ view.labels.defer }}</button>
+        <button class="small" type="button" :disabled="!i.actions.undo.enabled" @click="controller.undo(i.id)">{{ view.labels.undo }}</button>
+      </div>
+    </li>
+  </ul>
+  <h3>{{ view.labels.history }}</h3>
+  <ol class="timeline" role="log" :aria-label="view.labels.history">
+    <li v-for="(h, n) in view.history" :key="n" class="break-words">{{ h.writtenForm }} · {{ h.actionLabel }} · {{ h.statusLabel }}</li>
+  </ol>
+</section>`;

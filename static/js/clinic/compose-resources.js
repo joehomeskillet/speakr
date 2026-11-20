@@ -16,7 +16,7 @@
  */
 
 import { createVocabularyComponent } from './vocabulary-ui.js';
-import { createVocabularyReviewController } from './vocabulary-review-ui.js';
+import { createVocabularyReviewController, REVIEW_TEMPLATE } from './vocabulary-review-ui.js';
 import { createVoiceCommandsComponent } from './voice-commands-ui.js';
 import { createAsrProfilesController } from './asr-profiles-ui.js';
 import { surfaceFor } from './tokens.js';
@@ -134,156 +134,6 @@ function style(kind) {
     return { background: s.background, color: s.color, borderColor: s.border };
 }
 
-const VOCABULARY_TEMPLATE = `
-<section class="cl-panel space-y-4" aria-labelledby="voc-title" @keydown="onKey">
-  <h2 id="voc-title" class="cl-panel__title">{{ label('clinic.vocabulary.title') }}</h2>
-  <div class="flex flex-wrap items-end gap-2">
-    <button class="btn" :class="state.scope.kind === 'user' ? 'btn--primary' : 'btn--ghost'"
-      type="button" :aria-pressed="state.scope.kind === 'user'" @click="store.setScope('user')">
-      {{ label('clinic.vocabulary.scopeUser') }}
-    </button>
-    <form class="flex flex-wrap items-end gap-2 min-w-0" style="flex: 0 1 25rem" @submit.prevent="store.setScope('pool', poolDraft)">
-      <div class="min-w-0" style="flex: 1 1 8rem">
-        <label class="block text-sm mb-1" for="voc-pool">{{ label('clinic.vocabulary.pool') }}</label>
-        <input class="field" id="voc-pool" type="text" autocomplete="off" v-model="poolDraft">
-      </div>
-      <button class="btn btn--ghost" type="submit">{{ label('clinic.vocabulary.scopePool') }} öffnen</button>
-    </form>
-  </div>
-  <p v-if="state.scope.kind === 'pool'" class="cl-hint">
-    {{ label('clinic.vocabulary.scope') }}: {{ label('clinic.vocabulary.scopePool') }} {{ state.scope.poolId }}
-  </p>
-  <form class="cl-toolbar items-end" @submit.prevent="store.search()">
-    <div class="min-w-0" style="flex: 2 1 14rem">
-      <label class="block text-sm mb-1" for="voc-q">{{ label('clinic.vocabulary.query') }}</label>
-      <input class="field w-full" style="width: 100%" id="voc-q" type="search" data-role="query" autocomplete="off" v-model="state.query.q">
-    </div>
-    <div class="min-w-0">
-      <label class="block text-sm mb-1" for="voc-mode">{{ label('clinic.vocabulary.mode') }}</label>
-      <select class="field" id="voc-mode" v-model="state.query.mode">
-        <option v-for="mode in modes" :key="mode" :value="mode">{{ enumLabel(mode) }}</option>
-      </select>
-    </div>
-    <div class="min-w-0">
-      <label class="block text-sm mb-1" for="voc-filter">{{ label('clinic.vocabulary.filter') }}</label>
-      <select class="field" id="voc-filter" v-model="state.query.filter">
-        <option v-for="filter in filters" :key="filter" :value="filter">{{ enumLabel(filter) }}</option>
-      </select>
-    </div>
-    <button class="btn btn--primary" type="submit">{{ label('clinic.vocabulary.search') }}</button>
-  </form>
-  <p v-if="state.status === 'stale'" class="notice notice--warn" role="alert">{{ label('clinic.vocabulary.stale') }}</p>
-  <p v-else-if="state.message" class="notice" :class="{ 'notice--danger': state.status === 'error' || state.status === 'denied' }"
-    role="status">{{ state.message }}</p>
-  <p v-else-if="state.status === 'loading'" class="cl-hint" role="status">Vokabular wird geladen …</p>
-  <div v-if="state.entries.length" class="cl-tablewrap">
-    <table class="cl-table" role="table" :aria-label="label('clinic.vocabulary.title')">
-      <thead role="rowgroup"><tr role="row">
-        <th role="columnheader" scope="col">{{ label('clinic.vocabulary.written') }}</th>
-        <th role="columnheader" scope="col">{{ label('clinic.vocabulary.spoken') }}</th>
-        <th role="columnheader" scope="col">{{ label('clinic.vocabulary.filter') }}</th>
-        <th role="columnheader" scope="col"><span class="sr-only">Aktion</span></th>
-      </tr></thead>
-      <tbody role="rowgroup"><tr v-for="e in state.entries" :key="e.id" role="row" class="cl-row" style="cursor: default">
-        <td role="cell" :data-label="label('clinic.vocabulary.written')" style="white-space: normal; overflow-wrap: anywhere">
-          <strong>{{ e.written }}</strong>
-        </td>
-        <td role="cell" :data-label="label('clinic.vocabulary.spoken')" style="white-space: normal; overflow-wrap: anywhere">
-          {{ e.spoken || '–' }}
-        </td>
-        <td role="cell" :data-label="label('clinic.vocabulary.filter')">{{ enumLabel(e.status) }}</td>
-        <td role="cell" data-label="Aktion" class="text-right">
-          <button class="btn btn--ghost btn--sm" type="button" v-if="e.status === 'active'" @click="store.suppress(e.id)">
-            {{ label('clinic.vocabulary.suppress') }}
-          </button>
-          <button class="btn btn--ghost btn--sm" type="button" v-else @click="store.reactivate(e.id)">
-            {{ label('clinic.vocabulary.reactivate') }}
-          </button>
-        </td>
-      </tr></tbody>
-    </table>
-  </div>
-  <div v-else-if="state.status === 'ready'" class="empty" role="status">
-    <p class="empty__title">{{ label('clinic.vocabulary.empty') }}</p>
-    <p class="empty__body">Für die aktuelle Suche und den gewählten Status gibt es keine Treffer.</p>
-  </div>
-  <div class="flex flex-wrap gap-2">
-    <button class="btn btn--ghost" type="button" @click="store.reload()">{{ label('clinic.vocabulary.reload') }}</button>
-    <button class="btn btn--ghost" type="button" v-if="state.failedWrite" @click="store.retry()">{{ label('clinic.vocabulary.retry') }}</button>
-    <button class="btn btn--ghost" type="button" @click="addSelected()">{{ label('clinic.vocabulary.addSelection') }}</button>
-  </div>
-  <form class="space-y-2" @submit.prevent="doImport()">
-    <label class="block text-sm" for="voc-import">{{ label('clinic.vocabulary.importLabel') }}</label>
-    <textarea class="field block" id="voc-import" rows="4" v-model="importDraft"></textarea>
-    <button class="btn btn--ghost" type="submit">{{ label('clinic.vocabulary.import') }}</button>
-  </form>
-  <div class="flex flex-wrap gap-2">
-    <button class="btn btn--ghost" type="button" @click="store.exportList(false)">{{ label('clinic.vocabulary.export') }}</button>
-    <button class="btn btn--ghost" type="button" @click="store.exportList(true)">{{ label('clinic.vocabulary.exportEffective') }}</button>
-  </div>
-  <div v-if="state.exportText" class="space-y-2">
-    <label class="block text-sm" for="voc-export">{{ label('clinic.vocabulary.exported') }}</label>
-    <textarea class="field block" id="voc-export" rows="4" readonly :value="state.exportText"></textarea>
-  </div>
-</section>`;
-
-const REVIEW_TEMPLATE = `
-<section class="cl-panel space-y-4" role="region" :aria-label="view.title" @keydown="onKey">
-  <h2 class="cl-panel__title">{{ view.title }}</h2>
-  <div v-if="view.error" class="notice notice--danger flex-wrap" role="alert">
-    {{ errorMessage(view.error) }}
-    <button class="btn btn--ghost" type="button" v-if="view.error.retryable" @click="controller.retry()">{{ view.labels.retry }}</button>
-  </div>
-  <p v-else-if="view.empty" class="empty empty__title" role="status">{{ view.empty }}</p>
-  <button class="btn btn--ghost" type="button" v-if="view.stale" @click="controller.load()">{{ view.labels.reload }}</button>
-  <ul v-if="view.items.length" class="space-y-3" role="list" :aria-label="view.title">
-    <li v-for="i in view.items" :key="i.id" :data-id="i.id" tabindex="0" class="cl-panel space-y-2 cl-row break-words">
-      <div class="flex flex-wrap items-center gap-2">
-        <strong>{{ i.writtenForm }}</strong> <span v-if="i.spokenForm">({{ i.spokenForm }})</span>
-        <span class="chip" :style="surfaceStyle(i.surface)">{{ i.statusLabel }}</span>
-      </div>
-      <p v-if="i.notice" role="status">{{ i.notice }}</p>
-      <div class="flex flex-wrap gap-2">
-        <button class="btn btn--ghost" type="button" :disabled="!i.actions.acceptUser.enabled" @click="controller.acceptUser(i.id)">{{ view.labels.acceptUser }}</button>
-        <button class="btn btn--ghost" type="button" :disabled="!i.actions.acceptPool.enabled" @click="controller.acceptPool(i.id)">{{ view.labels.acceptPool }}</button>
-        <button class="btn btn--ghost" type="button" :disabled="!i.actions.reject.enabled" @click="controller.reject(i.id)">{{ view.labels.reject }}</button>
-        <button class="btn btn--ghost" type="button" :disabled="!i.actions.defer.enabled" @click="controller.defer(i.id)">{{ view.labels.defer }}</button>
-        <button class="btn btn--ghost" type="button" :disabled="!i.actions.undo.enabled" @click="controller.undo(i.id)">{{ view.labels.undo }}</button>
-      </div>
-    </li>
-  </ul>
-  <ol role="log" :aria-label="view.labels.history">
-    <li v-for="(h, n) in view.history" :key="n" class="break-words">{{ h.itemId }} · {{ enumLabel(h.action) }} · {{ enumLabel(h.status) }}</li>
-  </ol>
-</section>`;
-
-const COMMANDS_TEMPLATE = `
-<section class="cl-panel space-y-4" aria-labelledby="vc-title" @keydown.esc="reset">
-  <h2 id="vc-title" class="cl-panel__title">{{ LABELS.title }}</h2>
-  <p v-if="c.state.message" class="notice" :class="c.state.status === 'error' ? 'notice--danger' : 'notice--info'"
-    role="status">{{ c.state.message }}</p>
-  <form class="space-y-3" @submit.prevent="save">
-    <div>
-      <label class="block text-sm mb-1" for="vc-phrase">{{ LABELS.phrase }}</label>
-      <input class="field" id="vc-phrase" v-model="form.phrase" type="text" autocomplete="off" required>
-    </div>
-    <div>
-      <label class="block text-sm mb-1" for="vc-steps">{{ LABELS.steps }}</label>
-      <textarea class="field block" id="vc-steps" v-model="form.stepsText" rows="4" aria-describedby="vc-preview"></textarea>
-    </div>
-    <div id="vc-preview" class="break-words">
-      <strong>{{ LABELS.preview }}:</strong>
-      <span v-if="!form.stepsText.trim()"> Noch keine Aktionen.</span>
-      <span v-else-if="pv.ok"> {{ pv.steps.map(stepLabel).join(', ') }}</span>
-      <span v-else role="alert"> {{ enumLabel(pv.error) }}</span>
-    </div>
-    <div v-if="needsConfirm" class="notice notice--warn flex-wrap">
-      {{ LABELS.sensitive }} <button class="btn btn--ghost" type="button" @click="confirm">{{ LABELS.confirm }}</button>
-    </div>
-    <button class="btn btn--primary" type="submit" :disabled="c.state.status === 'saving'">{{ LABELS.save }}</button>
-  </form>
-</section>`;
-
 const ASR_TEMPLATE = `
 <section class="cl-panel space-y-4" role="form" :aria-label="view.title" @keydown.esc="onKey">
   <h2 class="cl-panel__title">{{ view.title }}</h2>
@@ -351,6 +201,7 @@ export function createPanels(Vue) {
                 const el = e.target && e.target.closest ? e.target.closest('[data-id]') : null;
                 const id = el ? el.dataset.id : null;
                 const next = controller.onKeydown(e, id);
+                if (next) e.preventDefault?.();
                 if (next && next !== id && e.currentTarget && e.currentTarget.querySelector) {
                     const target = e.currentTarget.querySelector('[data-id="' + next + '"]');
                     if (target) target.focus();
@@ -420,22 +271,13 @@ export const ResourcesView = {
         const components = {};
         // Built on first use, so only visited children are ever created.
         const build = {
-            vocabulary: () => {
-                const child = createVocabularyComponent(Vue, withResourceMessages(props.client));
-                return {
-                    ...child, template: VOCABULARY_TEMPLATE,
-                    setup: () => ({ ...child.setup(), enumLabel }),
-                };
-            },
+            vocabulary: () => createVocabularyComponent(Vue, withResourceMessages(props.client), () => ctrl.state.userId),
             review: () => panels.review,
             commands: () => {
                 const child = createVoiceCommandsComponent(Vue);
-                const stepLabel = (step) => step.startsWith('text:') ? step.slice(5) : enumLabel(step);
                 return {
-                    ...child, template: COMMANDS_TEMPLATE,
-                    setup: ({ client, scope }) => ({
-                        ...child.setup({ client: withResourceMessages(client), scope }), enumLabel, stepLabel,
-                    }),
+                    ...child,
+                    setup: ({ client, scope }, context) => child.setup({ client: withResourceMessages(client), scope }, context),
                 };
             },
             asr: () => panels.asr,

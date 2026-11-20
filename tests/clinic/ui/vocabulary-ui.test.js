@@ -39,6 +39,19 @@ describe('vocabulary ui', () => {
         expect(await store.setScope('pool', '')).toBeNull();
     });
 
+    it('keeps the selected pool entries when the previous personal search completes late', async () => {
+        let finishPersonal;
+        const personal = new Promise((resolve) => { finishPersonal = resolve; });
+        const client = { request: vi.fn().mockReturnValueOnce(personal).mockResolvedValueOnce(ok({ entries: [] })) };
+        const store = createVocabularyStore(client);
+        const first = store.search();
+        await store.setScope('pool', 'p1');
+        finishPersonal(ok({ entries: [ENTRY('v1')] }));
+        await first;
+        expect(store.state.scope.poolId).toBe('p1');
+        expect(store.state.entries).toEqual([]);
+    });
+
     it('adds only an explicit, bounded selection after a membership recheck', async () => {
         const { store, writes, reads } = setup([]);
         await store.setScope('pool', 'p1');
