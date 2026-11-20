@@ -260,6 +260,14 @@ export function useWorklistLayout(options) {
         touch();
     }
 
+    /** Sets a single sort key ("asc" or "desc"); an empty key clears the sort. A changed sort restarts paging. */
+    function setSort(key, dir) {
+        if (!state.canEdit || (key && index(key) < 0)) return;
+        state.layout = { ...state.layout, sort: key ? [[key, dir === 'desc' ? 'desc' : 'asc']] : [] };
+        resetPage();
+        touch();
+    }
+
     function setGroupBy(keys) {
         if (!state.canEdit) return;
         const valid = keys.filter((k, i) => index(k) >= 0 && keys.indexOf(k) === i).slice(0, MAX_GROUP_DEPTH);
@@ -337,7 +345,7 @@ export function useWorklistLayout(options) {
     }
 
     return {
-        state, load, save, move, resize, toggleVisible, cycleSort, setGroupBy,
+        state, load, save, move, resize, toggleVisible, cycleSort, setSort, setGroupBy,
         setFilters, setPage, query, orderedColumns, applyToRows, headerProps,
         onKeydown, banner, labelOf,
     };
@@ -358,15 +366,16 @@ export function WorklistLayoutControls(Vue) {
         },
         template: `
 <div class="cl-pop" :aria-label="LABELS.region" role="group" @keydown.esc="open = false">
-  <button type="button" class="btn btn--ghost cl-btn" data-testid="view-toggle" aria-controls="wl-view-panel"
+  <button type="button" class="icon-btn" data-testid="view-toggle" aria-controls="wl-view-panel"
           :aria-expanded="open ? 'true' : 'false'" @click="open = !open">
-    <i class="fa-solid fa-table-columns" aria-hidden="true"></i>{{ LABELS.view }}
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/></svg>{{ LABELS.view }}
     <span v-if="L.banner()" class="cl-dot" aria-hidden="true"></span>
   </button>
-  <div v-show="open" id="wl-view-panel" class="cl-popover" role="group" :aria-label="LABELS.view" data-testid="view-panel">
+  <div v-show="open" id="wl-view-panel" class="cl-popover" role="group" :aria-label="LABELS.view" data-testid="view-panel"
+       style="background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); color: var(--v8-text)">
     <div class="cl-panel__head">
-      <h3 class="cl-panel__title">{{ LABELS.view }}</h3>
-      <button type="button" class="btn btn--quiet btn--icon" :aria-label="LABELS.close" @click="open = false"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+      <h3 class="cl-panel__title" style="margin: 0">{{ LABELS.view }}</h3>
+      <button type="button" class="icon-button closebtn" :aria-label="LABELS.close" @click="open = false"><svg class="ui-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
     </div>
     <p v-if="L.banner()" :role="L.banner().role" class="cl-note" :style="L.banner().style">{{ L.banner().text }}</p>
     <p class="cl-sr-only">{{ LABELS.keys }}</p>
@@ -381,15 +390,15 @@ export function WorklistLayoutControls(Vue) {
       </li>
     </ul>
     <label class="cl-section-label" for="wl-group-by">{{ LABELS.groupBy }}</label>
-    <select id="wl-group-by" class="field" :disabled="!L.state.canEdit" :value="L.state.layout.group_by[0] || ''"
+    <select id="wl-group-by" class="select" style="width: 100%; height: auto; margin: 0; appearance: auto" :disabled="!L.state.canEdit" :value="L.state.layout.group_by[0] || ''"
             @change="L.setGroupBy($event.target.value ? [$event.target.value] : [])">
       <option value="">{{ LABELS.groupNone }}</option>
       <option v-for="c in L.state.layout.columns" :key="c.key" :value="c.key">{{ L.labelOf(c.key) }}</option>
     </select>
     <div class="cl-panel__foot">
-      <button type="button" class="btn btn--primary" :disabled="!L.state.canEdit || !L.state.dirty || L.state.status === 'saving'"
+      <button type="button" class="primary" :disabled="!L.state.canEdit || !L.state.dirty || L.state.status === 'saving'"
               @click="L.save()">{{ LABELS.save }}</button>
-      <button type="button" class="btn btn--ghost" @click="L.load()">{{ LABELS.reload }}</button>
+      <button type="button" class="secondary" @click="L.load()">{{ LABELS.reload }}</button>
     </div>
   </div>
 </div>`,

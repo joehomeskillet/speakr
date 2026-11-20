@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
     LIST_COLUMNS,
+    HOSTED_CSS,
     WorklistView,
     createDetailClient,
     createWorklistViewController,
@@ -383,5 +384,30 @@ describe('Vue wiring', () => {
         unmounting.forEach((fn) => fn());
         expect(state.c.worklist.rows.value).toEqual([]);
         expect(client.switchContext).toHaveBeenCalled();
+    });
+});
+
+describe('review fixes', () => {
+    it('keeps the V8 column set after "Neu laden" while no layout is saved', async () => {
+        const all = LIST_COLUMNS.map(({ key }) => ({ key, width: 140, visible: true }));
+        const client = fakeClient({
+            ...base([row('1')]),
+            'GET /worklist/layout': ok({ version: 0, layout: { version: 1, columns: all, sort: [], group_by: [] } }),
+        });
+        const c = controllerFor(client);
+        await c.start();
+        const before = c.columns().map((x) => x.key);
+        expect(before.length).toBeLessThan(LIST_COLUMNS.length);
+        await c.layout.load();
+        expect(c.columns().map((x) => x.key)).toEqual(before);
+        c.dispose();
+    });
+
+    it('drops the field class from the selects, the nowrap override and the shared dashed empty box', () => {
+        expect(WorklistView.template).not.toContain('white-space: normal');
+        expect(WorklistView.template).toContain('class="empty v8-empty"');
+        expect(HOSTED_CSS).toContain('.v8-empty{border:0');
+        const ui = ['worklist-filters-ui.js', 'worklist-layout-ui.js'].map((f) => readFileSync(join(__dirname, '../../../static/js/clinic/' + f), 'utf8'));
+        for (const text of ui) expect(text).not.toMatch(/class="select field"/);
     });
 });
