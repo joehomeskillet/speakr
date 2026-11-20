@@ -20,6 +20,7 @@ from flask import current_app
 from openai import OpenAI
 
 from src.services.llm_settings import get_temperature
+from src.clinic import recognition_state
 from src.database import db
 from src.models import Recording, Tag, TranscriptChunk, SystemSetting, GroupMembership, RecordingTag, User, NamingTemplate
 from src.services.llm import is_using_openai_api, call_llm_completion, format_api_error_message, TEXT_MODEL_NAME, client, http_client_no_proxy, TokenBudgetExceeded
@@ -141,6 +142,12 @@ def _fail_without_retry(recording, message):
     """
     recording.status = 'FAILED'
     recording.error_message = message
+    from src.clinic.config import clinic_mode_enabled
+    if clinic_mode_enabled():
+        from src.clinic.web_ingest import dictation_for_recording
+        dictation = dictation_for_recording(recording.id)
+        if dictation is not None:
+            recognition_state.settle(db.session, dictation.id)
     db.session.commit()
     return recording.error_message
 
@@ -304,6 +311,12 @@ def finish_processing(recording_id):
         return
     recording.status = 'COMPLETED'
     recording.completed_at = datetime.utcnow()
+    from src.clinic.config import clinic_mode_enabled
+    if clinic_mode_enabled():
+        from src.clinic.web_ingest import dictation_for_recording
+        dictation = dictation_for_recording(recording_id)
+        if dictation is not None:
+            recognition_state.mirror_recording(dictation, recording)
     db.session.commit()
     if ENABLE_AUTO_EXPORT:
         try:
@@ -1597,23 +1610,21 @@ def _handle_late_asr(recording, prior, model_ref):
     segment links; with an ASR head of the same text the links are refreshed
     (idempotent). Any other ASR head is left alone.
     """
-    from src.clinic.models import ClinicDictation, ClinicOriginal
     from src.clinic.revisions import KIND_HUMAN, current_revision
-    dictation = ClinicDictation.query.filter_by(recording_id=recording.id).first()
+    from src.clinic.web_ingest import dictation_for_recording
+    dictation = dictation_for_recording(recording.id)
     if dictation is None:
         return
+    db.session.refresh(dictation, with_for_update=True)
     head = current_revision(dictation)
     asr_text = _plain_transcript_text(recording.transcription)
     stored = recording.transcription
-    if head is None or head.kind != KIND_HUMAN:
-        _link_asr_segments_at_ingest(dictation, asr_text, stored, model_ref)
-        return
-    original = db.session.get(ClinicOriginal, head.original_version_id)
-    for field, value in prior.items():
-        setattr(recording, field, value)
-    if original is not None and asr_text.strip():
-        if _link_asr_segments_at_ingest(dictation, asr_text, stored, model_ref):
-            current_app.logger.info(f"Late ASR result of recording {recording.id} kept as a side revision")
+    if head is not None and head.kind == KIND_HUMAN:
+        for field, value in prior.items():
+            setattr(recording, field, value)
+    if asr_text.strip() and _link_asr_segments_at_ingest(dictation, asr_text, stored, model_ref):
+        recognition_state.settle(db.session, dictation.id)
+    return dictation
 
 
 def transcribe_with_connector(app_context, recording_id, filepath, original_filename, start_time, mime_type=None, language=None, diarize=None, min_speakers=None, max_speakers=None, tag_id=None, hotwords=None, initial_prompt=None, transcription_model=None):
@@ -2155,11 +2166,6 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
                     # Not a format error or already retried - propagate the error
                     raise
 
-            if clinic_prior is not None:
-                _handle_late_asr(
-                    recording, clinic_prior,
-                    f"{connector_name}:{transcription_model or getattr(connector, 'model', None) or 'default'}")
-
             # Persist/correct audio duration cache when we have local access during processing.
             # Prefer the original job input path for billing consistency, but fall back to the
             # actual processed file (e.g., extracted audio from video) when needed. This runs
@@ -2218,10 +2224,18 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
             # A transcription that came back empty is a failure, not a finished
             # recording (#406): marked COMPLETED it would pass unnoticed in a
             # batch. Not retried, since silence would come back empty again.
-            if not _has_transcript_content(recording.transcription):
+            has_asr_text = _has_transcript_content(recording.transcription)
+            if not has_asr_text:
+                recording.transcription = None
+
+            dictation = None
+            if clinic_prior is not None:
+                dictation = _handle_late_asr(
+                    recording, clinic_prior,
+                    f"{connector_name}:{transcription_model or getattr(connector, 'model', None) or 'default'}")
+            if not has_asr_text:
                 current_app.logger.warning(
                     f"Transcription for recording {recording_id} returned no text; marking it failed")
-                recording.transcription = None
                 return _fail_without_retry(recording, EMPTY_TRANSCRIPT_MESSAGE)
 
             # Calculate and save transcription duration
@@ -2346,6 +2360,10 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
                 # summary are a job of the summary queue (src/clinic/follow_up.py).
                 from src.clinic.follow_up import enqueue_follow_up
                 enqueue_follow_up(recording, will_auto_summarize)
+                if dictation is not None and dictation.recording_id != recording.id:
+                    db.session.refresh(recording, with_for_update=True)
+                    recognition_state.mirror_recording(dictation, recording)
+                    db.session.commit()
             else:
                 job.stage('titling')
                 generate_title_task(app_context, recording_id, will_auto_summarize=will_auto_summarize)

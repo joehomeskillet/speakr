@@ -6,8 +6,11 @@ from dataclasses import replace
 from typing import cast
 
 from src.clinic import policy, pools
+from src.clinic.admin_dictation_access import _is_active_site_admin
+from src.clinic.config import clinic_mode_enabled
 from src.clinic.models import ClinicDictation
 from src.database import db
+from src.models import User
 
 
 def author_pool_ids(author_user_id: int) -> frozenset[str]:
@@ -25,6 +28,9 @@ def decide(
     The assigned pool scopes the pool service's rules. A current author
     membership can match an explicit central grant for that assigned pool.
     """
+    if action in ('view', 'play', 'correction_read') and clinic_mode_enabled():
+        if _is_active_site_admin(db.session, db.session.get(User, subject.user_id)):
+            return policy.Decision(True, 'admin_full', visible=True)
     facts = policy.build_facts(dictation.recording_id, dictation.author_user_id)
     pool_id = dictation.pool_id
     result = pools.grants_for(subject.user_id, dictation)

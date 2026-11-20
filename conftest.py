@@ -95,6 +95,17 @@ os.environ.setdefault("RATELIMIT_ENABLED", "false")
 import pytest  # noqa: E402
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _reset_audit_settings_after_module(request):
+    """Upstream audit fixtures reset settings on entry. The last test can leave logging off."""
+    yield
+    if request.path.match("tests/test_audit_log_*.py"):
+        from tests.audit_log_support import app, reset_audit_settings
+
+        with app.app_context():
+            reset_audit_settings()
+
+
 @pytest.fixture(autouse=True)
 def _restore_upload_folder():
     """Undo cross-test leakage of app.config['UPLOAD_FOLDER'].
