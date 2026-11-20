@@ -20,7 +20,8 @@ from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
-from sqlalchemy import text
+from flask import g
+from sqlalchemy import event, text
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -47,12 +48,27 @@ NOTICES = ('_emit_failure_webhook', '_emit_failure_email', '_emit_completion_web
 def _queue_app():
     job_queue.init_app(app)
     with app.app_context():
-        # Jobs other test files left waiting would be claimed first.
-        ProcessingJob.query.filter(ProcessingJob.status == 'queued').update(
-            {'status': 'completed', 'completed_at': datetime(2020, 1, 1)}, synchronize_session=False)
+        # Keep pre-existing jobs out of both the claim path and orphan recovery.
+        parked = ProcessingJob.query.with_entities(ProcessingJob.id, ProcessingJob.status).filter(
+            ProcessingJob.status.in_(('queued', 'processing'))).all()
+        ProcessingJob.query.filter(ProcessingJob.id.in_([row.id for row in parked])).update(
+            {'status': 'completed'}, synchronize_session=False)
         db.session.commit()
+        owned_recordings = g.cancel_test_recordings = set()
+        owned_jobs = set()
+
+        def track_job(mapper, connection, job):
+            if job.recording_id in owned_recordings:
+                owned_jobs.add(job.id)
+
+        event.listen(ProcessingJob, 'after_insert', track_job)
         yield
+        event.remove(ProcessingJob, 'after_insert', track_job)
         db.session.rollback()
+        ProcessingJob.query.filter(ProcessingJob.id.in_(owned_jobs)).delete(synchronize_session=False)
+        Recording.query.filter(Recording.id.in_(owned_recordings)).delete(synchronize_session=False)
+        db.session.bulk_update_mappings(ProcessingJob, [row._asdict() for row in parked])
+        db.session.commit()
 
 
 @pytest.fixture
@@ -90,6 +106,7 @@ def _recording(user=None, status='QUEUED', **fields):
                           audio_path='local://m.wav', status=status, **fields)
     db.session.add(recording)
     db.session.commit()
+    g.cancel_test_recordings.add(recording.id)
     return recording
 
 
