@@ -4,7 +4,7 @@ Detects the container by magic bytes, then decodes to 16 kHz mono PCM WAV
 inside a caller-supplied directory. The original file is only read, never
 modified; its sha256 is reported so callers can prove that.
 
-* WAV (RIFF/WAVE) and MP3 are decoded with ``ffmpeg``.
+* WAV, MP3, WebM/Matroska, Ogg and MP4/M4A are decoded with ``ffmpeg``.
 * DSS and DS2 are decoded with an external ``dss-codec`` binary whose path
   comes from ``CLINIC_DSS_CODEC_BIN`` (pinned upstream commit
   ``c38d3192239005b0570c5987cbde62e69dd7dbbe``). Without it the status is
@@ -33,6 +33,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from src.clinic.audio_format_choice import declared_matches
+
 DSS_CODEC_BIN_ENV = 'CLINIC_DSS_CODEC_BIN'
 DSS_CODEC_PINNED_COMMIT = 'c38d3192239005b0570c5987cbde62e69dd7dbbe'
 
@@ -47,7 +49,7 @@ DECODER_MISSING, TIMEOUT = 'decoder_missing', 'timeout'
 @dataclass(frozen=True)
 class DecodeResult:
     status: str
-    container: Optional[str] = None      # 'wav' | 'dss' | 'ds2' | 'mp3' | None
+    container: Optional[str] = None      # container name returned by detect_container
     input_sha256: Optional[str] = None   # hash of the untouched original
     output_path: Optional[str] = None
     output_sha256: Optional[str] = None
@@ -65,6 +67,9 @@ def detect_container(head: bytes) -> Optional[str]:
         return 'ds2'
     if head[:3] == b'ID3' or (len(head) >= 2 and head[0] == 0xFF and head[1] & 0xE0 == 0xE0):
         return 'mp3'
+    for container in ('webm', 'ogg', 'mp4'):
+        if declared_matches(f'audio/{container}', head):
+            return container
     return None
 
 
