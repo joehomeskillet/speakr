@@ -239,6 +239,7 @@ _CLINIC_OPERATIONS = _split("""
     clinic_jobs.health clinic_jobs.retry
     clinic_statistics.aggregates
     clinic_imports_web.intents clinic_imports_web.inventory clinic_imports_web.unassigned
+    clinic_imports_web.list_sources clinic_imports_web.update_source
 """)
 _CLINIC_OPERATIONS_ADMIN = _split("""
     clinic_training.manifest clinic_training.schedule clinic_training.start

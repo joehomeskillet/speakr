@@ -5,6 +5,7 @@ import json
 from flask import Blueprint, abort, jsonify, session
 from flask_login import current_user
 
+from src.clinic import routes_import_sources_web as source_routing
 from src.clinic import agent_channel, import_centre, import_source_config, import_visibility, worklist_entries
 from src.clinic.admin_dictation_access import _is_active_site_admin
 from src.clinic.config import clinic_mode_enabled
@@ -14,6 +15,10 @@ from src.database import db
 
 
 blueprint = Blueprint("clinic_imports_web", __name__, url_prefix="/api/clinic/v1/imports")
+
+
+blueprint.add_url_rule("/sources", view_func=source_routing.list_sources, methods=["GET"])
+blueprint.add_url_rule("/sources/<config_id>", view_func=source_routing.update_source, methods=["PUT"])
 
 
 @blueprint.before_request
