@@ -282,6 +282,18 @@ export const AUTHORS_TEMPLATE = `
   </template>
 </section>`;
 
+// The page CSS (clinic-v8-admin.css) is shared by the clinic shell and the /admin Klinik tab: link it once next to clinic-v8.css.
+function ensureAdminStyles() {
+    if (typeof document === 'undefined' || document.querySelector('link[data-clinic-v8-admin]')) return;
+    const base = document.querySelector('link[href*="clinic-v8.css"]');
+    if (!base) return;
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = base.getAttribute('href').replace('clinic-v8.css', 'clinic-v8-admin.css');
+    link.setAttribute('data-clinic-v8-admin', '');
+    document.head.appendChild(link);
+}
+
 export const AuthorsView = {
     name: 'ClinicAuthorsView',
     props: {
@@ -292,6 +304,7 @@ export const AuthorsView = {
     template: AUTHORS_TEMPLATE,
     setup(props) {
         const Vue = props.vue || globalThis.Vue;
+        ensureAdminStyles();
         const controller = createAuthorsController({ client: props.client, reactive: (o) => Vue.reactive(o) });
         const poolsComponent = Vue.markRaw(createPoolsComponent(Vue, props.client));
         const surfaceStyle = (kind) => style(kind);

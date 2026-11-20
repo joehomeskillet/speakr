@@ -20,7 +20,7 @@
  * Nothing is written to browser storage; colours come only from the token contract.
  */
 
-import { createAccountsAdmin, AccountsAdminPanel } from './accounts-ui.js';
+import { createAccountsAdmin, AccountsAdminPanel, LABELS as ACCOUNT_LABELS } from './accounts-ui.js';
 import { createPoolsStore, POOL_TYPES } from './pools-ui.js';
 import { createGrantsComponent } from './grants-ui.js';
 import { surfaceFor } from './tokens.js';
@@ -62,7 +62,65 @@ export const LABELS = Object.freeze({
     identityTitle: 'Anmeldung und Zugriff',
     identityText: 'Die Anmeldung und die Zuordnung externer Identitäten werden getrennt von den Konten verwaltet. Der Zugriff wird immer serverseitig geprüft.',
     identityLink: 'Anmeldung und Zugriff öffnen',
+    listTitle: 'Lokale Konten',
+    search: 'Suche',
+    searchPlaceholder: 'Name oder Anmeldename …',
+    roleFilter: 'Rollen',
+    statusFilter: 'Status',
+    allRoles: 'Alle Rollen',
+    allStatuses: 'Alle Status',
+    roleAdmin: 'Administration',
+    roleIdentity: 'Identitätsadministration',
+    roleNone: 'Ohne Adminrolle',
+    resetFilter: 'Filter zurücksetzen',
+    filterEmpty: 'Keine Einträge für diese Auswahl. Filter zurücksetzen oder Suche anpassen.',
+    colPerson: 'Person',
+    colRole: 'Rolle',
+    colActions: 'Aktionen',
 });
+
+// Line icons of the V8 prototype icon set; decorative, the buttons carry the labels.
+const ICON = (path) => '<svg class="ui-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="' + path + '"/></svg>';
+const ICONS = Object.freeze({
+    plus: ICON('M12 4v16M4 12h16'),
+    edit: ICON('m15 4 5 5M4 20l4-1L21 6l-4-4L4 15z'),
+    restart: ICON('M3 11a9 9 0 1 1 2 7M3 4v7h7'),
+    lock: ICON('M6 11h12v9H6zM8 11V8a4 4 0 0 1 8 0v3'),
+    unlock: ICON('M6 11h12v9H6zM8 11V8a4 4 0 0 1 7.5-2'),
+    key: ICON('M15 8a4 4 0 1 0-3.5 4L4 19.5V21h3v-2h2v-2h2l2-2'),
+});
+
+/** Role label of an account row (pure). */
+export function roleLabelOf(account) {
+    const parts = [];
+    if (account.is_admin) parts.push(LABELS.roleAdmin);
+    if (account.is_identity_admin) parts.push(LABELS.roleIdentity);
+    return parts.length ? parts.join(', ') : LABELS.roleNone;
+}
+
+/** Rows that match the filter bar: name/e-mail search, role and status (pure). */
+export function filterAccounts(list, filter) {
+    const needle = String(filter.q || '').trim().toLowerCase();
+    return (list || []).filter((a) => {
+        if (needle && !(String(a.username || '').toLowerCase().includes(needle) || String(a.email || '').toLowerCase().includes(needle))) return false;
+        if (filter.role === 'admin' && !a.is_admin) return false;
+        if (filter.role === 'identity' && !a.is_identity_admin) return false;
+        if (filter.role === 'none' && (a.is_admin || a.is_identity_admin)) return false;
+        return filter.status === 'all' || a.status === filter.status;
+    });
+}
+
+// The page CSS (clinic-v8-admin.css) is shared by the clinic shell and the /admin Klinik tab: link it once next to clinic-v8.css.
+function ensureAdminStyles() {
+    if (typeof document === 'undefined' || document.querySelector('link[data-clinic-v8-admin]')) return;
+    const base = document.querySelector('link[href*="clinic-v8.css"]');
+    if (!base) return;
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = base.getAttribute('href').replace('clinic-v8.css', 'clinic-v8-admin.css');
+    link.setAttribute('data-clinic-v8-admin', '');
+    document.head.appendChild(link);
+}
 
 function userIdOf(user) {
     return user && user.id != null && String(user.id) !== '' ? String(user.id) : null;
@@ -193,6 +251,9 @@ export const USERS_TEMPLATE = `
       <h1>{{ labels.title }}</h1>
       <p class="subline">{{ labels.subline }}</p>
     </div>
+    <div v-if="accounts.loaded" class="head-actions">
+      <button type="button" class="primary" data-testid="user-create" @click="startCreate()">${ICONS.plus}<span>{{ acc.create }}</span></button>
+    </div>
   </div>
   <p v-if="state.denied" role="alert" class="note burgundy">{{ labels.deniedAnonymous }}</p>
   <p v-else-if="state.forbidden" role="alert" class="note burgundy">{{ labels.denied }}</p>
@@ -220,7 +281,58 @@ export const USERS_TEMPLATE = `
         <option v-for="a in accounts.accounts" :key="a.id" :value="String(a.id)">{{ a.username }}</option>
       </select>
     </div>
-    <div v-if="accounts.loaded" role="region" class="panel" :aria-labelledby="'usr-sec-' + state.active">
+    <section v-if="accounts.loaded && state.active === 'accounts' && accounts.accounts.length" class="panel" aria-labelledby="usr-list-title" data-testid="user-table-card">
+      <h2 id="usr-list-title">{{ labels.listTitle }}</h2>
+      <div class="filterbar">
+        <div class="field search">
+          <label for="usr-search">{{ labels.search }}</label>
+          <input id="usr-search" type="search" autocomplete="off" :placeholder="labels.searchPlaceholder" v-model="filter.q" data-testid="user-filter">
+        </div>
+        <div class="field">
+          <label for="usr-role">{{ labels.roleFilter }}</label>
+          <select id="usr-role" v-model="filter.role">
+            <option value="all">{{ labels.allRoles }}</option>
+            <option value="admin">{{ labels.roleAdmin }}</option>
+            <option value="identity">{{ labels.roleIdentity }}</option>
+            <option value="none">{{ labels.roleNone }}</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="usr-status">{{ labels.statusFilter }}</label>
+          <select id="usr-status" v-model="filter.status">
+            <option value="all">{{ labels.allStatuses }}</option>
+            <option v-for="(text, key) in acc.statuses" :key="key" :value="key">{{ text }}</option>
+          </select>
+        </div>
+        <span class="tool-wrap"><button type="button" class="icon-button" :aria-label="labels.resetFilter" :title="labels.resetFilter" data-testid="user-filter-reset" @click="resetFilter()">${ICONS.restart}</button></span>
+      </div>
+      <p class="result-count" aria-live="polite" data-testid="user-count">{{ countText }}</p>
+      <p v-if="!visible.length" class="empty" data-testid="user-filter-empty">{{ labels.filterEmpty }}</p>
+      <div v-else class="table-wrap">
+        <table :aria-label="acc.list" data-testid="user-table">
+          <thead><tr>
+            <th scope="col">{{ labels.colPerson }}</th><th scope="col">{{ labels.colRole }}</th>
+            <th scope="col">{{ acc.loginPolicy }}</th><th scope="col">{{ acc.status }}</th><th scope="col">{{ labels.colActions }}</th>
+          </tr></thead>
+          <tbody>
+            <tr v-for="a in visible" :key="a.id" :data-id="a.id">
+              <td><strong>{{ a.username }}</strong><small>{{ a.email }}</small></td>
+              <td>{{ roleLabel(a) }}</td>
+              <td>{{ acc.policies[a.login_policy] || a.login_policy }}</td>
+              <td><span class="tag" :class="a.status === 'active' ? 'neutral' : 'wait'">{{ acc.statuses[a.status] || a.status }}</span></td>
+              <td class="row-actions">
+                <button type="button" class="icon-button" :aria-label="acc.edit + ': ' + a.username" :title="acc.edit" @click="accountsCtl.startEdit(a.id)">${ICONS.edit}</button>
+                <button type="button" v-if="a.status === 'active'" class="icon-button" :disabled="accounts.busy" :aria-label="acc.disable + ': ' + a.username" :title="acc.disable" @click="accountsCtl.setStatus(a.id, 'disabled')">${ICONS.lock}</button>
+                <button type="button" v-if="a.status === 'disabled'" class="icon-button" :disabled="accounts.busy" :aria-label="acc.reactivate + ': ' + a.username" :title="acc.reactivate" @click="accountsCtl.setStatus(a.id, 'active')">${ICONS.unlock}</button>
+                <button type="button" class="icon-button" :disabled="accounts.busy" :aria-label="acc.recovery + ': ' + a.username" :title="acc.recovery" @click="accountsCtl.issueRecovery(a.id)">${ICONS.key}</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="hint">{{ acc.noImplicitAccess }}</p>
+    </section>
+    <div v-if="accounts.loaded" role="region" class="panel" :class="{ 'users-form-only': state.active === 'accounts' }" :aria-labelledby="'usr-sec-' + state.active">
       <component :is="activeComponent" v-bind="activeProps" :key="state.epoch + ':' + state.active + ':' + state.selectedId"></component>
     </div>
     <div v-if="accounts.loaded" class="grid equal" style="margin-top: 20px">
@@ -249,6 +361,7 @@ export const UsersView = {
     template: USERS_TEMPLATE,
     setup(props) {
         const Vue = props.vue || globalThis.Vue;
+        ensureAdminStyles();
         const ctrl = createUsersController({
             client: props.client, adminClient: props.adminClient || undefined, currentUser: props.currentUser,
             reactive: (o) => Vue.reactive(o),
@@ -289,8 +402,15 @@ export const UsersView = {
                 admins: list.filter((a) => a.is_admin).length,
             };
         });
+        // Table card after the prototype (benutzer.html): the filter bar narrows the rows, the actions are the ones of accounts-ui.js.
+        const filter = Vue.reactive({ q: '', role: 'all', status: 'all' });
+        const visible = Vue.computed(() => filterAccounts(ctrl.accounts.state.accounts, filter));
+        const countText = Vue.computed(() => visible.value.length + ' von ' + ctrl.accounts.state.accounts.length + ' Konten');
+        const resetFilter = () => { filter.q = ''; filter.role = 'all'; filter.status = 'all'; };
+        const startCreate = () => { ctrl.select('accounts'); ctrl.accounts.startCreate(); };
         return {
-            stats, state: ctrl.state, accounts: ctrl.accounts.state, sections: SECTIONS, labels: LABELS, errorStyle,
+            filter, visible, countText, resetFilter, startCreate, roleLabel: roleLabelOf, accountsCtl: ctrl.accounts, acc: ACCOUNT_LABELS, accounts: ctrl.accounts.state,
+            stats, state: ctrl.state, sections: SECTIONS, labels: LABELS, errorStyle,
             select: ctrl.select, load: ctrl.load, selectUser: ctrl.selectUser, activeComponent, activeProps,
         };
     },

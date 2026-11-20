@@ -217,3 +217,108 @@ def test_pages_without_own_head_get_the_shell_page_head_and_card(live_server, br
         assert plain.locator(".pagehead .subline").count() == 1
         assert plain.locator(".admin-plain-card").count() == 1
     assert not js_errors, js_errors
+
+
+def test_non_admin_gets_denied_on_every_page_and_no_admin_flag(live_server, browser):
+    # The team lead is no site admin: all nine pages show clinic-admin-denied, none renders a page component or the plain card.
+    base, _ids = live_server
+    page, js_errors = _login(browser, base, LEAD_EMAIL)
+    assert page.evaluate("document.querySelector('#app').dataset.clinicAdmin") == "False"
+    for view, (route, _label, _heading) in PAGES.items():
+        page.goto(base + "/" + route)
+        _mounted(page)
+        page.locator("[data-testid=clinic-admin-denied]").wait_for(state="visible", timeout=30000)
+        assert page.locator("[data-testid=clinic-admin-plain]").count() == 0, view
+        assert page.locator(f"[data-testid=clinic-admin-view][data-admin-view={view}] .v8-admin-page").count() == 0, view
+        assert page.locator("[data-testid=clinic-import-view], [data-testid=clinic-jobs-view], [data-testid=clinic-vocabulary-view]").count() == 0, view
+    assert not js_errors, js_errors
+
+
+def _luminance(rgb):
+    channels = [int(v) / 255 for v in rgb]
+    channels = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+    return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+
+
+def _contrast(foreground, background):
+    hi, lo = sorted((_luminance(foreground), _luminance(background)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def _rgb(css):
+    return [float(v) for v in css[css.index("(") + 1:css.index(")")].split(",")[:3]]
+
+
+def test_error_notes_and_confirmation_are_readable_in_dark_mode(live_server, browser):
+    base, _ids = live_server
+    page, js_errors = _login(browser, base, ADMIN_EMAIL)
+    page.route("**/pool-admin/pools*", lambda route: route.fulfill(status=500, content_type="application/json", body="{}"))
+    page.goto(base + "/" + PAGES["clinic-admin-pools"][0])
+    _mounted(page)
+    page.evaluate("document.documentElement.classList.add('dark')")
+    note = page.locator("[data-testid=clinic-admin-view] .note.burgundy").first
+    note.wait_for(state="visible", timeout=30000)
+    # The remove-member confirmation of pools-ui.js (role=alertdialog) sits in the same page; draw it as the component does.
+    page.evaluate(
+        "() => { const d = document.createElement('div'); d.className = 'pools-ui';"
+        " d.innerHTML = '<div role=\"alertdialog\"><p>Mitglied entfernen?</p></div>';"
+        " document.querySelector('.v8-admin-page').appendChild(d); }"
+    )
+    for selector in (".note.burgundy", ".pools-ui [role=alertdialog] p"):
+        colors = page.evaluate(
+            "(s) => { const e = document.querySelector('[data-testid=clinic-admin-view] ' + s);"
+            " const own = getComputedStyle(e); let box = e; let bg = getComputedStyle(box).backgroundColor;"
+            " while (bg === 'rgba(0, 0, 0, 0)' && box.parentElement) { box = box.parentElement; bg = getComputedStyle(box).backgroundColor; }"
+            " return [own.color, bg]; }",
+            selector,
+        )
+        assert _contrast(_rgb(colors[0]), _rgb(colors[1])) >= 4.5, (selector, colors)
+    assert not js_errors, js_errors
+
+
+def test_admin_klinik_tab_uses_the_shared_page_stylesheet(live_server, browser):
+    # The Klinik tab mounts the same modules; they link clinic-v8-admin.css themselves, so the page head is drawn there too.
+    base, _ids = live_server
+    page, js_errors = _login(browser, base, ADMIN_EMAIL)
+    page.goto(base + "/admin")
+    page.locator("[data-testid=admin-tab-clinic]").click()
+    page.locator("[data-testid=clinic-admin]").wait_for(state="visible", timeout=20000)
+    page.locator("[data-testid=clinic-v8-panel-admin-pools]").click()
+    view = page.locator("[data-testid=clinic-v8-view-admin-pools]")
+    view.locator(".pagehead h1").wait_for(state="visible", timeout=20000)
+    assert page.locator("link[data-clinic-v8-admin]").count() == 1
+    page.wait_for_function(
+        "parseFloat(getComputedStyle(document.querySelector('[data-testid=clinic-v8-view-admin-pools] .pagehead h1')).fontSize) >= 28",
+        timeout=20000,
+    )
+    assert not js_errors, js_errors
+
+
+def test_users_page_has_the_prototype_table_card_and_wraps_at_390(live_server, browser):
+    base, _ids = live_server
+    page, js_errors = _login(browser, base, ADMIN_EMAIL)
+    page.goto(base + "/" + PAGES["clinic-admin-users"][0])
+    _mounted(page)
+    shell = _shell(page, "clinic-admin-users")
+    card = shell.locator("[data-testid=user-table-card]")
+    card.locator("table tbody tr").first.wait_for(state="visible", timeout=30000)
+    assert card.locator(".filterbar input[type=search]").count() == 1
+    assert card.locator(".filterbar select").count() == 2
+    assert card.locator("thead th").all_inner_texts() != [] and all(t.strip() for t in card.locator("thead th").all_inner_texts())
+    assert card.locator("tbody .tag").count() == card.locator("tbody tr").count()
+    assert card.locator("tbody tr").first.locator(".icon-button[aria-label^=Bearbeiten]").count() == 1
+    rows = card.locator("tbody tr").count()
+    card.locator("[data-testid=user-filter]").fill("w226typist")
+    assert card.locator("tbody tr").count() == 1
+    card.locator("[data-testid=user-filter-reset]").click()
+    assert card.locator("tbody tr").count() == rows
+    # The edit button opens the editor of accounts-ui.js.
+    card.locator("tbody tr").first.locator(".icon-button[aria-label^=Bearbeiten]").click()
+    shell.locator("#acc-username").wait_for(state="visible", timeout=10000)
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.wait_for_timeout(300)
+    hint = card.locator("p.hint")
+    box, card_box = hint.bounding_box(), card.bounding_box()
+    assert box["x"] + box["width"] <= card_box["x"] + card_box["width"] + 1, (box, card_box)
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    assert not js_errors, js_errors

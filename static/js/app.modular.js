@@ -3105,10 +3105,20 @@ document.addEventListener('DOMContentLoaded', async () => {
             const clinicAdminAccess = ref(null);
             const clinicAdminClient = clinicMenu ? createClinicAdminClient(() => clinicMenu.getUploadCsrfToken()) : null;
             const clinicAuthorsClient = clinicMenu ? createClinicRoutingClient(clinicWorklist.client, clinicAdminClient) : null;
-            const clinicAdminUser = clinicWorklist ? { id: clinicWorklist.user.id, role: clinicWorklist.user.role, is_admin: true } : null;
+            // The site-admin flag comes from the server render (data-clinic-admin), as admin.html does with is_admin: !team; it is never assumed.
+            const clinicIsAdmin = appRootElement.dataset.clinicAdmin === 'True';
+            const clinicAdminUser = clinicWorklist ? { id: clinicWorklist.user.id, role: clinicWorklist.user.role, is_admin: clinicIsAdmin } : null;
             let clinicAdminProbe = null;
             const probeClinicAdmin = () => {
                 if (!clinicMenu) return Promise.resolve(null);
+                if (!clinicAdminProbe && !clinicIsAdmin) {
+                    // Not a site admin: every Verwaltung page is withheld and no admin route is called.
+                    const access = {};
+                    clinicAdminViews.forEach((entry) => { access[entry.view] = false; });
+                    clinicAdminAccess.value = access;
+                    document.querySelectorAll('[data-clinic-admin-link]').forEach((link) => { link.hidden = true; });
+                    clinicAdminProbe = Promise.resolve(access);
+                }
                 if (!clinicAdminProbe) {
                     clinicAdminProbe = Promise.all(clinicAdminViews.map((entry) => (entry.admin ? clinicAdminClient : clinicWorklist.client).request(entry.probe)))
                         .then((results) => {
@@ -3126,13 +3136,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
                 return clinicAdminProbe;
             };
-            const clinicAdminAllowed = (entry) => !!entry && !!clinicAdminAccess.value && clinicAdminAccess.value[entry.view] === true;
+            const clinicAdminAllowed = (entry) => !!entry && clinicIsAdmin && !!clinicAdminAccess.value && clinicAdminAccess.value[entry.view] === true;
             const clinicAdminProps = (entry) => {
                 const base = { client: clinicWorklist.client, currentUser: clinicAdminUser };
                 if (entry.view === 'clinic-admin-pools') return { client: clinicWorklist.client, userClient: clinicAdminClient };
                 if (entry.view === 'clinic-admin-authors') return { ...base, client: clinicAuthorsClient };
                 if (entry.view === 'clinic-admin-users' || entry.view === 'clinic-admin-asr') return { ...base, adminClient: clinicAdminClient };
-                if (entry.view === 'clinic-admin-jobs') return { client: clinicWorklist.client, canRetry: true };
+                if (entry.view === 'clinic-admin-jobs') return { client: clinicWorklist.client, canRetry: clinicIsAdmin };
                 return base;
             };
             if (clinicMenu) {

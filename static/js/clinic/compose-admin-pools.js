@@ -654,6 +654,18 @@ export const ADMIN_POOLS_TEMPLATE = `
   </template>
 </section>`;
 
+// The page CSS (clinic-v8-admin.css) is shared by the clinic shell and the /admin Klinik tab: link it once next to clinic-v8.css.
+function ensureAdminStyles() {
+    if (typeof document === 'undefined' || document.querySelector('link[data-clinic-v8-admin]')) return;
+    const base = document.querySelector('link[href*="clinic-v8.css"]');
+    if (!base) return;
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = base.getAttribute('href').replace('clinic-v8.css', 'clinic-v8-admin.css');
+    link.setAttribute('data-clinic-v8-admin', '');
+    document.head.appendChild(link);
+}
+
 export const AdminPoolsView = {
     name: 'ClinicAdminPoolsView',
     props: {
@@ -665,6 +677,7 @@ export const AdminPoolsView = {
     setup(props) {
         const V = props.vue || globalThis.Vue;
         if (!V) throw new Error('Vue is required to mount the admin pools view');
+        ensureAdminStyles();
         const c = createAdminPoolsController({ client: props.client, userClient: props.userClient || undefined, reactive: V.reactive });
         if (typeof V.onMounted === 'function') V.onMounted(() => c.load());
         if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => c.dispose());
