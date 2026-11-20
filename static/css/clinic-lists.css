@@ -35,6 +35,11 @@
 @media (max-width: 700px) {
     /* Native selects already reserve room for the arrow. Keep the mobile type size. */
     .clinic-recordings-view .record-toolbar select.record-select { padding-inline-end: 6px; }
+    .clinic-recordings-view #crv-role-filters { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 767px) {
+    .clinic-recordings-view #crv-role-filters[data-collapsed="true"] { display: none; }
 }
 
 /* ---- Heading ------------------------------------------------------------ */

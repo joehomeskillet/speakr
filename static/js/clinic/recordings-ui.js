@@ -75,6 +75,7 @@ export const TEXT = Object.freeze({
     reset: 'Zurücksetzen',
     resetFilters: 'Filter zurücksetzen',
     filters: 'Filter',
+    roleFilters: 'Pool und Diktierende',
     filtersShow: 'Filter anzeigen',
     filtersHide: 'Filter ausblenden',
     authorId: 'Diktiert von',
@@ -391,6 +392,10 @@ export function createRecordingsController(options) {
 
     const hasFilters = () => FILTER_KEYS.some((k) => String(state.filters[k] || '').trim() !== '');
 
+    const hasDraftChanges = () => FILTER_KEYS.some((key) => state.draft[key] !== state.filters[key]);
+    const canReset = () => Boolean(hasFilters() || String(state.query || '').trim()
+        || picker.pool || picker.author || picker.period !== 'all');
+
     function persist() {
         memory.snapshot = {
             rows: state.rows.slice(), nextCursor: state.nextCursor,
@@ -515,6 +520,7 @@ export function createRecordingsController(options) {
 
     return {
         state, start, load, loadMore, applyFilters, resetFilters, setScroll, open, dispose, options: optionState, picker, pick, setPeriod, visibleRows,
+        hasDraftChanges, canReset,
         activeFilterCount: () => FILTER_KEYS.filter((k) => String(state.filters[k] || '').trim() !== '').length,
         countLabel: () => {
             const n = visibleRows().length;
