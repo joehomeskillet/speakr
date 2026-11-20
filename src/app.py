@@ -1308,6 +1308,11 @@ def register_clinic_worklist(flask_app):
         is_acceptance_member=is_acceptance_member, record_audit=record_audit))
     # --- v8-74: acceptance policy publication (end) ---
 
+    # --- v8-132: assignment (start) ---
+    from src.clinic import routes_assignment
+    flask_app.register_blueprint(routes_assignment.create_blueprint(run_once))
+    # --- v8-132: assignment (end) ---
+
 
 def register_clinic_identity(flask_app):
     """Mount the identity, directory, pool, grant and preference handlers.

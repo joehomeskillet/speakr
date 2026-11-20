@@ -136,6 +136,7 @@ _CLINIC_WORKLIST = _split("""
     clinic_templates.assign_template_route clinic_templates.delete_template
     clinic_categories.list_categories clinic_categories.check_categories
     clinic_regex.preview clinic_regex.apply
+    clinic_assignment.assign clinic_assignment.candidates
 """)
 
 # ASR profile handlers (w104s), mounted by register_clinic_resources in clinic mode only.
