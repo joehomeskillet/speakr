@@ -2,11 +2,10 @@
  * Edit-lease display and lease-loss handling for one clinic dictation.
  *
  * Talks to the lease routes through the clinic api client (acquire, renew,
- * release). Lease proof and unsaved edits live in memory only. Writes are
+ * release, takeover). Lease proof and unsaved edits live in memory only. Writes are
  * disabled the moment the lease or its generation is lost; transient edits
- * stay until the user resolves the conflict explicitly. Takeover is never
- * automatic: it is offered only when the caller says it is permitted, and
- * the server still decides (an active foreign lease answers 423).
+ * stay until the user resolves the conflict explicitly. Takeover requires
+ * explicit confirmation and server authorization.
  */
 
 import { surfaceFor } from './tokens.js';
@@ -41,7 +40,7 @@ function formatTime(iso) {
  * @param {object} options
  * @param {{request: Function}} options.client clinic api client
  * @param {string} options.dictationId
- * @param {boolean} [options.mayTakeOver] caller is permitted to request takeover
+ * @param {boolean} [options.mayTakeOver] fallback when lease status omits takeover authority
  * @param {number} [options.heartbeatMs]
  * @param {() => number} [options.now] epoch ms
  */
@@ -60,7 +59,10 @@ export function createLeaseController(options) {
     let unsaved = null;
     let timer = null;
     let note = '';
-    let pendingKey = null;
+    const pendingKeys = { acquire: null, takeover: null };
+    let mayTakeOver = options.mayTakeOver === true;
+    let inspection = 0;
+    let disposed = false;
 
     function emit() {
         const snap = snapshot();
@@ -85,7 +87,7 @@ export function createLeaseController(options) {
             surface: surfaceFor(key),
             generation: proof ? proof.generation : null,
             hasUnsaved: unsaved !== null,
-            canTakeOver: status === 'foreign' && options.mayTakeOver === true,
+            canTakeOver: status === 'foreign' && mayTakeOver,
             conflict: unsaved !== null && status !== 'held' && status !== 'acquiring',
         };
     }
@@ -122,27 +124,55 @@ export function createLeaseController(options) {
         return true;
     }
 
-    async function acquire() {
-        if (status === 'acquiring') return snapshot();
+    async function inspectLease() {
+        const actor = globalThis.document?.getElementById?.('app')?.dataset?.currentUserId;
+        if (!actor) return;
+        const seen = ++inspection;
+        const res = await client.request(base);
+        if (disposed || seen !== inspection || res.outcome !== 'ok' || !res.data) return;
+        const { held, holder_user_id: holder, may_take_over: allowed } = res.data;
+        mayTakeOver = typeof allowed === 'boolean' ? allowed : options.mayTakeOver === true;
+        if (held === true && holder != null && String(holder) !== actor) drop('foreign');
+        else if ((held === false || String(holder) === actor) && status === 'foreign') drop('idle');
+        else emit();
+    }
+
+    async function requestLease(operation) {
+        if (disposed || status === 'acquiring') return snapshot();
         const was = status;
+        inspection += 1;
         status = 'acquiring';
         note = '';
         emit();
-        pendingKey = pendingKey || newKey();
-        const res = await client.request(base, { method: 'POST', idempotencyKey: pendingKey });
-        if (res.outcome === 'cancelled') return snapshot();
+        const takeover = operation === 'takeover';
+        const opts = { method: 'POST', idempotencyKey: pendingKeys[operation] ||= newKey() };
+        if (takeover) opts.body = { confirm: true };
+        const res = await client.request(takeover ? base + '/takeover' : base, opts);
+        if (disposed) return snapshot();
+        if (res.outcome === 'cancelled') {
+            status = was;
+            emit();
+            return snapshot();
+        }
         if (res.outcome === 'ok') {
-            pendingKey = null;
+            pendingKeys[operation] = null;
             adopt(res.data);
         } else if (res.status === 423) {
-            pendingKey = null;
+            pendingKeys[operation] = null;
             drop('foreign');
+            await inspectLease();
         } else {
             // network/unknown outcome keeps the key so a retry replays instead of duplicating
-            if (res.outcome !== 'network' && res.outcome !== 'UNKNOWN') pendingKey = null;
-            drop(was === 'lost' ? 'lost' : 'error', res.message);
+            if (res.outcome !== 'network' && res.outcome !== 'UNKNOWN') pendingKeys[operation] = null;
+            if (takeover && (res.outcome === 'permission' || res.status === 404)) mayTakeOver = false;
+            drop(takeover ? 'foreign' : (was === 'lost' ? 'lost' : 'error'), res.message);
+            if (!takeover && res.status === 404) await inspectLease();
         }
         return snapshot();
+    }
+
+    function acquire() {
+        return requestLease('acquire');
     }
 
     function lose(text) {
@@ -187,19 +217,25 @@ export function createLeaseController(options) {
     }
 
     async function takeOver() {
-        if (status !== 'foreign' || options.mayTakeOver !== true) {
+        if (status !== 'foreign' || !mayTakeOver) {
             note = MESSAGES.takeoverDenied;
             emit();
             return snapshot();
         }
-        return acquire();
+        if (typeof globalThis.confirm === 'function'
+            && !globalThis.confirm('Die Bearbeitung von der anderen Person übernehmen?')) return snapshot();
+        return requestLease('takeover');
     }
 
     return {
         acquire, release, takeOver, renew,
         canWrite,
         getState: snapshot,
-        subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
+        subscribe(fn) {
+            listeners.add(fn);
+            if (listeners.size === 1 && status === 'idle' && !disposed) void inspectLease();
+            return () => listeners.delete(fn);
+        },
         /** Another module saw this generation on the server; a different one means ours is stale. */
         notifyGeneration(generation) {
             if (proof && generation !== proof.generation) lose();
@@ -230,7 +266,7 @@ export function createLeaseController(options) {
             }
             return null;
         },
-        dispose() { stopTimer(); listeners.clear(); proof = null; unsaved = null; },
+        dispose() { disposed = true; stopTimer(); listeners.clear(); proof = null; unsaved = null; },
     };
 }
 
