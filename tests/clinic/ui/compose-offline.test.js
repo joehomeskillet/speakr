@@ -119,6 +119,55 @@ describe('compose-offline: default deny', () => {
     });
 });
 
+describe('compose-offline: unreachable server keeps drafts', () => {
+    async function withDraft() {
+        const t = setup();
+        await t.c.start();
+        t.c.state.passphrase = PASS;
+        await t.c.unlock(null);
+        await t.c.saveDraft(rec(), { text: SECRET });
+        expect(t.storage.m.size).toBe(1);
+        return t;
+    }
+
+    it('keeps drafts on a 503 or network outcome and on a 401 permission outcome', async () => {
+        for (const next of [{ outcome: 'network', status: 503 }, { outcome: 'permission', status: 401 }]) {
+            const t = await withDraft();
+            t.client.state.next = next;
+            await t.c.refresh();
+            expect(t.storage.m.size).toBe(1);
+            expect(t.storage.remove).not.toHaveBeenCalled();
+            expect(t.c.state.phase).toBe('locked');
+            expect(t.c.state.notice).toBe(TEXT.unreachable);
+            expect(t.c.state.drafts).toHaveLength(1);
+            expect(t.crypto.unlocked).toBe(false);
+        }
+    });
+
+    it('unlock and restore also keep drafts when the server cannot be reached', async () => {
+        const t = await withDraft();
+        t.client.state.next = { outcome: 'network', status: 503 };
+        t.c.state.passphrase = PASS;
+        expect(await t.c.unlock(null)).toBe(false);
+        expect(t.storage.m.size).toBe(1);
+        t.client.state.next = grant();
+        await t.c.refresh();
+        t.c.state.passphrase = PASS;
+        await t.c.unlock(null);
+        t.client.state.next = { outcome: 'network', status: 503 };
+        expect(await t.c.restore('d1', 0)).toBeNull();
+        expect(t.storage.m.size).toBe(1);
+    });
+
+    it('an explicit available:false still purges', async () => {
+        const t = await withDraft();
+        t.client.state.next = grant({ available: false });
+        await t.c.refresh();
+        expect(t.storage.m.size).toBe(0);
+        expect(t.c.state.phase).toBe('denied');
+    });
+});
+
 describe('compose-offline: with policy', () => {
     async function unlocked(over) {
         const t = setup(over);
@@ -206,7 +255,7 @@ describe('compose-offline: with policy', () => {
         expect(onLoggedOut).toHaveBeenCalledTimes(1);
     });
 
-    it('offline: lists locked drafts, never asks the server and never purges', async () => {
+    it('offline: lists drafts, never asks the server and never purges', async () => {
         const t = await unlocked();
         await t.c.saveDraft(rec(), { text: SECRET });
         t.connection.online = false;
@@ -214,11 +263,30 @@ describe('compose-offline: with policy', () => {
         await t.c.refresh();
         expect(t.client.request.mock.calls.length).toBe(calls);
         expect(t.c.state.online).toBe(false);
-        expect(t.c.state.phase).toBe('locked');
+        expect(t.c.state.phase).toBe('unlocked');
         expect(t.c.state.drafts).toHaveLength(1);
         expect(t.storage.m.size).toBe(1);
         t.c.state.passphrase = PASS;
         expect(await t.c.unlock(null)).toBe(false);
+    });
+
+    it('offline: an unlocked key stays unlocked and drafts can still be saved', async () => {
+        const t = await unlocked();
+        t.connection.online = false;
+        await t.c.refresh();
+        expect(t.c.state.phase).toBe('unlocked');
+        expect(t.crypto.unlocked).toBe(true);
+        expect(await t.c.saveDraft(rec(2), { text: SECRET })).toEqual({ saved: true, code: null });
+        expect(t.encrypt).toHaveBeenCalledTimes(1);
+        expect(t.storage.m.size).toBe(1);
+        t.c.lock();
+        expect(t.crypto.unlocked).toBe(false);
+        expect(t.c.state.phase).toBe('locked');
+    });
+
+    it('the template shows the lock button when unlocked and the storage usage', () => {
+        expect(OfflineView.template).toContain('data-testid="usage"');
+        expect(OfflineView.template).toContain('data-testid="lock"');
     });
 
     it('a connection event re-checks the grant', async () => {

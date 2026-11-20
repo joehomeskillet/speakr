@@ -69,6 +69,10 @@ export const TEXT = Object.freeze({
     restored: 'Entwurf wiederhergestellt.',
     discarded: 'Entwurf lokal gelöscht. Der Serverstand bleibt unverändert.',
     unsaved: 'Nicht lokal gespeichert: nur im Arbeitsspeicher.',
+    unreachable: 'Server nicht erreichbar oder Sitzung abgelaufen. Lokale Entwürfe bleiben erhalten. Später neu prüfen oder neu anmelden.',
+    used: 'Belegt',
+    of: 'von',
+    bytes: 'Bytes',
     lost: 'Der Browser hat gespeicherte Entwürfe entfernt. Bereits bestätigte Serverteile bleiben erreichbar.',
     deviceChanged: 'Gerät, Browser oder Freigabe haben gewechselt. Dieser Schlüssel passt nicht mehr, die Entwürfe bleiben gesperrt.',
     discardWarn: 'Nur die lokale Kopie wird gelöscht. Auf dem Server bestätigte Daten bleiben erhalten.',
@@ -117,7 +121,17 @@ export function createOfflineViewController(options) {
     const storage = opts.storage || null;
     const profileOk = !!(who && who.userId && who.profile === MANAGED_PROFILE);
     const crypto = opts.crypto || createOfflineCrypto({ client: opts.client || createClinicApiClient() });
-    const store = profileOk ? (opts.store || createOfflineStore({ crypto, storage, who })) : null;
+    // The store asks the server through this wrapper. A grant result that the view
+    // already fetched is handed over once, so one check costs one request.
+    let preset = null;
+    const storeCrypto = Object.create(crypto);
+    storeCrypto.refreshAuthorization = () => {
+        if (!preset) return crypto.refreshAuthorization();
+        const r = preset;
+        preset = null;
+        return Promise.resolve(r);
+    };
+    const store = profileOk ? (opts.store || createOfflineStore({ crypto: storeCrypto, storage, who })) : null;
     const connection = opts.connection || browserConnection();
     const now = opts.now || (() => new Date());
     const reactive = (opts.vue && opts.vue.reactive) || ((x) => x);
@@ -141,6 +155,7 @@ export function createOfflineViewController(options) {
     });
 
     let disposed = false;
+    let everAuthorized = false;
     const say = (text, kind) => { state.notice = text; state.noticeKind = kind || 'normal'; };
 
     function deny(text) {
@@ -157,7 +172,34 @@ export function createOfflineViewController(options) {
         });
     }
 
-    /** Fresh grant check and inventory. Offline the grant is not asked: nothing is purged by a lost connection. */
+    /**
+     * Fresh grant check. Only an explicit revoke (ok answer without a grant) reaches
+     * the store and purges. A transport or permission failure keeps every draft:
+     * returns 'ok' | 'denied' | 'kept'.
+     */
+    async function authorize() {
+        const res = await crypto.refreshAuthorization();
+        if (!res.available && res.code !== 'REVOKED') return 'kept';
+        preset = res;
+        try {
+            const auth = await store.authorize();
+            if (!auth.available) return 'denied';
+        } finally {
+            preset = null;
+        }
+        everAuthorized = true;
+        return 'ok';
+    }
+
+    /** Server unreachable or session gone: keep drafts, block server actions, never purge. */
+    async function keep() {
+        state.drafts = await listDrafts();
+        if (!state.drafts.length && !everAuthorized) return deny(TEXT.unreachable);
+        state.phase = 'locked';
+        say(TEXT.unreachable, 'warning');
+    }
+
+    /** Fresh grant check and inventory. Offline the grant is not asked. Online but unreachable or signed out: drafts are kept, never purged. */
     async function refresh() {
         if (disposed) return;
         state.busy = true;
@@ -167,11 +209,12 @@ export function createOfflineViewController(options) {
             if (!storage) return deny(TEXT.noStorage);
             if (!state.online) {
                 state.drafts = await listDrafts();
-                state.phase = 'locked';
+                state.phase = crypto.unlocked ? 'unlocked' : 'locked';
                 return say(TEXT.offline, 'warning');
             }
-            const auth = await store.authorize();
-            if (!auth.available) return deny(TEXT.denied);
+            const auth = await authorize();
+            if (auth === 'kept') return keep();
+            if (auth === 'denied') return deny(TEXT.denied);
             state.lastContact = now();
             const rec = await store.reconcile();
             state.drafts = await listDrafts();
@@ -201,8 +244,9 @@ export function createOfflineViewController(options) {
         const secret = state.passphrase;
         state.passphrase = '';
         try {
-            const auth = await store.authorize();
-            if (!auth.available) { deny(TEXT.denied); return false; }
+            const auth = await authorize();
+            if (auth === 'kept') { await keep(); return false; }
+            if (auth === 'denied') { deny(TEXT.denied); return false; }
             state.lastContact = now();
             if (wrapped) await crypto.unlock(secret, wrapped, who);
             else {
@@ -226,8 +270,9 @@ export function createOfflineViewController(options) {
     async function restore(dictationId, sequence) {
         if (state.phase !== 'unlocked' || !state.online) return null;
         try {
-            const auth = await store.authorize();
-            if (!auth.available) { deny(TEXT.denied); return null; }
+            const auth = await authorize();
+            if (auth === 'kept') { await keep(); return null; }
+            if (auth === 'denied') { deny(TEXT.denied); return null; }
             state.lastContact = now();
             const value = await store.load({ dictationId, sequence });
             say(TEXT.restored, 'success');
@@ -351,6 +396,7 @@ export const OfflineView = {
           </span>
         </li>
       </ul>
+    <p data-testid="usage">{{ TEXT.used }}: {{ s.usedBytes }} {{ TEXT.of }} {{ s.quotaBytes }} {{ TEXT.bytes }}</p>
     </section>
     <section v-if="s.phase === 'locked'" aria-label="Entsperren">
       <label for="clinic-offline-pass">{{ TEXT.passphrase }}</label>
