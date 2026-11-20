@@ -1,9 +1,10 @@
 """Web upload receipts and recognition settlement with a synthetic PCM WAV."""
+from datetime import datetime
 from uuid import UUID
 
 import pytest
 
-from src.clinic import recognition_state, revisions, workflow
+from src.clinic import job_lease, recognition_state, revisions, workflow
 from src.clinic.correction import ClinicTextAudioLink
 from src.clinic.models import ClinicDictation, ClinicOriginal
 from src.clinic.web_ingest import dictation_for_recording
@@ -34,6 +35,9 @@ def upload(clinic_on, author, originals, monkeypatch):
 
 
 def _run(job):
+    # Replays target this exact attempt, including completed jobs and delayed retries.
+    for name, value in job_lease.claim_values(datetime.utcnow()).items():
+        setattr(job, name, value)
     job.status = 'processing'
     db.session.commit()
     job_queue._process_job(job)
