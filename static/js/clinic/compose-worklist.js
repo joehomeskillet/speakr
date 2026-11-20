@@ -113,7 +113,7 @@ export const TEXT = Object.freeze({
     pagerCount: 'Einträge',
     pagerFor: 'Seite',
     hintSelect: 'Eintrag auswählen, um Details anzuzeigen',
-    updated: 'Aktualisiert',
+    updated: 'Zuletzt aktualisiert:',
     refreshing: 'Aktualisiere …',
     chips: 'Statusfilter',
     detailInfo: 'Eckdaten',
