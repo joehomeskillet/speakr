@@ -30,6 +30,7 @@ import { createDetailClient, ensureHostedStyles, statusTone } from './compose-wo
 import { WORKFLOW_ACTIONS_TEMPLATE, createWorkflowActions } from './workflow-actions-ui.js';
 import { createHistoryComponent } from './history-ui.js';
 import { createLeaseController, createLeaseStatusComponent } from './lease-ui.js';
+import { createContextBinding, CONTEXT_BIND_TEMPLATE } from './context-bind-ui.js';
 
 export const COMPOSE_DETAIL_VERSION = 1;
 
@@ -195,6 +196,11 @@ export function createDetailViewController(options) {
         discard: () => ctrl.resolveConflict('discard'),
         reapply: () => ctrl.resolveConflict('reapply'),
     };
+    const contextBinding = createContextBinding({
+        client, dictationId, reactive,
+        canWrite: () => status.value === 'ready' && leaseState.value?.writable === true && ctrl.canWrite(),
+        onBound: () => load(),
+    });
 
     // --- loading ------------------------------------------------------------
     function applyWorkflow(next) {
@@ -213,6 +219,7 @@ export function createDetailViewController(options) {
         if (disposed) return null;
         const mine = (seq += 1);
         status.value = 'loading';
+        contextBinding.reset();
         message.value = '';
         const res = await detailClient.request('/dictations/' + encodeURIComponent(dictationId) + '/detail');
         if (disposed || mine !== seq || res.outcome === 'cancelled') return res;
@@ -221,6 +228,7 @@ export function createDetailViewController(options) {
             confirmedAt.value = Date.now();
             status.value = 'ready';
             applyWorkflow(res.data);
+            await contextBinding.load();
             return res;
         }
         if (res.outcome === 'network') {
@@ -299,6 +307,7 @@ export function createDetailViewController(options) {
         disposed = true;
         seq += 1;
         workflow.cancel();
+        contextBinding.dispose();
         if (lease) {
             const { ctrl: c, unsubscribe } = lease;
             lease = null;
@@ -314,7 +323,7 @@ export function createDetailViewController(options) {
 
     return {
         vue: V, status, message, data, leaseState, confirmedAt, leaseRun, workflow, detailClient,
-        header, offline, leaseBlocksOpen, canOpenEditor,
+        header, offline, leaseBlocksOpen, canOpenEditor, contextBinding,
         start, load, openEditor, back, dispose,
         text: TEXT,
     };
@@ -325,6 +334,7 @@ function buildParts(V) {
         Lease: createLeaseStatusComponent(V),
         Workflow: { name: 'ClinicWorkflowPanel', props: { wf: { type: Object, required: true } }, template: WORKFLOW_ACTIONS_TEMPLATE },
         History: createHistoryComponent(V),
+        ContextBinding: { props: { binding: { type: Object, required: true } }, template: CONTEXT_BIND_TEMPLATE },
     };
 }
 
@@ -452,6 +462,7 @@ const DetailBody = {
           <div class="metadata-pair"><dt>{{ TEXT.deadline }}</dt><dd>{{ c.header().deadline }}</dd></div>
           <div v-if="c.header().caseId" class="metadata-pair"><dt>{{ TEXT.caseId }}</dt><dd data-testid="case-id">{{ c.header().caseId }}</dd></div>
         </dl>
+        <component :is="parts.ContextBinding" :binding="c.contextBinding" />
       </section>
     </div>
   </template>
