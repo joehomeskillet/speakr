@@ -135,6 +135,8 @@ def test_browser_login_resources_load_and_add_entry(live_server):
             assert "/login" not in page.url
 
             page.goto(live_server + "/")
+            # Ressourcen is an entry of the header menu (v8-03), not a tab.
+            page.locator("[data-user-menu-toggle]").first.click()
             nav = page.locator("[data-testid=nav-clinic-resources]")
             nav.wait_for(state="visible", timeout=20000)
             assert nav.inner_text().strip() == "Ressourcen"
@@ -144,7 +146,7 @@ def test_browser_login_resources_load_and_add_entry(live_server):
                 view.wait_for(state="visible", timeout=20000)
             except Exception as exc:
                 raise AssertionError(f"resources view not shown; page problems: {errors}") from exc
-            assert nav.get_attribute("aria-current") == "page"
+            assert page.evaluate("window.location.hash") == "#/ressourcen"  # the menu entry is a link, not a tab
 
             # Own vocabulary list is loaded (empty), then one synthetic entry is added.
             assert view.get_by_role("tab", name="Vokabular").get_attribute("aria-selected") == "true"
