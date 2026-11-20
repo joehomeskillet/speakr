@@ -32,6 +32,7 @@ from src.clinic.lease import LeaseConflict, assert_current
 from src.clinic.models import (
     ClinicAudioRevision,
     ClinicDictation,
+    ClinicOriginal,
     ClinicTranscriptRevision,
     _created_at,
     _in_check,
@@ -372,6 +373,8 @@ def link_asr_segments(
     in the revision body, left to right. A segment that is not found or has
     no times gets no link. A second call returns the stored AUTO links.
     """
+    from src.clinic.revisions import normalise_text
+
     _check_dictation(dictation)
     _check_revision(dictation, revision)
     stored = _links(dictation.id, revision.id, ORIGIN_AUTO)
@@ -383,6 +386,7 @@ def link_asr_segments(
         if parsed is None:
             continue
         text, start, end = parsed
+        text = normalise_text(text)
         at = revision.body.find(text, cursor)
         if at < 0:
             continue
@@ -401,6 +405,43 @@ def link_asr_segments(
         )
         db.session.flush()
     return _links(dictation.id, revision.id, ORIGIN_AUTO)
+
+
+def ingest_asr_result(
+    dictation: ClinicDictation, text: str, stored_transcription, model_ref: str
+) -> list[ClinicTextAudioLink]:
+    """CLINIC_MODE ingest step: link the segments of a finished ASR run.
+
+    No revision yet: the ASR text becomes the first ASR revision. An ASR head
+    with the same text is refreshed. A human head gets the result as a side
+    revision. Any other head is left alone. Links come only from segments that
+    carry times; plain text or untimed segments give no links. Repeats add
+    nothing.
+    """
+    from src.clinic.revisions import KIND_ASR, KIND_HUMAN, add_asr_revision, current_revision, normalise_text
+    from src.services.transcript_segments import segments_of
+
+    _check_dictation(dictation)
+    if not isinstance(text, str) or text.strip() == "":
+        return []
+    head = current_revision(dictation)
+    if head is None:
+        original = (
+            db.session.query(ClinicOriginal)
+            .filter_by(dictation_id=dictation.id)
+            .order_by(ClinicOriginal.created_at, ClinicOriginal.id)
+            .first()
+        )
+    elif head.kind == KIND_HUMAN:
+        original = db.session.get(ClinicOriginal, head.original_version_id)
+    elif head.kind == KIND_ASR and head.body == normalise_text(text):
+        original = db.session.get(ClinicOriginal, head.original_version_id)
+    else:
+        return []
+    if original is None:
+        return []
+    revision = add_asr_revision(dictation, original, text, model_ref)
+    return link_asr_segments(dictation, revision, segments_of(stored_transcription) or [])
 
 
 def set_manual_link(
