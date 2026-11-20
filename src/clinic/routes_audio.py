@@ -272,7 +272,7 @@ def create_blueprint(
         response = Response(rendered.wav, mimetype=DERIVED_MIME)
         response.headers['ETag'] = revision_etag(head.id)
         response.headers['X-Audio-Revision'] = head.id
-        return response
+        return response.make_conditional(request, accept_ranges=True, complete_length=len(rendered.wav))
 
     @bp.get(f'{PATH}/audio-revisions/<uuid:revision_id>/peaks')
     def peaks(dictation_id: UUID, revision_id: UUID) -> Response:

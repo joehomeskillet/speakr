@@ -233,6 +233,7 @@ _CLINIC_AUDIO = _split("""
 # inside the handler). Training is ADMIN (the handler additionally needs an active site admin).
 _CLINIC_OPERATIONS = _split("""
     clinic_recordings.list_recordings
+    clinic_offline.capability
     clinic_jobs.health clinic_jobs.retry
     clinic_statistics.aggregates
 """)

@@ -1519,6 +1519,10 @@ if _clinic_mode_enabled():
     register_clinic_job_handlers(app)
     # --- end v8-90 ---
     register_clinic_voice_consent(app)  # v8-75
+    # --- v8-152: managed offline capability ---
+    from src.clinic import routes_offline
+    app.register_blueprint(routes_offline.blueprint)
+    # --- end v8-152 ---
 
 # PWA Web Share Target (issue #285): the native share sheet cannot round-trip
 # a CSRF token, so the share-target endpoint is exempted. Authentication still

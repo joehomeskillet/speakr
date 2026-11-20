@@ -9,7 +9,7 @@ from flask import Blueprint, abort, jsonify, request, session
 from flask_login import current_user
 from werkzeug.exceptions import HTTPException
 
-from src.clinic import policy, recordings_list
+from src.clinic import policy, recordings_list, workflow
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.routes_worklist import WorklistEntry
 
@@ -61,7 +61,11 @@ def create_blueprint(load_entries: Callable[[int], Iterable[WorklistEntry]]) -> 
                 pool_id=args.get("pool_id") or None,
                 status=args.get("status") or None,
             )
-            body = recordings_list.list_recordings(load_entries(actor), policy.build_subject(actor), **query)
+            entries = load_entries(actor)
+            # P08 opts in with its existing status filter. The default is Aufnahmen.
+            if query["status"] is None:
+                entries = (entry for entry in entries if entry.row["status"] != workflow.TO_ARCHIVE)
+            body = recordings_list.list_recordings(entries, policy.build_subject(actor), **query)
         except recordings_list.RecordingsQueryError:
             abort(400)
         return jsonify(body)

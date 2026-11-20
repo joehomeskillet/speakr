@@ -107,7 +107,8 @@ def get_worklist(
             and type(page_size) is int and 1 <= page_size <= 100):
         raise FilterError('bad_value', 'invalid page')
     # The filter service must return all matches so layout ordering precedes paging.
-    scoped = query_worklist((_query_row(entry) for entry in entries), subject, spec=spec,
+    active = (_query_row(entry) for entry in entries if entry.row['status'] != workflow.TO_ARCHIVE)
+    scoped = query_worklist(active, subject, spec=spec,
                             query=search, keys=('title', 'meta.notes', 'meta.recipient'),
                             page_size=maxsize)
     # The layout sort is stable, so a unique base key makes ties independent of load order.
