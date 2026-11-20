@@ -377,7 +377,7 @@ export const WorklistFiltersPanel = {
     <div class="viewcontrols">
       <slot name="end"></slot>
       <label for="wf-select" class="cl-sr-only">{{ labels.select }}</label>
-      <select id="wf-select" class="select field" style="width: auto; height: auto; margin: 0; min-height: 34px; appearance: auto" :value="s.selectedId || ''" @change="controller.select($event.target.value || null)">
+      <select id="wf-select" class="select" style="width: auto; height: auto; margin: 0; min-height: 34px; appearance: auto" :value="s.selectedId || ''" @change="controller.select($event.target.value || null)">
         <option value="">{{ labels.none }}</option>
         <option v-for="f in s.filters" :key="f.id" :value="f.id">{{ f.name }}</option>
       </select>

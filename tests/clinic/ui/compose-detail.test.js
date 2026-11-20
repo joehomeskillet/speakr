@@ -11,6 +11,7 @@ import {
     registerDetailView,
     statusAxes,
 } from '../../../static/js/clinic/compose-detail.js';
+import { HOSTED_CSS } from '../../../static/js/clinic/compose-worklist.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(__dirname, '../../../static/js/clinic/compose-detail.js'), 'utf8');
@@ -341,5 +342,30 @@ describe('back event', () => {
         setup.c.back();
         expect(emit).toHaveBeenCalledWith('back', { dictationId: 'd1', origin });
         setup.c.dispose();
+    });
+});
+
+describe('review fixes', () => {
+    it('stacks the fallback mark under the recording time so it cannot overflow the metadata card', () => {
+        const tpl = DetailView.components.DetailBody.template;
+        const mark = tpl.match(/<span[^>]*data-testid="fallback-mark"[^>]*>/)[0];
+        expect(mark).toMatch(/display: block/);
+        expect(mark).toMatch(/white-space: normal/);
+        expect(mark).toMatch(/max-width: 100%/);
+    });
+
+    it('shows one visible "Aktionen" heading and styles the hosted lease and workflow parts', () => {
+        const tpl = DetailView.components.DetailBody.template;
+        expect(tpl).toMatch(/class="panel v8-hosted"[^>]*data-testid="actions"/);
+        expect(tpl).toMatch(/<h2 class="cl-sr-only">\{\{ TEXT.actions \}\}<\/h2>/);
+        expect(HOSTED_CSS).toContain('.clinic-lease');
+        expect(HOSTED_CSS).toContain('.clinic-workflow-actions button');
+    });
+
+    it('hides the package back link when the shell mount has its own back control', () => {
+        const tpl = DetailView.components.DetailBody.template;
+        expect(tpl).toMatch(/v-if="!shellBack" class="record-backbar"/);
+        expect(source).toContain('[data-clinic-shell-view]');
+        expect(source).toContain('clinic-dictation-back');
     });
 });

@@ -33,6 +33,37 @@ import { createHistoryComponent } from './history-ui.js';
 import { createLeaseController, createLeaseStatusComponent } from './lease-ui.js';
 
 export const COMPOSE_WORKLIST_VERSION = 1;
+
+/** V8 look for the hosted lease and workflow components (their own templates are not owned here); scoped to .v8-hosted. */
+export const HOSTED_CSS = [
+    '.v8-ui .v8-hosted{display:grid;gap:12px;min-width:0}',
+    '.v8-ui .v8-hosted .clinic-lease{display:grid;gap:8px;padding:12px 14px;border:1px solid var(--line);background:var(--v8-s1);border-radius:8px;font-size:12px;line-height:1.6}',
+    '.v8-ui .v8-hosted .clinic-lease p{margin:0}',
+    '.v8-ui .v8-hosted .clinic-lease button,.v8-ui .v8-hosted .clinic-workflow-actions button{background:var(--surface);color:var(--v8-text-2);border:1px solid var(--line);border-radius:8px;padding:9px 11px;font-size:11px;font-weight:750;min-height:40px;cursor:pointer}',
+    '.v8-ui .v8-hosted .clinic-lease button:hover:not(:disabled),.v8-ui .v8-hosted .clinic-workflow-actions button:hover:not(:disabled){background:var(--v8-s1)}',
+    '.v8-ui .v8-hosted .clinic-lease button:disabled,.v8-ui .v8-hosted .clinic-workflow-actions button:disabled{opacity:.55;cursor:not-allowed}',
+    '.v8-ui .v8-hosted .clinic-workflow-actions{display:grid;gap:10px}',
+    '.v8-ui .v8-hosted .clinic-workflow-actions h2{margin:0;font-size:12px;font-weight:750;color:var(--v8-text)}',
+    '.v8-ui .v8-hosted .clinic-workflow-actions [role="group"]{display:flex;flex-wrap:wrap;gap:8px;margin:0}',
+    '.v8-ui .v8-hosted .clinic-workflow-actions h3{flex:1 0 100%;margin:0;font-size:11px}',
+    '.v8-ui .v8-hosted .clinic-workflow-actions form{display:grid;gap:8px;margin:0}',
+    '.v8-ui .viewcontrols select,.v8-ui .toolbar-right select{font-weight:600;min-height:34px}',
+    '@media (min-width:641px){.v8-ui .viewcontrols select,.v8-ui .toolbar-right select{font-size:12px}}',
+    '.v8-ui .searchwrap input{font-weight:400}',
+    '.v8-ui .v8-empty{border:0;border-radius:0;min-height:260px}',
+    '.v8-ui .v8-empty h2{font-weight:750}',
+    '.v8-ui .v8-empty p{color:var(--v8-muted)}',
+].join('\n');
+
+/** Adds the stylesheet above once per document. */
+export function ensureHostedStyles(doc) {
+    const d = doc || (typeof document !== 'undefined' ? document : null);
+    if (!d || !d.head || typeof d.createElement !== 'function' || d.getElementById('clinic-v8-hosted-css')) return;
+    const el = d.createElement('style');
+    el.id = 'clinic-v8-hosted-css';
+    el.textContent = HOSTED_CSS;
+    d.head.appendChild(el);
+}
 export const PAGE_SIZE = 20;
 
 export const TEXT = Object.freeze({
@@ -348,6 +379,13 @@ export function createWorklistViewController(options) {
         const cols = LIST_COLUMNS.map(({ key }) => ({ ...(byKey.get(key) || { key, width: 140 }), visible: V8_COLUMNS.includes(key) }));
         layout.state.layout = { ...layout.state.layout, columns: cols };
     }
+    // "Neu laden" in the Ansicht popover calls layout.load() too; keep the V8 set while nothing is saved.
+    const loadLayout = layout.load;
+    layout.load = async (...args) => {
+        const result = await loadLayout(...args);
+        applyV8Default();
+        return result;
+    };
 
     const paused = computed(() => Boolean(view.filterId || view.search) || view.page > 1);
 
@@ -589,6 +627,7 @@ export function createWorklistViewController(options) {
     async function start() {
         if (started || disposed) return;
         started = true;
+        ensureHostedStyles();
         await Promise.all([layout.load(), refresh.start()]);
         applyV8Default();
         syncDetail();
@@ -761,11 +800,11 @@ export const WorklistView = {
       <div class="cl-body" :class="c.selectedId.value ? 'lg:grid-cols-2' : ''" style="display: block">
         <div class="listbody" :class="c.selectedId.value ? 'has-detail' : ''">
           <div class="table-container">
-            <div v-if="c.worklist.isLoading.value" class="empty" data-layout="cl-state" role="status" aria-live="polite" data-testid="loading-state">
+            <div v-if="c.worklist.isLoading.value" class="empty v8-empty" data-layout="cl-state" role="status" aria-live="polite" data-testid="loading-state">
               <div class="empty-icon" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 3a9 9 0 1 0 9 9"/></svg></div>
               <h2>{{ c.text.loading }}</h2>
             </div>
-            <div v-else-if="!c.worklist.rows.value.length" class="empty" data-layout="cl-state" data-testid="empty-state">
+            <div v-else-if="!c.worklist.rows.value.length" class="empty v8-empty" data-layout="cl-state" data-testid="empty-state">
               <div class="empty-icon" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div>
               <h2>{{ c.text.empty }}</h2>
               <p v-if="c.view.filterId || c.view.search">{{ c.text.noMatch }}</p>
@@ -801,7 +840,7 @@ export const WorklistView = {
                     </td>
                     <td v-for="col in c.columns()" :key="col.key" :data-label="col.label" :class="c.emptyCell(item.row, col.key) ? 'cl-empty' : ''">
                       <span v-if="col.key === 'status'" class="status" data-layout="pill-status" :class="c.statusTone(item.row)">{{ c.badge(item.row).label }}</span>
-                      <span v-else-if="col.key === 'priority'" class="prio" style="white-space: normal" :class="c.prioClass(item.row)">{{ c.cell(item.row, col.key) }}</span>
+                      <span v-else-if="col.key === 'priority'" class="prio" :class="c.prioClass(item.row)">{{ c.cell(item.row, col.key) }}</span>
                       <span v-else-if="col.key === 'staff_pools'" class="pool-pill" :title="c.cell(item.row, col.key)">{{ c.cell(item.row, col.key) }}</span>
                       <span v-else-if="col.key === 'dictated_by'" class="entity-name" :title="c.cell(item.row, col.key)">{{ c.cell(item.row, col.key) }}</span>
                       <template v-else>{{ c.cell(item.row, col.key) }}</template>
@@ -832,12 +871,14 @@ export const WorklistView = {
                   <div class="detail-line"><span>Dauer</span><span>{{ c.cell(c.selectedRow.value, 'duration_seconds') }}</span></div>
                   <div class="detail-line"><span>Erstellt</span><span>{{ c.cell(c.selectedRow.value, 'created_at') }}</span></div>
                 </div>
-                <div class="detail-bottom">
-                  <button type="button" class="primary" data-testid="open-dictation"
-                          :disabled="!c.canOpen.value" @click="c.open()">{{ c.text.open }}</button>
+                <div class="v8-hosted" style="margin-top: 17px">
+                  <div class="detail-bottom" style="margin-top: 0">
+                    <button type="button" class="primary" data-testid="open-dictation"
+                            :disabled="!c.canOpen.value" @click="c.open()">{{ c.text.open }}</button>
+                  </div>
+                  <component :is="parts.Lease" v-if="c.leaseState.value" :state="c.leaseState.value" :run="c.leaseRun" />
+                  <component :is="parts.Workflow" :wf="c.workflow" />
                 </div>
-                <component :is="parts.Lease" v-if="c.leaseState.value" :state="c.leaseState.value" :run="c.leaseRun" />
-                <component :is="parts.Workflow" :wf="c.workflow" />
                 <details :open="c.panels.protection" @toggle="c.panels.protection = $event.target.open" style="margin-top: 14px; border-top: 1px solid var(--v8-line-2); padding-top: 4px">
                   <summary style="cursor: pointer; min-height: 38px; display: flex; align-items: center; font-size: 12px; font-weight: 750">{{ c.text.protection }}</summary>
                   <component :is="parts.Protection" v-if="c.panels.protection" :client="c.detailClient" :dictation-id="c.selectedId.value" />
