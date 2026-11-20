@@ -3,19 +3,19 @@
  * 03_Prototyp/index.html (topbar, primary tabs, admin menu, page head, cards, KPI stats, record rows,
  * worklist table, chips, status pills, detail panel). Every rule sits under the root class .v8-ui, which
  * the templates set only in CLINIC_MODE; nothing outside clinic views changes.
- * Only .v8-ui contributes specificity to element defaults inside .v8-page and .v8-chrome.
+ * Element defaults are scoped to .v8-ui. Text inputs keep their type specificity.
  * They beat Tailwind preflight while later utilities and component styles can override them.
  * Class names that the app stylesheets already define (grid, field, tabs, empty, separator, tooltip, active)
  * keep their low-specificity scope.
  * Colours: ink #1C3D42, burgundy #7A1C3E, canvas #F7F6F2 come from tokens.css where it has them.
  * Dark mode: .dark .v8-ui below (neutral surfaces, borders and text follow the variables). */
 /* Muted labels use the mapped text token on canvas and panel surfaces in both themes. */
-.v8-ui{color-scheme:light;--v8-menu-hover-text:var(--brand-accent);--ink:var(--brand-primary,#1C3D42);--ink2:#355158;--muted:var(--ui-text-muted);--brand:var(--brand-primary,#1C3D42);--brand2:#2f5e62;--burgundy:var(--brand-accent,#7A1C3E);--cream:#F7F6F2;--canvas:var(--brand-canvas,#F7F6F2);--surface:var(--ui-surface,#fff);--line:#dfe6e4;--soft:#eef3f1;--warning:#876326;--danger:#9a354a;--radius:12px;--shadow:0 2px 10px #18363a08;--v8-text:#254046;--v8-text-2:#46616a;--v8-muted:var(--ui-text-muted);--v8-s1:#f6f9f8;--v8-s2:#eef3f1;--v8-line-2:#e9eeec}
+.v8-ui{color-scheme:light;--v8-input-outline:#ccd8d3;--v8-input-line:var(--v8-input-outline);--v8-menu-hover-text:var(--brand-accent);--ink:var(--brand-primary,#1C3D42);--ink2:#355158;--muted:var(--ui-text-muted);--brand:var(--brand-primary,#1C3D42);--brand2:#2f5e62;--burgundy:var(--brand-accent,#7A1C3E);--cream:#F7F6F2;--canvas:var(--brand-canvas,#F7F6F2);--surface:var(--ui-surface,#fff);--line:#dfe6e4;--soft:#eef3f1;--warning:#876326;--danger:#9a354a;--radius:12px;--shadow:0 2px 10px #18363a08;--v8-text:#254046;--v8-text-2:#46616a;--v8-muted:var(--ui-text-muted);--v8-s1:#f6f9f8;--v8-s2:#eef3f1;--v8-line-2:#e9eeec}
 :where(.v8-ui):is(.dark .v8-ui,[data-theme="dark"] .v8-ui){color-scheme:dark;--v8-menu-hover-text:var(--v8-text);--v8-input-line:var(--line);--v8-on-ink:var(--v8-text);--ink:#2f5e62;--ink2:#D0DCDA;--muted:var(--ui-text-muted);--burgundy:#9B2F55;--line:var(--ui-border,#426166);--soft:#315158;--shadow:0 2px 10px #0006;--v8-text:var(--ui-text,#F7F6F2);--v8-text-2:var(--ui-text-muted,#D0DCDA);--v8-muted:var(--ui-text-muted);--v8-s1:#21474D;--v8-s2:#315158;--v8-line-2:#335257}
 :where(.v8-ui) :where(.v8-page *,.v8-chrome *){box-sizing:border-box}
 .v8-ui{background:var(--canvas);color:var(--v8-text)}
 .v8-ui :where(:is(.v8-page,.v8-chrome) a){color:var(--v8-text);text-underline-offset:3px}
-.v8-ui :where(:is(.v8-page,.v8-chrome) :is(button,input,select,textarea)){font:inherit}
+:where(.v8-ui) :where(:is(.v8-page,.v8-chrome) :is(button,input,select,textarea)){font:inherit}
 .v8-ui :where(:is(.v8-page,.v8-chrome) :is(button,a,input,select,textarea,summary)){outline-offset:4px}
 .v8-ui :where(:is(.v8-page,.v8-chrome) :is(button,a,input,select,textarea,summary):focus-visible){outline:3px solid #ba8196}
 .v8-ui :where(:is(.v8-page,.v8-chrome) :is(button,a,summary)){-webkit-tap-highlight-color:transparent}
@@ -70,7 +70,10 @@
 :where(.v8-ui) :where(.v8-page *,.v8-chrome *).field{display:grid;gap:6px;margin:0 0 16px}
 :where(.v8-ui) :where(.v8-page *,.v8-chrome *).field label,:where(.v8-ui) :where(.v8-page *,.v8-chrome *).field>span{font-weight:650;font-size:12px}
 :where(.v8-ui) :where(.v8-page *,.v8-chrome *).field small{font-size:11px;color:var(--v8-muted)}
-.v8-ui :where(:is(.v8-page,.v8-chrome) input:not([type=checkbox]):not([type=radio]):not([type=range])),.v8-ui :where(:is(.v8-page,.v8-chrome) :is(select,textarea)){width:100%;padding:10px 11px;border:1px solid var(--v8-input-line,#ccd8d3);border-radius:7px;color:var(--v8-text);background-color:var(--surface);min-height:40px}
+/* Login and saved worklist filters use the high-contrast outline in both themes. */
+.v8-ui :is(.wf-panel,[aria-labelledby="login-panel-title"]){--v8-input-line:var(--v8-input-outline)}
+:where(.v8-ui) input:where(.v8-page *,.v8-chrome *):not([type=checkbox]):not([type=radio]):not([type=range]),
+.v8-ui :where(:is(.v8-page,.v8-chrome) :is(select,textarea)){width:100%;padding:10px 11px;border:1px solid var(--v8-input-line);border-radius:7px;color:var(--v8-text);background-color:var(--surface);min-height:40px}
 .v8-ui :where(.v8-page input[readonly]){background:var(--v8-s1)!important;color:var(--v8-text-2)!important}
 .v8-ui :where(:is(.v8-page,.v8-chrome) textarea){resize:vertical;min-height:100px;line-height:1.65}
 .v8-ui :where(.v8-page input[type=checkbox]),.v8-ui :where(.v8-page input[type=radio]){accent-color:var(--ink);width:16px;height:16px}

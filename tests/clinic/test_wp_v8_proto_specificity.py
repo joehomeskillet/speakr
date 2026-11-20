@@ -41,3 +41,30 @@ def test_prototype_element_defaults(browser, live_server, width, height, h1_size
     assert frame.evaluate("el => getComputedStyle(el.querySelector('h2')).fontSize") == "16px"
     assert frame.evaluate("el => getComputedStyle(el.querySelector('h2')).fontWeight") == "700"
     assert frame.evaluate("el => getComputedStyle(el.querySelector('button')).padding") == "8px"
+
+
+@pytest.mark.parametrize("width,height,filter_size", [(1440, 900, "14px"), (390, 844, "16px")])
+def test_dark_text_inputs(browser, live_server, width, height, filter_size):
+    base, _ = live_server
+    page = _login(browser, base, TYPIST)
+    try:
+        page.set_viewport_size({"width": width, "height": height})
+        page.add_init_script("localStorage.setItem('darkMode', 'true')")
+        page.goto(base + "/#/arbeitsliste")
+        page.reload()
+        page.get_by_role("button", name="Erweiterte Filter").click()
+        name = page.get_by_label("Name des Filters")
+        expect(name).to_be_visible()
+        expect(name).to_have_css("font-size", filter_size)
+        expect(name).to_have_css("border-top-color", "rgb(204, 216, 211)")
+    finally:
+        page.context.close()
+
+    with browser.new_context(viewport={"width": width, "height": height}, color_scheme="dark") as context:
+        context.add_init_script("localStorage.setItem('darkMode', 'true')")
+        page = context.new_page()
+        page.goto(base + "/login")
+        for field in ("email", "password"):
+            control = page.locator(f"input[name={field}]")
+            expect(control).to_have_css("background-color", "rgb(28, 61, 66)")
+            expect(control).to_have_css("border-top-color", "rgb(204, 216, 211)")
