@@ -1508,6 +1508,10 @@ if _clinic_mode_enabled():
     register_clinic_worklist(app)
     register_clinic_audio(app)
     register_clinic_operations(app)
+    # --- v8-90: clinic job handlers (start) ---
+    from src.clinic.job_handlers import register_clinic_job_handlers
+    register_clinic_job_handlers(app)
+    # --- end v8-90 ---
     register_clinic_voice_consent(app)  # v8-75
 
 # PWA Web Share Target (issue #285): the native share sheet cannot round-trip
