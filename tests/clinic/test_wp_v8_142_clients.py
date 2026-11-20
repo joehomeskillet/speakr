@@ -35,13 +35,15 @@ def test_real_clients_names_and_lead_toggle(live_server, browser):
         assert response.request.post_data_json == {"role": role}
         assert response.json()["role"] == role
         # A fresh app mount must read the persisted role from the scoped membership endpoint.
-        with page.expect_response(lambda r: r.url == base + "/api/clinic/v1/pools" and r.request.method == "GET") as loaded:
-            page.reload()
-        pool = next(p for p in loaded.value.json()["staff_pools"] if p["name"] == "Schreibdienst Nord")
-        assert pool["members"] == [{"user_id": ids["typist"], "role": role}]
+        expect(toggle).to_be_enabled()
+        page.reload()
         view.get_by_role("button", name="Schreibkräfte-Pool bearbeiten: Schreibdienst Nord").click()
         expect(toggle).to_be_enabled()
         expect(toggle).to_be_checked(checked=role == "lead")
+        response = page.request.get(base + "/api/clinic/v1/pools")
+        assert response.status == 200
+        pool = next(p for p in response.json()["staff_pools"] if p["name"] == "Schreibdienst Nord")
+        assert pool["members"] == [{"user_id": ids["typist"], "role": role}]
 
     set_role("lead")
     set_role("member")
