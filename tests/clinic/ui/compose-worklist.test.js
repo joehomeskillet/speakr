@@ -329,7 +329,9 @@ describe('unauthorized, stale and retry', () => {
     });
 
     it('a stale workflow action (409) marks the panel stale and a success reloads the list', async () => {
-        const rows = [row('1', { allowed_actions: ['release'], binding: { release: { transcript_revision_id: 't' } } })];
+        const rows = [row('1', { allowed_actions: ['release'], binding: { release: {
+            original_version_id: 'audio', transcript_revision_id: 't', context_revision_id: 'context', text_sha256: 'hash',
+        } } })];
         let attempt = 0;
         const client = fakeClient({
             ...base(rows),
@@ -345,6 +347,9 @@ describe('unauthorized, stale and retry', () => {
         expect(c.workflow.state.stale).toBe(true);
         const listCalls = () => client.calls.filter((x) => x.path.startsWith('/worklist/rows')).length;
         const before = listCalls();
+        rows[0] = { ...rows[0], revision: 4, etag: '"1:4"' };
+        await c.reload();
+        c.select(c.worklist.rows.value[0]);
         c.workflow.request('release');
         Object.assign(c.workflow.state, { confirmedContent: true, confirmedContext: true });
         await c.workflow.confirm();
