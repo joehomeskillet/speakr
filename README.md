@@ -105,7 +105,7 @@ Die Klinikfunktionen sind nur aktiv, wenn `CLINIC_MODE=1` gesetzt ist. Unabhäng
 
 ### Optional
 
-- **Windows-Dateiimport** ([`apps/windows-import`](apps/windows-import/README.md)): Ein .NET-10-Agent lädt Diktatdateien aus ausdrücklich freigegebenen Ordnern oder Wechseldatenträgern unverändert über HTTPS mit Client-Zertifikat (mTLS) hoch. Er nimmt nicht auf, spielt nicht ab, bearbeitet keinen Text und programmiert keine Geräte. Ein Autorenhinweis aus dem DS2-Dateikopf gewährt keine Rechte.
+- **Windows-Dateiimport** ([EXE herunterladen](https://github.com/joehomeskillet/speakr/releases/download/windows-import-v0.11.1-preview.1/Speakr-Import-win-x64-preview.exe) · [`apps/windows-import`](apps/windows-import/README.md)): Ein .NET-10-Agent lädt Diktatdateien aus ausdrücklich freigegebenen Ordnern oder Wechseldatenträgern unverändert über HTTPS mit Client-Zertifikat (mTLS) hoch. Er nimmt nicht auf, spielt nicht ab, bearbeitet keinen Text und programmiert keine Geräte. Ein Autorenhinweis aus dem DS2-Dateikopf gewährt keine Rechte.
 - **KI-Zusammenfassung:** Öffnen Sie das Diktat und wählen Sie „KI-Zusammenfassung“. Mit Bearbeitungsrecht können Sie die aktuelle gespeicherte Textfassung zusammenfassen lassen. Bei aktivierter Automatik startet dies einmal nach der ersten erfolgreichen Erkennung eines neuen Diktats. Der Auftrag prüft Fachrecht, Textrevision und lokales Textmodell. Eine spätere Korrektur lässt sich auf Wunsch neu zusammenfassen.
 - **Modellwahl:** Site-Administratoren sehen und ändern unter „Modellwahl“ die wirksamen lokalen Modellkennungen für CPU-Erkennung, GPU-Erkennung und Zusammenfassungen. Neue Aufträge verwenden die gespeicherten Werte. Die Wahl des Zusammenfassungsmodells ändert weder den Titel- noch den Chatstandard.
 
