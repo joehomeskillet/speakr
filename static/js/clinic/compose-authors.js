@@ -21,6 +21,7 @@
 import { createAccountsAdmin } from './accounts-ui.js';
 import { createPoolsComponent, createPoolsStore } from './pools-ui.js';
 import { surfaceFor } from './tokens.js';
+import { CHILD_SCOPE } from './compose-users.js';
 
 export const LABELS = Object.freeze({
     title: 'Diktierende und Autorenpools',
@@ -122,46 +123,59 @@ export function statusStyle(kind) {
 }
 
 export const AUTHORS_TEMPLATE = `
-<section class="clinic-authors-view" aria-labelledby="authors-title">
-  <h2 id="authors-title">{{ labels.title }}</h2>
-  <button type="button" :disabled="state.status === 'loading'" @click="controller.load()">{{ labels.reload }}</button>
-  <p v-if="state.status === 'loading'" role="status" aria-live="polite">{{ labels.loading }}</p>
-  <p v-if="state.status === 'denied'" role="alert" :style="errorStyle">{{ state.message }}</p>
-  <p v-if="state.status === 'error'" role="alert" :style="errorStyle">{{ state.message }}
-    <button type="button" @click="controller.retry()">{{ labels.retry }}</button></p>
+<section class="clinic-authors-view space-y-4" aria-labelledby="authors-title">
+  <header class="flex flex-wrap items-start justify-between gap-3">
+    <div>
+      <h2 id="authors-title" class="text-lg font-semibold text-[var(--text-primary)]">{{ labels.title }}</h2>
+      <p class="mt-1 text-sm text-[var(--text-muted)]">Diktierende Personen mit Anzeigename, Kontostatus und Poolzugehörigkeit.</p>
+    </div>
+    <button type="button" class="btn btn--sm btn--ghost" :disabled="state.status === 'loading'" @click="controller.load()">{{ labels.reload }}</button>
+  </header>
+  <p v-if="state.status === 'loading'" role="status" aria-live="polite" class="text-sm text-[var(--text-muted)]">{{ labels.loading }}</p>
+  <p v-if="state.status === 'denied'" role="alert" :style="errorStyle" class="rounded-lg border p-3 text-sm">{{ state.message }}</p>
+  <p v-if="state.status === 'error'" role="alert" :style="errorStyle" class="rounded-lg border p-3 text-sm">{{ state.message }}
+    <button type="button" class="btn btn--sm btn--ghost ml-2" @click="controller.retry()">{{ labels.retry }}</button></p>
   <template v-if="state.status === 'ready'">
-    <p v-if="!state.rows.length" role="status" aria-live="polite">{{ labels.empty }}</p>
-    <table v-else :aria-label="labels.list">
-      <thead><tr>
-        <th scope="col">{{ labels.columns.name }}</th><th scope="col">{{ labels.columns.id }}</th>
-        <th scope="col">{{ labels.columns.status }}</th><th scope="col">{{ labels.columns.role }}</th>
-        <th scope="col">{{ labels.columns.authorPools }}</th><th scope="col">{{ labels.columns.staffPools }}</th>
-      </tr></thead>
-      <tbody>
-        <tr v-for="r in state.rows" :key="r.id" :data-user-id="r.id">
-          <th scope="row">{{ r.name }}</th>
-          <td>{{ r.id }}</td>
-          <td><span :style="surfaceStyle(r.surface)">{{ r.statusLabel }}</span></td>
-          <td>{{ r.roleLabel }}</td>
-          <td>
-            <span v-for="p in r.authorPools" :key="p.id">{{ p.name }} </span>
-            <span v-if="r.multiAuthorPool" role="note">{{ labels.multiMembership }}</span>
-          </td>
-          <td>
-            <span v-for="p in r.staffPools" :key="p.id">{{ p.name }} </span>
-            <span v-if="r.noStaffPool">{{ labels.noStaffPool }}</span>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-    <section aria-labelledby="authors-pools">
-      <h3 id="authors-pools">{{ labels.pools }}</h3>
-      <p>{{ labels.poolsHelp }}</p>
-      <component :is="poolsComponent" :key="state.epoch"></component>
+    <p v-if="!state.rows.length" role="status" aria-live="polite" class="rounded-lg border border-dashed border-[var(--border-primary)] p-4 text-sm text-[var(--text-muted)]">{{ labels.empty }}</p>
+    <div v-else class="overflow-x-auto rounded-lg border border-[var(--border-primary)]">
+      <table :aria-label="labels.list" class="min-w-[44rem] divide-y divide-[var(--border-primary)] text-sm">
+        <thead class="bg-[var(--bg-tertiary)]"><tr>
+          <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">{{ labels.columns.name }}</th><th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">{{ labels.columns.id }}</th>
+          <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">{{ labels.columns.status }}</th><th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">{{ labels.columns.role }}</th>
+          <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">{{ labels.columns.authorPools }}</th><th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">{{ labels.columns.staffPools }}</th>
+        </tr></thead>
+        <tbody class="divide-y divide-[var(--border-primary)] bg-[var(--bg-secondary)]">
+          <tr v-for="r in state.rows" :key="r.id" :data-user-id="r.id" class="hover:bg-[var(--bg-tertiary)]">
+            <th scope="row" class="whitespace-nowrap px-4 py-3 text-left text-sm font-medium text-[var(--text-primary)]">{{ r.name }}</th>
+            <td class="px-4 py-3 text-sm text-[var(--text-secondary)]">{{ r.id }}</td>
+            <td class="px-4 py-3 text-sm text-[var(--text-secondary)]"><span :style="surfaceStyle(r.surface)" class="inline-flex items-center rounded-full border px-2 text-xs font-semibold leading-5">{{ r.statusLabel }}</span></td>
+            <td class="px-4 py-3 text-sm text-[var(--text-secondary)]">{{ r.roleLabel }}</td>
+            <td class="px-4 py-3 text-sm text-[var(--text-secondary)] min-w-[16rem]">
+              <div class="flex flex-wrap gap-1">
+                <span v-for="p in r.authorPools" :key="p.id" class="inline-flex items-center rounded-full bg-[var(--bg-tertiary)] px-2.5 py-0.5 text-xs text-[var(--text-primary)]">{{ p.name }}</span>
+              </div>
+              <span v-if="r.multiAuthorPool" role="note" class="mt-1 block text-xs text-[var(--text-muted)]">{{ labels.multiMembership }}</span>
+            </td>
+            <td class="px-4 py-3 text-sm text-[var(--text-secondary)]">
+              <div class="flex flex-wrap gap-1">
+                <span v-for="p in r.staffPools" :key="p.id" class="inline-flex items-center rounded-full bg-[var(--bg-tertiary)] px-2.5 py-0.5 text-xs text-[var(--text-primary)]">{{ p.name }}</span>
+              </div>
+              <span v-if="r.noStaffPool" class="text-[var(--text-muted)]">{{ labels.noStaffPool }}</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <section aria-labelledby="authors-pools" class="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4">
+      <h3 id="authors-pools" class="text-base font-semibold text-[var(--text-primary)]">{{ labels.pools }}</h3>
+      <p class="mt-1 mb-3 text-sm text-[var(--text-muted)]">{{ labels.poolsHelp }}</p>
+      <div class="${CHILD_SCOPE}">
+        <component :is="poolsComponent" :key="state.epoch"></component>
+      </div>
     </section>
-    <section aria-labelledby="authors-rules">
-      <h3 id="authors-rules">{{ labels.rules }}</h3>
-      <ul><li>{{ labels.ruleOnePool }}</li><li>{{ labels.ruleNoPerson }}</li></ul>
+    <section aria-labelledby="authors-rules" class="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4">
+      <h3 id="authors-rules" class="text-base font-semibold text-[var(--text-primary)]">{{ labels.rules }}</h3>
+      <ul class="mt-2 list-disc space-y-1 pl-5 text-sm text-[var(--text-secondary)]"><li>{{ labels.ruleOnePool }}</li><li>{{ labels.ruleNoPerson }}</li></ul>
     </section>
   </template>
 </section>`;

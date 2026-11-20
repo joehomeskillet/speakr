@@ -230,23 +230,32 @@ export function categoriesComponent(vue, options) {
             return { editor };
         },
         template: `
-<section role="region" aria-labelledby="clinic-cat-title" :aria-busy="editor.state.status === 'processing'">
-  <h2 id="clinic-cat-title">${LABELS.title}</h2>
-  <fieldset v-for="row in editor.state.sets" :key="row.id">
-    <legend>{{ row.name }}</legend>
-    <label><input type="checkbox" :checked="row.required" @change="editor.setRequired(row.id, $event.target.checked)"> ${LABELS.required}</label>
-    <ul role="list" aria-label="${LABELS.list}">
-      <li v-for="cat in row.categories" :key="cat" tabindex="0" @keydown="editor.onKey(row.id, $event, cat)">
-        {{ cat }} <button type="button" @click="editor.removeCategory(row.id, cat)">${LABELS.remove}</button>
+<section role="region" aria-labelledby="clinic-cat-title" :aria-busy="editor.state.status === 'processing'" class="space-y-4">
+  <header>
+    <h2 id="clinic-cat-title" class="text-lg font-semibold text-[var(--text-primary)]">${LABELS.title}</h2>
+    <p class="mt-1 text-sm text-[var(--text-muted)]">Kategorien je Feld festlegen und die Auswahl im Sendeformular prüfen.</p>
+  </header>
+  <p v-if="editor.state.status === 'processing'" role="status" class="text-sm text-[var(--text-muted)]">Kategorien werden geladen.</p>
+  <p v-else-if="editor.state.loaded && !editor.state.sets.length" role="status" class="rounded-lg border border-dashed border-[var(--border-primary)] p-4 text-sm text-[var(--text-muted)]">Keine Kategorien vorhanden.</p>
+  <fieldset v-for="row in editor.state.sets" :key="row.id" class="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4 space-y-3">
+    <legend class="px-1 text-sm font-semibold text-[var(--text-primary)]">{{ row.name }}</legend>
+    <label class="inline-flex items-center gap-2 text-sm text-[var(--text-secondary)]"><input type="checkbox" class="h-4 w-4" :checked="row.required" @change="editor.setRequired(row.id, $event.target.checked)"> ${LABELS.required}</label>
+    <ul role="list" aria-label="${LABELS.list}" class="divide-y divide-[var(--border-primary)] rounded-lg border border-[var(--border-primary)] empty:hidden">
+      <li v-for="cat in row.categories" :key="cat" tabindex="0" class="flex items-center justify-between gap-2 px-3 py-1.5 text-sm text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)]" @keydown="editor.onKey(row.id, $event, cat)">
+        <span>{{ cat }}</span> <button type="button" class="btn btn--sm btn--ghost" @click="editor.removeCategory(row.id, cat)">${LABELS.remove}</button>
       </li>
     </ul>
-    <input type="text" aria-label="${LABELS.name}" @keydown.enter="editor.addCategory(row.id, $event.target.value); $event.target.value = ''">
-    <button type="button" @click="editor.save(row.id)">${LABELS.save}</button>
+    <div class="flex flex-wrap items-center gap-2">
+      <input type="text" class="field min-w-0 flex-1" aria-label="${LABELS.name}" placeholder="${LABELS.name}" @keydown.enter="editor.addCategory(row.id, $event.target.value); $event.target.value = ''">
+      <button type="button" class="btn btn--primary" @click="editor.save(row.id)">${LABELS.save}</button>
+    </div>
   </fieldset>
-  <h3>${LABELS.preview}</h3>
-  <ul role="list">
-    <li v-for="item in editor.preview()" :key="item.setId" :aria-label="item.ariaLabel">{{ item.label }} ({{ item.field }})</li>
-  </ul>
+  <section v-if="editor.state.sets.length" class="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4">
+    <h3 class="text-base font-semibold text-[var(--text-primary)]">${LABELS.preview}</h3>
+    <ul role="list" class="mt-2 space-y-1 text-sm text-[var(--text-secondary)]">
+      <li v-for="item in editor.preview()" :key="item.setId" :aria-label="item.ariaLabel">{{ item.label }} <span class="inline-flex items-center rounded-full bg-[var(--bg-tertiary)] px-2.5 py-0.5 text-xs text-[var(--text-primary)]">{{ item.field }}</span></li>
+    </ul>
+  </section>
 </section>`,
     };
 }

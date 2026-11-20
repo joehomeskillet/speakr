@@ -24,6 +24,7 @@
 import { createPanels } from './compose-resources.js';
 import { createVoiceConsentController } from './voice-consent-ui.js';
 import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
+import { CHILD_SCOPE } from './compose-users.js';
 
 export const TRAINING_BASE = '/admin/clinic/training';
 export const KINDS = Object.freeze(['language_model', 'acoustic']);
@@ -301,59 +302,68 @@ export function createAsrProfilesViewController(deps) {
 }
 
 const CONSENT_TEMPLATE = `
-<section role="region" :aria-label="view.title" data-testid="voice-consent">
-  <h3>{{ view.title }}</h3>
-  <p>{{ hint }}</p>
-  <p v-if="view.notice" role="status" aria-live="polite">{{ view.notice }}</p>
-  <p v-if="view.error" role="alert" :style="errorStyle">{{ view.error.message }}
-    <button type="button" v-if="view.error.retryable" :style="focus" @click="controller.load()">{{ text.retry }}</button></p>
-  <p :style="surfaceStyle(view.statusSurface)" data-testid="voice-status">{{ view.status.label }}</p>
-  <p>{{ view.statement.label }}: {{ view.statement.text }}</p>
-  <button type="button" :disabled="!view.canGrant" :style="focus" @click="controller.grant()">Einwilligen</button>
-  <button type="button" v-if="!view.confirmingRevoke" :disabled="!view.canRevoke" :style="focus" @click="controller.requestRevoke()">Einwilligung widerrufen</button>
-  <span v-else role="alertdialog" aria-label="Widerruf bestätigen">
-    <button type="button" :style="focus" @click="controller.confirmRevoke()">Widerruf bestätigen</button>
-    <button type="button" :style="focus" @click="controller.cancel()">Abbrechen</button>
-  </span>
+<section role="region" :aria-label="view.title" data-testid="voice-consent" class="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4 space-y-3">
+  <h3 class="text-base font-semibold text-[var(--text-primary)]">{{ view.title }}</h3>
+  <p class="text-sm text-[var(--text-muted)]">{{ hint }}</p>
+  <p v-if="view.notice" role="status" aria-live="polite" class="text-sm text-[var(--text-secondary)]">{{ view.notice }}</p>
+  <p v-if="view.error" role="alert" :style="errorStyle" class="rounded-lg border p-3 text-sm">{{ view.error.message }}
+    <button type="button" v-if="view.error.retryable" class="btn btn--sm btn--ghost ml-2" @click="controller.load()">{{ text.retry }}</button></p>
+  <p data-testid="voice-status"><span :style="surfaceStyle(view.statusSurface)" class="inline-flex items-center rounded-full border px-2 text-xs font-semibold leading-5">{{ view.status.label }}</span></p>
+  <p class="text-sm text-[var(--text-secondary)]"><span class="font-medium text-[var(--text-primary)]">{{ view.statement.label }}:</span> {{ view.statement.text }}</p>
+  <div class="flex flex-wrap items-center gap-2">
+    <button type="button" :disabled="!view.canGrant" class="btn btn--sm btn--primary" @click="controller.grant()">Einwilligen</button>
+    <button type="button" v-if="!view.confirmingRevoke" :disabled="!view.canRevoke" class="btn btn--sm btn--ghost" @click="controller.requestRevoke()">Einwilligung widerrufen</button>
+    <span v-else role="alertdialog" aria-label="Widerruf bestätigen" class="inline-flex flex-wrap items-center gap-2">
+      <button type="button" class="btn btn--sm btn--danger" @click="controller.confirmRevoke()">Widerruf bestätigen</button>
+      <button type="button" class="btn btn--sm btn--ghost" @click="controller.cancel()">Abbrechen</button>
+    </span>
+  </div>
 </section>`;
 
 const TRAINING_TEMPLATE = `
-<section role="region" :aria-label="text.trainingTitle" data-testid="training">
-  <h3>{{ text.trainingTitle }}</h3>
-  <p v-if="view.denied" role="alert" :style="errorStyle" data-testid="training-denied">{{ view.deniedMessage }}</p>
+<section role="region" :aria-label="text.trainingTitle" data-testid="training" class="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4 space-y-3">
+  <h3 class="text-base font-semibold text-[var(--text-primary)]">{{ text.trainingTitle }}</h3>
+  <p v-if="view.denied" role="alert" :style="errorStyle" class="rounded-lg border p-3 text-sm" data-testid="training-denied">{{ view.deniedMessage }}</p>
   <template v-else>
-    <p v-if="view.loading" role="status" aria-live="polite">{{ text.loading }}</p>
-    <p v-if="view.error" role="alert" :style="errorStyle">{{ view.error.message }}
-      <button type="button" v-if="view.error.retryable" :style="focus" @click="controller.load()">{{ text.retry }}</button></p>
-    <p v-if="view.notice" role="status" aria-live="polite" data-testid="training-notice">{{ view.notice }}</p>
-    <div role="radiogroup" :aria-label="text.kind">
-      <button v-for="k in view.kinds" :key="k.value" type="button" role="radio" :style="focus"
+    <p v-if="view.loading" role="status" aria-live="polite" class="text-sm text-[var(--text-muted)]">{{ text.loading }}</p>
+    <p v-if="view.error" role="alert" :style="errorStyle" class="rounded-lg border p-3 text-sm">{{ view.error.message }}
+      <button type="button" v-if="view.error.retryable" class="btn btn--sm btn--ghost ml-2" @click="controller.load()">{{ text.retry }}</button></p>
+    <p v-if="view.notice" role="status" aria-live="polite" data-testid="training-notice" class="text-sm text-[var(--text-secondary)]">{{ view.notice }}</p>
+    <div role="radiogroup" :aria-label="text.kind" class="inline-flex flex-wrap gap-1 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-tertiary)] p-1">
+      <button v-for="k in view.kinds" :key="k.value" type="button" role="radio"
+        class="rounded-md px-3 py-1.5 text-sm font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)] aria-[checked=true]:bg-[var(--bg-secondary)] aria-[checked=true]:text-[var(--text-primary)] aria-[checked=true]:shadow-sm"
         :aria-checked="k.selected ? 'true' : 'false'" :tabindex="k.selected ? 0 : -1"
         @click="controller.setKind(k.value)">{{ k.label }}</button>
     </div>
-    <button type="button" :disabled="view.busy" :style="focus" @click="controller.prepare()">{{ text.prepare }}</button>
-    <button type="button" :disabled="!view.canStart" :style="focus" @click="controller.start()">{{ text.start }}</button>
-    <p v-if="view.manifest" data-testid="manifest">{{ text.manifestItems }}: {{ view.manifest.items }}, {{ text.manifestExcluded }}: {{ view.manifest.excluded }}</p>
-    <p v-if="view.empty" data-testid="training-empty">{{ text.noRuns }}</p>
-    <table v-else-if="view.runs.length" :aria-label="text.runs">
-      <thead><tr><th scope="col">{{ text.columns.id }}</th><th scope="col">{{ text.columns.kind }}</th><th scope="col">{{ text.columns.items }}</th><th scope="col">{{ text.columns.state }}</th><th></th></tr></thead>
-      <tbody>
-        <tr v-for="r in view.runs" :key="r.id" :data-id="r.id">
-          <td>{{ r.id }}</td><td>{{ r.kind }}</td><td>{{ r.items }}</td><td>{{ r.stateLabel }}</td>
-          <td><button type="button" :disabled="!r.canCancel" :aria-label="r.cancelLabel" :style="focus" @click="controller.cancel(r.id)">Abbrechen</button></td>
-        </tr>
-      </tbody>
-    </table>
+    <div class="flex flex-wrap gap-2">
+      <button type="button" :disabled="view.busy" class="btn btn--sm btn--ghost" @click="controller.prepare()">{{ text.prepare }}</button>
+      <button type="button" :disabled="!view.canStart" class="btn btn--sm btn--primary" @click="controller.start()">{{ text.start }}</button>
+    </div>
+    <p v-if="view.manifest" data-testid="manifest" class="text-sm text-[var(--text-secondary)]">{{ text.manifestItems }}: {{ view.manifest.items }}, {{ text.manifestExcluded }}: {{ view.manifest.excluded }}</p>
+    <p v-if="view.empty" data-testid="training-empty" class="rounded-lg border border-dashed border-[var(--border-primary)] p-4 text-sm text-[var(--text-muted)]">{{ text.noRuns }}</p>
+    <div v-else-if="view.runs.length" class="overflow-x-auto rounded-lg border border-[var(--border-primary)]">
+      <table :aria-label="text.runs" class="min-w-full divide-y divide-[var(--border-primary)] text-sm">
+        <thead class="bg-[var(--bg-tertiary)]"><tr><th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">{{ text.columns.id }}</th><th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">{{ text.columns.kind }}</th><th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">{{ text.columns.items }}</th><th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">{{ text.columns.state }}</th><th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]"><span class="sr-only">Aktion</span></th></tr></thead>
+        <tbody class="divide-y divide-[var(--border-primary)] bg-[var(--bg-secondary)]">
+          <tr v-for="r in view.runs" :key="r.id" :data-id="r.id" class="hover:bg-[var(--bg-tertiary)]">
+            <td class="px-4 py-3 text-sm text-[var(--text-secondary)]">{{ r.id }}</td><td class="px-4 py-3 text-sm text-[var(--text-secondary)]">{{ r.kind }}</td><td class="px-4 py-3 text-sm text-[var(--text-secondary)]">{{ r.items }}</td><td class="px-4 py-3 text-sm text-[var(--text-secondary)]">{{ r.stateLabel }}</td>
+            <td class="px-4 py-3 text-sm text-[var(--text-secondary)] text-right"><button type="button" :disabled="!r.canCancel" :aria-label="r.cancelLabel" class="btn btn--sm btn--ghost" @click="controller.cancel(r.id)">Abbrechen</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </template>
 </section>`;
 
 const CAPABILITY_TEMPLATE = `
-<section role="region" :aria-label="text.capabilityTitle" data-testid="capabilities">
-  <h3>{{ text.capabilityTitle }}</h3>
-  <table :aria-label="text.capabilityTitle">
-    <thead><tr><th scope="col">{{ text.capabilityColumns.name }}</th><th scope="col">{{ text.capabilityColumns.status }}</th></tr></thead>
-    <tbody><tr><td>{{ text.pronunciation }}</td><td :style="surfaceStyle(row.surface)">{{ row.label }}</td></tr></tbody>
-  </table>
+<section role="region" :aria-label="text.capabilityTitle" data-testid="capabilities" class="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4 space-y-3">
+  <h3 class="text-base font-semibold text-[var(--text-primary)]">{{ text.capabilityTitle }}</h3>
+  <div class="overflow-x-auto rounded-lg border border-[var(--border-primary)]">
+    <table :aria-label="text.capabilityTitle" class="min-w-full divide-y divide-[var(--border-primary)] text-sm">
+      <thead class="bg-[var(--bg-tertiary)]"><tr><th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">{{ text.capabilityColumns.name }}</th><th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">{{ text.capabilityColumns.status }}</th></tr></thead>
+      <tbody class="bg-[var(--bg-secondary)]"><tr><td class="px-4 py-3 text-sm text-[var(--text-secondary)]">{{ text.pronunciation }}</td><td class="px-4 py-3 text-sm text-[var(--text-secondary)]"><span :style="surfaceStyle(row.surface)" class="inline-flex items-center rounded-full border px-2 text-xs font-semibold leading-5 whitespace-normal break-words py-0.5">{{ row.label }}</span></td></tr></tbody>
+    </table>
+  </div>
 </section>`;
 
 export function createSections(Vue) {
@@ -413,11 +423,16 @@ export function createSections(Vue) {
 }
 
 export const ASR_PROFILES_TEMPLATE = `
-<div class="clinic-asr-profiles-view">
-  <h2>${TEXT.title}</h2>
-  <p v-if="state.denied" role="alert" data-testid="denied">${TEXT.denied}</p>
+<div class="clinic-asr-profiles-view space-y-4">
+  <header>
+    <h2 class="text-lg font-semibold text-[var(--text-primary)]">${TEXT.title}</h2>
+    <p class="mt-1 text-sm text-[var(--text-muted)]">Erkennungsprofil, Aussprache-Fähigkeit, Stimm-Einwilligung und Training.</p>
+  </header>
+  <p v-if="state.denied" role="alert" data-testid="denied" class="rounded-lg border p-3 text-sm border-[var(--border-primary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)]">${TEXT.denied}</p>
   <template v-else>
-    <component :is="parts.Profile" :key="'p' + state.epoch" :client="client"></component>
+    <div class="${CHILD_SCOPE} rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4">
+      <component :is="parts.Profile" :key="'p' + state.epoch" :client="client"></component>
+    </div>
     <component :is="parts.Capabilities" :key="'c' + state.epoch" :client="client"></component>
     <component :is="parts.Consent" :key="'v' + state.epoch" :client="client"></component>
     <component v-if="adminClient" :is="parts.Training" :key="'t' + state.epoch" :client="adminClient" :profile-client="client"></component>
