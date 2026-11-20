@@ -189,7 +189,7 @@ export const VocabularyView = {
         const components = {};
         // Built on first use, so only visited children are ever created.
         const build = {
-            words: () => createVocabularyComponent(Vue, props.client),
+            words: () => createVocabularyComponent(Vue, props.client, () => ctrl.state.userId),
             proposals: () => panels.review,
             pronunciation: () => createVoiceCommandsComponent(Vue),
             engine: () => panels.asr,

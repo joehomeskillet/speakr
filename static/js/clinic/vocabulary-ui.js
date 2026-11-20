@@ -101,6 +101,7 @@ export function createVocabularyStore(client, onChange) {
         failedWrite: null, // kept for retry with the same idempotency key
         message: '',
     };
+    let latestSearch = 0;
     const emit = () => { if (typeof onChange === 'function') onChange(state); };
 
     function fail(res) {
@@ -122,6 +123,7 @@ export function createVocabularyStore(client, onChange) {
         : { scope: 'user' });
 
     async function search(next) {
+        const version = ++latestSearch;
         if (next) Object.assign(state.query, next);
         const q = state.query;
         if (!SEARCH_MODES.includes(q.mode) || !STATUS_FILTERS.includes(q.filter) || q.q.length > MAX_SELECTION) {
@@ -134,6 +136,7 @@ export function createVocabularyStore(client, onChange) {
         emit();
         const params = scopeParams(new URLSearchParams({ q: q.q, mode: q.mode, status: q.filter }));
         const res = await client.request(PATH + '/search?' + params.toString());
+        if (version !== latestSearch) return res;
         if (res.outcome !== 'ok') return fail(res);
         state.entries = normalize((res.data || {}).entries);
         state.failedWrite = null;
@@ -245,19 +248,24 @@ export function statusSurface(state) {
 export const VOCABULARY_TEMPLATE = `
 <section class="vocabulary-ui v8-page stack" aria-labelledby="voc-title" :aria-busy="state.status === 'loading'">
   <h2 id="voc-title">{{ label('clinic.vocabulary.title') }}</h2>
-  <div class="actions">
-    <button type="button" class="small" :aria-pressed="state.scope.kind === 'user'" @click="store.setScope('user')">{{ label('clinic.vocabulary.scopeUser') }}</button>
-    <form class="filterbar" @submit.prevent="store.setScope('pool', poolDraft)">
-      <div class="field" style="border:0;padding:0;box-shadow:none;background:none">
-        <label for="voc-pool">{{ label('clinic.vocabulary.pool') }}</label>
-        <input id="voc-pool" type="text" autocomplete="off" v-model="poolDraft" required>
-      </div>
-      <button type="submit" class="small">{{ label('clinic.vocabulary.scopePool') }} öffnen</button>
-    </form>
+  <div class="filterbar">
+    <div class="field" style="border:0;padding:0;box-shadow:none;background:none">
+      <label for="voc-pool">Wortliste</label>
+      <select id="voc-pool" class="select" :style="controlStyle" :value="state.scope.poolId || ''"
+        @change="selectList($event.target.value)">
+        <option value="">{{ label('clinic.vocabulary.scopeUser') }}</option>
+        <option v-for="pool in pools" :key="pool.id" :value="pool.id">{{ pool.name }}</option>
+      </select>
+    </div>
+    <span v-if="poolStatus === 'empty'" class="note" role="status">Keine zugeordneten Autorenpools.</span>
+    <template v-if="poolStatus === 'error'">
+      <span class="note" role="status">Autorenpools konnten nicht geladen werden.</span>
+      <button type="button" class="small" @click="loadPools">Autorenpools erneut laden</button>
+    </template>
   </div>
   <p role="status" aria-live="polite" class="note" :style="surfaceStyle">
     {{ label('clinic.vocabulary.scope') }}:
-    <strong>{{ state.scope.kind === 'pool' ? label('clinic.vocabulary.scopePool') + ' ' + state.scope.poolId : label('clinic.vocabulary.scopeUser') }}</strong>
+    <strong>{{ state.scope.kind === 'pool' ? selectedPoolName : label('clinic.vocabulary.scopeUser') }}</strong>
     <span v-if="state.status === 'loading'">{{ label('clinic.vocabulary.loading') }}</span>
     <span v-else-if="state.status === 'stale'">{{ label('clinic.vocabulary.stale') }}</span>
     <span v-else>{{ state.message }}</span>
@@ -326,7 +334,7 @@ export function vocabularyEnumLabel(value) {
 }
 
 /** Vue component definition; pass the Vue global (window.Vue) and an api client. */
-export function createVocabularyComponent(Vue, client) {
+export function createVocabularyComponent(Vue, client, currentUserId = () => null) {
     return {
         template: VOCABULARY_TEMPLATE,
         setup() {
@@ -342,7 +350,25 @@ export function createVocabularyComponent(Vue, client) {
             });
             const control = surfaceFor('normal');
             const controlStyle = { backgroundColor: control.background, color: control.color, borderColor: control.border };
-            const poolDraft = Vue.ref('');
+            const pools = Vue.ref([]);
+            const poolStatus = Vue.ref('loading');
+            const selectedPoolName = Vue.computed(() => pools.value.find((pool) => pool.id === state.scope.poolId)?.name || label('clinic.vocabulary.scopePool'));
+            async function loadPools() {
+                poolStatus.value = 'loading';
+                const result = await client.request('/pools');
+                if (result.outcome !== 'ok') {
+                    poolStatus.value = 'error';
+                    return;
+                }
+                const userId = currentUserId();
+                pools.value = (result.data?.author_pools || [])
+                    .filter((pool) => pool.member_user_ids?.some((id) => String(id) === String(userId)))
+                    .map(({ id, name }) => ({ id, name }));
+                poolStatus.value = pools.value.length ? 'ready' : 'empty';
+            }
+            function selectList(id) {
+                return id ? store.setScope('pool', id) : store.setScope('user');
+            }
             const importDraft = Vue.ref('');
             function addSelected() {
                 const sel = typeof window !== 'undefined' && window.getSelection ? window.getSelection().toString() : '';
@@ -353,9 +379,9 @@ export function createVocabularyComponent(Vue, client) {
                 importDraft.value = '';
                 return store.importText(content);
             }
-            Vue.onMounted(() => store.search());
+            Vue.onMounted(() => Promise.all([store.search(), loadPools()]));
             return {
-                state, store, label, enumLabel: vocabularyEnumLabel, surfaceStyle, controlStyle, poolDraft, importDraft, addSelected, doImport,
+                state, store, label, enumLabel: vocabularyEnumLabel, surfaceStyle, controlStyle, pools, poolStatus, selectedPoolName, selectList, loadPools, importDraft, addSelected, doImport,
                 modes: SEARCH_MODES, filters: STATUS_FILTERS, onKey: (e) => handleKey(store, e),
             };
         },

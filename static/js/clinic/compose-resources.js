@@ -271,7 +271,7 @@ export const ResourcesView = {
         const components = {};
         // Built on first use, so only visited children are ever created.
         const build = {
-            vocabulary: () => createVocabularyComponent(Vue, withResourceMessages(props.client)),
+            vocabulary: () => createVocabularyComponent(Vue, withResourceMessages(props.client), () => ctrl.state.userId),
             review: () => panels.review,
             commands: () => {
                 const child = createVoiceCommandsComponent(Vue);
