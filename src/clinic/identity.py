@@ -367,6 +367,40 @@ def create_local_user(username, email, *, name=None, actor_id=None, now=None, pr
     return user
 
 
+def adopt_existing_local(user_id, *, actor_id, actor_security_version):
+    """Add the missing policy for an explicitly selected local account."""
+    from src.clinic.entra import ClinicExternalIdentity
+    from src.clinic.entra_link_intent import ClinicIdentityLinkRequest
+
+    connection = db.session.connection()
+    if connection.dialect.name == 'sqlite' and not connection.connection.driver_connection.in_transaction:
+        connection.exec_driver_sql('BEGIN IMMEDIATE')
+    _locked_account(actor_id)
+    _authorize_admin(actor_id, actor_security_version)
+    user = db.session.get(User, user_id, with_for_update=True, populate_existing=True)
+    if user is None:
+        raise IdentityDenied('user_not_found')
+    policy = _policy(user_id)
+    if policy and (policy.status != 'active' or policy.login_policy != 'local_only'):
+        raise IdentityDenied('existing_account_policy')
+    stored = user.password or ''
+    if not (_BCRYPT_RE.fullmatch(stored) or re.fullmatch(
+            r'scrypt:[0-9]+:[0-9]+:[0-9]+\$[A-Za-z0-9]+\$[a-f0-9]{128}', stored)):
+        raise IdentityDenied('no_local_credential')
+    # A retained hash, even after unlinking, is not evidence of an exclusively local identity.
+    if (user.sso_provider is not None or user.sso_subject is not None
+            or ClinicExternalIdentity.query.filter_by(user_id=user_id).first() is not None
+            or ClinicIdentityLinkRequest.query.filter_by(user_id=user_id, purpose='link').first() is not None):
+        raise IdentityDenied('external_identity_present')
+    if policy is None:
+        policy = ClinicAccountPolicy(user_id=user_id, status='active', login_policy='local_only')
+        db.session.add(policy)
+        audit.record_in_tx('admin.user.changed', actor_user_id=actor_id, target_user_id=user_id,
+                           details={'fields': ['local_account_policy_adopted']})
+    db.session.commit()
+    return policy
+
+
 def _other_local_admins(user_id):
     rows = (
         db.session.query(ClinicAccountPolicy, User)
