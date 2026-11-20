@@ -98,7 +98,7 @@ export default {
                     </div>
                     <p :id="'effective-' + row.id" class="model-effective">
                         <span>{{ config.models[row.id].active ? 'Wirksam' : 'Derzeit inaktiv' }}:</span>
-                        <strong v-text="config.models[row.id].effective || 'Kein Modell festgelegt'"></strong>
+                        <strong v-text="config.models[row.id].effective || (config.models[row.id].active ? 'Keine Modellkennung gemeldet' : 'Kein Modell aktiv')"></strong>
                         <span v-text="sources[config.models[row.id].source]"></span>
                     </p>
                 </div>

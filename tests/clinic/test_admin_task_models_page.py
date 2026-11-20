@@ -47,7 +47,10 @@ def test_model_selection_reachable_and_saved(live_server, browser, width, height
     expect(summary).to_have_value(sample)
     expect(cpu).to_have_value(f"qa-cpu-{width}")
     expect(submit).to_be_disabled()
-    expect(panel.locator("#effective-summary")).to_contain_text("Hier festgelegt")
+    effective = panel.locator("#effective-summary")
+    expect(effective).to_contain_text("Hier festgelegt")
+    if not models["summary"]["active"]:
+        expect(effective).to_contain_text("Kein Modell aktiv")
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
     out = os.environ.get("SPEAKR_MODEL_SCREENSHOTS")
     if out:
