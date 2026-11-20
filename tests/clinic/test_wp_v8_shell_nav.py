@@ -193,6 +193,33 @@ def test_open_dictation_and_close_returns_to_origin(live_server, width, height):
             browser.close()
 
 
+@pytest.mark.parametrize("width,height", VIEWPORTS)
+def test_recorder_view_hides_the_empty_shell_container(live_server, width, height):
+    from playwright.sync_api import sync_playwright
+
+    base, dictation = live_server
+    with sync_playwright() as p:
+        browser = _launch(p)
+        try:
+            page = _login(browser, base, width, height)
+            _stub_recordings_api(page, dictation)
+            page.goto(base + "/")
+            page.locator("[data-testid=clinic-recordings-view]").wait_for(state="visible", timeout=30000)
+            # The upstream recorder ('recording') is not a shell view: no empty reserved pane above it.
+            page.evaluate("document.querySelector('#app').__vue_app__._instance.proxy.currentView = 'recording'")
+            shell = page.locator("[data-clinic-shell-view]")
+            shell.wait_for(state="hidden", timeout=20000)
+            recorder = page.locator("main.main-content > div.flex-1.flex-col").last
+            recorder.wait_for(state="visible", timeout=20000)
+            main_h = page.locator("main.main-content").evaluate("el => el.getBoundingClientRect().height")
+            nav_h = page.locator("[data-testid=clinic-primary-nav]").evaluate("el => el.getBoundingClientRect().height")
+            rec_h = recorder.evaluate("el => el.getBoundingClientRect().height")
+            assert rec_h >= main_h - nav_h - 2, (rec_h, main_h, nav_h)
+            assert not page.js_errors, page.js_errors
+        finally:
+            browser.close()
+
+
 def test_clinic_page_has_no_sidebar_markup(tmp_path):
     out = _render(tmp_path, True)
     assert 'data-clinic-mode="True"' in out

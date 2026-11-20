@@ -365,15 +365,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                 currentView.value = target;
             };
             // Page-level back control: goes through the view's own close so unsaved text is saved first.
-            const requestClinicCorrectionClose = () => {
+            const requestClinicCorrectionClose = (target = null) => {
+                clinicPendingView = target;
                 const button = clinicCorrectionMount.value?.querySelector('[data-testid="close"]');
                 if (button) button.click(); else closeClinicCorrection();
             };
             // Tab and menu navigation; out of a correction it goes through the view's own close (saves first).
             const goClinicView = (view) => {
                 if (currentView.value === 'clinic-correction') {
-                    clinicPendingView = view;
-                    requestClinicCorrectionClose();
+                    requestClinicCorrectionClose(view);
                 } else {
                     currentView.value = view;
                 }

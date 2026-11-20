@@ -157,7 +157,7 @@
                             @click="goClinicView('clinic-worklist')">Arbeitsliste</button>
                 </nav>
                 <!-- The three views stay alive while another one is shown (keep-alive), so a restored view keeps its state. -->
-                <div v-if="clinicWorklistEnabled" v-show="currentView !== 'clinic-correction'"
+                <div v-if="clinicWorklistEnabled" v-show="['clinic-recordings', 'clinic-worklist', 'clinic-resources'].includes(currentView)"
                      data-clinic-shell-view ref="clinicViewMount"
                      class="flex-1 overflow-y-auto p-3 md:p-6 bg-[var(--bg-primary)] text-[var(--text-primary)]">
                     <keep-alive>
