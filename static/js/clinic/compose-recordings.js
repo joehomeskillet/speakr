@@ -11,10 +11,17 @@
  * Colours come from tokens.js. Nothing is written to browser storage or URLs.
  */
 
-import { PERIODS, RECORDINGS_PAGE_SIZE, TEXT, createRecordingsController } from './recordings-ui.js';
+import { PERIODS, RECORDINGS_PAGE_SIZE, TEXT, createRecordingsController, formatDay } from './recordings-ui.js';
 
 export const COMPOSE_RECORDINGS_VERSION = 1;
 export { RECORDINGS_PAGE_SIZE, createRecordingsController };
+
+/** Use only the list-approved case display or the supplied timestamp and its provenance. */
+export function recordingLabel(row) {
+    if (row.caseDisplay) return row.heading;
+    const provenance = row.fallbackText || (row.isFallback ? 'Diktat' : 'Aufnahme');
+    return provenance + ' · ' + formatDay(row.day) + (row.datetime ? ', ' + row.time : '');
+}
 
 export const RecordingsView = {
     name: 'ClinicRecordingsView',
@@ -80,7 +87,7 @@ export const RecordingsView = {
             const row = c.state.rows.find((entry) => entry.dictationId === id);
             return row && { dictator: row.author, pool: row.poolText };
         }
-        return { c, rowContext, scroller, root, onScroll, filtersOpen, t: TEXT, periods: PERIODS };
+        return { c, rowContext, recordingLabel, scroller, root, onScroll, filtersOpen, t: TEXT, periods: PERIODS };
     },
     template: `
 <section ref="root" class="clinic-recordings-view cl-view content-inner v8-page" data-testid="clinic-recordings-view" aria-labelledby="crv-title">
@@ -184,22 +191,22 @@ export const RecordingsView = {
         <div class="record-group-list" data-testid="cards">
           <div v-for="r in g.rows" :key="r.key" class="cl-reference-row">
           <button type="button" class="recording-row" data-row data-card :data-id="r.dictationId" data-testid="open-link"
-             :disabled="!r.dictationId" :aria-label="r.ariaLabel" @click.prevent="c.open(r)">
+             :disabled="!r.dictationId" :aria-label="r.ariaLabel" :aria-describedby="'crv-workflow-' + r.key + (r.processing ? ' crv-processing-' + r.key : '')" @click.prevent="c.open(r)">
             <time class="record-time" :datetime="r.datetime || null">{{ r.time }}</time>
             <span class="record-icon" aria-hidden="true">
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h10l4 4v14H5zM15 3v6h5M9 12h6M9 16h6"/></svg>
             </span>
             <span class="record-text">
-              <span class="record-title">{{ r.heading }}</span>
+              <span class="record-title">{{ recordingLabel(r) }}</span>
               <span class="record-roles">
                 <span class="record-role"><span class="record-role-label">{{ t.author }}:</span> <span class="dictator-name" data-cell="author" :title="r.author">{{ r.author }}</span></span>
                 <span class="record-role"><span class="record-role-label">{{ t.pool }}:</span> <span class="pool-name" data-cell="pool" :title="r.poolText">{{ r.poolText }}</span></span>
                 <span v-if="r.hasLease" class="record-role"><span class="record-role-label">{{ t.lease }}:</span> <span class="dictator-name" data-cell="lease">{{ r.leaseHolder }}</span></span>
               </span>
-              <span class="record-subtitle" :class="r.isFallback ? 'date-fallback' : ''"><span v-if="!r.caseDisplay">{{ r.reference }}</span><span v-if="r.fallbackText" data-testid="fallback" :title="r.fallbackTip" :aria-label="r.fallbackTip">{{ r.caseDisplay ? '' : ' · ' }}{{ r.fallbackText }}</span><span v-else-if="r.isFallback" data-testid="fallback" :title="r.fallbackTip" :aria-label="r.fallbackTip">{{ r.caseDisplay ? '' : ' · ' }}{{ r.fallbackLabel }}</span></span>
-              <span v-if="r.processing" class="cl-processing">{{ r.processing }}</span>
+              <span class="record-subtitle" :class="r.isFallback ? 'date-fallback' : ''"><span>Diktat {{ r.reference }}</span><span v-if="r.fallbackText" data-testid="fallback" :title="r.fallbackTip" :aria-label="r.fallbackTip"> · {{ r.fallbackText }}</span><span v-else-if="r.isFallback" data-testid="fallback" :title="r.fallbackTip" :aria-label="r.fallbackTip"> · {{ r.fallbackLabel }}</span></span>
+              <span v-if="r.processing" :id="'crv-processing-' + r.key" class="cl-processing">Spracherkennung: {{ r.processing }}</span>
             </span>
-            <span class="status cl-workflow-status" :class="r.statusClass">{{ r.status }}</span>
+            <span class="status" :id="'crv-workflow-' + r.key" :class="[r.statusClass, 'cl-workflow-status']">Arbeitsstand: {{ r.status }}</span>
             <span class="record-source" aria-hidden="true"></span>
             <span class="record-duration">{{ r.duration }}</span>
             <span class="record-chevron" aria-hidden="true">›</span>

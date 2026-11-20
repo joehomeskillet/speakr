@@ -16,6 +16,21 @@
 /* P01 supplies its own spacing between the heading, filters, result count and day groups. */
 .clinic-recordings-view.cl-view { gap: 0; }
 
+/* Keep safe row names and long case identifiers readable at both list widths. */
+.v8-ui .clinic-recordings-view .record-title,
+.v8-ui .clinic-worklist-view .titletext strong {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    overflow: visible;
+    text-overflow: clip;
+    line-height: 1.5;
+}
+.v8-ui .clinic-worklist-view .cl-row-reference {
+    color: var(--v8-text-2);
+    font-size: var(--fs-meta);
+    font-weight: 400;
+}
+
 /* Workflow stays a compact V8 pill; recognition is readable metadata beside the title. */
 .v8-ui :is(.clinic-recordings-view, .clinic-worklist-view) .cl-processing {
     display: block;
