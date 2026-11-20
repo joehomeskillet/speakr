@@ -1492,6 +1492,11 @@ def register_clinic_operations(flask_app):
     flask_app.register_blueprint(agent_bp)
     csrf.exempt(agent_bp)
 
+    # --- v8-120: browser import reads ---
+    from src.clinic import routes_imports_web
+    flask_app.register_blueprint(routes_imports_web.blueprint)
+    # --- end v8-120 ---
+
 
 # --- v8-75: voice consent and voice enrollment routes ---
 def register_clinic_voice_consent(flask_app):
