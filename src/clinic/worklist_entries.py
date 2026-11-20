@@ -27,7 +27,7 @@ from datetime import timezone
 from flask import after_this_request, has_request_context, request
 from sqlalchemy import and_, or_
 
-from src.clinic import release, revisions, routes_history, routes_worklist, workflow
+from src.clinic import recognition_state, release, revisions, routes_history, routes_worklist, workflow
 from src.clinic.admin_dictation_access import _is_active_site_admin
 from src.clinic.models import (
     ClinicContextRevision,
@@ -117,6 +117,7 @@ def load_entries(actor: int) -> list[routes_worklist.WorklistEntry]:
     found = list(query)
     roles = project_roles(dictation for dictation, _row, _rec in found)
     sources = _sources([dictation.id for dictation, _row, _rec in found])
+    outcomes = recognition_state.asr_outcomes(d for d, _, _ in found)
     entries = []
     for dictation, row, rec in found:
         queue_status = row.resume_status if row.status == workflow.IN_PROGRESS else row.status
@@ -128,7 +129,8 @@ def load_entries(actor: int) -> list[routes_worklist.WorklistEntry]:
             assigned_at=None, notes=rec.notes or "", created_at=stamp(row.created_at),
             duration_seconds=row.audio_seconds, recipient=None, source_kind=source_kind,
             open_mode=_open_mode(actor, dictation, queue_status), revision=dictation.version_counter,
-            source_label=source_label, **roles[dictation.id]), dictation.pool_id))
+            source_label=source_label, asr_state=_asr_state(dictation, queue_status, outcomes),
+            **roles[dictation.id]), dictation.pool_id))
     if admin:
         foreign = {d.id: (rec.id, rec.user_id) for d, _, rec in found
                    if actor not in (d.author_user_id, rec.user_id)}
@@ -165,12 +167,26 @@ def _single_head(model, dictation_id: str):
     return db.session.get(model, next(iter(heads))) if len(heads) == 1 else None
 
 
-def _asr_state(status: str, transcripts: list) -> str:
-    if any(row.kind == revisions.KIND_ASR for row in transcripts):
-        return "SUCCEEDED"
-    if status == workflow.TO_WRITE:
-        return "SKIPPED"
-    return "PENDING"
+def _asr_state(dictation, status: str, outcomes=None) -> str:
+    outcome = recognition_state.asr_outcome(dictation, outcomes=outcomes, detailed=True)
+    return {'completed': 'SUCCEEDED', 'processing': 'RUNNING', 'queued': 'PENDING',
+            'failed': 'FAILED'}.get(outcome, 'SKIPPED' if status == workflow.TO_WRITE else 'PENDING')
+
+
+def case_displays(dictation_ids):
+    """Unique context heads without loading full snapshots for each list row."""
+    result = {}
+    for start in range(0, len(dictation_ids), 500):
+        rows = db.session.query(ClinicContextRevision).filter(
+            ClinicContextRevision.dictation_id.in_(dictation_ids[start:start + 500])).all()
+        parents = {r.parent_revision_id for r in rows if r.parent_revision_id}
+        heads = {}
+        for row in rows:
+            if row.id not in parents:
+                heads.setdefault(row.dictation_id, []).append(row)
+        result.update({did: values[0].case_ref if len(values) == 1 else None
+                       for did, values in heads.items()})
+    return result
 
 
 def _review_state(status: str, head) -> str:
@@ -190,7 +206,7 @@ def dictation_snapshot(dictation: ClinicDictation) -> dict:
 
     ``ingest_state`` is always STORED because a dictation row exists only after
     its original was stored. States the data model cannot distinguish yet
-    (RUNNING/FAILED ASR, WITHDRAWN, COMPLETION_UNKNOWN) are never reported.
+    (WITHDRAWN, COMPLETION_UNKNOWN) are never reported.
     """
     flow = db.session.get(workflow.ClinicWorkflowDictation, dictation.id)
     status = flow.status if flow is not None else workflow.DRAFT
@@ -213,7 +229,7 @@ def dictation_snapshot(dictation: ClinicDictation) -> dict:
         "submission_state": "DRAFT" if status == workflow.DRAFT else "SUBMITTED",
         "context_state": "VERIFIED" if verified else "CASE_UNRESOLVED",
         "case_display": context.case_ref if verified else None,
-        "asr_state": _asr_state(queue_status, revisions.history(dictation)),
+        "asr_state": _asr_state(dictation, queue_status),
         "review_state": _review_state(status, head),
         "current_original_version_id": None if original is None else original[0],
         "current_transcript_revision_id": None if head is None else head.id,

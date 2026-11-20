@@ -86,6 +86,7 @@ export function filterLabel(key) {
     if (key === 'failed') return JOB_LABELS.failed;
     if (key === 'queued') return JOB_LABELS.queued;
     if (key === 'running' || key === 'processing') return JOB_LABELS.running;
+    if (key === 'completed') return TEXT.statDone;
     return key;
 }
 
@@ -150,6 +151,13 @@ export function createJobsViewController(options) {
     const scope = () => (typeof opts.dictationId === 'function' ? opts.dictationId() : opts.dictationId) || '';
     const scoped = () => {
         const s = jobs.state.value;
+        if (scope() && Array.isArray(s.health && s.health.jobs)) {
+            return s.health.jobs.filter((r) => String(r.dictation_id || '') === String(scope()))
+                .map((r) => s.failures.find((f) => f.id === r.id) || {
+                    id: r.id, jobType: r.job_type, state: r.state, version: null,
+                    unknown: r.state === 'UNKNOWN', errorClass: '',
+                });
+        }
         return scopeToDictation(s.failures, s.health && s.health.recent_failures, scope());
     };
 
@@ -238,7 +246,7 @@ export const JobsView = {
       <div class="stat"><span>{{ c.text.statShown }}</span><strong>{{ c.rows.value.length }}</strong><small>{{ c.text.statShownNote }}</small></div>
     </div>
     <section class="panel" aria-labelledby="cjv-list">
-      <h2 id="cjv-list">{{ c.text.list }}</h2>
+      <h2 id="cjv-list">{{ c.scoped() ? 'Aufträge dieses Diktats' : c.text.list }}</h2>
       <div class="filterbar">
         <div class="field">
           <label for="cjv-filter">{{ c.text.filter }}</label>
@@ -249,7 +257,7 @@ export const JobsView = {
       </div>
       <p v-if="!c.rows.value.length" class="empty" data-testid="empty-state">{{ c.scoped() ? c.text.scopedEmpty : (c.state.value.failures.length ? c.text.emptyFiltered : c.text.empty) }}</p>
       <div v-else class="table-wrap">
-        <table class="${ACTION_TABLE}" :aria-label="c.text.list" data-testid="job-list">
+        <table class="${ACTION_TABLE}" :aria-label="c.scoped() ? 'Aufträge dieses Diktats' : c.text.list" data-testid="job-list">
           <thead>
             <tr>
               <th scope="col">{{ c.text.colJob }}</th>
@@ -262,7 +270,7 @@ export const JobsView = {
             <tr v-for="f in c.rows.value" :key="f.id" :data-id="f.id">
               <td><strong>{{ f.id }}</strong></td>
               <td class="max-md:hidden">{{ c.jobTypeLabel(f.jobType) }}</td>
-              <td><span class="tag dot max-md:[overflow-wrap:anywhere]" :class="f.unknown ? 'wait' : 'error'">{{ c.surface(f).label }}: {{ f.errorClass }}</span></td>
+              <td><span class="tag dot max-md:[overflow-wrap:anywhere]" :class="f.unknown ? 'wait' : (f.state === 'failed' ? 'error' : '')">{{ c.filterLabel(f.unknown ? 'unknown' : f.state) }}<template v-if="f.errorClass">: {{ f.errorClass }}</template></span></td>
               <td>
                 <button v-if="f.unknown || c.canRetryJob(f)" type="button" class="small"
                         data-testid="retry" :disabled="c.state.value.busy === f.id"
