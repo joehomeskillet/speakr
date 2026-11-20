@@ -288,4 +288,3 @@ def test_signed_in_owner_types_saves_and_reopens(manual_server):
             assert not page.js_errors, page.js_errors
         finally:
             browser.close()
-
