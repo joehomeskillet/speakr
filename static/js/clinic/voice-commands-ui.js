@@ -265,13 +265,18 @@ export function createVoiceCommandsComponent(vue) {
     return {
         name: 'ClinicVoiceCommandsUi',
         props: { client: { type: Object, required: true }, scope: { type: Object, required: true } },
-        setup(props) {
+        emits: ['saved'],
+        setup(props, context) {
             const c = useVoiceCommands(props.client, V);
             const form = V.reactive({ phrase: '', stepsText: '' });
             const pv = V.computed(() => c.preview(form.stepsText.split('\n').filter((s) => s.trim())));
             const needsConfirm = V.computed(() => form.stepsText.split('\n').some((s) => isSensitiveAction(s.trim())));
             const def = () => ({ kind: 'macro', phrase: form.phrase, action_ids: form.stepsText.split('\n').filter((s) => s.trim()) });
-            const save = () => c.saveCommand(def(), props.scope);
+            const save = async () => {
+                const result = await c.saveCommand(def(), props.scope);
+                if (result.outcome === 'ok') context?.emit('saved');
+                return result;
+            };
             const confirm = () => c.requestConfirmation(def());
             const reset = () => { form.phrase = ''; form.stepsText = ''; };
             V.onMounted(() => c.load());
