@@ -38,6 +38,7 @@ const LABELS = Object.freeze({
     'clinic.asr.batch': 'Batch-Profil',
     'clinic.asr.format': 'Ausgabeformat',
     'clinic.asr.engine': 'Verwendete Erkennung',
+    'clinic.asr.engine.unknown': 'Nicht ermittelt',
     'clinic.asr.engine.gpu': 'GPU',
     'clinic.asr.engine.cpu': 'CPU',
     'clinic.asr.fallback': 'Ausweichlösung aktiv: CPU statt GPU.',
@@ -246,6 +247,7 @@ export function createAsrProfilesController(deps) {
         const d = state.draft;
         const fallback = s.engine.configured === 'gpu' && s.engine.actual === 'cpu';
         const provenSet = new Set(s.proven);
+        const verifiedEngine = ['batch', 'live'].some((name) => provenSet.has(name)) || fallback;
         const dirty = d.source !== s.source || d.liveProfileId !== s.liveProfileId || d.batchProfileId !== s.batchProfileId;
         const choices = (mode) => offered(mode).map((id) => ({
             value: id,
@@ -265,11 +267,11 @@ export function createAsrProfilesController(deps) {
             engine: {
                 configured: s.engine.configured,
                 actual: s.engine.actual,
-                label: label('clinic.asr.engine.' + s.engine.actual),
+                label: label('clinic.asr.engine.' + (verifiedEngine ? s.engine.actual : 'unknown')),
                 fallback,
                 fallbackLabel: fallback ? label('clinic.asr.fallback') : '',
                 reason: s.engine.reason,
-                surface: fallback ? surfaceFor('warning') : surfaceFor('success'),
+                surface: surfaceFor(fallback ? 'warning' : (verifiedEngine ? 'success' : 'normal')),
             },
             prompts: { enabled: s.promptsEnabled, label: label('clinic.asr.prompts.' + (s.promptsEnabled ? 'on' : 'off')) },
             capabilities: s.configured.map((name) => ({
