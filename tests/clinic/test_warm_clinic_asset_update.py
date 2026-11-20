@@ -118,6 +118,7 @@ def test_same_release_updates_previously_cached_shell_css_and_admin(tmp_path, le
                 index.wait_for_load_state("networkidle")
                 admin.wait_for_load_state("networkidle")
                 [old_cache] = index.evaluate("() => caches.keys()")
+                old_controller = index.evaluate("navigator.serviceWorker.controller.scriptURL")
 
             with _deployment(tmp_path / "new", port, "new"):
                 admin.reload()
@@ -132,8 +133,9 @@ def test_same_release_updates_previously_cached_shell_css_and_admin(tmp_path, le
                 # The installed update may wait for both clients to exit.
                 index.wait_for_function("""async version => {
                     const r = await navigator.serviceWorker.getRegistration();
-                    return [r.installing, r.waiting, r.active].some(w => w && new URL(w.scriptURL).searchParams.get('v') === version);
+                    return r?.waiting?.state === 'installed' && new URL(r.waiting.scriptURL).searchParams.get('v') === version;
                 }""", arg=version)
+                assert all(tab.evaluate("navigator.serviceWorker.controller.scriptURL") == old_controller for tab in (index, admin))
             _assert_offline_pages(index, admin, base)
 
         # Last old client has exited. Reopen the same persistent profile, preserving the registration,
