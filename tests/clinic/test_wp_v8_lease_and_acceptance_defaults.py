@@ -114,7 +114,7 @@ def _can_save(app, users, target, role):
     if role == 'typist':
         denied = browser.release(target, held, saved.json['text_revision_id'], text)
         # The release route currently masks permission denials as 404.
-        assert denied.status_code in (403, 404), denied.json
+        assert denied.status_code == 404, denied.json
         assert 'release' not in browser.get('/detail')['allowed_actions']
 
 

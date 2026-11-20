@@ -1148,7 +1148,7 @@ def register_clinic_worklist(flask_app):
     Called at startup only in clinic mode, after register_clinic_resources, and reuses its
     parity dispatcher and receipt runner. Object decisions go through pool_policy.decide.
     Stores are process-local; release stays fail-closed until a trusted-context source and
-    the review-flag count (W11) exist, and the acceptance ledger starts as "required, no approver".
+    the review-flag count (W11) exist, and the acceptance ledger starts as "not required, no approver".
     """
     from datetime import datetime, timezone
 
@@ -1304,7 +1304,7 @@ def register_clinic_worklist(flask_app):
         return db.session.get(User, user_id) is not None and account is not None and account.status == 'active'
 
     flask_app.register_blueprint(routes_acceptance_policy.create_blueprint(
-        authorize=policy_authorize, ledger=ledger, default_required=lambda _dictation: True,
+        authorize=policy_authorize, ledger=ledger, default_required=lambda _dictation: False,
         is_acceptance_member=is_acceptance_member, record_audit=record_audit))
     # --- v8-74: acceptance policy publication (end) ---
 
