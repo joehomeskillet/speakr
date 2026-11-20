@@ -108,11 +108,11 @@ export const RecordingsView = {
         <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>
         <input type="search" style="border: 0; padding: 0; min-height: 0; height: auto; background: transparent; box-shadow: none; font-size: 13px" data-testid="filter-search" :aria-label="t.searchLabel" :placeholder="t.searchPlaceholder" autocomplete="off" v-model="c.state.query">
       </label>
-      <select class="record-select max-[520px]:!basis-full" style="appearance: auto; width: auto; font-size: 12px; cursor: default"
+      <select class="record-select" style="appearance: auto; width: auto; font-size: 12px; cursor: default"
               data-testid="filter-scope" disabled :aria-label="t.scopeLabel" :title="t.scopeHint">
         <option value="">{{ t.scopeAll }}</option>
       </select>
-      <select class="record-select max-[520px]:!basis-full" style="appearance: auto; width: auto; font-size: 12px" data-testid="filter-status" :aria-label="t.statusLabel" v-model="c.state.draft.status" @change="c.applyFilters()">
+      <select class="record-select" style="appearance: auto; width: auto; font-size: 12px" data-testid="filter-status" :aria-label="t.statusLabel" v-model="c.state.draft.status" @change="c.applyFilters()">
         <option value="">{{ t.statusAny }}</option>
         <option v-for="(label, key) in c.statusOptions" :key="key" :value="key">{{ label }}</option>
       </select>
