@@ -144,6 +144,8 @@ def _publication_controls_submit(app, users, target):
     initial = {'version': 0, 'acceptance_required': False, 'approver_ids': []}
     assert admin.get('/acceptance-policy') == initial
     assert 'submit' not in author.get('/detail')['allowed_actions']
+    assert author.get('/review')['binding']['acceptance_rule_id'] is None
+    assert admin.get('/acceptance-policy') == initial
 
     # Exercise rollback when audit logging has not started a SQLite write transaction.
     with (patch('src.services.audit.record_in_tx', return_value=None),

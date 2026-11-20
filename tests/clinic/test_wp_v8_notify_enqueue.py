@@ -79,7 +79,8 @@ def exercise(app):
 
     def submit():
         return command('request_acceptance', text_revision_id=target['head'],
-                       context_revision_id=target['context'], acceptance_rule_id=str(uuid4()))
+                       context_revision_id=target['context'],
+                       acceptance_rule_id=browser.get('/review')['binding']['acceptance_rule_id'])
 
     request = submit()
     with patch.object(job_queue, 'enqueue', side_effect=ClinicJobError('queue unavailable')):
