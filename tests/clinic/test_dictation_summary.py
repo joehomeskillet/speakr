@@ -191,3 +191,19 @@ def test_revision_change_during_inference_discards_result(scene, monkeypatch):
     db.session.expire_all()
     assert db.session.get(ProcessingJob, claim.id).status == 'failed' and len(calls) == 1
     assert client.get(url).json['text'] == source.summary == 'Historisches Ergebnis.'
+
+
+def test_ambiguous_historical_source_is_never_disclosed(scene):
+    client, url, signin, calls, row, owner, _, _, source = scene
+    signin(owner)
+    other_anchor = Recording(user_id=owner, title='Zweiter Anker')
+    db.session.add(other_anchor)
+    db.session.flush()
+    other = ClinicDictation(author_user_id=owner, recording_id=other_anchor.id)
+    db.session.add(other)
+    db.session.flush()
+    db.session.add(ClinicOriginal(dictation_id=other.id, content_hash='b'*64, size_bytes=8, storage_key='other',
+                                  receipt='second', origin_ref=f'legacy:recording:{source.id}:time=upload'))
+    db.session.commit()
+    assert client.get(url).json == {'status': 'empty', 'text': None, 'may_generate': True}
+    assert not calls

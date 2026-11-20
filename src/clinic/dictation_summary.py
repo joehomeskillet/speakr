@@ -8,6 +8,7 @@ import httpx
 from flask import abort, jsonify, request
 from flask_login import current_user
 from flask_wtf.csrf import validate_csrf
+from sqlalchemy.exc import MultipleResultsFound
 from wtforms.validators import ValidationError
 
 from src.clinic import config, policy, pool_policy, revisions
@@ -65,9 +66,13 @@ def source_recording(dictation, head):
         return None
     row = db.session.get(Recording, rid)
     anchor = db.session.get(Recording, dictation.recording_id)
-    if row and anchor and row.user_id == anchor.user_id and dictation_for_recording(rid) == dictation:
-        return row
-    return None
+    if not row or not anchor or row.user_id != anchor.user_id:
+        return None
+    try:
+        return row if dictation_for_recording(rid) == dictation else None
+    except MultipleResultsFound:
+        # Ambiguous historical receipts cannot establish which dictation owns the summary.
+        return None
 
 
 def summary_state(dictation, head, may_generate):
@@ -176,7 +181,7 @@ def run_summary(job, params, current_attempt):
         raise RuntimeError('Summary provider failed') from None
     choice = reply.choices[0] if reply and reply.choices else None
     body = clean_llm_response(choice.message.content or '') if choice else ''
-    if not body or choice.finish_reason != 'stop':
+    if not usable(body) or choice.finish_reason != 'stop':
         raise RuntimeError('Summary provider returned an incomplete result')
     job = current_attempt(job_id, attempt, lock=True)
     if job is None:
