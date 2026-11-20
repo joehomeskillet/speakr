@@ -4803,6 +4803,68 @@ Summarization Instructions:
         .clinic-asr-profiles-view td[style] { border-radius: var(--radius-md, 8px); }
         .clinic-asr-profiles-view select:focus-visible, .clinic-asr-profiles-view button:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
         @media (max-width: 40rem) { .clinic-asr-profiles-view section { padding: var(--sp-3); } .clinic-asr-profiles-view select { max-width: none; } }
+
+        /* Style the classless controls in the mounted author and directory components. */
+        :is(.clinic-authors-view, .clinic-directory-host) {
+            max-width: 68rem; color: var(--text-primary); overflow-wrap: anywhere;
+            font-size: var(--fs-body); line-height: var(--lh-base); padding-inline: var(--sp-1);
+        }
+        :is(.clinic-authors-view, .clinic-directory-host) :is(h2, h3, h4) { font-weight: 600; }
+        :is(#authors-title, #clinic-dir-title, #directory-status-title) { font-size: var(--fs-heading); }
+        :is(.clinic-authors-view, .clinic-directory-host) :is(h3, h4) { font-size: var(--fs-subhead); }
+        .clinic-authors-view > :is(button, p, table, section),
+        .clinic-directory-host :is(h3, p, ul, button) { margin-block-start: var(--sp-3); }
+        .clinic-authors-view > section, .clinic-authors-view .pools-ui article,
+        .clinic-directory-host [role="alertdialog"] {
+            padding: var(--sp-4); border: 1px solid var(--border-primary); border-radius: var(--radius-md);
+        }
+        :is(.clinic-authors-view, .clinic-directory-host) :is([role="status"], [role="alert"], [role="note"]) {
+            padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-primary); border-radius: var(--radius-sm);
+        }
+        .clinic-authors-view table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+        .clinic-authors-view :is(th, td) {
+            padding: var(--sp-2) var(--sp-3); text-align: left; vertical-align: top; border-bottom: 1px solid var(--border-primary);
+        }
+        .clinic-authors-view thead { background: var(--bg-tertiary); }
+        .clinic-authors-view td:nth-child(3) span { padding: var(--sp-1); border-radius: var(--radius-sm); }
+        .clinic-authors-view .pools-ui > *, .clinic-authors-view .pools-ui article > * { margin-block-start: var(--sp-2); }
+        .clinic-authors-view .pools-ui article + article { margin-block-start: var(--sp-3); }
+        .clinic-authors-view .pools-ui form {
+            display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2);
+        }
+        .clinic-authors-view .pools-ui li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); margin-block: var(--sp-1); }
+        .clinic-directory-host button:has(+ button) { margin-inline-end: var(--sp-2); }
+        .clinic-directory-host li { padding-block: var(--sp-2); border-bottom: 1px solid var(--border-primary); }
+        :is(.clinic-authors-view, .clinic-directory-host) button:not(.btn) {
+            display: inline-flex; align-items: center; min-height: 44px; padding: var(--sp-1) var(--sp-3);
+            border: 1px solid var(--border-secondary); border-radius: var(--radius-md);
+            color: var(--text-primary); font-weight: 500; background: var(--bg-secondary); cursor: pointer;
+        }
+        :is(.clinic-authors-view, .clinic-directory-host) button:not(.btn):hover:not(:disabled) { background: var(--bg-tertiary); }
+        :is(.clinic-authors-view, .clinic-directory-host) button:disabled { opacity: 0.55; cursor: not-allowed; }
+        .clinic-authors-view .pools-ui input {
+            width: 8rem; min-height: 44px; padding: var(--sp-2) var(--sp-3); color: var(--text-primary);
+            border: 1px solid var(--border-secondary); border-radius: var(--radius-md); background: var(--bg-input);
+        }
+        :is(.clinic-authors-view, .clinic-directory-host) :is(button, input):focus-visible {
+            outline: 2px solid var(--border-focus); outline-offset: 2px;
+        }
+        @media (max-width: 40rem) {
+            [data-testid="clinic-admin"] .tabs { flex-wrap: wrap; }
+            .clinic-authors-view table, .clinic-authors-view tbody { display: block; }
+            .clinic-authors-view thead { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); overflow: hidden; }
+            .clinic-authors-view tbody tr {
+                display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start;
+                gap: var(--sp-2) var(--sp-3); padding: var(--sp-3); border-block-end: 1px solid var(--border-primary);
+            }
+            .clinic-authors-view tbody :is(th, td) { padding: 0; border: 0; }
+            .clinic-authors-view td:nth-child(3) { grid-area: 1 / 2; justify-self: end; }
+            .clinic-authors-view td::before { display: block; color: var(--text-muted); font-size: var(--fs-meta); }
+            .clinic-authors-view td:nth-child(2)::before { content: 'Benutzer-ID' / ''; }
+            .clinic-authors-view td:nth-child(4)::before { content: 'Diktierrolle' / ''; }
+            .clinic-authors-view td:nth-child(5)::before { content: 'Autorenpools' / ''; }
+            .clinic-authors-view td:nth-child(6)::before { content: 'Schreibkräfte-Pools' / ''; }
+        }
     </style>
     <script type="module">
         import { createClinicApiClient } from "{{ url_for('static', filename='js/clinic/api-client.js', v=app_version) }}";
@@ -4870,6 +4932,42 @@ Summarization Instructions:
             return { request, switchContext };
         }
         const adminClient = createAdminClient();
+        // The authors view shares one request interface between its account list and pool editor.
+        const authorsClient = {
+            request(path, options) {
+                return (path === '/admin/users' ? adminClient : client).request(path, options);
+            },
+        };
+
+        const DirectoryHost = {
+            emits: ['open-accounts'],
+            setup() {
+                const available = ref(false);
+                const message = ref('Verzeichniszugriff wird geprüft …');
+                async function checkCapability() {
+                    const result = await client.request('/directory/capability');
+                    available.value = result.outcome === 'ok' && result.data?.directory_available === true;
+                    if (result.outcome === 'permission') {
+                        message.value = 'Der Verzeichnisabgleich erfordert Rechte zur Identitätsverwaltung.';
+                    } else if (result.outcome !== 'ok') {
+                        message.value = 'Der Verzeichnisstatus konnte nicht geladen werden.';
+                    } else {
+                        message.value = 'Der Verzeichnisabgleich ist nicht aktiviert.';
+                    }
+                }
+                onMounted(checkCapability);
+                return { available, client, message };
+            },
+            template: `
+<div class="clinic-directory-host">
+  <clinic-directory-review v-if="available" :client="client" @open-accounts="$emit('open-accounts')"></clinic-directory-review>
+  <section v-else aria-labelledby="directory-status-title">
+    <h2 id="directory-status-title" class="t-heading">Verzeichnisabgleich</h2>
+    <p role="status" v-text="message"></p>
+    <button type="button" class="btn btn--ghost" @click="$emit('open-accounts')">Lokale Konten verwalten</button>
+  </section>
+</div>`,
+        };
 
         // Grants are read per user: the panel starts on the viewer's own id. The API decides who may read or change.
         const GrantsHost = {
@@ -5014,7 +5112,7 @@ Summarization Instructions:
             { id: 'accounts', label: 'Konten', probe: '/admin/users', comp: AccountsAdminPanel, props: { controller: createAccountsAdmin({ client: adminClient, reactive }) } },
             { id: 'pools', label: 'Pools', probe: '/pools', comp: createPoolsComponent(window.Vue, client), props: {} },
             { id: 'grants', label: 'Fachrechte', probe: '/identity/users/' + userId + '/grants', comp: GrantsHost, props: {} },
-            { id: 'directory', label: 'Verzeichnis', probe: '/directory/capability', comp: 'clinic-directory-review', props: { client, currentUser: { is_admin: !team } } },
+            { id: 'directory', label: 'Verzeichnis', probe: '/directory/capability', comp: DirectoryHost, props: {} },
             { id: 'templates', label: 'Vorlagen', probe: '/templates', comp: templatesComponent(window.Vue, { client }), props: {} },
             { id: 'categories', label: 'Kategorien', probe: '/categories', comp: categoriesComponent(window.Vue, { client }), props: {} },
             { id: 'regex', label: 'Regeln', probe: null, comp: RegexHost, props: {} },
@@ -5027,7 +5125,7 @@ Summarization Instructions:
         const v8props = { client, currentUser: { id: userId, is_admin: !team } };
         const v8defs = [
             { id: 'admin-pools', label: 'Schreibkräfte-Pools', probe: '/pool-admin/pools', comp: 'clinic-admin-pools-view', props: { client, userClient: client } },
-            { id: 'authors', label: 'Diktierende und Autorenpools', probe: '/admin/users', probeVia: adminClient, comp: 'clinic-authors-view', props: v8props },
+            { id: 'authors', label: 'Diktierende und Autorenpools', probe: '/admin/users', probeVia: adminClient, comp: 'clinic-authors-view', props: { ...v8props, client: authorsClient } },
             { id: 'users', label: 'Benutzer und Rollen', probe: '/admin/users', probeVia: adminClient, comp: 'clinic-users-view', props: { ...v8props, adminClient } },
             { id: 'vocabulary', label: 'Wortschatz', probe: '/vocabulary/search?scope=user&q=&mode=contains&status=all', comp: 'clinic-vocabulary-view', props: v8props },
             { id: 'commands-templates', label: 'Befehle und Vorlagen', probe: '/resources/commands', comp: 'clinic-commands-templates-view', props: v8props },
