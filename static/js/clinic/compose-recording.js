@@ -32,6 +32,18 @@ import { surfaceFor } from './tokens.js';
 
 export const COMPOSE_RECORDING_VERSION = 1;
 
+// clinic-v8.css states heading, button and form-control styles with zero-specificity element selectors; the Tailwind
+// base layer, loaded after it, resets those. These strings restate them where this page needs them.
+const H1 = 'font-size: clamp(26px, 4vw, 30px); line-height: 1.2; font-weight: 700; letter-spacing: -.8px; margin: 0 0 9px';
+const H2 = 'font-size: 16px; line-height: 1.35; font-weight: 700; letter-spacing: -.2px; margin: 0 0 14px';
+const H3 = 'font-size: 14px; line-height: 1.35; font-weight: 700; margin: 0 0 10px';
+const FIELD = 'display: grid; gap: 6px; margin: 0 0 16px; min-width: 0';
+const LABEL = 'font-size: 12px; font-weight: 650';
+const HELP = 'font-size: 11px; color: var(--v8-muted)';
+const INPUT = 'width: 100%; min-height: 40px; padding: 10px 11px; border: 1px solid var(--line); border-radius: 7px; background-color: var(--surface); color: var(--v8-text); font: inherit';
+const PRIMARY = { background: 'var(--ink)', borderColor: 'var(--ink)', color: 'white', fontSize: '13px', fontWeight: 600, padding: '9px 13px' };
+const TEXTAREA = 'width: 100%; min-height: 100px; padding: 10px 11px; border: 1px solid var(--line); border-radius: 7px; background-color: var(--surface); color: var(--v8-text); font: inherit; line-height: 1.65';
+
 export const TEXT = Object.freeze({
     title: 'Neue Aufnahme',
     author: 'Diktiert von',
@@ -55,6 +67,28 @@ export const TEXT = Object.freeze({
     another: 'Weitere Aufnahme',
     discardFailed: 'Die Aufnahme konnte nicht verworfen werden.',
     denied: 'Keine Berechtigung für diese Aktion.',
+    eyebrow: 'Aufnahmen',
+    subline: 'Titel festlegen, anschliessend die Aufnahme im Browser starten oder eine Audiodatei hochladen.',
+    info: 'Aufnahmeinformationen',
+    authorHint: 'Angemeldete Person. Sie kann hier nicht geändert werden.',
+    titleHint: 'Ein Titel ist erforderlich, bevor die Aufnahme startet.',
+    storageNote: 'Ton und Titel bleiben im Arbeitsspeicher des Browsers. Es wird nichts lokal gespeichert, bis das Diktat gesendet ist.',
+    state: 'Stand',
+    cancel: 'Abbrechen',
+});
+
+/** Short phase caption next to the recording controls; the live region carries the full message. */
+export const PHASE_CAPTIONS = Object.freeze({
+    title: 'Titel eingeben',
+    ready: 'Bereit zur Aufnahme',
+    recording: 'Aufnahme läuft',
+    paused: 'Pausiert',
+    review: 'Aufnahme beendet, bereit zum Senden',
+    sending: 'Wird gesendet',
+    sent: 'Gesendet',
+    failed: 'Senden fehlgeschlagen',
+    idle: 'Keine Datei gewählt',
+    selected: 'Datei gewählt',
 });
 
 export const MODES = Object.freeze(['record', 'file']);
@@ -284,45 +318,78 @@ export function createRecordingViewController(options) {
 const RECORDER_ACTIONS = ['start', 'pause', 'resume', 'stop', 'rewind', 'play', 'send', 'cancel'];
 
 export const RECORDING_TEMPLATE = `
-<section class="clinic-recording-view" data-testid="clinic-recording-view" aria-labelledby="crv-title"
-         :style="{ background: m.surface.background, color: m.surface.color, border: '1px solid ' + m.surface.border }">
-  <h1 id="crv-title" class="text-lg font-semibold">{{ c.text.title }}</h1>
-  <p data-testid="author"><span>{{ c.text.author }}:</span> <strong>{{ m.author || m.authorId }}</strong></p>
-  <div role="group" :aria-label="c.text.modes" class="flex flex-wrap gap-2 mt-2">
-    <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" data-testid="mode-record"
-            :aria-pressed="m.mode === 'record' ? 'true' : 'false'" :disabled="!m.canSwitchMode" @click="c.setMode('record')">{{ c.text.modeRecord }}</button>
-    <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" data-testid="mode-file"
-            :aria-pressed="m.mode === 'file' ? 'true' : 'false'" :disabled="!m.canSwitchMode" @click="c.setMode('file')">{{ c.text.modeFile }}</button>
+<section class="clinic-recording-view v8-page" data-testid="clinic-recording-view" aria-labelledby="crv-title">
+  <nav class="breadcrumb" aria-label="Pfad"><span>Speakr</span><span aria-hidden="true">›</span><span>{{ c.text.eyebrow }}</span><span aria-hidden="true">›</span><span aria-current="page">{{ c.text.title }}</span></nav>
+  <div class="pagehead">
+    <div>
+      <div class="eyebrow">{{ c.text.eyebrow }}</div>
+      <h1 id="crv-title" style="${H1}">{{ c.text.title }}</h1>
+      <p class="subline">{{ c.text.subline }}</p>
+    </div>
+    <div class="head-actions"></div>
   </div>
-  <template v-if="!m.created">
-    <div v-if="m.mode === 'record'" class="mt-3">
-      <label for="crv-title-input">{{ c.text.dictationTitle }}</label>
-      <input id="crv-title-input" type="text" required aria-required="true" :aria-invalid="m.phase === 'title' ? 'true' : 'false'"
-             :disabled="m.titleLocked" :value="m.title" @input="c.setTitle($event.target.value)" />
-      <div role="group" :aria-label="c.text.recordingControls" class="flex flex-wrap gap-2 mt-2">
-        <button v-for="b in m.controls" :key="b.id" type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem"
-                :data-testid="'rec-' + b.id" :disabled="b.disabled" :aria-disabled="b.disabled ? 'true' : 'false'" @click="act(b.id)">{{ b.label }}</button>
+  <div class="grid">
+    <section class="panel" :aria-label="c.text.info">
+      <h2 style="${H2}">{{ c.text.info }}</h2>
+      <div class="field-grid">
+        <div style="${FIELD}" data-testid="author"><span style="${LABEL}">{{ c.text.author }}</span><strong>{{ m.author || m.authorId }}</strong><small style="${HELP}">{{ c.text.authorHint }}</small></div>
+        <div style="${FIELD}">
+          <span style="${LABEL}">{{ c.text.modes }}</span>
+          <div role="group" :aria-label="c.text.modes" class="actions">
+            <button type="button" class="button" style="min-height: 2.75rem" data-testid="mode-record" :style="m.mode === 'record' ? P : null"
+                    :aria-pressed="m.mode === 'record' ? 'true' : 'false'" :disabled="!m.canSwitchMode" @click="c.setMode('record')">{{ c.text.modeRecord }}</button>
+            <button type="button" class="button" style="min-height: 2.75rem" data-testid="mode-file" :style="m.mode === 'file' ? P : null"
+                    :aria-pressed="m.mode === 'file' ? 'true' : 'false'" :disabled="!m.canSwitchMode" @click="c.setMode('file')">{{ c.text.modeFile }}</button>
+          </div>
+        </div>
+        <template v-if="!m.created">
+          <div v-if="m.mode === 'record'" class="full" style="${FIELD}">
+            <label style="${LABEL}" for="crv-title-input">{{ c.text.dictationTitle }}</label>
+            <input style="${INPUT}" id="crv-title-input" type="text" required aria-required="true" :aria-invalid="m.phase === 'title' ? 'true' : 'false'"
+                   :disabled="m.titleLocked" :value="m.title" @input="c.setTitle($event.target.value)" />
+            <small style="${HELP}">{{ c.text.titleHint }}</small>
+          </div>
+          <div v-else class="full" style="${FIELD}">
+            <label style="${LABEL}" for="crv-file">{{ c.text.file }}</label>
+            <input style="${INPUT}" id="crv-file" type="file" accept="audio/*" :disabled="!m.canSelectFile" @change="pick($event)" />
+            <small v-if="m.file" style="${HELP}" data-testid="file-name">{{ c.text.fileSelected }}: {{ m.file.name }}</small>
+          </div>
+        </template>
       </div>
-    </div>
-    <div v-else class="mt-3">
-      <label for="crv-file">{{ c.text.file }}</label>
-      <input id="crv-file" type="file" accept="audio/*" :disabled="!m.canSelectFile" @change="pick($event)" />
-      <p v-if="m.file" data-testid="file-name">{{ c.text.fileSelected }}: {{ m.file.name }}</p>
-      <div class="flex flex-wrap gap-2 mt-2">
-        <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" data-testid="file-upload"
-                :disabled="!m.canUpload" @click="c.sendFile()">{{ m.uploadLabel }}</button>
-        <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" data-testid="file-cancel"
-                :disabled="!m.canCancelFile" @click="c.cancelFile()">Abbrechen</button>
-      </div>
-    </div>
-  </template>
-  <p role="status" aria-live="polite" class="mt-2" data-testid="status">{{ m.message }}</p>
-  <div v-if="m.created" class="mt-2" data-testid="created">
-    <p>{{ c.text.created }}: <strong data-testid="created-id">{{ m.created.dictationId }}</strong></p>
-    <div class="flex flex-wrap gap-2">
-      <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" data-testid="to-worklist" @click="c.toWorklist()">{{ c.text.toWorklist }}</button>
-      <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" data-testid="open-created" @click="c.openCreated()">{{ c.text.open }}</button>
-      <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" data-testid="another" @click="c.another()">{{ c.text.another }}</button>
+      <div class="note">{{ c.text.storageNote }}</div>
+    </section>
+    <div class="stack">
+      <section class="panel" :aria-label="m.mode === 'record' ? c.text.recordingControls : c.text.modeFile">
+        <h2 style="${H2}">{{ m.mode === 'record' ? c.text.recordingControls : c.text.modeFile }}</h2>
+        <template v-if="!m.created">
+          <div v-if="m.mode === 'record'" class="recorder compact-recorder" :class="{ recording: m.phase === 'recording' }" style="flex-wrap: wrap">
+            <div role="group" :aria-label="c.text.recordingControls" class="recorder-controls" style="flex-wrap: wrap; gap: 8px">
+              <button v-for="b in m.controls" :key="b.id" type="button" class="button" :style="b.id === 'start' || b.id === 'send' ? P : null" style="min-height: 2.75rem"
+                      :data-testid="'rec-' + b.id" :disabled="b.disabled" :aria-disabled="b.disabled ? 'true' : 'false'" @click="act(b.id)">{{ b.label }}</button>
+            </div>
+            <div class="recorder-caption" style="flex-basis: 100%"><strong>{{ captions[m.phase] || m.phase }}</strong></div>
+          </div>
+          <div v-else class="recorder compact-recorder" style="flex-wrap: wrap">
+            <div class="recorder-controls" style="flex-wrap: wrap; gap: 8px">
+              <button type="button" class="button" :style="P" style="min-height: 2.75rem" data-testid="file-upload"
+                      :disabled="!m.canUpload" @click="c.sendFile()">{{ m.uploadLabel }}</button>
+              <button type="button" class="button" style="min-height: 2.75rem" data-testid="file-cancel"
+                      :disabled="!m.canCancelFile" @click="c.cancelFile()">{{ c.text.cancel }}</button>
+            </div>
+            <div class="recorder-caption" style="flex-basis: 100%"><strong>{{ captions[m.phase] || m.phase }}</strong></div>
+          </div>
+        </template>
+        <p role="status" aria-live="polite" class="text-status" :class="{ error: m.surface.status === 'error' }" style="margin-top: 12px" data-testid="status">{{ m.message }}</p>
+        <div v-if="m.created" data-testid="created">
+          <div class="note"><span class="tag neutral dot">{{ c.text.created }}</span> <strong data-testid="created-id">{{ m.created.dictationId }}</strong></div>
+          <hr class="separator">
+          <div class="actions">
+            <button type="button" class="button" :style="P" style="min-height: 2.75rem" data-testid="to-worklist" @click="c.toWorklist()">{{ c.text.toWorklist }}</button>
+            <button type="button" class="button" style="min-height: 2.75rem" data-testid="open-created" @click="c.openCreated()">{{ c.text.open }}</button>
+            <button type="button" class="button" style="min-height: 2.75rem" data-testid="another" @click="c.another()">{{ c.text.another }}</button>
+          </div>
+        </div>
+      </section>
     </div>
   </div>
 </section>`;
@@ -360,6 +427,8 @@ export const RecordingView = {
         return {
             c,
             m,
+            captions: PHASE_CAPTIONS,
+            P: PRIMARY,
             act: (id) => { if (RECORDER_ACTIONS.includes(id)) c[id](); },
             pick: (event) => {
                 const files = event && event.target && event.target.files;

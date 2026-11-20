@@ -32,6 +32,18 @@ export const PAGE_SIZE = 50;
 export const ARCHIVE_STATUS = 'zu_archivieren';
 export const ZONE = 'Europe/Zurich';
 
+// clinic-v8.css states heading, button and form-control styles with zero-specificity element selectors; the Tailwind
+// base layer, loaded after it, resets those. These strings restate them where this page needs them.
+const H1 = 'font-size: clamp(26px, 4vw, 30px); line-height: 1.2; font-weight: 700; letter-spacing: -.8px; margin: 0 0 9px';
+const H2 = 'font-size: 16px; line-height: 1.35; font-weight: 700; letter-spacing: -.2px; margin: 0 0 14px';
+const H3 = 'font-size: 14px; line-height: 1.35; font-weight: 700; margin: 0 0 10px';
+const FIELD = 'display: grid; gap: 6px; margin: 0 0 16px; min-width: 0';
+const LABEL = 'font-size: 12px; font-weight: 650';
+const HELP = 'font-size: 11px; color: var(--v8-muted)';
+const INPUT = 'width: 100%; min-height: 40px; padding: 10px 11px; border: 1px solid var(--line); border-radius: 7px; background-color: var(--surface); color: var(--v8-text); font: inherit';
+const PRIMARY = 'background: var(--ink); border-color: var(--ink); color: white; font-size: 13px; font-weight: 600; padding: 9px 13px';
+const TEXTAREA = 'width: 100%; min-height: 100px; padding: 10px 11px; border: 1px solid var(--line); border-radius: 7px; background-color: var(--surface); color: var(--v8-text); font: inherit; line-height: 1.65';
+
 export const TEXT = Object.freeze({
     title: 'Archiv',
     back: 'Zurück zu Aufnahmen',
@@ -62,6 +74,20 @@ export const TEXT = Object.freeze({
     importedMark: 'importiert',
     importedHint: 'Zeitpunkt aus der importierten Datei.',
     hits: (n) => (n === 1 ? '1 Treffer' : n + ' Treffer'),
+    eyebrow: 'Aufnahmen',
+    subline: 'Abgeschlossene Diktate chronologisch ansehen. Die diktierende Person und die Poolzuständigkeit bleiben erhalten.',
+    listHeading: 'Archivierte Diktate',
+    statArchived: 'Geladene Einträge',
+    statArchivedNote: 'Nach Aufnahmezeit sortiert',
+    statAuthors: 'Diktierende',
+    statAuthorsNote: 'Als eigene Metadaten sichtbar',
+    statPools: 'Schreibkräfte-Pools',
+    statPoolsNote: 'Gruppenzuständigkeit bleibt erhalten',
+    statOldest: 'Ältestes Archivdatum',
+    statOldestNote: 'Unter den geladenen Einträgen',
+    readOnlyNote: 'Das Archiv wird nur gelesen. Bereits bestätigte Ausgaben bleiben unverändert.',
+    filters: 'Filter',
+    moreLoaded: 'Weitere Einträge sind verfügbar.',
 });
 
 /** Retention labels as text, never colour only (V4 axis active / due / held / deleted). */
@@ -133,6 +159,27 @@ export function buildQuery(filters, cursor, limit) {
     if (f.poolId) params.set('pool_id', String(f.poolId));
     params.set('status', ARCHIVE_STATUS);
     return '/recordings?' + params.toString();
+}
+
+/** Figures for the stat cards, derived from the rows that are loaded; nothing is fetched or guessed. */
+export function archiveSummary(rows) {
+    const list = Array.isArray(rows) ? rows : [];
+    const authors = new Set();
+    const pools = new Set();
+    let oldest = null;
+    for (const row of list) {
+        const author = row && row.dictated_by && row.dictated_by.display_name;
+        if (author) authors.add(author);
+        for (const p of row && Array.isArray(row.staff_pools) ? row.staff_pools : []) if (p && p.name) pools.add(p.name);
+        const at = parse(row && row.archived_at);
+        if (at && (!oldest || at < oldest)) oldest = at;
+    }
+    return {
+        count: list.length,
+        authors: authors.size,
+        pools: pools.size,
+        oldest: oldest ? dateFmt.format(oldest) : TEXT.noValue,
+    };
 }
 
 const plainRef = (init) => {
@@ -238,6 +285,7 @@ export function createArchiveController(options) {
         recorded: recordedCell, archived: archivedCell, author: authorCell, pool: poolCell,
         retention: retentionLabel, retentionStyle,
         hits: () => TEXT.hits(rows.value.length),
+        summary: () => archiveSummary(rows.value),
     };
 }
 
@@ -264,59 +312,81 @@ export const ArchiveView = {
         return { c };
     },
     template: `
-<section class="clinic-archive-view" data-testid="clinic-archive-view" aria-labelledby="cav-title">
-  <header class="flex flex-wrap items-center gap-2">
-    <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" data-testid="archive-back" @click="c.back()">{{ c.text.back }}</button>
-    <h1 id="cav-title" class="text-lg font-semibold">{{ c.text.title }}</h1>
-    <span role="status" aria-live="polite" data-testid="archive-hits">{{ c.hits() }}</span>
-    <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" data-testid="archive-remove-filter" @click="c.back()">{{ c.text.removeFilter }}</button>
-  </header>
-  <form class="flex flex-wrap items-end gap-2 mt-3" data-testid="archive-filters" @submit.prevent="c.load()">
-    <label class="flex flex-col text-sm">{{ c.text.from }}<input type="date" class="px-2 py-2 border rounded" v-model="c.filters.from" data-testid="filter-from"></label>
-    <label class="flex flex-col text-sm">{{ c.text.to }}<input type="date" class="px-2 py-2 border rounded" v-model="c.filters.to" data-testid="filter-to"></label>
-    <label class="flex flex-col text-sm">{{ c.text.author }}<input type="text" class="px-2 py-2 border rounded" v-model="c.filters.authorId" data-testid="filter-author" autocomplete="off"></label>
-    <label class="flex flex-col text-sm">{{ c.text.pool }}<input type="text" class="px-2 py-2 border rounded" v-model="c.filters.poolId" data-testid="filter-pool" autocomplete="off"></label>
-    <button type="submit" class="px-3 py-2 border rounded" style="min-height: 2.75rem">{{ c.text.apply }}</button>
-    <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" @click="c.resetFilters()">{{ c.text.reset }}</button>
-  </form>
-  <div v-if="c.denied.value" role="alert" class="mt-2 p-2 rounded" data-testid="archive-denied">{{ c.text.denied }}</div>
-  <template v-else>
-    <div v-if="c.error.value" role="alert" class="mt-2 p-2 rounded" data-testid="archive-error">
-      {{ c.error.value }} {{ c.text.stale }}
-      <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" @click="c.load()">{{ c.text.retry }}</button>
+<section class="clinic-archive-view v8-page" data-testid="clinic-archive-view" aria-labelledby="cav-title">
+  <nav class="breadcrumb" aria-label="Pfad"><span>Speakr</span><span aria-hidden="true">›</span><span>{{ c.text.eyebrow }}</span><span aria-hidden="true">›</span><span aria-current="page">{{ c.text.title }}</span></nav>
+  <div class="pagehead">
+    <div>
+      <div class="eyebrow">{{ c.text.eyebrow }}</div>
+      <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px">
+        <h1 id="cav-title" style="${H1}">{{ c.text.title }}</h1>
+        <span class="tag neutral" style="margin-bottom: 9px" role="status" aria-live="polite" data-testid="archive-hits">{{ c.hits() }}</span>
+      </div>
+      <p class="subline">{{ c.text.subline }}</p>
     </div>
-    <div v-if="c.loading.value && !c.rows.value.length" role="status" aria-live="polite" data-testid="archive-loading">{{ c.text.loading }}</div>
-    <p v-else-if="!c.rows.value.length && !c.error.value" data-testid="archive-empty">{{ c.emptyText() }}</p>
-    <div v-else-if="c.rows.value.length" class="overflow-x-auto mt-3">
-      <table class="w-full" aria-label="Archiv">
-        <thead>
-          <tr>
-            <th scope="col">{{ c.text.recorded }}</th>
-            <th scope="col">{{ c.text.author }}</th>
-            <th scope="col">{{ c.text.pool }}</th>
-            <th scope="col">{{ c.text.archived }}</th>
-            <th scope="col">{{ c.text.retention }}</th>
-            <th scope="col"><span class="sr-only">{{ c.text.open }}</span></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="row in c.rows.value" :key="c.key(row)" data-row :data-id="c.key(row)">
-            <td>
-              {{ c.recorded(row).text }}
-              <span v-if="c.recorded(row).mark" class="text-xs" :title="c.recorded(row).hint" :aria-label="c.recorded(row).mark + ': ' + c.recorded(row).hint">({{ c.recorded(row).mark }})</span>
-            </td>
-            <td data-cell="author">{{ c.author(row) }}</td>
-            <td data-cell="pool">{{ c.pool(row) }}</td>
-            <td data-cell="archived">{{ c.archived(row) }}</td>
-            <td data-cell="retention"><span class="px-2 py-1 rounded text-xs" :style="c.retentionStyle(row)">{{ c.retention(row) }}</span></td>
-            <td><button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" data-testid="archive-open" @click="c.open(row)">{{ c.text.open }}</button></td>
-          </tr>
-        </tbody>
-      </table>
-      <button v-if="c.hasMore()" type="button" class="px-3 py-2 border rounded mt-2" style="min-height: 2.75rem"
-              :disabled="c.loading.value" data-testid="archive-more" @click="c.loadMore()">{{ c.text.more }}</button>
+    <div class="head-actions">
+      <button type="button" class="button" data-testid="archive-back" @click="c.back()">{{ c.text.back }}</button>
+      <button type="button" class="button quiet" data-testid="archive-remove-filter" @click="c.back()">{{ c.text.removeFilter }}</button>
     </div>
-  </template>
+  </div>
+  <div class="stats" data-testid="archive-stats">
+    <div class="stat"><span>{{ c.text.statArchived }}</span><strong>{{ c.summary().count }}</strong><small>{{ c.text.statArchivedNote }}</small></div>
+    <div class="stat"><span>{{ c.text.statAuthors }}</span><strong>{{ c.summary().authors }}</strong><small>{{ c.text.statAuthorsNote }}</small></div>
+    <div class="stat"><span>{{ c.text.statPools }}</span><strong>{{ c.summary().pools }}</strong><small>{{ c.text.statPoolsNote }}</small></div>
+    <div class="stat"><span>{{ c.text.statOldest }}</span><strong>{{ c.summary().oldest }}</strong><small>{{ c.text.statOldestNote }}</small></div>
+  </div>
+  <section class="panel" :aria-label="c.text.listHeading">
+    <h2 style="${H2}">{{ c.text.listHeading }}</h2>
+    <form class="filterbar" role="search" :aria-label="c.text.filters" data-testid="archive-filters" @submit.prevent="c.load()">
+      <div style="${FIELD}; flex: 0 1 175px; margin: 0"><label style="${LABEL}" for="cav-from">{{ c.text.from }}</label><input style="${INPUT}" id="cav-from" type="date" v-model="c.filters.from" data-testid="filter-from"></div>
+      <div style="${FIELD}; flex: 0 1 175px; margin: 0"><label style="${LABEL}" for="cav-to">{{ c.text.to }}</label><input style="${INPUT}" id="cav-to" type="date" v-model="c.filters.to" data-testid="filter-to"></div>
+      <div style="${FIELD}; flex: 1 1 175px; margin: 0"><label style="${LABEL}" for="cav-author">{{ c.text.author }}</label><input style="${INPUT}" id="cav-author" type="text" v-model="c.filters.authorId" data-testid="filter-author" autocomplete="off"></div>
+      <div style="${FIELD}; flex: 1 1 175px; margin: 0"><label style="${LABEL}" for="cav-pool">{{ c.text.pool }}</label><input style="${INPUT}" id="cav-pool" type="text" v-model="c.filters.poolId" data-testid="filter-pool" autocomplete="off"></div>
+      <button type="submit" class="button" style="${PRIMARY}">{{ c.text.apply }}</button>
+      <button type="button" class="button" @click="c.resetFilters()">{{ c.text.reset }}</button>
+    </form>
+    <div v-if="c.denied.value" role="alert" class="note warning" data-testid="archive-denied">{{ c.text.denied }}</div>
+    <template v-else>
+      <div v-if="c.error.value" role="alert" class="note warning" data-testid="archive-error">
+        {{ c.error.value }} {{ c.text.stale }}
+        <button type="button" class="button small" style="margin-left: 8px" @click="c.load()">{{ c.text.retry }}</button>
+      </div>
+      <div v-if="c.loading.value && !c.rows.value.length" class="state-box" role="status" aria-live="polite" data-testid="archive-loading">{{ c.text.loading }}</div>
+      <p v-else-if="!c.rows.value.length && !c.error.value" class="empty" data-testid="archive-empty">{{ c.emptyText() }}</p>
+      <div v-else-if="c.rows.value.length">
+        <div class="table-wrap" style="position: relative">
+          <table aria-label="Archiv">
+            <thead>
+              <tr>
+                <th scope="col">{{ c.text.recorded }}</th>
+                <th scope="col">{{ c.text.author }}</th>
+                <th scope="col">{{ c.text.pool }}</th>
+                <th scope="col">{{ c.text.archived }}</th>
+                <th scope="col">{{ c.text.retention }}</th>
+                <th scope="col"><span class="visually-hidden">{{ c.text.open }}</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in c.rows.value" :key="c.key(row)" data-row :data-id="c.key(row)">
+                <td>
+                  <strong>{{ c.recorded(row).text }}</strong>
+                  <small v-if="c.recorded(row).mark" :title="c.recorded(row).hint" :aria-label="c.recorded(row).mark + ': ' + c.recorded(row).hint">({{ c.recorded(row).mark }})</small>
+                </td>
+                <td data-cell="author">{{ c.author(row) }}</td>
+                <td data-cell="pool">{{ c.pool(row) }}</td>
+                <td data-cell="archived">{{ c.archived(row) }}</td>
+                <td data-cell="retention"><span class="tag" :style="c.retentionStyle(row)">{{ c.retention(row) }}</span></td>
+                <td><button type="button" class="button small" data-testid="archive-open" @click="c.open(row)">{{ c.text.open }}</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-if="c.hasMore()" class="actions" style="justify-content: center; margin-top: 14px">
+          <button type="button" class="button" :disabled="c.loading.value" data-testid="archive-more" @click="c.loadMore()">{{ c.text.more }}</button>
+        </div>
+      </div>
+      <div class="note">{{ c.text.readOnlyNote }}</div>
+    </template>
+  </section>
 </section>`,
 };
 

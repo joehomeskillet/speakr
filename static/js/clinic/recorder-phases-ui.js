@@ -246,11 +246,13 @@ export function createRecorderPhasesComponent(vue) {
                 const s = view.state.value;
                 const surface = view.machine.surface();
                 const titleLocked = s.phase !== 'title' && s.phase !== 'ready';
+                // V8 look: a panel with the shared form, button and status classes; the phase colour only tints the status line.
                 return h('section', {
+                    class: 'v8-page panel',
                     'aria-label': 'Diktat aufnehmen',
-                    style: { background: surface.background, color: surface.color, border: `1px solid ${surface.border}` },
+                    'data-phase': s.phase,
                 }, [
-                    h('label', { for: 'recorder-title' }, LABELS.title),
+                    h('label', { for: 'recorder-title', style: { display: 'block', marginBottom: '6px', fontSize: '12px', fontWeight: 650 } }, LABELS.title),
                     h('input', {
                         id: 'recorder-title',
                         type: 'text',
@@ -261,15 +263,24 @@ export function createRecorderPhasesComponent(vue) {
                         value: s.title,
                         onInput: (e) => view.machine.setTitle(e.target.value),
                     }),
-                    h('div', { role: 'group', 'aria-label': 'Aufnahmesteuerung' },
+                    h('div', { role: 'group', 'aria-label': 'Aufnahmesteuerung', class: 'actions', style: { margin: '14px 0 12px' } },
                         view.controls.value.map((c) => h('button', {
                             key: c.id,
                             type: 'button',
+                            class: 'button',
+                            style: c.id === 'start' || c.id === 'send'
+                                ? { background: 'var(--ink)', borderColor: 'var(--ink)', color: 'white', fontSize: '13px', fontWeight: 600, padding: '9px 13px' }
+                                : { padding: '9px 13px' },
                             disabled: c.disabled,
                             'aria-disabled': c.disabled ? 'true' : 'false',
                             onClick: () => ACTIONS.includes(c.id) && view.machine[c.id](),
                         }, c.label))),
-                    h('p', { role: 'status', 'aria-live': 'polite' }, view.announcement.value),
+                    h('p', {
+                        role: 'status',
+                        'aria-live': 'polite',
+                        class: 'text-status',
+                        style: { margin: 0, color: surface.status === 'error' ? 'var(--danger)' : undefined },
+                    }, view.announcement.value),
                 ]);
             };
         },
