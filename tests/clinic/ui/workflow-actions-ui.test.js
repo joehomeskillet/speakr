@@ -13,12 +13,13 @@ function fail(outcome, message) {
 }
 
 function setup(allowed, extra) {
-    const client = { command: vi.fn(async () => ok()), request: vi.fn(async () => ok()) };
+    const client = { command: vi.fn(async () => ok()), request: vi.fn(async (path) =>
+        ok(path.endsWith('/leases') ? { held: true, lease_id: C, generation: 1 } : {})) };
     const wf = createWorkflowActions({ client: client });
     wf.load(Object.assign({
         dictationId: D, etag: '"' + D + ':3"', revision: 4, allowedActions: allowed,
         transitions: { reject: 'Zu korrigieren' }, asrStatus: 'completed', workState: 'pending',
-        binding: { textRevisionId: T, contextRevisionId: C, acceptanceRuleId: C,
+        binding: { audioRevisionId: T, textRevisionId: T, contextRevisionId: C, acceptanceRuleId: C,
             release: { lease_id: C, lease_generation: 1, original_version_id: T, transcript_revision_id: T,
                 context_revision_id: C, document_type: 'report', mode: 'PLATFORM_REVIEWED_KIS_DRAFT', text_sha256: 'h' } },
     }, extra));
@@ -52,7 +53,7 @@ describe('workflow actions ui', () => {
         wf.state.reason = ' zu kurz ';
         await wf.confirm();
         const env = client.command.mock.calls[0][0];
-        expect(env).toMatchObject({ command: 'decide_acceptance', expected_revision: 4 });
+        expect(env).toMatchObject({ command: 'decide_acceptance', expected_revision: 5 });
         expect(env.payload).toEqual({ dictation_id: D, text_revision_id: T, decision: 'return', reason: 'zu kurz' });
         expect(wf.state.confirming).toBeNull();
     });
@@ -75,7 +76,8 @@ describe('workflow actions ui', () => {
         wf.state.confirmedContent = true;
         wf.state.confirmedContext = true;
         await wf.confirm();
-        const [path, opts] = client.request.mock.calls[0];
+        expect(client.request.mock.calls[0][0]).toBe('/api/clinic/v1/dictations/' + D + '/leases');
+        const [path, opts] = client.request.mock.calls[1];
         expect(path).toBe('/api/clinic/v1/dictations/' + D + '/releases');
         expect(opts.ifMatch).toBe('"' + D + ':3"');
         expect(opts.body.confirmed_content).toBe(true);

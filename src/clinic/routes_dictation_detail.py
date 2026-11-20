@@ -13,7 +13,8 @@ from flask import Blueprint, Response, abort, jsonify, session
 from flask_login import current_user
 from werkzeug.exceptions import HTTPException
 
-from src.clinic import audio_revisions, revisions, workflow
+from src.clinic import release, revisions, workflow
+from src.clinic.acceptance_policy import AcceptanceLedger, PolicyError, SCOPE_DICTATION
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.models import ClinicDictation
 from src.clinic.pools import ClinicAuthorPool, ClinicPoolRoute, ClinicStaffPool
@@ -55,7 +56,7 @@ _REQUIRED_TARGET = {'submit': workflow.TO_ACCEPT, 'release': workflow.DONE}
 
 
 def _capabilities(user: User, dictation: ClinicDictation, flow, snap: dict,
-                  authorize: Callable[[User, str, ClinicDictation], bool]) -> dict:
+                  authorize: Callable[[User, str, ClinicDictation], bool], acceptance_policy=None) -> dict:
     """Allowed workflow actions, their target status and the revision binding for the caller."""
     if flow is None:
         return dict(allowed_actions=[], transitions={}, binding={})
@@ -74,9 +75,17 @@ def _capabilities(user: User, dictation: ClinicDictation, flow, snap: dict,
     head = revisions.current_revision(dictation)
     binding = dict(textRevisionId=None if head is None else head.id,
                    contextRevisionId=snap['current_context_revision_id'])
-    if 'release' in allowed and head is not None:
+    try:
+        rule = (acceptance_policy(dictation) if acceptance_policy else
+                AcceptanceLedger().current(SCOPE_DICTATION, dictation.id))
+        binding['acceptanceRuleId'] = rule.rule_id
+    except PolicyError:
+        binding['acceptanceRuleId'] = None
+    audio_id = release.current_audio_id(dictation.id)
+    binding['audioRevisionId'] = audio_id
+    if 'release' in allowed and head is not None and audio_id is not None:
         binding['release'] = dict(
-            original_version_id=snap['current_original_version_id'],
+            original_version_id=audio_id,
             transcript_revision_id=head.id, context_revision_id=snap['current_context_revision_id'],
             document_type='report', mode='PLATFORM_REVIEWED_KIS_DRAFT', text_sha256=head.normalised_text_hash)
     return dict(allowed_actions=allowed, transitions=transitions, binding=binding)
@@ -104,6 +113,7 @@ def _staff_pools(author_pool_id: str | None) -> list[dict]:
 def create_blueprint(
     *, authorize: Callable[[User, str, ClinicDictation], bool],
     dictation_snapshot: Callable[[ClinicDictation], dict],
+    acceptance_policy=None,
 ) -> Blueprint:
     """Mount with the trusted session channel and the current object policy.
 
@@ -164,7 +174,7 @@ def create_blueprint(
                 acceptance=snap['review_state'],
                 output='RELEASED' if snap['active_release_id'] else 'NOT_RELEASED',
             ),
-            **_capabilities(current_user, dictation, flow, snap, authorize),
+            **_capabilities(current_user, dictation, flow, snap, authorize, acceptance_policy),
         )
 
     @bp.get('/api/clinic/v1/dictations/<uuid:dictation_id>/review')
@@ -177,18 +187,17 @@ def create_blueprint(
         if flow is None or flow.status in (workflow.DRAFT, workflow.TO_ARCHIVE) or head is None:
             abort(404)
         snap = dictation_snapshot(dictation)
-        capabilities = _capabilities(current_user, dictation, flow, snap, authorize)
+        capabilities = _capabilities(current_user, dictation, flow, snap, authorize, acceptance_policy)
         binding = capabilities.pop('binding')
-        audio = audio_revisions.current_audio_revision(dictation)
         audit.record('recording.content.read', recording_id=dictation.recording_id,
                      actor_kind='session', actor_user_id=current_user.id, details={'part': 'review'})
         return jsonify(
             dictation_id=dictation.id, etag=snap['etag'], revision=dictation.version_counter,
             asr_status=snap['asr_state'], status=flow.status,
             binding=dict(text_revision_id=binding['textRevisionId'],
-                         audio_revision_id=None if audio is None else audio.id,
+                         audio_revision_id=binding['audioRevisionId'],
                          context_revision_id=binding['contextRevisionId'],
-                         acceptance_rule_id=None, release=binding.get('release', {})),
+                         acceptance_rule_id=binding['acceptanceRuleId'], release=binding.get('release', {})),
             **capabilities,
         )
 

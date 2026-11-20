@@ -5,7 +5,7 @@ function setup(allowedActions) {
     const client = { request: vi.fn(), command: vi.fn() };
     const wf = createWorkflowActions({ client });
     wf.load({ dictationId: 'synthetic', etag: '"synthetic:3"', revision: 3,
-        allowedActions, binding: { release: { transcript_revision_id: 'text' } } });
+        allowedActions, binding: { release: { original_version_id: 'audio', transcript_revision_id: 'text', context_revision_id: 'context', text_sha256: 'hash' } } });
     return { client, wf };
 }
 
@@ -31,7 +31,7 @@ it('loads holder proof after both confirmations and adds exact lease keys', asyn
     wf.state.confirmedContent = wf.state.confirmedContext = true;
     await wf.confirm();
     expect(client.request.mock.calls[0][0]).toBe('/api/clinic/v1/dictations/synthetic/leases');
-    expect(client.request.mock.calls[1][1].body).toEqual({ transcript_revision_id: 'text',
+    expect(client.request.mock.calls[1][1].body).toEqual({ original_version_id: 'audio', transcript_revision_id: 'text', context_revision_id: 'context', text_sha256: 'hash',
         lease_id: 'lease', lease_generation: 7, confirmed_content: true, confirmed_context: true });
 });
 
@@ -40,8 +40,8 @@ it('does not release a foreign or absent lease', async () => {
     client.request.mockResolvedValue({ outcome: 'ok', data: { held: true, lease_id: null } });
     wf.request('release');
     wf.state.confirmedContent = wf.state.confirmedContext = true;
-    expect((await wf.confirm()).outcome).toBe('validation');
-    expect(wf.state.error).toBe('Bearbeitung zuerst anfordern.');
+    expect((await wf.confirm()).code).toBe('LEASE_REQUIRED');
+    expect(wf.state.error).toContain('Bearbeitung übernehmen');
     expect(client.request).toHaveBeenCalledTimes(1);
     expect(wf.state.busy).toBe(false);
 });
@@ -55,7 +55,7 @@ it('never transfers a pending lease proof to another dictation', async () => {
     const pending = wf.confirm();
     wf.load({ dictationId: 'other', etag: '"other:1"', allowedActions: ['release'] });
     resolve({ outcome: 'ok', data: { held: true, lease_id: 'lease', generation: 7 } });
-    expect((await pending).outcome).toBe('cancelled');
+    expect(await pending).toBeNull();
     expect(client.request).toHaveBeenCalledTimes(1);
     expect(wf.state.binding).toEqual({});
 });

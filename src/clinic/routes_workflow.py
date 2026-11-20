@@ -44,7 +44,7 @@ from flask_wtf.csrf import CSRFError, validate_csrf
 from werkzeug.exceptions import HTTPException
 from wtforms.validators import ValidationError
 
-from src.clinic import acceptance_rules, archive_policy, audio_revisions, lease, live_session, policy
+from src.clinic import acceptance_rules, archive_policy, lease, live_session, policy
 from src.clinic import pools, recognition_state, revisions, workflow, workflow_actions, workflow_finalize
 from src.clinic import workflow_metadata
 from src.clinic.acceptance_policy import SCOPE_DICTATION, AcceptanceLedger, AcceptancePolicyVersion, PolicyError
@@ -56,7 +56,7 @@ from src.clinic.models import (
 )
 from src.clinic.parity_dispatch import JSON, CommandProblem, ParityDispatch, RunOnce
 from src.clinic.pool_policy import author_pool_ids
-from src.clinic.release import _heads as release_heads
+from src.clinic.release import _heads as release_heads, current_audio_id
 from src.database import db
 from src.models import Recording
 from src.services import audit
@@ -138,9 +138,8 @@ def _leaf_id(model, dictation_id: str) -> str | None:
 def _head_ids(dictation: ClinicDictation) -> tuple[str, str, str]:
     """Current text, audio and context revision ids; _MISSING for a missing or ambiguous one."""
     text = revisions.current_revision(dictation)
-    audio = audio_revisions.current_audio_revision(dictation)
     return (text.id if text is not None else _MISSING,
-            audio.id if audio is not None else _leaf_id(ClinicAudioRevision, dictation.id) or _MISSING,
+            current_audio_id(dictation.id) or _MISSING,
             _leaf_id(ClinicContextRevision, dictation.id) or _MISSING)
 
 
@@ -227,6 +226,17 @@ def register_commands(
             action = action_for(payload)
             if action is None:
                 raise CommandProblem('CAPABILITY_UNAVAILABLE')
+            row = db.session.get(ClinicDictation, target, populate_existing=True)
+            if action == 'submit':
+                try:
+                    rule = acceptance_policy(row)
+                except PolicyError as error:
+                    raise CommandProblem('POLICY_DENIED') from error
+                if payload['acceptance_rule_id'] != rule.rule_id:
+                    raise CommandProblem('REVISION_CONFLICT')
+                current = _heads(row)
+                if current is None or current[2] != payload.get('context_revision_id'):
+                    raise CommandProblem('REVISION_CONFLICT')
             context = payload.get('context_revision_id')
             if context is not None:
                 bound = db.session.get(ClinicContextRevision, context)
