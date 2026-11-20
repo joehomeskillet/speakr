@@ -505,7 +505,7 @@ export const AccountsAdminPanel = {
       </tr></thead>
       <tbody>
         <tr v-for="a in rows" :key="a.id">
-          <th scope="row">{{ a.username }}</th>
+          <th scope="row"><strong>{{ a.username }}</strong><small v-if="a.name && a.name !== a.username">{{ a.name }}</small></th>
           <td class="cadm-cell--wide" :data-label="labels.email">{{ a.email }}</td>
           <td :data-label="labels.roles">
             <span class="cadm-badges">

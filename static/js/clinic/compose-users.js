@@ -138,7 +138,7 @@ const errorStyle = {
 
 export const POOLS_PANEL_TEMPLATE = `
 <section aria-labelledby="usr-pools-title" class="space-y-3">
-  <h3 id="usr-pools-title" class="text-base font-semibold text-[var(--text-primary)]">{{ labels.sections_pools }}</h3>
+  <h3 id="usr-pools-title" class="sr-only">{{ labels.sections_pools }}</h3>
   <p v-if="!userId" role="status" class="rounded-lg border border-dashed border-[var(--border-primary)] p-4 text-sm text-[var(--text-muted)]">{{ labels.pickUser }}</p>
   <p v-if="state.status === 'error' || state.status === 'denied'" role="alert" :style="errorStyle" class="rounded-lg border p-3 text-sm">{{ state.message }}
     <button type="button" class="btn btn--sm btn--ghost ml-2" @click="store.reload()">{{ labels.retry }}</button></p>
@@ -210,27 +210,32 @@ export const USERS_TEMPLATE = `
     <p v-else-if="accounts.loaded && !accounts.accounts.length" role="status" aria-live="polite" class="empty">{{ labels.empty }}</p>
     <p v-if="accounts.error && !accounts.loaded" role="alert" class="note burgundy">{{ accounts.message }}
       <button type="button" class="small" @click="load()">{{ labels.retry }}</button></p>
-    <div v-if="accounts.loaded && state.active !== 'accounts'" class="field" style="max-width: 320px">
-      <label for="usr-pick">{{ labels.user }}</label>
-      <select id="usr-pick" :value="state.selectedId === null ? '' : String(state.selectedId)" @change="selectUser($event.target.value)">
-        <option value="">-</option>
-        <option v-for="a in accounts.accounts" :key="a.id" :value="String(a.id)">{{ a.username }}</option>
-      </select>
-    </div>
     <div v-if="accounts.loaded" role="region" :class="{ panel: state.active !== 'accounts' }" :aria-labelledby="'usr-sec-' + state.active">
+      <div v-if="state.active !== 'accounts'" class="cadm-subsection-head">
+        <div>
+          <h2>{{ state.active === 'grants' ? sections[2].label : sections[1].label }}</h2>
+        </div>
+        <div class="field">
+          <label for="usr-pick">{{ labels.user }}</label>
+          <select id="usr-pick" :value="state.selectedId === null ? '' : String(state.selectedId)" @change="selectUser($event.target.value)">
+            <option value="">Konto wählen</option>
+            <option v-for="a in accounts.accounts" :key="a.id" :value="String(a.id)">{{ a.username }}</option>
+          </select>
+        </div>
+      </div>
       <component :is="activeComponent" v-bind="activeProps" :key="state.epoch + ':' + state.active + ':' + state.selectedId"></component>
       <a v-if="state.active === 'accounts' && accounts.draft && accounts.draft.mode === 'edit'"
          :href="'/admin#/system/audit?konto=' + encodeURIComponent(accounts.draft.id)" class="button">
         Systemaktivität dieses Kontos
       </a>
     </div>
-    <div v-if="accounts.loaded" class="stats cadm-account-summary" data-testid="user-stats">
+    <div v-if="accounts.loaded && state.active === 'accounts'" class="stats cadm-account-summary" data-testid="user-stats">
       <div class="stat"><span>{{ labels.statAccounts }}</span><strong>{{ stats.total }}</strong></div>
       <div class="stat"><span>{{ labels.statActive }}</span><strong>{{ stats.active }}</strong></div>
       <div class="stat"><span>{{ labels.statDisabled }}</span><strong>{{ stats.disabled }}</strong></div>
       <div class="stat"><span>{{ labels.statAdmins }}</span><strong>{{ stats.admins }}</strong></div>
     </div>
-    <div v-if="accounts.loaded" class="grid equal" style="margin-top: 20px">
+    <div v-if="accounts.loaded && state.active === 'accounts'" class="grid equal" style="margin-top: 20px">
       <section class="panel" aria-labelledby="usr-note-roles">
         <h2 id="usr-note-roles">{{ labels.rolesTitle }}</h2>
         <p class="hint">{{ labels.rolesText }}</p>
@@ -239,7 +244,7 @@ export const USERS_TEMPLATE = `
       <section class="panel" aria-labelledby="usr-note-identity">
         <h2 id="usr-note-identity">{{ labels.identityTitle }}</h2>
         <p class="hint">{{ labels.identityText }}</p>
-        <label v-if="state.active === 'accounts'" class="field" for="usr-login-account">
+        <label class="field" for="usr-login-account">
           {{ labels.user }}
           <select id="usr-login-account" :value="state.selectedId ?? ''" @change="selectUser($event.target.value)">
             <option value="">Konto wählen</option>

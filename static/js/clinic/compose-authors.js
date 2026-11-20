@@ -208,12 +208,6 @@ export const AUTHORS_TEMPLATE = `
   <p v-if="state.status === 'error'" role="alert" class="note burgundy">{{ state.message }}
     <button type="button" class="small" @click="controller.retry()">{{ labels.retry }}</button></p>
   <template v-if="state.status === 'ready'">
-    <div class="stats" data-testid="author-stats">
-      <div class="stat"><span>{{ labels.statAuthors }}</span><strong>{{ controller.stats().authors }}</strong><small>{{ labels.statAuthorsNote }}</small></div>
-      <div class="stat"><span>{{ labels.statPools }}</span><strong>{{ controller.stats().pools }}</strong><small>{{ labels.statPoolsNote }}</small></div>
-      <div class="stat"><span>{{ labels.statNoStaff }}</span><strong>{{ controller.stats().noStaffPool }}</strong><small>{{ labels.statNoStaffNote }}</small></div>
-      <div class="stat"><span>{{ labels.statDisabled }}</span><strong>{{ controller.stats().disabled }}</strong><small>{{ labels.statDisabledNote }}</small></div>
-    </div>
     <section class="panel" :aria-label="labels.list">
       <h2>{{ labels.list }}</h2>
       <p v-if="!state.rows.length" role="status" aria-live="polite" class="empty">{{ labels.empty }}</p>
@@ -260,6 +254,12 @@ export const AUTHORS_TEMPLATE = `
         </div>
       </template>
     </section>
+    <div class="stats" data-testid="author-stats">
+      <div class="stat"><span>{{ labels.statAuthors }}</span><strong>{{ controller.stats().authors }}</strong><small>{{ labels.statAuthorsNote }}</small></div>
+      <div class="stat"><span>{{ labels.statPools }}</span><strong>{{ controller.stats().pools }}</strong><small>{{ labels.statPoolsNote }}</small></div>
+      <div class="stat"><span>{{ labels.statNoStaff }}</span><strong>{{ controller.stats().noStaffPool }}</strong><small>{{ labels.statNoStaffNote }}</small></div>
+      <div class="stat"><span>{{ labels.statDisabled }}</span><strong>{{ controller.stats().disabled }}</strong><small>{{ labels.statDisabledNote }}</small></div>
+    </div>
     <div v-if="state.poolCards.length" class="grid three" style="margin-top: 20px" data-testid="author-pool-cards">
       <section v-for="p in state.poolCards" :key="p.id" class="panel" :aria-label="p.name">
         <h2>{{ p.name }}</h2>

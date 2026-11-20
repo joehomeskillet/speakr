@@ -467,3 +467,75 @@
     .cadm .cadm-account-filters .search,
     .cadm .cadm-account-filters label:last-child { grid-column: 1 / -1; }
 }
+
+/* P10–P12 share the prototype's flat filter rows, table surfaces and primary actions. */
+.cadm .v8-admin-page .field:is(div, label) {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+}
+.cadm .v8-admin-page .head-actions .primary,
+.cadm .v8-admin-page .cadm-form__actions .btn--primary {
+    background: var(--ink);
+    color: var(--text-button);
+    border-color: var(--ink);
+    font-size: var(--fs-body);
+    padding-inline: var(--sp-4);
+    min-height: 42px;
+}
+.cadm .v8-admin-page .head-actions .primary:hover,
+.cadm .v8-admin-page .cadm-form__actions .btn--primary:hover { background: var(--brand2); }
+.cadm .pagehead .subline, .cadm .v8-admin-page .result-count { color: var(--muted); }
+.cadm .v8-admin-page .filterbar .tool-wrap > .icon-button {
+    color: var(--v8-text-2);
+    background: transparent;
+    border-color: transparent;
+}
+.cadm .v8-admin-page .filterbar .tool-wrap > .icon-button:hover { background: var(--soft); }
+.cadm .v8-admin-page .cadm-table thead { background: var(--v8-s1); }
+.cadm .v8-admin-page .cadm-table tbody th small {
+    display: block;
+    font-size: var(--fs-label);
+    font-weight: 400;
+    color: var(--muted);
+}
+.cadm .v8-admin-page .cadm-table .pill-status {
+    border: 0;
+    border-radius: var(--radius-sm);
+    font-weight: 600;
+}
+.cadm .v8-admin-page .cadm-table .pill-status--success,
+.cadm .v8-admin-page .cadm-table .pill-status--info { color: var(--v8-text-2); background: var(--soft); }
+.cadm .v8-admin-page .cadm-actions .btn { min-width: 36px; min-height: 36px; }
+.cadm .clinic-authors-view > .stats { margin-top: var(--sp-4); }
+.cadm .cadm-subsection-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    justify-content: space-between;
+    gap: var(--sp-3) var(--sp-5);
+    padding-bottom: var(--sp-4);
+    border-bottom: var(--border-hairline) solid var(--line);
+    margin-bottom: var(--sp-4);
+}
+.cadm .cadm-subsection-head h2 { font-size: var(--fs-subhead); font-weight: 600; }
+.cadm .cadm-subsection-head .hint { margin: var(--sp-1) 0 0; color: var(--muted); }
+.cadm .cadm-subsection-head .field { flex: 0 1 18rem; margin: 0; }
+.cadm .clinic-users-view .grants-ui { padding: 0; border: 0; background: transparent; }
+.cadm .grants-ui .cadm-status { padding: 0; border: 0; }
+.cadm .grants-ui .cadm-editor { background: transparent; border: 0; padding: 0; }
+.cadm .grants-ui .cadm-rows--grid { grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); }
+.cadm .grants-ui .cadm-rows--grid li { flex-direction: column; align-items: start; gap: var(--sp-1); }
+@media (max-width: 640px) {
+    .cadm .cadm-subsection-head .field { flex-basis: 100%; }
+    .cadm .v8-admin-page .filterbar .icon-button { min-width: 40px; min-height: 40px; }
+}
+
+.cadm .clinic-authors-view th[scope="row"] small {
+    display: block;
+    margin-top: var(--sp-1);
+    font-size: var(--fs-label);
+    font-weight: 400;
+    color: var(--muted);
+}
