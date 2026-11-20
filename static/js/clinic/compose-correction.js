@@ -268,6 +268,10 @@ export function createCorrectionViewController(options) {
             const body = await res.clone().json().catch(() => null);
             if (body && body.code === 'DEPENDENCY_UNAVAILABLE') return { status: 404 };
         }
+        if (res && res.status === 500 && typeof res.clone === 'function') {
+            const body = await res.clone().json().catch(() => null);
+            if (body && body.code === 'PEAKS_FAILED') return { status: 500, peaksFailed: true };
+        }
         return res;
     }
 
