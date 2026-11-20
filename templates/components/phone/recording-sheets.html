@@ -106,7 +106,7 @@
 
         <div v-if="!selectedRecording.audio_deleted_at"
              class="ph-group" v-text="t('phone.shareExport')"></div>
-        <a v-if="!selectedRecording.audio_deleted_at" class="ph-row" data-phone-action="download-audio"
+        <a v-if="!selectedRecording.audio_deleted_at{% if clinic_mode %} && selectedRecording.can_download_audio === true{% endif %}" class="ph-row" data-phone-action="download-audio"
            :href="'/audio/' + selectedRecording.id + '?download=true'" download @click="closePhoneSheet()">
             <i class="fas fa-download" aria-hidden="true"></i><span class="ph-row__label" v-text="t('buttons.downloadAudio')"></span>
         </a>

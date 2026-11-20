@@ -16,9 +16,30 @@
 /* P01 supplies its own spacing between the heading, filters, result count and day groups. */
 .clinic-recordings-view.cl-view { gap: 0; }
 
+/* Full identifiers stay available without stretching the default list rows. */
+.clinic-recordings-view .cl-reference-row { position: relative; border-bottom: 1px solid var(--border-primary); }
+.clinic-recordings-view .cl-reference-row:last-child { border-bottom: 0; }
+.clinic-recordings-view .cl-reference-row .recording-row { border-bottom: 0; }
+.clinic-recordings-view .cl-reference-row .record-title { padding-right: 34px; }
+.clinic-recordings-view .cl-reference-row > .cl-id-disclosure { position: absolute; right: 4px; top: 4px; }
+.clinic-recordings-view .cl-id-disclosure > summary { display: grid; place-items: center; width: 44px; height: 44px; }
+:is(.clinic-recordings-view, .clinic-worklist-view) .cl-id-disclosure > summary { cursor: pointer; color: var(--text-secondary); font-size: var(--fs-meta); }
+:is(.clinic-recordings-view, .clinic-worklist-view) .cl-id-disclosure > summary:focus-visible { outline: 2px solid var(--border-focus); outline-offset: -2px; }
+:is(.clinic-recordings-view, .clinic-worklist-view) .cl-id-value { display: grid; gap: var(--sp-1); padding: var(--sp-2); color: var(--text-primary); background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: var(--radius-md); font-size: var(--fs-meta); white-space: normal; }
+.clinic-recordings-view .cl-id-disclosure[open] { position: static; padding: 0 var(--sp-3) var(--sp-3); }
+.clinic-recordings-view .cl-id-disclosure[open] > summary { position: absolute; right: 4px; top: 4px; }
+.clinic-recordings-view .cl-id-value { max-width: 28rem; margin-left: auto; }
+.clinic-worklist-view .cl-id-disclosure > summary { min-height: 24px; width: fit-content; }
+:is(.clinic-recordings-view, .clinic-worklist-view) .cl-id-value textarea { width: 100%; min-width: 0; resize: none; font-size: 12px; overflow-wrap: anywhere; }
+
 @media (max-width: 700px) {
     /* Native selects already reserve room for the arrow. Keep the mobile type size. */
     .clinic-recordings-view .record-toolbar select.record-select { padding-inline-end: 6px; }
+    .clinic-recordings-view #crv-role-filters { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 767px) {
+    .clinic-recordings-view #crv-role-filters[data-collapsed="true"] { display: none; }
 }
 
 /* ---- Heading ------------------------------------------------------------ */

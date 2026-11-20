@@ -35,7 +35,7 @@ COLUMNS = (
 _DEFAULT_LAYOUT = {'version': 1, 'sort': [], 'group_by': [],
                    'columns': [{'key': key, 'width': 140, 'visible': True} for key in COLUMNS]}
 # Additive row fields (v8-119): the role fields the Aufnahmen API returns, set by the loader.
-ROLE_COLUMNS = ('dictated_by', 'staff_pools', 'lease_holder', 'source_label')
+ROLE_COLUMNS = ('dictated_by', 'staff_pools', 'lease_holder', 'source_label', 'asr_state')
 # WorklistRow.source_kind describes the medium.
 # ClinicOriginal receipt origin -> German source label; unknown origins get no label.
 ORIGIN_LABELS = {'web-recorder': 'Mikrofon', 'web-upload': 'Upload', 'agent': 'Import',

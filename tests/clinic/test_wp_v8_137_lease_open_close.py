@@ -89,6 +89,9 @@ def observe(expected, *, after=None):
 before = observe(initial_status)
 held = post("typist")
 assert held["generation"] == 1
+assert clients["typist"].get(base).json["lease_id"] == held["lease_id"]
+assert 'lease_id' not in clients["admin"].get(base).json
+assert 'lease_id' not in clients["lead"].get(base).json
 editing = initial_status if initial_status == workflow.DRAFT else workflow.IN_PROGRESS
 opened = observe(editing, after=before)
 if initial_status == workflow.TO_WRITE:

@@ -22,6 +22,24 @@ function fixture(count, write) {
 }
 
 describe('clinic account directory', () => {
+    it('keeps absent policies distinct from explicit local and device policies', async () => {
+        const users = [{ id: 1 }, { id: 2, login_policy: 'local_only' }, { id: 3, login_policy: 'device_only' }];
+        const request = vi.fn(async () => ({ outcome: 'ok', data: { users } }));
+        const c = createAccountsAdmin({ client: { request } });
+        await c.load();
+        const panel = AccountsAdminPanel;
+        expect(panel.computed.availablePolicies.call({ s: c.state })).toEqual(['missing', 'local_only', 'device_only']);
+        for (const [source, id, label] of [
+            ['missing', 1, 'Keine Anmelderichtlinie'], ['local_only', 2, 'Nur lokal'], ['device_only', 3, 'Nur Gerät'],
+        ]) {
+            await c.browse(1, { source });
+            expect(c.state.table.users.map(row => row.id)).toEqual([id]);
+            c.startEdit(id);
+            expect(panel.methods.policyLabel(c.state.draft.login_policy)).toBe(label);
+            expect(c.isDirty()).toBe(false);
+        }
+    });
+
     it('preserves full pickers across the API cap, pages the table and searches beyond page one', async () => {
         const { c, request } = fixture(1003);
         await c.load();

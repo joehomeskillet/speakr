@@ -432,6 +432,55 @@ def remove_staff_member(pool_id: str, user_id: int, *, actor_id: int) -> None:
     _commit()
 
 
+def set_staff_member_role(pool_id: str, user_id: int, role: str, *, actor_id: int) -> dict:
+    """Set a pool lead as an active site admin, with atomic history and a guarded update."""
+    from .admin_dictation_access import _is_active_site_admin
+    from .identity import ClinicAccountPolicy
+    from .worklist_entries import LEAD_ROLE
+
+    actor = db.session.get(User, actor_id, populate_existing=True) if type(actor_id) is int else None
+    if actor is not None:
+        db.session.get(ClinicAccountPolicy, actor_id, populate_existing=True)
+    if not _is_active_site_admin(db.session, actor):
+        raise PoolError("forbidden")
+    if not isinstance(role, str) or role not in ("lead", "member"):
+        raise PoolError("invalid_role")
+    if type(user_id) is not int or user_id < 1:
+        raise PoolError("invalid_user")
+    pool = _staff_pool(pool_id)
+    row = GroupMembership.query.filter_by(group_id=pool.group_id, user_id=user_id).populate_existing().with_for_update().first()
+    if row is None:
+        raise PoolError("not_a_member")
+    old = row.role
+    new = LEAD_ROLE if role == "lead" else "member"
+    result = {"pool_id": pool.id, "user_id": user_id, "role": role}
+    try:
+        if old != new:
+            changed = GroupMembership.query.filter_by(id=row.id, role=old).update(
+                {GroupMembership.role: new}, synchronize_session=False)
+            if changed != 1:
+                raise PoolError("conflict")
+            _history(actor_id, "membership", pool.id, "role_changed", {
+                "kind": "staff", "pool_id": pool.id, "user_id": user_id,
+                "old": {"role": "lead" if old == LEAD_ROLE else old}, "new": {"role": role},
+            })
+        _commit()
+    except Exception:
+        db.session.rollback()
+        raise
+    return result
+
+
+def staff_member_roles(pool_id: str) -> list[dict]:
+    """Public role names for existing members; callers must scope visibility."""
+    from .worklist_entries import LEAD_ROLE
+
+    pool = _staff_pool(pool_id)
+    return [{"user_id": user_id, "role": "lead" if role == LEAD_ROLE else "member"}
+            for user_id, role in db.session.query(GroupMembership.user_id, GroupMembership.role)
+            .filter_by(group_id=pool.group_id).order_by(GroupMembership.user_id)]
+
+
 def link_staff_pool(author_pool_id: str, staff_pool_id: str, *, actor_id: int) -> ClinicPoolRoute:
     actor_id = _actor(actor_id)
     author = _author_pool(author_pool_id)

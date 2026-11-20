@@ -254,9 +254,10 @@ const deleteCaches = async (keep) => {
 };
 
 self.addEventListener('install', () => {
-  // Nothing is fetched at install. The new worker takes over at once: static
-  // URLs carry the release, so a page of the release before is not answered
-  // with this release's files, nor the other way round.
+  // Existing clinic tabs already fetch new fingerprinted URLs from the network. Leave their
+  // offline navigator in control until they close. Chromium can otherwise queue navigations
+  // behind a skipWaiting takeover while the old worker still has requests in flight.
+  if (self.registration.active && /-clinic-[0-9a-f]{20}$/.test(VERSION)) return;
   self.skipWaiting();
 });
 

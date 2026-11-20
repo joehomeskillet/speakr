@@ -13,7 +13,8 @@
  *  - A row may carry optional retention fields next to the v8-01 contract:
  *    retention_state ("active" | "due" | "held" | "deleted", the V4 retention
  *    axis, projected from retention_archived_at / legal hold / due date) and
- *    archived_at (ISO UTC, from retention_archived_at). Without them the row
+ *    archived_at (ISO UTC, from retention_archived_at or the durable manual
+ *    archive entry). Without them the row
  *    shows "Aufbewahrung nicht angegeben"; nothing is derived on the client.
  *
  * Read only: there is no delete, reopen or restore control. Opening a row
@@ -24,12 +25,13 @@
  */
 
 import { TOKEN_CONTRACT_VERSION, surfaceFor } from './tokens.js';
+import { ARCHIVE_STATUS, collectOptions, optionList } from './recordings-ui.js';
 
 export const COMPOSE_ARCHIVE_VERSION = 1;
 export const PAGE_SIZE = 50;
 
 /** Workflow state the archive filter selects (workflow.TO_ARCHIVE). */
-export const ARCHIVE_STATUS = 'zu_archivieren';
+export { ARCHIVE_STATUS };
 export const ZONE = 'Europe/Zurich';
 
 // clinic-v8.css states heading, button and form-control styles with zero-specificity element selectors; the Tailwind
@@ -201,6 +203,8 @@ export function createArchiveController(options) {
     const loading = ref(false);
     const error = ref(null);
     const denied = ref(false);
+    const choices = reactive({ authors: [], pools: [] });
+    const registry = { authors: new Map(), pools: new Map() };
     let generation = 0;
     let disposed = false;
 
@@ -216,6 +220,9 @@ export function createArchiveController(options) {
         if (res && res.outcome === 'ok') {
             const data = res.data || {};
             const items = Array.isArray(data.items) ? data.items : [];
+            collectOptions(registry, items);
+            choices.authors = optionList(registry.authors, filters.authorId);
+            choices.pools = optionList(registry.pools, filters.poolId);
             const base = cursor ? rows.value : [];
             const have = new Set(base.map(rowKey));
             rows.value = base.concat(items.filter((r) => rowKey(r) !== null && !have.has(rowKey(r))));
@@ -227,6 +234,10 @@ export function createArchiveController(options) {
             rows.value = [];
             nextCursor.value = null;
             denied.value = true;
+            registry.authors.clear();
+            registry.pools.clear();
+            choices.authors = [];
+            choices.pools = [];
             error.value = null;
         } else {
             // Keep the rows already shown, but mark them as stale.
@@ -270,12 +281,16 @@ export function createArchiveController(options) {
         generation += 1;
         rows.value = [];
         nextCursor.value = null;
+        registry.authors.clear();
+        registry.pools.clear();
+        choices.authors = [];
+        choices.pools = [];
     }
 
     const emptyText = () => (filtered() ? TEXT.emptyFilter : TEXT.emptyArchive);
 
     return {
-        vue: V, filters, rows, nextCursor, loading, error, denied,
+        vue: V, filters, rows, nextCursor, loading, error, denied, choices,
         load, loadMore, setFilters, resetFilters, open, back, dispose,
         filtered, hasMore, emptyText, text: TEXT, key: rowKey,
         recorded: recordedCell, archived: archivedCell, author: authorCell, pool: poolCell,
@@ -335,8 +350,9 @@ export const ArchiveView = {
     <form class="filterbar" role="search" :aria-label="c.text.filters" data-testid="archive-filters" @submit.prevent="c.load()">
       <div style="${FIELD}; flex: 1 1 150px; margin: 0"><label style="${LABEL}" for="cav-from">{{ c.text.from }}</label><input style="${INPUT}" id="cav-from" type="date" v-model="c.filters.from" data-testid="filter-from"></div>
       <div style="${FIELD}; flex: 1 1 150px; margin: 0"><label style="${LABEL}" for="cav-to">{{ c.text.to }}</label><input style="${INPUT}" id="cav-to" type="date" v-model="c.filters.to" data-testid="filter-to"></div>
-      <div style="${FIELD}; flex: 1 1 150px; margin: 0"><label style="${LABEL}" for="cav-author">{{ c.text.author }}</label><input style="${INPUT}" id="cav-author" type="text" v-model="c.filters.authorId" data-testid="filter-author" autocomplete="off"></div>
-      <div style="${FIELD}; flex: 1 1 150px; margin: 0"><label style="${LABEL}" for="cav-pool">{{ c.text.pool }}</label><input style="${INPUT}" id="cav-pool" type="text" v-model="c.filters.poolId" data-testid="filter-pool" autocomplete="off"></div>
+      <div style="${FIELD}; flex: 1 1 150px; margin: 0"><label style="${LABEL}" for="cav-author">{{ c.text.author }}</label><select style="${INPUT}" id="cav-author" v-model="c.filters.authorId" data-testid="filter-author"><option value="">Alle Diktierenden</option><option v-for="o in c.choices.authors" :key="o.value" :value="o.value">{{ o.label }}</option></select></div>
+      <div style="${FIELD}; flex: 1 1 150px; margin: 0"><label style="${LABEL}" for="cav-pool">{{ c.text.pool }}</label><select style="${INPUT}" id="cav-pool" v-model="c.filters.poolId" data-testid="filter-pool"><option value="">Alle Pools</option><option v-for="o in c.choices.pools" :key="o.value" :value="o.value">{{ o.label }}</option></select></div>
+      <p class="hint">Auswahl aus den geladenen Archivaufnahmen. Weitere Aufnahmen können unten geladen werden.</p>
       <div class="actions text-sm">
         <button type="submit" class="button" style="background: var(--ink); border-color: var(--ink); color: white">{{ c.text.apply }}</button>
         <button type="button" class="button" @click="c.resetFilters()">{{ c.text.reset }}</button>

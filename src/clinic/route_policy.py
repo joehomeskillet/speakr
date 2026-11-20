@@ -130,6 +130,7 @@ _CLINIC_WORKLIST = _split("""
     clinic_workflow.metadata clinic_workflow.release clinic_workflow.archive
     clinic_workflow.send
     clinic_history.get_history clinic_history.review_lease clinic_dictation_detail.get_detail
+    clinic_dictation_detail.get_review
     clinic_context.get_context clinic_context.post_context
     clinic_templates.list_templates clinic_templates.get_template
     clinic_templates.get_template_content clinic_templates.save_template
@@ -164,7 +165,7 @@ _CLINIC_IDENTITY = _split("""
     clinic_pools.list_pools clinic_pools.put_pool
     clinic_pool_admin.list_pools clinic_pool_admin.create_pool clinic_pool_admin.rename
     clinic_pool_admin.set_active clinic_pool_admin.set_validity clinic_pool_admin.link
-    clinic_pool_admin.usage
+    clinic_pool_admin.usage clinic_pool_admin.set_member_role
     clinic_grants.read
     clinic_preferences.recipient_default clinic_preferences.recipient_resolve
     clinic_preferences.last_selection clinic_preferences.workstation_issue
@@ -333,7 +334,8 @@ _RECORDING = {
         recordings.get_status recordings.get_summary_prompt recordings.index""",
     'play': """
         recordings.get_audio recordings.get_audio_peaks""",
-    'download': """
+    # This v1 endpoint serves the original even without an attachment flag.
+    'audio_export': """
         api_v1.download_audio""",
     'edit': """
         api_v1.add_external_ref api_v1.add_tags_to_recording api_v1.assign_speakers

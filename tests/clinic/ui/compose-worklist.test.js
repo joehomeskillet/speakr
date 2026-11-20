@@ -82,6 +82,27 @@ const base = (rows) => ({
     'GET /worklist/filters': ok({ items: [] }),
 });
 
+it('loads selected-row workflow capabilities from detail and ignores a late previous selection', async () => {
+    const rows = [row('1'), row('2')];
+    let first, second;
+    const client = fakeClient({
+        ...base(rows),
+        'GET /api/clinic/v1/dictations/1/detail': () => new Promise((resolve) => { first = resolve; }),
+        'GET /api/clinic/v1/dictations/2/detail': () => new Promise((resolve) => { second = resolve; }),
+    });
+    const c = controllerFor(client);
+    await c.start();
+    c.select(c.worklist.rows.value[0]);
+    c.select(c.worklist.rows.value[1]);
+    first(ok({ ...rows[0], allowed_actions: ['release'] }));
+    await Promise.resolve();
+    expect(c.workflow.state.allowed).toEqual([]);
+    second(ok({ ...rows[1], allowed_actions: ['send'], transitions: { send: 'vorbereitung_online' } }));
+    await vi.waitFor(() => expect(c.workflow.visible().map((action) => action.id)).toEqual(['send']));
+    expect(c.workflow.state.dictationId).toBe('2');
+    c.dispose();
+});
+
 describe('compose-worklist contract', () => {
     it('exports the view and registers it as clinic-worklist-view', () => {
         const app = { component: vi.fn() };
@@ -308,10 +329,13 @@ describe('unauthorized, stale and retry', () => {
     });
 
     it('a stale workflow action (409) marks the panel stale and a success reloads the list', async () => {
-        const rows = [row('1', { allowed_actions: ['release'], binding: { release: { transcript_revision_id: 't' } } })];
+        const rows = [row('1', { allowed_actions: ['release'], binding: { release: {
+            original_version_id: 'audio', transcript_revision_id: 't', context_revision_id: 'context', text_sha256: 'hash',
+        } } })];
         let attempt = 0;
         const client = fakeClient({
             ...base(rows),
+            'GET /api/clinic/v1/dictations/1/leases': ok({ held: true, lease_id: 'lease', generation: 1 }),
             'POST /api/clinic/v1/dictations/1/releases': () => (++attempt === 1 ? fail('conflict', 409, 'Der Stand ist veraltet.') : ok({ etag: '"1:4"' })),
         });
         const c = controllerFor(client);
@@ -323,6 +347,9 @@ describe('unauthorized, stale and retry', () => {
         expect(c.workflow.state.stale).toBe(true);
         const listCalls = () => client.calls.filter((x) => x.path.startsWith('/worklist/rows')).length;
         const before = listCalls();
+        rows[0] = { ...rows[0], revision: 4, etag: '"1:4"' };
+        await c.reload();
+        c.select(c.worklist.rows.value[0]);
         c.workflow.request('release');
         Object.assign(c.workflow.state, { confirmedContent: true, confirmedContext: true });
         await c.workflow.confirm();

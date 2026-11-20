@@ -24,7 +24,7 @@ def run(phase):
     from datetime import datetime, timedelta
 
     from src.app import app
-    from src.clinic import policy, workflow
+    from src.clinic import policy
     from src.clinic.models import ClinicDictation
     from src.clinic.parity_receipts import ClinicNoticeDispatch
     from src.database import db
@@ -39,15 +39,15 @@ def run(phase):
         actor, did = users["typist"], target["id"]
         policy.register_grant_provider(lambda uid: [policy.Grant("all", frozenset({"view", "edit", "release"}))]
                                        if uid == actor else [])
-        with app.app_context():
-            workflow.set_acceptance(db.session(), did, True)
-            db.session.commit()
+        published = Browser(app, users['admin'], did).publish(True, [actor], 0)
+        assert published.status_code == 200, published.json
         browser = Browser(app, actor, did)
         browser.acquire()
         with app.app_context():
             version = db.session.get(ClinicDictation, did).version_counter
         payload = dict(dictation_id=did, text_revision_id=target["head"],
-                       context_revision_id=target["context"], acceptance_rule_id=str(uuid4()))
+                       context_revision_id=target["context"],
+                       acceptance_rule_id=browser.get("/review")["binding"]["acceptance_rule_id"])
         with patch.object(job_queue, "enqueue", side_effect=lambda **kw: os._exit(73)):
             response = browser.client.post("/api/clinic/v1/parity/commands",
                 json=dict(command="request_acceptance", expected_revision=version + 1,

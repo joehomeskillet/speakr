@@ -19,7 +19,7 @@ from flask import Flask, jsonify
 from flask_login import LoginManager, login_user
 
 from src.app import app as main_app, db
-from src.clinic import revisions, routes_dictation_detail, workflow, worklist_entries
+from src.clinic import audio_revisions, revisions, routes_dictation_detail, workflow, worklist_entries
 from src.clinic.identity import create_tables as _create_identity_tables
 from src.clinic.models import ClinicContextRevision, ClinicDictation, ClinicOriginal
 from src.clinic.pools import ClinicAuthorPool, ClinicPoolRoute, ClinicStaffPool
@@ -159,7 +159,7 @@ def test_workflow_capabilities_follow_status_and_policy(api):
     data = _with_status(api, workflow.TO_CORRECT, acceptance_required=True)
     assert data['allowed_actions'] == ['submit', 'archive']
     assert data['transitions'] == dict(submit=workflow.TO_ACCEPT, archive=workflow.TO_ARCHIVE)
-    assert set(data['binding']) == {'textRevisionId', 'contextRevisionId'}
+    assert set(data['binding']) == {'textRevisionId', 'contextRevisionId', 'acceptanceRuleId', 'audioRevisionId'}
     data = _with_status(api, workflow.TO_ACCEPT, acceptance_required=True)
     assert data['allowed_actions'] == ['accept', 'reject', 'archive']
     assert data['transitions']['accept'] == workflow.ACCEPTED
@@ -185,6 +185,7 @@ def test_binding_names_the_current_transcript_head(api):
     db.session.flush()
     head = revisions.add_human_revision(dictation, None, 'Synthetischer Text', ids['author'],
                                         original_version=original)
+    audio = audio_revisions.init_audio_revision(dictation, original, 1000)
     db.session.commit()
     allowed.add(ids['typist'])
     data = login_as(ids['typist']).get(URL.format(ids['dictation'])).json
@@ -192,7 +193,8 @@ def test_binding_names_the_current_transcript_head(api):
     assert data['binding']['release']['transcript_revision_id'] == head.id
     assert data['binding']['release']['text_sha256'] == head.normalised_text_hash
     assert data['binding']['release']['mode'] == 'PLATFORM_REVIEWED_KIS_DRAFT'
-    assert data['binding']['release']['original_version_id'] == original.id
+    assert data['binding']['release']['original_version_id'] == audio.id
+    assert audio.id != original.id
     assert not [k for k in data['binding']['release'] if 'lease' in k]
 
 

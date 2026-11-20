@@ -20,15 +20,16 @@ class ReprocessError(Exception):
     interface language, looked up when read (during the request).
     """
 
-    def __init__(self, code, status=400):
+    def __init__(self, code, status=400, reason=None):
         super().__init__(code)
         self.code = code
         self.status = status
+        self.reason = reason
 
     @property
     def message(self):
         from src.utils.localization import translate
-        return translate(f'server.apiError.{self.code}')
+        return self.reason or translate(f'server.apiError.{self.code}')
 
 
 def queue_transcription_reprocess(recording, user, overrides=None):
@@ -42,6 +43,11 @@ def queue_transcription_reprocess(recording, user, overrides=None):
     from src.services.job_queue import job_queue
     from src.services.storage import get_storage_service
     from src.services.transcription_defaults import resolve_transcription_params
+
+    from src.clinic.config import clinic_mode_enabled
+    if clinic_mode_enabled():
+        from src.clinic.asr_input import resolve_repeat_source
+        recording = resolve_repeat_source(recording, user)
 
     if recording.audio_deleted_at or not recording.audio_path \
             or not get_storage_service().exists(recording.audio_path):
@@ -59,7 +65,13 @@ def queue_transcription_reprocess(recording, user, overrides=None):
     from src.services.job_cancel import snapshot_for_reprocess
     restore_state = snapshot_for_reprocess(recording, 'transcription')
 
-    recording.transcription = None
+    from src.clinic.asr_repeat import bind_repeat
+    clinic_repeat = clinic_mode_enabled() and bind_repeat(recording, params)
+    if clinic_repeat:
+        from src.clinic.asr_input import bind_audio_input
+        bind_audio_input(recording, params)
+    if not clinic_repeat:
+        recording.transcription = None
     recording.summary = None
     recording.status = 'QUEUED'
     from src.services import audit

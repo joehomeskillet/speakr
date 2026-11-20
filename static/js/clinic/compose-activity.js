@@ -22,6 +22,7 @@
  */
 
 import { surfaceFor } from './tokens.js';
+import { createDictationChoices } from './dictation-choices.js';
 import { V8_PAGE, formatWhen } from './compose-import.js';
 import { createHistoryComponent } from './history-ui.js';
 import { formatAudioDuration } from './worklist-ui.js';
@@ -38,7 +39,7 @@ export const LABELS = Object.freeze({
     sublineScoped: 'Wer hat was an diesem Diktat geändert? Ereignisse mit Akteur, Aktion und betroffener Version.',
     historyTitle: 'Verlauf eines Diktats',
     historyOnlyTitle: 'Diktat / Verlauf',
-    dictationId: 'Diktat-ID',
+    dictationId: 'Diktat suchen',
     showHistory: 'Verlauf anzeigen',
     historyInvalid: 'Bitte eine gültige Diktat-ID eingeben.',
     statsTitle: 'Statistik',
@@ -69,7 +70,7 @@ export const LABELS = Object.freeze({
     known: 'Mit bekannter Dauer',
     state: 'Vollständigkeit',
     unassigned: 'nicht zugewiesen',
-    historyEmpty: 'Diktat-ID eingeben, um den Verlauf anzuzeigen.',
+    historyEmpty: 'Diktat nach Name, Fall-ID oder Datum auswählen. Eine bekannte Diktat-ID ist optional möglich.',
     noExport: 'CSV-Export: nur über den autorisierten Serverbefehl, nicht in dieser Ansicht.',
 });
 
@@ -297,10 +298,16 @@ export const ACTIVITY_TEMPLATE = `
       <form v-if="!historyOnly" class="filterbar" @submit.prevent="openHistory()">
         <div class="field search">
           <label for="act-dictation">${LABELS.dictationId}</label>
-          <input id="act-dictation" type="text" autocomplete="off" spellcheck="false" v-model="state.dictationInput" />
+          <input id="act-dictation" type="text" list="act-choices" autocomplete="off" spellcheck="false" v-model="state.dictationInput" />
+          <datalist id="act-choices"><option v-for="row in choices.state.rows" :key="row.id" :value="row.label"></option></datalist>
         </div>
         <button type="submit" class="primary" aria-label="${LABELS.showHistory}">${LABELS.showHistory}</button>
       </form>
+      <div v-if="!historyOnly">
+        <p role="status">{{ choices.state.loading ? 'Diktate werden geladen …' : choices.state.message }} Suche in geladenen Diktaten.</p>
+        <button type="button" aria-label="Auswahl neu laden" :disabled="choices.state.loading" @click="choices.load()">Auswahl neu laden</button>
+        <button v-if="choices.state.cursor" type="button" aria-label="Weitere Diktate laden" :disabled="choices.state.loading" @click="choices.load(true)">Weitere Diktate laden</button>
+      </div>
       <p v-if="state.historyMessage" class="note warning" role="alert">{{ state.historyMessage }}</p>
       <component v-if="state.dictationId" :is="historyComponent" :client="client" :dictation-id="state.dictationId"
         :key="state.epoch + ':' + state.dictationId"></component>
@@ -399,12 +406,18 @@ export const ActivityView = {
             makeState: (o) => Vue.reactive(o),
         });
         const historyComponent = Vue.markRaw(createHistoryComponent(Vue));
-        Vue.watch(() => userIdOf(props.currentUser), () => ctrl.setUser(props.currentUser));
+        const choices = createDictationChoices({ client: props.client, makeState: (s) => Vue.reactive(s) });
+        Vue.watch(() => userIdOf(props.currentUser), () => {
+            choices.clear();
+            ctrl.setUser(props.currentUser);
+            if (!props.dictationId && !ctrl.state.denied) choices.load();
+        });
+        if (Vue.onMounted) Vue.onMounted(() => { if (!props.dictationId && !ctrl.state.denied) choices.load(); });
         // History-only mode: with a dictation id the view shows that dictation's history and no account statistics.
         const historyOnly = Vue.computed(() => Boolean(props.dictationId));
         Vue.watch(() => props.dictationId, (id) => { if (id) ctrl.openHistory(id); });
         if (props.dictationId) ctrl.openHistory(props.dictationId);
-        Vue.onBeforeUnmount(() => ctrl.dispose());
+        Vue.onBeforeUnmount(() => { choices.clear(); ctrl.dispose(); });
         return {
             state: ctrl.state,
             client: props.client,
@@ -412,7 +425,8 @@ export const ActivityView = {
             formatWhen,
             load: () => (historyOnly.value ? null : ctrl.load()),
             toggleGroup: ctrl.toggleGroup,
-            openHistory: ctrl.openHistory,
+            choices,
+            openHistory: (text) => ctrl.openHistory(choices.resolve(text === undefined ? ctrl.state.dictationInput : text) || ''),
             historyComponent,
             timeBases: TIME_BASES,
             grains: GRAINS,

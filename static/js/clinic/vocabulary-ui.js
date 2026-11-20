@@ -18,14 +18,24 @@ export const SEARCH_MODES = Object.freeze(['contains', 'prefix', 'suffix', 'exac
 export const STATUS_FILTERS = Object.freeze(['active', 'suppressed', 'all']);
 
 const LABELS = {
-    'clinic.vocabulary.title': 'Vokabular verwalten',
+    'clinic.vocabulary.title': 'Wörter und Vorschläge',
     'clinic.vocabulary.scope': 'Aktueller Bereich',
-    'clinic.vocabulary.scopeUser': 'Eigene Liste',
+    'clinic.vocabulary.scopeUser': 'Persönlich',
+    'clinic.vocabulary.ownList': 'Eigene Liste',
     'clinic.vocabulary.scopePool': 'Autorenpool',
     'clinic.vocabulary.pool': 'Autorenpool wählen',
     'clinic.vocabulary.search': 'Suchen',
     'clinic.vocabulary.query': 'Suchbegriff',
     'clinic.vocabulary.mode': 'Suchmodus',
+    'clinic.vocabulary.contains': 'Enthält',
+    'clinic.vocabulary.prefix': 'Beginnt mit',
+    'clinic.vocabulary.suffix': 'Endet mit',
+    'clinic.vocabulary.exact': 'Genau gleich',
+    'clinic.vocabulary.active': 'Aktiv',
+    'clinic.vocabulary.suppressed': 'Unterdrückt',
+    'clinic.vocabulary.all': 'Alle',
+    'clinic.vocabulary.unknown': 'Unbekannt',
+    'clinic.vocabulary.loading': 'Wortschatz wird geladen …',
     'clinic.vocabulary.filter': 'Status',
     'clinic.vocabulary.written': 'Schreibweise',
     'clinic.vocabulary.spoken': 'Gesprochen',
@@ -92,6 +102,7 @@ export function createVocabularyStore(client, onChange) {
         failedWrite: null, // kept for retry with the same idempotency key
         message: '',
     };
+    let latestSearch = 0;
     const emit = () => { if (typeof onChange === 'function') onChange(state); };
 
     function fail(res) {
@@ -113,6 +124,7 @@ export function createVocabularyStore(client, onChange) {
         : { scope: 'user' });
 
     async function search(next) {
+        const version = ++latestSearch;
         if (next) Object.assign(state.query, next);
         const q = state.query;
         if (!SEARCH_MODES.includes(q.mode) || !STATUS_FILTERS.includes(q.filter) || q.q.length > MAX_SELECTION) {
@@ -125,6 +137,7 @@ export function createVocabularyStore(client, onChange) {
         emit();
         const params = scopeParams(new URLSearchParams({ q: q.q, mode: q.mode, status: q.filter }));
         const res = await client.request(PATH + '/search?' + params.toString());
+        if (version !== latestSearch) return res;
         if (res.outcome !== 'ok') return fail(res);
         state.entries = normalize((res.data || {}).entries);
         state.failedWrite = null;
@@ -234,67 +247,109 @@ export function statusSurface(state) {
 }
 
 export const VOCABULARY_TEMPLATE = `
-<section class="vocabulary-ui" aria-labelledby="voc-title" @keydown="onKey">
+<section class="vocabulary-ui v8-page stack" aria-labelledby="voc-title" :aria-busy="state.status === 'loading'">
   <h2 id="voc-title">{{ label('clinic.vocabulary.title') }}</h2>
-  <p role="status" aria-live="polite" :style="surfaceStyle">
-    {{ label('clinic.vocabulary.scope') }}:
-    <strong>{{ state.scope.kind === 'pool' ? label('clinic.vocabulary.scopePool') + ' ' + state.scope.poolId : label('clinic.vocabulary.scopeUser') }}</strong>
-    <span v-if="state.status === 'stale'">{{ label('clinic.vocabulary.stale') }}</span>
-    <span v-else>{{ state.message }}</span>
+  <form class="filterbar voc-filters" @submit.prevent="store.search()">
+    <div class="field voc-list" style="border:0;padding:0;box-shadow:none;background:none">
+      <label for="voc-pool">Wortliste</label>
+      <select id="voc-pool" class="select" :style="controlStyle" :value="state.scope.poolId || ''"
+        @change="selectList($event.target.value)">
+        <option value="">{{ label('clinic.vocabulary.scopeUser') }}</option>
+        <option v-for="pool in pools" :key="pool.id" :value="pool.id">{{ pool.name }}</option>
+      </select>
+    </div>
+    <div class="field search" style="border:0;padding:0;box-shadow:none;background:none">
+      <label for="voc-q">{{ label('clinic.vocabulary.query') }}</label>
+      <input id="voc-q" type="search" data-role="query" autocomplete="off" v-model="state.query.q">
+    </div>
+    <div class="field" style="border:0;padding:0;box-shadow:none;background:none">
+      <label for="voc-mode">{{ label('clinic.vocabulary.mode') }}</label>
+      <select class="select" :style="controlStyle" id="voc-mode" v-model="state.query.mode"><option v-for="mode in modes" :key="mode" :value="mode">{{ enumLabel(mode) }}</option></select>
+    </div>
+    <div class="field" style="border:0;padding:0;box-shadow:none;background:none">
+      <label for="voc-filter">{{ label('clinic.vocabulary.filter') }}</label>
+      <select class="select" :style="controlStyle" id="voc-filter" v-model="state.query.filter"><option v-for="filter in filters" :key="filter" :value="filter">{{ enumLabel(filter) }}</option></select>
+    </div>
+    <button type="submit" class="primary">{{ label('clinic.vocabulary.search') }}</button>
+    <div v-if="poolStatus === 'empty' || poolStatus === 'error'" class="voc-pool-feedback">
+      <span v-if="poolStatus === 'empty'" role="status">Keine zugeordneten Autorenpools.</span>
+      <template v-else>
+        <span role="status">Autorenpools konnten nicht geladen werden.</span>
+        <button type="button" class="small" @click="loadPools">Autorenpools erneut laden</button>
+      </template>
+    </div>
+  </form>
+  <p role="status" aria-live="polite" aria-atomic="true" class="note voc-feedback"
+    :class="{ 'voc-quiet': !state.message && !['error', 'denied', 'stale'].includes(state.status) }" :style="surfaceStyle">
+    <span class="voc-scope">{{ label('clinic.vocabulary.scope') }}:
+      <strong>{{ state.scope.kind === 'pool' ? selectedPoolName : label('clinic.vocabulary.ownList') }}</strong>
+    </span>
+    <span v-if="state.status === 'loading'">{{ label('clinic.vocabulary.loading') }}</span>
+    <span v-else-if="state.status === 'stale'">{{ label('clinic.vocabulary.stale') }}</span>
+    <span v-else-if="state.message">{{ state.message }}</span>
+    <span v-else-if="state.status === 'error' || state.status === 'denied'">Wortschatz konnte nicht geladen werden.</span>
+    <span v-else-if="state.status === 'ready'">{{ state.entries.length }} Einträge geladen.</span>
   </p>
-  <button type="button" @click="store.setScope('user')">{{ label('clinic.vocabulary.scopeUser') }}</button>
-  <form @submit.prevent="store.setScope('pool', poolDraft)">
-    <label for="voc-pool">{{ label('clinic.vocabulary.pool') }}</label>
-    <input id="voc-pool" type="text" autocomplete="off" v-model="poolDraft">
-    <button type="submit">{{ label('clinic.vocabulary.scopePool') }}</button>
-  </form>
-  <form @submit.prevent="store.search()">
-    <label for="voc-q">{{ label('clinic.vocabulary.query') }}</label>
-    <input id="voc-q" type="search" data-role="query" autocomplete="off" v-model="state.query.q">
-    <label for="voc-mode">{{ label('clinic.vocabulary.mode') }}</label>
-    <select id="voc-mode" v-model="state.query.mode"><option v-for="m in modes" :key="m" :value="m">{{ m }}</option></select>
-    <label for="voc-filter">{{ label('clinic.vocabulary.filter') }}</label>
-    <select id="voc-filter" v-model="state.query.filter"><option v-for="f in filters" :key="f" :value="f">{{ f }}</option></select>
-    <button type="submit">{{ label('clinic.vocabulary.search') }}</button>
-  </form>
-  <button type="button" @click="store.reload()">{{ label('clinic.vocabulary.reload') }}</button>
-  <button type="button" v-if="state.failedWrite" @click="store.retry()">{{ label('clinic.vocabulary.retry') }}</button>
-  <button type="button" @click="addSelected()">{{ label('clinic.vocabulary.addSelection') }}</button>
-  <table :aria-label="label('clinic.vocabulary.title')">
-    <thead><tr>
-      <th scope="col">{{ label('clinic.vocabulary.written') }}</th>
-      <th scope="col">{{ label('clinic.vocabulary.spoken') }}</th>
-      <th scope="col">{{ label('clinic.vocabulary.filter') }}</th>
-      <th scope="col"><span class="sr-only">Aktion</span></th>
-    </tr></thead>
-    <tbody>
-      <tr v-if="!state.entries.length && state.status === 'ready'"><td colspan="4" role="status">
-        <slot name="empty" :scope="state.scope" :query="state.query">{{ label('clinic.vocabulary.empty') }}</slot>
-      </td></tr>
-      <tr v-for="e in state.entries" :key="e.id">
-        <td>{{ e.written }}</td><td>{{ e.spoken }}</td><td>{{ e.status }}</td>
+  <p v-if="state.status === 'ready'" class="voc-result-count">{{ state.entries.length }} Einträge</p>
+  <div class="table-wrap" v-if="state.entries.length">
+    <table :aria-label="label('clinic.vocabulary.title')">
+      <thead><tr>
+        <th scope="col">{{ label('clinic.vocabulary.written') }}</th>
+        <th scope="col">{{ label('clinic.vocabulary.spoken') }}</th>
+        <th scope="col">{{ label('clinic.vocabulary.filter') }}</th>
+        <th scope="col">Aktion</th>
+      </tr></thead>
+      <tbody><tr v-for="e in state.entries" :key="e.id">
+        <td class="wrap"><strong>{{ e.written }}</strong></td><td class="wrap">{{ e.spoken || '–' }}</td>
+        <td><span class="tag" :class="{ error: e.status === 'suppressed' }">{{ enumLabel(e.status) }}</span></td>
         <td>
-          <button type="button" v-if="e.status === 'active'" @click="store.suppress(e.id)">{{ label('clinic.vocabulary.suppress') }}</button>
-          <button type="button" v-else @click="store.reactivate(e.id)">{{ label('clinic.vocabulary.reactivate') }}</button>
+          <button type="button" class="small" v-if="e.status === 'active'" @click="store.suppress(e.id)">{{ label('clinic.vocabulary.suppress') }}</button>
+          <button type="button" class="small" v-else @click="store.reactivate(e.id)">{{ label('clinic.vocabulary.reactivate') }}</button>
         </td>
-      </tr>
-    </tbody>
-  </table>
-  <form @submit.prevent="doImport()">
-    <label for="voc-import">{{ label('clinic.vocabulary.importLabel') }}</label>
-    <textarea id="voc-import" rows="4" v-model="importDraft"></textarea>
-    <button type="submit">{{ label('clinic.vocabulary.import') }}</button>
-  </form>
-  <button type="button" @click="store.exportList(false)">{{ label('clinic.vocabulary.export') }}</button>
-  <button type="button" @click="store.exportList(true)">{{ label('clinic.vocabulary.exportEffective') }}</button>
-  <div v-if="state.exportText">
-    <label for="voc-export">{{ label('clinic.vocabulary.exported') }}</label>
-    <textarea id="voc-export" rows="4" readonly :value="state.exportText"></textarea>
+      </tr></tbody>
+    </table>
   </div>
+  <p v-else-if="state.status === 'ready'" class="empty" role="status">
+    <slot name="empty" :scope="state.scope" :query="state.query">{{ label('clinic.vocabulary.empty') }} für diese Auswahl. Suche oder Status anpassen.</slot>
+  </p>
+  <section class="voc-editor" aria-labelledby="voc-editor-title">
+    <header class="voc-editor-head">
+      <h3 id="voc-editor-title">Wortliste bearbeiten</h3>
+      <div class="actions">
+        <button type="button" class="small" @click="store.reload()">{{ label('clinic.vocabulary.reload') }}</button>
+        <button type="button" class="small" v-if="state.failedWrite" @click="store.retry()">{{ label('clinic.vocabulary.retry') }}</button>
+        <button type="button" class="small" @click="addSelected()">{{ label('clinic.vocabulary.addSelection') }}</button>
+      </div>
+    </header>
+    <div class="voc-editor-body">
+      <form @submit.prevent="doImport()">
+        <label for="voc-import">{{ label('clinic.vocabulary.importLabel') }}</label>
+        <textarea id="voc-import" rows="4" aria-describedby="voc-import-format" v-model="importDraft"></textarea>
+        <small id="voc-import-format">Ein Eintrag pro Zeile.</small>
+        <button type="submit" class="primary">{{ label('clinic.vocabulary.import') }}</button>
+      </form>
+      <div class="voc-editor-export">
+        <h4>Export</h4>
+        <div class="actions">
+          <button type="button" class="small" @click="store.exportList(false)">{{ label('clinic.vocabulary.export') }}</button>
+          <button type="button" class="small" @click="store.exportList(true)">{{ label('clinic.vocabulary.exportEffective') }}</button>
+        </div>
+        <template v-if="state.exportText">
+          <label for="voc-export">{{ label('clinic.vocabulary.exported') }}</label>
+          <textarea id="voc-export" rows="4" readonly :value="state.exportText"></textarea>
+        </template>
+      </div>
+    </div>
+  </section>
+  <p class="note">Eine aktive Wortliste ist keine garantierte Enginewirkung. Fehlende Fähigkeiten müssen gesondert nachgewiesen werden.</p>
 </section>`;
 
+export function vocabularyEnumLabel(value) {
+    return label('clinic.vocabulary.' + ([...SEARCH_MODES, ...STATUS_FILTERS].includes(value) ? value : 'unknown'));
+}
+
 /** Vue component definition; pass the Vue global (window.Vue) and an api client. */
-export function createVocabularyComponent(Vue, client) {
+export function createVocabularyComponent(Vue, client, currentUserId = () => null) {
     return {
         template: VOCABULARY_TEMPLATE,
         setup() {
@@ -308,7 +363,27 @@ export function createVocabularyComponent(Vue, client) {
                 const s = statusSurface(state);
                 return { background: s.background, color: s.color, borderColor: s.border };
             });
-            const poolDraft = Vue.ref('');
+            const control = surfaceFor('normal');
+            const controlStyle = { backgroundColor: control.background, color: control.color, borderColor: control.border };
+            const pools = Vue.ref([]);
+            const poolStatus = Vue.ref('loading');
+            const selectedPoolName = Vue.computed(() => pools.value.find((pool) => pool.id === state.scope.poolId)?.name || label('clinic.vocabulary.scopePool'));
+            async function loadPools() {
+                poolStatus.value = 'loading';
+                const result = await client.request('/pools');
+                if (result.outcome !== 'ok') {
+                    poolStatus.value = 'error';
+                    return;
+                }
+                const userId = currentUserId();
+                pools.value = (result.data?.author_pools || [])
+                    .filter((pool) => pool.member_user_ids?.some((id) => String(id) === String(userId)))
+                    .map(({ id, name }) => ({ id, name }));
+                poolStatus.value = pools.value.length ? 'ready' : 'empty';
+            }
+            function selectList(id) {
+                return id ? store.setScope('pool', id) : store.setScope('user');
+            }
             const importDraft = Vue.ref('');
             function addSelected() {
                 const sel = typeof window !== 'undefined' && window.getSelection ? window.getSelection().toString() : '';
@@ -319,9 +394,9 @@ export function createVocabularyComponent(Vue, client) {
                 importDraft.value = '';
                 return store.importText(content);
             }
-            Vue.onMounted(() => store.search());
+            Vue.onMounted(() => Promise.all([store.search(), loadPools()]));
             return {
-                state, store, label, surfaceStyle, poolDraft, importDraft, addSelected, doImport,
+                state, store, label, enumLabel: vocabularyEnumLabel, surfaceStyle, controlStyle, pools, poolStatus, selectedPoolName, selectList, loadPools, importDraft, addSelected, doImport,
                 modes: SEARCH_MODES, filters: STATUS_FILTERS, onKey: (e) => handleKey(store, e),
             };
         },

@@ -44,7 +44,7 @@ from flask_wtf.csrf import CSRFError, validate_csrf
 from werkzeug.exceptions import HTTPException
 from wtforms.validators import ValidationError
 
-from src.clinic import acceptance_rules, archive_policy, audio_revisions, lease, live_session, policy
+from src.clinic import acceptance_rules, archive_policy, lease, live_session, policy
 from src.clinic import pools, recognition_state, revisions, workflow, workflow_actions, workflow_finalize
 from src.clinic import workflow_metadata
 from src.clinic.acceptance_policy import SCOPE_DICTATION, AcceptanceLedger, AcceptancePolicyVersion, PolicyError
@@ -56,7 +56,7 @@ from src.clinic.models import (
 )
 from src.clinic.parity_dispatch import JSON, CommandProblem, ParityDispatch, RunOnce
 from src.clinic.pool_policy import author_pool_ids
-from src.clinic.release import _heads as release_heads
+from src.clinic.release import _heads as release_heads, current_audio_id
 from src.database import db
 from src.models import Recording
 from src.services import audit
@@ -138,9 +138,8 @@ def _leaf_id(model, dictation_id: str) -> str | None:
 def _head_ids(dictation: ClinicDictation) -> tuple[str, str, str]:
     """Current text, audio and context revision ids; _MISSING for a missing or ambiguous one."""
     text = revisions.current_revision(dictation)
-    audio = audio_revisions.current_audio_revision(dictation)
     return (text.id if text is not None else _MISSING,
-            audio.id if audio is not None else _leaf_id(ClinicAudioRevision, dictation.id) or _MISSING,
+            current_audio_id(dictation.id) or _MISSING,
             _leaf_id(ClinicContextRevision, dictation.id) or _MISSING)
 
 
@@ -227,6 +226,17 @@ def register_commands(
             action = action_for(payload)
             if action is None:
                 raise CommandProblem('CAPABILITY_UNAVAILABLE')
+            row = db.session.get(ClinicDictation, target, populate_existing=True)
+            if action == 'submit':
+                try:
+                    rule = acceptance_policy(row)
+                except PolicyError as error:
+                    raise CommandProblem('POLICY_DENIED') from error
+                if payload['acceptance_rule_id'] != rule.rule_id:
+                    raise CommandProblem('REVISION_CONFLICT')
+                current = _heads(row)
+                if current is None or current[2] != payload.get('context_revision_id'):
+                    raise CommandProblem('REVISION_CONFLICT')
             context = payload.get('context_revision_id')
             if context is not None:
                 bound = db.session.get(ClinicContextRevision, context)
@@ -349,8 +359,8 @@ def create_blueprint(
                 apply: Callable[[ClinicDictation, int, str, datetime], JSON], *, created: int = 200,
                 author_only: bool = False):
         target, actor = str(dictation_id), current_user.id
-        # Serialize author sends before receipt lookup so overlapping retries replay.
-        if author_only:
+        # Serialize first archive registration and author sends with their receipts on SQLite.
+        if author_only or name == 'archive':
             connection = db.session.connection()
             if connection.dialect.name == 'sqlite' and not connection.connection.driver_connection.in_transaction:
                 connection.exec_driver_sql('BEGIN IMMEDIATE')
@@ -530,9 +540,11 @@ def create_blueprint(
                     subject=policy.build_subject(current_user.id),
                     facts=policy.build_facts(recording.id, recording.user_id),
                     expected_version=expected, request_id=key, now=now,
-                    confirm=body['confirm'], recording=recording)
+                    confirm=body['confirm'], recording=recording, dictation=row)
             except archive_policy.StaleVersion as stale:
                 raise workflow.WorkflowError('stale_version') from stale
+            if done.applied:
+                row.version_counter += 1
             return {'dictation_id': row.id, 'requested': done.requested, 'status': done.status,
                     'version': done.version, 'applied': done.applied,
                     'retention_changed': done.retention_changed,
@@ -541,6 +553,7 @@ def create_blueprint(
                                 'would_delete': done.dry_run.would_delete},
                     'etag': f'"{row.id}:{done.version}"'}
 
-        return command(dictation_id, 'archive', PERM_ARCHIVE, body, apply)
+        permission = PERM_ARCHIVE if body['action'] == archive_policy.ARCHIVE else 'clinic.delete'
+        return command(dictation_id, 'archive', permission, body, apply)
 
     return bp

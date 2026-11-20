@@ -19,7 +19,7 @@
  * implicit dictation access.
  */
 
-import { PAGE_SIZE, readAccountPage, readDirectory } from './account-pages.js';
+import { MISSING_POLICY_FILTER, PAGE_SIZE, readAccountPage, readDirectory } from './account-pages.js';
 
 export const LOGIN_POLICIES = ['local_only', 'local_and_entra', 'entra_only'];
 export const SELECTABLE_POLICIES = ['local_only'];
@@ -59,7 +59,8 @@ export const LABELS = Object.freeze({
     noImplicitAccess: 'Identitätsrollen geben keinen Zugriff auf Diktate. Fachrechte werden separat erteilt.',
     entraNote: 'Entra ist vorbereitet, aber noch nicht aktiviert.',
     statuses: { active: 'Aktiv', disabled: 'Deaktiviert', pending_activation: 'Aktivierung ausstehend' },
-    policies: { local_only: 'Nur lokal', local_and_entra: 'Lokal und Entra', entra_only: 'Nur Entra' },
+    policies: { local_only: 'Nur lokal', local_and_entra: 'Lokal und Entra', entra_only: 'Nur Entra',
+        device_only: 'Nur Gerät', [MISSING_POLICY_FILTER]: 'Keine Anmelderichtlinie' },
     errors: {
         duplicate: 'Benutzername oder E-Mail-Adresse ist bereits vergeben.',
         last_local_identity_admin: 'Zuerst eine weitere lokale Identitätsadministration aktivieren.',
@@ -100,7 +101,7 @@ function fromRow(row) {
         is_admin: !!row.is_admin,
         is_identity_admin: !!row.is_identity_admin,
         status: row.status || 'active',
-        login_policy: row.login_policy || 'local_only',
+        login_policy: row.login_policy || null,
         version: row.version,
     };
 }
@@ -413,6 +414,8 @@ export const AccountsAdminPanel = {
             role: filters.role || '',
             sortOrder: (filters.sort || 'username') + ':' + (filters.order || 'asc'),
             opener: null,
+            filtersOpen: false,
+            expandedAccount: null,
             limits: LIMITS,
             source: filters.source || '',
             labels: LABELS,
@@ -422,6 +425,11 @@ export const AccountsAdminPanel = {
         };
     },
     computed: {
+        availablePolicies() {
+            const values = this.s.accounts.map(account => account.login_policy || MISSING_POLICY_FILTER);
+            if (this.source) values.push(this.source);
+            return [...new Set(values)];
+        },
         s() { return this.controller.state; },
         rows() { return this.s.table.users; },
     },
@@ -446,6 +454,7 @@ export const AccountsAdminPanel = {
                 search: this.query.trim(), role: this.role, source: this.source, sort, order,
             });
         },
+        policyLabel(policy) { return LABELS.policies[policy || MISSING_POLICY_FILTER] || policy; },
         seen(value) { return value ? new Date(value).toLocaleString('de-CH') : 'Noch nie'; },
     },
     async mounted() {
@@ -475,16 +484,20 @@ export const AccountsAdminPanel = {
     <output><code>{{ s.recoveryCode }}</code></output>
     <button type="button" class="btn btn--sm btn--ghost" @click="controller.dismissCode()">{{ labels.dismissCode }}</button>
   </div>
-  <div v-if="s.loaded" class="filterbar cadm-account-filters">
+  <div v-if="s.loaded" class="filterbar cadm-account-filters" :class="{ 'filters-open': filtersOpen }">
     <label class="field search"><span>Suche</span><input type="search" :value="query" @input="query = $event.target.value; browse()" placeholder="Anmeldename oder E-Mail"></label>
-    <label class="field"><span>Rolle</span><select v-model="role" @change="browse()">
+    <button type="button" class="btn btn--ghost cadm-mobile-filter" :aria-expanded="filtersOpen"
+            aria-controls="acc-role-filter acc-source-filter acc-sort-filter" @click="filtersOpen = !filtersOpen">
+      <i class="fas fa-sliders" aria-hidden="true"></i>Filter und Sortierung<span v-if="role || source || sortOrder !== 'username:asc'"> · aktiv</span>
+    </button>
+    <label id="acc-role-filter" class="field"><span id="acc-role-label">Rolle</span><select aria-labelledby="acc-role-label" v-model="role" @change="browse()">
       <option value="">Alle Rollen</option><option value="is_admin">{{ labels.roleAdmin }}</option>
       <option value="is_identity_admin">{{ labels.roleIdentity }}</option>
     </select></label>
-    <label class="field"><span>Anmelderichtlinie</span><select v-model="source" @change="browse()">
-      <option value="">Alle Richtlinien</option><option v-for="policy in policies" :key="policy" :value="policy">{{ labels.policies[policy] }}</option>
+    <label id="acc-source-filter" class="field"><span id="acc-source-label">Anmelderichtlinie</span><select aria-labelledby="acc-source-label" v-model="source" @change="browse()">
+      <option value="">Alle Richtlinien</option><option v-for="policy in availablePolicies" :key="policy" :value="policy">{{ policyLabel(policy) }}</option>
     </select></label>
-    <label class="field"><span>Sortierung</span><select v-model="sortOrder" @change="browse()">
+    <label id="acc-sort-filter" class="field"><span id="acc-sort-label">Sortierung</span><select aria-labelledby="acc-sort-label" v-model="sortOrder" @change="browse()">
       <optgroup label="Benutzername"><option value="username:asc">Benutzername A–Z</option><option value="username:desc">Benutzername Z–A</option></optgroup>
       <optgroup label="E-Mail"><option value="email:asc">E-Mail A–Z</option><option value="email:desc">E-Mail Z–A</option></optgroup>
       <optgroup label="Kontonummer"><option value="id:asc">Niedrigste Kontonummer</option><option value="id:desc">Höchste Kontonummer</option></optgroup>
@@ -496,7 +509,7 @@ export const AccountsAdminPanel = {
   </div>
   <p v-if="s.loaded" role="status" class="hint">{{ s.table.total }} {{ s.table.total === 1 ? 'Konto' : 'Konten' }}</p>
   <div v-if="rows.length" class="cadm-tablewrap cadm-tablewrap--stack">
-    <table class="cadm-table cadm-table--stack" :aria-label="labels.list">
+    <table class="cadm-table cadm-table--stack cadm-account-table" :aria-label="labels.list">
       <thead><tr>
         <th scope="col">{{ labels.username }}</th><th scope="col">{{ labels.email }}</th>
         <th scope="col">{{ labels.roles }}</th>
@@ -504,19 +517,28 @@ export const AccountsAdminPanel = {
         <th scope="col" class="cadm-col-actions"><span class="sr-only">{{ labels.edit }}</span></th>
       </tr></thead>
       <tbody>
-        <tr v-for="a in rows" :key="a.id">
-          <th scope="row"><strong>{{ a.username }}</strong><small v-if="a.name && a.name !== a.username">{{ a.name }}</small></th>
-          <td class="cadm-cell--wide" :data-label="labels.email">{{ a.email }}</td>
-          <td :data-label="labels.roles">
+        <tr v-for="a in rows" :key="a.id" :class="{ 'account-open': expandedAccount === a.id }">
+          <th scope="row">
+            <strong class="cadm-account-name">{{ a.username }}</strong>
+            <button type="button" class="cadm-account-disclosure" :aria-label="'Kontodetails: ' + a.username"
+                    :aria-expanded="expandedAccount === a.id"
+                    :aria-controls="['email','roles','policy','actions'].map(key => 'acc-' + a.id + '-' + key).join(' ')"
+                    @click="expandedAccount = expandedAccount === a.id ? null : a.id">
+              <i class="fas fa-chevron-right" aria-hidden="true"></i><strong>{{ a.username }}</strong>
+            </button>
+            <small v-if="a.name && a.name !== a.username">{{ a.name }}</small>
+          </th>
+          <td :id="'acc-' + a.id + '-email'" class="cadm-cell--wide" :data-label="labels.email">{{ a.email }}</td>
+          <td :id="'acc-' + a.id + '-roles'" :data-label="labels.roles">
             <span class="cadm-badges">
               <span v-if="a.is_admin" class="pill-status pill-status--info">{{ labels.roleAdmin }}</span>
               <span v-if="a.is_identity_admin" class="pill-status pill-status--processing">{{ labels.roleIdentity }}</span>
               <span v-if="!a.is_admin && !a.is_identity_admin" class="cadm-muted">{{ labels.noRole }}</span>
             </span>
           </td>
-          <td :data-label="labels.status"><span class="pill-status" :class="statusClass[a.status] || 'pill-status--pending'">{{ labels.statuses[a.status] || a.status }}</span></td>
-          <td :data-label="labels.loginPolicy">{{ labels.policies[a.login_policy] || a.login_policy }}</td>
-          <td class="cadm-col-actions">
+          <td class="cadm-account-status" :data-label="labels.status"><span class="pill-status" :class="statusClass[a.status] || 'pill-status--pending'">{{ labels.statuses[a.status] || a.status }}</span></td>
+          <td :id="'acc-' + a.id + '-policy'" :data-label="labels.loginPolicy">{{ policyLabel(a.login_policy) }}</td>
+          <td :id="'acc-' + a.id + '-actions'" class="cadm-col-actions">
             <span class="cadm-actions">
               <button type="button" class="btn btn--sm btn--ghost btn--icon" :title="labels.edit" :aria-label="labels.edit + ': ' + a.username" @click="openEditor($event, a.id)"><i class="fas fa-edit" aria-hidden="true"></i></button>
               <button type="button" class="btn btn--sm btn--ghost btn--icon" v-if="a.status === 'active'" :disabled="s.busy" :title="labels.disable" :aria-label="labels.disable + ': ' + a.username" @click="controller.setStatus(a.id, 'disabled')"><i class="fas fa-user-slash" aria-hidden="true"></i></button>
@@ -565,7 +587,8 @@ export const AccountsAdminPanel = {
         </div>
         <div class="cadm-field">
           <label for="acc-policy">{{ labels.loginPolicy }}</label>
-          <select id="acc-policy" class="field" v-model="s.draft.login_policy" aria-describedby="acc-entra">
+          <select id="acc-policy" class="field" v-model="s.draft.login_policy" :disabled="!s.base.login_policy" aria-describedby="acc-entra">
+            <option v-if="!policies.includes(s.base.login_policy)" :value="s.base.login_policy" disabled>{{ policyLabel(s.base.login_policy) }}</option>
             <option v-for="p in policies" :key="p" :value="p" :disabled="!selectable.includes(p) && p !== s.base.login_policy">{{ labels.policies[p] }}</option>
           </select>
           <p id="acc-entra" class="cadm-hint">{{ labels.entraNote }}</p>

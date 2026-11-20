@@ -15,6 +15,13 @@ import { createClinicApiClient } from './api-client.js';
 
 export const WORKLIST_UI_VERSION = 1;
 
+/** Display only: never use this abbreviation for selection, requests or routing. */
+export function formatDictationReference(id) {
+    if (id === null || id === undefined || id === '') return '';
+    const value = String(id);
+    return '#' + (value.length > 16 ? value.slice(0, 8) + '…' + value.slice(-4) : value);
+}
+
 export const ROLE_AUTHOR = 'author';
 export const ROLE_STAFF = 'staff';
 export const ROLE_TYPIST = 'typist';

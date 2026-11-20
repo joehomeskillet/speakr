@@ -466,6 +466,8 @@ from src.tasks.processing import (
 )
 
 # Import configuration helpers
+from src.clinic.asset_version import clinic_asset_version
+from src.clinic.config import clinic_mode_enabled as _clinic_mode_enabled
 from src.config.version import get_version
 
 # Initialize Flask-Login and other extensions
@@ -822,14 +824,14 @@ def handle_request_entity_too_large(_error):
 def inject_now():
     return {'now': datetime.now()}
 
-# Expose the app version to templates so the service worker registration URL
-# (and therefore its cache namespace) changes on every release, forcing the
-# browser to install the new worker and refetch the app shell (issue #357).
+# Templates use this value for static URLs and the service worker cache. Clinic images
+# can change those assets between upstream releases. The visible product version stays in get_version().
 _app_version = get_version()
 
 @app.context_processor
 def inject_app_version():
-    return {'app_version': _app_version}
+    cache_version = clinic_asset_version(_app_version, app.static_folder) if _clinic_mode_enabled() else _app_version
+    return {'app_version': cache_version}
 
 from src.utils.i18n_bootstrap import i18n_bootstrap as _i18n_bootstrap
 
@@ -1159,7 +1161,7 @@ def register_clinic_worklist(flask_app):
                             workflow, workflow_metadata, worklist_entries)
     from src.clinic.acceptance_policy import SCOPE_DICTATION, AcceptanceLedger, PolicyError
     from src.clinic import finalize_gates
-    from src.clinic.archive_policy import ArchiveBook
+    from src.clinic.archive_policy import ArchiveBook, archive_available
     from src.clinic.metadata_changes import ChangeError
     from src.clinic.models import ClinicDictation
     from src.clinic.parity_dispatch import CommandProblem
@@ -1172,7 +1174,8 @@ def register_clinic_worklist(flask_app):
     run_once = flask_app.extensions['clinic_run_once']
     # Permission or action name -> central policy actions that must all be allowed.
     needs = {
-        'clinic.metadata': ('edit',), 'clinic.archive': ('edit',), 'clinic.release': ('release',),
+        'clinic.metadata': ('edit',), 'clinic.archive': ('archive',), 'clinic.delete': ('edit', 'delete'),
+        'clinic.release': ('release',),
         'clinic.review': ('edit', 'release'), 'clinic.accept': ('release',),
         'clinic.reopen': ('release',), 'clinic.dictate': ('edit',), 'history': ('view',),
         'review': ('edit',), 'listen': ('play',), 'regex_preview': ('edit',), 'regex_apply': ('edit',),
@@ -1184,7 +1187,8 @@ def register_clinic_worklist(flask_app):
         if not actions or dictation is None:
             return False
         subject = policy.build_subject(user_id)
-        return all(pool_policy.decide(subject, action, dictation).allowed for action in actions)
+        return (all(pool_policy.decide(subject, action, dictation).allowed for action in actions)
+                and (name != 'clinic.archive' or archive_available(dictation)))
 
     def allowed_actions(user_id, dictation):
         return {name for name in ('rename', 'priority', 'reassign') if may(user_id, name, dictation)}
@@ -1272,7 +1276,8 @@ def register_clinic_worklist(flask_app):
         dictation_snapshot=worklist_entries.dictation_snapshot))
     flask_app.register_blueprint(routes_dictation_detail.create_blueprint(
         authorize=lambda user, action, dictation: may(user.id, action, dictation),
-        dictation_snapshot=worklist_entries.dictation_snapshot))
+        dictation_snapshot=worklist_entries.dictation_snapshot,
+        acceptance_policy=lambda row: ledger.current(SCOPE_DICTATION, row.id)))
     flask_app.register_blueprint(routes_templates.blueprint)
     flask_app.register_blueprint(routes_categories.blueprint)
     flask_app.register_blueprint(routes_regex.RegexApi(
@@ -1525,7 +1530,6 @@ def register_clinic_voice_consent(flask_app):
 # --- end v8-75 ---
 
 
-from src.clinic.config import clinic_mode_enabled as _clinic_mode_enabled
 if _clinic_mode_enabled():
     register_clinic_resources(app)
     register_clinic_identity(app)

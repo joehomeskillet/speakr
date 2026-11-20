@@ -139,7 +139,7 @@ def _release(w, text_id, **over):
 
 def _to_accept(w):
     submit = {'text_revision_id': w['head'].id, 'context_revision_id': w['context'].id,
-              'acceptance_rule_id': str(uuid4())}
+              'acceptance_rule_id': w['ledger'].current(SCOPE_DICTATION, w['item'].id).rule_id}
     assert _command(w, 'request_acceptance', submit).status_code == 200
 
 

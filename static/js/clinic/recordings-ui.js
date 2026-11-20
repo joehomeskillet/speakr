@@ -11,12 +11,12 @@
  * page (or the module default) so they survive a re-mount.
  */
 
-import { ARCHIVE_STATUS } from './compose-archive.js';
 import { TOKEN_CONTRACT_VERSION, TokenContractError, surfaceFor } from './tokens.js';
-import { STATUS_LABELS, formatAudioDuration, getOpenMode, resolveStatusSurface } from './worklist-ui.js';
+import { STATUS_LABELS, formatAudioDuration, formatDictationReference, getOpenMode, resolveStatusSurface } from './worklist-ui.js';
 
 export const RECORDINGS_UI_VERSION = 1;
 export const RECORDINGS_PAGE_SIZE = 50;
+export const ARCHIVE_STATUS = 'zu_archivieren';
 export const FILTER_KEYS = Object.freeze(['author_id', 'pool_id', 'status', 'from', 'to']);
 const ACTIVE_STATUS_LABELS = Object.freeze(Object.fromEntries(
     Object.entries(STATUS_LABELS).filter(([status]) => status !== ARCHIVE_STATUS),
@@ -75,6 +75,7 @@ export const TEXT = Object.freeze({
     reset: 'Zurücksetzen',
     resetFilters: 'Filter zurücksetzen',
     filters: 'Filter',
+    roleFilters: 'Pool und Diktierende',
     filtersShow: 'Filter anzeigen',
     filtersHide: 'Filter ausblenden',
     authorId: 'Diktiert von',
@@ -195,6 +196,13 @@ export function statusBadge(status) {
     }
 }
 
+export function processingLabel(state) {
+    return ({ QUEUED: 'Transkription wartet', PENDING: 'Transkription wartet',
+        PROCESSING: 'Transkription läuft', RUNNING: 'Transkription läuft',
+        FAILED: 'Transkription fehlgeschlagen', COMPLETED: 'Transkription abgeschlossen',
+        SUCCEEDED: 'Transkription abgeschlossen' })[String(state || '').toUpperCase()] || '';
+}
+
 const nameOf = (person) => (person && typeof person.display_name === 'string' && person.display_name ? person.display_name : null);
 
 /** Prototype status tint class of a workflow status; unknown statuses keep the neutral first tint. */
@@ -214,16 +222,18 @@ export function toViewRow(item) {
     const seconds = Number.isFinite(item.duration_ms) ? Math.round(item.duration_ms / 1000) : null;
     const time = formatTime(item.sort_time || item.recorded_at);
     const heading = item.case_display ? TEXT.caseId + ' ' + item.case_display : TEXT.dictation;
+    const reference = formatDictationReference(item.dictation_id);
     const authorName = nameOf(item.dictated_by) || TEXT.noAuthor;
     const poolText = pools.length ? pools.join(', ') : TEXT.noPool;
     return {
         key: String(item.dictation_id),
-        dictationId: String(item.dictation_id),
+        dictationId: item.dictation_id == null ? '' : String(item.dictation_id),
+        reference,
         day: item.day || null,
         time,
         datetime: item.sort_time || item.recorded_at || '',
         statusClass: Object.prototype.hasOwnProperty.call(STATUS_TINT, item.workflow_status) ? STATUS_TINT[item.workflow_status] : 'neu',
-        ariaLabel: [heading, TEXT.author + ' ' + authorName, TEXT.pool + ' ' + poolText, item.day ? formatLongDay(item.day) : '', time, badge.label,
+        ariaLabel: [heading + (!item.case_display && reference ? ' ' + reference : ''), TEXT.author + ' ' + authorName, TEXT.pool + ' ' + poolText, item.day ? formatLongDay(item.day) : '', time, badge.label,
             seconds === null ? '' : formatAudioDuration(seconds)].filter(Boolean).join(', '),
         isFallback: fallback,
         fallbackLabel: fallback ? TEXT.fallbackBadge : '',
@@ -235,7 +245,7 @@ export function toViewRow(item) {
         leaseHolder: nameOf(item.lease_holder) || TEXT.none,
         status: badge.label,
         statusStyle: badge.style,
-        processing: item.processing_status || '',
+        processing: processingLabel(item.processing_status),
         duration: seconds === null ? TEXT.none : formatAudioDuration(seconds),
         caseDisplay: item.case_display || '',
         workflowStatus: item.workflow_status || null,
@@ -382,6 +392,10 @@ export function createRecordingsController(options) {
 
     const hasFilters = () => FILTER_KEYS.some((k) => String(state.filters[k] || '').trim() !== '');
 
+    const hasDraftChanges = () => FILTER_KEYS.some((key) => state.draft[key] !== state.filters[key]);
+    const canReset = () => Boolean(hasFilters() || String(state.query || '').trim()
+        || picker.pool || picker.author || picker.period !== 'all');
+
     function persist() {
         memory.snapshot = {
             rows: state.rows.slice(), nextCursor: state.nextCursor,
@@ -489,7 +503,7 @@ export function createRecordingsController(options) {
 
     /** Reports the row to the page with the same payload the worklist uses. */
     function open(row) {
-        if (disposed || !row) return false;
+        if (disposed || !row || !row.dictationId) return false;
         persist();
         if (typeof options.onOpen === 'function') {
             options.onOpen({ dictationId: row.dictationId, mode: getOpenMode({ status: row.workflowStatus }, user.role) });
@@ -506,6 +520,7 @@ export function createRecordingsController(options) {
 
     return {
         state, start, load, loadMore, applyFilters, resetFilters, setScroll, open, dispose, options: optionState, picker, pick, setPeriod, visibleRows,
+        hasDraftChanges, canReset,
         activeFilterCount: () => FILTER_KEYS.filter((k) => String(state.filters[k] || '').trim() !== '').length,
         countLabel: () => {
             const n = visibleRows().length;

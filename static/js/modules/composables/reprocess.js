@@ -20,6 +20,7 @@ export function useReprocess(state, utils) {
 
     const { showToast, setGlobalError, onChatComplete } = utils;
     const t = (key, params) => (utils.t ? utils.t(key, params) : key);
+    const clinicMode = () => document.getElementById('app')?.dataset.clinicMode === 'True';
 
     // Store for active polling intervals
     const reprocessingPolls = new Map();
@@ -28,7 +29,7 @@ export function useReprocess(state, utils) {
     // Reprocess Modal
     // =========================================
 
-    const openReprocessModal = (type, recording = null) => {
+    const openReprocessModal = async (type, recording = null) => {
         // Summaries have their own dialog (#584); this one is transcription only.
         if (type === 'summary') {
             openRegenerateSummaryModal(recording);
@@ -152,6 +153,13 @@ export function useReprocess(state, utils) {
             if (initialPrompt && initialPrompt.trim()) requestBody.initial_prompt = initialPrompt.trim();
             if (transcriptionModel && transcriptionModel.trim()) requestBody.transcription_model = transcriptionModel.trim();
 
+            // Unlinked recordings retain the upstream route. The server decides
+            // whether this recording is mapped and requires an editor lease.
+            if (clinicMode()) {
+                const { activeRepeatSession } = await import('../../clinic/repeat-transcription-ui.js');
+                Object.assign(requestBody, activeRepeatSession(recordingId)?.proof());
+            }
+
             const response = await fetch(`/recording/${recordingId}/reprocess_transcription`, {
                 method: 'POST',
                 headers: {
@@ -161,6 +169,14 @@ export function useReprocess(state, utils) {
                 body: JSON.stringify(requestBody)
             });
 
+            if (clinicMode() && !response.ok) {
+                const error = await response.clone().json().catch(() => null);
+                if (['invalid_lease_generation', 'stale_generation', 'expired', 'foreign_holder'].includes(error?.code)) {
+                    const { REPEAT_TEXT } = await import('../../clinic/repeat-transcription-ui.js');
+                    setGlobalError(REPEAT_TEXT.leaseRequired);
+                    return;
+                }
+            }
             const data = await readJsonResponse(response, t, 'errors.reprocessTranscriptionFailed');
 
             // Update recording status in list

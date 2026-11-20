@@ -206,6 +206,13 @@ class ConnectorRegistry:
         Returns:
             Configuration dict
         """
+        from src.clinic.config import clinic_mode_enabled
+
+        word_options = {}
+        if clinic_mode_enabled() and os.environ.get(
+                'TRANSCRIPTION_WORD_TIMESTAMPS', '').strip().lower() in ('1', 'true', 'yes'):
+            word_options['word_timestamps'] = True
+
         if connector_name == 'asr_endpoint':
             base_url = os.environ.get('ASR_BASE_URL', '')
             if base_url:
@@ -216,7 +223,8 @@ class ConnectorRegistry:
                 'api_key': os.environ.get('ASR_API_KEY', ''),
                 'timeout': self._get_asr_timeout(),
                 'diarize': os.environ.get('ASR_DIARIZE', 'true').lower() == 'true',
-                'return_speaker_embeddings': os.environ.get('ASR_RETURN_SPEAKER_EMBEDDINGS', 'false').lower() == 'true'
+                'return_speaker_embeddings': os.environ.get('ASR_RETURN_SPEAKER_EMBEDDINGS', 'false').lower() == 'true',
+                **word_options,
             }
 
         elif connector_name == 'clinic_stub':
@@ -233,16 +241,12 @@ class ConnectorRegistry:
             # TRANSCRIPTION_MODEL takes priority for custom Whisper variants
             model = os.environ.get('TRANSCRIPTION_MODEL', '') or os.environ.get('WHISPER_MODEL', 'whisper-1')
 
-            config = {
+            return {
                 'api_key': os.environ.get('TRANSCRIPTION_API_KEY', ''),
                 'base_url': base_url or None,
-                'model': model
+                'model': model,
+                **word_options,
             }
-            from src.clinic.config import clinic_mode_enabled
-            if clinic_mode_enabled() and os.environ.get(
-                    'TRANSCRIPTION_WORD_TIMESTAMPS', '').strip().lower() in ('1', 'true', 'yes'):
-                config['word_timestamps'] = True
-            return config
 
     def get_active_connector(self) -> BaseTranscriptionConnector:
         """

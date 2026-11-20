@@ -91,6 +91,7 @@ export function useCorrectionEditor(options) {
     const user = opts.currentUser || {};
 
     const text = refs.ref('');
+    const recordingId = refs.ref(null);
     const textRevisionId = refs.ref(null);
     const etag = refs.ref(null);
     const dirty = refs.ref(false);
@@ -173,6 +174,7 @@ export function useCorrectionEditor(options) {
             return problem;
         }
         text.value = data.text;
+        recordingId.value = Number.isSafeInteger(data.recording_id) && data.recording_id > 0 ? data.recording_id : null;
         textRevisionId.value = data.text_revision_id;
         // The server issues the validator (revision + lease generation); an older server only names the revision.
         etag.value = typeof data.etag === 'string' && data.etag
@@ -225,9 +227,10 @@ export function useCorrectionEditor(options) {
     }
 
     return {
-        text, textRevisionId, etag, dirty, manual, loading, error, audio, template,
+        text, recordingId, textRevisionId, etag, dirty, manual, loading, error, audio, template,
         templates: manager.state, templatesError, lease: leaseState, canEdit, announcement,
         load, applyTemplate, setText, dispose, audioSource,
+        availableLeaseActions: () => leaseActions(leaseState.value),
         ...(opts.exposeLeaseController === true ? { leaseController: lease } : {}),
         acquire: lease.acquire, release: lease.release, takeOver: lease.takeOver,
     };
@@ -236,6 +239,7 @@ export function useCorrectionEditor(options) {
 /** Vue component. Props: client, dictationId, currentUser, vue. */
 /** Re-exported so the composed view reaches the toolbar controller through a module it already imports. */
 export { createCorrectionToolbar, FONT_SIZE, vTip } from './correction-toolbar-ui.js';
+export { createRepeatTranscription, REPEAT_TEXT } from './repeat-transcription-ui.js';
 
 export const CorrectionEditor = {
     name: 'ClinicCorrectionEditor',
@@ -253,7 +257,7 @@ export const CorrectionEditor = {
         });
         if (V && typeof V.onMounted === 'function') V.onMounted(() => { editor.load(); });
         if (V && typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(editor.dispose);
-        const actions = V && V.computed ? V.computed(() => leaseActions(editor.lease.value)) : { value: [] };
+        const actions = V && V.computed ? V.computed(editor.availableLeaseActions) : { value: [] };
         const surface = V && V.computed
             ? V.computed(() => surfaceFor(editor.error.value ? 'error' : (editor.loading.value ? 'processing' : 'normal')))
             : { value: surfaceFor('normal') };

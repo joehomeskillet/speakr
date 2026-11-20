@@ -73,6 +73,10 @@ def _targets(rule: RouteRule) -> tuple[list[int], str]:
     src/clinic/request_ids.py), whatever the route table says about the route.
     """
     action = rule.action or 'view'
+    # Match the media handler's flag exactly; ordinary playback stays separate.
+    if (request.endpoint == 'recordings.get_audio'
+            and request.args.get('download', 'false').lower() == 'true'):
+        action = 'audio_export'
     ids = request_ids(rule.body_keys)
     arg = (request.view_args or {}).get(rule.arg)
     if arg is not None:

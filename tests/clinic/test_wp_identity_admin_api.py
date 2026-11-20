@@ -127,3 +127,121 @@ def test_technical_admin_cannot_manage_identities_without_explicit_grant(admin_c
         db.session.commit()
     response = command(client, 'POST', '/admin/users', username='new_user', email='new@example.invalid')
     assert response.status_code == 403 and response.json['code'] == 'unauthorized'
+
+
+def test_explicit_adoption_preserves_existing_account_and_retries(admin_client):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from datetime import datetime, timedelta, timezone
+    import bcrypt
+    from src.clinic.models import ClinicDictation
+    from src.clinic.pools import ClinicVisibilityGrant
+
+    client, actor = admin_client
+    old_hash = bcrypt.hashpw(b'synthetic existing password', bcrypt.gensalt(rounds=4)).decode()
+    with app.app_context():
+        user = User(username='legacy_admin', email='legacy@example.invalid', password=old_hash,
+                    is_admin=True, session_version=17)
+        db.session.add(user)
+        db.session.flush()
+        uid = user.id
+        recording = Recording(user_id=uid, title='Legacy', original_filename='legacy.wav')
+        grant = ClinicVisibilityGrant(user_id=uid, created_by=actor, scope='own', effect='allow')
+        recovery = identity.ClinicLocalRecovery(user_id=uid, issued_by=actor, purpose='reset_local',
+                                               token_hash='a' * 64, expires_at=datetime.now(timezone.utc) + timedelta(days=1))
+        db.session.add_all([recording, grant, recovery])
+        db.session.flush()
+        dictation = ClinicDictation(recording_id=recording.id, author_user_id=uid)
+        db.session.add(dictation)
+        db.session.commit()
+        did, rid, gid, cid = dictation.id, recording.id, grant.id, recovery.id
+    path = f'/admin/users/{uid}'
+    body = {'adopt_existing_local': True, 'expected_version': 0}
+    assert client.put(path, json=body).status_code == 400
+    for invalid in ({'expected_version': False}, {'email': 'other@example.invalid'}, {'is_admin': False}):
+        assert command(client, 'PUT', path, **(body | invalid)).status_code == 400
+    token = csrf(client)
+    cookie = client.get_cookie(app.config['SESSION_COOKIE_NAME'])
+    ready = Barrier(2)
+
+    def submit(_):
+        browser = app.test_client()
+        browser.set_cookie(cookie.key, cookie.value)
+        ready.wait(timeout=10)
+        return browser.put(path, json=body, headers={'X-CSRFToken': token})
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses = list(pool.map(submit, range(2)))
+    for response in responses:
+        assert response.status_code == 200
+        assert response.json == dict(id=uid, version=1, status='active', login_policy='local_only', is_identity_admin=False)
+    with app.app_context():
+        target = db.session.get(User, uid)
+        assert (target.password, target.is_admin, target.session_version) == (old_hash, True, 17)
+        assert db.session.get(ClinicDictation, did).author_user_id == db.session.get(Recording, rid).user_id == uid
+        assert db.session.get(ClinicVisibilityGrant, gid).user_id == uid
+        code = db.session.get(identity.ClinicLocalRecovery, cid)
+        assert (code.version, code.revoked_at, code.consumed_at) == (1, None, None)
+        policy = db.session.get(identity.ClinicAccountPolicy, uid)
+        assert (policy.security_version, policy.password_changed_at, policy.must_change_password) == (0, None, False)
+        event = AuditEvent.query.filter_by(event='admin.user.changed', target_user_id=uid).one()
+        assert event.actor_user_id == actor and event.details == {'fields': ['local_account_policy_adopted']}
+
+
+def test_adoption_refuses_external_and_managed_accounts_and_requires_fresh_admin(admin_client):
+    from src.clinic.entra_link_intent import ClinicIdentityLinkRequest
+
+    client, actor = admin_client
+    body = {'adopt_existing_local': True, 'expected_version': 0}
+    with app.app_context():
+        source = db.session.get(User, actor)
+        targets = {}
+        for kind in ('sso_provider', 'sso_subject', 'active_link', 'revoked_link', 'link_intent',
+                     'entra_only', 'local_and_entra', 'device_only', 'disabled', 'pending_activation',
+                     'no_password', 'unknown_hash', 'plain_local'):
+            target = User(username=kind, email=f'{kind}@example.invalid', password=source.password)
+            db.session.add(target)
+            db.session.flush()
+            targets[kind] = target.id
+            if kind in ('sso_provider', 'sso_subject'):
+                setattr(target, kind, 'synthetic')
+            elif kind in ('active_link', 'revoked_link'):
+                db.session.add(entra.ClinicExternalIdentity(user_id=target.id, issuer='synthetic', subject=kind,
+                                                          tenant_id='synthetic', created_by=actor,
+                                                          status=kind.split('_')[0]))
+            elif kind == 'link_intent':
+                db.session.add(ClinicIdentityLinkRequest(user_id=target.id, purpose='link', requested_by=actor,
+                                                        expected_tenant_id='synthetic', expires_at=2**31))
+            elif kind in ('entra_only', 'local_and_entra', 'device_only', 'disabled', 'pending_activation'):
+                status = kind if kind in ('disabled', 'pending_activation') else 'active'
+                login = kind if status == 'active' else 'local_only'
+                db.session.add(identity.ClinicAccountPolicy(user_id=target.id, status=status, login_policy=login))
+            elif kind in ('no_password', 'unknown_hash'):
+                target.password = None if kind == 'no_password' else 'unknown'
+        db.session.commit()
+    assert command(client, 'PUT', '/admin/users/999999', **body).status_code == 404
+    assert command(client, 'PUT', '/admin/users/9999999999999999999999', **body).status_code == 400
+    for kind, uid in targets.items():
+        if kind != 'plain_local':
+            assert command(client, 'PUT', f'/admin/users/{uid}', **body).status_code == 409, kind
+    local = targets['plain_local']
+    path = f'/admin/users/{local}'
+    outsider = app.test_client()
+    assert command(outsider, 'PUT', path, **body).status_code in (302, 401, 403)
+    with client.session_transaction() as session:
+        fresh = session['clinic_reauth_at']
+        session['clinic_reauth_at'] = fresh - 301
+    assert command(client, 'PUT', path, **body).json['code'] == 'reauth_required'
+    with client.session_transaction() as session:
+        session['clinic_reauth_at'] = fresh
+    with app.app_context():
+        db.session.get(identity.ClinicAccountPolicy, actor).is_identity_admin = False
+        db.session.commit()
+    assert command(client, 'PUT', path, **body).status_code == 403
+    with app.app_context():
+        db.session.get(User, actor).is_admin = False
+        db.session.commit()
+    assert command(client, 'PUT', path, **body).status_code == 403
+    with app.app_context():
+        assert db.session.get(identity.ClinicAccountPolicy, local) is None
+        assert AuditEvent.query.filter_by(event='admin.user.changed').filter(AuditEvent.target_user_id.in_(targets.values())).count() == 0

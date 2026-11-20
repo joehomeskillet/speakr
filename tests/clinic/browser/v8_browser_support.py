@@ -10,9 +10,15 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import socket
+import sys
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
 OUT_DIR = Path(os.environ.get("V8_BROWSER_OUT") or Path(__file__).resolve().parent / "out")
@@ -98,6 +104,32 @@ server = make_server("127.0.0.1", port, app, threaded=True)
 print("READY", flush=True)
 server.serve_forever()
 '''
+
+
+@contextmanager
+def serve_app(tmp: Path, source: str):
+    """Run this scenario's isolated browser server with its own seed and database."""
+    root = ROOT
+    if not (root / "static/vendor").is_dir() or not (root / "static/css/tailwind.css").is_file():
+        raise pytest.skip.Exception("static/vendor or static/css/tailwind.css missing: see tests/clinic/browser/README.md")
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    log = tmp / "server.log"  # a file, not a pipe: nobody drains a pipe while the browser runs
+    with open(log, "w") as out:
+        proc = subprocess.Popen([sys.executable, "-c", source, str(port), PASSWORD,
+                                 json.dumps(ROLES)], cwd=root, env=server_env(tmp),
+                                stdout=out, stderr=subprocess.STDOUT, text=True)
+        try:
+            deadline = time.time() + 180
+            while "READY" not in log.read_text():
+                assert proc.poll() is None, "server exited before it was ready: " + log.read_text()[-3000:]
+                assert time.time() < deadline, "server start timed out"
+                time.sleep(0.2)
+            yield f"http://127.0.0.1:{port}"
+        finally:
+            proc.terminate()
+            proc.wait(timeout=20)
 
 
 def server_env(tmp: Path) -> dict:

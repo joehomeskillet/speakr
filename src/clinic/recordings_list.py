@@ -23,7 +23,8 @@ from datetime import date, datetime, timezone
 from sys import maxsize
 from zoneinfo import ZoneInfo
 
-from src.clinic import policy, routes_worklist, workflow, worklist_entries
+from src.clinic import recognition_state, policy, routes_worklist, workflow, worklist_entries
+from src.clinic.archive_policy import ClinicArchiveEntry
 from src.clinic.dictation_roles import project_roles
 from src.clinic.models import ClinicDictation
 from src.clinic.pools import ClinicPoolRoute
@@ -147,6 +148,10 @@ def list_recordings(
 
     page, more = ranked[:limit], len(ranked) > limit
     roles = project_roles([item[2] for item in page], now)
+    outcomes = recognition_state.asr_outcomes(item[2] for item in page)
+    contexts = worklist_entries.case_displays([item[2].id for item in page])
+    archive_times = dict(db.session.query(ClinicArchiveEntry.dictation_id, ClinicArchiveEntry.archived_at)
+                         .filter(ClinicArchiveEntry.dictation_id.in_([item[2].id for item in page]))) if page else {}
     items = []
     for (moment, dictation_id), source, dictation, entry in page:
         recording = entry.recording
@@ -154,6 +159,9 @@ def list_recordings(
         if seconds is None:
             seconds = entry.row["duration_seconds"] or None
         recorded = recording.meeting_date
+        # Keep the retention archive date when present; normal manual archiving
+        # writes only ClinicArchiveEntry, without changing the retention axis.
+        archived = recording.retention_archived_at or archive_times.get(dictation_id)
         items.append({
             "dictation_id": dictation_id,
             "recording_id": recording.id,
@@ -162,10 +170,13 @@ def list_recordings(
             "sort_time": _iso(moment),
             "day": day_of(moment),
             **roles[dictation_id],
-            "processing_status": recording.status,
+            "processing_status": (recognition_state.asr_outcome(
+                dictation, outcomes=outcomes, detailed=True).upper()
+                if outcomes[dictation_id] != "none" else recording.status),
             "workflow_status": entry.row["status"],
+            "archived_at": None if archived is None else _iso(archived),
             "duration_ms": None if seconds is None else round(seconds * 1000),
-            "case_display": worklist_entries.dictation_snapshot(dictation)["case_display"],
+            "case_display": contexts.get(dictation_id),
         })
     last = page[-1][0] if more else None
     return {"items": items, "next_cursor": None if last is None else encode_cursor(*last)}

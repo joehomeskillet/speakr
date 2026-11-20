@@ -2,12 +2,7 @@
 
 from __future__ import annotations
 
-import json
 import os
-import socket
-import subprocess
-import sys
-import time
 
 import pytest
 
@@ -42,28 +37,8 @@ def axe_js():
 
 @pytest.fixture(scope="session")
 def app_base(tmp_path_factory):
-    root = support.ROOT
-    if not (root / "static/vendor").is_dir() or not (root / "static/css/tailwind.css").is_file():
-        raise pytest.skip.Exception("static/vendor or static/css/tailwind.css missing: see tests/clinic/browser/README.md")
-    tmp = tmp_path_factory.mktemp("v860")
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        port = s.getsockname()[1]
-    log = tmp / "server.log"  # a file, not a pipe: nobody drains a pipe while the browser runs
-    with open(log, "w") as out:
-        proc = subprocess.Popen([sys.executable, "-c", support.SERVER, str(port), support.PASSWORD,
-                                 json.dumps(support.ROLES)], cwd=root, env=support.server_env(tmp),
-                                stdout=out, stderr=subprocess.STDOUT, text=True)
-        try:
-            deadline = time.time() + 180
-            while "READY" not in log.read_text():
-                assert proc.poll() is None, "server exited before it was ready: " + log.read_text()[-3000:]
-                assert time.time() < deadline, "server start timed out"
-                time.sleep(0.2)
-            yield f"http://127.0.0.1:{port}"
-        finally:
-            proc.terminate()
-            proc.wait(timeout=20)
+    with support.serve_app(tmp_path_factory.mktemp("v860"), support.SERVER) as base:
+        yield base
 
 
 # Module scope: a sync Playwright left running for the session makes every later

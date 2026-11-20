@@ -124,6 +124,18 @@ describe('archive filter', () => {
 });
 
 describe('retention labels', () => {
+    it('uses projected archive dates and leaves unknown dates blank without changing server order', async () => {
+        const rows = [
+            item('manual', { archived_at: '2026-11-20T09:15:00Z' }),
+            item('retention', { archived_at: '2026-11-19T08:00:00Z' }),
+            item('unknown', { archived_at: null }),
+        ];
+        const c = createArchiveController({ client: fakeClient(() => ok({ items: rows, next_cursor: null })) });
+        await c.load();
+        expect(c.rows.value.map((row) => row.dictation_id)).toEqual(['manual', 'retention', 'unknown']);
+        expect(c.rows.value.map((row) => c.archived(row))).toEqual(['20.11.2026 10:15', '19.11.2026 09:00', '–']);
+    });
+
     it('renders hold, due and active as text', () => {
         expect(retentionLabel({ retention_state: 'held' })).toBe('Hold');
         expect(retentionLabel({ retention_state: 'due' })).toBe('Frist fällig');

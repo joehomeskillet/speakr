@@ -27,6 +27,17 @@ const BASE = '/asr-profiles';
 export const SOURCES = Object.freeze(['headset', 'recorder']);
 export const ENGINES = Object.freeze(['gpu', 'cpu']);
 const DEFAULT_OFFER_MANUAL_AFTER_S = 120;
+const CAPABILITIES = Object.freeze({
+    batch: 'Batchtranskription', live: 'Live-Transkription', hotword: 'Wortschatzhinweise',
+    negative_lexicon: 'Negativlexikon', pronunciation: 'Aussprachetraining',
+    training: 'Akustiktraining', adaptation: 'Modellanpassung', checkpoint: 'Modellprüfpunkt',
+    alignment: 'Audio-/Text-Abgleich', local_tts: 'Lokale Sprachausgabe',
+    gpu_turbo: 'GPU-Erkennung', cpu_fallback: 'CPU-Ausweichlösung',
+});
+
+export function asrCapabilityLabel(value) {
+    return Object.hasOwn(CAPABILITIES, value) ? CAPABILITIES[value] : 'Unbekannte Fähigkeit';
+}
 
 const LABELS = Object.freeze({
     'clinic.asr.title': 'Spracherkennung',
@@ -38,6 +49,7 @@ const LABELS = Object.freeze({
     'clinic.asr.batch': 'Batch-Profil',
     'clinic.asr.format': 'Ausgabeformat',
     'clinic.asr.engine': 'Verwendete Erkennung',
+    'clinic.asr.engine.unknown': 'Nicht ermittelt',
     'clinic.asr.engine.gpu': 'GPU',
     'clinic.asr.engine.cpu': 'CPU',
     'clinic.asr.fallback': 'Ausweichlösung aktiv: CPU statt GPU.',
@@ -89,6 +101,7 @@ export function createAsrProfilesController(deps) {
     }
 
     const state = {
+        ready: false,
         loading: false,
         busy: false,
         error: null, // { outcome, code, message, retryable }
@@ -131,6 +144,7 @@ export function createAsrProfilesController(deps) {
     }
 
     async function load() {
+        state.ready = false;
         state.loading = true;
         state.error = null;
         state.notice = null;
@@ -173,6 +187,7 @@ export function createAsrProfilesController(deps) {
             liveProfileId: state.server.liveProfileId,
             batchProfileId: state.server.batchProfileId,
         };
+        state.ready = true;
         revalidate();
         emit();
         return true;
@@ -194,6 +209,7 @@ export function createAsrProfilesController(deps) {
     }
 
     async function save() {
+        if (!state.ready || state.loading || state.busy) return false;
         const d = state.draft;
         state.busy = true;
         state.error = null;
@@ -246,6 +262,7 @@ export function createAsrProfilesController(deps) {
         const d = state.draft;
         const fallback = s.engine.configured === 'gpu' && s.engine.actual === 'cpu';
         const provenSet = new Set(s.proven);
+        const verifiedEngine = ['batch', 'live'].some((name) => provenSet.has(name)) || fallback;
         const dirty = d.source !== s.source || d.liveProfileId !== s.liveProfileId || d.batchProfileId !== s.batchProfileId;
         const choices = (mode) => offered(mode).map((id) => ({
             value: id,
@@ -254,6 +271,8 @@ export function createAsrProfilesController(deps) {
         }));
         return {
             title: label('clinic.asr.title'),
+            ready: state.ready, loading: state.loading, busy: state.busy,
+            canSave: state.ready && !state.loading && !state.busy && dirty,
             dirty,
             profile: s.profile ? { id: str(s.profile.id), name: str(s.profile.name), version: s.profile.version } : null,
             sources: SOURCES.map((v) => ({ value: v, label: label('clinic.asr.source.' + v), selected: d.source === v })),
@@ -265,11 +284,11 @@ export function createAsrProfilesController(deps) {
             engine: {
                 configured: s.engine.configured,
                 actual: s.engine.actual,
-                label: label('clinic.asr.engine.' + s.engine.actual),
+                label: label('clinic.asr.engine.' + (verifiedEngine ? s.engine.actual : 'unknown')),
                 fallback,
                 fallbackLabel: fallback ? label('clinic.asr.fallback') : '',
                 reason: s.engine.reason,
-                surface: fallback ? surfaceFor('warning') : surfaceFor('success'),
+                surface: surfaceFor(fallback ? 'warning' : (verifiedEngine ? 'success' : 'normal')),
             },
             prompts: { enabled: s.promptsEnabled, label: label('clinic.asr.prompts.' + (s.promptsEnabled ? 'on' : 'off')) },
             capabilities: s.configured.map((name) => ({

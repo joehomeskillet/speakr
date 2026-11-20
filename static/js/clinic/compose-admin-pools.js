@@ -22,7 +22,7 @@
  * clinical data and no dictation titles. Nothing is written to browser storage.
  *
  * Contract for the mount package:
- *   AdminPoolsView                 Vue options object, props client, userClient
+ *   AdminPoolsView                 Vue options object, props client, currentUser, userClient
  *                                  (optional, defaults to client), vue (optional)
  *   registerAdminPoolsView(app)    app.component('clinic-admin-pools-view', AdminPoolsView)
  * The account directory lives outside /api/clinic/v1 (/admin/users); the mount
@@ -69,6 +69,9 @@ export const TEXT = Object.freeze({
     searchUnavailable: 'Die Kontensuche ist nicht verfügbar. Mitglieder können jetzt nicht hinzugefügt werden.',
     addMember: 'Hinzufügen',
     removeMember: 'Mitglied entfernen',
+    lead: 'Leitung',
+    roleUnavailable: 'Rolleninformation nicht verfügbar.',
+    roleFailed: 'Die Leitungsrolle konnte nicht gespeichert werden. Aktuellen Stand laden und erneut versuchen.',
     confirmRemove: 'Mitgliedschaft wirklich entfernen?',
     confirmRemoveYes: 'Ja, entfernen',
     cancel: 'Abbrechen',
@@ -202,11 +205,45 @@ export function createAdminPoolsController(options) {
     const poolsView = reactive({ status: 'idle', revision: null, pools: { author: [], staff: [] }, pendingRemoval: null, failedWrite: null, message: '' });
     const store = createPoolsStore(client, (next) => Object.assign(poolsView, next));
     const accounts = createAccountsAdmin({ client: options.userClient || client, reactive });
+    const canManageRoles = () => options.currentUser?.is_admin === true;
+    const staffPool = (id) => poolsView.pools.staff.find((pool) => pool.id === id);
+    const memberRole = (userId) => staffPool(state.selectedId)?.memberRoles.find((m) => m.userId === userId)?.role;
 
-    const membersOf = (id) => {
-        const p = poolsView.pools.staff.find((x) => x.id === id);
-        return p ? p.memberUserIds : [];
-    };
+    async function setLead(userId, enabled) {
+        if (!canManageRoles() || disposed || state.busy || state.status !== 'ready'
+            || poolsView.status !== 'ready' || !membersOf(state.selectedId).includes(userId)
+            || !['lead', 'member'].includes(memberRole(userId))) return { ok: false };
+        state.busy = true;
+        state.message = '';
+        const poolId = state.selectedId;
+        try {
+            const res = await client.request(ADMIN_BASE + '/pools/staff/' + encodeURIComponent(poolId)
+                + '/members/' + encodeURIComponent(userId) + '/role', {
+                method: 'PUT', body: { role: enabled ? 'lead' : 'member' },
+            });
+            if (disposed) return { ok: false };
+            if (res.outcome !== 'ok') {
+                state.message = res.outcome === 'permission' ? TEXT.denied
+                    : res.outcome === 'conflict' ? TEXT.stale : TEXT.roleFailed;
+                return { ok: false };
+            }
+            await load({ silent: true });
+            return { ok: state.status === 'ready' };
+        } finally {
+            state.busy = false;
+        }
+    }
+
+    async function changeLead(userId, event) {
+        const input = event.target;
+        try {
+            await setLead(userId, input.checked);
+        } finally {
+            input.checked = memberRole(userId) === 'lead';
+        }
+    }
+
+    const membersOf = (id) => staffPool(id)?.memberUserIds || [];
     const selected = () => state.meta.find((p) => p.id === state.selectedId) || null;
     const nameOf = (userId) => {
         const a = accounts.state.accounts.find((x) => Number(x.id) === Number(userId));
@@ -419,22 +456,26 @@ export function createAdminPoolsController(options) {
     }
 
     async function addMember(userId) {
-        if (!state.selectedId || !searchAvailable()) return null;
+        if (state.busy || !state.selectedId || !searchAvailable()) return null;
         if (!results().some((a) => Number(a.id) === Number(userId))) return null;
         const res = await store.addMember(KIND, state.selectedId, Number(userId));
         state.search = '';
         syncFromStore();
+        if (res?.outcome === 'ok') await load({ silent: true });
         await loadUsage();
         return res;
     }
 
     function requestRemoval(userId) {
+        if (state.busy) return false;
         return store.requestRemoval(KIND, state.selectedId, userId);
     }
 
     async function confirmRemoval() {
+        if (state.busy) return null;
         const res = await store.confirmRemoval();
         syncFromStore();
+        if (res?.outcome === 'ok') await load({ silent: true });
         await loadUsage();
         return res;
     }
@@ -465,6 +506,7 @@ export function createAdminPoolsController(options) {
         state, poolsView, store, accounts, text: TEXT,
         load: () => load(), select, create, rename, saveValidity, requestDeactivate, cancelDeactivate, confirmDeactivate, reactivate,
         addMember, requestRemoval, confirmRemoval, cancelRemoval, onKey, dispose,
+        canManageRoles, memberRole, setLead, changeLead,
         rows, members, results, selected, searchAvailable, memberNames, visibleRows, stats, countText,
         pendingRemovalName: () => (poolsView.pendingRemoval ? nameOf(poolsView.pendingRemoval.userId) : ''),
         retryWrite: () => store.retry(),
@@ -615,7 +657,16 @@ export const ADMIN_POOLS_TEMPLATE = `
           <li v-if="!c.members().length" class="hint">{{ c.text.noMembers }}</li>
           <li v-for="m in c.members()" :key="m.id" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0">
             <span>{{ m.name }}</span>
-            <button type="button" class="small" :aria-label="c.text.removeMember + ': ' + m.name" :title="c.text.removeMember" @click="c.requestRemoval(m.id)">&times;</button>
+            <label v-if="c.canManageRoles()" class="inline-label">
+              <input type="checkbox" :checked="c.memberRole(m.id) === 'lead'"
+                :disabled="c.state.busy || c.poolsView.status !== 'ready' || !['lead', 'member'].includes(c.memberRole(m.id))"
+                :aria-label="c.text.lead + ': ' + m.name"
+                @change="c.changeLead(m.id, $event)">
+              {{ c.text.lead }}
+              <small v-if="!['lead', 'member'].includes(c.memberRole(m.id))">{{ c.text.roleUnavailable }}</small>
+            </label>
+            <span v-else-if="c.memberRole(m.id) === 'lead'" class="tag neutral">{{ c.text.lead }}</span>
+            <button type="button" class="small" :disabled="c.state.busy" :aria-label="c.text.removeMember + ': ' + m.name" :title="c.text.removeMember" @click="c.requestRemoval(m.id)">&times;</button>
           </li>
         </ul>
         <div v-if="c.poolsView.pendingRemoval" role="alertdialog" aria-modal="false" aria-labelledby="cap-rm-title" class="note warning" data-testid="remove-confirm">
@@ -633,7 +684,7 @@ export const ADMIN_POOLS_TEMPLATE = `
             <li v-if="!c.results().length" class="hint">{{ c.text.searchNone }}</li>
             <li v-for="a in c.results()" :key="a.id" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0">
               <span>{{ a.username }}</span>
-              <button type="button" class="small" :aria-label="c.text.addMember + ': ' + a.username" @click="c.addMember(a.id)">{{ c.text.addMember }}</button>
+              <button type="button" class="small" :disabled="c.state.busy" :aria-label="c.text.addMember + ': ' + a.username" @click="c.addMember(a.id)">{{ c.text.addMember }}</button>
             </li>
           </ul>
         </div>
@@ -659,13 +710,14 @@ export const AdminPoolsView = {
     props: {
         client: { type: Object, required: true },
         userClient: { type: Object, default: null },
+        currentUser: { type: Object, default: null },
         vue: { type: Object, default: null },
     },
     template: ADMIN_POOLS_TEMPLATE,
     setup(props) {
         const V = props.vue || globalThis.Vue;
         if (!V) throw new Error('Vue is required to mount the admin pools view');
-        const c = createAdminPoolsController({ client: props.client, userClient: props.userClient || undefined, reactive: V.reactive });
+        const c = createAdminPoolsController({ client: props.client, userClient: props.userClient || undefined, currentUser: props.currentUser, reactive: V.reactive });
         if (typeof V.onMounted === 'function') V.onMounted(() => c.load());
         if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => c.dispose());
         return { c };

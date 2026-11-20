@@ -22,7 +22,7 @@
  */
 
 import { TOKEN_CONTRACT_VERSION, TokenContractError, surfaceFor } from './tokens.js';
-import { ROLE_AUTHOR, STATUS_LABELS, formatAudioDuration, formatPriority, getOpenMode, resolveStatusSurface } from './worklist-ui.js';
+import { ROLE_AUTHOR, STATUS_LABELS, formatAudioDuration, formatDictationReference, formatPriority, getOpenMode, resolveStatusSurface } from './worklist-ui.js';
 import { formatLastUpdate, useWorklistRefresh } from './worklist-refresh-ui.js';
 import { WorklistFiltersPanel, createWorklistFilters } from './worklist-filters-ui.js';
 import { WorklistLayoutControls, useWorklistLayout } from './worklist-layout-ui.js';
@@ -55,6 +55,7 @@ export const HOSTED_CSS = [
     '@media (min-width:641px){.v8-ui .viewcontrols select,.v8-ui .toolbar-right select{font-size:12px}}',
     '.v8-ui .searchwrap input{font-weight:400}',
     '.v8-ui .clinic-worklist-view .filter-pill.active:hover{background:var(--v8-s1);color:var(--v8-text)}',
+    '.v8-ui .clinic-worklist-view .status{white-space:normal;overflow-wrap:anywhere;max-width:100%}',
     '.v8-ui .worktable .prio{max-width:100%;vertical-align:middle}',
     '.v8-ui .worktable .prio::before{flex-shrink:0}',
     '.v8-ui .worktable .prio span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
@@ -249,14 +250,17 @@ export function flattenGroups(groups, groupBy) {
 }
 
 export function statusBadge(row) {
+    const processing = ({ PENDING: 'Transkription wartet', RUNNING: 'Transkription läuft',
+        FAILED: 'Transkription fehlgeschlagen', SUCCEEDED: 'Transkription abgeschlossen' })[row.asr_state];
+    const suffix = processing ? ' · ' + processing : '';
     try {
         const s = resolveStatusSurface(row.status, { version: TOKEN_CONTRACT_VERSION });
-        return { label: s.label, style: { background: s.background, color: s.color, border: '1px solid ' + s.border } };
+        return { label: s.label + suffix, style: { background: s.background, color: s.color, border: '1px solid ' + s.border } };
     } catch (error) {
         if (!(error instanceof TokenContractError)) throw error;
         const s = surfaceFor('normal');
         const key = String(row.status || '').toLowerCase();
-        return { label: STATUS_LABELS[key] || key || '–', style: { background: s.background, color: s.color, border: '1px solid ' + s.border } };
+        return { label: (STATUS_LABELS[key] || key || '–') + suffix, style: { background: s.background, color: s.color, border: '1px solid ' + s.border } };
     }
 }
 
@@ -546,14 +550,14 @@ export function createWorklistViewController(options) {
         const status = leaseState.value && leaseState.value.status;
         return status === 'lost' || (status === 'foreign' && !listenOnly.value);
     };
-    const canOpen = computed(() => Boolean(worklist.selectedRow.value) && !leaseBlocksOpen());
+    const canOpen = computed(() => Boolean(rowKey(worklist.selectedRow.value)) && !leaseBlocksOpen());
 
     /** Activates a row (or the current selection) and reports it to the page; selection and lease are unchanged otherwise. */
     function open(row) {
         if (disposed) return false;
         if (row && rowKey(row) !== selectedId.value) select(row);
         const target = worklist.selectedRow.value;
-        if (!target || leaseBlocksOpen()) return false;
+        if (!rowKey(target) || leaseBlocksOpen()) return false;
         if (typeof options.onOpen === 'function') {
             options.onOpen({ dictationId: rowKey(target), mode: listenOnly.value ? 'player' : getOpenMode(target, user.role) });
         }
@@ -599,6 +603,15 @@ export function createWorklistViewController(options) {
         });
     }
 
+    async function loadWorkflowDetail(id, key) {
+        const result = await detailClient.request('/api/clinic/v1/dictations/' + encodeURIComponent(id) + '/detail');
+        if (disposed || detailId !== id || detailKey !== key) return;
+        if (result?.outcome === 'ok' && Array.isArray(result.data?.allowed_actions)) {
+            loadWorkflow({ ...result.data, dictation_id: id,
+                asr_status: result.data.status_axes?.processing, status: result.data.status_axes?.workflow });
+        }
+    }
+
     function openLease(id) {
         const ctrl = createLeaseController({
             client: detailClient,
@@ -632,10 +645,11 @@ export function createWorklistViewController(options) {
             detailId = id;
             selectedId.value = id;
             detailKey = key;
-            if (row) { loadWorkflow(row); openLease(id); } else workflow.load(null);
+            if (row) { loadWorkflow(row); openLease(id); loadWorkflowDetail(id, key); } else workflow.load(null);
         } else if (row && key !== detailKey) {
             detailKey = key;
             loadWorkflow(row);
+            loadWorkflowDetail(id, key);
         }
     }
     if (V && typeof V.watch === 'function') V.watch(() => worklist.selectedRow.value, syncDetail);
@@ -683,6 +697,7 @@ export function createWorklistViewController(options) {
         worklist, refresh, filters, layout, workflow, detailClient, displayed, columns, headerAttrs,
         start, dispose, reload, assignmentDone, select, open, canOpen, listenOnly, onRowKey, goto, pages, hasNext, applyFilter,
         key: rowKey, cell: cellText, badge: statusBadge, dictationLabel, entryCount, text: TEXT,
+        referenceLabel: (row) => 'Diktat ' + formatDictationReference(rowKey(row)),
         emptyCell: (row, key) => !ROLE_KEYS.includes(key) && key !== 'status' && cellText(row, key) === '–',
         priorityTone: priorityToneOf,
         pageLabel: () => 'Seite ' + view.page + (pages() === null ? '' : ' von ' + pages()),
@@ -863,8 +878,16 @@ export const WorklistView = {
                           <svg v-if="item.row.source_kind === 'manual_file' || item.row.source_kind === 'document'" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 3h10l4 4v14H5zM15 3v6h5M9 12h6M9 16h6"/></svg>
                           <svg v-else width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4M8 22h8"/></svg>
                         </span>
-                        <span class="titletext"><strong>{{ c.dictationLabel(item.row) }}</strong><small>{{ c.text.recording }}</small></span>
+                        <div class="titletext"><strong>{{ c.referenceLabel(item.row) }}</strong></div>
                       </div>
+                      <details v-if="c.key(item.row)" class="cl-id-disclosure" @click.stop @dblclick.stop @keydown.stop
+                               @keydown.esc.prevent="$event.currentTarget.open = false; $event.currentTarget.querySelector('summary').focus()">
+                        <summary :aria-label="'Kennung anzeigen: ' + c.referenceLabel(item.row)">Kennung</summary>
+                        <label class="cl-id-value">Vollständige Diktatkennung
+                          <textarea readonly rows="2" :value="c.key(item.row)" @focus="$event.target.select()" aria-label="Vollständige Diktatkennung"></textarea>
+                          <span>Zum Kopieren markieren.</span>
+                        </label>
+                      </details>
                     </td>
                     <td v-for="col in c.columns()" :key="col.key" :data-label="col.label" :class="c.emptyCell(item.row, col.key) ? 'cl-empty' : ''">
                       <span v-if="col.key === 'status'" class="status" data-layout="pill-status" :class="c.statusTone(item.row)">{{ c.badge(item.row).label }}</span>

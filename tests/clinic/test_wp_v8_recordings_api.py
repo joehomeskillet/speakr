@@ -22,6 +22,7 @@ from sqlalchemy import func, select
 
 from src.app import app, db
 from src.clinic import dictation_roles, policy, recordings_list, routes_worklist, workflow, worklist_entries
+from src.clinic.archive_policy import ClinicArchiveEntry
 from src.clinic.identity import ClinicAccountPolicy, create_tables as _create_identity_tables
 from src.clinic.models import ClinicContextRevision, ClinicDictation, ClinicReviewLease
 from src.clinic.pools import ClinicAuthorPool, ClinicPoolRoute, ClinicStaffPool
@@ -33,7 +34,7 @@ from src.services import audit
 ROOT = Path(__file__).resolve().parents[2]
 ITEM_KEYS = {"dictation_id", "recording_id", "recorded_at", "time_source", "sort_time", "day", "dictated_by",
              "staff_pools", "lease_holder", "processing_status", "workflow_status", "duration_ms",
-             "case_display"}
+             "case_display", "archived_at"}
 
 
 @pytest.fixture(autouse=True)
@@ -148,6 +149,7 @@ def test_unauthenticated_is_401_and_contract_shape(scene):
     assert row["lease_holder"] is None and row["case_display"] == "FALL-77"
     assert row["processing_status"] == "COMPLETED" and row["workflow_status"] == workflow.TO_WRITE
     assert row["duration_ms"] == 42000
+    assert row["archived_at"] is None
     text = json.dumps(body)
     assert "PATIENT-TITLE-SECRET" not in text and "PAT-SECRET" not in text and "patient" not in text.lower()
 
@@ -166,6 +168,52 @@ def test_foreign_dictation_is_never_listed_for_an_unauthorised_user(scene):
         flow.assignee_user_id = scene.typist
         db.session.commit()
     assert {row["dictation_id"] for row in get(client_for(scene, scene.typist)).json["items"]} == {ids[0]}
+
+
+@pytest.mark.parametrize("manual, retained, registered, expected", [
+    (datetime(2026, 11, 20, 9, 15), None, True, "2026-11-20T09:15:00Z"),
+    (None, datetime(2026, 11, 19, 8), False, "2026-11-19T08:00:00Z"),
+    (datetime(2026, 11, 20, 9, 15), datetime(2026, 11, 19, 8), True, "2026-11-19T08:00:00Z"),
+    (None, None, False, None),
+    (None, None, True, None),
+])
+def test_archive_dates_use_durable_sources_without_widening_visibility(scene, manual, retained, registered, expected):
+    with app.app_context():
+        author = db.session.get(User, scene.a)
+        own = _dictation(author, pool_id=scene.pool_a, meeting=datetime(2026, 7, 1, 8),
+                         status=workflow.TO_ARCHIVE)
+        newer = _dictation(author, pool_id=scene.pool_a, meeting=datetime(2026, 7, 2, 8),
+                           status=workflow.TO_ARCHIVE)
+        foreign = _dictation(db.session.get(User, scene.b), pool_id=scene.pool_b,
+                             meeting=datetime(2026, 7, 3, 8), status=workflow.TO_ARCHIVE)
+        ids = own.id, newer.id, foreign.id
+        db.session.get(Recording, own.recording_id).retention_archived_at = retained
+        db.session.get(Recording, foreign.recording_id).retention_archived_at = datetime(2026, 11, 21, 8)
+        if registered:
+            db.session.add(ClinicArchiveEntry(
+                dictation_id=own.id, user_id=scene.a, original_id="private-original",
+                audio_revision_id="private-audio", transcript_revision_id="private-text",
+                context_revision_id="private-context", release_id="private-release",
+                data_class="audio", archived_at=manual))
+        db.session.commit()
+
+    client = client_for(scene, scene.a)
+    assert get(client).json["items"] == []  # P01 still excludes archived workflow rows.
+    query = "?status=zu_archivieren&limit=1"
+    first = get(client, query)
+    assert first.status_code == 200 and first.headers["Cache-Control"] == "private, no-store"
+    # P08 explicitly promises recording-time order, independent of the archive date.
+    assert first.json["items"][0]["dictation_id"] == ids[1]
+    assert first.json["items"][0]["archived_at"] is None
+    second = get(client, query + "&cursor=" + first.json["next_cursor"])
+    assert second.status_code == 200 and second.json["next_cursor"] is None
+    [row] = second.json["items"]
+    assert row["dictation_id"] == ids[0] and row["archived_at"] == expected
+    assert row["sort_time"] == "2026-07-01T08:00:00Z" and row["time_source"] == "recorded"
+    assert set(row) == ITEM_KEYS
+    assert get(client, f"?status=zu_archivieren&author_id={scene.b}").json["items"] == []
+    payload = json.dumps(second.json)
+    assert "PATIENT-TITLE-SECRET" not in payload and "private-" not in payload and ids[2] not in payload
 
 
 def test_admin_list_equals_the_worklist_and_foreign_loads_are_audited(scene):

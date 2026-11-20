@@ -214,11 +214,11 @@ def test_gap4_late_asr_behind_a_human_revision_is_a_side_revision(ctx):
     assert rows[-1].kind == "ASR" and rows[-1].parent_revision_id == human.id
 
 
-def test_gap4_without_a_human_revision_the_existing_path_stays(ctx):
+def test_gap4_without_explicit_repeat_the_machine_head_stays(ctx):
     rec, dictation, asr, head = _dictation_with_head(ctx, human=False)
     _run(rec, _connector(text="Neuer Entwurf."))
     db.session.expire_all()
-    assert db.session.get(Recording, rec.id).transcription == "Neuer Entwurf."
+    assert db.session.get(Recording, rec.id).transcription == "Erster Entwurf"
     assert [row.body for row in history(dictation)] == ["Erster Entwurf"]
 
 

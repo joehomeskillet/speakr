@@ -39,7 +39,7 @@ export const TEXT = Object.freeze({
     capabilityColumns: Object.freeze({ name: 'Fähigkeit', status: 'Status' }),
     pronunciation: 'Aussprachetraining',
     proven: 'Nachgewiesen',
-    unavailable: 'Nicht verfügbar (CAPABILITY_UNAVAILABLE)',
+    unavailable: 'Nicht verfügbar',
     capabilityUnknown: 'Nicht ermittelt',
     trainingTitle: 'Optimierung',
     trainingDenied: 'Keine Rechte für die Optimierung. Nur Administratoren dürfen Läufe vorbereiten und starten.',
@@ -308,20 +308,26 @@ export function createAsrProfilesViewController(deps) {
 }
 
 const CONSENT_TEMPLATE = `
-<section class="panel" role="region" :aria-label="view.title" data-testid="voice-consent">
+<section class="panel" role="region" :aria-label="view.title" data-testid="voice-consent"
+  :aria-busy="view.loading || view.busy">
   <h2>{{ view.title }}</h2>
-  <p>{{ hint }}</p>
+  <p class="hint">{{ hint }}</p>
+  <p v-if="view.loading" class="text-status" role="status">Einwilligung wird geladen …</p>
   <p v-if="view.notice" role="status" aria-live="polite" class="note">{{ view.notice }}</p>
   <p v-if="view.error" role="alert" class="note burgundy" :style="errorStyle">{{ view.error.message }}
-    <button type="button" class="small" v-if="view.error.retryable" @click="controller.load()">{{ text.retry }}</button></p>
+    <button type="button" class="small" :disabled="view.loading || view.busy" @click="controller.load()">{{ view.labels.reload }}</button></p>
   <p class="tag" :style="surfaceStyle(view.statusSurface)" data-testid="voice-status">{{ view.status.label }}</p>
-  <p>{{ view.statement.label }}: {{ view.statement.text }}</p>
+  <h3>{{ view.statement.label }}</h3>
+  <p class="hint">{{ view.statement.text }}</p>
   <div class="actions">
     <button type="button" class="primary" :disabled="!view.canGrant" @click="controller.grant()">Einwilligen</button>
-    <button type="button" class="button" v-if="!view.confirmingRevoke" :disabled="!view.canRevoke" @click="controller.requestRevoke()">Einwilligung widerrufen</button>
-    <span v-else class="actions" role="alertdialog" aria-label="Widerruf bestätigen">
-      <button type="button" class="primary" @click="controller.confirmRevoke()">Widerruf bestätigen</button>
-      <button type="button" class="button" @click="controller.cancel()">Abbrechen</button>
+    <button type="button" class="button" ref="revokeButton" v-if="!view.confirmingRevoke" :disabled="!view.canRevoke"
+      @click="controller.requestRevoke(); $nextTick(() => $refs.cancelButton?.focus())">Einwilligung widerrufen</button>
+    <span v-else class="actions" role="alertdialog" aria-label="Widerruf bestätigen"
+      @keydown.esc.prevent="if (!view.busy) { controller.cancel(); $nextTick(() => $refs.revokeButton?.focus()); }">
+      <button type="button" class="primary" :disabled="view.busy" @click="controller.confirmRevoke()">Widerruf bestätigen</button>
+      <button type="button" class="button" ref="cancelButton" :disabled="view.busy"
+        @click="controller.cancel(); $nextTick(() => $refs.revokeButton?.focus())">Abbrechen</button>
     </span>
   </div>
 </section>`;
@@ -366,7 +372,7 @@ const CAPABILITY_TEMPLATE = `
   <div class="table-wrap" style="overflow-x:auto">
   <table :aria-label="text.capabilityTitle">
     <thead><tr><th scope="col">{{ text.capabilityColumns.name }}</th><th scope="col">{{ text.capabilityColumns.status }}</th></tr></thead>
-    <tbody><tr><td>{{ text.pronunciation }}</td><td><span class="tag" :class="row.tag" :style="[surfaceStyle(row.surface), { whiteSpace: 'normal' }]">{{ row.label }}</span></td></tr></tbody>
+    <tbody><tr><td>{{ text.pronunciation }}</td><td><span class="tag" :class="row.tag" :style="[surfaceStyle(row.surface), { whiteSpace: 'normal' }]">{{ row.label === text.unavailable ? 'Nicht verfügbar' : row.label }}</span></td></tr></tbody>
   </table>
   </div>
 </section>`;

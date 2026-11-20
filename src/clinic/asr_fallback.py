@@ -114,6 +114,16 @@ class FallbackTranscriptionConnector(BaseTranscriptionConnector):
             return f'unhealthy: /healthz unreachable ({type(exc).__name__})'
         if response.status_code >= 300:
             return f'unhealthy: /healthz HTTP {response.status_code}'
+        # The bundled OpenVINO service explicitly identifies its single loaded model.
+        try:
+            health = response.json()
+        except ValueError:
+            return None
+        if (isinstance(health, dict) and health.get('model_loaded') is True
+                and isinstance(health.get('versions'), dict) and 'openvino_genai' in health['versions']):
+            served = health.get('model')
+            if isinstance(served, str) and served.strip():
+                self._local.served_model = served.strip()
         return None
 
     def _log_fallback(self, reason: str) -> None:
@@ -128,10 +138,14 @@ class FallbackTranscriptionConnector(BaseTranscriptionConnector):
             pass
 
     @staticmethod
-    def _gpu_request(request: TranscriptionRequest) -> TranscriptionRequest:
+    def _gpu_request(request: TranscriptionRequest, served_model: str | None = None) -> TranscriptionRequest:
         """A per-request model override (reprocess) names a CPU model; the GPU
-        target keeps CLINIC_GPU_ASR_MODEL when that is set."""
+        target honors an explicit name or alias. For the bundled single-model
+        service an absent pin uses the name advertised by healthz."""
         model = os.environ.get(GPU_MODEL_ENV, '').strip()
+        if served_model and not model:
+            # CPU profile/model overrides do not name the bundled GPU model.
+            return dataclasses.replace(request, model=served_model)
         if model and request.model:
             return dataclasses.replace(request, model=model)
         return request
@@ -154,11 +168,12 @@ class FallbackTranscriptionConnector(BaseTranscriptionConnector):
 
     def transcribe(self, request: TranscriptionRequest) -> TranscriptionResponse:
         self._local.engine = None
+        self._local.served_model = None
         reason = self._gpu_healthy()
         if reason is None:
             logger.info('ASR: sending job to GPU target %s', self._gpu_url)
             try:
-                return self._set_engine(self._gpu.transcribe(self._gpu_request(request)), 'gpu')
+                return self._set_engine(self._gpu.transcribe(self._gpu_request(request, self._local.served_model)), 'gpu')
             except TranscriptionError as exc:
                 reason = _fallback_reason(exc)
                 if reason is None:
@@ -195,6 +210,7 @@ def wrap_with_gpu_fallback(cpu: BaseTranscriptionConnector) -> BaseTranscription
     gpu = OpenAIWhisperConnector({
         'api_key': os.environ.get(GPU_KEY_ENV, '').strip() or cpu.config.get('api_key') or 'local',
         'base_url': url,
+        'word_timestamps': cpu.config.get('word_timestamps', False),
         'model': os.environ.get(GPU_MODEL_ENV, '').strip() or cpu.config.get('model', 'whisper-1'),
     })
     # One attempt only: the fallback is the retry.

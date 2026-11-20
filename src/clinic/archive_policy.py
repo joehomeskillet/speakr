@@ -8,8 +8,7 @@ or a file.
 
 ``delete`` becomes ``report_archive`` while clinic mode is on. With clinic
 mode off it stays ``report_delete``, so the two requests stay distinct.
-``policy.ACTIONS`` has no archive token; ``authorize`` reuses ``decide``
-with an export stand-in of the same scope, which is not an owner default.
+Archive requires its own action-scoped grant in the central recording policy.
 
 With an application context the book is durable: entries and request results
 live in ``clinic_archive_*`` tables and writes join the caller's transaction
@@ -29,8 +28,9 @@ from flask import has_app_context
 from sqlalchemy import event, update
 from sqlalchemy.exc import IntegrityError
 
-from src.clinic import archive, policy, workflow
+from src.clinic import archive, policy, release, revisions, workflow
 from src.clinic.config import clinic_mode_enabled
+from src.clinic.models import ClinicContextRevision
 from src.database import db
 from src.services import retention
 
@@ -115,37 +115,13 @@ def trigger_for(action: str) -> str:
 
 
 def authorize(subject: policy.Subject, facts: policy.RecordingFacts, action: str) -> policy.Decision:
-    """Delete uses ``policy.decide``. Archive is a separate grant of the same shape."""
-    if action == DELETE:
-        return policy.decide(subject, DELETE, facts)
-    if action != ARCHIVE:
+    """Use the same central decision for command submission and the review page."""
+    if action not in (ARCHIVE, DELETE):
         return policy.Decision(False, "unknown_action")
-    for grant in subject.grants:
-        if ARCHIVE not in grant.actions:
-            continue
-        stand_in = policy.Grant(
-            scope=grant.scope,
-            actions=frozenset({"export"}),
-            author_ids=grant.author_ids,
-            pool_ids=grant.pool_ids,
-        )
-        probed = policy.decide(
-            policy.Subject(subject.user_id, subject.is_admin, (stand_in,), subject.denies),
-            "export",
-            facts,
-        )
-        if probed.allowed:
-            return policy.Decision(True, "grant_archive", visible=True)
-    owner = facts.owner_id == subject.user_id
-    denied = any(
-        facts.recording_id in item.recording_ids or facts.owner_id in item.author_ids
-        for item in subject.denies
-    )
-    if denied:
-        return policy.Decision(False, "deny_exception", visible=owner)
-    if owner:
-        return policy.Decision(False, "action_not_granted", visible=True)
-    return policy.Decision(False, "no_grant")
+    decision = policy.decide(subject, action, facts)
+    if action == ARCHIVE and decision.allowed:
+        return policy.Decision(True, "grant_archive", visible=True)
+    return decision
 
 
 def evaluate(
@@ -363,6 +339,25 @@ def _row_dict(r: ClinicArchiveEntry) -> dict:
     }
 
 
+def _current_entry(dictation):
+    """Resolve immutable revision links from the dictation, without creating a book entry."""
+    head = revisions.current_revision(dictation)
+    audio_id = release.current_audio_id(dictation.id)
+    contexts = release._heads(ClinicContextRevision, dictation.id)
+    if head is None or not audio_id or len(contexts) != 1:
+        return None
+    active = release.active_release(dictation)
+    links = Links(head.original_version_id, audio_id, head.id, next(iter(contexts)), active.id if active else None)
+    return dict(links=links, data_class="audio", user_id=dictation.author_user_id, legal_hold=False,
+                retention_days=None, finished_at=_utc(active.created_at) if active else None,
+                version=dictation.version_counter, archived_at=None)
+
+
+def archive_available(dictation):
+    """Existing entries retain their recorded links. New entries need an unambiguous source."""
+    return db.session.get(ClinicArchiveEntry, dictation.id) is not None or _current_entry(dictation) is not None
+
+
 class ArchiveBook:
     """Versions, links and idempotent results for workflow archive requests."""
 
@@ -413,7 +408,10 @@ class ArchiveBook:
         return 1
 
     def dry_run(self, dictation_id: str, now: datetime, recording=None, store=None) -> DryRun:
-        row = self._require(dictation_id, store)
+        return self._evaluate_row(self._require(dictation_id, store), now, recording)
+
+    @staticmethod
+    def _evaluate_row(row, now, recording):
         return evaluate(
             data_class=row["data_class"],
             links=row["links"],
@@ -439,6 +437,7 @@ class ArchiveBook:
         confirm: bool,
         recording=None,
         expected_archive_revision: int | None = None,
+        dictation=None,
     ) -> ApplyResult:
         """Confirm moves the workflow. ``confirm=False`` aborts and writes nothing.
 
@@ -455,7 +454,14 @@ class ArchiveBook:
             if prior.dictation_id != dictation_id:
                 raise ArchivePolicyError("request_id")
             return prior
-        row = self._require(dictation_id, store)
+        row = store.get_row(dictation_id)
+        first_archive = row is None
+        if first_archive:
+            if action != ARCHIVE or dictation is None or dictation.id != dictation_id:
+                raise ArchivePolicyError("not_found")
+            row = _current_entry(dictation)
+            if row is None:
+                raise ArchivePolicyError("links_required")
         if row["version"] != expected_version:
             raise StaleVersion(row["version"])
         decision = authorize(subject, facts, action)
@@ -464,7 +470,7 @@ class ArchiveBook:
         item = session.get(workflow.ClinicWorkflowDictation, dictation_id)
         if item is None:
             raise ArchivePolicyError("not_found")
-        dry = self.dry_run(dictation_id, now, recording=recording, store=store)
+        dry = self._evaluate_row(row, now, recording)
         if not confirm:
             return self._result(dictation_id, action, None, item.status, row, dry, False, request_id, False)
         if recording is not None and expected_archive_revision is not None:
@@ -474,6 +480,8 @@ class ArchiveBook:
         trigger = trigger_for(action)
         if workflow.TRANSITIONS.get((item.status, trigger)) is None:
             raise ArchivePolicyError("transition_failed")
+        if first_archive and not store.insert_row(dictation_id, row):
+            raise StaleVersion(self._require(dictation_id, store)["version"])
         changed = False
         if recording is not None and dry.eligible:
             changed = bool(archive.archive_for_retention(

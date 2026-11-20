@@ -67,6 +67,7 @@ function fakeClient(model, overrides = {}) {
         'GET /dictations/d1/audio-revisions/current': () => ok({ revision_id: 'a1', segments: [] }),
         'GET /dictations/d1/acceptance-policy': () => ok({ version: 2, acceptance_required: true, approver_ids: [7], decisions: [{ kind: 'reject', actor_id: 3, actor_name: 'Dr. Alt', revision_id: 'r0', reason: 'Dosis unklar', policy_version: 2 }] }),
         'POST /dictations/d1/releases': () => ok({ released: true }),
+        'GET /dictations/d1/leases': () => ok({ held: true, lease_id: 'l1', generation: 1 }),
         'POST /dictations/d1/archive': () => ok({ archived: true }),
         ...overrides,
     };
@@ -210,7 +211,7 @@ describe('compose-review accept flow', () => {
         const { body } = client.commands[0];
         expect(body.command).toBe('decide_acceptance');
         expect(body.payload).toMatchObject({ dictation_id: 'd1', text_revision_id: 'r1', decision: 'accept' });
-        expect(body.expected_revision).toBe(4);
+        expect(body.expected_revision).toBe(5);
         expect(c.confirming.value).toBeNull();
         c.dispose();
     });
@@ -244,6 +245,16 @@ describe('compose-review accept flow', () => {
         const post = client.calls.find((x) => x.method === 'POST' && x.path.endsWith('/releases'));
         expect(post.options.body).toMatchObject({ original_version_id: 'r1', context_revision_id: 'c1', confirmed_content: true, confirmed_context: true });
         expect(client.commands).toHaveLength(0);
+    });
+
+    it.each([['permission', 404], ['conflict', 409]])('keeps a rejected archive out of the success state (%s)', async (outcome, status) => {
+        const { c } = await opened(server(), {
+            'POST /dictations/d1/archive': () => ({ outcome, status, message: 'Abgelehnt' }),
+        });
+        await c.request('archive');
+        expect(await c.confirm()).toMatchObject({ ok: false });
+        expect(c.status.value).toBe('ready');
+        expect(c.error.value).not.toBe('');
     });
 
     it('archive is its own action and does not accept or release', async () => {

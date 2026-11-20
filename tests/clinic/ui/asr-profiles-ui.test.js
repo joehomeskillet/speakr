@@ -42,6 +42,17 @@ const PROFILES = {
 const routes = (extra) => Object.assign({ 'GET /asr-profiles': () => ok(PROFILES) }, extra || {});
 
 describe('asr profiles ui', () => {
+    it('distinguishes a configured engine from a verified transcription path', async () => {
+        const status = { ...PROFILES, engine: { configured: 'cpu', actual: 'cpu', reason: 'nicht ermittelt' },
+            capabilities: { configured: ['batch', 'live'], proven: [] } };
+        const controller = createAsrProfilesController({ client: makeClient(routes({ 'GET /asr-profiles': () => ok(status) })) });
+        await controller.load();
+        expect(controller.view().engine.label).toBe('Nicht ermittelt');
+        status.capabilities.proven = ['batch'];
+        await controller.load();
+        expect(controller.view().engine.label).toBe('CPU');
+    });
+
     it('shows profile, source, format, actual engine and capability proof (positive)', async () => {
         const c = createAsrProfilesController({ client: makeClient(routes()) });
         expect(await c.load()).toBe(true);

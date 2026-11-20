@@ -245,11 +245,13 @@
 .v8-ui .editor-page .preview-strip{margin-bottom:12px;padding:6px 10px;font-size:10px}
 .v8-ui .editor-page .footerline{margin-top:13px;padding-top:10px;font-size:9px}
 .v8-ui .editor-workspace{position:relative;display:block;width:100%;min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 2px 12px #18363a05;overflow:visible}
-.v8-ui .editor-heading{padding:11px 18px;display:flex;align-items:center;justify-content:space-between;gap:14px;border-bottom:1px solid var(--line)}
+.v8-ui .editor-heading{position:relative;padding:11px 18px;display:flex;align-items:center;justify-content:space-between;gap:14px;border-bottom:1px solid var(--line)}
 .v8-ui .document-title{display:flex;align-items:center;gap:10px;min-width:0}
 .v8-ui .document-title>.ui-icon{color:var(--v8-muted);width:19px;height:19px}
 .v8-ui .document-title h2{font-size:16px;line-height:1.3;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.v8-ui .document-id{font-size:10px;color:var(--v8-muted);white-space:nowrap}
+.v8-ui .document-id{flex:none;font-size:11px;color:var(--v8-muted);white-space:nowrap}
+.v8-ui .document-id summary{cursor:pointer;padding:6px 0}
+.v8-ui .document-id-full{position:absolute;z-index:5;inset-inline-start:12px;top:100%;max-width:calc(100% - 24px);padding:8px 12px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:6px;box-shadow:var(--shadow);font-size:13px;white-space:normal;overflow-wrap:anywhere;user-select:all}
 .v8-ui .context-tools{display:flex;gap:4px;align-items:center}
 .v8-ui .context-tools .icon-button{width:34px;height:34px;min-height:34px}
 .v8-ui .document-context{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin:0;padding:9px 18px;background:var(--v8-s1);border-bottom:1px solid var(--line)}
@@ -349,7 +351,6 @@
 .v8-ui .editor-page .preview-strip>span:last-child{display:none}
 .v8-ui .editor-page .preview-strip{font-size:9px}
 .v8-ui .document-title h2{font-size:14px}
-.v8-ui .document-id{flex:1;white-space:normal;overflow-wrap:anywhere}
 .v8-ui .editor-heading{padding:9px 12px}
 .v8-ui .document-context{padding:9px 12px;gap:5px;display:grid;grid-template-columns:1fr}
 .v8-ui .document-context>div+div{border:0;padding:0}
@@ -397,7 +398,8 @@
 .v8-ui .editor-focus-mode{overflow:visible}}
 .v8-ui .writing-surface.has-word-sync{position:relative;isolation:isolate;overflow:hidden;background:var(--surface)}
 .v8-ui .editor-workspace .has-word-sync>.editor{position:relative;z-index:1;background:transparent;white-space:pre-wrap;overflow-wrap:break-word;word-break:normal;tab-size:4;box-sizing:border-box}
-.v8-ui .word-backdrop{position:absolute;top:0;left:0;z-index:0;overflow:hidden;pointer-events:none;user-select:none;color:transparent;box-sizing:border-box}
+.v8-ui .writing-surface>.editor,.v8-ui .word-backdrop{scrollbar-gutter:stable}
+.v8-ui .word-backdrop{position:absolute;inset:0;z-index:0;overflow:hidden;pointer-events:none;user-select:none;color:transparent;box-sizing:border-box}
 .v8-ui .word-backdrop-content{display:block;position:relative;margin:0;border:0;box-sizing:border-box;white-space:pre-wrap;overflow-wrap:break-word;word-break:normal;tab-size:4;font-family:"Segoe UI",Arial,sans-serif;font-size:16px;font-weight:400;line-height:1.85;letter-spacing:.04px;padding:30px 40px;color:transparent;transform-origin:top left;pointer-events:none}
 .v8-ui .word-backdrop mark[data-active-word]{display:inline;padding:0;margin:0;border:0;border-radius:3px;font:inherit;letter-spacing:inherit;line-height:inherit;color:transparent;background:#ecd3dd;box-shadow:0 0 0 2px #ecd3dd,inset 0 -2px 0 #96566e;text-decoration:none;box-decoration-break:clone;-webkit-box-decoration-break:clone}
 .v8-ui .word-sync-controls{display:inline-flex;align-items:center;gap:2px;margin-left:2px;padding-left:7px;border-left:1px solid var(--line)}
@@ -841,8 +843,10 @@
 .v8-ui .pool-dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:25px}
 .v8-ui .pool-dialog-actions button{min-height:40px}
 @media(max-width:700px){.v8-ui .recording-row{min-height:128px}
-.v8-ui .record-role-filters{gap:9px}
-.v8-ui .record-role-filters>label{min-width:100%;max-width:100%}
+.v8-ui .record-role-filters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.v8-ui .record-role-filters>label{min-width:0;max-width:none}
+.v8-ui .record-role-filters input{width:100%;min-width:0}
+.v8-ui .record-role-filters .page-actions{grid-column:1 / -1}
 .v8-ui .record-roles{font-size:10px;gap:2px;margin-top:6px;flex-direction:column}
 .v8-ui .record-role{column-gap:4px}
 .v8-ui .record-subtitle{font-size:9px}

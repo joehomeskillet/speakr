@@ -408,13 +408,15 @@ def link_asr_segments(
 
 
 def ingest_asr_result(
-    dictation: ClinicDictation, text: str, stored_transcription, model_ref: str
+    dictation: ClinicDictation, text: str, stored_transcription, model_ref: str,
+    *, expected_asr_revision_id: str | None = None,
 ) -> list[ClinicTextAudioLink]:
     """CLINIC_MODE ingest step: link the segments of a finished ASR run.
 
     No revision yet: the ASR text becomes the first ASR revision. An ASR head
     with the same text is refreshed. A human head gets the result as a side
-    revision. Any other head is left alone. Links come only from segments that
+    revision. A changed ASR head requires the explicit repeat's current revision
+    binding. Any other head is left alone. Links come only from segments that
     carry times; plain text or untimed segments give no links. Repeats add
     nothing.
     """
@@ -434,7 +436,9 @@ def ingest_asr_result(
         )
     elif head.kind == KIND_HUMAN:
         original = db.session.get(ClinicOriginal, head.original_version_id)
-    elif head.kind == KIND_ASR and head.body == normalise_text(text):
+    elif head.kind == KIND_ASR and (
+        head.body == normalise_text(text) or head.id == expected_asr_revision_id
+    ):
         original = db.session.get(ClinicOriginal, head.original_version_id)
     else:
         return []

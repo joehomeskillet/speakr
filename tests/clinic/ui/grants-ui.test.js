@@ -26,6 +26,14 @@ function setup(writeResults, options, rev = 2) {
 }
 
 describe('grants ui', () => {
+    it('can grant archive on its own without also granting release or delete', async () => {
+        const { store, client } = setup([ok({ revision: 3 })]);
+        await store.load(7);
+        await store.save({ effect: 'allow', scope: 'own', poolId: '', actions: ['archive'] });
+        expect(client.request.mock.calls[1][1].body.actions).toEqual(['archive']);
+        expect(label('clinic.grants.action.archive')).toBe('Archivieren');
+    });
+
     it('shows scope and per-action effect separately with the revision', async () => {
         const { store, client } = setup([]);
         await store.load(7);

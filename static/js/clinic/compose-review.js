@@ -64,6 +64,8 @@ export const TEXT = Object.freeze({
     reload: 'Aktuellen Stand laden',
     retry: 'Erneut versuchen',
     loading: 'Wird geladen …',
+    archived: 'Das Diktat wurde archiviert.',
+    openArchive: 'Zum Archiv',
     noReview: 'Für dieses Diktat liegt kein Prüfauftrag vor. Es wird nichts freigegeben.',
     denied: 'Keine Berechtigung für diese Ansicht.',
     failed: 'Der Prüfstand konnte nicht geladen werden.',
@@ -176,6 +178,7 @@ export function toWorkflowRow(dictationId, data) {
         asrStatus: d.asr_status || null,
         workState: d.status || null,
         binding: {
+            audioRevisionId: b.audio_revision_id,
             textRevisionId: b.text_revision_id,
             contextRevisionId: b.context_revision_id,
             acceptanceRuleId: b.acceptance_rule_id,
@@ -217,7 +220,7 @@ export function createReviewViewController(options) {
     // The workflow module sends the commands; its client is wrapped to await the in-flight call.
     const track = (p) => { lastCall = p; return p; };
     const workflowClient = {
-        request: (p, o) => track(scoped.request(p, o)),
+        request: (p, o) => o?.method === 'POST' ? track(scoped.request(p, o)) : scoped.request(p, o),
         command: (b, o) => track(scoped.command(b, o)),
         switchContext: (n) => scoped.switchContext(n),
     };
@@ -245,7 +248,7 @@ export function createReviewViewController(options) {
         if (!isOnline()) return TEXT.offline;
         if (id === 'release' && markers().length > 0) return TEXT.blockers;
         if (wf.state.busy) return TEXT.loading;
-        return null;
+        return wf.blockedReason(id);
     }
 
     function actions() {
@@ -397,16 +400,17 @@ export function createReviewViewController(options) {
         if (await checkNewer()) { error.value = TEXT.newerRevision; return fail('newer', TEXT.newerRevision); }
         if (disposed) return fail('cancelled', '');
         lastCall = null;
+        let confirmed = null;
         if (ACTIONS[id].confirm) {
             wf.request(id);
             wf.state.reason = reason.value;
             wf.state.confirmedContent = contentChecked.value;
             wf.state.confirmedContext = contextChecked.value;
-            await wf.confirm();
+            confirmed = await wf.confirm();
         } else {
             wf.request(id);
         }
-        const res = lastCall ? await lastCall : null;
+        const res = ACTIONS[id].confirm ? confirmed : (lastCall ? await lastCall : null);
         await Promise.resolve();
         await Promise.resolve();
         if (disposed) return fail('cancelled', '');
@@ -418,7 +422,13 @@ export function createReviewViewController(options) {
             const done = { ok: true, action: id, data: res.data };
             confirming.value = null;
             reason.value = '';
-            await load(); // the server state is authoritative after a decision
+            if (id === 'archive' && res.data?.applied === true && res.data.status === 'zu_archivieren') {
+                wf.load(null);
+                status.value = 'archived';
+                if (editor.lease.value.writable) await editor.release();
+            } else {
+                await load();
+            }
             return done;
         }
         const conflict = wf.state.stale || res.outcome === 'conflict';
@@ -464,6 +474,7 @@ export function createReviewViewController(options) {
         unbindAudio();
         audioEl.value = null;
         alignment.dispose();
+        if (editor.lease.value.writable) void editor.release();
         editor.dispose();
         wf.cancel();
         wf.load(null);
@@ -531,7 +542,7 @@ const ReviewBody = {
             toneBox: (tone) => box({ success: 'success', warn: 'warning', danger: 'error', info: 'pending' }[tone] || 'normal'),
             status: c.status, review: c.review, newer: c.newer, confirming: c.confirming, reason: c.reason, error: c.error,
             reasonInvalid: c.reasonInvalid, contentChecked: c.contentChecked, contextChecked: c.contextChecked,
-            audio: c.editor.audio, manual: c.editor.manual,
+            audio: c.editor.audio, manual: c.editor.manual, lease: c.editor.lease,
             segments: a.segments, currentWord: a.currentWord,
             setReasonNode: (n) => { reasonNode = n; },
         };
@@ -554,6 +565,10 @@ const ReviewBody = {
   </div>
   <p class="visually-hidden" id="crv-keys">{{ TEXT.keys }}</p>
   <div v-if="status === 'loading'" class="state-box" role="status" aria-live="polite" data-testid="loading-state">{{ TEXT.loading }}</div>
+  <div v-if="status === 'archived'" class="state-box">
+    <p role="status">{{ TEXT.archived }}</p>
+    <a class="button" href="/#/archiv">{{ TEXT.openArchive }}</a>
+  </div>
   <p v-if="status === 'none'" class="empty" role="note" data-testid="no-review">{{ TEXT.noReview }}</p>
   <p v-if="status === 'denied'" role="alert" class="note warning" data-testid="denied">{{ TEXT.denied }}</p>
   <div v-if="status === 'error'" role="alert" class="note burgundy" data-testid="load-error">
@@ -614,6 +629,12 @@ const ReviewBody = {
             <p v-if="c.acceptanceView().acceptedRevision" class="hint" data-testid="acceptance-revision">{{ TEXT.acceptedRevision }}: {{ TEXT.textRevision }} {{ c.acceptanceView().acceptedRevision }}</p>
             <p v-if="c.acceptanceView().moved" class="note warning" style="margin-top: 0" data-testid="acceptance-moved">{{ TEXT.movedSince }}</p>
             <p v-if="c.acceptanceView().reason" class="hint" data-testid="acceptance-reason"><strong>{{ TEXT.rejectReason }}:</strong> {{ c.acceptanceView().reason }}</p>
+          </div>
+          <div v-if="c.actions().some(a => ['accept', 'reject', 'release'].includes(a.id)) && lease.mayAcquire === true"
+               class="actions text-sm" aria-label="Bearbeitungssperre">
+            <button v-if="['idle', 'error', 'lost'].includes(lease.status)" type="button" class="button secondary"
+                    :style="FOCUS" @click="c.editor.acquire()" data-testid="begin-review">Prüfung beginnen</button>
+            <span role="status" aria-live="polite">{{ lease.message }}</span>
           </div>
           <p v-if="c.readOnly()" class="note" role="note" data-testid="read-only">{{ TEXT.readOnly }}</p>
           <div class="actions text-sm" style="margin-top: 14px">

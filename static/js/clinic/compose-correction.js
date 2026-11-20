@@ -29,9 +29,10 @@
  *   createCorrectionViewController(options)  the controller behind the view.
  */
 
+import { formatDictationReference } from './worklist-ui.js';
 import { createClinicApiClient } from './api-client.js';
 import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
-import { createCorrectionToolbar, useCorrectionEditor, vTip } from './correction-editor-ui.js';
+import { createCorrectionToolbar, useCorrectionEditor, vTip, createRepeatTranscription, REPEAT_TEXT } from './correction-editor-ui.js';
 import { LABELS as ALIGN_LABELS, createPlaybackHighlighter, useCorrectionAlignment } from './correction-alignment-ui.js';
 import { CorrectionWaveform } from './correction-waveform-ui.js';
 import { PlaybackTempo, usePlaybackTempo } from './playback-tempo-ui.js';
@@ -39,7 +40,6 @@ import { MODES, useCorrectionModes } from './correction-modes-ui.js';
 import { useCorrectionSave } from './correction-save-ui.js';
 import { AudioMarkers } from './audio-markers-ui.js';
 import { PlaybackGain, usePlaybackGain } from './playback-gain-ui.js';
-import { leaseActions } from './lease-ui.js';
 
 export const COMPOSE_CORRECTION_VERSION = 1;
 
@@ -298,6 +298,7 @@ export function createCorrectionViewController(options) {
         ...(opts.saveOptions || {}),
     });
 
+    const repeat = createRepeatTranscription({ editor, ref });
     const resumeLabel = (api.computed)(() => {
         const ms = saver.resumePosition.value;
         if (ms === null) return 'Keine gespeicherte Position.';
@@ -496,7 +497,7 @@ export function createCorrectionViewController(options) {
 
     // --- lifecycle ------------------------------------------------------------
     const leaseRun = { acquire: editor.acquire, release: editor.release, takeOver: editor.takeOver };
-    const leaseButtons = () => leaseActions(editor.lease.value).filter((a) => typeof leaseRun[a.id] === 'function');
+    const leaseButtons = () => editor.availableLeaseActions().filter((a) => typeof leaseRun[a.id] === 'function');
 
     // --- foot pedal, keyboard mode (PAR-OPS-001) -----------------------------
     // The pedal calls the same functions as the player controls: modeAudio (play, pause) and the tempo
@@ -569,6 +570,7 @@ export function createCorrectionViewController(options) {
         if (disposed) return;
         const holdsLease = editor.lease.value && editor.lease.value.status === 'held';
         disposed = true;
+        repeat.dispose();
         for (const stop of stops.splice(0)) if (typeof stop === 'function') stop();
         if (pedal) { pedal.detach(); pedal = null; }
         pedalStatus.value = '';
@@ -585,7 +587,7 @@ export function createCorrectionViewController(options) {
     }
 
     return {
-        vue: V, api, editor, alignment, modes, saver, gain: () => gain,
+        vue: V, api, editor, alignment, modes, saver, repeat, gain: () => gain,
         ready, loadGeneration, revisionGeneration, audioEl, gainState, closeMessage, resumeLabel,
         recordingId: () => opts.recordingId || editor.audio.value.recordingId || null,
         peaksKey, peaksFetch,
@@ -736,6 +738,12 @@ export const CorrectionBody = {
         const s = c.saver;
         const m = c.modes;
         const highlightOn = V.ref(true);
+        const editorScroll = V.ref(0);
+        const inlineWord = V.computed(() => {
+            if (!highlightOn.value || e.dirty.value || a.activeGranularity.value !== 'word') return null;
+            const state = a.alignmentState.value;
+            return state === 'succeeded' || state === 'partial' ? a.currentWord.value : null;
+        });
         const styleFor = (seg) => {
             const word = a.currentWord.value;
             if (highlightOn.value && word && seg.linkId === word.id) return box('processing');
@@ -842,9 +850,11 @@ export const CorrectionBody = {
         const pickTemplate = (id) => { templatesOpen.value = false; if (id) e.applyTemplate(id); };
         const toolStatus = () => tbState.value.readOnlyReason || tbState.value.message || '';
         return {
+            formatDictationReference,
             c, FOCUS, MODES, box, styleFor, TEXT, showDiff,
-            tb, tbState, textEl, setTextEl, fontPx, focusMode, shortcutsOpen, highlightOn, followOn, onTextInput, onTextKeydown, onFindKeydown,
+            tb, tbState, textEl, setTextEl, fontPx, focusMode, shortcutsOpen, highlightOn, inlineWord, editorScroll, followOn, onTextInput, onTextKeydown, onFindKeydown,
             onQuery, onReplacement, onCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, toggleDrawer, unsavedSuffix,
+            repeatState: c.repeat.state, REPEAT_TEXT,
             text: e.text, canEdit: e.canEdit, dirty: e.dirty, loading: e.loading, error: e.error, manual: e.manual,
             lease: e.lease, audio: e.audio, template: e.template, templates: e.templates, templatesError: e.templatesError,
             editorAnnouncement: e.announcement,
@@ -888,7 +898,10 @@ export const CorrectionBody = {
       <div class="document-title">
         <UiIcon name="snippet" />
         <h2 style="font-weight: 700; color: var(--v8-text)">{{ TEXT.dictation }}</h2>
-        <span class="document-id" :title="dictationId">#{{ dictationId }}</span>
+        <details class="document-id">
+          <summary :title="dictationId"><span aria-hidden="true">{{ formatDictationReference(dictationId) }}</span><span class="sr-only">Vollständige Diktatkennung {{ dictationId }}</span></summary>
+          <span class="document-id-full">{{ dictationId }}</span>
+        </details>
       </div>
       <div class="context-tools">
         <span class="tool-wrap" v-tip="{ label: TEXT.ctxAssignment }">
@@ -1034,10 +1047,13 @@ export const CorrectionBody = {
         <p v-if="manual" class="template-meta" role="note">{{ TEXT.manual }}</p>
         <p v-if="toolStatus()" class="template-meta" role="status" data-testid="toolbar-reason">{{ toolStatus() }}</p>
 
-        <div class="writing-surface">
+        <div class="writing-surface" :class="{ 'has-word-sync': inlineWord }">
+          <div v-if="inlineWord" class="word-backdrop" aria-hidden="true">
+            <div class="word-backdrop-content" :style="{ fontSize: fontPx + 'px', transform: 'translateY(' + (-editorScroll) + 'px)' }">{{ text.slice(0, inlineWord.start) }}<mark data-active-word>{{ text.slice(inlineWord.start, inlineWord.end) }}</mark>{{ text.slice(inlineWord.end) }}</div>
+          </div>
           <textarea class="editor" :ref="setTextEl" :style="{ ...FOCUS, fontSize: fontPx + 'px' }" :value="text" :readonly="!canEdit" :aria-readonly="String(!canEdit)"
                     :aria-label="TEXT.text" :aria-describedby="canEdit ? 'ccv-keys' : 'ccv-keys ccv-readonly'" data-testid="text"
-                    @input="onTextInput($event)" @keydown="onTextKeydown($event)" @select="followOn = false; c.onSelect($event)"
+                    @scroll.passive="editorScroll = $event.target.scrollTop" @input="onTextInput($event)" @keydown="onTextKeydown($event)" @select="followOn = false; c.onSelect($event)"
                     @keyup="c.onSelect($event)" @mouseup="c.onSelect($event)"></textarea>
         </div>
         <p v-if="!canEdit && !loading" id="ccv-readonly" class="template-meta" style="margin: 0">{{ lease.mayAcquire === false ? TEXT.readOnlyAccess : TEXT.readOnly }}</p>
@@ -1142,6 +1158,19 @@ export const CorrectionBody = {
       <section class="panel" :aria-label="TEXT.options">
         <div class="panel-header"><h2>{{ TEXT.options }}</h2></div>
         <PlaybackGain v-if="gainState" :state="gainState.value" :controller="c.gain()" />
+        <div data-testid="repeat-transcription">
+          <button type="button" class="button small" :style="FOCUS" :disabled="!c.repeat.eligible()"
+                  data-testid="repeat-open" @click="c.repeat.open()">{{ REPEAT_TEXT.title }}</button>
+          <p v-if="!c.repeat.eligible() && !repeatState.message" class="hint">{{ REPEAT_TEXT.unavailable }}</p>
+          <div v-if="repeatState.confirming" role="group" :aria-label="REPEAT_TEXT.title">
+            <p class="hint">{{ REPEAT_TEXT.explanation }}</p>
+            <button type="button" class="button primary small" :style="FOCUS" :disabled="!c.repeat.eligible()"
+                    data-testid="repeat-confirm" @click="c.repeat.submit()">{{ REPEAT_TEXT.confirm }}</button>
+            <button type="button" class="button small" :style="FOCUS" @click="c.repeat.cancel()">Abbrechen</button>
+          </div>
+          <p v-if="repeatState.message" :role="repeatState.phase === 'error' ? 'alert' : 'status'"
+             class="hint" data-testid="repeat-result" :data-state="repeatState.phase">{{ repeatState.message }}</p>
+        </div>
       </section>
     </div>
   </div>
