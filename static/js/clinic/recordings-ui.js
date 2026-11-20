@@ -11,12 +11,16 @@
  * page (or the module default) so they survive a re-mount.
  */
 
+import { ARCHIVE_STATUS } from './compose-archive.js';
 import { TOKEN_CONTRACT_VERSION, TokenContractError, surfaceFor } from './tokens.js';
 import { STATUS_LABELS, formatAudioDuration, getOpenMode, resolveStatusSurface } from './worklist-ui.js';
 
 export const RECORDINGS_UI_VERSION = 1;
 export const RECORDINGS_PAGE_SIZE = 50;
 export const FILTER_KEYS = Object.freeze(['author_id', 'pool_id', 'status', 'from', 'to']);
+const ACTIVE_STATUS_LABELS = Object.freeze(Object.fromEntries(
+    Object.entries(STATUS_LABELS).filter(([status]) => status !== ARCHIVE_STATUS),
+));
 
 export const TEXT = Object.freeze({
     title: 'Aufnahmen',
@@ -379,7 +383,7 @@ export function createRecordingsController(options) {
         activeFilterCount: () => FILTER_KEYS.filter((k) => String(state.filters[k] || '').trim() !== '').length,
         countLabel: () => (state.rows.length === 1 ? TEXT.countOne : TEXT.countMany.replace('{n}', String(state.rows.length))) + (state.nextCursor ? '+' : ''),
         scrollTop: () => scrollTop, hasFilters, groups: () => groupByDay(state.rows),
-        text: TEXT, statusOptions: STATUS_LABELS,
+        text: TEXT, statusOptions: ACTIVE_STATUS_LABELS,
         errorStyle: (() => {
             const s = surfaceFor('error');
             return { background: s.background, color: s.color, border: '1px solid ' + s.border };
