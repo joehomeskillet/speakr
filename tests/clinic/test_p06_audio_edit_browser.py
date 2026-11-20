@@ -1,5 +1,6 @@
 """Exercise P06 from the recordings list against Flask, its real edit lease and rendered WAV."""
 import io
+import json
 import math
 import os
 import struct
@@ -8,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from playwright.sync_api import expect, sync_playwright
+from sqlalchemy.orm import Session
 
 import test_wp_mount_correction as mount
 from test_wp_rest27_repeat_ui import _repeat_server
@@ -56,7 +58,9 @@ def _ready(page):
 
 
 def test_cut_trim_undo_redo_and_reopen_with_real_player(audio_server):
-    base, _, _ = audio_server
+    from src.models import ProcessingJob
+
+    base, _, engine = audio_server
     with sync_playwright() as p:
         browser = mount._launch(p)
         try:
@@ -81,7 +85,7 @@ def test_cut_trim_undo_redo_and_reopen_with_real_player(audio_server):
             expect(page.locator(".clinic-correction-view audio")).to_have_attribute("src", initial)
             assert _edit(page, "Wiederholen") == new_head
             _select(page, 1.5)
-            _edit(page, "Kürzen")
+            trimmed = _edit(page, "Kürzen")
             _duration(page, 1.5)
             if folder := os.environ.get("P06_CUT_ARTIFACTS"):
                 for width, height in [(390, 844), (1440, 900)]:
@@ -95,6 +99,14 @@ def test_cut_trim_undo_redo_and_reopen_with_real_player(audio_server):
             page.get_by_test_id("close").click()
             _open(page)
             _duration(page, 1.5)
+            page.locator("[data-action=acquire]").click()
+            page.get_by_test_id("repeat-open").click()
+            with page.expect_response(lambda r: r.url.endswith("/reprocess_transcription")) as queued:
+                page.get_by_test_id("repeat-confirm").click()
+            assert queued.value.status == 200
+            with Session(engine) as session:
+                job = session.query(ProcessingJob).filter_by(job_type="reprocess_transcription").one()
+                assert json.loads(job.params)["clinic_asr_repeat"]["audio_revision_id"] == trimmed
             assert not page.js_errors
         finally:
             browser.close()
