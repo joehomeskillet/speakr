@@ -191,7 +191,7 @@
                 <div class="dictation-chrome v8-chrome">
                     <button type="button" class="button" data-testid="{{ back_id }}" @click="{{ close }}()">
                         <i class="fas fa-arrow-right" aria-hidden="true"></i>
-                        <span{% if back_id == 'clinic-correction-back' %} data-testid="close"{% endif %} v-text="clinicOrigin === 'clinic-recordings' ? 'Zurück zu Aufnahmen' : 'Zurück zur Arbeitsliste'"></span>
+                        <span data-testid="{{ 'close' if back_id == 'clinic-correction-back' else 'clinic-dictation-back-label' }}" v-text="clinicOrigin === 'clinic-recordings' ? 'Zurück zu Aufnahmen' : 'Zurück zur Arbeitsliste'"></span>
                     </button>
                     <nav aria-label="Diktat" data-testid="clinic-dictation-nav" class="record-tabs">
                         <button v-for="link in clinicDictationLinks" :key="link.view" type="button" :data-testid="'clinic-dictation-link-' + link.view.replace('clinic-', '')"
