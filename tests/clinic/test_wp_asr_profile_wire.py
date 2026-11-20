@@ -53,7 +53,7 @@ def ctx(monkeypatch):
         users = {}
         for name in ("author", "admin"):
             user = User(
-                username=f"jobprof_{name}_{tag}",
+                username=f"{name}_{tag}",
                 email=f"jobprof_{name}_{tag}@local.test",
                 password="x",
                 is_admin=name == "admin",

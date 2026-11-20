@@ -46,7 +46,7 @@ def _clinic_mode(monkeypatch):
 
 def _user(name, *, is_admin=False, status=None):
     tag = uuid.uuid4().hex[:8]
-    user = User(username=f"x24_{name}_{tag}", email=f"x24_{name}_{tag}@example.invalid",
+    user = User(username=f"{name[:11]}_{tag}", email=f"x24_{name}_{tag}@example.invalid",
                 password="x", is_admin=is_admin)
     db.session.add(user)
     db.session.flush()

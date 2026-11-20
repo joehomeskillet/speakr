@@ -25,7 +25,7 @@ def environment(monkeypatch):
 
 def _user(*, admin=False, status=None):
     key = uuid.uuid4().hex
-    user = User(username=key, email=f"{key}@example.invalid", password="x", is_admin=admin)
+    user = User(username=key[:20], email=f"{key}@example.invalid", password="x", is_admin=admin)
     db.session.add(user)
     db.session.flush()
     if status is not None:
