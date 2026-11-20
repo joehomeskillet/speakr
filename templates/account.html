@@ -1,3 +1,5 @@
+{#- The account view does not pass clinic_mode (src/api/auth.py); derive it from the app: the clinic blueprints exist only in CLINIC_MODE. -#}
+{%- set clinic_mode = clinic_mode if clinic_mode is defined else ('clinic_worklist' in url_for.__self__.blueprints) -%}
 <!DOCTYPE html>
 <html lang="{{ user_language or 'en' }}" class="h-full">
 <head>
@@ -556,12 +558,16 @@
                     <a href="#" id="tab-preferences" class="tab">
                         <i class="fas fa-sliders-h"></i><span data-i18n="accountTabs.preferences">Preferences</span>
                     </a>
+                    {% if not clinic_mode %}
                     <a href="#" id="tab-prompts" class="tab">
                         <i class="fas fa-cog"></i><span data-i18n="accountTabs.promptOptions">Prompts</span>
                     </a>
+                    {% endif %}
+                    {% if not clinic_mode %}
                     <a href="#" id="tab-speakers" class="tab">
                         <i class="fas fa-users"></i><span data-i18n="accountTabs.speakersManagement">Speakers</span>
                     </a>
+                    {% endif %}
                     <!-- Tags and Folders share one tab with subtabs inside:
                          the two management screens are the same shape, and a
                          single "organize" destination keeps the strip short.
@@ -573,12 +579,16 @@
                     <a href="#" id="tab-templates" class="tab">
                         <i class="fas fa-file-alt"></i><span data-i18n="accountTabs.templates">Templates</span>
                     </a>
+                    {% if not clinic_mode %}
                     <a href="#" id="tab-tokens" class="tab">
                         <i class="fas fa-key"></i><span data-i18n="accountTabs.apiTokens">API tokens</span>
                     </a>
+                    {% endif %}
+                    {% if not clinic_mode %}
                     <a href="#" id="tab-webhooks" class="tab">
                         <i class="fas fa-link"></i><span data-i18n="accountTabs.webhooks">Webhooks</span>
                     </a>
+                    {% endif %}
                     <a href="#" id="tab-about" class="tab">
                         <i class="fas fa-info-circle"></i><span data-i18n="accountTabs.about">About</span>
                     </a>
@@ -788,6 +798,7 @@
                       </div>
                 </div>
 
+                    {% if not clinic_mode %}
                     <div id="content-prompts" class="hidden tab-content">
                       <div class="tab-scroll">
                     <!-- Header with Auto-summarization toggle -->
@@ -1074,6 +1085,7 @@
                         </button>
                       </div>
                 </div>
+                    {% endif %}
 
                     <div id="content-preferences" class="hidden tab-content">
                       <div class="tab-scroll">
@@ -1321,6 +1333,7 @@
                          position) was a display preference and a
                          single-setting tab was hard to find. -->
 
+                    {% if not clinic_mode %}
                     <div id="content-speakers" class="hidden tab-content">
                       <div class="flex-1 min-h-0 flex flex-col overflow-hidden" style="padding: var(--sp-6) var(--sp-6); padding-bottom: 0;">
                     <!-- Header with Auto-label toggle -->
@@ -1441,6 +1454,7 @@
                       </div><!-- /padded speakers inner -->
                       <div class="tab-footer"></div>
                 </div>
+                    {% endif %}
 
                     <!-- Tags & Folders tab: one destination, two subtabs.
                          The subtab strip sits outside .tab-scroll (same
@@ -2036,6 +2050,7 @@
                 </div>
 
                     <!-- API Tokens Tab Content -->
+                    {% if not clinic_mode %}
                     <div id="content-tokens" class="hidden tab-content">
                       <div class="tab-scroll">
                         <div class="space-y-6">
@@ -2132,8 +2147,10 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
                       </div>
                       <div class="tab-footer"></div>
                     </div>
+                    {% endif %}
 
                     <!-- Webhooks Tab Content -->
+                    {% if not clinic_mode %}
                     <div id="content-webhooks" class="hidden tab-content">
                       <div class="tab-scroll">
                         <div class="space-y-6">
@@ -2207,6 +2224,7 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
                       </div>
                       <div class="tab-footer"></div>
                     </div>
+                    {% endif %}
 
                     <div id="content-about" class="hidden tab-content">
                       <div class="tab-scroll">
@@ -3057,6 +3075,7 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
             // Simplified tab switching
             const tabSpeakers = document.getElementById('tab-speakers');
 
+            // Prompts, Speakers, API tokens and Webhooks are not rendered in CLINIC_MODE: skip what is absent.
             const tabs = [
                 { tab: tabAccount, content: contentAccount, name: 'account' },
                 { tab: tabPreferences, content: contentPreferences, name: 'preferences' },
@@ -3067,9 +3086,11 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
                 { tab: tabTokens, content: contentTokens, name: 'tokens' },
                 { tab: tabWebhooks, content: contentWebhooks, name: 'webhooks' },
                 { tab: tabAbout, content: contentAbout, name: 'about' }
-            ];
+            ].filter(({ tab, content }) => tab && content);
 
             function switchToTab(targetName) {
+                // A tab that is not rendered (CLINIC_MODE) falls back to the account tab, e.g. for a stale #prompts link.
+                if (!tabs.some(({ name }) => name === targetName)) targetName = 'account';
                 tabs.forEach(({ tab, content, name }) => {
                     if (name === targetName) {
                         tab.classList.add('is-active');
@@ -3169,15 +3190,19 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
                 });
             }
 
-            tabPrompts.addEventListener('click', (e) => {
-                e.preventDefault();
-                showPromptsTab();
-            });
+            if (tabPrompts) {
+                tabPrompts.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    showPromptsTab();
+                });
+            }
 
-            tabSpeakers.addEventListener('click', (e) => {
-                e.preventDefault();
-                showSpeakersTab();
-            });
+            if (tabSpeakers) {
+                tabSpeakers.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    showSpeakersTab();
+                });
+            }
 
             tabOrganize.addEventListener('click', (e) => {
                 e.preventDefault();
@@ -3194,10 +3219,12 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
                 showTemplatesTab();
             });
 
-            tabTokens.addEventListener('click', (e) => {
-                e.preventDefault();
-                showTokensTab();
-            });
+            if (tabTokens) {
+                tabTokens.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    showTokensTab();
+                });
+            }
 
             if (tabWebhooks) {
                 tabWebhooks.addEventListener('click', (e) => {
@@ -3828,7 +3855,8 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
                 });
             }
 
-            document.getElementById('speakerSearchInput').addEventListener('input', (e) => {
+            const speakerSearchInput = document.getElementById('speakerSearchInput');
+            if (speakerSearchInput) speakerSearchInput.addEventListener('input', (e) => {
                 filterSpeakers(e.target.value);
             });
 
@@ -7764,7 +7792,7 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
     </script>
 
     <!-- Webhooks tab logic (#275) -->
-    <script src="{{ url_for('static', filename='js/account-webhooks.js', v=app_version) }}"></script>
+    {% if not clinic_mode %}<script src="{{ url_for('static', filename='js/account-webhooks.js', v=app_version) }}"></script>{% endif %}
 
     <script>
         // Timezone select (#412): every zone the browser knows; "Automatic"

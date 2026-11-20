@@ -196,21 +196,27 @@
                                 :class="{ 'is-active': activeTab === 'settings' }">
                             <i class="fas fa-cogs"></i><span>${t('adminDashboard.systemSettings')}</span>
                         </button>
+                        {% if not clinic_mode %}
                         <button v-if="!isTeamAdminOnly" @click="activeTab = 'prompts'"
                                 class="tab"
                                 :class="{ 'is-active': activeTab === 'prompts' }">
                             <i class="fas fa-file-alt"></i><span>${t('adminDashboard.defaultPrompts')}</span>
                         </button>
+                        {% endif %}
+                        {% if not clinic_mode %}
                         <button @click="activeTab = 'groups'"
                                 class="tab"
                                 :class="{ 'is-active': activeTab === 'groups' }">
                             <i class="fas fa-users-cog"></i><span>${t('adminDashboard.groupsTab')}</span>
                         </button>
+                        {% endif %}
+                        {% if not clinic_mode %}
                         <button v-if="!isTeamAdminOnly && inquireModeEnabled" @click="activeTab = 'vectorstore'"
                                 class="tab"
                                 :class="{ 'is-active': activeTab === 'vectorstore' }">
                             <i class="fas fa-database"></i><span>${t('adminDashboard.vectorStore')}</span>
                         </button>
+                        {% endif %}
                         <button v-if="!isTeamAdminOnly" @click="activeTab = 'audit'"
                                 class="tab" data-audit-tab
                                 :class="{ 'is-active': activeTab === 'audit' }">
@@ -779,6 +785,7 @@
                   <div class="tab-footer"></div>
                 </div>
 
+                {% if not clinic_mode %}
                 <!-- Default Prompts Tab -->
                 <div class="tab-content" :class="{ hidden: activeTab !== 'prompts' }">
                   <div class="tab-scroll">
@@ -1076,7 +1083,9 @@ Summarization Instructions:
                   </div><!-- /.tab-scroll -->
                   <div class="tab-footer"></div>
                 </div>
+                {% endif %}
 
+                {% if not clinic_mode %}
                 <!-- Vector Store Tab -->
                 <div class="tab-content" :class="{ hidden: activeTab !== 'vectorstore' }" v-if="inquireModeEnabled">
                   <div class="tab-scroll">
@@ -1302,6 +1311,7 @@ Summarization Instructions:
                   </div><!-- /.tab-scroll -->
                   <div class="tab-footer"></div>
                 </div>
+                {% endif %}
 
                 <!-- Audit log tab: read-only, site admins only. Newest first,
                      paged by id (Older, Newer), filtered on the server. -->
@@ -1439,6 +1449,7 @@ Summarization Instructions:
                   <div class="tab-footer"></div>
                 </div>
 
+                {% if not clinic_mode %}
                 <!-- Groups Tab -->
                 <div class="tab-content" :class="{ hidden: activeTab !== 'groups' }">
                   <div class="tab-scroll">
@@ -1507,7 +1518,8 @@ Summarization Instructions:
                     </div>
                   </div><!-- /.tab-scroll -->
                   <div class="tab-footer"></div>
-                </div><!-- /.tab-content (groups) -->{% if clinic_mode %}
+                </div><!-- /.tab-content (groups) -->
+                {% endif %}{% if clinic_mode %}
 
                 <!-- Klinik tab (CLINIC_MODE only): mounted by a separate Vue app, see the module script at the end of the page -->
                 <div class="tab-content" :class="{ hidden: activeTab !== 'clinic' }">
@@ -2442,7 +2454,7 @@ Summarization Instructions:
                 const userToDelete = ref(null);
                 
                 // Inquire Mode state
-                const inquireModeEnabled = ref({{ 'true' if inquire_mode_enabled else 'false' }});
+                const inquireModeEnabled = ref({{ 'true' if inquire_mode_enabled and not clinic_mode else 'false' }});
                 const inquireStatus = ref({
                     total_completed_recordings: 0,
                     recordings_with_transcriptions: 0,
