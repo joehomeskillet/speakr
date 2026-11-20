@@ -136,6 +136,24 @@ def test_release_binds_exact_versions_and_stores_decision(clinic_db):
     assert active_release(dictation).id == release.id
 
 
+def test_release_binds_the_selected_audio_after_undo(clinic_db):
+    from src.clinic import audio_revisions
+
+    user = _user()
+    dictation = _dictation(user)
+    transcript, context = _transcript(dictation), _context(dictation)
+    original = db.session.get(ClinicOriginal, transcript.original_version_id)
+    initial = audio_revisions.init_audio_revision(dictation, original, 2000)
+    edited = audio_revisions.apply_cut(dictation, 500, 1000)
+    assert audio_revisions.undo(dictation).id == initial.id
+    with pytest.raises(ReleaseError):
+        _release(user, dictation, edited, transcript, context)
+    stored = _release(user, dictation, initial, transcript, context)
+    assert active_release(dictation).id == stored.id
+    assert audio_revisions.redo(dictation).id == edited.id
+    assert active_release(dictation) is None
+
+
 def test_foreign_transcript_fails_at_database_constraint(clinic_db):
     """T-061: the service check is bypassed, the composite FK still rejects."""
     user, dictation_a, audio, _own, context = _setup()
