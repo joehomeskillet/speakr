@@ -337,7 +337,14 @@ def create_blueprint(
         response = Response(rendered.wav, mimetype=DERIVED_MIME)
         response.headers['ETag'] = revision_etag(head.id)
         response.headers['X-Audio-Revision'] = head.id
-        return response.make_conditional(request, accept_ranges=True, complete_length=len(rendered.wav))
+        length = len(rendered.wav)
+        environ = request.environ
+        byte_range = request.range
+        if (byte_range is not None and byte_range.units == 'bytes' and len(byte_range.ranges) == 1
+                and byte_range.ranges[0][0] < -length):
+            # A suffix longer than the representation starts at byte zero.
+            environ = {**environ, 'HTTP_RANGE': 'bytes=0-'}
+        return response.make_conditional(environ, accept_ranges=True, complete_length=length)
 
     @bp.get(f'{PATH}/audio-revisions/<uuid:revision_id>/peaks')
     def peaks(dictation_id: UUID, revision_id: UUID) -> Response:

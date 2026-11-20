@@ -211,3 +211,22 @@ def test_shell_limits_aufnahmen_and_explains_offline_denial(live_server, width, 
             assert not page.js_errors, page.js_errors
         finally:
             browser.close()
+
+
+def _check_oversized_suffix(tmp):
+    owner, _stranger, active, _archived = _scene(tmp)
+    url = f"{PREFIX}/dictations/{active}/audio/derived"
+    full = owner.get(url)
+    assert full.status_code == 200
+    size = len(full.data)
+    headers = {"Range": f"bytes=-{size + 1}", "If-Range": full.headers["ETag"]}
+    partial = owner.get(url, headers=headers)
+    assert partial.status_code == 206
+    assert partial.headers["Content-Range"] == f"bytes 0-{size - 1}/{size}"
+    assert partial.data == full.data
+    headers["If-Range"] = '"old"'
+    assert owner.get(url, headers=headers).status_code == 200
+
+
+def test_derived_audio_suffix_longer_than_wav(tmp_path):
+    _run(tmp_path, "_check_oversized_suffix")
