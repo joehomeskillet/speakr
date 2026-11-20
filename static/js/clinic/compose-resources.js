@@ -18,7 +18,7 @@
 import { createVocabularyComponent } from './vocabulary-ui.js';
 import { createVocabularyReviewController } from './vocabulary-review-ui.js';
 import { createVoiceCommandsComponent } from './voice-commands-ui.js';
-import { createAsrProfilesController } from './asr-profiles-ui.js';
+import { createAsrProfilesController, asrCapabilityLabel } from './asr-profiles-ui.js';
 import { surfaceFor } from './tokens.js';
 
 export const TABS = Object.freeze([
@@ -285,44 +285,59 @@ const COMMANDS_TEMPLATE = `
 </section>`;
 
 const ASR_TEMPLATE = `
-<section class="cl-panel space-y-4" role="form" :aria-label="view.title" @keydown.esc="onKey">
-  <h2 class="cl-panel__title">{{ view.title }}</h2>
-  <p v-if="view.notice" class="notice notice--info" role="status">{{ view.notice }}</p>
-  <div v-if="view.error" class="notice notice--danger flex-wrap" role="alert">
+<section class="panel" role="form" :aria-label="view.title" :aria-busy="view.loading || view.busy" @keydown.esc="onKey">
+  <h2>Profilkonfiguration</h2>
+  <p v-if="view.loading" class="text-status" role="status">Sprachprofile werden geladen …</p>
+  <p v-if="view.notice" class="note" role="status">{{ view.notice }}</p>
+  <div v-if="view.error" class="note burgundy" role="alert">
     {{ errorMessage(view.error) }}
-    <button class="btn btn--ghost" type="button" v-if="view.error.retryable" @click="controller.load()">{{ view.labels.retry }}</button>
+    <button class="small" type="button" :disabled="view.loading || view.busy" @click="controller.load()">{{ view.labels.reload }}</button>
   </div>
-  <p class="text-sm" id="res-asr-source">{{ view.labels.source }}</p>
-  <div class="flex flex-wrap gap-2" role="radiogroup" aria-labelledby="res-asr-source" @keydown="onSourceKey">
-    <button v-for="s in view.sources" :key="s.value" type="button" role="radio" class="btn"
-      :class="s.selected ? 'btn--primary' : 'btn--ghost'"
+  <p class="hint" id="res-asr-source">{{ view.labels.source }}</p>
+  <div class="actions" role="radiogroup" aria-labelledby="res-asr-source" @keydown="onSourceKey">
+    <button v-for="s in view.sources" :key="s.value" type="button" role="radio"
+      :disabled="!view.ready || view.busy" :class="{ active: s.selected }"
       :aria-checked="s.selected ? 'true' : 'false'" :tabindex="s.selected ? 0 : -1"
       @click="controller.setSource(s.value)">{{ s.value === 'recorder' ? 'Aufnahmegerät' : s.label }}</button>
   </div>
-  <div class="grid md:grid-cols-2 gap-3">
-    <div class="min-w-0">
-      <label class="block text-sm mb-1" for="res-asr-live">{{ view.labels.live }}</label>
-      <select class="field" id="res-asr-live" :value="selected(view.live)" @change="controller.setProfile('live', $event.target.value || null)">
+  <div class="field-grid">
+    <div class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
+      <label for="res-asr-live">{{ view.labels.live }}</label>
+      <select id="res-asr-live" :disabled="!view.ready || view.busy" :value="selected(view.live)" @change="controller.setProfile('live', $event.target.value || null)">
         <option value="">Kein Profil</option><option v-for="o in view.live" :key="o.value" :value="o.value">{{ o.label }}</option>
       </select>
     </div>
-    <div class="min-w-0">
-      <label class="block text-sm mb-1" for="res-asr-batch">{{ view.labels.batch }}</label>
-      <select class="field" id="res-asr-batch" :value="selected(view.batch)" @change="controller.setProfile('batch', $event.target.value || null)">
+    <div class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
+      <label for="res-asr-batch">{{ view.labels.batch }}</label>
+      <select id="res-asr-batch" :disabled="!view.ready || view.busy" :value="selected(view.batch)" @change="controller.setProfile('batch', $event.target.value || null)">
         <option value="">Kein Profil</option><option v-for="o in view.batch" :key="o.value" :value="o.value">{{ o.label }}</option>
       </select>
     </div>
   </div>
-  <template v-if="!view.error">
-    <p class="notice" :class="{ 'notice--warn': view.engine.fallback }">
-      <span>{{ view.labels.engine }}: {{ view.engine.label }} <span v-if="view.engine.fallback">{{ view.engine.fallbackLabel }}</span></span>
-    </p>
-    <p>{{ view.labels.prompts }}: {{ view.prompts.label }}</p>
-    <ul v-if="view.capabilities.length"><li v-for="c in view.capabilities" :key="c.name">{{ enumLabel(c.name) }}: {{ c.label }}</li></ul>
+  <template v-if="view.ready && !view.error">
+    <h3>Profilstand</h3>
+    <dl class="keyvalues">
+      <div><dt>{{ view.labels.profile }}</dt><dd>{{ view.profile ? view.profile.name : 'Kein Serverprofil' }}</dd></div>
+      <div v-if="view.profile"><dt>Version</dt><dd>{{ view.profile.version }}</dd></div>
+      <div><dt>{{ view.labels.engine }}</dt><dd>{{ view.engine.label }} · Lokal</dd></div>
+      <div><dt>{{ view.labels.prompts }}</dt><dd>{{ view.prompts.label }}</dd></div>
+      <div v-if="view.output"><dt>{{ view.labels.format }}</dt><dd>{{ view.output.container }} · {{ view.output.codec }} · {{ view.output.sampleRate }} Hz</dd></div>
+      <div><dt>Cloudumleitung</dt><dd>Nicht vorgesehen</dd></div>
+    </dl>
+    <p v-if="view.engine.fallback" class="note warning" role="status">{{ view.engine.fallbackLabel }}</p>
+    <h3>Fähigkeiten und Nachweise</h3>
+    <div v-if="view.capabilities.length" class="table-wrap">
+      <table aria-label="Fähigkeiten und Nachweise">
+        <thead><tr><th scope="col">Fähigkeit</th><th scope="col">Nachweis / Grenze</th></tr></thead>
+        <tbody><tr v-for="c in view.capabilities" :key="c.name"><td>{{ asrCapabilityLabel(c.name) }}</td><td><span class="tag" :class="c.proven ? '' : 'wait'">{{ c.label }}</span></td></tr></tbody>
+      </table>
+    </div>
+    <p v-else class="hint">Keine Fähigkeiten konfiguriert. Es liegt kein Wirkungsnachweis vor.</p>
+    <p class="note">Eine Wortliste ersetzt kein Akustiktraining. Korrekturtexte benötigen eine bewusste Freigabe und einen geprüften Audioabgleich.</p>
   </template>
-  <div class="flex flex-wrap gap-2">
-    <button class="btn btn--primary" type="button" :disabled="!view.dirty || controller.state.busy" @click="controller.save()">{{ view.labels.save }}</button>
-    <button class="btn btn--ghost" type="button" :disabled="!view.dirty" @click="controller.cancel()">{{ view.labels.cancel }}</button>
+  <div class="actions">
+    <button class="primary" style="background:var(--ink);border-color:var(--ink);color:var(--surface);font-size:13px;padding:9px 13px" type="button" :disabled="!view.canSave" @click="controller.save()">{{ view.labels.save }}</button>
+    <button type="button" :disabled="!view.dirty || view.busy" @click="controller.cancel()">{{ view.labels.cancel }}</button>
   </div>
 </section>`;
 
@@ -375,7 +390,7 @@ export function createPanels(Vue) {
                 const group = e.currentTarget;
                 Vue.nextTick(() => group.querySelector('[aria-checked="true"]')?.focus());
             }
-            return Object.assign(panel, { controller, selected, onKey, onSourceKey });
+            return Object.assign(panel, { controller, selected, onKey, onSourceKey, asrCapabilityLabel });
         },
     };
 

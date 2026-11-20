@@ -31,6 +31,7 @@ export const STATEMENT_TEXT = 'Einwilligung (Version ' + STATEMENT_VERSION + '):
 const LABELS = Object.freeze({
     'clinic.voiceConsent.title': 'Eigene Stimme: Einwilligung',
     'clinic.voiceConsent.statement': 'Einwilligungserklärung',
+    'clinic.voiceConsent.state.unknown': 'Einwilligungsstand nicht geladen',
     'clinic.voiceConsent.state.none': 'Keine Einwilligung erteilt',
     'clinic.voiceConsent.state.granted': 'Einwilligung erteilt',
     'clinic.voiceConsent.state.revoked': 'Einwilligung widerrufen',
@@ -68,6 +69,7 @@ export function createVoiceConsentController(deps) {
     }
 
     const state = {
+        ready: false,
         loading: false,
         busy: false,
         confirmingRevoke: false,
@@ -105,6 +107,7 @@ export function createVoiceConsentController(deps) {
     }
 
     async function load() {
+        state.ready = false;
         state.loading = true;
         state.error = null;
         emit();
@@ -117,13 +120,14 @@ export function createVoiceConsentController(deps) {
         }
         for (const k of Object.keys(keys)) delete keys[k];
         apply(res.data);
+        state.ready = true;
         emit();
         return true;
     }
 
     // One command against the server. The result is shown only from the committed response.
     async function command(action, body, doneKey) {
-        if (state.busy) return false;
+        if (!state.ready || state.loading || state.busy) return false;
         const expected = state.consent.latestId;
         if (!keys[action] || keys[action].expected !== expected) keys[action] = { expected, key: newKey() };
         state.busy = true;
@@ -146,9 +150,10 @@ export function createVoiceConsentController(deps) {
         fail(res);
         if (res.outcome === 'conflict') {
             // Stale version or state already changed: show the real state.
-            await load();
-            state.error = null;
-            state.notice = label('clinic.voiceConsent.stale');
+            if (await load()) {
+                state.error = null;
+                state.notice = label('clinic.voiceConsent.stale');
+            }
         }
         emit();
         return false;
@@ -168,7 +173,7 @@ export function createVoiceConsentController(deps) {
 
     // Revocation needs a second explicit step.
     function requestRevoke() {
-        if (state.consent.state !== 'granted') return false;
+        if (!state.ready || state.loading || state.busy || state.consent.state !== 'granted') return false;
         state.confirmingRevoke = true;
         emit();
         return true;
@@ -209,7 +214,7 @@ export function createVoiceConsentController(deps) {
     }
 
     function view() {
-        const s = state.consent.state;
+        const s = state.ready ? state.consent.state : 'unknown';
         return {
             title: label('clinic.voiceConsent.title'),
             statement: { version: STATEMENT_VERSION, text: STATEMENT_TEXT, label: label('clinic.voiceConsent.statement') },
@@ -218,10 +223,11 @@ export function createVoiceConsentController(deps) {
             embeddingCount: state.consent.embeddingCount,
             suggestionCount: state.suggestions.length,
             history: state.consent.history,
-            canGrant: s !== 'granted' && !state.busy && !state.loading,
+            canGrant: state.ready && s !== 'granted' && !state.busy && !state.loading,
             canRevoke: s === 'granted' && !state.busy && !state.loading,
             confirmingRevoke: state.confirmingRevoke,
             busy: state.busy,
+            loading: state.loading,
             error: state.error,
             errorSurface: state.error ? surfaceFor('error') : null,
             notice: state.notice,
