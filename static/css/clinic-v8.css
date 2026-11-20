@@ -326,7 +326,7 @@
 .v8-ui .editor-page .preview-strip>span:last-child{display:none}
 .v8-ui .editor-page .preview-strip{font-size:9px}
 .v8-ui .document-title h2{font-size:14px}
-.v8-ui .document-id{display:none}
+.v8-ui .document-id{flex:1;white-space:normal;overflow-wrap:anywhere}
 .v8-ui .editor-heading{padding:9px 12px}
 .v8-ui .document-context{padding:9px 12px;gap:5px;display:grid;grid-template-columns:1fr}
 .v8-ui .document-context>div+div{border:0;padding:0}
