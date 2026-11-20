@@ -16,7 +16,7 @@ import sys
 from uuid import uuid4
 
 from src.app import app, db
-from src.clinic import pools, workflow
+from src.clinic import pools, workflow, worklist_entries
 from src.clinic.identity import ClinicAccountPolicy
 from src.clinic.models import ClinicDictation
 from src.init_db import initialize_database
@@ -27,9 +27,9 @@ queue_trigger, initial_status = sys.argv[1:]
 with app.app_context():
     initialize_database(app)
     users = {}
-    for name in ("admin", "lead", "typist", "outsider"):
+    for name in ("admin", "lead", "typist", "outsider", "other_admin"):
         user = User(username=name, email=f"{name}@example.invalid", password="synthetic",
-                    is_admin=name == "admin")
+                    is_admin=name in ("admin", "other_admin"))
         db.session.add(user)
         db.session.flush()
         users[name] = user.id
@@ -91,6 +91,15 @@ held = post("typist")
 assert held["generation"] == 1
 editing = initial_status if initial_status == workflow.DRAFT else workflow.IN_PROGRESS
 opened = observe(editing, after=before)
+if initial_status == workflow.TO_WRITE:
+    with app.app_context():
+        for actor in (typist_id, users["other_admin"]):
+            row = next(entry.row for entry in worklist_entries.load_entries(actor)
+                       if entry.row["dictation_id"] == did)
+            assert row["open_mode"] == "player", row
+        snapshot = worklist_entries.dictation_snapshot(db.session.get(ClinicDictation, did))
+        assert snapshot["asr_state"] == "SKIPPED", snapshot
+        assert snapshot["review_state"] == "IN_REVIEW", snapshot
 assert proof(post("typist")) == proof(held)  # same-holder acquire with a new key
 key = str(uuid4())
 renewed = post("typist", "/renew", proof(held), key=key)
