@@ -84,39 +84,56 @@ function legacy(clinic) {
     const state = { showReprocessModal: ref(false), reprocessType: ref(null), reprocessRecording: ref(null),
         selectedRecording: ref({ id: 42 }), recordings: ref([{ id: 42, status: 'COMPLETED' }]),
         asrReprocessOptions: {}, userTranscriptionLanguage: ref('de') };
-    const utils = { showToast: vi.fn(), setGlobalError: vi.fn() };
+    const utils = { showToast: vi.fn(), setGlobalError: vi.fn(), t: (key, params) => params?.error || key };
     return { state, utils, c: useReprocess(state, utils) };
 }
 describe('legacy reprocess dialog', () => {
-    it('does not toast or change status after clinic rejection', async () => {
-        fixture({ ok: false, status: 409, json: async () => ({ error: 'stale' }) });
+    it.each([400, 403, 409, 423, 503])('does not toast, poll or change status after HTTP %i', async (status) => {
+        fixture();
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'refused' }), { status })));
+        const poll = vi.spyOn(globalThis, 'setInterval');
         const { c, state, utils } = legacy(true);
         await c.openReprocessModal('transcription');
         await c.executeReprocess();
         expect(utils.showToast).not.toHaveBeenCalled();
-        expect(utils.setGlobalError).toHaveBeenCalledWith(REPEAT_TEXT.denied);
+        expect(utils.setGlobalError).toHaveBeenCalledWith('refused');
         expect(state.recordings.value[0].status).toBe('COMPLETED');
+        expect(poll).not.toHaveBeenCalled();
     });
-    it('uses the same clinic session and never sends the provider options', async () => {
-        const { session, fetchFn } = fixture();
+    it('adds only the matching current editor proof and preserves chosen options', async () => {
+        const { editor, fetchFn: repeatFetch } = fixture();
+        const fetchFn = vi.fn(async () => new Response('{"success":true}'));
+        vi.stubGlobal('fetch', fetchFn);
+        vi.spyOn(globalThis, 'setInterval').mockReturnValue(1);
+        vi.spyOn(globalThis, 'clearInterval').mockImplementation(() => {});
         const { c, state, utils } = legacy(true);
         await c.openReprocessModal('transcription');
         expect(state.showReprocessModal.value).toBe(true);
+        Object.assign(state.asrReprocessOptions, { language: 'fr', hotwords: '  Hint  ', initial_prompt: ' Prompt ',
+            min_speakers: 1, max_speakers: 2, transcription_model: 'local' });
+        editor.lease.value.generation = 12;
         await c.executeReprocess();
-        expect(JSON.parse(fetchFn.mock.calls[0][1].body)).toEqual({ lease_generation: 7 });
-        expect(utils.showToast).toHaveBeenCalledWith(session.state.value.message, 'fa-sync-alt');
+        expect(JSON.parse(fetchFn.mock.calls[0][1].body)).toEqual({ lease_generation: 12, language: 'fr',
+            hotwords: 'Hint', initial_prompt: 'Prompt', min_speakers: 1, max_speakers: 2, transcription_model: 'local' });
+        expect(repeatFetch).not.toHaveBeenCalled();
+        expect(utils.showToast).toHaveBeenCalled();
+        expect(state.recordings.value[0].status).toBe('PROCESSING');
+        c.stopReprocessingPoll(42);
     });
-    it('refuses clinic requests outside the active matching editor', async () => {
+    it.each(['invalid_lease_generation', 'stale_generation', 'expired', 'foreign_holder'])('gives actionable German advice for %s', async (code) => {
         const { c, state, utils } = legacy(true);
-        const fetchFn = vi.fn(); vi.stubGlobal('fetch', fetchFn);
+        const fetchFn = vi.fn(async () => new Response(JSON.stringify({ code, error: 'lease refused' }), { status: 400 }));
+        vi.stubGlobal('fetch', fetchFn);
         await c.openReprocessModal('transcription');
+        expect(state.showReprocessModal.value).toBe(true);
         await c.reprocessTranscription(42);
-        expect(state.showReprocessModal.value).toBe(false);
-        expect(utils.setGlobalError).toHaveBeenCalledWith(REPEAT_TEXT.unavailable);
-        expect(fetchFn).not.toHaveBeenCalled();
+        expect(utils.setGlobalError).toHaveBeenCalledWith(REPEAT_TEXT.leaseRequired);
+        expect(JSON.parse(fetchFn.mock.calls[0][1].body)).toEqual({ language: '' });
+        expect(utils.showToast).not.toHaveBeenCalled();
+        expect(state.recordings.value[0].status).toBe('COMPLETED');
     });
-    it('preserves nonclinic options and polling', async () => {
-        const { c, state, utils } = legacy(false);
+    it.each([false, true])('preserves standalone options and polling, clinic=%s', async (clinic) => {
+        const { c, state, utils } = legacy(clinic);
         vi.spyOn(globalThis, 'setInterval').mockReturnValue(1);
         vi.spyOn(globalThis, 'clearInterval').mockImplementation(() => {});
         const fetchFn = vi.fn(async () => ({ ok: true, text: async () => '{"success":true}' }));
@@ -127,5 +144,41 @@ describe('legacy reprocess dialog', () => {
         expect(state.recordings.value[0].status).toBe('PROCESSING');
         expect(utils.showToast).toHaveBeenCalled();
         c.stopReprocessingPoll(42);
+    });
+    it.each(['otherRecording', 'lostLease', 'dirty', 'disposed', 'nonclinic'])('does not attach a proof for %s', async (reason) => {
+        const { session, editor } = fixture();
+        if (reason === 'otherRecording') editor.recordingId.value = 43;
+        if (reason === 'lostLease') editor.lease.value.writable = false;
+        if (reason === 'dirty') editor.dirty.value = true;
+        if (reason === 'disposed') session.dispose();
+        const { c } = legacy(reason !== 'nonclinic');
+        const fetchFn = vi.fn(async () => new Response('{"error":"refused"}', { status: 400 }));
+        vi.stubGlobal('fetch', fetchFn);
+        await c.reprocessTranscription(42, 'de');
+        expect(JSON.parse(fetchFn.mock.calls[0][1].body)).toEqual({ language: 'de' });
+    });
+    it.each(['network', 'html'])('keeps %s failures truthful without retrying', async (failure) => {
+        const { c, state, utils } = legacy(true);
+        const fetchFn = vi.fn(async () => {
+            if (failure === 'network') throw new TypeError('offline');
+            return new Response('<html>unavailable</html>', { status: 503 });
+        });
+        vi.stubGlobal('fetch', fetchFn);
+        await c.reprocessTranscription(42, 'de');
+        expect(fetchFn).toHaveBeenCalledTimes(1);
+        expect(utils.setGlobalError).toHaveBeenCalled();
+        expect(utils.showToast).not.toHaveBeenCalled();
+        expect(state.recordings.value[0].status).toBe('COMPLETED');
+    });
+    it.each([false, true])('keeps saved hints and cancel semantics, clinic=%s', async (clinic) => {
+        const { c, state } = legacy(clinic);
+        const fetchFn = vi.fn(); vi.stubGlobal('fetch', fetchFn);
+        state.selectedRecording.value = { id: 42, resolved_hotwords: 'Saved hint', resolved_initial_prompt: 'Saved prompt' };
+        await c.openReprocessModal('transcription');
+        expect(state.asrReprocessOptions).toEqual({ language: 'de', hotwords: 'Saved hint', initial_prompt: 'Saved prompt',
+            min_speakers: '', max_speakers: '', transcription_model: '' });
+        c.cancelReprocess();
+        await c.executeReprocess();
+        expect(fetchFn).not.toHaveBeenCalled();
     });
 });

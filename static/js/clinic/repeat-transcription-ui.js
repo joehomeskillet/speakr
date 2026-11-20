@@ -7,6 +7,7 @@ export const REPEAT_TEXT = Object.freeze({
     confirm: 'Erneute Transkription anfordern',
     explanation: 'Die Aufnahme wird erneut erkannt. Ein neues Ergebnis liegt erst nach erfolgreicher Verarbeitung vor.',
     unavailable: 'Zum Wiederholen ein bestehendes Transkript mit Audio öffnen, Bearbeiten wählen und Änderungen speichern.',
+    leaseRequired: 'Das verknüpfte Diktat im Schreibplatz öffnen, „Bearbeiten“ wählen und Änderungen speichern. Danach die erneute Transkription anfordern.',
     queued: 'Erneute Transkription zur Warteschlange hinzugefügt.',
     unknown: 'Das Ergebnis ist unbekannt. Bitte zuerst den Verarbeitungsstatus prüfen.',
     denied: 'Die erneute Transkription wurde abgelehnt. Bitte Berechtigung und Bearbeitungssperre prüfen.',
@@ -70,6 +71,7 @@ export function createRepeatTranscription({ editor, ref, fetchFn = (...args) => 
         }
     }
     const session = { state, recordingId, eligible, open, cancel, submit,
+        proof: () => eligible() ? { lease_generation: editor.lease.value.generation } : null,
         dispose() { disposed = true; sessions.delete(session); } };
     sessions.add(session);
     return session;

@@ -35,14 +35,6 @@ export function useReprocess(state, utils) {
             openRegenerateSummaryModal(recording);
             return;
         }
-        if (clinicMode()) {
-            const { activeRepeatSession, REPEAT_TEXT } = await import('../../clinic/repeat-transcription-ui.js');
-            const session = activeRepeatSession((recording || selectedRecording.value)?.id);
-            if (!session?.eligible()) {
-                setGlobalError(REPEAT_TEXT.unavailable);
-                return;
-            }
-        }
         reprocessType.value = type;
         reprocessRecording.value = recording || selectedRecording.value;
         showReprocessModal.value = true;
@@ -150,15 +142,6 @@ export function useReprocess(state, utils) {
             return;
         }
 
-        if (clinicMode()) {
-            const { activeRepeatSession, REPEAT_TEXT } = await import('../../clinic/repeat-transcription-ui.js');
-            const session = activeRepeatSession(recordingId);
-            const result = session ? await session.submit() : { ok: false, message: REPEAT_TEXT.unavailable };
-            if (!result.ok) setGlobalError(result.message);
-            else showToast(result.message, 'fa-sync-alt');
-            return;
-        }
-
         try {
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
             const requestBody = {
@@ -170,6 +153,13 @@ export function useReprocess(state, utils) {
             if (initialPrompt && initialPrompt.trim()) requestBody.initial_prompt = initialPrompt.trim();
             if (transcriptionModel && transcriptionModel.trim()) requestBody.transcription_model = transcriptionModel.trim();
 
+            // Unlinked recordings retain the upstream route. The server decides
+            // whether this recording is mapped and requires an editor lease.
+            if (clinicMode()) {
+                const { activeRepeatSession } = await import('../../clinic/repeat-transcription-ui.js');
+                Object.assign(requestBody, activeRepeatSession(recordingId)?.proof());
+            }
+
             const response = await fetch(`/recording/${recordingId}/reprocess_transcription`, {
                 method: 'POST',
                 headers: {
@@ -179,6 +169,14 @@ export function useReprocess(state, utils) {
                 body: JSON.stringify(requestBody)
             });
 
+            if (clinicMode() && !response.ok) {
+                const error = await response.clone().json().catch(() => null);
+                if (['invalid_lease_generation', 'stale_generation', 'expired', 'foreign_holder'].includes(error?.code)) {
+                    const { REPEAT_TEXT } = await import('../../clinic/repeat-transcription-ui.js');
+                    setGlobalError(REPEAT_TEXT.leaseRequired);
+                    return;
+                }
+            }
             const data = await readJsonResponse(response, t, 'errors.reprocessTranscriptionFailed');
 
             // Update recording status in list

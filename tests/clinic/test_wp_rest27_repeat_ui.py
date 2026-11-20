@@ -3,6 +3,7 @@
 Synthetic audio and isolated SQLite only; queue workers and all background tasks
 stay disabled. This proves queue acceptance, not ASR execution.
 """
+import json
 import os
 from pathlib import Path
 
@@ -16,6 +17,16 @@ import test_wp_mount_correction as mount
 
 @pytest.fixture(scope="module")
 def repeat_server(tmp_path_factory):
+    yield from _repeat_server(tmp_path_factory)
+
+
+@pytest.fixture(scope="module", params=[False, True], ids=['normal', 'clinic'])
+def upstream_server(tmp_path_factory, request):
+    for server in _repeat_server(tmp_path_factory, clinic=request.param, standalone=True):
+        yield (*server, request.param)
+
+
+def _repeat_server(tmp_path_factory, clinic=True, standalone=False):
     seed = '''
 from io import BytesIO
 from hashlib import sha256
@@ -28,6 +39,10 @@ with wave.open(audio_buffer, 'wb') as wav:
 audio_bytes = audio_buffer.getvalue()
 '''
     server = mount.SERVER.replace('with app.app_context():', seed + '\nwith app.app_context():', 1)
+    if not clinic:
+        # Normal upstream login uses bcrypt; the clinic fixture uses Argon2.
+        server = server.replace('from src.app import app, db', 'from src.app import app, db\nfrom flask_bcrypt import generate_password_hash')
+        server = server.replace('identity.hash_password(password)', "generate_password_hash(password).decode('utf-8')")
     server = server.replace('content_hash="o" * 64, size_bytes=1000',
                             'content_hash=sha256(audio_bytes).hexdigest(), size_bytes=len(audio_bytes)')
     server = server.replace('    dictation_id = dic.id', '''
@@ -41,14 +56,23 @@ audio_bytes = audio_buffer.getvalue()
     media.write_bytes(audio_bytes)
     db.session.commit()
     dictation_id = dic.id''')
+    if standalone:
+        server = server.replace('    dictation_id = dic.id', '''
+    db.session.add(Recording(user_id=author.id, title='Standalone', status='COMPLETED',
+                             audio_path=str(source), original_filename='standalone.wav',
+                             transcription='Standalone synthetic transcript.'))
+    db.session.commit()
+    dictation_id = dic.id''')
     original_env = mount._env
     scene = {}
 
-    def env(path, clinic):
+    def env(path, _clinic):
         result = original_env(path, clinic)
         scene['url'] = result['SQLALCHEMY_DATABASE_URI']
         return {**result, 'SPEAKR_SKIP_BACKGROUND_TASKS': 'true',
-                'CLINIC_ORIGINALS_ROOT': str(path / 'originals')}
+                'CLINIC_ORIGINALS_ROOT': str(path / 'originals'),
+                'CLINIC_MODE': '1' if clinic else '0', 'CLINIC_ASR_PROMPTS_ENABLED': '1',
+                'TRANSCRIPTION_CONNECTOR': 'asr_endpoint', 'ASR_BASE_URL': 'http://127.0.0.1:9'}
 
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(mount, 'SERVER', server)
@@ -62,7 +86,7 @@ audio_bytes = audio_buffer.getvalue()
 
 
 def test_author_normal_entry_repeat_uses_established_generation_and_rejection_is_truthful(repeat_server, tmp_path):
-    from src.models import ProcessingJob
+    from src.models import ProcessingJob, Recording
 
     base, did, engine = repeat_server
     artifacts = Path(os.environ.get('REPEAT_UI_ARTIFACT_DIR', tmp_path))
@@ -71,6 +95,22 @@ def test_author_normal_entry_repeat_uses_established_generation_and_rejection_is
         browser = mount._launch(playwright)
         try:
             page = mount._login(browser, base, 'author213@local.test')
+            # The unchanged upstream dialog remains available. The real server,
+            # not a clinic-wide client block, rejects mapped audio without a lease.
+            with Session(engine) as session:
+                recording_id = session.query(Recording).filter_by(title='Synthetisch').one().id
+            _open_upstream_dialog(page, recording_id)
+            page.locator('#asr-language-reprocess').select_option('fr')
+            page.locator('#asr-hotwords-reprocess').fill('Synthetischer Hinweis')
+            with page.expect_response(lambda r: r.url.endswith('/reprocess_transcription')) as missing:
+                page.locator('.modal-panel:has(#asr-language-reprocess) .btn--primary').click()
+            assert missing.value.status == 400, missing.value.text()
+            assert missing.value.json()['code'] == 'invalid_lease_generation'
+            assert missing.value.request.post_data_json['hotwords'] == 'Synthetischer Hinweis'
+            assert 'lease_generation' not in missing.value.request.post_data_json
+            expect(page.get_by_text('Das verknüpfte Diktat im Schreibplatz öffnen, „Bearbeiten“ wählen und Änderungen speichern. Danach die erneute Transkription anfordern.', exact=True)).to_be_visible()
+            with Session(engine) as session:
+                assert session.query(ProcessingJob).filter_by(job_type='reprocess_transcription').count() == 0
             page.get_by_test_id('open-link').first.click()
             expect(page.get_by_test_id('clinic-correction-view')).to_be_visible()
             page.locator('[data-context-toggle=options]').click()
@@ -122,6 +162,52 @@ def test_author_normal_entry_repeat_uses_established_generation_and_rejection_is
             with Session(engine) as session:
                 assert session.query(ProcessingJob).filter_by(job_type='reprocess_transcription').count() == 1
             page.screenshot(path=str(artifacts / 'repeat-rejected.png'), full_page=True)
+            assert not page.js_errors, page.js_errors
+        finally:
+            browser.close()
+
+
+def _open_upstream_dialog(page, recording_id):
+    page.wait_for_function("document.querySelector('#app').__vue_app__?._instance?.proxy?.confirmReprocess")
+    page.evaluate('''async id => {
+        const response = await fetch(`/api/recordings/${id}`);
+        if (!response.ok) throw new Error('Recording detail unavailable');
+        await document.querySelector('#app').__vue_app__._instance.proxy.confirmReprocess(
+            'transcription', await response.json());
+    }''', recording_id)
+    expect(page.locator('#asr-language-reprocess')).to_be_visible()
+
+
+def test_upstream_modal_keeps_unlinked_options_and_real_unleased_route(upstream_server):
+    from src.models import ProcessingJob, Recording
+
+    base, _, engine, clinic = upstream_server
+    with Session(engine) as session:
+        recording_id = session.query(Recording).filter_by(title='Standalone').one().id
+    with sync_playwright() as playwright:
+        browser = mount._launch(playwright)
+        try:
+            page = mount._login(browser, base, 'author213@local.test')
+            expect(page.locator('#app')).to_have_attribute('data-clinic-mode', str(clinic))
+            _open_upstream_dialog(page, recording_id)
+            page.locator('#asr-language-reprocess').select_option('fr')
+            page.locator('#asr-hotwords-reprocess').fill('Synthetischer Hinweis')
+            page.locator('#asr-initial-prompt-reprocess').fill('Synthetischer Kontext')
+            with page.expect_response(lambda r: r.url.endswith('/reprocess_transcription')) as queued:
+                page.locator('.modal-panel:has(#asr-language-reprocess) .btn--primary').click()
+            assert queued.value.status == 200, queued.value.text()
+            assert queued.value.request.post_data_json == {
+                'language': 'fr', 'hotwords': 'Synthetischer Hinweis', 'initial_prompt': 'Synthetischer Kontext',
+            }
+            assert queued.value.json()['success'] is True
+            with Session(engine) as session:
+                job = session.query(ProcessingJob).filter_by(recording_id=recording_id, job_type='reprocess_transcription').one()
+                assert job.status == 'queued'
+                params = json.loads(job.params)
+                assert params['language'] == 'fr'
+                assert params['hotwords'] == 'Synthetischer Hinweis'
+                assert params['initial_prompt'] == 'Synthetischer Kontext'
+                assert 'clinic_asr_repeat' not in params
             assert not page.js_errors, page.js_errors
         finally:
             browser.close()
