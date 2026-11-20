@@ -7,7 +7,7 @@ Each entry also carries the additive role fields `dictated_by`, `staff_pools` an
 `lease_holder` from `dictation_roles.project_roles` (staff data only, no patient data).
 
 * ordinary users: dictations they authored or that are assigned to them;
-* typist-pool leads (W13): additionally the unassigned dictations (Klärliste)
+* typist-pool leads (W13): additionally the sent, unassigned dictations (Klärliste)
   of the author pools routed to a staff pool they lead, i.e. the group
   membership role ``admin`` of that pool's group;
 * active site administrators (W12): every dictation. Foreign recordings read
@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 from datetime import timezone
 
+from flask import after_this_request, has_request_context, request
 from sqlalchemy import and_, or_
 
 from src.clinic import release, revisions, routes_history, routes_worklist, workflow
@@ -108,7 +109,8 @@ def load_entries(actor: int) -> list[routes_worklist.WorklistEntry]:
         conditions = [ClinicDictation.author_user_id == actor, item.assignee_user_id == actor]
         led = _led_author_pools(actor)
         if led:
-            conditions.append(and_(item.assignee_user_id.is_(None), ClinicDictation.pool_id.in_(led)))
+            conditions.append(and_(item.assignee_user_id.is_(None), item.status != workflow.DRAFT,
+                                   ClinicDictation.pool_id.in_(led)))
         query = query.filter(or_(*conditions))
     from src.clinic.dictation_roles import project_roles  # lazy: dictation_roles imports stamp from here
 
@@ -118,9 +120,6 @@ def load_entries(actor: int) -> list[routes_worklist.WorklistEntry]:
     entries = []
     for dictation, row, rec in found:
         queue_status = row.resume_status if row.status == workflow.IN_PROGRESS else row.status
-        if admin and actor not in (dictation.author_user_id, rec.user_id):
-            audit.record("recording.content.read", recording=rec, details={"part": "worklist"},
-                         actor_kind="session", actor_user_id=actor)
         source_kind, source_label = sources.get(dictation.id, _DEFAULT_SOURCE)
         entries.append(routes_worklist.WorklistEntry(rec, dict(
             dictation_id=dictation.id, title=rec.title or "", status=row.status,
@@ -130,7 +129,35 @@ def load_entries(actor: int) -> list[routes_worklist.WorklistEntry]:
             duration_seconds=row.audio_seconds, recipient=None, source_kind=source_kind,
             open_mode=_open_mode(actor, dictation, queue_status), revision=dictation.version_counter,
             source_label=source_label, **roles[dictation.id]), dictation.pool_id))
+    if admin:
+        foreign = {d.id: (rec.id, rec.user_id) for d, _, rec in found
+                   if actor not in (d.author_user_id, rec.user_id)}
+        if foreign:
+            _audit_foreign_reads(actor, foreign)
     return entries
+
+
+def _audit_foreign_reads(actor: int, foreign: dict[str, tuple[int, int]]) -> None:
+    """An HTTP read covers only the rows returned after policy, filters and paging."""
+    def record(recording_id, owner_id):
+        audit.record("recording.content.read", recording_id=recording_id,
+                     recording_owner_id=owner_id, details={"part": "worklist"},
+                     actor_kind="session", actor_user_id=actor)
+
+    if not has_request_context():
+        # The direct loader returns the active administrator's complete list.
+        for recording_id, owner_id in foreign.values():
+            record(recording_id, owner_id)
+        return
+
+    @after_this_request
+    def audit_page(response):
+        if request.method == "GET" and response.status_code == 200 and response.is_json:
+            for row in response.get_json()["items"]:
+                rec = foreign.get(row["dictation_id"])
+                if rec is not None:
+                    record(*rec)
+        return response
 
 
 def _single_head(model, dictation_id: str):
