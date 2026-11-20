@@ -60,6 +60,12 @@ Before inviting users, verify playback, local transcription, reopening a saved c
 
 Leave `VIDEO_PASSTHROUGH_ASR=false` for an audio-only service. Setting it to true sends the full original video to ASR on the shared ingestion path; standard audio-only APIs reject unsupported video containers. The clinic dictation form is designed for audio files. Test using synthetic material before enabling video for any separate ingestion route.
 
+## Import from watched folders
+
+For clinic dictations, the Windows import agent uses the folders, devices and filename patterns approved for each source. The list below applies to the separate, optional server-side watch folder in upstream Speakr.
+
+Only files with one of these extensions are picked up, in any letter case: `aac`, `aiff`, `amr`, `asf`, `avi`, `caf`, `flac`, `flv`, `m4a`, `m4v`, `mkv`, `mov`, `mp3`, `mp4`, `mpeg`, `mpg`, `mts`, `oga`, `ogg`, `ogv`, `opus`, `ts`, `vob`, `wav`, `weba`, `webm`, `wma`, `wmv`, `3gp` and `3gpp`. Files with other extensions stay in the folder. The monitor logs them at INFO the first time it skips them.
+
 ## Maintenance and upgrades
 
 Keep TLS at the proxy and publish only the private app listener. Restrict access to the app configuration and backups. Keep the same session secret on any replicas. Provision database, instance and upload paths with the permissions of the actual container process. Do not keep uploads inside an ephemeral container filesystem.

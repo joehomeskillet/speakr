@@ -60,6 +60,12 @@ Prüfen Sie vor der Nutzung Wiedergabe, lokale Erkennung, erneutes Öffnen einer
 
 Lassen Sie `VIDEO_PASSTHROUGH_ASR=false` bei einem reinen Audiodienst gesetzt. Bei aktiviertem Schalter sendet der gemeinsame Importpfad das vollständige Originalvideo an den ASR-Dienst. Herkömmliche Audio-APIs lehnen nicht unterstützte Videocontainer ab. Das Klinikformular ist für Audiodateien vorgesehen. Prüfen Sie die Änderung mit synthetischem Material, bevor Sie Video für einen gesonderten Importweg aktivieren.
 
+## Dateiimport aus überwachten Ordnern
+
+Für Klinikdiktate verwendet der Windows-Importagent die je Quelle freigegebenen Ordner, Geräte und Dateimuster. Die folgende Liste gilt für den separaten, optionalen Watch Folder von Upstream-Speakr auf dem Server.
+
+Der Upstream-Dienst berücksichtigt diese Dateiendungen unabhängig von der Groß- und Kleinschreibung: `aac`, `aiff`, `amr`, `asf`, `avi`, `caf`, `flac`, `flv`, `m4a`, `m4v`, `mkv`, `mov`, `mp3`, `mp4`, `mpeg`, `mpg`, `mts`, `oga`, `ogg`, `ogv`, `opus`, `ts`, `vob`, `wav`, `weba`, `webm`, `wma`, `wmv`, `3gp` und `3gpp`. Dateien mit anderen Endungen bleiben im Ordner. Der Dienst protokolliert sie beim ersten Überspringen auf Stufe INFO.
+
 ## Wartung und Aktualisierung
 
 Terminieren Sie TLS am Proxy und veröffentlichen Sie am App-Container nur den privaten Zugang. Begrenzen Sie den Zugriff auf Konfiguration und Sicherungen. Verwenden Sie auf etwaigen Repliken denselben Sitzungsschlüssel. Datenbank-, Instanz- und Uploadpfade benötigen passende Rechte für den tatsächlichen Containerprozess. Audiodateien gehören auf einen dauerhaften Speicher.
