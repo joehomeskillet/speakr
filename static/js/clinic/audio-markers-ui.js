@@ -330,36 +330,37 @@ export const AudioMarkers = {
         return { ...api, LABELS, STEP_MS, surfaces, focusStyle, styleFor, nudge, toPlayhead, writable };
     },
     template: `
-<section class="clinic-audio-markers" :aria-label="LABELS.title" :aria-busy="status === 'loading' || busy" :data-status="status">
+<section class="clinic-audio-markers v8-page" :aria-label="LABELS.title" :aria-busy="status === 'loading' || busy" :data-status="status">
   <h3>{{ LABELS.title }}</h3>
-  <div v-if="status === 'error'" role="alert"
+  <div v-if="status === 'error'" class="note" role="alert"
     :style="{ background: surfaces.problem.background, color: surfaces.problem.color, border: '1px solid ' + surfaces.problem.border }">
     {{ error && error.message }}
     <button type="button" :style="focusStyle" @click="refresh()">{{ LABELS.retry }}</button>
   </div>
-  <div class="clinic-audio-markers-actions">
+  <div class="clinic-audio-markers-actions actions" role="group" aria-label="Audiomarken verwalten">
     <button type="button" :style="focusStyle" :disabled="busy || !writable" @click="create({ type: 'SECTION' })">{{ LABELS.section }}</button>
     <button type="button" :style="focusStyle" :disabled="busy || !writable" @click="create({ type: 'INDEX' })">{{ LABELS.index }}</button>
     <button type="button" :style="focusStyle" :disabled="busy || !writable" @click="markPhrase()">{{ LABELS.markPhrase }}</button>
     <button type="button" :style="focusStyle" @click="refresh()">{{ LABELS.refresh }}</button>
   </div>
-  <p v-if="status === 'ready' && markers.length === 0">{{ LABELS.empty }}</p>
-  <ul role="list" :aria-label="LABELS.list">
+  <p v-if="!writable" class="note">{{ LABELS.readOnly }}</p>
+  <p v-if="status === 'ready' && markers.length === 0" class="note">{{ LABELS.empty }}</p>
+  <ul class="clinic-marker-list" role="list" :aria-label="LABELS.list">
     <li v-for="m in markers" :key="m.id" :data-ownership="m.ownership" :style="styleFor(m)">
-      <strong>{{ m.typeLabel }}</strong>
-      <span>{{ m.timeLabel }}</span>
-      <span v-if="m.label">{{ m.label }}</span>
-      <span>{{ m.historical ? LABELS.historical : LABELS.current }}</span>
-      <template v-if="!m.historical">
+      <div class="clinic-marker-heading"><strong>{{ m.typeLabel }}</strong>
+      <span class="clinic-marker-time">{{ m.timeLabel }}</span></div>
+      <p v-if="m.label" class="clinic-marker-label">{{ m.label }}</p>
+      <span class="clinic-marker-revision">{{ m.historical ? LABELS.historical : LABELS.current }}</span>
+      <div v-if="!m.historical" class="actions" role="group" :aria-label="m.typeLabel + ' · ' + m.timeLabel">
         <button type="button" :style="focusStyle" @click="goTo(m.id)">{{ LABELS.goTo }}</button>
         <button type="button" :style="focusStyle" :disabled="busy || !writable" @click="nudge(m, -STEP_MS)">{{ LABELS.earlier }}</button>
         <button type="button" :style="focusStyle" :disabled="busy || !writable" @click="nudge(m, STEP_MS)">{{ LABELS.later }}</button>
         <button type="button" :style="focusStyle" :disabled="busy || !writable" @click="toPlayhead(m)">{{ LABELS.toPlayhead }}</button>
         <button type="button" :style="focusStyle" :disabled="busy || !writable" @click="remove(m.id)">{{ LABELS.remove }}</button>
-      </template>
+      </div>
     </li>
   </ul>
-  <div role="status" aria-live="polite">{{ announcement }}</div>
+  <div class="clinic-constituent-status" role="status" aria-live="polite">{{ status === 'error' ? '' : announcement }}</div>
 </section>`,
 };
 
