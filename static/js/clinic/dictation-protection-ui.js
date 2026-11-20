@@ -207,30 +207,30 @@ export function DictationProtectionComponent(Vue) {
             };
         },
         template: `
-<section class="clinic-dictation-protection" aria-labelledby="dpr-title">
+<section class="clinic-dictation-protection v8-page panel stack" aria-labelledby="dpr-title">
   <h2 id="dpr-title">{{ text.title }}</h2>
-  <p id="dpr-notice">{{ text.notice }}</p>
-  <p aria-live="polite">{{ stateText }}</p>
-  <form novalidate autocomplete="off" aria-describedby="dpr-notice"
+  <p id="dpr-notice" class="hint">{{ text.notice }}</p>
+  <p class="tag" aria-live="polite">{{ stateText }}</p>
+  <form class="stack" novalidate autocomplete="off" aria-describedby="dpr-notice"
         @submit.prevent="model.state.protected ? model.unlock() : model.enable()">
-    <label>{{ text.code }}
+    <div class="protection-code"><label>{{ text.code }}
       <input type="password" v-model="model.state.secret" autocomplete="off"
              :aria-invalid="model.state.status === 'invalid'" aria-describedby="dpr-status">
-    </label>
-    <label v-if="!model.state.protected">
+    </label></div>
+    <label v-if="!model.state.protected" class="inline-label">
       <input type="checkbox" v-model="model.state.confirmed"> {{ text.confirmEnable }}
     </label>
-    <button v-if="model.state.protected" type="submit" :disabled="model.state.status === 'busy'">{{ text.unlock }}</button>
-    <button v-else type="submit" :disabled="model.state.status === 'busy'">{{ text.enable }}</button>
+    <button class="button" v-if="model.state.protected" type="submit" :disabled="model.state.status === 'busy'">{{ text.unlock }}</button>
+    <button class="button" v-else type="submit" :disabled="model.state.status === 'busy'">{{ text.enable }}</button>
   </form>
-  <div v-if="model.state.protected">
-    <label>
+  <div v-if="model.state.protected" class="stack">
+    <label class="inline-label">
       <input type="checkbox" v-model="model.state.confirmed"> {{ text.confirmDisable }}
     </label>
-    <button type="button" :disabled="model.state.status === 'busy'" @click="model.disable()">{{ text.disable }}</button>
+    <button class="button" type="button" :disabled="model.state.status === 'busy'" @click="model.disable()">{{ text.disable }}</button>
   </div>
-  <div id="dpr-status" role="status" aria-live="polite" :style="surfaceStyle">{{ model.state.message }}</div>
-  <button v-if="model.state.status === 'retry'" type="button" @click="model.load()">{{ text.reload }}</button>
+  <div id="dpr-status" class="note" role="status" aria-live="polite" :style="surfaceStyle">{{ model.state.message }}</div>
+  <button class="button" v-if="model.state.status === 'retry'" type="button" @click="model.load()">{{ text.reload }}</button>
 </section>`,
     };
 }

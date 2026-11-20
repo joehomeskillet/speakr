@@ -35,6 +35,19 @@ export const LABELS = Object.freeze({
     parity: 'Nativer Tray-/Autostart-Betrieb: offen (WG-OPS-004). Der Browser ersetzt ihn nicht.',
 });
 
+const JOB_TYPES = Object.freeze({
+    transcribe: 'Transkription', transcription: 'Transkription',
+    summarize: 'Zusammenfassung', title: 'Titel',
+    clinic_alignment: 'Wortzuordnung', clinic_output: 'Ausgabe',
+    clinic_finalize: 'Freigabe', clinic_notify: 'Benachrichtigung',
+    asr_training: 'Sprachtraining',
+});
+
+/** Unknown job types remain visible for diagnosis. */
+export function jobTypeLabel(type) {
+    return Object.prototype.hasOwnProperty.call(JOB_TYPES, type) ? JOB_TYPES[type] : type;
+}
+
 const MAX_FAILURES = 10;
 const MAX_TEXT = 200;
 const SAFE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -213,12 +226,13 @@ export function createJobsPanel(Vue, options) {
         const label = failure.unknown ? LABELS.reconcile : LABELS.retry;
         const cells = [
             h('td', failure.id),
-            h('td', failure.jobType),
-            h('td', { style: styleOf(surface) }, surface.label + ': ' + failure.errorClass),
+            h('td', jobTypeLabel(failure.jobType)),
+            h('td', [h('span', { class: 'tag', style: styleOf(surface) }, surface.label + ': ' + failure.errorClass)]),
             h('td', failure.message),
             h('td', offer
                 ? [h('button', {
                     type: 'button',
+                    class: 'button',
                     style: 'min-height:44px;min-width:44px;',
                     disabled: busy,
                     'aria-busy': busy ? 'true' : 'false',
@@ -238,9 +252,10 @@ export function createJobsPanel(Vue, options) {
                 const s = jobs.state.value;
                 const p = s.progress;
                 const err = s.error;
-                return h('section', { 'aria-labelledby': 'clinic-jobs-title' }, [
+                return h('section', { class: 'v8-page clinic-jobs-panel panel stack', 'aria-labelledby': 'clinic-jobs-title' }, [
                     h('h2', { id: 'clinic-jobs-title' }, LABELS.title),
                     h('div', {
+                        class: 'note',
                         role: 'progressbar',
                         'aria-label': LABELS.progress,
                         'aria-valuemin': 0,
@@ -250,16 +265,20 @@ export function createJobsPanel(Vue, options) {
                     }, LABELS.progress + ': ' + p.completed + '/' + p.total),
                     h('p', LABELS.queued + ' ' + p.queued + ' · ' + LABELS.running + ' ' + p.running
                         + ' · ' + LABELS.failed + ' ' + p.failed + ' · ' + LABELS.stuck + ' ' + s.stuckIds.length),
-                    h('button', { type: 'button', disabled: s.loading, onClick: jobs.load }, LABELS.reload),
-                    h('div', { role: 'status', 'aria-live': 'polite' }, s.loading
+                    h('button', { class: 'button', type: 'button', disabled: s.loading, onClick: jobs.load }, LABELS.reload),
+                    h('div', { class: 'hint', role: 'status', 'aria-live': 'polite' }, s.loading
                         ? LABELS.loading
                         : [s.notice, err ? err.message + (err.correlationId ? ' (' + LABELS.correlation + ' ' + err.correlationId + ')' : '') : ''].filter(Boolean).join(' ')),
                     s.failures.length
-                        ? h('table', { 'aria-label': LABELS.failures }, [
-                            h('tbody', s.failures.map(renderFailure)),
+                        ? h('div', { class: 'table-wrap', tabindex: 0, role: 'region', 'aria-label': LABELS.failures }, [
+                            h('table', { 'aria-label': LABELS.failures }, [
+                                h('thead', [h('tr', ['Auftrag', 'Art', 'Zustand', 'Hinweis', 'Aktion']
+                                    .map((label) => h('th', { scope: 'col' }, label)))]),
+                                h('tbody', s.failures.map(renderFailure)),
+                            ]),
                         ])
-                        : h('p', LABELS.none),
-                    h('p', LABELS.parity),
+                        : h('p', { class: 'empty' }, LABELS.none),
+                    h('p', { class: 'hint' }, LABELS.parity),
                 ]);
             };
         },

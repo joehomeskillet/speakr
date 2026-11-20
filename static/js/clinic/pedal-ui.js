@@ -262,8 +262,8 @@ export const PedalKeyCapture = {
         return { capture, capturing: capture.capturing, message: capture.message, TEXT };
     },
     beforeUnmount() { this.capture.stop(); },
-    template: `<span>
-  <button type="button" :aria-pressed="String(capturing)" @click="capturing ? capture.stop() : capture.start()">{{ capturing ? TEXT.capturePrompt : TEXT.captureStart }}</button>
-  <span role="status" aria-live="polite">{{ message }}</span>
+    template: `<span class="v8-page clinic-pedal-capture stack">
+  <button class="button" type="button" :aria-pressed="String(capturing)" @click="capturing ? capture.stop() : capture.start()">{{ capturing ? TEXT.capturePrompt : TEXT.captureStart }}</button>
+  <span class="hint" role="status" aria-live="polite">{{ message }}</span>
 </span>`,
 };

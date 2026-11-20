@@ -220,34 +220,38 @@ export function createWorkflowActions(options) {
 
 // Vue template for the panel. Native buttons, labelled controls, live region.
 export const WORKFLOW_ACTIONS_TEMPLATE = `
-<section class="clinic-workflow-actions" aria-labelledby="wf-actions-title">
-  <h2 id="wf-actions-title" class="text-sm font-semibold">Aktionen</h2>
-  <div class="flex flex-wrap gap-2">
-    <span v-if="wf.statuses().asr" class="px-2 py-1 border rounded text-xs" :style="wf.statuses().asr.style">ASR: {{ wf.statuses().asr.label }}</span>
-    <span v-if="wf.statuses().work" class="px-2 py-1 border rounded text-xs" :style="wf.statuses().work.style">Arbeitsstand: {{ wf.statuses().work.label }}</span>
+<section class="clinic-workflow-actions v8-page panel stack" aria-labelledby="wf-actions-title">
+  <h2 id="wf-actions-title" >Aktionen</h2>
+  <div class="actions">
+    <span v-if="wf.statuses().asr" class="tag" :style="wf.statuses().asr.style">ASR: {{ wf.statuses().asr.label }}</span>
+    <span v-if="wf.statuses().work" class="tag" :style="wf.statuses().work.style">Arbeitsstand: {{ wf.statuses().work.label }}</span>
   </div>
-  <div v-for="g in wf.groups()" :key="g.id" role="group" :aria-label="g.label" class="mt-3">
-    <h3 class="text-xs" style="color: var(--text-secondary)">{{ g.label }}</h3>
-    <button v-for="a in g.actions" :key="a.id" type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem"
+  <div v-for="g in wf.groups()" :key="g.id" role="group" :aria-label="g.label" class="stack">
+    <h3 class="hint">{{ g.label }}</h3>
+    <div class="actions">
+    <button v-for="a in g.actions" :key="a.id" type="button" class="button" style="min-height: 2.75rem"
             :disabled="wf.state.busy" :aria-describedby="a.target ? 'wf-target-' + a.id : null" @click="wf.request(a.id)">
       {{ a.label }}
     </button>
+    </div>
     <template v-for="a in g.actions" :key="'t-' + a.id">
       <span v-if="a.target" :id="'wf-target-' + a.id" class="sr-only">Ziel: {{ a.target }}</span>
     </template>
   </div>
-  <form v-if="wf.state.confirming" role="alertdialog" aria-labelledby="wf-confirm-text" class="mt-3 p-3 border rounded"
+  <form v-if="wf.state.confirming" role="alertdialog" aria-labelledby="wf-confirm-text" class="note stack"
         @submit.prevent="wf.confirm()" @keydown.esc="wf.cancel()">
     <p id="wf-confirm-text">{{ wf.confirmText(wf.state.confirming) }}</p>
-    <label v-if="wf.state.confirming === 'reject' || wf.state.confirming === 'reopen'" class="block">Begründung
-      <textarea v-model="wf.state.reason" class="block w-full border rounded" maxlength="2000" required></textarea>
+    <label v-if="wf.state.confirming === 'reject' || wf.state.confirming === 'reopen'" class="field">Begründung
+      <textarea v-model="wf.state.reason" rows="3" maxlength="2000" required></textarea>
     </label>
     <template v-if="wf.state.confirming === 'release'">
-      <label class="block"><input type="checkbox" v-model="wf.state.confirmedContent"> Inhalt geprüft</label>
-      <label class="block"><input type="checkbox" v-model="wf.state.confirmedContext"> Kontext geprüft</label>
+      <label class="inline-label"><input type="checkbox" v-model="wf.state.confirmedContent"> Inhalt geprüft</label>
+      <label class="inline-label"><input type="checkbox" v-model="wf.state.confirmedContext"> Kontext geprüft</label>
     </template>
-    <button type="submit" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :disabled="wf.state.busy">Bestätigen</button>
-    <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" @click="wf.cancel()">Abbrechen</button>
+    <div class="actions">
+    <button type="submit" class="button" style="min-height: 2.75rem" :disabled="wf.state.busy">Bestätigen</button>
+    <button type="button" class="button" style="min-height: 2.75rem" @click="wf.cancel()">Abbrechen</button>
+    </div>
   </form>
-  <p role="status" aria-live="polite" class="mt-2 text-sm" style="color: var(--text-danger-strong)">{{ wf.state.error }}<span v-if="wf.state.stale"> Bitte neu laden.</span></p>
+  <p role="status" aria-live="polite" class="hint" style="color: var(--text-danger-strong)">{{ wf.state.error }}<span v-if="wf.state.stale"> Bitte neu laden.</span></p>
 </section>`;
