@@ -1,5 +1,11 @@
 # Speakr V8: geprüfte Änderungen im Klinik-Webclient
 
+## KI-Zusammenfassung im Diktat
+
+Auf Staging `f6b7b0a2` fehlte der Zugang zur gespeicherten Zusammenfassung sowohl im Schreibplatz als auch in den Diktatdetails. Ein regulär angemeldetes QA-Konto bestätigte das für ein synthetisches Diktat bei 390 und 1440 Pixeln. Der ursprüngliche Summary-Worker konnte in einer getrennten Testdatenbank über das lokale Modell eine Zusammenfassung erzeugen, speichern und erneut lesen. Beide vorgegebenen Fakten und der unveränderte Ausgangstext wurden geprüft.
+
+Ein synthetischer Autor meldete sich im Browser an und forderte eine Zusammenfassung über den neuen Klinik-Endpunkt an. Der reguläre Worker verarbeitete den korrigierten Text mit dem lokalen Modell. Das Ergebnis enthielt Luzern und Freitag aus der Korrektur und keine der überholten Angaben Basel und Montag. Es war nach dem Neuladen wieder abrufbar. Beide Textrevisionen und die Aufnahme blieben unverändert. Der Test verwendete eine von der vorherigen Version übernommene PostgreSQL-16.4-Datenbank.
+
 ## Öffnen, Anhören und Wiedererkennen auf Staging 0dc67654
 
 Nach einem einzigen normalen Neuladen im bereits geöffneten, angemeldeten Handy-Browsertab lieferte die Verwaltung die neue CSS-Kennung. Der eingeklappte Rollenfilter war tatsächlich unsichtbar. Die Aufnahmenansicht zeigt beim Einstieg Suche, Status, Zeitraum, Pool und Autor. Bei 390 Pixeln lag die erste vollständige Karte zwischen y=687 und y=829. Per Touch öffnet der Titel das Diktat. Die Arbeitsliste behält einen separaten Bereich zum Auswählen. Bei 1440 Pixeln begann die erste Aufnahme bei y=433.
