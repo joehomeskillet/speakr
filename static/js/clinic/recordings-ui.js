@@ -388,6 +388,8 @@ export function createRecordingsController(options) {
     const visibleRows = () => (String(state.query || '').trim() ? state.rows.filter((r) => matchesQuery(r, state.query)) : state.rows);
     let scrollTop = 0;
     let sequence = 0;
+    let loadedRevision = client.dictationChanges;
+    let loadedPages = 0;
     let disposed = false;
 
     const hasFilters = () => FILTER_KEYS.some((k) => String(state.filters[k] || '').trim() !== '');
@@ -398,7 +400,7 @@ export function createRecordingsController(options) {
 
     function persist() {
         memory.snapshot = {
-            rows: state.rows.slice(), nextCursor: state.nextCursor,
+            rows: state.rows.slice(), nextCursor: state.nextCursor, loadedRevision, loadedPages,
             filters: { ...state.filters }, draft: { ...state.draft }, query: state.query, scrollTop,
             options: { authors: [...registry.authors], pools: [...registry.pools] },
         };
@@ -423,6 +425,7 @@ export function createRecordingsController(options) {
     /** Loads the first page for the applied filters; replaces rows and cursor. */
     async function load() {
         Object.assign(state, { loading: true, error: null, denied: false });
+        const revision = client.dictationChanges;
         const res = await fetchPage(null);
         if (!res) return null;
         state.loading = false;
@@ -432,6 +435,8 @@ export function createRecordingsController(options) {
             const data = res.data || {};
             collectOptions(registry, data.items);
             refreshOptions();
+            loadedRevision = revision;
+            loadedPages = 1;
             state.rows = mergePage([], Array.isArray(data.items) ? data.items : []);
             state.nextCursor = data.next_cursor || null;
             state.stale = false;
@@ -453,6 +458,7 @@ export function createRecordingsController(options) {
             const data = res.data || {};
             collectOptions(registry, data.items);
             refreshOptions();
+            loadedPages += 1;
             state.rows = mergePage(state.rows, Array.isArray(data.items) ? data.items : []);
             state.nextCursor = data.next_cursor || null;
         } else fail(res);
@@ -475,6 +481,40 @@ export function createRecordingsController(options) {
         return applyFilters();
     }
 
+    async function refreshIfChanged() {
+        const revision = client.dictationChanges;
+        if (!state.loaded || state.loading || disposed || loadedRevision === revision) return null;
+        // Rebuild the visible window with fresh cursors. Keep the old rows/scroll until all needed pages arrive.
+        state.loading = true;
+        state.loadingMore = false;
+        let rows = [];
+        let cursor = null;
+        let response;
+        let pages = 0;
+        do {
+            response = await fetchPage(cursor);
+            if (!response) return null;
+            if (response.outcome !== 'ok') {
+                state.loading = false;
+                fail(response);
+                persist();
+                return response;
+            }
+            const data = response.data || {};
+            const items = Array.isArray(data.items) ? data.items : [];
+            collectOptions(registry, items);
+            rows = mergePage(rows, items);
+            cursor = data.next_cursor || null;
+            pages += 1;
+        } while (cursor && pages < loadedPages);
+        refreshOptions();
+        Object.assign(state, { rows, nextCursor: cursor, loading: false, denied: false, stale: false, error: null });
+        loadedRevision = revision;
+        loadedPages = pages;
+        persist();
+        return response;
+    }
+
     /** Restores a remembered state after a re-mount; otherwise loads the first page. */
     async function start() {
         if (disposed) return null;
@@ -491,7 +531,9 @@ export function createRecordingsController(options) {
             }
             refreshOptions();
             refreshPickers();
-            return null;
+            loadedRevision = snap.loadedRevision;
+            loadedPages = snap.loadedPages || 1;
+            return refreshIfChanged();
         }
         return load();
     }
@@ -519,7 +561,7 @@ export function createRecordingsController(options) {
     }
 
     return {
-        state, start, load, loadMore, applyFilters, resetFilters, setScroll, open, dispose, options: optionState, picker, pick, setPeriod, visibleRows,
+        state, start, refreshIfChanged, load, loadMore, applyFilters, resetFilters, setScroll, open, dispose, options: optionState, picker, pick, setPeriod, visibleRows,
         hasDraftChanges, canReset,
         activeFilterCount: () => FILTER_KEYS.filter((k) => String(state.filters[k] || '').trim() !== '').length,
         countLabel: () => {
