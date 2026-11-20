@@ -166,7 +166,7 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
 
     ``require_if_match`` is the V8 autosave contract: a save without ``If-Match`` answers 428
     PRECONDITION_REQUIRED. The default (False) keeps the pre-V8 behaviour (header optional); the app mount
-    in CLINIC_MODE passes ``require_if_match=True``. A header that is sent is always enforced: a stale revision or lease generation answers 409.
+    must still pass ``require_if_match=True`` (handover: src/app.py registers it without the flag; the app-mount owner also updates tests/clinic/test_wp_routes_audio.py to send If-Match). A header that is sent is always enforced: a stale revision or lease generation answers 409.
 
     ``run_once`` is the parity dispatcher transaction/receipt protocol keyed by
     (actor, operation, dictation, Idempotency-Key); it commits on success and
