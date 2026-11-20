@@ -9,7 +9,7 @@ def test_registry_covers_p01_to_p21_once():
 
 def test_mounted_entries_name_view_and_roles():
     mounted = [p for p in support.PAGES if p.mounted]
-    assert {p.view.split("/")[0] for p in mounted} == {"worklist", "resources", "admin", "correction"}
+    assert {p.view.split("/")[0] for p in mounted} == {"recordings", "worklist", "resources", "admin", "correction"}
     for page in mounted:
         assert page.view and page.roles and set(page.roles) <= set(support.ROLES), page.page_id
 

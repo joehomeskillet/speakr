@@ -152,9 +152,19 @@ def _wait_loading_overlay_gone(page) -> None:
     page.locator(".app-loading-overlay").first.wait_for(state="detached", timeout=SHOW_TIMEOUT_MS)
 
 
-def _show_worklist(page, base: str) -> None:
-    page.goto(base + "/")
+def _open_shell_view(page, base: str, fragment: str) -> None:
+    """Open a view of the clinic shell through its URL hash (the landing view is Aufnahmen)."""
+    page.goto(base + "/" + fragment)
     _wait_loading_overlay_gone(page)
+
+
+def _show_recordings(page, base: str) -> None:
+    _open_shell_view(page, base, "#/aufnahmen")
+    page.locator("[data-testid=clinic-recordings-view]").wait_for(state="visible", timeout=SHOW_TIMEOUT_MS)
+
+
+def _show_worklist(page, base: str) -> None:
+    _open_shell_view(page, base, "#/arbeitsliste")
     page.locator("[data-testid=clinic-worklist-view]").wait_for(state="visible", timeout=SHOW_TIMEOUT_MS)
 
 
@@ -179,11 +189,14 @@ def _show_correction(page, base: str) -> None:
 
 
 def _show_resources(page, base: str) -> None:
-    page.goto(base + "/")
-    _wait_loading_overlay_gone(page)
-    nav = page.locator("[data-testid=nav-clinic-resources]")
-    nav.wait_for(state="visible", timeout=SHOW_TIMEOUT_MS)
-    _click_noting(page, nav, "nav entry Ressourcen")
+    _open_shell_view(page, base, "#/aufnahmen")
+    # Ressourcen is an entry of the header user menu: open the menu, then click the entry.
+    menu = page.locator("[data-testid=nav-clinic-resources]")
+    if not menu.is_visible():
+        toggle = page.locator("[data-user-menu-toggle]").first
+        _click_noting(page, toggle, "header menu")
+    menu.wait_for(state="visible", timeout=SHOW_TIMEOUT_MS)
+    _click_noting(page, menu, "menu entry Ressourcen")
     page.locator(".clinic-resources-view").wait_for(state="visible", timeout=SHOW_TIMEOUT_MS)
 
 
@@ -224,7 +237,7 @@ class PageEntry:
 # For the mounted entries "view" names the clinic view that carries the page's function at
 # clinic/main. That is a statement about the mount, not about conformity to the V8 page spec.
 PAGES: tuple[PageEntry, ...] = (
-    PageEntry("P01", "Aufnahmen"),
+    PageEntry("P01", "Aufnahmen", "recordings", ("author", "typist", "lead", "admin"), _show_recordings),
     PageEntry("P02", "Arbeitsliste", "worklist", ("author", "typist", "lead", "admin"), _show_worklist),
     PageEntry("P03", "Diktatdetails"),
     PageEntry("P04", "Neue Aufnahme"),

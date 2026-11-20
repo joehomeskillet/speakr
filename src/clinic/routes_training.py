@@ -111,6 +111,13 @@ def _intent_row(job) -> dict:
     }
 
 
+def _training_jobs():
+    """Queued optimisation intents only (job type asr_training); no recording rows are read."""
+    from src.models import ProcessingJob
+
+    return ProcessingJob.query.filter_by(job_type=JOB_TYPE).order_by(ProcessingJob.id).all()
+
+
 def _training_job(job_id):
     from src.models import ProcessingJob
 
@@ -138,10 +145,7 @@ def manifest():
 @blueprint.route(PREFIX + "/schedule", methods=["GET"])
 def schedule():
     """Every queued optimisation intent with its job state."""
-    from src.models import ProcessingJob
-
-    jobs = ProcessingJob.query.filter_by(job_type=JOB_TYPE).order_by(ProcessingJob.id).all()
-    return _reply({"runs": [_intent_row(job) for job in jobs]})
+    return _reply({"runs": [_intent_row(job) for job in _training_jobs()]})
 
 
 @blueprint.route(PREFIX + "/runs", methods=["POST"])

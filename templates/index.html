@@ -173,7 +173,7 @@
                             class="mb-3 px-3 py-2 rounded border border-[var(--border-primary)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
                             style="min-height: 2.75rem"
                             @click="requestClinicCorrectionClose()"
-                            v-text="clinicOrigin === 'clinic-recordings' ? 'Zurück zu Aufnahmen' : 'Zurück zur Arbeitsliste'">Zurück zur Arbeitsliste</button>
+                            v-text="clinicOrigin === 'clinic-recordings' ? 'Zurück zu Aufnahmen' : 'Zurück zur Arbeitsliste'"></button>
                     <clinic-correction-view :client="clinicClient" :dictation-id="clinicCorrectionId" :current-user="clinicUser"
                                             :create-audio-context="clinicAudioContextFactory"
                                             @close="closeClinicCorrection"></clinic-correction-view>
