@@ -373,6 +373,8 @@ def link_asr_segments(
     in the revision body, left to right. A segment that is not found or has
     no times gets no link. A second call returns the stored AUTO links.
     """
+    from src.clinic.revisions import normalise_text
+
     _check_dictation(dictation)
     _check_revision(dictation, revision)
     stored = _links(dictation.id, revision.id, ORIGIN_AUTO)
@@ -384,6 +386,7 @@ def link_asr_segments(
         if parsed is None:
             continue
         text, start, end = parsed
+        text = normalise_text(text)
         at = revision.body.find(text, cursor)
         if at < 0:
             continue

@@ -91,6 +91,17 @@ def test_asr_head_with_other_text_is_left_alone(ctx):
     assert [row.body for row in revisions.history(dictation)] == ["Erster Entwurf"]
 
 
+def test_nfd_segment_text_still_links(ctx):
+    import unicodedata
+
+    _rec, dictation, _original = _dictation(ctx)
+    nfd = unicodedata.normalize("NFD", "Gelenkschmerzen über Nacht.")
+    stored = _stored((nfd, 0.0, 2.0))
+    links = ingest_asr_result(dictation, _plain(stored), stored, MODEL)
+    head = revisions.current_revision(dictation)
+    assert len(links) == 1 and head.body[links[0].text_start:links[0].text_end] == head.body
+
+
 def test_processing_hook_links_the_first_asr_revision(ctx):
     rec, dictation, original = _dictation(ctx)
     connector = _connector(text="Erster Satz. Zweiter Satz.")
