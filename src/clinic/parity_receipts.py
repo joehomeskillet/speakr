@@ -39,6 +39,18 @@ class ClinicParityReceipt(db.Model):
     )
 
 
+class ClinicNoticeDispatch(db.Model):
+    """Delivery marker only. The command result and notification intent stay immutable."""
+
+    __tablename__ = "clinic_notice_dispatch"
+    scope_key = db.Column(db.String(64), db.ForeignKey("clinic_parity_receipt.scope_key"), primary_key=True)
+    handed_off = db.Column(db.Boolean, nullable=False, default=False)
+    __table_args__ = (db.Index(
+        "ix_clinic_notice_unqueued", scope_key,
+        sqlite_where=handed_off.is_(False), postgresql_where=handed_off.is_(False),
+    ),)
+
+
 def _reject_receipt_write(_mapper, _connection, _target):
     raise RuntimeError("parity receipts are append-only")
 
@@ -71,6 +83,9 @@ def _commit_once(scope, digest, operation):
     try:
         result = operation()
         db.session.add(ClinicParityReceipt(scope_key=key, digest=digest, result=result))
+        if "_workflow_notice" in result:
+            db.session.flush()
+            db.session.add(ClinicNoticeDispatch(scope_key=key))
         db.session.commit()
     except IntegrityError:
         db.session.rollback()

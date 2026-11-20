@@ -76,6 +76,7 @@ def recover_stale_jobs(queue, now: datetime | None = None,
         return 0
 
     from sqlalchemy import or_
+    from src.clinic.notify_enqueue import recover_pending_notices
     from src.database import db
     from src.models import ProcessingJob as PJ
 
@@ -100,6 +101,7 @@ def recover_stale_jobs(queue, now: datetime | None = None,
                 logger.info(f'Recovered orphaned {queue_name} job {job_id} for recording {recording_id}')
         if recovered:
             logger.info(f'Recovered {recovered} orphaned jobs')
+    recover_pending_notices(queue)
     return recovered
 
 

@@ -1079,6 +1079,10 @@ def _run_migrations(app, engine):
                 # previous best-effort behaviour.
                 app.logger.warning(f"Could not create active processing job unique index: {e}")
 
+    with _migration_section(app, failures, "clinic notification handoff markers"):
+        from src.clinic.notify_enqueue import backfill_notice_markers
+        run_once(engine, "v8_146_notice_handoff", backfill_notice_markers, logger=app.logger)
+
     with _migration_section(app, failures, "default system settings"):
         # Initialize default system settings
         if not SystemSetting.query.filter_by(key='transcript_length_limit').first():
