@@ -21,6 +21,7 @@ from src.clinic import workflow
 from src.clinic.revisions import add_human_revision, current_revision
 from src.services.audit import record_in_tx
 from src.clinic.lease import LeaseConflict, assert_current
+from src.clinic.notify_enqueue import record_notice
 
 
 def save_correction_transaction(
@@ -81,7 +82,7 @@ def save_correction_transaction(
         head_before = current_revision(dictation)
         revision = add_human_revision(dictation, parent_revision, text, user_id)
         if head_before is None or revision.id != head_before.id:
-            _resubmit_accepted(dictation, user_id)
+            _resubmit_accepted(dictation, user_id, revision.id)
 
         # Save the correction state pointing at the new revision
         state = save_state(
@@ -104,7 +105,7 @@ def save_correction_transaction(
         _db.session.rollback()
         raise
 
-def _resubmit_accepted(dictation: ClinicDictation, user_id: int) -> None:
+def _resubmit_accepted(dictation: ClinicDictation, user_id: int, revision_id: str) -> None:
     """Wiedervorlage (v8-74): a text head that moves after acceptance needs a new acceptance.
 
     Runs inside the save transaction, so the status change and its audit row commit or roll
@@ -119,3 +120,4 @@ def _resubmit_accepted(dictation: ClinicDictation, user_id: int) -> None:
         details={"fields": ["workflow_status", "workflow_acceptance_resubmitted"]},
     ) is None:
         raise workflow.WorkflowError("audit_unavailable")
+    record_notice("acceptance_requested", dictation, user_id, dictation.version_counter, revision_id)
