@@ -79,7 +79,7 @@ export default {
                 <div v-for="row in section.rows" :key="row.id" class="model-setting">
                     <div class="model-input">
                         <label :for="'model-' + row.id" v-text="row.label"></label>
-                        <select v-if="row.id === 'asr_gpu' && config.models[row.id].choices.length"
+                        <select v-if="config.models[row.id].choices_strict && config.models[row.id].choices.length"
                             :id="'model-' + row.id" v-model="draft[row.id]" :disabled="busy"
                             :aria-describedby="'effective-' + row.id" @change="saved = false">
                             <option value="">Vorgabe übernehmen</option>
