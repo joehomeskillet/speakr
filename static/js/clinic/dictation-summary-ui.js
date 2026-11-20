@@ -1,10 +1,42 @@
-export const DictationSummary = {
-    name: 'ClinicDictationSummary',
-    props: {
-        client: { type: Object, required: true },
-        dictationId: { type: String, required: true },
-        expanded: { type: Boolean, default: false },
+// Marked is already shipped with Speakr. Render its tokens as fixed Vue elements;
+// model-provided strings only become text nodes, including raw HTML and link labels.
+const SummaryText = {
+    props: { text: { type: String, required: true } },
+    render() {
+        const h = globalThis.Vue.h;
+        const lexer = globalThis.marked?.lexer;
+        const blocks = lexer ? lexer(this.text) : [];
+        const headingBase = blocks.reduce((level, t) => t.type === 'heading' ? Math.min(level, t.depth) : level, 6);
+        function renderToken(t) {
+            const children = () => t.tokens ? t.tokens.map(renderToken) : t.text;
+            switch (t.type) {
+            case 'heading': return h('h' + Math.min(6, 3 + t.depth - headingBase), children());
+            case 'list': return h(t.ordered ? 'ol' : 'ul', t.items.map(i => h('li', i.tokens.map(renderToken))));
+            case 'paragraph': return h('p', children());
+            case 'strong': return h('strong', children());
+            case 'em': return h('em', children());
+            case 'br': return h('br');
+            case 'text':
+            case 'link': return children();
+            case 'image':
+            case 'codespan': return t.text;
+            case 'space': return '\n';
+            default: return t.raw || '';
+            }
+        }
+        return h('div', { class: 'clinic-summary-text' }, blocks.length ? blocks.map(renderToken) : this.text);
     },
+};
+
+const PROPS = {
+    client: { type: Object, required: true },
+    dictationId: { type: String, required: true },
+    expanded: { type: Boolean, default: false },
+};
+
+const SummaryBody = {
+    components: { SummaryText },
+    props: PROPS,
     setup(props) {
         const { ref, onBeforeUnmount } = globalThis.Vue;
         const data = ref(null);
@@ -20,7 +52,7 @@ export const DictationSummary = {
             queued: 'Die KI-Zusammenfassung wartet auf die Verarbeitung.',
             processing: 'Die KI-Zusammenfassung wird erstellt …',
             failed: 'Die Erstellung ist fehlgeschlagen.',
-            stale: 'Die Zusammenfassung bezieht sich auf einen früheren Textstand.',
+            stale: 'Der Bezug zur aktuellen Textfassung ist nicht bestätigt.',
             ready: '',
         };
 
@@ -73,7 +105,7 @@ export const DictationSummary = {
   <div class="clinic-summary-body">
     <p v-if="error" role="alert">{{ error }}</p>
     <p role="status" class="hint">{{ submitting ? 'Erstellung wird angefordert …' : (data ? messages[data.status] : (busy ? 'Stand wird geladen …' : '')) }}</p>
-    <p v-if="data?.text" class="clinic-summary-text">{{ data.text }}</p>
+    <SummaryText v-if="data?.text" :text="data.text" />
     <button v-if="error" type="button" class="button" :disabled="busy" @click="refresh()">Stand erneut laden</button>
     <button v-else-if="data?.may_generate && !['queued', 'processing'].includes(data.status)"
             type="button" class="button" :disabled="busy" @click="refresh(true)">
@@ -81,4 +113,13 @@ export const DictationSummary = {
     </button>
   </div>
 </details>`,
+};
+
+
+// Replacing the inner instance cancels its poll and discards pending responses for the old dictation.
+export const DictationSummary = {
+    name: 'ClinicDictationSummary',
+    props: PROPS,
+    components: { SummaryBody },
+    template: `<SummaryBody :key="dictationId" :dictation-id="dictationId" :client="client" :expanded="expanded" />`,
 };

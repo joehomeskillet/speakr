@@ -89,12 +89,60 @@ def test_summary_error_reconciles_without_reposting(live_server):
             page.get_by_test_id("clinic-recordings-view").locator(f'[data-row][data-id="{did}"]').click()
             page.get_by_test_id("clinic-dictation-link-detail").click()
             summary = page.get_by_test_id("clinic-detail-view").locator(".clinic-dictation-summary")
-            expect(summary.get_by_role("status")).to_have_text("Die Zusammenfassung bezieht sich auf einen früheren Textstand.")
+            expect(summary.get_by_role("status")).to_have_text("Der Bezug zur aktuellen Textfassung ist nicht bestätigt.")
             summary.get_by_role("button", name="Zusammenfassung neu erstellen").click()
             expect(summary.get_by_role("alert")).to_have_text("Der lokale KI-Dienst ist derzeit nicht verfügbar.")
             expect(summary.locator(".clinic-summary-text")).to_have_text("Ältere Übersicht")
             summary.get_by_role("button", name="Stand erneut laden").click()
             expect(summary.locator(".clinic-summary-text")).to_have_text("Ältere Übersicht")
             assert calls == ["GET", "POST", "GET"]
+        finally:
+            browser.close()
+
+
+def test_direct_switch_discards_pending_summary_and_renders_safe_markdown(live_server):
+    base, _ = live_server
+    with sync_playwright() as playwright:
+        browser = mount._launch(playwright)
+        try:
+            page = _login(browser, base)
+            external = []
+            page.route("https://summary-test.invalid/**", lambda route: (external.append(True), route.abort()))
+            # Exercise a direct prop change while the old read is still pending.
+            # Use the actual shipped Vue, Marked and summary component.
+            page.evaluate("""async () => {
+                const { DictationSummary } = await import('/static/js/clinic/dictation-summary-ui.js');
+                const { createApp, defineComponent, ref } = window.Vue;
+                const ids = ref('first');
+                const traces = [];
+                let resolveOld;
+                const snapshot = (text) => ({outcome:'ok', data:{text, status:'ready', may_generate:false}});
+                const client = {request: async path => {
+                    traces.push(path);
+                    if (path.endsWith('/first/summary')) {
+                        return new Promise(done => { resolveOld = () => done(snapshot('Erstes Diktat')); });
+                    }
+                    return snapshot('### Anlass\\n\\n- **Probe** und [Dokument](https://summary-test.invalid/a)\\n- ![Bild](https://summary-test.invalid/b)\\n\\n<em>Nur Text</em>');
+                }};
+                const host = document.createElement('main');
+                host.id = 'summary-switch-test'; document.body.append(host);
+                createApp(defineComponent({components:{DictationSummary},setup:()=>({ids, client}),
+                    template:'<DictationSummary :dictation-id="ids" :client="client" expanded />'})).mount(host);
+                window.summaryFixture = { selectNext:()=>{ids.value='second'},finishOld:()=>resolveOld(),traces };
+            }""")
+            page.wait_for_function("window.summaryFixture.traces.length === 1")
+            page.evaluate("window.summaryFixture.selectNext()")
+            host = page.locator("#summary-switch-test")
+            expect(host.get_by_role("heading", name="Anlass", level=3)).to_be_visible()
+            expect(host.get_by_role("listitem")).to_have_count(2)
+            expect(host.locator("strong")).to_have_text("Probe")
+            expect(host.get_by_text("<em>Nur Text</em>", exact=True)).to_be_visible()
+            expect(host.locator("a, img, em")).to_have_count(0)
+            page.evaluate("window.summaryFixture.finishOld()")
+            expect(host.get_by_role("heading", name="Anlass")).to_be_visible()
+            expect(host).not_to_contain_text("Erstes Diktat")
+            assert page.evaluate("window.summaryFixture.traces") == [
+                "/dictations/first/summary", "/dictations/second/summary"]
+            assert not external
         finally:
             browser.close()
