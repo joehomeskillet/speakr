@@ -3,8 +3,9 @@
  * Handles file uploads, queue processing, and progress tracking
  */
 
-import * as FailedUploads from '../db/failed-uploads.js';
-import * as RecordingDB from '../db/recording-persistence.js';
+import * as RawFailedUploads from '../db/failed-uploads.js';
+import * as RawRecordingDB from '../db/recording-persistence.js';
+import { gateFailedUploads, gateRecordingDB, failedRecordingHandling, NOT_STORED_MESSAGE } from '../../clinic/persistence-gate.js';
 import { getUploadCsrfToken, isCsrfRejection } from '../csrf.js';
 import { shouldSliceUpload, uploadFileInSlices } from '../db/sliced-file-upload.js';
 import { computeUploadTimeout } from '../utils/upload-timeout.js';
@@ -16,6 +17,10 @@ import {
     newJoinGroupId, MAX_JOIN_FILES,
 } from '../utils/upload-join.js';
 import { UPLOAD_ACCEPT, isAcceptedUploadFile, isVideoFileName } from '../utils/upload-file-type.js';
+
+// CLINIC_MODE: no IndexedDB audio copy unless the server device policy allows it.
+const FailedUploads = gateFailedUploads(RawFailedUploads);
+const RecordingDB = gateRecordingDB(RawRecordingDB);
 
 export function useUpload(state, utils) {
     const {
@@ -982,6 +987,10 @@ export function useUpload(state, utils) {
                 if (newRetryCount >= MAX_AUTO_RETRIES) {
                     await handOffExhaustedUpload(fileItem._failedUploadId, fileItem.file);
                 }
+            } else if (fileItem.fromInProgressRecording && failedRecordingHandling() === 'notice') {
+                // CLINIC_MODE without a device-policy grant: the audio stays in
+                // memory only. No IndexedDB copy and no download; say so plainly.
+                showToast?.(NOT_STORED_MESSAGE, 'fa-triangle-exclamation');
             } else if (fileItem.fromInProgressRecording) {
                 // Defense-in-depth recovery (issue #297, #287, #313) for in-app
                 // recordings, whose ONLY copy lives in browser memory:
