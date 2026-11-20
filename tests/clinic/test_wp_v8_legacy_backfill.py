@@ -79,6 +79,7 @@ def scene(tmp_path):
         failed = make(owner, 'failed.ds2', AUDIO + b'2', status='FAILED')
         nopool = make(bare, 'nopool.ds2', AUDIO + b'3', transcription=TEXT)
         missing = make(owner, 'missing.ds2', None)
+        busy = make(owner, 'busy.ds2', AUDIO + b'5', status='SUMMARIZING', transcription=TEXT)
         # already linked through the web-ingest receipt of an earlier upload
         linked = make(owner, 'linked.ds2', AUDIO + b'4')
         db.session.commit()
@@ -92,20 +93,20 @@ def scene(tmp_path):
                 author_user_id=owner.id, idempotency_key=f'web:{owner.id}:x', now=CREATED.replace(
                     tzinfo=__import__('datetime').timezone.utc))
         ids = SimpleNamespace(owner=owner.id, bare=bare.id, pool=pool.id, done=done.id, failed=failed.id,
-                              nopool=nopool.id, missing=missing.id, linked=linked.id)
+                              nopool=nopool.id, missing=missing.id, linked=linked.id, busy=busy.id)
         yield ids
         db.session.rollback()
 
 
 def _mine(rows, ids):
-    mine = {ids.done, ids.failed, ids.nopool, ids.missing, ids.linked}
+    mine = {ids.done, ids.failed, ids.nopool, ids.missing, ids.linked, ids.busy}
     return {row.recording_id: row for row in rows if row.recording_id in mine}
 
 
 def _bytes_and_columns(ids):
     with app.app_context():
         out = {}
-        for rid in (ids.done, ids.failed, ids.nopool, ids.missing, ids.linked):
+        for rid in (ids.done, ids.failed, ids.nopool, ids.missing, ids.linked, ids.busy):
             recording = db.session.get(Recording, rid)
             path = Path(recording.audio_path)
             out[rid] = (_snapshot(recording), path.read_bytes() if path.exists() else None)
@@ -124,6 +125,7 @@ def test_dry_run_lists_every_candidate_and_changes_nothing(scene):
         scene.nopool: ('skip', 'no_author_pool'),
         scene.missing: ('skip', 'no_audio_file'),
         scene.linked: ('skip', 'already_linked'),
+        scene.busy: ('skip', 'not_finished'),
     }
     assert rows[scene.done].owner_id == scene.owner and rows[scene.done].pool_id == scene.pool
     assert _bytes_and_columns(scene) == before
@@ -134,7 +136,7 @@ def test_apply_creates_dictations_with_author_pool_time_and_text_then_nothing(sc
     with app.app_context():
         created = {r.recording_id: r for r in legacy_backfill.apply() if r.dictation_id}
         assert set(created) >= {scene.done, scene.failed}
-        assert {scene.nopool, scene.missing, scene.linked}.isdisjoint(created)
+        assert {scene.nopool, scene.missing, scene.linked, scene.busy}.isdisjoint(created)
 
         done = db.session.get(ClinicDictation, created[scene.done].dictation_id)
         assert done.author_user_id == scene.owner and done.pool_id == scene.pool
@@ -168,6 +170,25 @@ def test_apply_creates_dictations_with_author_pool_time_and_text_then_nothing(sc
         anchors = {db.session.get(ClinicDictation, i).recording_id for i in (done_id, failed_id)}
         assert anchors <= {e.recording_id for e in events}
     assert _bytes_and_columns(scene) == before  # source rows and files are untouched
+
+
+def test_asr_failure_rolls_back_the_dictation_and_a_rerun_retries(scene, monkeypatch):
+    from src.clinic import correction
+    real = correction.ingest_asr_result
+
+    def boom(*args, **kwargs):
+        raise RuntimeError('synthetic')
+
+    monkeypatch.setattr(correction, 'ingest_asr_result', boom)
+    with app.app_context():
+        rows = _mine(legacy_backfill.apply(), scene)
+        assert (rows[scene.done].action, rows[scene.done].reason) == ('skip', 'asr_failed')
+        assert rows[scene.done].dictation_id is None
+        assert ClinicOriginal.query.filter(ClinicOriginal.origin_ref.like(f'legacy:recording:{scene.done}:%')).count() == 0
+        monkeypatch.setattr(correction, 'ingest_asr_result', real)
+        again = _mine(legacy_backfill.apply(), scene)
+        dictation = db.session.get(ClinicDictation, again[scene.done].dictation_id)
+        assert current_revision(dictation).body == TEXT
 
 
 def test_created_dictation_is_listed_and_in_the_worklist_for_the_author(scene):

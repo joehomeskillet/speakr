@@ -15,7 +15,10 @@ one dictation per recording through the same store as a web upload
   reads the anchor row). Its ``audio_path`` stays empty, as for every dictation.
 * A completed transcription becomes the first ASR revision through
   ``correction.ingest_asr_result`` (the function the transcription-complete hook calls).
-  A failure of that step keeps the dictation and is reported as ``asr_failed``.
+  A failure of that step rolls the whole dictation back (skip ``asr_failed``), so a rerun
+  retries both steps.
+* Only final recordings (COMPLETED, FAILED) are taken over; others are skipped as
+  ``not_finished`` so a later run picks them up once they are final.
 * The source recording and its file are only read. Logs and output carry ids, counts and
   reasons, never text.
 
@@ -45,6 +48,8 @@ ORIGIN = 'legacy-backfill'
 ORIGIN_REF_PREFIXES = ('upload:recording:', 'legacy:recording:')
 MODEL_REF = 'legacy-backfill'
 
+FINAL_STATUSES = ('COMPLETED', 'FAILED')
+
 CREATE = 'create'
 SKIP = 'skip'
 
@@ -59,6 +64,10 @@ class Row:
     reason: str
     pool_id: str | None = None
     dictation_id: str | None = None
+
+
+class _AsrFailed(Exception):
+    """The ASR text step failed; the caller rolls the dictation back."""
 
 
 def key_for(recording_id: int) -> str:
@@ -100,6 +109,9 @@ def plan(storage=None) -> list[Row]:
         rows.append(row)
         if recording.id in linked or _key_taken(recording.id):
             row.reason = 'already_linked'
+            continue
+        if recording.status not in FINAL_STATUSES:
+            row.reason = 'not_finished'
             continue
         try:
             present = storage.exists(recording.audio_path)
@@ -159,13 +171,12 @@ def _create(row: Row, recording: Recording, storage) -> str:
     if _has_transcript(recording):
         from src.clinic.correction import ingest_asr_result
         try:
-            with db.session.begin_nested():
-                ingest_asr_result(dictation, _asr_text(recording), recording.transcription, MODEL_REF)
-            outcome = 'text'
+            ingest_asr_result(dictation, _asr_text(recording), recording.transcription, MODEL_REF)
         except Exception as error:
             logger.warning('legacy backfill: ASR text of recording %s not stored (%s)',
                            recording.id, type(error).__name__)
-            outcome = 'asr_failed'
+            raise _AsrFailed() from error
+        outcome = 'text'
     return outcome
 
 
@@ -180,8 +191,12 @@ def apply(storage=None) -> list[Row]:
             continue
         recording = db.session.get(Recording, row.recording_id)
         try:
-            outcome = _create(row, recording, storage)
+            _create(row, recording, storage)
             db.session.commit()
+        except _AsrFailed:
+            db.session.rollback()
+            row.action, row.reason, row.dictation_id = SKIP, 'asr_failed', None
+            continue
         except IngestError as error:
             db.session.rollback()
             row.action, row.reason, row.dictation_id = SKIP, f'ingest_{error.code}', None
@@ -192,8 +207,6 @@ def apply(storage=None) -> list[Row]:
             row.action, row.reason, row.dictation_id = SKIP, 'ingest_failed', None
             logger.error('legacy backfill: recording %s failed (%s)', row.recording_id, type(error).__name__)
             continue
-        if outcome == 'asr_failed':
-            row.reason = 'created_asr_failed'
         audit.record('recording.edited', recording_id=db.session.get(ClinicDictation, row.dictation_id).recording_id,
                      recording_owner_id=row.owner_id, actor_kind='system',
                      details={'fields': ['clinic_backfill']})
