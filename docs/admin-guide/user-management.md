@@ -1,122 +1,22 @@
-# User Management
+# User management
 
-The User Management tab is command central for controlling who has access to your Speakr instance and what they can do with it. Every user account flows through here, from initial creation to eventual removal, with all the monitoring and adjustments needed along the way. For system-wide usage patterns, check [system statistics](statistics.md).
+[Deutsch](../de/admin-guide/user-management.md)
 
-![User Management](../assets/images/screenshots/admin-user-management.png)
+Open **Benutzer und Rollen → Konten** in administration. Search the account list or filter by status and login policy. “Keine Anmelderichtlinie” means an existing account has no clinic login policy. It does not identify that person's directory provider. The supported new-account policy here is **Nur lokal**. Check **Poolbezüge** for membership and **Fachrechte** for scoped clinical permissions.
 
-## Understanding the User Table
+## Create or recover a local account
 
-When you open User Management, you're greeted with a comprehensive table showing every user in your system. Each row tells a story - the email address identifies the user, the admin badge shows their privilege level, the recording count reveals their activity level, and the storage measurement demonstrates their resource consumption.
+1. Sign in as an active site administrator with identity-administration rights. Sensitive account writes require a fresh login within five minutes. Create the account with its unique username, email and display name. It starts pending activation.
+2. Select **Einmalcode ausstellen**. The code is shown once, expires after 30 minutes, and is for one use. Deliver it to the account holder using the approved confidential channel. Never retain it in a ticket or screenshot.
+3. The clinic login endpoint supports signed-out, CSRF-protected activation or password recovery. The stock sign-in page currently lacks a code-redemption form. Use the site's approved activation process. The holder sets and confirms their own password and then signs in normally.
+4. Reopen the account to verify active status. A login lock can be lifted with the account's unlock action after identity verification. Disable an account to withdraw access. The final active local identity administrator is protected.
 
-The search bar at the top responds instantly as you type, filtering the table to help you find specific users quickly. This becomes invaluable as your user base grows beyond what fits on a single screen. The table updates in real-time when you make changes, so you always see the current state of your system.
+For a pre-clinic local account, a freshly authenticated identity administrator can submit `PUT /admin/users/<id>` with CSRF and exactly `{"adopt_existing_local":true,"expected_version":0}`. This API-only adoption preserves its internal ID, password and ownership. Inspect existing administrative flags before adoption because activating an existing site administrator enables audited cross-dictation reads. On a version conflict reload and review the new state before saving again.
 
-Each column header except **Actions** is a button. The list is sorted by a column with a click on its header, and the order is reversed with a second click. The sorted column and its direction are marked with an arrow. The list is sorted on the server before it is divided into pages, so the order is that of all users, with or without a search, and a change of the sort returns the list to the first page. Text columns are sorted in ascending order first, without regard to case. Counts, permissions and **Last active** are sorted first with the largest, the enabled or the most recent value at the top. Without a sort the list is in ascending order of ID, and users with equal values are always listed in ascending order of ID. **Recordings** is sorted by the number of recordings and **Storage used** by the bytes in use, the size shown before the quota. The selected sort is remembered in the browser. On a narrow screen, where the table is scrolled sideways, the same choice is offered in a **Sort by** list above the table.
+## Limits, membership and permissions
 
-## Adding New Users
+Set storage in MB, monthly tokens and monthly transcription **in seconds** on the account. Zero clears that individual limit. Review actual consumption in [System statistics](statistics.md). Pool membership and leadership establish routing and assignment. Use the separate clinical grant with the narrowest author or pool scope for additional actions. A denial takes precedence. Confirm both the authorized action and the excluded scope with synthetic material.
 
-Creating a user account starts with clicking the Add User button in the top right corner. The modal that appears asks for the essentials - username, email address, and password. You'll also decide immediately whether this person needs admin privileges, though you can always change this later.
+An author can usually open, play and edit their own dictations. Document export, final release, archive and original-audio download are separate actions. Even the author needs `audio_export` to download the unchanged original. Technical administration permits audited reads in its defined scope and confers no general right to edit or release other users' dictations.
 
-The username becomes their identity within Speakr, appearing in the interface and organizing their recordings. It is 2 to 20 characters long. The email address serves dual purposes - it's their login credential and their contact point for any system communications. The password you set is temporary; users should change it immediately after their first login through their [account settings](../user-guide/settings.md). Configure initial [language preferences](../user-guide/settings.md#language-preferences) and [custom prompts](../user-guide/settings.md#custom-prompts-tab).
-
-Admin privileges are powerful and should be granted sparingly. Admin users can see and modify all [system settings](system-settings.md), manage other users including other admins, configure [default prompts](prompts.md), and monitor the [vector store](vector-store.md). Most users will never need these capabilities.
-
-### User Permissions
-
-Beyond the admin role, Speakr offers granular per-user permissions that control specific capabilities:
-
-Use this permission to control external information sharing on a per-user basis. You might grant public sharing to executives, sales groups, or marketing staff who regularly communicate with external stakeholders, while restricting it for users handling sensitive internal data.
-
-**Group Creation Permission**: The **Can create groups** checkbox in the user edit dialog allows the user to create groups. It takes effect only while the **permission_create_groups** system setting is `selected`. The checkbox is hidden for site admins, who can always create groups. See [Who Can Create Groups](group-management.md#who-can-create-groups).
-
-### Token Budget Management
-
-Control LLM costs by setting monthly token budgets for individual users. When creating or editing a user, you can specify a monthly token limit that restricts their AI usage.
-
-![User Token Budget](../assets/images/screenshots/admin-token-budgets.png)
-
-**How Token Budgets Work**:
-
-- **Warning at 80%**: Users see a yellow warning indicator when they reach 80% of their monthly budget
-- **Blocked at 100%**: Once the budget is exhausted, AI operations (chat, summarization, etc.) are blocked until the next month
-- **Budget Reset**: Token counts reset automatically at the start of each calendar month
-- **No Limit**: Leave the budget field empty for unlimited usage
-
-Token budgets are set in increments of 10,000 tokens with a minimum of 100,000. The budget covers all AI operations including summarization, chat and title generation. View detailed token usage statistics in the [System Statistics](statistics.md#users) users table.
-
-### Transcription Budget Management
-
-Control transcription costs by setting monthly transcription budgets for individual users. When creating or editing a user, you can specify a monthly limit (in minutes) that restricts their speech-to-text usage.
-
-**How Transcription Budgets Work**:
-
-- **Warning at 80%**: Users see a yellow warning indicator when they reach 80% of their monthly transcription budget
-- **Blocked at 100%**: Once the budget is exhausted, new transcriptions are blocked until the next month. A blocked recording is marked failed with the budget message, and the `recording.transcription.failed` webhook and, for users who turned on processing emails, the failure email are sent once
-- **Budget Reset**: Transcription minutes reset automatically at the start of each calendar month
-- **No Limit**: Leave the budget field empty for unlimited transcription usage
-
-Transcription budgets are set in minutes with a minimum of 10 minutes. The budget covers all transcription operations regardless of which connector is used (OpenAI Whisper, OpenAI Transcribe, or self-hosted ASR). View detailed transcription usage statistics in the [System Statistics](statistics.md#users) users table.
-
-**Cost Tracking**: The system tracks estimated costs based on the transcription connector used:
-
-- **OpenAI Whisper**: $0.006 per minute
-- **OpenAI Transcribe**: $0.003-$0.006 per minute depending on model
-- **Self-hosted ASR**: $0 (no external API costs)
-
-### Storage Quotas
-
-Limit how much audio and video each user keeps on the server. Set **Storage quota (MB)** when creating or editing a user; leave it empty for no limit. The Edit User dialog and the users table show the storage in use against the quota, and so does the users table in [System Statistics](statistics.md#users).
-
-**What counts**: the size of the user's own recordings whose audio is kept, including archived recordings and recordings protected from auto-deletion. Recordings with their audio removed do not count, and a recording shared with someone counts for its owner only.
-
-**When the quota is reached**:
-
-- **Uploads** from the browser, the API, the share target, the ASR Voice Recorder app and sliced uploads are refused when the file would exceed the quota. The user sees how much is used and how large the file is. The API response is `507` with the code `storage_quota_exceeded`.
-- **Recordings made in the app** cannot be started once the quota is reached. A recording already in progress is always kept, even if the quota is exceeded.
-- **The watch folder**: a file that does not fit is left in place, and the user is told once, in their notifications. The file is added on a later scan once there is room.
-- **Merging**: to keep the originals with their audio, there must be room for the merged copy. A merge in which the originals are deleted, or kept without their audio, is always allowed.
-
-Users see their storage, and the quota when there is one, under **Account → Usage and Limits** and in the header. They free space by deleting recordings or by removing their audio.
-
-**Default for new accounts**: with the System Setting `default_storage_quota_mb`, every account created afterwards is given a quota (0 means no limit). This default is used for accounts created by an administrator, by registration and by SSO; the quota of an existing account does not change.
-
-**Theme for new accounts**: every new account starts with the interface theme and color scheme from the System Settings `default_ui_theme` and `default_color_scheme`, by default Cards with Forest Emerald. See [Default look for new accounts](system-settings.md#default-look-for-new-accounts). Existing accounts keep their look.
-
-**Audio player for new accounts**: every new account starts with the audio player position from the System Setting `default_audio_player_position`, by default at the top of a recording's page. See [Audio player position for new accounts](system-settings.md#audio-player-position-for-new-accounts). Existing accounts keep their position.
-
-## Managing Existing Users
-
-Each user row includes action buttons that give you complete control over that account. The edit button opens a modal where you can update their username or email address. This is useful when people change names, switch email providers, or when you need to correct initial entry mistakes.
-
-The admin toggle is perhaps the most powerful single click in the interface. Promoting a user to admin grants them access to everything you can see and do. Demoting an admin back to regular user immediately revokes all their administrative capabilities. The system prevents you from removing admin rights from your own account, ensuring you can't accidentally lock yourself out.
-
-The delete button requires careful consideration. Removing a user is permanent and cannot be undone through the interface. All their recordings, notes, and settings will be deleted along with their account. The system asks for confirmation, but once confirmed, the removal is immediate and complete.
-
-On instances that ran an earlier release, the recordings of a deleted user could remain in the database without an owner. These recordings are removed by a daily cleanup; see [Recordings Without an Owner](retention.md#recordings-without-an-owner).
-
-## Monitoring Usage Patterns
-
-The recording count and storage columns reveal how users interact with your Speakr instance. High recording counts might indicate power users who rely heavily on the system, while low counts could suggest users who need training or might not need accounts at all.
-
-In the **Last active** column, the time since the last use of each account is shown, for example "3 hours ago". The full date and time are shown on hover. **Never** is shown for an account that has not been used since the column was introduced. The list can be sorted by this column with a click on the column header. With the first click, the most recently used accounts are listed first. In ascending order, the accounts that were never used are listed first, followed by the accounts with the oldest use, so accounts unused for months are found at the top.
-
-A request from a signed-in browser session or with an API token is counted as use. Requests that are sent on a timer from an open tab are not counted: the notification count, the status of the job queue and of recordings in processing, the renewal of the CSRF token, and the files of the interface. An account with a tab left open is therefore not shown as active. Only the time of the last request is stored, updated at most once every five minutes per account, so the time shown can be up to five minutes behind. No history of requests is kept. The column is visible to site administrators only.
-
-The **View activity** button in the actions of a row opens the [Audit log](audit-log.md) tab with the events of that account: its sign-ins, the recordings it opened, changed, shared or deleted, and the administrative actions that concern it.
-
-Storage consumption tells another important story. Users with disproportionately high storage might be uploading very long recordings, keeping everything indefinitely, or possibly misusing the system. You can adjust [file size limits](system-settings.md#maximum-file-size) and review [chunking settings](../troubleshooting.md#files-over-25mb-fail-with-openai) if needed. This information helps you have informed conversations about resource usage and establish appropriate policies.
-
-Patterns often emerge when you regularly review this data. You might notice seasonal variations in academic settings, project-based spikes in corporate environments, or gradual growth that signals the need for infrastructure expansion.
-
-## Security Implications
-
-Every user account is a potential security vector. Strong passwords are your first defense, but they're not enough alone. Encourage users to use unique passwords, change them regularly, and never share them with others.
-
-Admin accounts require extra vigilance. Each admin can do everything you can do, including creating more admins or deleting all users. Limit admin access to the absolute minimum needed for operations. When someone no longer needs admin privileges, revoke them immediately.
-
-After repeated wrong passwords from one address, password sign-in for that account from that address is refused for a set number of minutes; see [Login Lock](system-settings.md#login-lock). A locked account is shown with a lock icon beside its username, and the lock is ended with **Unlock login** in the Edit User dialog.
-
-Inactive accounts pose particular risks. They might have weak or compromised passwords that no one is monitoring. Regular audits help you identify and remove these vulnerabilities before they become problems.
-
----
-
-Next: [System Statistics](statistics.md) →
+[Original Speakr guide](https://github.com/murtaza-nasir/speakr/blob/039a19b1f1c7f0ddaeac0a49b806845626f48a6c/docs/admin-guide/user-management.md).
