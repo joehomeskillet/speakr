@@ -7,10 +7,8 @@
  * dictation: lease, workflow actions, protection, acceptance policy and
  * history. Nothing from those modules is re-implemented here.
  *
- * Owner decision W16: patients are referenced by Fall-ID only. The contract has
- * no Fall-ID field on Dictation yet, so this view shows no Fall-ID column or
- * filter and renders no patient name, title, notes or recipient. The
- * dictation-properties-ui panel is not mounted: it is a validate-only form with
+ * The primary label uses the current authorized case reference when available (W16).
+ * The dictation-properties-ui panel is not mounted: it is a validate-only form with
  * title and recipient inputs and is not bound to the selected dictation.
  * Role separation (V8 P02): "Diktiert von", "Schreibkräfte-Pool" and "Übernommen
  * von" are three separate columns fed by the additive row fields dictated_by,
@@ -122,7 +120,7 @@ export const TEXT = Object.freeze({
 });
 
 // Columns the layout may order, sort and group. Title, notes and recipient are
-// left out on purpose (W16); no Fall-ID column until the contract provides one.
+// left out on purpose (W16). The case reference belongs to the row heading.
 // The order is the default column order of the V8 worklist (Status, Priorität, Pool, Diktiert von, Quelle, Dauer, ...).
 export const LIST_COLUMNS = Object.freeze([
     { key: 'status', label: 'Status' },
@@ -277,6 +275,7 @@ export function formatDateTime(value) {
 }
 
 export function dictationLabel(row) {
+    if (row?.case_display) return 'Fall-ID ' + row.case_display;
     return row?.created_at ? 'Diktat vom ' + formatDateTime(row.created_at) : 'Diktat';
 }
 

@@ -11,6 +11,12 @@ const item = {
 };
 
 describe('safe primary list headings', () => {
+    it('uses the bound case for a worklist heading and retains the date without one', () => {
+        const datedRow = { ...item, created_at: item.sort_time };
+        expect(dictationLabel({ ...datedRow, case_display: 'SYN-0002' })).toBe('Fall-ID SYN-0002');
+        expect(dictationLabel({ ...datedRow, case_display: null })).toBe('Diktat vom 20.11.2026, 09:30');
+    });
+
     it('prefers the approved case display, including long identifiers, without reading free text', () => {
         const case_display = 'SYNTHETIC-' + 'LONG-CASE-'.repeat(12);
         const row = toViewRow({ ...item, case_display });

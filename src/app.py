@@ -1262,7 +1262,8 @@ def register_clinic_worklist(flask_app):
 
     routes_workflow.register_commands(dispatch, workflow_authorize, acceptance_policy, ledger)
     routes_worklist.register_save_filter(dispatch, filters.create)
-    flask_app.register_blueprint(routes_worklist.create_blueprint(load_entries, filters, layouts))
+    flask_app.register_blueprint(routes_worklist.create_blueprint(
+        load_entries, filters, layouts, load_case_displays=worklist_entries.case_displays))
     flask_app.register_blueprint(routes_columns.create_columns_blueprint(
         layouts, lambda _actor: (routes_worklist._DEFAULT_LAYOUT, routes_worklist.COLUMNS), run_once))
     flask_app.register_blueprint(routes_workflow.create_blueprint(
