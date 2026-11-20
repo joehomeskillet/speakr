@@ -32,8 +32,12 @@ from flask_wtf.csrf import CSRFError, validate_csrf
 from werkzeug.exceptions import HTTPException
 from wtforms.validators import ValidationError
 
+from src.clinic import alignment_tokens as at
 from src.clinic import correction as corr
 from src.clinic import lease, live_session, revisions
+from src.clinic.alignment import ClinicAlignmentRevision
+from src.clinic.audio_invalidation import get_compatible_links
+from src.clinic.audio_revisions import current_audio_revision
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.correction_transaction import save_correction_transaction
 from src.clinic.models import ClinicDictation, ClinicTranscriptRevision
@@ -142,7 +146,8 @@ def derive_links(dictation: ClinicDictation, old: ClinicTranscriptRevision | Non
 
 
 def _link_json(row: corr.ClinicTextAudioLink, body: str) -> JSON:
-    return dict(id=row.id, origin=row.origin, audio_start_ms=row.audio_start_ms,
+    # Every stored link is a segment range (W10-derived or manual), never a word timing.
+    return dict(id=row.id, origin=row.origin, granularity='segment', audio_start_ms=row.audio_start_ms,
                 audio_end_ms=row.audio_end_ms,
                 text_start=to_utf16_offset(body, row.text_start), text_end=to_utf16_offset(body, row.text_end))
 
@@ -252,10 +257,13 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
         body = head.body if head else ''
         held = lease.current(dictation.id)
         etag = etag_for(head, held.generation if held else None)
+        audio = current_audio_revision(dictation)
+        links = get_compatible_links(dictation, head, audio) if head else []
         out: JSON = dict(
             dictation_id=dictation.id, text_revision_id=head.id if head else None, text=body, etag=etag,
             state=None if state is None else dict(version=state.version, audio_position_ms=state.audio_position_ms),
-            links=[_link_json(row, body) for row in corr.effective_links(dictation, head)] if head else [],
+            audio_revision_id=audio.id if audio else None,
+            links=[_link_json(row, body) for row in links],
             markers=[_marker_json(m) for m in corr.list_markers(dictation)])
         if 'offset' in request.args:
             try:
@@ -263,6 +271,8 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
             except (ValueError, OffsetError):
                 abort(400)
             link = corr.link_at_text(dictation, head, cp) if head else None
+            if link is not None and link.id not in {row.id for row in links}:
+                link = None
             out['selection'] = (dict(aligned=False) if link is None
                                 else dict(aligned=True, **_link_json(link, body)))
         response = jsonify(out)
@@ -314,6 +324,9 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
                     lease_generation=generation, expected_state_version=expected_state,
                     expected_text_revision_id=expected_rev)
                 linked = derive_links(dictation, head, revision)
+                at.tokens_for(dictation, revision)
+                has_alignment = db.session.query(ClinicAlignmentRevision.id).filter_by(
+                    dictation_id=dictation.id).first() is not None
             except lease.LeaseConflict:
                 raise
             except corr.CorrectionError:
@@ -322,7 +335,7 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
                 raise CommandProblem('DEPENDENCY_UNAVAILABLE') from error
             return dict(text_revision_id=revision.id, etag=etag_for(revision, held.generation),
                         state_version=state.version, audio_position_ms=state.audio_position_ms,
-                        derived_links=linked)
+                        derived_links=linked, alignment_state='stale' if has_alignment else 'unaligned')
 
         return write(dictation_id, 'save', 'text', data, apply)
 

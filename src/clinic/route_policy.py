@@ -219,6 +219,8 @@ _CLINIC_AUDIO = _split("""
     clinic_live.resume clinic_live.switch_draft
     clinic_correction.get_correction clinic_correction.save clinic_correction.add_marker
     clinic_correction.change_marker
+    clinic_alignment.get_document clinic_alignment.get_alignment clinic_alignment.post_alignment
+    clinic_alignment.get_operation
     clinic_tts.capability clinic_tts.speak
     clinic_clipboard.prepare clinic_clipboard.outcome
     clinic_output.targets clinic_output.request_export clinic_output.export_status
