@@ -483,7 +483,8 @@ def _remember_original(delivery, ingest_service, fields):
 def _author_injecting(ingest_service, author_user_id, delivery):
     def store(stream, **kwargs):
         try:
-            return ingest_service.store_original(stream, **{**kwargs, "author_user_id": author_user_id})
+            return ingest_service.store_original(stream, **{**kwargs, "author_user_id": author_user_id},
+                                                 language_id=delivery.language_id)
         except IngestError as exc:
             if exc.code == "author_required":
                 _remember_original(delivery, ingest_service, kwargs)
@@ -531,6 +532,7 @@ def _heal_original(original, intent):
             stream, idempotency_key=original.idempotency_key, declared_sha256=original.content_hash,
             declared_size=original.size_bytes, origin=original.origin, origin_ref=original.origin_ref,
             author_user_id=intent.target_author_user_id, now=aware(original.created_at), commit=False,
+            language_id=intent.language_id,
         )
     if intent.target_pool_id:
         db.session.get(ClinicDictation, receipt.dictation_id).pool_id = intent.target_pool_id
