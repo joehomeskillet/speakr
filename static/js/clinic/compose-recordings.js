@@ -180,7 +180,7 @@ export const RecordingsView = {
         </div>
         <div class="record-group-list" data-testid="cards">
           <button v-for="r in g.rows" :key="r.key" type="button" class="recording-row" data-row data-card :data-id="r.dictationId" data-testid="open-link"
-             :aria-label="r.ariaLabel" @click="c.open(r)">
+             :aria-label="r.ariaLabel" @click.prevent="c.open(r)">
             <time class="record-time" :datetime="r.datetime || null">{{ r.time }}</time>
             <span class="record-icon" aria-hidden="true">
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h10l4 4v14H5zM15 3v6h5M9 12h6M9 16h6"/></svg>
