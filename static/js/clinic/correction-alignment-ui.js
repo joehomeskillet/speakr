@@ -19,13 +19,24 @@
  *                 error, selection { start, end }, currentWord, segments,
  *                 announcement
  *     methods     refresh(), setSelection(start, end), seekToSelection(),
- *                 seekToSegment(segment), highlightAt(timeSeconds), dispose()
+ *                 seekToSegment(segment), highlightAt(timeSeconds), cueAt(ms),
+ *                 granularityOf(id), indexBuilds(), dispose()
+ *     The cue index (sorted by audio start, prefix maximum of the ends) is built
+ *     once per binding (links, text, text revision, audio revision); highlightAt
+ *     and cueAt are a binary search on it. A stale or foreign binding has no cues.
  *     `currentWord` is { id, start, end } in editor-text offsets, or null.
  *     seekToSelection / seekToSegment return { ok, code?, message, seconds? };
  *     codes: stale, unaligned, noSeek, plus refresh codes denied, notFound, failed.
  *   CorrectionAlignment: Vue options object, props editor, client, dictationId,
  *     seek, audioElement, vue.
  *   registerCorrectionAlignment(app): app.component('clinic-correction-alignment', ...).
+ *   createPlaybackHighlighter({ alignment, audio, root?, scroller?, requestFrame?, cancelFrame?, onChange? })
+ *     Drives the highlight from the real media position (V8 UI8-006): a single
+ *     requestAnimationFrame loop while playing, immediate updates on pause,
+ *     seeking, seeked, ratechange, ended and source changes. Per change only the
+ *     previous and the new element are touched (data-active). It never moves
+ *     focus, selection or caret and never writes editor state. Follow-scroll
+ *     stops after a manual scroll and while an editable element has focus.
  *
  * Keyboard: aligned words are focusable (Tab) and seek with Enter or Space;
  * unaligned and unavailable text is plain text. Refresh and retry are buttons.
@@ -51,6 +62,8 @@ export const LABELS = Object.freeze({
     noSeek: 'Kein Audio-Player verbunden.',
     seeked: 'Audio an der gewählten Stelle.',
     wordAria: 'Wort abspielen',
+    notAligned: 'nicht ausgerichtet',
+    segmentHighlight: 'Segment-Markierung (grob, keine Wortzeit)',
 });
 
 const ZWJ = '‍';
@@ -190,12 +203,65 @@ export function useCorrectionAlignment(options) {
         return out;
     });
 
+    // Cue index, rebuilt only when the binding changes (links, text, text revision, audio revision).
+    let memo = null;
+    let builds = 0;
+    function index() {
+        const ready = status.value === 'ready';
+        const key = ready
+            ? [raw.value, editor.text.value, editor.textRevisionId.value, editor.audio.value.revisionId]
+            : null;
+        if (memo && memo.ready === ready && (!ready || memo.key.every((part, i) => part === key[i]))) return memo;
+        builds += 1;
+        const cues = ready ? links.value.slice() : [];
+        cues.sort((a, b) => (a.audioStartMs - b.audioStartMs)
+            || ((b.audioEndMs - b.audioStartMs) - (a.audioEndMs - a.audioStartMs)));
+        const maxEnd = new Array(cues.length);
+        const byId = new Map();
+        let top = -Infinity;
+        for (let i = 0; i < cues.length; i += 1) {
+            top = Math.max(top, cues[i].audioEndMs);
+            maxEnd[i] = top;
+            byId.set(cues[i].id, cues[i]);
+        }
+        memo = { ready, key, cues, maxEnd, byId };
+        return memo;
+    }
+
+    /** Cue playing at `ms`: latest start wins, then the shortest span; silence gives null. O(log n). */
+    function cueAt(ms) {
+        const idx = index();
+        const { cues, maxEnd } = idx;
+        if (typeof ms !== 'number' || !Number.isFinite(ms) || cues.length === 0) return null;
+        let lo = 0;
+        let hi = cues.length - 1;
+        let at = -1;
+        while (lo <= hi) {
+            const mid = (lo + hi) >> 1;
+            if (cues[mid].audioStartMs <= ms) { at = mid; lo = mid + 1; } else { hi = mid - 1; }
+        }
+        for (let i = at; i >= 0 && maxEnd[i] >= ms; i -= 1) {
+            const cue = cues[i];
+            if (ms < cue.audioEndMs || (cue.audioStartMs === cue.audioEndMs && ms === cue.audioEndMs)) return cue;
+        }
+        return null;
+    }
+
     const currentWord = refs.computed(() => {
         const hit = current.value;
         if (!hit || status.value !== 'ready') return null;
-        const link = links.value.find((l) => l.id === hit);
+        const link = index().byId.get(hit);
         return link ? { id: link.id, start: link.start, end: link.end } : null;
     });
+
+    /** 'segment' when the link spans more than one word: its highlight is coarse and named so. */
+    function granularityOf(id) {
+        const link = index().byId.get(id);
+        if (!link) return null;
+        const source = raw.value.links.find((l) => l.id === id);
+        if (source && (source.granularity === 'segment' || source.granularity === 'word')) return source.granularity;
+        return /\s/u.test(editor.text.value.slice(link.start, link.end).trim()) ? 'segment' : 'word';
+    }
 
     /** Load links of the current text revision and the matching audio revision. */
     async function refresh() {
@@ -283,20 +349,12 @@ export function useCorrectionAlignment(options) {
     /** Word being played at `timeSeconds`; the latest start wins, then the shortest span. */
     function highlightAt(timeSeconds) {
         if (status.value !== 'ready' || typeof timeSeconds !== 'number' || !Number.isFinite(timeSeconds)) {
-            current.value = null;
+            if (current.value !== null) current.value = null;
             return null;
         }
-        const ms = Math.round(timeSeconds * 1000);
-        let best = null;
-        for (const link of links.value) {
-            const inside = ms >= link.audioStartMs && (ms < link.audioEndMs || (link.audioStartMs === link.audioEndMs && ms === link.audioEndMs));
-            if (!inside) continue;
-            if (!best || link.audioStartMs > best.audioStartMs
-                || (link.audioStartMs === best.audioStartMs && link.audioEndMs - link.audioStartMs < best.audioEndMs - best.audioStartMs)) {
-                best = link;
-            }
-        }
-        current.value = best ? best.id : null;
+        const best = cueAt(Math.round(timeSeconds * 1000));
+        const id = best ? best.id : null;
+        if (current.value !== id) current.value = id;
         return currentWord.value;
     }
 
@@ -310,7 +368,148 @@ export function useCorrectionAlignment(options) {
 
     return {
         links, status, error, selection, currentWord, segments, announcement,
-        refresh, setSelection, seekToSelection, seekToSegment, highlightAt, dispose,
+        refresh, setSelection, seekToSelection, seekToSegment, highlightAt, cueAt, granularityOf,
+        indexBuilds: () => builds, dispose,
+    };
+}
+
+const EDITABLE = /^(INPUT|TEXTAREA|SELECT)$/;
+
+/** Playback-driven highlight; see the module header. `audio` is the real media element. */
+export function createPlaybackHighlighter(options) {
+    const o = options || {};
+    const alignment = o.alignment;
+    const audio = o.audio;
+    const raf = o.requestFrame || (typeof globalThis.requestAnimationFrame === 'function'
+        ? globalThis.requestAnimationFrame.bind(globalThis) : (fn) => setTimeout(fn, 16));
+    const caf = o.cancelFrame || (typeof globalThis.cancelAnimationFrame === 'function'
+        ? globalThis.cancelAnimationFrame.bind(globalThis) : clearTimeout);
+    let root = o.root || null;
+    let active = null;
+    let frame = null;
+    let touches = 0;
+    let manualScroll = false;
+    let disposed = false;
+    const elements = new Map();
+    const guards = [];
+
+    const playing = () => Boolean(audio) && audio.paused === false && audio.ended !== true;
+
+    function elementFor(id) {
+        if (!root || typeof root.querySelector !== 'function') return null;
+        let el = elements.get(id);
+        if (!el || el.isConnected === false) {
+            el = root.querySelector('[data-link="' + String(id).replace(/["\\]/g, '\\$&') + '"]');
+            if (el) elements.set(id, el); else elements.delete(id);
+        }
+        return el;
+    }
+
+    function mark(id, on) {
+        if (id === null) return null;
+        const el = elementFor(id);
+        if (!el) return null;
+        if (on) el.setAttribute('data-active', 'true'); else el.removeAttribute('data-active');
+        touches += 1;
+        return el;
+    }
+
+    function editing() {
+        const doc = (root && root.ownerDocument) || globalThis.document;
+        const ae = doc && doc.activeElement;
+        return Boolean(ae) && (ae.isContentEditable === true || EDITABLE.test(ae.tagName || ''));
+    }
+
+    function follow(el) {
+        if (!el || manualScroll || o.follow === false || editing() || typeof el.scrollIntoView !== 'function') return;
+        el.scrollIntoView({ block: 'nearest' });
+    }
+
+    function apply(id) {
+        if (id === active) return false;
+        const prev = active;
+        active = id;
+        mark(prev, false);
+        follow(mark(id, true));
+        if (typeof o.onChange === 'function') o.onChange(prev, id);
+        return true;
+    }
+
+    /** Read the media position now. `clear` forces "no active cue" (end, source change). */
+    function update(clear) {
+        if (disposed || !audio) return null;
+        const word = clear === true ? alignment.highlightAt(null) : alignment.highlightAt(audio.currentTime);
+        apply(word ? word.id : null);
+        return word;
+    }
+
+    function tick() {
+        frame = null;
+        update();
+        if (playing()) frame = raf(tick);
+    }
+    function start() { if (!disposed && frame === null && playing()) frame = raf(tick); }
+    function stop() { if (frame !== null) { caf(frame); frame = null; } }
+
+    function listen(target, name, fn) {
+        if (!target || typeof target.addEventListener !== 'function') return;
+        target.addEventListener(name, fn);
+        guards.push([target, name, fn]);
+    }
+    const sync = () => { update(); start(); };
+    listen(audio, 'play', () => { manualScroll = false; sync(); });
+    listen(audio, 'playing', sync);
+    listen(audio, 'pause', () => { stop(); update(); });
+    listen(audio, 'seeking', sync);
+    listen(audio, 'seeked', sync);
+    listen(audio, 'ratechange', sync);
+    listen(audio, 'timeupdate', () => update());
+    listen(audio, 'ended', () => { stop(); update(true); });
+    for (const name of ['emptied', 'loadstart', 'abort', 'error']) listen(audio, name, () => { stop(); update(true); });
+
+    function watchScroll(node) {
+        const target = o.scroller || node;
+        for (const name of ['wheel', 'touchmove']) listen(target, name, () => { manualScroll = true; });
+    }
+    if (root) watchScroll(root);
+    start();
+
+    return {
+        /** Bind the element that holds the words ([data-link] children). */
+        setRoot(node) {
+            elements.clear();
+            root = node || null;
+            if (root && !o.scroller) watchScroll(root);
+            if (active !== null) { const id = active; active = null; apply(id); }
+        },
+        /** Re-evaluate after a text or binding change without a media event. */
+        refresh: () => update(),
+        resumeFollow() { manualScroll = false; },
+        activeId: () => active,
+        touches: () => touches,
+        /** 'idle', 'active' or 'unaligned' (stale, foreign or failed binding). */
+        state() {
+            const status = alignment.status.value;
+            if (status === 'stale' || status === 'error') return 'unaligned';
+            return active === null ? 'idle' : 'active';
+        },
+        notice() {
+            const status = alignment.status.value;
+            if (status === 'stale' || status === 'error') return LABELS.notAligned;
+            if (active !== null && alignment.granularityOf(active) === 'segment') return LABELS.segmentHighlight;
+            return '';
+        },
+        dispose() {
+            if (disposed) return;
+            stop();
+            for (const [target, name, fn] of guards.splice(0)) {
+                if (typeof target.removeEventListener === 'function') target.removeEventListener(name, fn);
+            }
+            if (active !== null) mark(active, false);
+            active = null;
+            elements.clear();
+            disposed = true;
+        },
     };
 }
 

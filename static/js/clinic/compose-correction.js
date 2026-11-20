@@ -32,7 +32,7 @@
 import { createClinicApiClient } from './api-client.js';
 import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
 import { useCorrectionEditor } from './correction-editor-ui.js';
-import { useCorrectionAlignment } from './correction-alignment-ui.js';
+import { LABELS as ALIGN_LABELS, createPlaybackHighlighter, useCorrectionAlignment } from './correction-alignment-ui.js';
 import { CorrectionWaveform } from './correction-waveform-ui.js';
 import { PlaybackTempo } from './playback-tempo-ui.js';
 import { MODES, useCorrectionModes } from './correction-modes-ui.js';
@@ -202,6 +202,8 @@ export function createCorrectionViewController(options) {
     const closeMessage = ref('');
     let gain = null;
     let gainContext = null;
+    let highlighter = null;
+    let alignmentRoot = null;
     let knownRevision;
     let disposed = false;
     const stops = [];
@@ -256,6 +258,7 @@ export function createCorrectionViewController(options) {
         for (const [node, name, fn] of audioListeners.splice(0)) {
             if (typeof node.removeEventListener === 'function') node.removeEventListener(name, fn);
         }
+        if (highlighter) { highlighter.dispose(); highlighter = null; }
         if (gain) { gain.dispose(); gain = null; }
         if (gainContext && typeof gainContext.close === 'function') Promise.resolve(gainContext.close()).catch(() => {});
         gainContext = null;
@@ -288,8 +291,21 @@ export function createCorrectionViewController(options) {
         });
         listen('pause', () => { if (gain) gain.stop(); });
         listen('ended', () => { if (gain) gain.stop(); });
-        listen('timeupdate', () => { alignment.highlightAt(position()); });
+        // Highlight follows the real media position (rAF while playing, events otherwise); it never touches focus or editor state.
+        highlighter = createPlaybackHighlighter({ alignment, audio: el, root: alignmentRoot });
     }
+
+    /** Element holding the aligned words; the highlighter marks [data-link] children and follows them. */
+    function bindAlignmentRoot(node) {
+        alignmentRoot = isNode(node) ? node : null;
+        if (highlighter) highlighter.setRoot(alignmentRoot);
+    }
+
+    /** Honest notice for the current binding: "nicht ausgerichtet" or the coarse segment highlight. */
+    const alignmentNotice = api.computed(() => {
+        alignment.status.value; alignment.currentWord.value; // dependencies
+        return highlighter ? highlighter.notice() : (alignment.status.value === 'stale' || alignment.status.value === 'error' ? ALIGN_LABELS.notAligned : '');
+    });
 
     /** Tempo sync (seek, rate change): the current word follows the player. */
     function onSync(event) {
@@ -452,7 +468,7 @@ export function createCorrectionViewController(options) {
         stepSeconds: v8 ? STEP_SECONDS_V8 : STEP_SECONDS,
         leaseRun, leaseButtons,
         start, load, save, setText, reloadLatest, keepMine, takeServer, compare: () => saver.compare(), close, dispose, syncRevision,
-        client: scoped, bindAudio, onSync, onShortcut, onKeydown, onInput, onSelect, onTemplate, seekToResume, getPositionMs, seek,
+        client: scoped, bindAudio, bindAlignmentRoot, alignmentNotice, onSync, onShortcut, onKeydown, onInput, onSelect, onTemplate, seekToResume, getPositionMs, seek,
         text: TEXT,
     };
 }
@@ -577,9 +593,10 @@ export const CorrectionBody = {
             {{ alignStatus === 'error' && alignError ? alignError.message : 'Die Audio-Zuordnung ist veraltet.' }}
             <button type="button" class="px-3 py-2 border rounded" style="min-height: 2.75rem" :style="FOCUS" @click="c.alignment.refresh()">{{ TEXT.retry }}</button>
           </div>
-          <p role="group" :aria-label="TEXT.alignmentText">
+          <p v-if="alignmentNotice" role="note" data-testid="alignment-notice">{{ alignmentNotice }}</p>
+          <p role="group" :aria-label="TEXT.alignmentText" :ref="c.bindAlignmentRoot">
             <template v-for="seg in segments" :key="seg.start">
-              <span v-if="seg.aligned" role="button" tabindex="0" :data-start="seg.start"
+              <span v-if="seg.aligned" role="button" tabindex="0" :data-start="seg.start" :data-link="seg.linkId"
                     :aria-label="TEXT.wordAria + ': ' + seg.text" :aria-current="currentWord && currentWord.id === seg.linkId ? 'true' : null"
                     :style="{ ...FOCUS, ...styleFor(seg) }"
                     @click="c.alignment.seekToSegment(seg)" @keydown.enter.prevent="c.alignment.seekToSegment(seg)"
