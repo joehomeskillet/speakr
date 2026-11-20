@@ -143,15 +143,15 @@ export const POOLS_PANEL_TEMPLATE = `
   <p v-if="state.status === 'error' || state.status === 'denied'" role="alert" :style="errorStyle" class="rounded-lg border p-3 text-sm">{{ state.message }}
     <button type="button" class="btn btn--sm btn--ghost ml-2" @click="store.reload()">{{ labels.retry }}</button></p>
   <template v-if="userId && state.status === 'ready'">
-    <div class="grid gap-3 md:grid-cols-2">
-      <section v-for="g in groups" :key="g.type" :aria-labelledby="'usr-pools-' + g.type" class="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4">
-        <h4 :id="'usr-pools-' + g.type" class="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">{{ g.title }}</h4>
-        <ul v-if="g.items.length" role="list" class="flex flex-wrap gap-2">
-          <li v-for="p in g.items" :key="p.id" class="inline-flex items-center rounded-full bg-[var(--bg-tertiary)] px-3 py-1 text-sm text-[var(--text-primary)]">{{ p.name }}</li>
-        </ul>
-        <p v-else class="text-sm text-[var(--text-muted)]">{{ labels.noPools }}</p>
-      </section>
-    </div>
+    <dl class="keyvalues">
+      <div v-for="g in groups" :key="g.type">
+        <dt :id="'usr-pools-' + g.type">{{ g.title }}</dt>
+        <dd>
+          <ul v-if="g.items.length" role="list" :aria-labelledby="'usr-pools-' + g.type"><li v-for="p in g.items" :key="p.id">{{ p.name }}</li></ul>
+          <template v-else>{{ labels.noPools }}</template>
+        </dd>
+      </div>
+    </dl>
     <p class="text-sm text-[var(--text-muted)]">{{ labels.poolsHint }}</p>
   </template>
 </section>`;
@@ -223,7 +223,8 @@ export const USERS_TEMPLATE = `
           </select>
         </div>
       </div>
-      <component :is="activeComponent" v-bind="activeProps" :key="state.epoch + ':' + state.active + ':' + state.selectedId"></component>
+      <p v-if="state.active === 'grants' && state.selectedId === null" class="hint" role="status">{{ labels.pickUser }}</p>
+      <component v-else :is="activeComponent" v-bind="activeProps" :key="state.epoch + ':' + state.active + ':' + state.selectedId"></component>
       <a v-if="state.active === 'accounts' && accounts.draft && accounts.draft.mode === 'edit'"
          :href="'/admin#/system/audit?konto=' + encodeURIComponent(accounts.draft.id)" class="button">
         Systemaktivität dieses Kontos

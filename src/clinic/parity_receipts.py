@@ -39,6 +39,18 @@ class ClinicParityReceipt(db.Model):
     )
 
 
+class ClinicNoticeDispatch(db.Model):
+    """Delivery marker only. The command result and notification intent stay immutable."""
+
+    __tablename__ = "clinic_notice_dispatch"
+    scope_key = db.Column(db.String(64), db.ForeignKey("clinic_parity_receipt.scope_key"), primary_key=True)
+    handed_off = db.Column(db.Boolean, nullable=False, default=False)
+    __table_args__ = (db.Index(
+        "ix_clinic_notice_unqueued", scope_key,
+        sqlite_where=handed_off.is_(False), postgresql_where=handed_off.is_(False),
+    ),)
+
+
 def _reject_receipt_write(_mapper, _connection, _target):
     raise RuntimeError("parity receipts are append-only")
 
@@ -54,15 +66,32 @@ def scope_key(scope) -> str:
 
 
 def run_once(scope, digest, operation):
+    if scope[1] in {"request_acceptance", "decide_acceptance", "save:text", "release"}:
+        from src.clinic.notify_enqueue import run_once_with_notice
+
+        return run_once_with_notice(_commit_once, scope, digest, operation)
+    return _commit_once(scope, digest, operation)
+
+
+def _commit_once(scope, digest, operation):
+    result, _ = run_once_with_replay(scope, digest, operation)
+    return result
+
+
+def run_once_with_replay(scope, digest, operation):
+    """Commit an operation, returning (result, replayed) even if a concurrent writer wins."""
     key = scope_key(scope)
     existing = db.session.get(ClinicParityReceipt, key)
     if existing is not None:
         if existing.digest != digest:
             raise CommandProblem("IDEMPOTENCY_CONFLICT")
-        return existing.result
+        return existing.result, True
     try:
         result = operation()
         db.session.add(ClinicParityReceipt(scope_key=key, digest=digest, result=result))
+        if "_workflow_notice" in result:
+            db.session.flush()
+            db.session.add(ClinicNoticeDispatch(scope_key=key))
         db.session.commit()
     except IntegrityError:
         db.session.rollback()
@@ -71,8 +100,8 @@ def run_once(scope, digest, operation):
             raise  # an unrelated constraint failure of the operation itself
         if winner.digest != digest:
             raise CommandProblem("IDEMPOTENCY_CONFLICT") from None
-        return winner.result
+        return winner.result, True
     except BaseException:
         db.session.rollback()
         raise
-    return result
+    return result, False

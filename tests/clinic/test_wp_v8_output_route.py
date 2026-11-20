@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 
-APP_CHECK = r'''
+WORKER = r'''
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -32,6 +32,9 @@ def client_for(user_id):
     return client
 
 
+'''
+
+SEED = r'''
 with app.app_context():
     initialize_database(app)
     admin = account('admin', admin=True)
@@ -60,6 +63,9 @@ with app.app_context():
     pools.allow(author, 'own', actor_id=admin, actions=('export',))
     pools.allow(typist, 'all', actor_id=admin, actions=('view', 'play', 'edit', 'release'))
 
+'''
+
+APP_CHECK = WORKER + SEED + r'''
 base = f'/api/clinic/v1/dictations/{dictation_id}'
 url = base + '/output-targets'
 assert app.test_client().get(url).status_code == 401
@@ -115,3 +121,53 @@ def test_output_targets_use_view_and_export_rights_separately(tmp_path):
     result = subprocess.run([sys.executable, '-c', APP_CHECK], cwd=Path(__file__).resolve().parents[2],
                             env=env, capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_file_export_status_and_replay_survive_worker_change(tmp_path):
+    env = {**os.environ, 'CLINIC_MODE': '1', 'CLINIC_PROFILE': 'production',
+           'SPEAKR_SKIP_BACKGROUND_TASKS': 'true', 'UPLOAD_FOLDER': str(tmp_path / 'uploads'),
+           'SQLALCHEMY_DATABASE_URI': f'sqlite:///{tmp_path / "workers.db"}',
+           'TRANSCRIPTION_BASE_URL': 'http://127.0.0.1:9/v1'}
+    transfer = tmp_path / 'file-export.json'
+    request = r'''
+import json
+import sys
+from pathlib import Path
+transfer = Path(sys.argv[1])
+def submit(client, fmt):
+    csrf = client.get('/api/csrf-token').json['csrf_token']
+    return client.post(base + '/exports', json={'revision_id': revision_id, 'format': fmt},
+                       headers={'Idempotency-Key': key, 'X-CSRF-Token': csrf})
+'''
+    create = r'''
+base = f'/api/clinic/v1/dictations/{dictation_id}'
+key = str(uuid4())
+first = submit(client_for(author), 'docx')
+assert first.status_code == 201, first.status_code
+assert first.json['status'] == 'ready' and not first.json['replayed']
+transfer.write_text(json.dumps([base, key, revision_id, author, typist, admin, first.json]))
+'''
+    follow = r'''
+base, key, revision_id, author, typist, admin, first = json.loads(transfer.read_text())
+url = base + '/exports/' + first['id']
+client = client_for(author)
+status = client.get(url)
+assert status.status_code == 200, ('worker B GET after worker A POST 201', status.status_code)
+assert status.json['sha256'] == first['sha256'] and status.json['release_id'] == first['release_id']
+exact = submit(client, 'docx')
+assert exact.status_code == 200 and exact.json == (first | {'replayed': True})
+clash = submit(client, 'txt')
+assert clash.status_code == 409 and clash.json['code'] == 'IDEMPOTENCY_CONFLICT'
+with app.app_context():
+    pools.allow(typist, 'all', actor_id=admin, actions=('export',))
+assert client_for(typist).get(url).status_code == 404
+assert app.test_client().get(url).status_code == 401
+with app.app_context():
+    pools.deny(author, 'own', actor_id=admin, actions=('export',))
+assert client.get(url).status_code == 404
+assert submit(client, 'docx').status_code == 404
+'''
+    for code in (WORKER + SEED + request + create, WORKER + request + follow):
+        run = subprocess.run([sys.executable, '-c', code, str(transfer)], cwd=Path(__file__).resolve().parents[2],
+                             env=env, capture_output=True, text=True, timeout=60)
+        assert run.returncode == 0, run.stdout + run.stderr

@@ -321,7 +321,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const [{ registerRecordingView }, { registerLiveView }, { registerArchiveView }, { registerImportView },
                 { registerSettingsView }, { registerOfflineView }, { createTooltip }, { getUploadCsrfToken },
                 { registerAdminPoolsView }, { registerAuthorsView }, { registerUsersView }, { registerVocabularyView },
-                { registerCommandsTemplatesView }, { registerAsrProfilesView }] = await Promise.all([
+                { registerCommandsTemplatesView }, { registerAsrProfilesView }, { createClinicRecorder }] = await Promise.all([
                 import('./clinic/compose-recording.js'),
                 import('./clinic/compose-live.js'),
                 import('./clinic/compose-archive.js'),
@@ -337,12 +337,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                 import('./clinic/compose-vocabulary.js'),
                 import('./clinic/compose-commands-templates.js'),
                 import('./clinic/compose-asr-profiles.js'),
+                import('./clinic/recorder-phases-ui.js'),
             ]);
             clinicMenu = {
                 register: [registerRecordingView, registerLiveView, registerArchiveView, registerImportView, registerSettingsView, registerOfflineView,
                     registerAdminPoolsView, registerAuthorsView, registerUsersView, registerVocabularyView, registerCommandsTemplatesView, registerAsrProfilesView],
                 createTooltip,
                 getUploadCsrfToken,
+                createClinicRecorder,
             };
         } catch (error) {
             console.error('[Clinic] Menu views could not be loaded:', error);
@@ -624,15 +626,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                     currentView.value = target;
                 });
-                // Keyboard focus follows the switch: it moves to the heading of the view that is shown.
-                watch(currentView, () => setTimeout(() => {
+                // Focus the destination as Vue finishes rendering it, before the next user interaction.
+                watch(currentView, () => {
                     const root = document.querySelector('[data-clinic-shell-view]:not([style*="display: none"])');
                     const heading = root && root.querySelector('h1, h2, [role="heading"]');
                     const target = heading || root;
                     if (!target) return;
                     if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
                     target.focus();
-                }, 50), { flush: 'post' });
+                }, { flush: 'post' });
             }
             const createClinicAudioContext = () => new (window.AudioContext || window.webkitAudioContext)();
             const clinicAudioContextFactory = (window.AudioContext || window.webkitAudioContext) ? createClinicAudioContext : undefined;
@@ -3089,17 +3091,20 @@ document.addEventListener('DOMContentLoaded', async () => {
                 { view: 'clinic-archive', testid: 'menu-archive', label: 'Archiv' },
             ];
             const clinicMenuToolbarVisible = computed(() => clinicMenuActions.some((entry) => entry.view === currentView.value));
-            // The stock recorder composable (persistence gate v8-05 applies inside it: no audio in browser storage).
-            const clinicRecorder = audioComposable;
-            // The file path: one multipart POST /upload; the answer is the server receipt the view checks for an id.
-            const clinicUploadFile = async (file) => {
+            // Recorded takes and selected files share the same upload and server receipt.
+            const clinicUploadFile = async (file, recordingTitle) => {
                 const body = new FormData();
                 body.append('file', file);
+                if (recordingTitle !== undefined) {
+                    body.append('title', recordingTitle);
+                    body.append('from_recorder', 'true');
+                }
                 const token = clinicMenu ? await clinicMenu.getUploadCsrfToken() : null;
                 const response = await fetch('/upload', { method: 'POST', headers: token ? { 'X-CSRFToken': token } : {}, body });
                 if (!response.ok) throw new Error('upload_failed');
                 return response.json();
             };
+            const clinicRecorder = clinicMenu?.createClinicRecorder(audioComposable, state, clinicUploadFile);
             // Live-Diktat runs on an existing dictation: ?dictation=<id> or the id typed into the picker.
             const CLINIC_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
             const clinicInitialLiveId = new URLSearchParams(window.location.search).get('dictation');

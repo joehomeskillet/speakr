@@ -187,6 +187,19 @@
                         <clinic-resources-view v-else-if="currentView === 'clinic-resources'" :client="clinicClient" :current-user="clinicUser"></clinic-resources-view>
                     </keep-alive>
                 </div>
+                {% macro dictation_chrome(back_id, close) -%}
+                <div class="dictation-chrome v8-chrome">
+                    <button type="button" class="button" data-testid="{{ back_id }}" @click="{{ close }}()">
+                        <i class="fas fa-arrow-right" aria-hidden="true"></i>
+                        <span data-testid="{{ 'close' if back_id == 'clinic-correction-back' else 'clinic-dictation-back-label' }}" v-text="clinicOrigin === 'clinic-recordings' ? 'Zurück zu Aufnahmen' : 'Zurück zur Arbeitsliste'"></span>
+                    </button>
+                    <nav aria-label="Diktat" data-testid="clinic-dictation-nav" class="record-tabs">
+                        <button v-for="link in clinicDictationLinks" :key="link.view" type="button" :data-testid="'clinic-dictation-link-' + link.view.replace('clinic-', '')"
+                                :class="{ active: currentView === link.view }" :aria-current="currentView === link.view ? 'page' : null"
+                                @click="openClinicDictationView(link.view)" v-text="link.label"></button>
+                    </nav>
+                </div>
+                {%- endmacro %}
                 <div v-if="clinicWorklistEnabled && currentView === 'clinic-correction' && clinicCorrectionId"
                      data-testid="clinic-correction-mount" data-clinic-shell-view ref="clinicCorrectionMount"
                      class="flex-1 overflow-y-auto content">
@@ -195,38 +208,16 @@
                                             :dictator="clinicCorrectionRow.dictator" :pool="clinicCorrectionRow.pool"
                                             @close="closeClinicCorrection">
                         <template #back-action="{ close }">
-                            <button type="button" class="button" data-testid="clinic-correction-back" @click="close">
-                                <span data-testid="close" v-text="clinicOrigin === 'clinic-recordings' ? 'Zurück zu Aufnahmen' : 'Zurück zur Arbeitsliste'"></span>
-                            </button>
+                            {{ dictation_chrome('clinic-correction-back', 'close') }}
                         </template>
                     </clinic-correction-view>
-                    <!-- V8 dictation views (v8-70) -->
-                    <nav aria-label="Diktat" data-testid="clinic-dictation-nav" class="workbench-links">
-                        <button v-for="link in clinicDictationLinks" :key="link.view" type="button" :data-testid="'clinic-dictation-link-' + link.view.replace('clinic-', '')"
-                                class="button"
-                                :class="{ 'font-semibold': currentView === link.view }"
-                                :aria-current="currentView === link.view ? 'page' : null"
-                                @click="openClinicDictationView(link.view)" v-text="link.label"></button>
-                    </nav>
                     <!-- end V8 dictation views (v8-70) -->
                 </div>
                 <!-- V8 dictation views (v8-70): details, review, output, processing and activity of the opened dictation. The id is state, not URL. -->
                 <div v-if="clinicWorklistEnabled && clinicDictationViewActive && clinicDictationId"
                      data-testid="clinic-dictation-mount" data-clinic-shell-view
                      class="flex-1 overflow-y-auto content">
-                    <button type="button" data-testid="clinic-dictation-back"
-                            class="mb-3 px-3 py-2 rounded border border-[var(--border-primary)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
-                            style="min-height: 2.75rem"
-                            @click="closeClinicDictationView()"
-                            v-text="clinicOrigin === 'clinic-recordings' ? 'Zurück zu Aufnahmen' : 'Zurück zur Arbeitsliste'"></button>
-                    <nav aria-label="Diktat" data-testid="clinic-dictation-nav" class="flex flex-wrap items-center gap-2 mb-3">
-                        <button v-for="link in clinicDictationLinks" :key="link.view" type="button" :data-testid="'clinic-dictation-link-' + link.view.replace('clinic-', '')"
-                                class="px-3 py-2 rounded border border-[var(--border-primary)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
-                                style="min-height: 2.75rem"
-                                :class="{ 'font-semibold': currentView === link.view }"
-                                :aria-current="currentView === link.view ? 'page' : null"
-                                @click="openClinicDictationView(link.view)" v-text="link.label"></button>
-                    </nav>
+                    {{ dictation_chrome('clinic-dictation-back', 'closeClinicDictationView') }}
                     <clinic-detail-view v-if="currentView === 'clinic-detail'" :client="clinicClient" :dictation-id="clinicDictationId" :current-user="clinicUser"
                                         :origin="clinicOrigin" @back="closeClinicDictationView" @open-editor="openClinicEditorFromView"></clinic-detail-view>
                     <clinic-review-view v-else-if="currentView === 'clinic-review'" :client="clinicClient" :dictation-id="clinicDictationId" :current-user="clinicUser"
@@ -374,7 +365,7 @@
         .field:where(.v8-admin-page *){display:grid;gap:6px;margin:0 0 16px}
         .field label:where(.v8-admin-page *),.field>span:where(.v8-admin-page *){font-weight:650;font-size:12px}
         .field small:where(.v8-admin-page *){font-size:11px;color:var(--v8-muted)}
-        input:not([type=checkbox]):not([type=radio]):not([type=range]):where(.v8-admin-page *),select:where(.v8-admin-page *),textarea:where(.v8-admin-page *){width:100%;padding:10px 11px;border:1px solid #ccd8d3;border-radius:7px;color:var(--v8-text);background-color:var(--surface);min-height:40px}
+        input:not([type=checkbox]):not([type=radio]):not([type=range]):where(.v8-admin-page *),select:where(.v8-admin-page *),textarea:where(.v8-admin-page *){width:100%;padding:10px 11px;border:1px solid var(--v8-input-line,#ccd8d3);border-radius:7px;color:var(--v8-text);background-color:var(--surface);min-height:40px}
         textarea:where(.v8-admin-page *){resize:vertical;min-height:100px;line-height:1.65}
         .filterbar .field:where(.v8-admin-page *){margin:0;flex:0 1 175px}
         .filterbar .field.search:where(.v8-admin-page *){flex:1 1 240px}

@@ -31,6 +31,7 @@ import { WORKFLOW_ACTIONS_TEMPLATE, createWorkflowActions } from './workflow-act
 import { acceptancePolicyComponent } from './acceptance-policy-ui.js';
 import { createHistoryComponent } from './history-ui.js';
 import { createLeaseController, createLeaseStatusComponent } from './lease-ui.js';
+import { AssignmentPanel } from './assign-ui.js';
 
 export const COMPOSE_WORKLIST_VERSION = 1;
 
@@ -222,6 +223,7 @@ export function neighborRow(rows, current, delta) {
 }
 
 function groupLabel(key, value) {
+    if (key === 'assignee_user_id' && value == null) return 'Klärliste';
     const name = (LIST_COLUMNS.find((c) => c.key === key) || {}).label || key;
     if (ROLE_KEYS.includes(key)) return name + ': ' + roleText(key, value);
     if (value === null || value === undefined || value === '') return name + ': –';
@@ -334,7 +336,7 @@ export function createWorklistViewController(options) {
     const reactive = (V && V.reactive) || ((o) => o);
     const computed = (V && V.computed) || ((fn) => ({ get value() { return fn(); } }));
 
-    const view = reactive({ page: 1, filterId: null, search: '', total: null, chip: 'all' });
+    const view = reactive({ page: 1, filterId: null, search: '', total: null, chip: 'all', assignmentNotice: '' });
     const checked = reactive({}); // dictation id -> true; only the bulk-selection checkboxes, no clinical data
     const panels = reactive({ protection: false, acceptance: false, history: false });
     const selectedId = ref(null);
@@ -527,7 +529,13 @@ export function createWorklistViewController(options) {
     };
 
     // --- selection and detail ----------------------------------------------
+    function assignmentDone(data) {
+        view.assignmentNotice = 'Zugewiesen an: ' + data.display_name;
+        return reload();
+    }
+
     function select(row) {
+        if (row) view.assignmentNotice = '';
         worklist.selectRow(row || null);
         syncDetail();
     }
@@ -657,6 +665,7 @@ export function createWorklistViewController(options) {
         closeLease();
         workflow.cancel();
         refresh.logout();
+        view.assignmentNotice = '';
         clearChecked();
         selectedId.value = null;
         detailId = null;
@@ -672,7 +681,7 @@ export function createWorklistViewController(options) {
     return {
         vue: V, view, panels, selectedId, selectedRow: worklist.selectedRow, leaseState, leaseRun, paused,
         worklist, refresh, filters, layout, workflow, detailClient, displayed, columns, headerAttrs,
-        start, dispose, reload, select, open, canOpen, listenOnly, onRowKey, goto, pages, hasNext, applyFilter,
+        start, dispose, reload, assignmentDone, select, open, canOpen, listenOnly, onRowKey, goto, pages, hasNext, applyFilter,
         key: rowKey, cell: cellText, badge: statusBadge, dictationLabel, entryCount, text: TEXT,
         emptyCell: (row, key) => !ROLE_KEYS.includes(key) && key !== 'status' && cellText(row, key) === '–',
         priorityTone: priorityToneOf,
@@ -701,6 +710,7 @@ export function createWorklistViewController(options) {
 
 function buildParts(V, detailClient) {
     return {
+        Assignment: AssignmentPanel,
         Layout: WorklistLayoutControls(V),
         Lease: createLeaseStatusComponent(V),
         Workflow: { name: 'ClinicWorkflowPanel', props: { wf: { type: Object, required: true } }, template: WORKFLOW_ACTIONS_TEMPLATE },
@@ -775,6 +785,7 @@ export const WorklistView = {
     {{ c.worklist.errorMessage.value || c.text.denied }}
   </div>
   <template v-else>
+    <p v-if="c.view.assignmentNotice && !c.selectedId.value" role="status" aria-live="polite">{{ c.view.assignmentNotice }}</p>
     <section class="metrics" :aria-label="c.text.summary" data-testid="status-totals">
       <div class="metric"><div><div class="metric-label">{{ c.text.kpiAll }}</div><div class="metric-number" data-kpi="all">{{ c.counts.value.all }}</div></div>
         <div class="metric-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16M4 12h16M4 19h16"/></svg></div></div>
@@ -895,6 +906,10 @@ export const WorklistView = {
                   </div>
                   <component :is="parts.Lease" v-if="c.leaseState.value" :state="c.leaseState.value" :run="c.leaseRun" />
                   <component :is="parts.Workflow" :wf="c.workflow" />
+                  <component :is="parts.Assignment" :client="c.detailClient" :vue="c.vue" :current-user="currentUser"
+                    :dictation-id="c.selectedId.value" :label="c.dictationLabel(c.selectedRow.value)"
+                    :author="c.cell(c.selectedRow.value, 'dictated_by')" :assignee="c.selectedRow.value.assignee?.display_name"
+                    @assigned="c.assignmentDone" />
                 </div>
                 <details :open="c.panels.protection" @toggle="c.panels.protection = $event.target.open" style="margin-top: 14px; border-top: 1px solid var(--v8-line-2); padding-top: 4px">
                   <summary style="cursor: pointer; min-height: 38px; display: flex; align-items: center; font-size: 12px; font-weight: 750">{{ c.text.protection }}</summary>

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createJobsPanel, summarizeProgress, useJobs, LABELS, TRAY_AUTOSTART_PARITY } from '../../../static/js/clinic/jobs-ui.js';
+import { createJobsPanel, jobTypeLabel, summarizeProgress, useJobs, LABELS, TRAY_AUTOSTART_PARITY } from '../../../static/js/clinic/jobs-ui.js';
 
 const RID = '22222222-2222-4222-8222-222222222222';
 const CORR = '11111111-1111-4111-8111-111111111111';
@@ -19,6 +19,13 @@ const row = (id, extra) => Object.assign({ id, job_type: 'transcribe', error_cla
 const fail = (outcome, code) => ({ outcome, status: 409, code, correlationId: CORR, message: 'm' });
 
 describe('jobs ui', () => {
+    it('names known job types without hiding new diagnostic values', () => {
+        expect(jobTypeLabel('transcribe')).toBe('Transkription');
+        expect(jobTypeLabel('clinic_finalize')).toBe('Freigabe');
+        expect(jobTypeLabel('future_job')).toBe('future_job');
+        expect(jobTypeLabel('constructor')).toBe('constructor');
+    });
+
     it('renders progress and safe failure info (positive)', async () => {
         const api = { request: vi.fn().mockResolvedValue(health([row(4)])) };
         const jobs = useJobs({ api, canRetry: true });

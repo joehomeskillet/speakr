@@ -559,7 +559,8 @@ def _run_migrations(app, engine):
         for column, column_type in (('progress_kind', 'VARCHAR(20)'), ('stage', 'VARCHAR(30)'),
                                     ('stage_detail', 'VARCHAR(30)'),
                                     ('cancel_requested_at', 'DATETIME'), ('restore_state', 'TEXT'),
-                                    ('claimed_by', 'VARCHAR(80)'), ('heartbeat_at', 'DATETIME')):
+                                    ('claimed_by', 'VARCHAR(80)'), ('heartbeat_at', 'DATETIME'),
+                                    ('notify_transition_id', 'VARCHAR(64)')):
             if add_column_if_not_exists(engine, 'processing_job', column, column_type):
                 app.logger.info(f"Added {column} column to processing_job table")
 
@@ -1031,7 +1032,8 @@ def _run_migrations(app, engine):
             app.logger.warning(f"Could not create index on recording.folder_id: {e}")
 
     with _migration_section(app, failures, "active processing job uniqueness"):
-        # One active job per (recording, job_type). enqueue() checks first, but
+        # Workflow notices are unique per transition, even after delivery. Other
+        # jobs allow one active row per (recording, job_type). enqueue() checks first, but
         # two concurrent requests (two tabs, two summary workers, two app
         # processes) can both pass the check before either inserts, which used
         # to queue duplicate translations and duplicate summaries. The partial
@@ -1043,7 +1045,7 @@ def _run_migrations(app, engine):
                 with engine.begin() as conn:
                     dupes = conn.execute(text(
                         "SELECT recording_id, job_type, MAX(id) FROM processing_job "
-                        "WHERE status IN ('queued', 'processing') "
+                        "WHERE status IN ('queued', 'processing') AND notify_transition_id IS NULL "
                         "GROUP BY recording_id, job_type HAVING COUNT(*) > 1"
                     )).fetchall()
                     for recording_id, job_type, keep_id in dupes:
@@ -1053,7 +1055,7 @@ def _run_migrations(app, engine):
                             "error_message = COALESCE(error_message, '') || "
                             "' (superseded by a concurrent duplicate job)' "
                             "WHERE recording_id = :r AND job_type = :t "
-                            "AND status IN ('queued', 'processing') AND id <> :keep"
+                            "AND status IN ('queued', 'processing') AND notify_transition_id IS NULL AND id <> :keep"
                         ), {'r': recording_id, 't': job_type, 'keep': keep_id})
                     if dupes:
                         app.logger.warning(
@@ -1061,16 +1063,25 @@ def _run_migrations(app, engine):
                             len(dupes),
                         )
                     conn.execute(text(
-                        "CREATE UNIQUE INDEX IF NOT EXISTS ux_processing_job_active_type "
+                        "CREATE UNIQUE INDEX IF NOT EXISTS ux_processing_job_active_unkeyed "
                         "ON processing_job (recording_id, job_type) "
-                        "WHERE status IN ('queued', 'processing')"
+                        "WHERE status IN ('queued', 'processing') AND notify_transition_id IS NULL"
                     ))
+                    conn.execute(text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS ux_processing_job_notify_transition "
+                        "ON processing_job (recording_id, notify_transition_id) WHERE notify_transition_id IS NOT NULL"
+                    ))
+                    conn.execute(text("DROP INDEX IF EXISTS ux_processing_job_active_type"))
             except Exception as e:
                 # Never block startup on this: enqueue() still has its lock and
                 # its IntegrityError fallback, and a database that rejects the
                 # partial index (an old engine, an exotic backend) keeps the
                 # previous best-effort behaviour.
                 app.logger.warning(f"Could not create active processing job unique index: {e}")
+
+    with _migration_section(app, failures, "clinic notification handoff markers"):
+        from src.clinic.notify_enqueue import backfill_notice_markers
+        run_once(engine, "v8_146_notice_handoff", backfill_notice_markers, logger=app.logger)
 
     with _migration_section(app, failures, "default system settings"):
         # Initialize default system settings

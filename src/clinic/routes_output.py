@@ -7,9 +7,8 @@ policy itself:
 * Only the active release of a dictation can be exported. The request names the
   transcript revision it expects; a different or unreleased revision is a 409.
 * File exports are rendered from the revision the release binds. The job keeps
-  the release and revision ids and the content hash. Jobs are process-local
-  until a durable store exists; the same Idempotency-Key from the same actor
-  returns the same job and never renders a second one.
+  the release and revision ids and the content hash. The durable receipt lets any worker
+  return the same job for a replay by the same actor.
 * KIS delivery goes through `kis.deliver`, whose delivery ledger is the
   idempotency record. A disabled adapter answers 503 `KIS_UNAVAILABLE`; no
   success is ever reported without an adapter answer.
@@ -18,10 +17,9 @@ policy itself:
   `export` permission.
 """
 
-import threading
 from collections.abc import Callable
 from datetime import datetime, timezone
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from flask import Blueprint, Flask, Response, abort, jsonify, request, session
 from flask_login import current_user
@@ -30,7 +28,8 @@ from werkzeug.exceptions import HTTPException
 from wtforms.validators import ValidationError
 
 from src.clinic import export as export_service
-from src.clinic import kis, release
+from src.clinic import kis, parity_receipts, release
+from src.clinic.parity_dispatch import CommandProblem
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.models import (
     ClinicAudioRevision, ClinicContextRevision, ClinicDelivery, ClinicDictation, ClinicRelease,
@@ -102,8 +101,6 @@ def create_blueprint(
 ) -> Blueprint:
     """Mount with the trusted per-object policy and the configured KIS adapter."""
     bp = Blueprint('clinic_output', __name__)
-    ledger: dict = {} if jobs is None else jobs
-    lock = threading.Lock()
 
     def dictation_of(dictation_id: UUID) -> ClinicDictation:
         dictation = db.session.get(ClinicDictation, str(dictation_id))
@@ -190,27 +187,30 @@ def create_blueprint(
         return _file_export(dictation, active, body['format'], key)
 
     def _file_export(dictation: ClinicDictation, active: ClinicRelease, fmt: str, key: str) -> Response:
-        ledger_key = (current_user.id, dictation.id, key)
-        with lock:
-            known = ledger.get(ledger_key)
-            if known is not None:
-                if (known['release_id'], known['format']) != (active.id, fmt):
-                    return _problem(409, 'IDEMPOTENCY_CONFLICT')
-                return jsonify(_job_view(known) | {'replayed': True})
-            try:
-                rendered = FILE_FORMATS[fmt](active)
-            except export_service.ExportRefused as refused:
-                return _problem(409, 'EXPORT_REFUSED', reason=refused.reason)
-            job = {
-                'id': str(uuid4()), 'kind': 'file', 'status': 'ready', 'format': fmt,
+        actor_id = current_user.id
+        job_id = str(uuid5(NAMESPACE_URL, f'speakr/file-export/{actor_id}/{dictation.id}/{key}'))
+        scope = (actor_id, 'file_export', dictation.id, job_id)
+
+        def render_job():
+            rendered = FILE_FORMATS[fmt](active)
+            return {
+                'id': job_id, 'kind': 'file', 'status': 'ready', 'format': fmt,
                 'dictation_id': dictation.id, 'release_id': active.id,
                 'revision_id': rendered.transcript_revision_id, 'filename': rendered.filename,
-                'mimetype': rendered.mimetype, 'sha256': rendered.sha256, 'actor_id': current_user.id,
+                'mimetype': rendered.mimetype, 'sha256': rendered.sha256, 'actor_id': actor_id,
             }
-            ledger[ledger_key] = job
-            ledger[('id', job['id'])] = job
-        response = jsonify(_job_view(job) | {'replayed': False})
-        response.status_code = 201
+
+        try:
+            job, replayed = parity_receipts.run_once_with_replay(scope, f'{active.id}:{fmt}', render_job)
+        except export_service.ExportRefused as refused:
+            return _problem(409, 'EXPORT_REFUSED', reason=refused.reason)
+        except CommandProblem as conflict:
+            return _problem(409, str(conflict))
+        if jobs is not None:
+            # Preserve the optional caller-supplied index of observed jobs.
+            jobs[(actor_id, dictation.id, key)] = jobs[('id', job_id)] = job
+        response = jsonify(_job_view(job) | {'replayed': replayed})
+        response.status_code = 200 if replayed else 201
         return response
 
     def _kis_export(dictation: ClinicDictation, active: ClinicRelease) -> Response:
@@ -238,11 +238,10 @@ def create_blueprint(
     @bp.get(BASE + '/exports/<uuid:job_id>')
     def export_status(dictation_id: UUID, job_id: UUID) -> Response:
         dictation = dictation_of(dictation_id)
-        job = ledger.get(('id', str(job_id)))
-        if job is not None:
-            if job['dictation_id'] != dictation.id or job['actor_id'] != current_user.id:
-                abort(404)
-            return jsonify(_job_view(job))
+        scope = (current_user.id, 'file_export', dictation.id, str(job_id))
+        receipt = db.session.get(parity_receipts.ClinicParityReceipt, parity_receipts.scope_key(scope))
+        if receipt is not None:
+            return jsonify(_job_view(receipt.result))
         row = db.session.get(ClinicDelivery, str(job_id))
         owner = None if row is None else db.session.get(ClinicRelease, row.release_id)
         if owner is None or owner.dictation_id != dictation.id:

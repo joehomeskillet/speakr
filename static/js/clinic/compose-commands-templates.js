@@ -45,7 +45,7 @@ export const TEXT = Object.freeze({
     forbidden: 'Keine Berechtigung für diese Ressourcen.',
     failed: 'Die Ressourcen konnten nicht geladen werden.',
     empty: Object.freeze({
-        commands: 'Keine Befehle vorhanden. Ein neuer Befehl kann unten angelegt werden.',
+        commands: 'Noch keine Sprachbefehle vorhanden.',
         templates: 'Keine Vorlagen vorhanden.',
     }),
     blocksOpen: 'Bausteine sind noch nicht verfügbar: Die Serverressource fehlt. Diese Teilanforderung bleibt offen.',
@@ -71,8 +71,10 @@ export function createCommandsTemplatesController(deps) {
     const client = deps.client;
     const state = (deps.makeState || ((o) => o))({
         kind: KINDS[0].id, userId: null, epoch: 0, denied: true, status: 'idle', message: '',
+        commands: [], selectedId: null,
     });
     let disposed = false;
+    let loadVersion = 0;
 
     function setUser(user) {
         if (disposed) return;
@@ -82,6 +84,8 @@ export function createCommandsTemplatesController(deps) {
         state.denied = id === null;
         state.kind = KINDS[0].id;
         state.status = 'idle';
+        state.commands = [];
+        state.selectedId = null;
         state.message = '';
         state.epoch += 1;
         client.switchContext({ accountId: id, dictationId: null });
@@ -91,6 +95,7 @@ export function createCommandsTemplatesController(deps) {
         if (disposed || state.denied) return { outcome: 'denied' };
         const kind = kindOf(state.kind);
         const epoch = state.epoch;
+        const version = ++loadVersion;
         if (!kind.path) {
             state.status = 'unavailable';
             state.message = TEXT.blocksOpen;
@@ -99,17 +104,18 @@ export function createCommandsTemplatesController(deps) {
         state.status = 'loading';
         state.message = TEXT.loading;
         const res = await client.request(kind.path);
-        if (disposed || epoch !== state.epoch || kind.id !== state.kind) return { outcome: 'stale' };
+        if (disposed || epoch !== state.epoch || version !== loadVersion || kind.id !== state.kind) return { outcome: 'stale' };
         if (res.outcome === 'ok') {
             const items = (res.data && res.data.items) || [];
+            state.commands = kind.id === 'commands' ? items : [];
+            if (!state.commands.some((item) => item.id === state.selectedId)) state.selectedId = null;
             state.status = items.length ? 'ready' : 'empty';
             state.message = items.length ? '' : TEXT.empty[kind.id];
-        } else if (res.outcome === 'permission') {
-            state.status = 'forbidden';
-            state.message = TEXT.forbidden;
         } else {
-            state.status = 'error';
-            state.message = TEXT.failed;
+            state.commands = [];
+            state.selectedId = null;
+            state.status = res.outcome === 'permission' ? 'forbidden' : 'error';
+            state.message = state.status === 'forbidden' ? TEXT.forbidden : TEXT.failed;
         }
         return res;
     }
@@ -118,6 +124,8 @@ export function createCommandsTemplatesController(deps) {
         if (disposed || state.denied || !kindOf(id)) return false;
         state.kind = id;
         state.status = 'idle';
+        state.commands = [];
+        state.selectedId = null;
         state.message = '';
         state.epoch += 1;
         return true;
@@ -174,16 +182,40 @@ export const COMMANDS_TEMPLATES_TEMPLATE = `
     </div>
     <div role="tabpanel" :id="'cct-panel-' + state.kind" :aria-labelledby="'cct-tab-' + state.kind">
       <slot name="${EDITOR_HOOK.slot}"></slot>
-      <p v-if="state.message" role="status" aria-live="polite" data-testid="state-message" class="note" :class="noteClass" :style="messageStyle">{{ state.message }}</p>
+      <p v-if="state.message && state.status !== 'empty'" role="status" aria-live="polite" data-testid="state-message" class="note" :class="noteClass" :style="messageStyle">{{ state.message }}</p>
       <button type="button" class="small" v-if="state.status === 'error'" data-testid="retry" @click="reload">${TEXT.retry}</button>
-      <div class="panel" v-if="showChild">
-        <component :is="childComponent" v-bind="childProps" :key="state.epoch + ':' + state.kind"></component>
-      </div>
+      <section v-if="showChild && state.kind === 'commands'" class="panel command-catalog" aria-labelledby="cct-overview">
+        <h2 id="cct-overview">Befehlsübersicht</h2>
+        <p v-if="!state.commands.length" class="hint" role="status">{{ state.message }}</p>
+        <div v-else class="table-wrap">
+          <table aria-labelledby="cct-overview">
+            <thead><tr><th scope="col">Gesprochener Befehl</th><th scope="col">Aktion im Webclient</th></tr></thead>
+            <tbody>
+              <template v-for="item in state.commands" :key="item.id">
+                <tr>
+                  <th scope="row"><button type="button" class="command-phrase" :aria-expanded="state.selectedId === item.id"
+                    @click="state.selectedId = state.selectedId === item.id ? null : item.id">{{ item.trigger_phrase }}</button></th>
+                  <td>{{ actionLabel(item.action_type) }}</td>
+                </tr>
+                <tr v-if="state.selectedId === item.id"><td colspan="2" class="command-description">{{ item.description || 'Keine Beschreibung hinterlegt.' }}</td></tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <component v-if="showChild" :is="state.kind === 'commands' ? 'details' : 'div'" :key="state.kind"
+        :class="{ 'command-editor': state.kind === 'commands' }">
+        <summary v-if="state.kind === 'commands'">Befehl anlegen</summary>
+        <div class="panel" style="overflow-x:auto">
+          <component :is="childComponent" v-bind="childProps" :key="state.epoch + ':' + state.kind" @saved="reload"></component>
+        </div>
+      </component>
     </div>
   </template>
 </section>`;
 
 function messageStyle(status) {
+    if (status === 'unavailable') return null; // The warning note supplies its own colours.
     const s = surfaceFor(status === 'error' || status === 'forbidden' ? 'error' : 'normal');
     return { background: s.background, color: s.color, borderColor: s.border };
 }
@@ -218,6 +250,8 @@ export const CommandsTemplatesView = {
             return components[id];
         });
         const childProps = Vue.computed(() => (ctrl.state.kind === 'commands' ? { client: props.client, scope: ctrl.scope() } : {}));
+        const actionLabels = { app_command: 'Webclient-Aktion', insert_text: 'Text einfügen', macro: 'Aktionsfolge' };
+        const actionLabel = (type) => actionLabels[type] || 'Weitere Aktion';
         const reload = () => ctrl.load();
         const choose = (id) => { if (ctrl.select(id)) ctrl.load(); };
         Vue.watch(() => userIdOf(props.currentUser), () => { ctrl.setUser(props.currentUser); ctrl.load(); });
@@ -232,7 +266,7 @@ export const CommandsTemplatesView = {
             if (tab) tab.focus();
         }
         return {
-            state: ctrl.state, kinds: KINDS, choose, reload, onKey, showChild, childComponent, childProps,
+            state: ctrl.state, kinds: KINDS, choose, reload, onKey, actionLabel, showChild, childComponent, childProps,
             messageStyle: Vue.computed(() => messageStyle(ctrl.state.status)),
             noteClass: Vue.computed(() => (ctrl.state.status === 'error' || ctrl.state.status === 'forbidden' ? 'burgundy' : (ctrl.state.status === 'unavailable' ? 'warning' : ''))),
         };

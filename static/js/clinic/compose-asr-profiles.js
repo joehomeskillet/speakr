@@ -35,7 +35,7 @@ export const TEXT = Object.freeze({
     denied: 'Kein Zugriff. Bitte anmelden.',
     voiceTitle: 'Eigenes Stimmprofil (freiwillig)',
     voiceHint: 'Das Stimmprofil wird nur mit Ihrer Einwilligung erstellt und kann jederzeit widerrufen werden.',
-    capabilityTitle: 'Fähigkeiten',
+    capabilityTitle: 'Fähigkeiten und Nachweise',
     capabilityColumns: Object.freeze({ name: 'Fähigkeit', status: 'Status' }),
     pronunciation: 'Aussprachetraining',
     proven: 'Nachgewiesen',
@@ -307,10 +307,6 @@ export function createAsrProfilesViewController(deps) {
     return { state, setUser, dispose };
 }
 
-// clinic-v8.css has a second, later `.primary` (worklist detail variant: 11px burgundy) that beats the
-// prototype ink primary; pin the prototype look until v8-110 scopes that rule.
-const PRIMARY_STYLE = Object.freeze({ background: 'var(--ink)', borderColor: 'var(--ink)', color: '#fff', fontSize: '13px', fontWeight: '600', padding: '9px 13px' });
-
 const CONSENT_TEMPLATE = `
 <section class="panel" role="region" :aria-label="view.title" data-testid="voice-consent">
   <h2>{{ view.title }}</h2>
@@ -321,11 +317,11 @@ const CONSENT_TEMPLATE = `
   <p class="tag" :style="surfaceStyle(view.statusSurface)" data-testid="voice-status">{{ view.status.label }}</p>
   <p>{{ view.statement.label }}: {{ view.statement.text }}</p>
   <div class="actions">
-    <button type="button" class="primary" :style="primaryStyle" :disabled="!view.canGrant" @click="controller.grant()">Einwilligen</button>
-    <button type="button" v-if="!view.confirmingRevoke" :disabled="!view.canRevoke" @click="controller.requestRevoke()">Einwilligung widerrufen</button>
+    <button type="button" class="primary" :disabled="!view.canGrant" @click="controller.grant()">Einwilligen</button>
+    <button type="button" class="button" v-if="!view.confirmingRevoke" :disabled="!view.canRevoke" @click="controller.requestRevoke()">Einwilligung widerrufen</button>
     <span v-else class="actions" role="alertdialog" aria-label="Widerruf bestätigen">
-      <button type="button" class="primary" :style="primaryStyle" @click="controller.confirmRevoke()">Widerruf bestätigen</button>
-      <button type="button" @click="controller.cancel()">Abbrechen</button>
+      <button type="button" class="primary" @click="controller.confirmRevoke()">Widerruf bestätigen</button>
+      <button type="button" class="button" @click="controller.cancel()">Abbrechen</button>
     </span>
   </div>
 </section>`;
@@ -340,13 +336,13 @@ const TRAINING_TEMPLATE = `
       <button type="button" class="small" v-if="view.error.retryable" @click="controller.load()">{{ text.retry }}</button></p>
     <p v-if="view.notice" role="status" aria-live="polite" class="note warning" data-testid="training-notice">{{ view.notice }}</p>
     <div class="chiprow" role="radiogroup" :aria-label="text.kind">
-      <button v-for="k in view.kinds" :key="k.value" type="button" role="radio"
+      <button v-for="k in view.kinds" :key="k.value" type="button" role="radio" class="filter-pill" :class="{ active: k.selected }"
         :aria-checked="k.selected ? 'true' : 'false'" :tabindex="k.selected ? 0 : -1"
         @click="controller.setKind(k.value)">{{ k.label }}</button>
     </div>
     <div class="actions">
-      <button type="button" :disabled="view.busy" @click="controller.prepare()">{{ text.prepare }}</button>
-      <button type="button" class="primary" :style="primaryStyle" :disabled="!view.canStart" @click="controller.start()">{{ text.start }}</button>
+      <button type="button" class="button" :disabled="view.busy" @click="controller.prepare()">{{ text.prepare }}</button>
+      <button type="button" class="primary" :disabled="!view.canStart" @click="controller.start()">{{ text.start }}</button>
     </div>
     <p v-if="view.manifest" class="result-count" data-testid="manifest">{{ text.manifestItems }}: {{ view.manifest.items }}, {{ text.manifestExcluded }}: {{ view.manifest.excluded }}</p>
     <p v-if="view.empty" class="hint" data-testid="training-empty">{{ text.noRuns }}</p>
@@ -383,7 +379,7 @@ export function createSections(Vue) {
         const off = controller.subscribe(() => { view.value = controller.view(); });
         Vue.onMounted(() => controller.load());
         Vue.onBeforeUnmount(() => { off(); if (controller.dispose) controller.dispose(); });
-        return { view, controller, errorStyle: style('error'), surfaceStyle, primaryStyle: PRIMARY_STYLE, text: TEXT, ...extra };
+        return { view, controller, errorStyle: style('error'), surfaceStyle, text: TEXT, ...extra };
     }
 
     const consent = {
@@ -432,7 +428,7 @@ export function createSections(Vue) {
 }
 
 export const ASR_PROFILES_TEMPLATE = `
-<div class="v8-page">
+<div class="v8-page clinic-asr-profiles-view">
   <div class="pagehead">
     <div>
       <div class="eyebrow">${TEXT.eyebrow}</div>
@@ -443,15 +439,11 @@ export const ASR_PROFILES_TEMPLATE = `
   </div>
   <p v-if="state.denied" role="alert" class="note burgundy" data-testid="denied">${TEXT.denied}</p>
   <template v-else>
-    <div class="grid equal">
-      <div class="panel"><component :is="parts.Profile" :key="'p' + state.epoch" :client="client"></component></div>
-      <component :is="parts.Consent" :key="'v' + state.epoch" :client="client"></component>
-    </div>
-    <div style="margin-top:20px">
+    <div class="asr-panels">
+      <div class="panel asr-profile"><component :is="parts.Profile" :key="'p' + state.epoch" :client="client"></component></div>
       <component :is="parts.Capabilities" :key="'c' + state.epoch" :client="client"></component>
-    </div>
-    <div v-if="adminClient" style="margin-top:20px">
-      <component :is="parts.Training" :key="'t' + state.epoch" :client="adminClient" :profile-client="client"></component>
+      <component :is="parts.Consent" :key="'v' + state.epoch" :client="client"></component>
+      <component v-if="adminClient" :is="parts.Training" :key="'t' + state.epoch" :client="adminClient" :profile-client="client"></component>
     </div>
   </template>
 </div>`;

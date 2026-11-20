@@ -15,7 +15,7 @@
 
 import { surfaceFor } from './tokens.js';
 import { ACTION_TABLE, V8_PAGE } from './compose-import.js';
-import { LABELS as JOB_LABELS, TRAY_AUTOSTART_PARITY, useJobs } from './jobs-ui.js';
+import { LABELS as JOB_LABELS, TRAY_AUTOSTART_PARITY, jobTypeLabel, useJobs } from './jobs-ui.js';
 
 export { TRAY_AUTOSTART_PARITY };
 
@@ -185,7 +185,7 @@ export function createJobsViewController(options) {
     return {
         vue: V, jobs, state: jobs.state, filter, filterOptions: options_, rows, denied, scoped: () => Boolean(scope()),
         load, retry, setFilter, dispose, canRetry: opts.canRetry === true, canRetryJob: jobs.canRetryJob,
-        text: TEXT, surface: rowSurface, filterLabel, errorText: () => errorText(jobs.state.value.error),
+        text: TEXT, surface: rowSurface, jobTypeLabel, filterLabel, errorText: () => errorText(jobs.state.value.error),
     };
 }
 
@@ -261,7 +261,7 @@ export const JobsView = {
           <tbody>
             <tr v-for="f in c.rows.value" :key="f.id" :data-id="f.id">
               <td><strong>{{ f.id }}</strong></td>
-              <td class="max-md:hidden">{{ f.jobType }}</td>
+              <td class="max-md:hidden">{{ c.jobTypeLabel(f.jobType) }}</td>
               <td><span class="tag dot max-md:[overflow-wrap:anywhere]" :class="f.unknown ? 'wait' : 'error'">{{ c.surface(f).label }}: {{ f.errorClass }}</span></td>
               <td>
                 <button v-if="f.unknown || c.canRetryJob(f)" type="button" class="small"

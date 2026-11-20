@@ -109,7 +109,8 @@ with app.app_context():
     at.tokens_for(dic, asr)  # the parent token row, so the saved revision carries its word ids
     db.session.commit()
     before = db.session.query(ProcessingJob).count()
-    resp = client.post(base + "/correction/save", headers=hdr(), json=dict(
+    etag = client.get(base + "/correction").headers["ETag"]
+    resp = client.post(base + "/correction/save", headers={**hdr(), "If-Match": etag}, json=dict(
         text="Anamnese Husten seit zwei Tagen.", audio_position_ms=100, lease_generation=ids["generation"],
         expected_text_revision_id=ids["asr"]))
     out["save_status"] = resp.status_code
