@@ -42,6 +42,40 @@ function hasReceipt(value) {
     return (typeof id === 'string' && id !== '') || (Number.isInteger(id) && id >= 0);
 }
 
+/** Use the stock capture controls and send the finished microphone take through the clinic file upload. */
+export function createClinicRecorder(audio, state, uploadFile) {
+    async function stopRecording() {
+        const recorder = state.mediaRecorder.value;
+        if (!state.isRecording.value || !recorder) return;
+        // MediaRecorder queues the final dataavailable and stop events after stop() returns.
+        const stopped = new Promise(resolve => recorder.addEventListener('stop', resolve, { once: true }));
+        await audio.stopRecording();
+        await stopped;
+    }
+
+    return {
+        startRecording: audio.startRecording,
+        pauseRecording: audio.pauseRecording,
+        resumeRecording: audio.resumeRecording,
+        stopRecording,
+        async discardRecording() {
+            await stopRecording();
+            await audio.clearRecording();
+        },
+        async uploadRecordedAudio({ title }) {
+            const chunks = state.audioChunks.value;
+            if (!state.audioBlobURL.value || !chunks.length) throw new Error('no_recorded_audio');
+            const type = state.mediaRecorder.value.mimeType.split(';')[0];
+            const file = new File(chunks, 'aufnahme.webm', { type });
+            const receipt = await uploadFile(file, title);
+            if (!hasReceipt(receipt)) throw new Error('no_receipt');
+            // A new take gets its own chunk array as soon as capture starts.
+            if (state.audioChunks.value === chunks) await audio.clearRecording();
+            return receipt;
+        },
+    };
+}
+
 /**
  * @param {object} options
  * @param {object} options.recorder  startRecording, pauseRecording, resumeRecording,
