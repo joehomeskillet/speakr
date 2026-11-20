@@ -390,7 +390,7 @@ export function WorklistLayoutControls(Vue) {
       </li>
     </ul>
     <label class="cl-section-label" for="wl-group-by">{{ LABELS.groupBy }}</label>
-    <select id="wl-group-by" class="select field" style="width: 100%; height: auto; margin: 0; appearance: auto" :disabled="!L.state.canEdit" :value="L.state.layout.group_by[0] || ''"
+    <select id="wl-group-by" class="select" style="width: 100%; height: auto; margin: 0; appearance: auto" :disabled="!L.state.canEdit" :value="L.state.layout.group_by[0] || ''"
             @change="L.setGroupBy($event.target.value ? [$event.target.value] : [])">
       <option value="">{{ LABELS.groupNone }}</option>
       <option v-for="c in L.state.layout.columns" :key="c.key" :value="c.key">{{ L.labelOf(c.key) }}</option>

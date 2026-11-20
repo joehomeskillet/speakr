@@ -26,7 +26,7 @@
 
 import { TokenContractError, surfaceFor } from './tokens.js';
 import { STATUS_LABELS, formatAudioDuration, formatPriority } from './worklist-ui.js';
-import { createDetailClient, statusTone } from './compose-worklist.js';
+import { createDetailClient, ensureHostedStyles, statusTone } from './compose-worklist.js';
 import { WORKFLOW_ACTIONS_TEMPLATE, createWorkflowActions } from './workflow-actions-ui.js';
 import { createHistoryComponent } from './history-ui.js';
 import { createLeaseController, createLeaseStatusComponent } from './lease-ui.js';
@@ -357,7 +357,17 @@ const DetailBody = {
         const V = c.vue;
         if (!V) throw new Error('Vue is required to mount the detail view');
         const parts = buildParts(V);
-        if (typeof V.onMounted === 'function') V.onMounted(() => { c.start(); });
+        ensureHostedStyles();
+        // The shell mount supplies its own "Zurück" control; then the package's link would be a second one.
+        const root = V.ref(null);
+        const shellBack = V.ref(false);
+        if (typeof V.onMounted === 'function') {
+            V.onMounted(() => {
+                const host = root.value && typeof root.value.closest === 'function' ? root.value.closest('[data-clinic-shell-view]') : null;
+                shellBack.value = !!(host && host.querySelector('[data-testid="clinic-dictation-back"]'));
+                c.start();
+            });
+        }
         if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => c.dispose());
         const box = (name) => {
             const s = surfaceOrNormal(name);
@@ -367,11 +377,11 @@ const DetailBody = {
         // Header pill: the workflow status axis in the colour of the V8 status pills.
         const tone = (axes) => statusTone(workflowAxis(axes).value);
         const axisText = (axes) => workflowAxis(axes).text || TEXT.notAvailable;
-        return { c, parts, TEXT, box, tone, axisText, status: c.status, message: c.message, leaseState: c.leaseState };
+        return { c, parts, TEXT, box, tone, axisText, root, shellBack, status: c.status, message: c.message, leaseState: c.leaseState };
     },
     template: `
-<section class="v8-page clinic-detail-view" data-testid="clinic-detail-view" aria-labelledby="cdv-title" :aria-busy="status === 'loading' ? 'true' : 'false'">
-  <div class="record-backbar">
+<section ref="root" class="v8-page clinic-detail-view" data-testid="clinic-detail-view" aria-labelledby="cdv-title" :aria-busy="status === 'loading' ? 'true' : 'false'">
+  <div v-if="!shellBack" class="record-backbar">
     <button type="button" class="back-link" data-testid="back" @click="c.back()">← {{ TEXT.back }}</button>
   </div>
 
@@ -407,13 +417,13 @@ const DetailBody = {
           </ul>
         </section>
 
-        <section class="panel" :aria-label="TEXT.actions" data-testid="actions">
-          <h2 style="font-weight: 700">{{ TEXT.actions }}</h2>
+        <section class="panel v8-hosted" :aria-label="TEXT.actions" data-testid="actions">
+          <h2 class="cl-sr-only">{{ TEXT.actions }}</h2>
           <div class="actions">
             <button type="button" class="primary" data-testid="open-editor"
                     :disabled="!c.canOpenEditor()" @click="c.openEditor()">{{ TEXT.openEditor }}</button>
           </div>
-          <p v-if="c.leaseBlocksOpen()" role="note" class="hint" style="margin: 12px 0 0">{{ TEXT.openBlocked }}</p>
+          <p v-if="c.leaseBlocksOpen()" role="note" class="hint" style="margin: 0">{{ TEXT.openBlocked }}</p>
           <component :is="parts.Lease" v-if="leaseState" :state="leaseState" :run="c.leaseRun" />
           <component :is="parts.Workflow" v-if="!c.offline()" :wf="c.workflow" />
         </section>
@@ -432,8 +442,9 @@ const DetailBody = {
           <div class="metadata-pair"><dt>{{ TEXT.takeover }}</dt><dd data-testid="takeover">{{ c.header().takeover }}</dd></div>
           <div class="metadata-pair">
             <dt>{{ TEXT.recordingTime }}</dt>
-            <dd data-testid="recording-time">{{ c.header().recordingTime }}
-              <span v-if="c.header().recordingFallback" class="tag wait" data-testid="fallback-mark">{{ TEXT.fallbackMark }}</span>
+            <dd data-testid="recording-time" style="min-width: 0; max-width: 100%">{{ c.header().recordingTime }}
+              <span v-if="c.header().recordingFallback" class="tag wait" data-testid="fallback-mark"
+                    style="display: block; white-space: normal; max-width: 100%; width: fit-content; margin: 6px 0 0 auto; text-align: left">{{ TEXT.fallbackMark }}</span>
             </dd>
           </div>
           <div class="metadata-pair"><dt>{{ TEXT.duration }}</dt><dd>{{ c.header().duration }}</dd></div>
