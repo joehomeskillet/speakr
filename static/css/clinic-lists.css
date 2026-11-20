@@ -87,11 +87,16 @@
 :is(.clinic-recordings-view, .clinic-worklist-view) .cl-id-value textarea { width: 100%; min-width: 0; resize: none; font-size: 12px; overflow-wrap: anywhere; }
 
 @media (max-width: 700px) {
-    .v8-ui .clinic-recordings-view .recording-row > .status { grid-column: 2 / 4; grid-row: 3; margin-left: 0; }
+    .v8-ui .clinic-recordings-view .recording-row > .status { grid-column: 2; grid-row: 3; margin-left: 0; }
+    .v8-ui .clinic-recordings-view .record-chevron { display: block; grid-column: 3; grid-row: 3; justify-self: end; }
     .v8-ui .clinic-worklist-view .listbody.has-detail { grid-template-columns: minmax(0, 1fr); }
     /* Native selects already reserve room for the arrow. Keep the mobile type size. */
     .clinic-recordings-view .record-toolbar select.record-select { padding-inline-end: 6px; }
     .clinic-recordings-view #crv-role-filters { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (min-width: 360px) and (max-width: 700px) {
+    .clinic-recordings-view #crv-role-filters { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
 }
 
 @media (max-width: 767px) {
