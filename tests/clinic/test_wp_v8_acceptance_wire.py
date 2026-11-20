@@ -225,6 +225,34 @@ def test_reject_needs_reason_then_is_recorded_and_audited(world):
     assert _state(w)['state'] == 'zurueckgegeben'
 
 
+def test_return_without_single_context_head_is_stored_and_audited(world):
+    w = world
+    _to_accept(w)
+    db.session.add(ClinicContextRevision(dictation_id=w['item'].id, source_system='test',
+                                         tenant_scope='test', case_ref='c2', patient_ref='p2'))
+    db.session.commit()
+    audits = db.session.query(AuditEvent).count()
+    plain = {'text_revision_id': w['head'].id, 'decision': 'return', 'reason': 'Dosierung unklar'}
+    done = _command(w, 'decide_acceptance', plain)
+    assert done.status_code == 200, done.json
+    stored = db.session.query(ClinicAcceptanceDecision).one()
+    assert (stored.kind, stored.reason) == ('reject', 'Dosierung unklar')
+    assert stored.revision_id.split('|')[0] == w['head'].id and stored.revision_id.endswith('|-')
+    assert db.session.query(AuditEvent).count() == audits + 1
+    assert w['item'].status == workflow.TO_CORRECT
+    assert _state(w)['state'] == 'zurueckgegeben'
+
+
+def test_accept_without_single_context_head_is_refused(world):
+    w = world
+    _to_accept(w)
+    db.session.add(ClinicContextRevision(dictation_id=w['item'].id, source_system='test',
+                                         tenant_scope='test', case_ref='c2', patient_ref='p2'))
+    db.session.commit()
+    assert _accept(w).status_code == 400
+    assert db.session.query(ClinicAcceptanceDecision).count() == 0
+
+
 def test_read_only_user_cannot_mutate(world):
     w = world
     _to_accept(w)

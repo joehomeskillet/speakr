@@ -20,11 +20,13 @@ heads the server reads at decision time (the pinned command schema has no fields
 them). ``bound_decision`` hands release only a decision whose three revisions still
 match; anything else (older text, moved audio or context, unbound decision) is not an
 acceptance. ``acceptance_state`` reports the resulting state, including "Wiedervorlage"; release
-refusals carry it.
+refusals carry it. A return is stored even when audio or context is missing or ambiguous
+(placeholder ``-``); only an accept needs all three, and a return is never releasable.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import date, datetime, time, timezone
@@ -38,11 +40,6 @@ from flask_wtf.csrf import CSRFError, validate_csrf
 from werkzeug.exceptions import HTTPException
 from wtforms.validators import ValidationError
 
-import dataclasses
-
-from sqlalchemy import select
-from sqlalchemy.orm import aliased
-
 from src.clinic import acceptance_rules, archive_policy, audio_revisions, lease, live_session, policy
 from src.clinic import revisions, workflow, workflow_actions, workflow_finalize, workflow_metadata
 from src.clinic.acceptance_policy import SCOPE_DICTATION, AcceptanceLedger, AcceptancePolicyVersion, PolicyError
@@ -51,8 +48,9 @@ from src.clinic.metadata_changes import ChangeError
 from src.clinic.models import (
     ClinicAudioRevision, ClinicContextRevision, ClinicDictation, ClinicRelease, ClinicReviewLease,
 )
-from src.clinic.pool_policy import author_pool_ids
 from src.clinic.parity_dispatch import JSON, CommandProblem, ParityDispatch, RunOnce
+from src.clinic.pool_policy import author_pool_ids
+from src.clinic.release import _heads as release_heads
 from src.database import db
 from src.models import Recording
 
@@ -114,24 +112,28 @@ _STATE_LABELS = {
 }
 
 
-def _leaf(model, dictation_id: str):
-    """The single revision of a dictation without a child, else None."""
-    child = aliased(model)
-    rows = db.session.scalars(select(model).where(
-        model.dictation_id == dictation_id,
-        ~select(child.id).where(child.dictation_id == dictation_id,
-                                child.parent_revision_id == model.id).exists())).all()
-    return rows[0] if len(rows) == 1 else None
+_MISSING = '-'
+
+
+def _leaf_id(model, dictation_id: str) -> str | None:
+    """Id of the single leaf revision, else None (none or forked)."""
+    leaves = release_heads(model, dictation_id)
+    return next(iter(leaves)) if len(leaves) == 1 else None
+
+
+def _head_ids(dictation: ClinicDictation) -> tuple[str, str, str]:
+    """Current text, audio and context revision ids; _MISSING for a missing or ambiguous one."""
+    text = revisions.current_revision(dictation)
+    audio = audio_revisions.current_audio_revision(dictation)
+    return (text.id if text is not None else _MISSING,
+            audio.id if audio is not None else _leaf_id(ClinicAudioRevision, dictation.id) or _MISSING,
+            _leaf_id(ClinicContextRevision, dictation.id) or _MISSING)
 
 
 def _heads(dictation: ClinicDictation) -> tuple[str, str, str] | None:
     """Current text, audio and context revision ids; None when one is missing or ambiguous."""
-    text = revisions.current_revision(dictation)
-    audio = audio_revisions.current_audio_revision(dictation) or _leaf(ClinicAudioRevision, dictation.id)
-    context = _leaf(ClinicContextRevision, dictation.id)
-    if text is None or audio is None or context is None:
-        return None
-    return text.id, audio.id, context.id
+    ids = _head_ids(dictation)
+    return None if _MISSING in ids else ids
 
 
 def _latest(ledger: AcceptanceLedger, dictation: ClinicDictation):
@@ -169,7 +171,7 @@ def bound_decision(ledger: AcceptanceLedger, dictation: ClinicDictation, audio_i
 
 def acceptance_state(ledger: AcceptanceLedger, dictation: ClinicDictation) -> JSON:
     """Where the acceptance of the current revisions stands (German label for the UI)."""
-    heads = _heads(dictation)
+    heads = _head_ids(dictation)
     try:
         last = _latest(ledger, dictation)
     except PolicyError:
@@ -177,14 +179,14 @@ def acceptance_state(ledger: AcceptanceLedger, dictation: ClinicDictation) -> JS
     state = 'offen'
     if last is not None:
         bound = tuple(last.revision_id.split(_SEP))
-        same = heads is not None and bound == heads
+        same = bound == heads
         if last.kind == 'accept':
             state = 'angenommen' if same else 'wiedervorlage'
         elif same:
             state = 'zurueckgegeben'
     keys = ('text_revision_id', 'audio_revision_id', 'context_revision_id')
     return {'state': state, 'label': _STATE_LABELS[state],
-            'current': dict(zip(keys, heads)) if heads else None}
+            'current': dict(zip(keys, heads)) if _MISSING not in heads else None}
 
 
 def register_commands(
@@ -220,8 +222,10 @@ def register_commands(
             if ledger is not None and action in ('accept', 'reject'):
                 row = db.session.get(ClinicDictation, target, populate_existing=True)
                 heads = _heads(row)
-                if heads is None:
+                if heads is None and action == 'accept':
                     raise CommandProblem('INVALID_PAYLOAD')
+                if heads is None:
+                    heads = _head_ids(row)  # a return is stored even without audio or context
             try:
                 done = workflow_actions.apply_action(
                     target, action, actor_user_id=actor, expected_version=envelope['expected_revision'] - 1,
