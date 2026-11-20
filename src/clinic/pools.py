@@ -94,6 +94,10 @@ class ClinicAuthorPool(db.Model):
     name = db.Column(db.String(_NAME_MAX), nullable=False, unique=True)
     created_by = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
     created_at = _ts()
+    # v8-29: NULL active means active. Deactivated pools stay referenced in history.
+    active = db.Column(db.Boolean, nullable=True)
+    valid_from = db.Column(AwareDateTime(), nullable=True)
+    valid_to = db.Column(AwareDateTime(), nullable=True)
 
 
 class ClinicStaffPool(db.Model):
@@ -104,6 +108,9 @@ class ClinicStaffPool(db.Model):
     )
     created_by = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
     created_at = _ts()
+    active = db.Column(db.Boolean, nullable=True)
+    valid_from = db.Column(AwareDateTime(), nullable=True)
+    valid_to = db.Column(AwareDateTime(), nullable=True)
     group = db.relationship("Group", foreign_keys=[group_id])
 
     @property
@@ -246,6 +253,9 @@ def create_tables(bind=None) -> None:
         tables=[model.__table__ for model in POOL_TABLES],
         checkfirst=True,
     )
+    from . import migration_pool_admin  # adds the v8-29 columns to tables that predate them
+
+    migration_pool_admin.upgrade(bind or db.engine)
 
 
 def _actor(actor_id, action="manage_pools"):
@@ -336,7 +346,10 @@ def create_author_pool(name: str, *, actor_id: int) -> ClinicAuthorPool:
     row = ClinicAuthorPool(name=name, created_by=actor_id)
     db.session.add(row)
     db.session.flush()
-    _history(actor_id, "pool", row.id, "created", {"kind": "author"})
+    _history(
+        actor_id, "pool", row.id, "created",
+        {"kind": "author", "old": None, "new": {"name": name, "active": True}},
+    )
     _commit()
     return row
 
@@ -352,7 +365,10 @@ def create_staff_pool(name: str, *, actor_id: int) -> ClinicStaffPool:
     row = ClinicStaffPool(group_id=group.id, created_by=actor_id)
     db.session.add(row)
     db.session.flush()
-    _history(actor_id, "pool", row.id, "created", {"kind": "staff", "group_id": group.id})
+    _history(
+        actor_id, "pool", row.id, "created",
+        {"kind": "staff", "group_id": group.id, "old": None, "new": {"name": name, "active": True}},
+    )
     _commit()
     return row
 
@@ -420,6 +436,8 @@ def link_staff_pool(author_pool_id: str, staff_pool_id: str, *, actor_id: int) -
     actor_id = _actor(actor_id)
     author = _author_pool(author_pool_id)
     staff = _staff_pool(staff_pool_id)
+    ensure_routable(author)
+    ensure_routable(staff)
     if ClinicPoolRoute.query.filter_by(
         author_pool_id=author.id, staff_pool_id=staff.id
     ).first():
@@ -431,10 +449,154 @@ def link_staff_pool(author_pool_id: str, staff_pool_id: str, *, actor_id: int) -
     db.session.flush()
     _history(
         actor_id, "route", row.id, "added",
-        {"author_pool_id": author.id, "staff_pool_id": staff.id},
+        {"author_pool_id": author.id, "staff_pool_id": staff.id,
+         "old": None, "new": {"author_pool_id": author.id, "staff_pool_id": staff.id}},
     )
     _commit()
     return row
+
+
+POOL_KINDS = ("author", "staff")
+
+
+def _pool(kind, pool_id):
+    if kind not in POOL_KINDS:
+        raise PoolError("unknown_kind")
+    return _author_pool(pool_id) if kind == "author" else _staff_pool(pool_id)
+
+
+def is_routable(pool, now=None) -> bool:
+    """True when the pool is not deactivated and ``now`` lies inside its validity window."""
+    if pool.active is False:
+        return False
+    now = now or datetime.now(timezone.utc)
+    if pool.valid_from is not None and now < pool.valid_from:
+        return False
+    return pool.valid_to is None or now < pool.valid_to
+
+
+def ensure_routable(pool, now=None) -> None:
+    """Refuse new routing to a deactivated or out-of-validity pool. History and reads are unaffected.
+
+    Limitation: a pool whose ``valid_from`` lies in the future is not routable yet, so a link to or
+    from it cannot be prepared ahead of the planned start date (P10 does not define this case).
+    """
+    if not is_routable(pool, now):
+        raise PoolError("pool_inactive")
+
+
+def routable_staff_pool_ids(author_pool_id: str, now=None) -> list[str]:
+    """Ids of the staff pools linked to the author pool that are routable now (active, inside validity).
+
+    For consumers that pick recipients of NEW dictations. Existing dictations, history and read
+    rights are unaffected by this filter.
+    """
+    rows = (
+        db.session.query(ClinicStaffPool)
+        .join(ClinicPoolRoute, ClinicPoolRoute.staff_pool_id == ClinicStaffPool.id)
+        .filter(ClinicPoolRoute.author_pool_id == author_pool_id)
+        .order_by(ClinicStaffPool.id)
+    )
+    return [pool.id for pool in rows if is_routable(pool, now)]
+
+
+def _stamp(value):
+    return None if value is None else value.astimezone(timezone.utc).isoformat()
+
+
+def pool_state(kind: str, pool) -> dict:
+    return {
+        "kind": kind,
+        "id": pool.id,
+        "name": pool.name,
+        "active": pool.active is not False,
+        "valid_from": _stamp(pool.valid_from),
+        "valid_to": _stamp(pool.valid_to),
+        "routable": is_routable(pool),
+    }
+
+
+def rename_pool(kind: str, pool_id: str, name: str, *, actor_id: int) -> dict:
+    actor_id = _actor(actor_id)
+    pool = _pool(kind, pool_id)
+    name = _name(name)
+    old = pool.name
+    if name != old:
+        taken = (
+            db.session.query(ClinicAuthorPool.id).filter_by(name=name)
+            if kind == "author" else db.session.query(Group.id).filter_by(name=name)
+        )
+        if taken.first():
+            raise PoolError("name_taken")
+        if kind == "author":
+            pool.name = name
+        else:
+            pool.group.name = name
+        _history(actor_id, "pool", pool.id, "renamed", {"kind": kind, "old": old, "new": name})
+        _commit()
+    return pool_state(kind, pool)
+
+
+def set_pool_active(kind: str, pool_id: str, active: bool, *, actor_id: int) -> dict:
+    """Deactivate or reactivate. Nothing is deleted; dictations and history stay readable."""
+    actor_id = _actor(actor_id)
+    pool = _pool(kind, pool_id)
+    if type(active) is not bool:
+        raise PoolError("invalid_active")
+    old = pool.active is not False
+    if old != active:
+        pool.active = active
+        _history(
+            actor_id, "pool", pool.id, "reactivated" if active else "deactivated",
+            {"kind": kind, "old": old, "new": active},
+        )
+        _commit()
+    return pool_state(kind, pool)
+
+
+def set_pool_validity(kind: str, pool_id: str, valid_from, valid_to, *, actor_id: int) -> dict:
+    """Set the validity window; ``None`` leaves a side open. Datetimes must be timezone-aware."""
+    actor_id = _actor(actor_id)
+    pool = _pool(kind, pool_id)
+    for value in (valid_from, valid_to):
+        if value is not None and not isinstance(value, datetime):
+            raise PoolError("invalid_validity")
+        if value is not None and value.tzinfo is None:
+            raise PoolError("naive_datetime")
+    if valid_from is not None and valid_to is not None and valid_from >= valid_to:
+        raise PoolError("invalid_validity")
+    old = {"valid_from": _stamp(pool.valid_from), "valid_to": _stamp(pool.valid_to)}
+    new = {"valid_from": _stamp(valid_from), "valid_to": _stamp(valid_to)}
+    if old != new:
+        pool.valid_from, pool.valid_to = valid_from, valid_to
+        _history(actor_id, "pool", pool.id, "validity_set", {"kind": kind, "old": old, "new": new})
+        _commit()
+    return pool_state(kind, pool)
+
+
+def usage_preview(kind: str, pool_id: str) -> dict:
+    """Counts only: open dictations, members and links. No names, no patient data."""
+    from .workflow import DONE, TO_ARCHIVE, TO_DELETE, ClinicWorkflowDictation
+
+    pool = _pool(kind, pool_id)
+    if kind == "author":
+        author_ids = [pool.id]
+        members = ClinicAuthorPoolMember.query.filter_by(pool_id=pool.id).count()
+        links = ClinicPoolRoute.query.filter_by(author_pool_id=pool.id).count()
+    else:
+        author_ids = [
+            row[0] for row in db.session.query(ClinicPoolRoute.author_pool_id).filter_by(staff_pool_id=pool.id)
+        ]
+        members = GroupMembership.query.filter_by(group_id=pool.group_id).count()
+        links = len(author_ids)
+    open_count = (
+        ClinicWorkflowDictation.query.filter(
+            ClinicWorkflowDictation.pool_id.in_(author_ids),
+            ClinicWorkflowDictation.status.notin_((DONE, TO_ARCHIVE, TO_DELETE)),
+        ).count()
+        if author_ids else 0
+    )
+    return {"kind": kind, "pool_id": pool.id, "open_dictations": open_count, "members": members, "links": links}
 
 
 def add_resource(author_pool_id: str, kind: str, name: str, *, actor_id: int) -> ClinicPoolResource:
