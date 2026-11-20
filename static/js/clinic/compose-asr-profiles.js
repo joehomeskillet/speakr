@@ -39,7 +39,7 @@ export const TEXT = Object.freeze({
     capabilityColumns: Object.freeze({ name: 'Fähigkeit', status: 'Status' }),
     pronunciation: 'Aussprachetraining',
     proven: 'Nachgewiesen',
-    unavailable: 'Nicht verfügbar (CAPABILITY_UNAVAILABLE)',
+    unavailable: 'Nicht verfügbar',
     capabilityUnknown: 'Nicht ermittelt',
     trainingTitle: 'Optimierung',
     trainingDenied: 'Keine Rechte für die Optimierung. Nur Administratoren dürfen Läufe vorbereiten und starten.',
@@ -321,10 +321,13 @@ const CONSENT_TEMPLATE = `
   <p class="hint">{{ view.statement.text }}</p>
   <div class="actions">
     <button type="button" class="primary" :disabled="!view.canGrant" @click="controller.grant()">Einwilligen</button>
-    <button type="button" class="button" v-if="!view.confirmingRevoke" :disabled="!view.canRevoke" @click="controller.requestRevoke()">Einwilligung widerrufen</button>
-    <span v-else class="actions" role="alertdialog" aria-label="Widerruf bestätigen">
-      <button type="button" class="primary" @click="controller.confirmRevoke()">Widerruf bestätigen</button>
-      <button type="button" class="button" @click="controller.cancel()">Abbrechen</button>
+    <button type="button" class="button" ref="revokeButton" v-if="!view.confirmingRevoke" :disabled="!view.canRevoke"
+      @click="controller.requestRevoke(); $nextTick(() => $refs.cancelButton?.focus())">Einwilligung widerrufen</button>
+    <span v-else class="actions" role="alertdialog" aria-label="Widerruf bestätigen"
+      @keydown.esc.prevent="if (!view.busy) { controller.cancel(); $nextTick(() => $refs.revokeButton?.focus()); }">
+      <button type="button" class="primary" :disabled="view.busy" @click="controller.confirmRevoke()">Widerruf bestätigen</button>
+      <button type="button" class="button" ref="cancelButton" :disabled="view.busy"
+        @click="controller.cancel(); $nextTick(() => $refs.revokeButton?.focus())">Abbrechen</button>
     </span>
   </div>
 </section>`;
