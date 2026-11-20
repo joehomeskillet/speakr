@@ -1,8 +1,8 @@
 /**
- * Composed clinic recordings view (V8 P01 Aufnahmen): full-width chronological
- * list in day groups. Desktop shows a table, a phone (below 768 px) cards of
- * the same rows from the same server query; there is no client-side
- * re-filtering or re-sorting. Mounting into the page and the shared api-client
+ * Composed clinic recordings view (V8 P01 Aufnahmen): one responsive list of
+ * record rows in day groups (the grid of .recording-row changes at the
+ * prototype breakpoints). The server filters and sorts; only the free-text
+ * search runs client-side over the loaded rows. Mounting into the page and the shared api-client
  * come from the page (package v8-03). Opening a row emits `open` with
  * { dictationId, mode }, the payload of the worklist.
  *
@@ -37,24 +37,53 @@ export const RecordingsView = {
         const V = props.vue || (typeof window !== 'undefined' ? window.Vue : null);
         if (!V) throw new Error('Vue is required to mount the recordings view');
         const scroller = V.ref(null);
+        const root = V.ref(null);
         const filtersOpen = V.ref(true); // open by default; the phone layout lets the user collapse it
         const onScroll = (event) => c.setScroll(event && event.target ? event.target.scrollTop : 0);
+        // The V8 shell scrolls its content area (or the document), not the list: find the element that really scrolls.
+        let host = null;
+        const isWindow = (h) => typeof window !== 'undefined' && h === window;
+        const hostScrollTop = () => (isWindow(host) ? window.scrollY : host.scrollTop);
+        const onHostScroll = () => c.setScroll(hostScrollTop());
+        const findHost = () => {
+            const start = root.value;
+            if (start && typeof getComputedStyle === 'function') {
+                for (let n = start.parentElement; n; n = n.parentElement) {
+                    const oy = getComputedStyle(n).overflowY;
+                    if (oy === 'auto' || oy === 'scroll') return n;
+                }
+                return typeof window !== 'undefined' ? window : null;
+            }
+            return scroller.value || null;
+        };
+        const restoreScroll = () => {
+            if (!host) return;
+            if (isWindow(host)) window.scrollTo(0, c.scrollTop());
+            else host.scrollTop = c.scrollTop();
+        };
         if (typeof V.onMounted === 'function' && props.autoStart) {
             V.onMounted(async () => {
                 await c.start();
                 if (typeof V.nextTick === 'function') await V.nextTick();
-                if (scroller.value) scroller.value.scrollTop = c.scrollTop();
+                host = findHost();
+                if (host && typeof host.addEventListener === 'function') host.addEventListener('scroll', onHostScroll, { passive: true });
+                restoreScroll();
             });
         }
-        if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => c.dispose());
+        if (typeof V.onBeforeUnmount === 'function') {
+            V.onBeforeUnmount(() => {
+                if (host && typeof host.removeEventListener === 'function') host.removeEventListener('scroll', onHostScroll);
+                c.dispose();
+            });
+        }
         function rowContext(id) {
             const row = c.state.rows.find((entry) => entry.dictationId === id);
             return row && { dictator: row.author, pool: row.poolText };
         }
-        return { c, scroller, onScroll, filtersOpen, t: TEXT, periods: PERIODS, rowContext };
+        return { c, rowContext, scroller, root, onScroll, filtersOpen, t: TEXT, periods: PERIODS };
     },
     template: `
-<section class="clinic-recordings-view cl-view content-inner v8-page" data-testid="clinic-recordings-view" aria-labelledby="crv-title">
+<section ref="root" class="clinic-recordings-view cl-view content-inner v8-page" data-testid="clinic-recordings-view" aria-labelledby="crv-title">
   <div class="page-head recordings-head">
     <div>
       <div class="eyebrow">{{ t.eyebrow }}</div>
@@ -79,6 +108,9 @@ export const RecordingsView = {
         <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>
         <input type="search" style="border: 0; padding: 0; min-height: 0; height: auto; background: transparent; box-shadow: none; font-size: 13px" data-testid="filter-search" :aria-label="t.searchLabel" :placeholder="t.searchPlaceholder" autocomplete="off" v-model="c.state.query">
       </label>
+      <select class="record-select" style="appearance: auto; width: auto; font-size: 12px" data-testid="filter-scope" :aria-label="t.scopeLabel">
+        <option value="">{{ t.scopeAll }}</option>
+      </select>
       <select class="record-select" style="appearance: auto; width: auto; font-size: 12px" data-testid="filter-status" :aria-label="t.statusLabel" v-model="c.state.draft.status" @change="c.applyFilters()">
         <option value="">{{ t.statusAny }}</option>
         <option v-for="(label, key) in c.statusOptions" :key="key" :value="key">{{ label }}</option>
@@ -89,15 +121,17 @@ export const RecordingsView = {
       </select>
     </div>
     <div class="record-role-filters">
-      <label><span>{{ t.authorId }}</span>
-        <input type="text" class="record-select" style="font-size: 12px" data-testid="filter-author" list="crv-authors" autocomplete="off"
-               :placeholder="t.authorAny" :value="c.picker.author" @input="c.pick('author', $event.target.value)">
-        <datalist id="crv-authors"><option v-for="o in c.options.authors" :key="o.value" :value="o.label"></option></datalist>
-      </label>
-      <label><span>{{ t.poolId }}</span>
+      <label style="position: relative"><span>{{ t.poolId }}</span>
         <input type="text" class="record-select" style="font-size: 12px" data-testid="filter-pool" list="crv-pools" autocomplete="off"
                :placeholder="t.poolAny" :value="c.picker.pool" @input="c.pick('pool', $event.target.value)">
+        <svg style="position: absolute; right: 11px; bottom: 14px; pointer-events: none" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
         <datalist id="crv-pools"><option v-for="o in c.options.pools" :key="o.value" :value="o.label"></option></datalist>
+      </label>
+      <label style="position: relative"><span>{{ t.authorId }}</span>
+        <input type="text" class="record-select" style="font-size: 12px" data-testid="filter-author" list="crv-authors" autocomplete="off"
+               :placeholder="t.authorAny" :value="c.picker.author" @input="c.pick('author', $event.target.value)">
+        <svg style="position: absolute; right: 11px; bottom: 14px; pointer-events: none" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        <datalist id="crv-authors"><option v-for="o in c.options.authors" :key="o.value" :value="o.label"></option></datalist>
       </label>
       <template v-if="c.picker.period === 'custom'">
         <label><span>{{ t.from }}</span>
@@ -108,7 +142,7 @@ export const RecordingsView = {
         </label>
       </template>
       <div class="page-actions">
-        <button type="submit" class="btn btn--primary primary" style="background: var(--ink); border-color: var(--ink); font-size: 12px; min-height: 40px" data-testid="apply">{{ t.apply }}</button>
+        <button type="submit" class="btn btn--primary primary" style="font-size: 12px; min-height: 40px" data-testid="apply">{{ t.apply }}</button>
         <button type="button" class="btn btn--ghost" style="font-size: 12px; min-height: 40px" data-testid="reset" @click="c.resetFilters()">{{ t.reset }}</button>
       </div>
     </div>
@@ -121,20 +155,23 @@ export const RecordingsView = {
     </div>
     <div v-if="c.state.loaded && !c.state.error" class="record-list-meta">
       <p role="status" aria-live="polite" data-testid="result-count">{{ c.countLabel() }}</p>
-      <div class="record-order"><span class="sort-label">{{ t.sortLabel }}</span><span class="sort-label">{{ t.sortNewest }}</span></div>
+      <div class="record-order"><span class="sort-label">{{ t.sortLabel }}</span>
+        <select class="record-select sort-select" style="appearance: auto; width: auto" data-testid="sort-select" :aria-label="t.sortSelect"><option value="newest">{{ t.sortNewest }}</option></select></div>
     </div>
+    <p v-if="c.searchPartial()" class="sort-label" role="status" data-testid="search-hint">{{ t.searchLoadedHint }}</p>
     <div v-if="c.state.loading" class="record-empty" role="status" aria-live="polite" data-testid="loading-state">
       <i class="fa-solid fa-spinner cl-spin" aria-hidden="true"></i>
       <p>{{ t.loading }}</p>
     </div>
     <div v-else-if="c.state.loaded && !c.visibleRows().length && !c.state.error" class="record-empty" data-testid="empty-state">
-      <h2 style="font-size: 20px; font-weight: 700; color: var(--ink)">{{ c.hasFilters() || c.hasQuery() ? t.noMatch : t.empty }}</h2>
-      <p>{{ c.hasFilters() || c.hasQuery() ? t.noMatchHint : t.emptyHint }}</p>
+      <div class="empty-icon" aria-hidden="true">◉</div>
+      <h2>{{ c.searchPartial() ? t.noMatchLoaded : (c.hasFilters() || c.hasQuery() ? t.noMatch : t.empty) }}</h2>
+      <p>{{ c.searchPartial() ? t.searchLoadedHint : (c.hasFilters() || c.hasQuery() ? t.noMatchHint : t.emptyHint) }}</p>
       <button v-if="c.hasFilters() || c.hasQuery()" type="button" class="btn btn--ghost" @click="c.resetFilters()">{{ t.reset }}</button>
     </div>
     <!-- One responsive list for desktop and phone: the grid of .recording-row changes at the prototype breakpoints.
          The former copies (table "hidden md:table" and cards) are gone; the role cells keep their data-cell markers. -->
-    <div v-if="c.visibleRows().length" ref="scroller" class="record-timeline" data-testid="scroller" @scroll="onScroll">
+    <div v-if="c.visibleRows().length" ref="scroller" class="record-timeline" data-testid="scroller">
       <section v-for="g in c.groups()" :key="'d:' + g.day" class="date-group" :aria-label="g.caption ? g.title + ', ' + g.caption : g.title">
         <div class="date-heading">
           <h2 data-testid="day-heading">{{ g.title }}</h2>
@@ -143,33 +180,32 @@ export const RecordingsView = {
         </div>
         <div class="record-group-list" data-testid="cards">
           <a v-for="r in g.rows" :key="r.key" href="#" class="recording-row" style="text-decoration: none" data-row data-card :data-id="r.dictationId" data-testid="open-link"
-             :aria-label="t.open + ': ' + r.time + ', ' + r.author" @click.prevent="c.open(r)">
-            <time class="record-time">{{ r.time }}</time>
+             :aria-label="r.ariaLabel" @click.prevent="c.open(r)">
+            <time class="record-time" :datetime="r.datetime || null">{{ r.time }}</time>
             <span class="record-icon" aria-hidden="true">
-              <svg v-if="r.sourceKind === 'upload'" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
-              <svg v-else width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4M8 22h8"/></svg>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h10l4 4v14H5zM15 3v6h5M9 12h6M9 16h6"/></svg>
             </span>
             <span class="record-text">
               <span class="record-title">{{ r.heading }}</span>
               <span class="record-roles">
                 <span class="record-role"><span class="record-role-label">{{ t.author }}:</span> <span class="dictator-name" data-cell="author" :title="r.author">{{ r.author }}</span></span>
                 <span class="record-role"><span class="record-role-label">{{ t.pool }}:</span> <span class="pool-name" data-cell="pool" :title="r.poolText">{{ r.poolText }}</span></span>
-                <span v-if="r.hasLease" class="record-role"><span class="record-role-label">{{ t.lease }}:</span> <span data-cell="lease">{{ r.leaseHolder }}</span></span>
+                <span v-if="r.hasLease" class="record-role"><span class="record-role-label">{{ t.lease }}:</span> <span class="dictator-name" data-cell="lease">{{ r.leaseHolder }}</span></span>
               </span>
               <span class="record-subtitle" :class="r.isFallback ? 'date-fallback' : ''">#{{ r.dictationId }}<span v-if="r.fallbackText" data-testid="fallback" :title="r.fallbackTip" :aria-label="r.fallbackTip"> · {{ r.fallbackText }}</span><span v-else-if="r.isFallback" data-testid="fallback" :title="r.fallbackTip" :aria-label="r.fallbackTip"> · {{ r.fallbackLabel }}</span></span>
             </span>
-            <span class="status" :style="r.statusStyle" :title="r.processing">{{ r.status }}</span>
-            <span class="record-source">{{ r.sourceLabel }}</span>
+            <span class="status" :class="r.statusClass" :title="r.processing">{{ r.status }}</span>
+            <span class="record-source" aria-hidden="true"></span>
             <span class="record-duration">{{ r.duration }}</span>
             <span class="record-chevron" aria-hidden="true">›</span>
           </a>
         </div>
       </section>
-      <div v-if="c.state.nextCursor" class="cl-more">
-        <button type="button" class="btn btn--ghost" data-testid="load-more" :disabled="c.state.loadingMore" @click="c.loadMore()">
-          {{ c.state.loadingMore ? t.loadingMore : t.loadMore }}
-        </button>
-      </div>
+    </div>
+    <div v-if="c.state.loaded && c.state.nextCursor" class="cl-more">
+      <button type="button" class="btn btn--ghost" data-testid="load-more" :disabled="c.state.loadingMore" @click="c.loadMore()">
+        {{ c.state.loadingMore ? t.loadingMore : t.loadMore }}
+      </button>
     </div>
   </template>
 </section>`,
