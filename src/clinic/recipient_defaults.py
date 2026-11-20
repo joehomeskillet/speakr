@@ -168,7 +168,14 @@ def _linked_staff_ids(author_pool_id: str) -> list[str]:
         .order_by(pools.ClinicPoolRoute.id)
         .all()
     )
-    return [row[0] for row in rows]
+    now = _utcnow()
+    ids = []
+    for (staff_id,) in rows:
+        staff = db.session.get(pools.ClinicStaffPool, staff_id)
+        # Inactive or out-of-validity staff pools are never a default or an eligible target.
+        if staff is None or pools.is_routable(staff, now):
+            ids.append(staff_id)
+    return ids
 
 
 def _member_ids(staff_pool_id: str) -> list[int]:

@@ -23,8 +23,9 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
-from flask import Blueprint, abort, jsonify, request
+from flask import Blueprint, abort, current_app, jsonify, request, session
 from flask_login import current_user
+from flask_wtf.csrf import CSRFError, ValidationError, validate_csrf
 
 from src.clinic.admin_dictation_access import _is_active_site_admin
 from src.clinic.config import clinic_mode_enabled
@@ -64,6 +65,10 @@ def _reply(payload: dict, status: int = 200):
     return response
 
 
+def _csrf_refusal():
+    return _reply({"error": "csrf", "code": "csrf_failed"}, 403)
+
+
 def _refuse(code: str):
     return _reply({"error": code.replace("_", " "), "code": code}, _STATUS.get(code, 400))
 
@@ -72,11 +77,22 @@ def _refuse(code: str):
 def _guard():
     if not clinic_mode_enabled():
         abort(404)
-    if not current_user.is_authenticated:
+    if not (current_user.is_authenticated and current_user.is_active
+            and session.get("_user_id") == current_user.get_id()):
         return _reply({"error": "unauthenticated", "code": "unauthenticated"}, 401)
     if not _is_active_site_admin(db.session, current_user):
         return _refuse("unauthorized")
+    if request.method != "GET" and current_app.config.get("WTF_CSRF_ENABLED", True):
+        try:
+            validate_csrf(request.headers.get("X-CSRFToken") or request.headers.get("X-CSRF-Token"))
+        except ValidationError:
+            return _csrf_refusal()
     return None
+
+
+@blueprint.errorhandler(CSRFError)
+def _csrf_failed(_error):
+    return _csrf_refusal()
 
 
 def _own_manifest(kind, scope, pool_id) -> dict:
