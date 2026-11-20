@@ -292,6 +292,22 @@ document.addEventListener('DOMContentLoaded', async () => {
                 client: createClinicApiClient(),
                 user: { id: appRootElement.dataset.currentUserId, role: appRootElement.dataset.clinicRole || 'author' },
             };
+            // V8 dictation views (v8-70)
+            const [{ registerDetailView }, { registerReviewView }, { registerOutputView }, { registerJobsView }, { registerActivityView }] = await Promise.all([
+                import('./clinic/compose-detail.js'),
+                import('./clinic/compose-review.js'),
+                import('./clinic/compose-output.js'),
+                import('./clinic/compose-jobs.js'),
+                import('./clinic/compose-activity.js'),
+            ]);
+            clinicWorklist.registerDictationViews = (vueApp) => {
+                registerDetailView(vueApp);
+                registerReviewView(vueApp);
+                registerOutputView(vueApp);
+                registerJobsView(vueApp);
+                registerActivityView(vueApp);
+            };
+            // end V8 dictation views (v8-70)
         } catch (error) {
             console.error('[Clinic] Worklist view could not be loaded:', error);
         }
@@ -337,6 +353,22 @@ document.addEventListener('DOMContentLoaded', async () => {
                 'clinic-resources': '#/ressourcen',
                 'clinic-correction': '#/diktat',
             };
+            // V8 dictation views (v8-70): views of one opened dictation; the id is state, never part of the URL.
+            const CLINIC_DICTATION_HASH = {
+                'clinic-detail': '#/diktat/details',
+                'clinic-review': '#/diktat/pruefen',
+                'clinic-output': '#/diktat/ausgabe',
+                'clinic-jobs': '#/diktat/verarbeitung',
+                'clinic-activity': '#/diktat/verlauf',
+            };
+            const CLINIC_DICTATION_LINKS = [
+                { view: 'clinic-detail', label: 'Details' },
+                { view: 'clinic-review', label: 'Prüfen und Freigeben' },
+                { view: 'clinic-output', label: 'Ausgabe' },
+                { view: 'clinic-jobs', label: 'Verarbeitung' },
+                { view: 'clinic-activity', label: 'Verlauf' },
+            ];
+            // end V8 dictation views (v8-70)
             const clinicViewFromHash = () => Object.keys(CLINIC_VIEW_HASH)
                 .find((view) => view !== 'clinic-correction' && CLINIC_VIEW_HASH[view] === window.location.hash) || 'clinic-recordings';
             const currentView = ref(clinicWorklist ? clinicViewFromHash() : null);
@@ -348,7 +380,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const clinicOrigin = ref('clinic-recordings');
             // Set when the correction is left towards another view (tab, menu link, browser back).
             let clinicPendingView = null;
-            const clinicActiveTab = computed(() => (currentView.value === 'clinic-correction' ? clinicOrigin.value : currentView.value));
+            const clinicActiveTab = computed(() => (currentView.value === 'clinic-correction' || currentView.value in CLINIC_DICTATION_HASH ? clinicOrigin.value : currentView.value));
             // The worklist reports { dictationId, mode }; author_case keeps its current behaviour.
             const openClinicDictation = (payload) => {
                 if (!payload || (payload.mode !== 'correction' && payload.mode !== 'player')) return;
@@ -378,6 +410,55 @@ document.addEventListener('DOMContentLoaded', async () => {
                     currentView.value = view;
                 }
             };
+            // V8 dictation views (v8-70)
+            // Detail, review, output, processing and activity of the opened dictation. The dictation id stays in state.
+            const clinicDictationId = ref(null);
+            const isClinicDictationView = (view) => Object.prototype.hasOwnProperty.call(CLINIC_DICTATION_HASH, view);
+            const clinicDictationViewActive = computed(() => isClinicDictationView(currentView.value));
+            // From the open correction the switch goes through the editor's own save-first close; it stays open when saving fails.
+            const openClinicDictationView = (view) => {
+                if (!isClinicDictationView(view)) return;
+                const id = currentView.value === 'clinic-correction' ? clinicCorrectionId.value : clinicDictationId.value;
+                if (id === null || id === undefined) return;
+                clinicDictationId.value = id;
+                if (currentView.value === 'clinic-correction') {
+                    requestClinicCorrectionClose(view);
+                } else {
+                    currentView.value = view;
+                }
+            };
+            // Closing returns to the tab the dictation was opened from.
+            const closeClinicDictationView = () => {
+                clinicDictationId.value = null;
+                currentView.value = clinicOrigin.value;
+            };
+            // Back into the correction editor from a dictation view; the origin tab is kept.
+            const openClinicEditorFromView = () => {
+                if (clinicDictationId.value === null) return;
+                clinicCorrectionId.value = clinicDictationId.value;
+                clinicDictationId.value = null;
+                currentView.value = 'clinic-correction';
+            };
+            // Browser back/forward: the history state carries the id.
+            const restoreClinicDictationView = (state) => {
+                const view = Object.keys(CLINIC_DICTATION_HASH).find((v) => CLINIC_DICTATION_HASH[v] === window.location.hash);
+                if (!view || state.dictationId === undefined || state.dictationId === null) return null;
+                clinicDictationId.value = String(state.dictationId);
+                clinicOrigin.value = state.origin === 'clinic-worklist' ? 'clinic-worklist' : 'clinic-recordings';
+                return view;
+            };
+            if (clinicWorklist) {
+                watch(currentView, (view) => {
+                    const hash = CLINIC_DICTATION_HASH[view];
+                    if (!hash) {
+                        clinicDictationId.value = null;
+                        return;
+                    }
+                    if (window.location.hash === hash) return;
+                    window.history.pushState({ clinicView: view, dictationId: clinicDictationId.value, origin: clinicOrigin.value }, '', hash);
+                }, { flush: 'sync' });
+            }
+            // end V8 dictation views (v8-70)
             if (clinicWorklist) {
                 // The view is in the URL: one history entry per view, so back/forward and direct links work.
                 const syncClinicHash = (view) => {
@@ -392,7 +473,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 window.addEventListener('popstate', () => {
                     const state = window.history.state || {};
                     const reopen = window.location.hash === CLINIC_VIEW_HASH['clinic-correction'] && state.dictationId !== undefined && state.dictationId !== null;
-                    const target = reopen ? 'clinic-correction' : clinicViewFromHash();
+                    const dictationTarget = restoreClinicDictationView(state); // V8 dictation views (v8-70)
+                    const target = reopen ? 'clinic-correction' : (dictationTarget || clinicViewFromHash());
                     if (currentView.value === 'clinic-correction' && target !== 'clinic-correction') {
                         goClinicView(target);
                         return;
@@ -5128,7 +5210,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                 clinicUser: clinicWorklist ? clinicWorklist.user : null,
                 clinicCorrectionId, clinicCorrectionMount, clinicViewMount, clinicOrigin, clinicActiveTab, goClinicView,
                 openClinicDictation, closeClinicCorrection,
-                requestClinicCorrectionClose, clinicAudioContextFactory
+                requestClinicCorrectionClose, clinicAudioContextFactory,
+                // V8 dictation views (v8-70)
+                clinicDictationId, clinicDictationViewActive, clinicDictationLinks: CLINIC_DICTATION_LINKS,
+                openClinicDictationView, closeClinicDictationView, openClinicEditorFromView
+                // end V8 dictation views (v8-70)
             };
         },
         delimiters: ['${', '}']
@@ -5160,6 +5246,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         clinicWorklist.registerResourcesView(app);
         clinicWorklist.registerCorrectionView(app);
         clinicWorklist.registerRecordingsView(app);
+        clinicWorklist.registerDictationViews(app); // V8 dictation views (v8-70)
     }
 
     app.mount('#app');
