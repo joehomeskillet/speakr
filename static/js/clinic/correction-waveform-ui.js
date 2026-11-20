@@ -59,6 +59,7 @@ export const LABELS = Object.freeze({
     none: 'Keine Wellenform verfügbar.',
     denied: 'Keine Berechtigung für die Wellenform.',
     failed: 'Die Wellenform konnte nicht geladen werden.',
+    compute: 'Wellenform konnte nicht berechnet werden.',
     pending: 'Die Wellenform wird berechnet …',
 });
 
@@ -188,15 +189,15 @@ export function useCorrectionWaveform(options) {
                 signal: controller ? controller.signal : null,
                 sleep: opts.sleep || null,
                 onPending: () => say(LABELS.pending),
-                fetchFn: async (url, init) => { const r = await get(url, init); last = r.status; return r; },
+                fetchFn: async (url, init) => { const r = await get(url, init); last = r.peaksFailed ? 'compute' : r.status; return r; },
             }),
             readFlags(mine),
         ]);
         if (mine !== seq || disposed) return { ok: false, code: 'cancelled', message: '' };
         if (!parsed) {
-            const code = last === 401 || last === 403 ? 'denied' : (last === 404 ? 'none' : 'failed');
+            const code = last === 401 || last === 403 ? 'denied' : (last === 404 ? 'none' : (last === 'compute' ? 'compute' : 'failed'));
             const problem = fail(code);
-            loadState.value = code === 'failed' ? 'error' : code;
+            loadState.value = code === 'failed' || code === 'compute' ? 'error' : code;
             error.value = problem;
             loaded.value = { peaks: null, audioRevisionId: null };
             say(problem.message);

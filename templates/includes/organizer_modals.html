@@ -212,7 +212,7 @@
                         <div class="empty__body">
                             {% if current_user.is_admin %}
                                 <span data-i18n="editTagModal.sharingEmptyAdminBefore">To share a tag, first create a group in</span>
-                                <a href="/admin#groups" class="text-[var(--text-accent)] hover:underline" data-i18n="folderManagement.adminGroupsLink">Admin&nbsp;&rarr;&nbsp;Groups</a><span data-i18n="editTagModal.sharingEmptyAdminAfter">, then choose it here.</span>
+                                {% if not clinic_mode %}<a href="/admin#groups" class="text-[var(--text-accent)] hover:underline" data-i18n="folderManagement.adminGroupsLink">Admin&nbsp;&rarr;&nbsp;Groups</a>{% endif %}<span data-i18n="editTagModal.sharingEmptyAdminAfter">, then choose it here.</span>
                             {% else %}
                                 <span data-i18n="editTagModal.sharingEmptyMember">To share a tag, you need to be an admin of a group. Ask your administrator to make you one.</span>
                             {% endif %}
@@ -423,7 +423,7 @@
                         <div class="empty__body">
                             {% if current_user.is_admin %}
                                 <span data-i18n="folderManagement.sharingEmptyAdminBefore">To share a folder, first create a group in</span>
-                                <a href="/admin#groups" class="text-[var(--text-accent)] hover:underline" data-i18n="folderManagement.adminGroupsLink">Admin&nbsp;&rarr;&nbsp;Groups</a><span data-i18n="folderManagement.sharingEmptyAdminAfter">, then choose it here.</span>
+                                {% if not clinic_mode %}<a href="/admin#groups" class="text-[var(--text-accent)] hover:underline" data-i18n="folderManagement.adminGroupsLink">Admin&nbsp;&rarr;&nbsp;Groups</a>{% endif %}<span data-i18n="folderManagement.sharingEmptyAdminAfter">, then choose it here.</span>
                             {% else %}
                                 <span data-i18n="folderManagement.sharingEmptyMember">To share a folder, you need to be an admin of a group. Ask your administrator to make you one.</span>
                             {% endif %}

@@ -41,6 +41,7 @@ _PROBLEMS = {
     413: ('PAYLOAD_TOO_LARGE', 'Anfrage zu gross'),
     415: ('UNSUPPORTED_MEDIA_TYPE', 'Nicht unterstütztes Format'),
     423: ('LOCKED', 'Diktat ist gesperrt'),
+    500: ('PEAKS_FAILED', 'Wellenform konnte nicht berechnet werden'),
     503: ('DEPENDENCY_UNAVAILABLE', 'Dienst nicht verfügbar'),
 }
 # Allowed body keys per operation; the actor and role always come from the session.
@@ -306,7 +307,7 @@ def create_blueprint(
                 out.write(wav)
             data = compute_peaks(path)
         except PeaksError:
-            abort(503)
+            return _problem(500)
         finally:
             os.unlink(path)
         audit.record('recording.content.read', recording_id=dictation.recording_id,
