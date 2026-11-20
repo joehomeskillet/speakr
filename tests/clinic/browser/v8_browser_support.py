@@ -19,6 +19,9 @@ from pathlib import Path
 from typing import Callable
 
 import pytest
+from playwright.sync_api import expect
+
+import v8_page_navigation as navigation
 
 ROOT = Path(__file__).resolve().parents[3]
 OUT_DIR = Path(os.environ.get("V8_BROWSER_OUT") or Path(__file__).resolve().parent / "out")
@@ -193,11 +196,13 @@ def _open_shell_view(page, base: str, fragment: str) -> None:
 def _show_recordings(page, base: str) -> None:
     _open_shell_view(page, base, "#/aufnahmen")
     page.locator("[data-testid=clinic-recordings-view]").wait_for(state="visible", timeout=SHOW_TIMEOUT_MS)
+    expect(page.get_by_test_id("clinic-recordings-view").get_by_test_id("total-count")).to_be_visible()
 
 
 def _show_worklist(page, base: str) -> None:
     _open_shell_view(page, base, "#/arbeitsliste")
     page.locator("[data-testid=clinic-worklist-view]").wait_for(state="visible", timeout=SHOW_TIMEOUT_MS)
+    expect(page.get_by_test_id("clinic-worklist-view").get_by_test_id("status-totals")).to_be_visible()
 
 
 def _click_noting(page, locator, label: str) -> None:
@@ -211,13 +216,16 @@ def _click_noting(page, locator, label: str) -> None:
 
 def _show_correction(page, base: str) -> None:
     _show_worklist(page, base)
-    row = page.locator("[data-row]").first
+    row = page.get_by_test_id("clinic-worklist-view").locator("[data-row]")
+    expect(row).to_have_count(1, timeout=SHOW_TIMEOUT_MS)
     row.wait_for(state="visible", timeout=SHOW_TIMEOUT_MS)
+    page.v8_dictation_id = row.get_attribute("data-id")
     _click_noting(page, row, "worklist row")
     _click_noting(page, page.locator("[data-testid=clinic-worklist-view]").get_by_role("button", name="Öffnen", exact=True),
                   "button Öffnen")
     page.locator("[data-testid=clinic-correction-view]").wait_for(state="visible", timeout=SHOW_TIMEOUT_MS)
     page.locator("[data-testid=text]").wait_for(state="visible", timeout=SHOW_TIMEOUT_MS)
+    expect(page.get_by_test_id("text")).to_have_value("Anamnese Husten seit drei Tagen.")
 
 
 def _show_resources(page, base: str) -> None:
@@ -239,7 +247,15 @@ def _open_admin(page, base: str) -> None:
 
 def _show_admin_accounts(page, base: str) -> None:
     _open_admin(page, base)
+    # Keep the former Abnahme check, then prove the actual P12 accounts page.
+    page.get_by_role("navigation", name="Verwaltung", exact=True).get_by_role(
+        "button", name="Abnahme", exact=True).click()
     page.locator("#acc-title").wait_for(state="visible", timeout=SHOW_TIMEOUT_MS)
+    page.get_by_role("navigation", name="Verwaltung", exact=True).get_by_role(
+        "button", name="Benutzer und Rollen", exact=True).click()
+    view = page.get_by_test_id("clinic-users-view")
+    expect(view.get_by_role("heading", name="Benutzer und Rollen", exact=True)).to_be_visible()
+    expect(view.get_by_role("table")).to_contain_text("author-v860")
 
 
 def _show_admin_pools(page, base: str) -> None:
@@ -277,25 +293,25 @@ class PageEntry:
 PAGES: tuple[PageEntry, ...] = (
     PageEntry("P01", "Aufnahmen", "recordings", ("author", "typist", "lead", "admin"), _show_recordings),
     PageEntry("P02", "Arbeitsliste", "worklist", ("author", "typist", "lead", "admin"), _show_worklist),
-    PageEntry("P03", "Diktatdetails"),
-    PageEntry("P04", "Neue Aufnahme"),
-    PageEntry("P05", "Live-Diktat"),
+    PageEntry("P03", "Diktatdetails", "detail", ("author",), navigation.show_detail),
+    PageEntry("P04", "Neue Aufnahme", "recording", ("author",), navigation.show_recording),
+    PageEntry("P05", "Live-Diktat", "live", ("author",), navigation.show_live),
     PageEntry("P06", "Schreibplatz", "correction", ("typist",), _show_correction),
-    PageEntry("P07", "Prüfen und Freigeben"),
-    PageEntry("P08", "Archiv"),
-    PageEntry("P09", "Dateien und Geräteimport"),
+    PageEntry("P07", "Prüfen und Freigeben", "review", ("typist",), navigation.show_review),
+    PageEntry("P08", "Archiv", "archive", ("author",), navigation.show_archive),
+    PageEntry("P09", "Dateien und Geräteimport", "import", ("admin",), navigation.show_import),
     PageEntry("P10", "Schreibkräfte-Pools", "admin/pools", ("admin",), _show_admin_pools),
-    PageEntry("P11", "Diktierende und Autorenpools"),
+    PageEntry("P11", "Diktierende und Autorenpools", "admin/authors", ("admin",), navigation.show_authors),
     PageEntry("P12", "Benutzer und Rollen", "admin/accounts", ("admin",), _show_admin_accounts),
-    PageEntry("P13", "Wortschatz", "resources", ("author", "typist", "lead", "admin"), _show_resources),
-    PageEntry("P14", "Sprachbefehle und Vorlagen"),
-    PageEntry("P15", "ASR und Sprachprofile"),
-    PageEntry("P16", "Ausgabe und Integrationen"),
-    PageEntry("P17", "Verarbeitung"),
-    PageEntry("P18", "Aktivität und Audit"),
-    PageEntry("P19", "Einstellungen"),
-    PageEntry("P20", "Anmeldung und Zugriff"),
-    PageEntry("P21", "Offline und Wiederherstellung"),
+    PageEntry("P13", "Wortschatz", "resources", ("author", "typist", "lead", "admin"), navigation.show_vocabulary),
+    PageEntry("P14", "Sprachbefehle und Vorlagen", "admin/commands", ("author",), navigation.show_commands),
+    PageEntry("P15", "ASR und Sprachprofile", "admin/asr", ("admin",), navigation.show_asr),
+    PageEntry("P16", "Ausgabe und Integrationen", "output", ("author",), navigation.show_output),
+    PageEntry("P17", "Verarbeitung", "jobs", ("author",), navigation.show_jobs),
+    PageEntry("P18", "Aktivität und Audit", "activity", ("author",), navigation.show_activity),
+    PageEntry("P19", "Einstellungen", "settings", ("author",), navigation.show_settings),
+    PageEntry("P20", "Anmeldung und Zugriff", "login", ("anonymous",), navigation.show_login),
+    PageEntry("P21", "Offline und Wiederherstellung", "offline", ("author",), navigation.show_offline),
 )
 
 

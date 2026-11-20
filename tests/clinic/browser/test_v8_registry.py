@@ -9,9 +9,16 @@ def test_registry_covers_p01_to_p21_once():
 
 def test_mounted_entries_name_view_and_roles():
     mounted = [p for p in support.PAGES if p.mounted]
-    assert {p.view.split("/")[0] for p in mounted} == {"recordings", "worklist", "resources", "admin", "correction"}
+    assert [page.view for page in mounted] == [
+        "recordings", "worklist", "detail", "recording", "live", "correction", "review",
+        "archive", "import", "admin/pools", "admin/authors", "admin/accounts", "resources",
+        "admin/commands", "admin/asr", "output", "jobs", "activity", "settings", "login", "offline",
+    ]
     for page in mounted:
-        assert page.view and page.roles and set(page.roles) <= set(support.ROLES), page.page_id
+        if page.page_id == "P20":
+            assert page.roles == ("anonymous",)
+        else:
+            assert page.roles and set(page.roles) <= set(support.ROLES), page.page_id
 
 
 def test_unmounted_entries_carry_no_roles():
