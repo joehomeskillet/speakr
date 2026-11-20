@@ -24,13 +24,13 @@
  */
 
 import { TOKEN_CONTRACT_VERSION, surfaceFor } from './tokens.js';
-import { collectOptions, optionList } from './recordings-ui.js';
+import { ARCHIVE_STATUS, collectOptions, optionList } from './recordings-ui.js';
 
 export const COMPOSE_ARCHIVE_VERSION = 1;
 export const PAGE_SIZE = 50;
 
 /** Workflow state the archive filter selects (workflow.TO_ARCHIVE). */
-export const ARCHIVE_STATUS = 'zu_archivieren';
+export { ARCHIVE_STATUS };
 export const ZONE = 'Europe/Zurich';
 
 // clinic-v8.css states heading, button and form-control styles with zero-specificity element selectors; the Tailwind
