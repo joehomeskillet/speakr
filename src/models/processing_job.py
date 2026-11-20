@@ -26,6 +26,8 @@ class ProcessingJob(db.Model):
 
     # JSON blob for job-specific parameters (language, min_speakers, custom_prompt, etc.)
     params = db.Column(db.Text, nullable=True)
+    # Workflow transitions on one recording can each have a pending in-app notice.
+    notify_transition_id = db.Column(db.String(64), nullable=True)
 
     # Error tracking
     error_message = db.Column(db.Text, nullable=True)
