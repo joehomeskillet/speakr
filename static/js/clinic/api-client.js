@@ -140,6 +140,7 @@ function headersFor(method, token, options) {
  */
 export function createClinicApiClient() {
     let generation = 0;
+    let dictationChanges = 0;
     let context = { accountId: null, dictationId: null };
     const inflight = new Set();
 
@@ -229,7 +230,11 @@ export function createClinicApiClient() {
                 text = await readText(sent.response);
                 if (seen !== generation) return result('cancelled', { code: 'CANCELLED' });
             }
-            return classify(sent.response, text);
+            const response = classify(sent.response, text);
+            if (unsafe && response.outcome === 'ok' && (url.startsWith(ROOT + '/dictations/') || url === PARITY_COMMANDS)) {
+                dictationChanges += 1;
+            }
+            return response;
         } finally {
             inflight.delete(controller);
         }
@@ -253,5 +258,6 @@ export function createClinicApiClient() {
         request: request,
         command: command,
         switchContext: switchContext,
+        get dictationChanges() { return dictationChanges; },
     };
 }

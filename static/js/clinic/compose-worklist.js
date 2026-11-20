@@ -352,6 +352,7 @@ export function createWorklistViewController(options) {
     let detailKey = null; // `${id}|${revision}|${etag}` of the loaded detail
     let lease = null; // { ctrl, unsubscribe }
     let reloadQueued = false;
+    let loadedRevision = client.dictationChanges;
 
     // --- list modules -------------------------------------------------------
     let refresh = null;
@@ -413,6 +414,7 @@ export function createWorklistViewController(options) {
 
     // --- loading ------------------------------------------------------------
     async function reload() {
+        const revision = client.dictationChanges;
         let response;
         if (!paused.value) {
             response = await refresh.refresh();
@@ -429,6 +431,7 @@ export function createWorklistViewController(options) {
             }
         }
         if (response && response.outcome === 'ok') {
+            loadedRevision = revision;
             view.total = response.data && Number.isInteger(response.data.total) ? response.data.total : null;
         }
         if (!paused.value && started && !disposed && !refresh.isRunning.value && !worklist.isPermissionLost.value) {
@@ -668,6 +671,7 @@ export function createWorklistViewController(options) {
     async function start() {
         if (started || disposed) return;
         started = true;
+        loadedRevision = client.dictationChanges;
         ensureHostedStyles();
         await Promise.all([layout.load(), refresh.start()]);
         applyV8Default();
@@ -698,6 +702,7 @@ export function createWorklistViewController(options) {
         vue: V, view, panels, selectedId, selectedRow: worklist.selectedRow, leaseState, leaseRun, paused,
         worklist, refresh, filters, layout, workflow, detailClient, displayed, columns, headerAttrs,
         detailRequest: (id) => id === detailId ? pendingDetail : null,
+        refreshIfChanged: () => loadedRevision !== client.dictationChanges ? reload() : null,
         start, dispose, reload, assignmentDone, select, open, canOpen, listenOnly, onRowKey, goto, pages, hasNext, applyFilter,
         key: rowKey, cell: cellText, badge: statusBadge, dictationLabel, entryCount, text: TEXT,
         referenceLabel: (row) => 'Diktat ' + formatDictationReference(rowKey(row)),
@@ -763,6 +768,7 @@ export const WorklistView = {
         if (!V) throw new Error('Vue is required to mount the worklist view');
         const parts = buildParts(V, c.detailClient);
         if (typeof V.onMounted === 'function' && props.autoStart) V.onMounted(() => c.start());
+        if (typeof V.onActivated === 'function' && props.autoStart) V.onActivated(() => c.refreshIfChanged());
         if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => c.dispose());
         function rowContext(id) {
             const row = c.worklist.selectedRow.value;

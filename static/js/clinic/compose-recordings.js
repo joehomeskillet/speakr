@@ -70,6 +70,14 @@ export const RecordingsView = {
                 restoreScroll();
             });
         }
+        if (typeof V.onActivated === 'function' && props.autoStart) {
+            V.onActivated(async () => {
+                if (await c.refreshIfChanged()) {
+                    await V.nextTick();
+                    restoreScroll();
+                }
+            });
+        }
         if (typeof V.onBeforeUnmount === 'function') {
             V.onBeforeUnmount(() => {
                 if (host && typeof host.removeEventListener === 'function') host.removeEventListener('scroll', onHostScroll);

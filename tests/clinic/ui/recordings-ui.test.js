@@ -136,6 +136,38 @@ describe('recordings controller', () => {
         expect(b.state.loaded).toBe(true);
     });
 
+    it('reloads previously viewed pages with fresh cursors after a dictation changes', async () => {
+        const memory = createRecordingsMemory();
+        const client = fakeClient([
+            ok([]), ok([item('1')], 'old'), ok([item('2')]),
+            ok([item('3')], 'new'), { outcome: 'UNKNOWN', status: 503 },
+            ok([item('3')], 'new'), ok([item('1')], 'next'),
+        ]);
+        client.dictationChanges = 0;
+        const first = make(client, { memory });
+        await first.start();
+        first.state.draft.pool_id = '4';
+        await first.applyFilters();
+        await first.loadMore();
+        first.state.query = 'Muster';
+        first.setScroll(321);
+        first.dispose();
+
+        client.dictationChanges += 1;
+        const reopened = make(client, { memory });
+        await reopened.start();
+        expect(reopened.state.rows.map(row => row.key)).toEqual(['1', '2']);
+        expect(reopened.state.stale).toBe(true);
+        expect(reopened.scrollTop()).toBe(321);
+        await reopened.refreshIfChanged();
+        expect(reopened.state.rows.map(row => row.key)).toEqual(['3', '1']);
+        expect(client.request.mock.calls.at(-1)[0]).toContain('cursor=new');
+        expect(reopened.state.filters.pool_id).toBe('4');
+        expect(reopened.state.query).toBe('Muster');
+        expect(reopened.state.nextCursor).toBe('next');
+        expect(reopened.scrollTop()).toBe(321);
+    });
+
     it('open reports the worklist payload', async () => {
         const onOpen = vi.fn();
         const c = make(fakeClient([ok([item('7'), item('8', { workflow_status: 'zu_korrigieren' })])]), { onOpen });
