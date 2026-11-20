@@ -1,5 +1,7 @@
 import { buildPath, formatTime, formatDay } from './recordings-ui.js';
 
+const DICTATION_UUID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
+
 // Choices contain only metadata already visible through the recordings policy.
 export function createDictationChoices({ client, makeState = (s) => s, authorId = null }) {
     const state = makeState({ rows: [], cursor: null, loading: false, message: '' });
@@ -39,9 +41,9 @@ export function createDictationChoices({ client, makeState = (s) => s, authorId 
     }
     function resolve(text) {
         const value = String(text || '').trim();
-        const match = state.rows.find((r) => r.label === value);
+        const match = state.rows.find((r) => r.label === value || r.id === value);
         // Legacy direct IDs remain optional; the destination still checks permissions.
-        return match ? match.id : (/^[A-Za-z0-9_-]{1,64}$/.test(value) ? value : null);
+        return match ? match.id : (DICTATION_UUID.test(value) ? value : null);
     }
     return { state, load, clear, resolve };
 }
