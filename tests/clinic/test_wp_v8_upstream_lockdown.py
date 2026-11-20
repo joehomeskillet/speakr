@@ -4,9 +4,7 @@ In CLINIC_MODE the account and admin pages render no tab, link or panel for a fe
 src/clinic/route_policy.py lists under DISABLED. The hidden entries are declared here as
 (page, feature, markers); the test derives the policy side from ROUTE_POLICY, so an entry
 cannot name a feature the policy no longer disables. With CLINIC_MODE off the upstream
-markup is unchanged. The inline clinic script moved into static/js/clinic/admin-clinic-tab.js;
-both pages only import and call it.
-
+markup is unchanged.
 The real application renders the real templates in a child process (throwaway SQLite
 database, synthetic users, no patient data); no browser is needed.
 """
@@ -15,7 +13,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -109,8 +106,6 @@ def test_clinic_mode_renders_no_disabled_entry(clinic_pages, page, entry, featur
 @pytest.mark.parametrize("page,entry,feature,markers", _entries(), ids=lambda v: v if isinstance(v, str) else None)
 def test_clinic_mode_off_renders_every_entry_as_before(upstream_pages, page, entry, feature, markers):
     for marker in markers:
-        if marker.startswith("activeTab") and "vectorstore" in marker:
-            continue  # the stock vector store tab shows only with inquire mode on
         assert marker in upstream_pages[page], f"{page}: {entry} missing without clinic mode ({marker})"
 
 
@@ -125,18 +120,16 @@ def test_clinic_mode_keeps_the_functional_entries(clinic_pages, upstream_pages):
     assert "admin-tab-clinic" not in upstream_pages["/admin"]
 
 
-def test_clinic_pages_import_the_module_once(clinic_pages, upstream_pages):
-    assert clinic_pages["/admin"].count("/static/js/clinic/admin-clinic-tab.js") == 1
-    assert "/static/js/clinic/" not in upstream_pages["/admin"] and "/static/js/clinic/" not in upstream_pages["/account"]
+def test_upstream_pages_carry_no_clinic_module(upstream_pages):
+    assert "/static/js/clinic/" not in upstream_pages["/admin"]
+    assert "/static/js/clinic/" not in upstream_pages["/account"]
 
 
-def test_no_inline_clinic_script_is_left_in_the_pages():
+def test_inline_clinic_script_is_unchanged_in_the_pages():
+    # the lockdown does not touch the inline clinic script: one api client, one Vue app per page
     for name in ("admin.html", "group-admin.html"):
         src = (ROOT / "templates" / name).read_text(encoding="utf-8")
-        assert "createApp(Root)" not in src and "createClinicApiClient" not in src, name
-        assert "ClinicGrantsHost" not in src and "ClinicRegexHost" not in src, name
-        assert len(re.findall(r"import \{ mountClinicAdmin \} from", src)) == 1, name
-        assert src.count("mountClinicAdmin();") == 1, name
-    # one module, with the behaviour the pages used to carry inline
-    module = (ROOT / "static/js/clinic/admin-clinic-tab.js").read_text(encoding="utf-8")
-    assert module.count("createClinicApiClient()") == 1 and module.count("Vue.createApp(Root)") == 1
+        assert src.count("createClinicApiClient()") == 1, name
+        assert src.count("createApp(Root)") == 1, name
+        assert "ClinicGrantsHost" in src and "ClinicRegexHost" in src, name
+        assert "admin-clinic-tab.js" not in src, name
