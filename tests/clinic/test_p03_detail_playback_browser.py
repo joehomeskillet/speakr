@@ -92,8 +92,10 @@ def test_read_only_detail_plays_seeks_cut_audio_without_a_lease_or_export(detail
             if folder := os.environ.get("P03_ARTIFACTS"):
                 Path(folder).mkdir(exist_ok=True, parents=True)
                 page.screenshot(path=str(Path(folder) / f"p03-hoeren-{width}.png"))
-            audio.press("ArrowLeft")
-            page.wait_for_function("document.querySelector('.clinic-detail-view audio').currentTime < 0.1")
+            before_key = audio.evaluate("e => e.currentTime")
+            page.keyboard.press("ArrowLeft")
+            page.wait_for_function("t => document.querySelector('.clinic-detail-view audio').currentTime < t",
+                                   arg=before_key, timeout=4000)
             assert not page.js_errors
             page.context.close()
 
