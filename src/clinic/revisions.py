@@ -5,17 +5,20 @@ The head is the latest human correction when one exists, otherwise the
 latest ASR row. A later ASR result is stored as a side revision: it stays
 readable, and it does not become the head.
 
-``ClinicTranscriptRevision`` has no timestamp and no author column. Order
-is the parent chain. ``author_user_id`` is checked against ``user.id`` and
-is not stored. The service writes no datetimes.
+Each row stores ``created_at`` (UTC) and, for human rows,
+``revision_author_user_id``. Rows from before these nullable columns keep NULL.
+Order is still the parent chain. ``author_user_id`` is checked against
+``user.id``. The dictating person (``dictated_by``) is never copied here.
 """
 
 from __future__ import annotations
 
 import hashlib
 import unicodedata
+from datetime import datetime, timezone
 
-from sqlalchemy import event
+from sqlalchemy import event, inspect
+from sqlalchemy import text as sql_text
 
 from src.clinic.models import (
     ClinicDictation,
@@ -89,8 +92,8 @@ def add_human_revision(
     A new row is flushed, so its ID is available to other writes in the same
     session. The caller owns the commit or rollback.
 
-    ``author_user_id`` must be an existing user. The frozen transcript table
-    has no author column, so the id is not stored on the row.
+    ``author_user_id`` must be an existing user. It is stored as
+    ``revision_author_user_id``, separate from the dictating person.
     """
     _check_dictation(dictation)
     _require_author(author_user_id)
@@ -101,6 +104,7 @@ def add_human_revision(
         explicit_parent=parent_revision,
         original_version=original_version,
         model_ref=None,
+        author_user_id=author_user_id,
     )
 
 
@@ -151,7 +155,8 @@ def is_flagged(dictation: ClinicDictation, revision: ClinicTranscriptRevision) -
     return revision.id not in _lineage_ids(head, by_id)
 
 
-def _append(dictation, *, kind, text, explicit_parent, original_version, model_ref):
+def _append(dictation, *, kind, text, explicit_parent, original_version, model_ref,
+            author_user_id=None):
     digest = text_hash(text)
     normalised = normalise_text(text)
     rows = _load(dictation.id)
@@ -172,10 +177,55 @@ def _append(dictation, *, kind, text, explicit_parent, original_version, model_r
         normalised_text_hash=digest,
         original_version_id=original_id,
         model_ref=stored_model,
+        revision_author_user_id=author_user_id,
+        created_at=datetime.now(timezone.utc),
     )
     db.session.add(row)
     db.session.flush()
     return row
+
+
+def revision_author(revision: ClinicTranscriptRevision) -> dict | None:
+    """``{id, display_name}`` of the revision author, or None for legacy rows."""
+    from src.models import User
+
+    author_id = revision.revision_author_user_id
+    if author_id is None:
+        return None
+    user = db.session.get(User, author_id)
+    name = (user.name or user.username) if user is not None else None
+    return {"id": author_id, "display_name": name or "unbekannt"}
+
+
+_NEW_COLUMNS = (
+    ("revision_author_user_id", "INTEGER"),
+    ("created_at", "DATETIME"),
+)
+
+
+def create_tables(bind=None) -> None:
+    """Additive upgrade: add the two nullable columns to an existing table.
+
+    Called by ``registry.create_clinic_tables``. Safe to repeat. Existing rows
+    keep NULL.
+    """
+    from src.utils.database import add_column_if_not_exists
+
+    engine = bind or db.engine
+    if "clinic_transcript_revision" not in inspect(engine).get_table_names():
+        return
+    for name, sql_type in _NEW_COLUMNS:
+        add_column_if_not_exists(engine, "clinic_transcript_revision", name, f"{name} {sql_type}")
+
+
+def downgrade_columns(bind=None) -> None:
+    """Reverse of ``create_tables``: drop the two columns (data in them is lost)."""
+    engine = bind or db.engine
+    present = {c["name"] for c in inspect(engine).get_columns("clinic_transcript_revision")}
+    with engine.begin() as conn:
+        for name, _type in reversed(_NEW_COLUMNS):
+            if name in present:
+                conn.execute(sql_text(f"ALTER TABLE clinic_transcript_revision DROP COLUMN {name}"))
 
 
 def _human_original_id(parent, original_version, dictation):
