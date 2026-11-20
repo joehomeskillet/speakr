@@ -12,7 +12,7 @@
  */
 
 export const NOT_STORED_MESSAGE =
-    'Der Upload ist fehlgeschlagen. Die Aufnahme wird nicht lokal gespeichert. Bitte erneut aufnehmen oder den Upload wiederholen.';
+    'Der Upload ist fehlgeschlagen. Die Aufnahme wird nicht lokal gespeichert. Bitte erneut aufnehmen.';
 
 function appDataset() {
     try {
@@ -34,8 +34,14 @@ export function persistenceDenied() {
     return !persistenceAllowed();
 }
 
+/** How a failed in-progress recording upload is handled: 'notice' (memory only) or 'store' (upstream path). */
+export function failedRecordingHandling() {
+    return persistenceDenied() ? 'notice' : 'store';
+}
+
 // What a denied call resolves to; keys are the persistence functions.
 const RECORDING_DENIED = {
+    initDB: () => null,
     startRecordingSession: () => null,
     saveChunk: () => undefined,
     updateRecordingMetadata: () => undefined,
@@ -48,6 +54,7 @@ const RECORDING_DENIED = {
 };
 
 const FAILED_DENIED = {
+    initDB: () => null,
     storeFailedUpload: () => { throw new Error('PERSISTENCE_DENIED'); },
     getFailedUploads: () => [],
     getFailedUpload: () => null,

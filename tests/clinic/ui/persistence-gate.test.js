@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-    gateFailedUploads, gateRecordingDB, persistenceAllowed, persistenceDenied,
+    failedRecordingHandling, gateFailedUploads, gateRecordingDB, NOT_STORED_MESSAGE, persistenceAllowed, persistenceDenied,
 } from '../../../static/js/clinic/persistence-gate.js';
 import * as RawRecordingDB from '../../../static/js/modules/db/recording-persistence.js';
 import * as RawFailedUploads from '../../../static/js/modules/db/failed-uploads.js';
@@ -102,14 +102,31 @@ describe('clinic persistence gate', () => {
         expect(open.mock.calls.length).toBe(before);
     });
 
+    it('failed recording: notice when denied, store when allowed, no retry promise', () => {
+        stubPage({ clinicMode: 'True' });
+        expect(failedRecordingHandling()).toBe('notice');
+        expect(NOT_STORED_MESSAGE).not.toMatch(/wiederholen/);
+        stubPage({ clinicMode: 'True', clinicPersistentAudio: 'True' });
+        expect(failedRecordingHandling()).toBe('store');
+        stubPage({ clinicMode: 'False' });
+        expect(failedRecordingHandling()).toBe('store');
+    });
+
+    it('denied initDB never opens IndexedDB', async () => {
+        stubPage({ clinicMode: 'True' });
+        await gateRecordingDB(RawRecordingDB).initDB();
+        await gateFailedUploads(RawFailedUploads).initDB();
+        expect(open).not.toHaveBeenCalled();
+    });
+
     it('gate wraps every exported persistence function', () => {
         const rec = gateRecordingDB(RawRecordingDB);
         const failed = gateFailedUploads(RawFailedUploads);
-        for (const name of ['startRecordingSession', 'saveChunk', 'updateRecordingMetadata', 'pruneOldChunks',
+        for (const name of ['initDB', 'startRecordingSession', 'saveChunk', 'updateRecordingMetadata', 'pruneOldChunks',
             'checkForRecoverableRecording', 'recoverRecording', 'clearRecordingSessionIfStartedAt', 'clearRecordingSession']) {
             expect(rec[name]).not.toBe(RawRecordingDB[name]);
         }
-        for (const name of ['storeFailedUpload', 'getFailedUploads', 'updateRetryCount', 'deleteFailedUpload']) {
+        for (const name of ['initDB', 'storeFailedUpload', 'getFailedUploads', 'updateRetryCount', 'deleteFailedUpload']) {
             expect(failed[name]).not.toBe(RawFailedUploads[name]);
         }
     });
