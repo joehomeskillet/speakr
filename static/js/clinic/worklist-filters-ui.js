@@ -360,7 +360,10 @@ export const WorklistFiltersPanel = {
     },
     computed: {
         s() { return this.controller.state; },
-        activeCount() { return this.s.draft.conditions.length + (String(this.s.query || '').trim() ? 1 : 0); },
+        activeCount() {
+            const spec = ((this.s.filters || []).find((f) => f.id === this.s.selectedId) || {}).spec || {};
+            return (spec.all || []).length + (spec.any || []).length + (String(this.s.query || '').trim() ? 1 : 0);
+        },
         countLabel() { return this.labels.count.replace('{n}', this.s.filters.length).replace('{max}', this.max); },
     },
     mounted() { if (!this.s.loaded) this.controller.load(); },

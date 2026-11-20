@@ -121,6 +121,7 @@
     border: var(--border-hairline) solid var(--border-primary);
     border-radius: var(--radius-lg);
 }
+.wf-panel .cl-panel { margin-top: var(--sp-2); }
 .cl-panel__head {
     display: flex;
     align-items: center;
@@ -280,7 +281,7 @@
 
 /* ---- Table ----------------------------------------------------------------------- */
 
-.cl-body { display: grid; gap: var(--sp-4); align-items: start; min-width: 0; }
+.cl-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); align-items: start; min-width: 0; }
 @media (min-width: 1024px) {
     .cl-view .cl-body.lg\:grid-cols-2 { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
 }
@@ -448,6 +449,7 @@
 }
 .cl-detail button:not(.btn):not([class*="cl-"]):hover:not(:disabled) { background: var(--bg-tertiary); }
 .cl-detail button:disabled { opacity: 0.55; cursor: not-allowed; }
+.cl-detail .clinic-lease { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-md); margin-bottom: var(--sp-3); }
 .cl-detail__actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin: var(--sp-2) 0 var(--sp-3); }
 .cl-detail details { margin-top: var(--sp-3); border-top: var(--border-hairline) solid var(--border-primary); padding-top: var(--sp-2); }
 .cl-detail summary { cursor: pointer; min-height: 40px; display: flex; align-items: center; font-weight: 600; }

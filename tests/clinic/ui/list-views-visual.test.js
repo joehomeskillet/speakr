@@ -36,10 +36,17 @@ describe('worklist list visuals', () => {
         for (const part of ['data-testid="view-toggle"', 'type="checkbox"', 'aria-expanded', 'LABELS.view']) expect(layout).toContain(part);
     });
 
-    it('counts active conditions and the search text for the Filter badge', () => {
-        const s = { draft: { conditions: [{}, {}] }, query: 'F-1' };
+    it('counts applied conditions and the search text for the Filter badge, not the draft', () => {
+        const filters = [{ id: 'a', spec: { all: [{}, {}], any: [] } }];
+        const s = { filters, selectedId: 'a', draft: { conditions: [{}, {}, {}, {}] }, query: 'F-1' };
         expect(WorklistFiltersPanel.computed.activeCount.call({ s })).toBe(3);
-        expect(WorklistFiltersPanel.computed.activeCount.call({ s: { draft: { conditions: [] }, query: ' ' } })).toBe(0);
+        expect(WorklistFiltersPanel.computed.activeCount.call({ s: { filters, selectedId: null, draft: { conditions: [{}] }, query: ' ' } })).toBe(0);
+    });
+
+    it('lets the single-column list grid shrink so the table scrolls inside its wrapper', () => {
+        const css = readFileSync('static/css/clinic-lists.css', 'utf8');
+        expect(css).toMatch(/\.cl-body\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+        expect(css).toMatch(/\.cl-detail \.clinic-lease\s*\{[^}]*padding:/);
     });
 
     it('uses tokens only in the list stylesheet and the templates', () => {
