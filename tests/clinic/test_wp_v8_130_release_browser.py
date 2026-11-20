@@ -1,5 +1,10 @@
 """Real P03/P07 release workflow using only synthetic accounts and the local MockKIS profile."""
+from hashlib import sha256
+from io import BytesIO
+from pathlib import Path
+import re
 from uuid import UUID, uuid4
+import wave
 
 import pytest
 from playwright.sync_api import expect, sync_playwright
@@ -14,15 +19,27 @@ from test_wp_mount_correction import live_server  # noqa: F401
 def review_scene(request, monkeypatch):
     """Capture the existing synthetic server's database for seed and final persistence checks."""
     from src.clinic import workflow
-    from src.clinic.models import ClinicContextRevision, ClinicDictation
+    from src.clinic.models import ClinicContextRevision, ClinicDictation, ClinicOriginal
     from src.models import Recording
 
+    audio_bytes = BytesIO()
+    with wave.open(audio_bytes, "wb") as wav:
+        wav.setparams((1, 2, 16000, 0, "NONE", "not compressed"))
+        wav.writeframes(b"\x01\x00" * 16000 * 4)
+    audio = audio_bytes.getvalue()
+    # The shared correction harness normally seeds an intentionally unavailable original.
+    receipt = 'content_hash="o" * 64, size_bytes=1000'
+    assert receipt in mount.SERVER
+    server = mount.SERVER.replace(receipt, f"content_hash={sha256(audio).hexdigest()!r}, size_bytes={len(audio)}")
+    monkeypatch.setattr(mount, "SERVER", server)
     database = {}
     original_env = mount._env
 
     def local_profile(path, clinic):
         env = original_env(path, clinic)
         database["url"] = env["SQLALCHEMY_DATABASE_URI"]
+        database["originals"] = path / "review-audio"
+        env["CLINIC_ORIGINALS_ROOT"] = str(database["originals"])
         return {**env, "CLINIC_PROFILE": "staging", "SPEAKR_SKIP_BACKGROUND_TASKS": "true"}
 
     monkeypatch.setattr(mount, "_env", local_profile)
@@ -30,6 +47,10 @@ def review_scene(request, monkeypatch):
     engine = create_engine(database["url"])
     with Session(engine) as session:
         row = session.get(ClinicDictation, did)
+        original = session.query(ClinicOriginal).filter_by(dictation_id=did).one()
+        media = Path(database["originals"]) / original.storage_key
+        media.parent.mkdir(parents=True, exist_ok=True)
+        media.write_bytes(audio)
         # An imported case reference without a consumed KIS grant is untrusted.
         session.add(ClinicContextRevision(dictation_id=did, source_system="synthetic",
                                           tenant_scope="test", case_ref="SYN-0000", patient_ref="opaque"))
@@ -148,6 +169,12 @@ def test_review_and_release_current_bound_versions(review_scene, tmp_path):
 
             page.get_by_test_id("clinic-dictation-link-review").click()
             review = page.get_by_test_id("clinic-review-view")
+            audio = review.locator("audio")
+            expect(audio).to_have_attribute("src", re.compile(binding["audio_revision_id"]))
+            audio.focus()
+            audio.press("Space")
+            page.wait_for_function("document.querySelector('[data-testid=clinic-review-view] audio').currentTime > 0.2")
+            audio.press("Space")
             with page.expect_response(lambda r: r.url.endswith("/leases") and r.request.method == "POST") as review_lease:
                 review.get_by_test_id("begin-review").click()
             assert review_lease.value.ok, review_lease.value.text()
