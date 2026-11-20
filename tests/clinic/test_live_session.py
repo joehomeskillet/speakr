@@ -27,7 +27,7 @@ def _sec(n):
 
 @pytest.fixture
 def live_db():
-    """App context, SQLite foreign keys on, live table created and dropped for this test."""
+    """Use the session-owned clinic schema and enforce foreign keys on SQLite."""
     with app.app_context():
         hook = None
         if db.engine.dialect.name == "sqlite":
@@ -40,11 +40,9 @@ def live_db():
             db.session.remove()
             db.engine.dispose()
         db.session.rollback()
-        ClinicLiveSession.__table__.create(db.engine, checkfirst=True)
         yield
         db.session.rollback()
         db.session.remove()
-        ClinicLiveSession.__table__.drop(db.engine, checkfirst=True)
         if hook is not None:
             event.remove(db.engine, "connect", hook)
             db.engine.dispose()

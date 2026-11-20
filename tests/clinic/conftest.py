@@ -129,8 +129,7 @@ def world(_queue_table_quiet):
                 db.session.delete(obj)
         SystemSetting.query.filter(SystemSetting.key.in_(
             ['enable_internal_sharing'])).delete(synchronize_session=False)
-        User.query.filter(User.id.in_([w['user_a'], w['user_b'], w['user_admin']])).delete(
-            synchronize_session=False)
+        # clinic_isolation removes these accounts after the test's other recordings and tags.
         db.session.commit()
 
 
