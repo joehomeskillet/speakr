@@ -66,7 +66,8 @@ export const TEXT = Object.freeze({
     workerLost: 'Übernahme verloren',
     workerFree: 'Noch nicht übernommen',
     templateMenu: 'Textbaustein einfügen',
-    notProvided: 'Nicht angegeben',
+    openAssignment: 'Zuordnung offen',
+    noPool: 'Kein Pool zugewiesen',
     options: 'Wiedergabeoptionen',
     highlightOn: 'Wortmarkierung ausschalten',
     highlightOff: 'Wortmarkierung einschalten',
@@ -368,7 +369,7 @@ export function createCorrectionViewController(options) {
         // Same tempo controller the player buttons use (seek, rewind); the pedal calls it too.
         tempo = usePlaybackTempo({ audio: el, onSync });
         // Highlight follows the real media position (rAF while playing, events otherwise); it never touches focus or editor state.
-        highlighter = createPlaybackHighlighter({ alignment, audio: el, root: alignmentRoot });
+        highlighter = createPlaybackHighlighter({ alignment, audio: el, root: alignmentRoot, follow: false });
     }
 
     /** Element holding the aligned words; the highlighter marks [data-link] children and follows them. */
@@ -639,6 +640,12 @@ const UiIcon = {
  * and the spacing of the child panels. Tokens only, so light and dark both work.
  */
 const LOCAL_CSS = `
+.v8-ui .editor-page :is(.subline,.document-id,.document-context dt,.word-sync-info,.font-size,.template-meta,.editor-status){color:var(--v8-text-2)}
+.v8-ui .editor-page :is(.context-tools,.player-controls,.word-sync-controls) .icon-button:not(:hover):not([aria-pressed=true]):not([aria-expanded=true]){background:transparent;border-color:transparent}
+.v8-ui .editor-page :is(.context-tools,.player-controls,.word-sync-controls) .icon-button:is(:hover,[aria-expanded=true]):not([aria-pressed=true]){background:var(--v8-s2);border-color:var(--line)}
+.v8-ui .editor-page .compact-player select{appearance:auto}
+.v8-ui .editor-page :is(.context-tools,.toolbar-group:last-child,.find-row,.word-sync-controls,.dialoghead,.popover-heading) .tooltip{left:auto;right:0;transform:none}
+.v8-ui .editor-page .alignment-text{max-height:8lh;overflow:auto;overflow-wrap:anywhere;white-space:pre-wrap;line-height:1.8;margin:0}
 .v8-ui .editor-page .editor-status{flex-wrap:wrap}
 .v8-ui .editor-page .editor-status>[role=status]{flex:1 1 220px;min-width:0}
 .v8-ui .editor-page .editor-status-right{flex-wrap:wrap;white-space:normal;min-width:0}
@@ -660,13 +667,19 @@ const LOCAL_CSS = `
 .v8-ui .editor-page .context-drawer .keyvalues dt{color:var(--v8-text-2)}
 .v8-ui .editor-page .context-drawer .keyvalues dd{margin:0;font-weight:600;text-align:right}
 .v8-ui .editor-page .clinic-audio-markers-actions{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+.v8-ui .editor-page .clinic-audio-markers button{padding:5px 12px;font-size:12px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--v8-text)}
 .v8-ui .editor-page .clinic-audio-markers ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}
 .v8-ui .editor-page .clinic-audio-markers li{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:8px;border-radius:8px}
 .v8-ui .editor-page .clinic-correction-waveform-uncertain,.v8-ui .editor-page .clinic-correction-waveform-unaligned{font-size:12px}
 .v8-ui .editor-page .editor-aux{display:grid;gap:14px;margin-top:16px}
-.v8-ui .editor-page .panel-header h2{font-size:14px;font-weight:700;letter-spacing:-.1px;color:var(--v8-text)}
+.v8-ui .editor-page :is(.panel-header h2,.clinic-correction-waveform h3){font-size:14px;font-weight:700;letter-spacing:-.1px;color:var(--v8-text)}
 .v8-ui .editor-page .sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
-@media(max-width:700px){.v8-ui .editor-page .editor-popover{position:static;width:auto;max-height:none;margin:8px 12px}}
+@media(max-width:700px){
+  .v8-ui .editor-page .editor-popover{position:static;width:auto;max-height:none;margin:8px 12px}
+  .v8-ui .editor-page .find-row{display:grid;grid-template-columns:minmax(0,1fr) repeat(3,auto)}
+  .v8-ui .editor-page .find-row>input{min-width:0;width:100%}
+  .v8-ui .editor-page .find-count{grid-column:2 / -1;min-width:0}
+}
 `;
 const LOCAL_CSS_ID = 'clinic-v8-schreibplatz-local';
 
@@ -734,6 +747,7 @@ export const CorrectionBody = {
         const focusMode = V.ref(false);
         const shortcutsOpen = V.ref(false);
         const followOn = V.ref(false);
+        const drawer = V.ref('');
         const later = (fn) => { if (typeof V.nextTick === 'function') V.nextTick(fn); else fn(); };
         const editorPort = {
             read() {
@@ -772,12 +786,18 @@ export const CorrectionBody = {
         if (typeof V.watch === 'function') {
             V.watch(c.loadGeneration, () => { tb.reset(); });
             V.watch(e.canEdit, () => { tb.refresh(); });
-            V.watch(() => a.currentWord.value, (word) => {
-                if (!followOn.value || !word) return;
+            V.watch([followOn, a.currentWord], ([follow, word]) => {
+                if (!follow || !word || drawer.value) return;
                 const root = c.alignmentRootEl();
-                const node = root && typeof root.querySelector === 'function' ? root.querySelector('[data-link="' + word.id + '"]') : null;
-                if (node && typeof node.scrollIntoView === 'function') node.scrollIntoView({ block: 'nearest' });
-            });
+                if (!root || !root.clientHeight || root.scrollHeight <= root.clientHeight) return;
+                const panel = root.getBoundingClientRect();
+                if (panel.bottom <= 0 || panel.top >= root.ownerDocument.documentElement.clientHeight) return;
+                const node = root.querySelector('[aria-current="true"]');
+                if (!node) return;
+                const cue = node.getBoundingClientRect();
+                if (cue.top < panel.top) root.scrollTop += cue.top - panel.top;
+                else if (cue.bottom > panel.bottom) root.scrollTop += cue.bottom - panel.bottom;
+            }, { flush: 'post' });
         }
         const setTextEl = (node) => { textEl.value = node && typeof node === 'object' ? node : null; };
         const onTextInput = (event) => { c.onInput(event); tb.notifyChange(); };
@@ -804,7 +824,6 @@ export const CorrectionBody = {
         const WORKER = { held: TEXT.workerHeld, foreign: TEXT.workerForeign, lost: TEXT.workerLost };
         const workerLabel = () => WORKER[e.lease.value.status] || TEXT.workerFree;
         const templatesOpen = V.ref(false);
-        const drawer = V.ref('');
         const DRAWER_TITLES = { assignment: TEXT.ctxAssignment, marks: TEXT.ctxMarks, options: TEXT.ctxOptions };
         const drawerTitle = () => DRAWER_TITLES[drawer.value] || '';
         const toggleDrawer = (id) => {
@@ -832,7 +851,7 @@ export const CorrectionBody = {
             mode: m.mode, modeStatus: m.status, modeError: m.error, modeAnnouncement: m.announcement,
             ready: c.ready, loadGeneration: c.loadGeneration, revisionGeneration: c.revisionGeneration,
             audioEl: c.audioEl, gainState: c.gainState, closeMessage: c.closeMessage, resumeLabel: c.resumeLabel,
-            pedalStatus: c.pedalStatus,
+            pedalStatus: c.pedalStatus, alignmentNotice: c.alignmentNotice,
         };
     },
     template: `
@@ -888,8 +907,8 @@ export const CorrectionBody = {
     </div>
 
     <dl class="document-context">
-      <div><dt>{{ TEXT.dictatedBy }}</dt><dd data-dictator-name>{{ dictator || TEXT.notProvided }}</dd></div>
-      <div><dt>{{ TEXT.pool }}</dt><dd data-pool-name>{{ pool || TEXT.notProvided }}</dd></div>
+      <div><dt>{{ TEXT.dictatedBy }}</dt><dd data-dictator-name>{{ dictator || TEXT.openAssignment }}</dd></div>
+      <div><dt>{{ TEXT.pool }}</dt><dd data-pool-name>{{ pool || TEXT.noPool }}</dd></div>
       <div><dt>{{ TEXT.editing }}</dt><dd data-worker-name>{{ workerLabel() }}</dd></div>
     </dl>
 
@@ -949,13 +968,13 @@ export const CorrectionBody = {
             <span class="font-size" role="status" data-testid="font-size">{{ fontPx }} px</span>
             <span class="tool-wrap" v-tip="{ label: TEXT.fontUp }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.fontUp"
                     :aria-disabled="tbState.fontMax ? 'true' : null" data-tool="fontUp" @click="tb.fontUp()"><UiIcon name="font-up" /></button></span>
+          </div>
+          <span class="toolbar-spacer"></span>
+          <div class="toolbar-group">
             <span class="tool-wrap" v-tip="{ label: focusMode ? TEXT.focusOff : TEXT.focusOn }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="focusMode ? TEXT.focusOff : TEXT.focusOn"
                     :aria-pressed="String(focusMode)" data-tool="focus" @click="tb.toggleFocus()"><UiIcon :name="focusMode ? 'unfocus' : 'focus'" /></button></span>
             <span class="tool-wrap" v-tip="{ label: TEXT.shortcuts, keys: 'F1' }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.shortcuts"
                     :aria-expanded="String(shortcutsOpen)" data-tool="shortcuts" @click="shortcutsOpen = !shortcutsOpen; templatesOpen = false"><UiIcon name="keyboard" /></button></span>
-          </div>
-          <span class="toolbar-spacer"></span>
-          <div class="toolbar-group">
             <span class="tool-wrap" v-tip="{ label: TEXT.save, keys: 'Strg/Cmd+S' }"><button type="button" class="icon-button save-button" :class="{ 'has-changes': dirty }" :style="FOCUS"
                     :aria-label="dirty ? TEXT.saveDirty : TEXT.save"
                     :disabled="saveState === 'saving' || saveState === 'saved'" data-testid="save" @click="c.save()"><UiIcon name="save" /></button></span>
@@ -1014,10 +1033,33 @@ export const CorrectionBody = {
         <div class="writing-surface">
           <textarea class="editor" :ref="setTextEl" :style="{ ...FOCUS, fontSize: fontPx + 'px' }" :value="text" :readonly="!canEdit" :aria-readonly="String(!canEdit)"
                     :aria-label="TEXT.text" :aria-describedby="canEdit ? 'ccv-keys' : 'ccv-keys ccv-readonly'" data-testid="text"
-                    @input="onTextInput($event)" @keydown="onTextKeydown($event)" @select="c.onSelect($event)"
+                    @input="onTextInput($event)" @keydown="onTextKeydown($event)" @select="followOn = false; c.onSelect($event)"
                     @keyup="c.onSelect($event)" @mouseup="c.onSelect($event)"></textarea>
         </div>
         <p v-if="!canEdit && !loading" id="ccv-readonly" class="template-meta" style="margin: 0">{{ TEXT.readOnly }}</p>
+        <section class="panel" :aria-label="TEXT.alignment" :data-status="alignStatus" data-testid="alignment">
+          <div class="panel-header">
+            <h2>{{ TEXT.alignment }}</h2>
+            <button type="button" class="small" :style="FOCUS" :disabled="alignStatus !== 'ready'" data-testid="seek-selection" @click="c.alignment.seekToSelection()">{{ TEXT.seekSelection }}</button>
+          </div>
+          <div v-if="alignStatus === 'error' || alignStatus === 'stale'" role="alert" class="note" :style="box(alignStatus === 'error' ? 'error' : 'warning')">
+            {{ alignStatus === 'error' && alignError ? alignError.message : 'Die Audio-Zuordnung ist veraltet.' }}
+            <button type="button" class="small" :style="FOCUS" @click="c.alignment.refresh()">{{ TEXT.retry }}</button>
+          </div>
+          <p role="group" :aria-label="TEXT.alignmentText" :ref="c.bindAlignmentRoot" class="alignment-text"
+             @wheel.passive="followOn = false" @touchmove.passive="followOn = false" @pointerdown="followOn = false">
+            <template v-for="seg in segments" :key="seg.start">
+              <span v-if="seg.aligned" role="button" tabindex="0" :data-start="seg.start" :data-link="seg.linkId"
+                    :aria-label="TEXT.wordAria + ': ' + seg.text" :aria-current="currentWord && currentWord.id === seg.linkId ? 'true' : null"
+                    :style="{ ...FOCUS, ...styleFor(seg) }"
+                    @click="c.alignment.seekToSegment(seg)" @keydown.enter.prevent="c.alignment.seekToSegment(seg)"
+                    @keydown.space.prevent="c.alignment.seekToSegment(seg)">{{ seg.text }}</span>
+              <span v-else :data-start="seg.start" :data-unaligned="seg.flagged || seg.unavailable ? 'true' : null"
+                    :title="seg.flagged ? TEXT.unalignedMark : null" :style="styleFor(seg)">{{ seg.text }}</span>
+            </template>
+          </p>
+          <div role="status" aria-live="polite" class="sr-only">{{ alignAnnouncement }}</div>
+        </section>
       </div>
 
       <div class="editor-status" :data-state="saveState" data-testid="save-state"
@@ -1080,35 +1122,12 @@ export const CorrectionBody = {
     <div v-show="!drawer || drawer === 'assignment'" style="display: grid; gap: 14px; min-width: 0">
       <p class="hint" style="margin: 0">{{ lease.message }}</p>
       <dl class="keyvalues">
-        <div><dt>{{ TEXT.dictatedBy }}</dt><dd>{{ dictator || TEXT.notProvided }}</dd></div>
-        <div><dt>{{ TEXT.pool }}</dt><dd>{{ pool || TEXT.notProvided }}</dd></div>
+        <div><dt>{{ TEXT.dictatedBy }}</dt><dd>{{ dictator || TEXT.openAssignment }}</dd></div>
+        <div><dt>{{ TEXT.pool }}</dt><dd>{{ pool || TEXT.noPool }}</dd></div>
         <div><dt>{{ TEXT.editing }}</dt><dd>{{ workerLabel() }}</dd></div>
       </dl>
     </div>
     <div v-show="!drawer || drawer === 'marks'" style="display: grid; gap: 20px; min-width: 0">
-      <section class="panel" :aria-label="TEXT.alignment" :data-status="alignStatus" data-testid="alignment">
-        <div class="panel-header">
-          <h2>{{ TEXT.alignment }}</h2>
-          <button type="button" class="small" :style="FOCUS" :disabled="alignStatus !== 'ready'" data-testid="seek-selection" @click="c.alignment.seekToSelection()">{{ TEXT.seekSelection }}</button>
-        </div>
-        <div v-if="alignStatus === 'error' || alignStatus === 'stale'" role="alert" class="note" :style="box(alignStatus === 'error' ? 'error' : 'warning')">
-          {{ alignStatus === 'error' && alignError ? alignError.message : 'Die Audio-Zuordnung ist veraltet.' }}
-          <button type="button" class="small" :style="FOCUS" @click="c.alignment.refresh()">{{ TEXT.retry }}</button>
-        </div>
-        <p role="group" :aria-label="TEXT.alignmentText" :ref="c.bindAlignmentRoot" style="line-height: 1.8; margin: 0">
-          <template v-for="seg in segments" :key="seg.start">
-            <span v-if="seg.aligned" role="button" tabindex="0" :data-start="seg.start" :data-link="seg.linkId"
-                  :aria-label="TEXT.wordAria + ': ' + seg.text" :aria-current="currentWord && currentWord.id === seg.linkId ? 'true' : null"
-                  :style="{ ...FOCUS, ...styleFor(seg) }"
-                  @click="c.alignment.seekToSegment(seg)" @keydown.enter.prevent="c.alignment.seekToSegment(seg)"
-                  @keydown.space.prevent="c.alignment.seekToSegment(seg)">{{ seg.text }}</span>
-            <span v-else :data-start="seg.start" :data-unaligned="seg.flagged || seg.unavailable ? 'true' : null"
-                  :title="seg.flagged ? TEXT.unalignedMark : null" :style="styleFor(seg)">{{ seg.text }}</span>
-          </template>
-        </p>
-        <div role="status" aria-live="polite" class="sr-only">{{ alignAnnouncement }}</div>
-      </section>
-
       <section class="panel">
         <AudioMarkers :key="'m' + loadGeneration + '-' + revisionGeneration" :editor="c.editor" :alignment="c.alignment" :client="c.client"
                       :dictation-id="dictationId" :get-position-ms="c.getPositionMs" :seek="c.seek" :vue="c.vue" />

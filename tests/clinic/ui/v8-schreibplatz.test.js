@@ -44,6 +44,22 @@ describe('V8 Schreibplatz markup (prototype structure, test ids kept)', () => {
         expect(t).toContain('role="radiogroup"');
     });
 
+    it('keeps the read-along and seek action in the editor when the marks drawer is closed', () => {
+        const [editor, drawer] = body().split('id="ccv-drawer"');
+        const document = editor.split('class="editor-document"')[1].split('class="editor-status"')[0];
+        expect(document).toContain('data-testid="alignment"');
+        expect(document).toContain('data-testid="seek-selection"');
+        expect(drawer).toContain('<AudioMarkers');
+        expect(drawer).not.toContain('data-testid="alignment"');
+    });
+
+    it('uses the assignment fallback for each missing metadata prop in both locations', () => {
+        expect(TEXT.openAssignment).toBe('Zuordnung offen');
+        expect(TEXT.noPool).toBe('Kein Pool zugewiesen');
+        expect(body().split('{{ dictator || TEXT.openAssignment }}')).toHaveLength(3);
+        expect(body().split('{{ pool || TEXT.noPool }}')).toHaveLength(3);
+    });
+
     it('is labelled in German, has no hard colours and no patient data', () => {
         const t = body();
         expect(t).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
@@ -53,6 +69,7 @@ describe('V8 Schreibplatz markup (prototype structure, test ids kept)', () => {
 
     it('offers the player controls inside the tempo component and keeps its accessible group', () => {
         const t = PlaybackTempo.template;
+        expect(PlaybackTempo.directives.tip).toBe(vTip);
         expect(t).toContain('data-testid="play-toggle"');
         expect(t).toContain('type="range"');
         expect(t).toContain('data-player-time');
