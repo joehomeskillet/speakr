@@ -345,7 +345,7 @@ describe('admin pools view: German labels, accessibility, hygiene', () => {
         const app = { component: vi.fn() };
         expect(registerAdminPoolsView(app)).toBe(app);
         expect(app.component).toHaveBeenCalledWith('clinic-admin-pools-view', AdminPoolsView);
-        expect(Object.keys(AdminPoolsView.props)).toEqual(['client', 'userClient', 'vue']);
+        expect(Object.keys(AdminPoolsView.props)).toEqual(['client', 'userClient', 'currentUser', 'vue']);
     });
 
     it('wires load and dispose to the lifecycle and drops its data on dispose', async () => {

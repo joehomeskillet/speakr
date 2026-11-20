@@ -3152,7 +3152,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const clinicAdminAllowed = (entry) => !!entry && !!clinicAdminAccess.value && clinicAdminAccess.value[entry.view] === true;
             const clinicAdminProps = (entry) => {
                 const base = { client: clinicWorklist.client, currentUser: clinicAdminUser };
-                if (entry.view === 'clinic-admin-pools') return { client: clinicWorklist.client, userClient: clinicAdminClient };
+                if (entry.view === 'clinic-admin-pools') return { ...base, userClient: clinicAuthorsClient };
                 if (entry.view === 'clinic-admin-authors') return { ...base, client: clinicAuthorsClient };
                 if (entry.view === 'clinic-admin-users' || entry.view === 'clinic-admin-asr') return { ...base, adminClient: clinicAdminClient };
                 if (entry.view === 'clinic-admin-jobs') return { client: clinicWorklist.client, canRetry: clinicAdminUser.is_admin };

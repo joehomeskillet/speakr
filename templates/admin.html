@@ -5145,7 +5145,7 @@ Summarization Instructions:
         // the page stays hidden when the API answers 403/404. The component tag carries the module's registered name.
         const v8props = { client, currentUser: { id: userId, is_admin: !team } };
         const v8defs = [
-            { id: 'admin-pools', label: 'Schreibkräfte-Pools', probe: '/pool-admin/pools', comp: 'clinic-admin-pools-view', props: { client, userClient: adminClient } },
+            { id: 'admin-pools', label: 'Schreibkräfte-Pools', probe: '/pool-admin/pools', comp: 'clinic-admin-pools-view', props: { ...v8props, userClient: routingClient } },
             { id: 'authors', label: 'Diktierende und Autorenpools', probe: '/admin/users', probeVia: adminClient, comp: 'clinic-authors-view', props: { ...v8props, client: routingClient } },
             { id: 'users', label: 'Benutzer und Rollen', probe: '/admin/users', probeVia: adminClient, comp: 'clinic-users-view', props: { ...v8props, adminClient } },
             { id: 'vocabulary', label: 'Wortschatz', probe: '/vocabulary/search?scope=user&q=&mode=contains&status=all', comp: 'clinic-vocabulary-view', props: v8props },
