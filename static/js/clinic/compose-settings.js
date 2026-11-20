@@ -39,6 +39,8 @@ export const ORIGIN_LABELS = Object.freeze({
 
 export const LABELS = Object.freeze({
     title: 'Einstellungen',
+    eyebrow: 'Verwaltung',
+    subline: 'Persönliche Darstellung, Arbeitsplatzwerte, Fußpedal und Einwilligung getrennt pflegen.',
     denied: 'Kein Zugriff. Bitte anmelden.',
     forbidden: 'Keine Berechtigung für diese Einstellungen.',
     origins: 'Herkunft der Werte',
@@ -164,6 +166,7 @@ function historyRows(history) {
     }));
 }
 
+const TAG = Object.freeze({ granted: 'neutral', revoked: 'wait', none: 'neutral' });
 const PILL = Object.freeze({ granted: 'pill-status--success', revoked: 'pill-status--warn', none: 'pill-status--pending' });
 
 /**
@@ -234,119 +237,145 @@ export function createConsentComponent(Vue, client, props = {}) {
             Vue.onMounted(async () => { await controller.load(); view.value = controller.view(); });
             Vue.onBeforeUnmount(() => unsubscribe());
             return {
-                controller, view, labels: CONSENT_LABELS, history: historyRows, pill: (s) => PILL[s] || PILL.none,
+                controller, view, labels: CONSENT_LABELS, history: historyRows, pill: (s) => PILL[s] || PILL.none, tagClass: (s) => TAG[s] || TAG.none,
                 onKeydown: (event) => controller.onKeydown(event),
             };
         },
     };
 }
 
+// Class bundles for the V8 look. The app's utility reset (preflight) wins over the element rules of clinic-v8.css, so headings
+// get their sizes here; the buttons of the unowned preferences child are skinned from outside.
+const HEADINGS = '[&_h1]:text-[30px] [&_h1]:max-[760px]:text-[26px] [&_h1]:font-bold [&_h1]:leading-[1.2] [&_h1]:tracking-[-0.8px] [&_h1]:mb-[9px] [&_h1]:text-[color:var(--v8-text)] '
+    + '[&_h2]:text-[16px] [&_h2]:font-bold [&_h2]:leading-[1.35] [&_h2]:tracking-[-0.2px] [&_h2]:mb-[14px] [&_h2]:text-[color:var(--v8-text)] [&_button]:px-[13px]';
+const PRIMARY = 'primary !bg-[var(--ink)] !border-[color:var(--ink)] !text-[13px] !font-semibold !px-[13px] hover:!bg-[var(--brand2)]';
+const CHILD_BUTTONS = '[&_.btn]:!min-h-[38px] [&_.btn]:rounded-lg [&_.btn]:border [&_.btn]:border-[color:var(--line)] [&_.btn]:bg-[var(--surface)] [&_.btn]:px-[13px] [&_.btn]:text-[13px] [&_.btn]:font-semibold [&_.btn]:text-[color:var(--v8-text)] [&_.btn:disabled]:opacity-50 '
+    + '[&_button[type=submit]]:!bg-[var(--ink)] [&_button[type=submit]]:!border-[color:var(--ink)] [&_button[type=submit]]:!text-white';
+const CHOICES = '[&_legend]:mb-2 [&_legend]:text-[12px] [&_legend]:font-bold [&_fieldset]:m-0 [&_fieldset]:mb-4 [&_fieldset]:min-w-0 [&_fieldset]:border-0 [&_fieldset]:p-0 '
+    + '[&_label.block]:flex [&_label.block]:items-center [&_label.block]:gap-2 [&_label.block]:text-[13px] [&_label.block]:font-medium';
+
 const PEDAL_TEMPLATE = `
-<section class="surface-raised p-4 space-y-3" role="region" :aria-label="labels.title" data-testid="clinic-settings-pedal">
-  <h3 class="t-subhead">{{ labels.title }}</h3>
-  <p class="t-meta">{{ labels.hint }}</p>
-  <div class="flex flex-wrap items-center gap-3">
-    <button type="button" class="btn btn--sm" :class="capturing ? 'btn--primary' : 'btn--ghost'" :aria-pressed="String(capturing)"
+<section class="panel col-span-full" role="region" :aria-label="labels.title" data-testid="clinic-settings-pedal">
+  <h2>{{ labels.title }}</h2>
+  <p class="hint mb-3">{{ labels.hint }}</p>
+  <div class="actions">
+    <button type="button" :class="capturing ? '${PRIMARY}' : ''" :aria-pressed="String(capturing)"
             data-testid="clinic-settings-pedal-capture" @click="capturing ? capture.stop() : capture.start()">
       {{ capturing ? text.capturePrompt : text.captureStart }}
     </button>
-    <span class="t-meta" role="status" aria-live="polite" data-testid="clinic-settings-pedal-message">{{ message }}</span>
+    <span class="text-status" role="status" aria-live="polite" data-testid="clinic-settings-pedal-message">{{ message }}</span>
   </div>
-  <p v-if="!rows().length" class="t-body" role="status" data-testid="clinic-settings-pedal-empty">{{ labels.empty }}</p>
-  <ul v-else role="list" class="space-y-2" :aria-label="labels.title">
-    <li v-for="r in rows()" :key="r.code" class="grid items-center gap-x-3 gap-y-1 grid-cols-[1fr_auto] sm:grid-cols-[4.5rem_1fr_auto]" :data-code="r.code">
-      <kbd class="kbd inline-flex items-center justify-center justify-self-start min-w-[3.5rem] min-h-8 px-2 py-1">{{ r.code }}</kbd>
-      <label class="order-last col-span-2 flex items-center gap-2 t-body min-w-0 sm:order-none sm:col-span-1">
-        <span class="t-meta sr-only sm:not-sr-only">{{ labels.action }}</span>
-        <select class="field field--sm min-w-0 flex-1" :value="r.action" :aria-label="labels.action + ' ' + r.code"
-                @change="setAction(r.code, $event.target.value)">
-          <option v-for="a in actions" :key="a" :value="a">{{ labels.actions[a] }}</option>
-        </select>
-      </label>
-      <button type="button" class="btn btn--sm btn--ghost" @click="removeKey(r.code)">{{ labels.remove }}</button>
-    </li>
-  </ul>
-  <div class="grid gap-3 sm:grid-cols-3 items-end">
-    <label class="flex flex-col gap-1 t-body">
-      <span class="t-meta">{{ labels.rewindSeconds }}</span>
-      <input type="number" min="0" max="60" step="1" class="field field--sm" :value="settings.rewindSeconds"
+  <p v-if="!rows().length" class="hint mt-3" role="status" data-testid="clinic-settings-pedal-empty">{{ labels.empty }}</p>
+  <div v-else class="table-wrap mt-4">
+    <table :aria-label="labels.title">
+      <thead><tr><th scope="col">{{ labels.key }}</th><th scope="col">{{ labels.action }}</th><th scope="col"><span class="sr-only">{{ labels.remove }}</span></th></tr></thead>
+      <tbody>
+        <tr v-for="r in rows()" :key="r.code" :data-code="r.code">
+          <td><kbd class="tag neutral">{{ r.code }}</kbd></td>
+          <td>
+            <select :value="r.action" :aria-label="labels.action + ' ' + r.code" @change="setAction(r.code, $event.target.value)">
+              <option v-for="a in actions" :key="a" :value="a">{{ labels.actions[a] }}</option>
+            </select>
+          </td>
+          <td class="text-right"><button type="button" @click="removeKey(r.code)">{{ labels.remove }}</button></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="grid three mt-4">
+    <div class="flex flex-col gap-1.5 mb-4 [&_label]:text-xs [&_label]:font-bold">
+      <label for="clinic-settings-pedal-rewind">{{ labels.rewindSeconds }}</label>
+      <input id="clinic-settings-pedal-rewind" type="number" min="0" max="60" step="1" :value="settings.rewindSeconds"
              data-testid="clinic-settings-pedal-rewind" @change="setSeconds('rewindSeconds', $event.target.value, $event.target)">
-    </label>
-    <label class="flex flex-col gap-1 t-body">
-      <span class="t-meta">{{ labels.skipSeconds }}</span>
-      <input type="number" min="0" max="60" step="1" class="field field--sm" :value="settings.skipSeconds"
+    </div>
+    <div class="flex flex-col gap-1.5 mb-4 [&_label]:text-xs [&_label]:font-bold">
+      <label for="clinic-settings-pedal-skip">{{ labels.skipSeconds }}</label>
+      <input id="clinic-settings-pedal-skip" type="number" min="0" max="60" step="1" :value="settings.skipSeconds"
              data-testid="clinic-settings-pedal-skip" @change="setSeconds('skipSeconds', $event.target.value, $event.target)">
-    </label>
-    <label class="flex flex-col gap-1 t-body">
-      <span class="t-meta">{{ labels.autoRewindSeconds }}</span>
-      <input type="number" min="0" max="60" step="1" class="field field--sm" :value="settings.autoRewindSeconds"
+    </div>
+    <div class="flex flex-col gap-1.5 mb-4 [&_label]:text-xs [&_label]:font-bold">
+      <label for="clinic-settings-pedal-autorewind">{{ labels.autoRewindSeconds }}</label>
+      <input id="clinic-settings-pedal-autorewind" type="number" min="0" max="60" step="1" :value="settings.autoRewindSeconds"
              data-testid="clinic-settings-pedal-autorewind" @change="setSeconds('autoRewindSeconds', $event.target.value, $event.target)">
-    </label>
+    </div>
   </div>
-  <p v-if="saveError" class="notice notice--danger" role="alert">{{ labels.notSaved }}</p>
+  <p v-if="saveError" class="note warning" role="alert">{{ labels.notSaved }}</p>
 </section>`;
 
 const CONSENT_TEMPLATE = `
-<section class="surface-raised p-4 space-y-3" role="region" :aria-label="view.title" data-testid="clinic-settings-consent"
+<section class="panel" role="region" :aria-label="view.title" data-testid="clinic-settings-consent"
          :aria-busy="String(view.busy)" @keydown="onKeydown">
-  <div class="flex flex-wrap items-center gap-3">
-    <h3 class="t-subhead">{{ view.title }}</h3>
-    <span class="pill-status" :class="pill(view.status.value)" role="status" aria-live="polite"
+  <div class="panel-header">
+    <h2>{{ view.title }}</h2>
+    <span class="tag dot" :class="tagClass(view.status.value)" role="status" aria-live="polite"
           data-testid="clinic-settings-consent-state" :data-state="view.status.value">{{ view.status.label }}</span>
   </div>
-  <p class="t-meta">{{ labels.optIn }}</p>
-  <div>
-    <p class="section-label">{{ view.statement.label }}</p>
-    <p class="t-body mt-1" data-testid="clinic-settings-consent-statement">{{ view.statement.text }}</p>
-  </div>
-  <p class="t-meta" data-testid="clinic-settings-consent-count">{{ labels.embeddings }}: {{ view.embeddingCount }}</p>
-  <ul v-if="view.history.length" role="list" class="space-y-1" :aria-label="labels.history">
-    <li v-for="h in history(view.history)" :key="h.id" class="flex gap-3 t-meta">
+  <p class="hint mb-2">{{ labels.optIn }}</p>
+  <dl class="keyvalues">
+    <div><dt>{{ view.statement.label }}</dt><dd data-testid="clinic-settings-consent-statement">{{ view.statement.text }}</dd></div>
+    <div><dt>{{ labels.embeddings }}</dt><dd data-testid="clinic-settings-consent-count">{{ view.embeddingCount }}</dd></div>
+  </dl>
+  <ul v-if="view.history.length" role="list" class="hint mt-3" :aria-label="labels.history">
+    <li v-for="h in history(view.history)" :key="h.id" class="flex gap-3">
       <time class="tabular-nums">{{ h.when }}</time><span>{{ h.label }}</span>
     </li>
   </ul>
-  <div v-if="view.error" class="notice notice--danger" role="alert" data-testid="clinic-settings-consent-error">
-    <span class="notice__body">{{ view.error.message }}</span>
-    <span class="notice__actions">
-      <button v-if="view.error.retryable" type="button" class="btn btn--sm btn--ghost" @click="controller.load()">{{ view.labels.retry }}</button>
-    </span>
+  <div v-if="view.error" class="note burgundy" role="alert" data-testid="clinic-settings-consent-error">
+    <span>{{ view.error.message }}</span>
+    <button v-if="view.error.retryable" type="button" class="ml-2" @click="controller.load()">{{ view.labels.retry }}</button>
   </div>
-  <p v-if="view.notice" class="notice notice--success t-body" role="status" aria-live="polite">{{ view.notice }}</p>
-  <div v-if="view.confirmingRevoke" class="notice notice--warn flex-wrap !items-center justify-between" role="alertdialog" :aria-label="view.labels.confirm">
-    <span class="notice__body t-body-strong">{{ view.labels.confirm }}</span>
-    <span class="notice__actions flex gap-2">
-      <button type="button" class="btn btn--sm btn--danger" :disabled="view.busy" data-testid="clinic-settings-consent-confirm"
+  <p v-if="view.notice" class="note" role="status" aria-live="polite">{{ view.notice }}</p>
+  <div v-if="view.confirmingRevoke" class="note warning" role="alertdialog" :aria-label="view.labels.confirm">
+    <p class="font-semibold">{{ view.labels.confirm }}</p>
+    <div class="actions">
+      <button type="button" class="danger" :disabled="view.busy" data-testid="clinic-settings-consent-confirm"
               @click="controller.confirmRevoke()">{{ view.labels.confirm }}</button>
-      <button type="button" class="btn btn--sm btn--ghost" data-testid="clinic-settings-consent-cancel"
+      <button type="button" data-testid="clinic-settings-consent-cancel"
               @click="controller.cancel()">{{ view.labels.cancel }}</button>
-    </span>
+    </div>
   </div>
-  <div v-else class="flex flex-wrap gap-2">
-    <button type="button" class="btn btn--sm btn--primary" :disabled="!view.canGrant" data-testid="clinic-settings-consent-grant"
+  <div v-else class="actions mt-4">
+    <button type="button" class="${PRIMARY}" :disabled="!view.canGrant" data-testid="clinic-settings-consent-grant"
             @click="controller.grant()">{{ view.labels.grant }}</button>
-    <button type="button" class="btn btn--sm btn--danger" :disabled="!view.canRevoke" data-testid="clinic-settings-consent-revoke"
+    <button type="button" class="danger" :disabled="!view.canRevoke" data-testid="clinic-settings-consent-revoke"
             @click="controller.requestRevoke()">{{ view.labels.revoke }}</button>
-    <button type="button" class="btn btn--sm btn--ghost" :disabled="view.busy" @click="controller.load()">{{ view.labels.reload }}</button>
+    <button type="button" :disabled="view.busy" @click="controller.load()">{{ view.labels.reload }}</button>
   </div>
 </section>`;
 
 export const SETTINGS_TEMPLATE = `
-<div class="clinic-settings-view mx-auto w-full max-w-3xl space-y-4 p-4">
-  <h2 class="t-heading">{{ labels.title }}</h2>
-  <p v-if="state.denied" role="alert">{{ labels.denied }}</p>
-  <p v-else-if="state.forbidden" role="alert" :style="errorStyle" data-testid="clinic-settings-forbidden">{{ labels.forbidden }}</p>
+<div class="clinic-settings-view v8-page ${HEADINGS}">
+  <div class="pagehead">
+    <div>
+      <div class="eyebrow">{{ labels.eyebrow }}</div>
+      <h1>{{ labels.title }}</h1>
+      <p class="subline">{{ labels.subline }}</p>
+    </div>
+    <div class="head-actions"></div>
+  </div>
+  <p v-if="state.denied" class="note warning" role="alert">{{ labels.denied }}</p>
+  <p v-else-if="state.forbidden" class="note burgundy" role="alert" :style="errorStyle" data-testid="clinic-settings-forbidden">{{ labels.forbidden }}</p>
   <template v-else>
-    <div class="surface-raised p-4"><component :is="preferences" :key="'p:' + state.epoch"></component></div>
-    <section role="region" :aria-label="labels.origins" class="surface-raised p-4 space-y-2" data-testid="clinic-settings-origins">
-      <h3 class="t-subhead">{{ labels.origins }}</h3>
-      <p v-if="!rows().length" role="status" aria-live="polite" data-testid="clinic-settings-empty">{{ labels.empty }}</p>
-      <ul v-else role="list" class="space-y-1 t-body" :aria-label="labels.origins">
-        <li v-for="r in rows()" :key="r.key" :data-key="r.key" :data-origin="r.origin">{{ r.key }}: {{ r.label }}</li>
-      </ul>
-    </section>
-    <div class="surface-raised p-4 [&_legend]:mb-2 [&_legend]:font-semibold [&_[role=radiogroup]]:space-y-2 [&_.clinic-correction-mode]:grid [&_.clinic-correction-mode]:grid-cols-[auto_1fr] [&_.clinic-correction-mode]:gap-x-2 [&_.clinic-correction-mode]:items-baseline [&_.clinic-correction-mode_small]:col-start-2 [&_.clinic-correction-mode_small]:text-[color:var(--text-muted)] [&_[role=alert]]:notice [&_[role=alert]]:notice--danger"><component :is="correction" :audio="audio" :client="client" :vue="vue" :key="'c:' + state.epoch"></component></div>
-    <component :is="pedal"></component>
-    <component :is="consent" :key="'v:' + state.epoch"></component>
+    <div class="grid equal">
+      <div class="space-y-5 min-w-0">
+        <section class="panel clinic-settings-prefs ${CHILD_BUTTONS} ${CHOICES}"><component :is="preferences" :key="'p:' + state.epoch"></component></section>
+        <section role="region" :aria-label="labels.origins" class="panel" data-testid="clinic-settings-origins">
+          <h2>{{ labels.origins }}</h2>
+          <p v-if="!rows().length" class="hint" role="status" aria-live="polite" data-testid="clinic-settings-empty">{{ labels.empty }}</p>
+          <dl v-else class="keyvalues" :aria-label="labels.origins">
+            <div v-for="r in rows()" :key="r.key" :data-key="r.key" :data-origin="r.origin">
+              <dt>{{ r.key }}</dt>
+              <dd><span class="tag" :class="r.locked ? 'burgundy' : 'neutral'">{{ r.label }}</span></dd>
+            </div>
+          </dl>
+        </section>
+      </div>
+      <div class="space-y-5 min-w-0">
+        <section class="panel clinic-settings-correction ${CHOICES} [&_legend]:!text-[16px] [&_legend]:!mb-[14px] [&_legend]:tracking-[-0.2px] [&_[role=alert]]:mt-3 [&_[role=alert]]:rounded-lg [&_[role=alert]]:border [&_[role=alert]]:border-[color:var(--line)] [&_[role=alert]]:bg-[var(--v8-s2)] [&_[role=alert]]:p-3 [&_[role=alert]]:text-xs [&_.clinic-correction-mode]:grid [&_.clinic-correction-mode]:grid-cols-[auto_1fr] [&_.clinic-correction-mode]:gap-x-2 [&_.clinic-correction-mode]:items-baseline [&_.clinic-correction-mode]:text-[13px] [&_.clinic-correction-mode_small]:col-start-2 [&_.clinic-correction-mode_small]:text-[color:var(--v8-muted)]"><component :is="correction" :audio="audio" :client="client" :vue="vue" :key="'c:' + state.epoch"></component></section>
+        <component :is="consent" :key="'v:' + state.epoch"></component>
+      </div>
+      <component :is="pedal"></component>
+    </div>
   </template>
 </div>`;
 
