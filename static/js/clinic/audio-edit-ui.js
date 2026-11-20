@@ -262,7 +262,9 @@ export function createAudioEditController(options) {
         if (!canWrite() || lease.getState().generation !== generation || revisionId !== head) {
             return setNote(MESSAGES.stale);
         }
-        return send(operation, { positionMs: at, sourceSegmentId: upload.segmentId });
+        const updated = await send(operation, { positionMs: at, sourceSegmentId: upload.segmentId });
+        if (updated.revisionId !== head) upload = null;
+        return updated;
     }
 
     return {
@@ -334,13 +336,26 @@ export function createAudioEditComponent(vue) {
                 }
                 return c[id]();
             }
+            function disabled(action) {
+                return action.disabled || (['insert', 'overwrite'].includes(action.id) && !props.sourceSegmentId && !props.file);
+            }
             function onKey(event) {
+                let id;
                 if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+                    id = event.shiftKey ? 'redo' : 'undo';
+                } else if (event.altKey) {
+                    id = { i: 'insert', o: 'overwrite', t: 'trim' }[event.key.toLowerCase()];
+                } else if (event.key === 'Delete') {
+                    id = 'cut';
+                }
+                const action = actions.value.find(item => item.id === id);
+                if (action && !disabled(action)) {
                     event.preventDefault();
-                    run(event.shiftKey ? 'redo' : 'undo');
+                    event.stopPropagation();
+                    run(id);
                 }
             }
-            return { actions, run, onKey };
+            return { actions, disabled, run, onKey };
         },
         template: `
             <section class="clinic-audio-edit" role="group" aria-label="Audio bearbeiten"
@@ -357,7 +372,7 @@ export function createAudioEditComponent(vue) {
                     Auswahl: {{ state.selection.startMs }} bis {{ state.selection.endMs }} ms
                     von {{ state.durationMs }} ms
                 </p>
-                <button v-for="a in actions" :key="a.id" class="button small" type="button" :disabled="a.disabled || (['insert', 'overwrite'].includes(a.id) && !sourceSegmentId && !file)"
+                <button v-for="a in actions" :key="a.id" class="button small" type="button" :disabled="disabled(a)"
                     :aria-keyshortcuts="a.shortcut" @click="run(a.id)">{{ a.label }}</button>
             </section>`,
     };

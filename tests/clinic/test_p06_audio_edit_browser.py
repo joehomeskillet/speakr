@@ -23,9 +23,13 @@ def _open(page):
     page.locator("[data-context-toggle=options]").click()
 
 
-def _edit(page, operation):
+def _edit(page, operation, *, key=None):
     with page.expect_response(lambda r: r.url.endswith("/audio-edits") and r.request.method == "POST") as ack:
-        page.get_by_test_id("audio-edit-panel").get_by_role("button", name=operation, exact=True).click()
+        control = page.get_by_test_id("audio-edit-panel").get_by_role("button", name=operation, exact=True)
+        if key:
+            control.press(key)
+        else:
+            control.click()
     response = ack.value
     assert response.status == 200, (response.status, response.request.post_data_json)
     new_head = response.json()["revision_id"]
@@ -70,7 +74,7 @@ def test_cut_trim_undo_redo_and_reopen_with_real_player(audio_server):
             listener.context.close()
             initial = page.locator(".clinic-correction-view audio").get_attribute("src")
             _select(page, 1, 2)
-            new_head = _edit(page, "Ausschneiden")
+            new_head = _edit(page, "Ausschneiden", key="Delete")
             _duration(page, 3)
             _edit(page, "Rückgängig")
             _duration(page, 4)
@@ -96,14 +100,15 @@ def test_cut_trim_undo_redo_and_reopen_with_real_player(audio_server):
             browser.close()
 
 
-def test_segment_insert_overwrite_and_persisted_undo(audio_server):
+def test_segment_insert_overwrite_microphone_and_persisted_undo(audio_server):
     base, _, _ = audio_server
     payload = io.BytesIO()
     with wave.open(payload, "wb") as out:
         out.setparams((1, 2, 16000, 0, "NONE", "not compressed"))
         out.writeframes(b"".join(struct.pack("<h", round(10000 * math.sin(i * 440 * math.tau / 16000))) for i in range(8000)))
     with sync_playwright() as p:
-        browser = mount._launch(p)
+        browser = p.chromium.launch(executable_path=os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE") or None,
+                                    args=["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"])
         try:
             page = mount._login(browser, base, "author213@local.test")
             _open(page)
@@ -137,6 +142,20 @@ def test_segment_insert_overwrite_and_persisted_undo(audio_server):
             _duration(page, 4.5)
             _edit(page, "Rückgängig")
             _duration(page, 4)
+            page.context.grant_permissions(["microphone"], origin=base)
+            panel.get_by_role("button", name="Nachtrag aufnehmen").click()
+            stop = panel.get_by_role("button", name="Aufnahme beenden")
+            expect(stop).to_be_visible()
+            # Let the browser record real chunks from Chromium's synthetic microphone.
+            page.wait_for_timeout(800)
+            stop.click()
+            expect(panel.get_by_text("Bereit: Nachtrag.webm")).to_be_visible()
+            _select(page, 0)
+            with page.expect_response(lambda r: r.url.endswith("/audio-segments")) as uploaded:
+                _edit(page, "Einfügen")
+            assert uploaded.value.status == 201
+            assert uploaded.value.json()["duration_ms"] > 0
+            page.wait_for_function("document.querySelector('.clinic-correction-view audio').duration > 4")
             assert not page.js_errors
         finally:
             browser.close()

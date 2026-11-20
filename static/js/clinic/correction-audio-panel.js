@@ -78,6 +78,7 @@ export const CorrectionAudioPanel = {
                 stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 if (run !== attempt || !props.lease.canWrite()) {
                     stream.getTracks().forEach(track => track.stop());
+                    if (run === attempt) captureState.value = 'idle';
                     return;
                 }
                 const recorder = new MediaRecorder(stream, { mimeType: mime });
@@ -146,7 +147,9 @@ export const CorrectionAudioPanel = {
           <p v-if="file" class="hint" role="status">Bereit: {{ file.name }}</p>
           <p v-if="notice" role="status">{{ notice }}</p>
         </fieldset>
-        <AudioEditActions :state="state" :controller="controller" :file="captureState === 'idle' ? file : null" />
+        <fieldset :disabled="captureState !== 'idle'" aria-label="Schnittaktionen">
+          <AudioEditActions :state="state" :controller="controller" :file="file" />
+        </fieldset>
       </div>
     </section>`,
 };
