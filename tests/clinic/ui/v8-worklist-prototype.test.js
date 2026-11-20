@@ -65,6 +65,8 @@ describe('V8 status buckets', () => {
         expect(sourceLabel('neu')).toBe('neu');
         expect(sourceLabel(null)).toBe('–');
         expect(cellText({ source_kind: 'device' }, 'source_kind')).toBe('Diktiergerät');
+        expect(cellText({ source_kind: 'audio', source_label: 'Import' }, 'source_kind')).toBe('Import');
+        expect(cellText({ assignee_user_id: 7, assignee: { display_name: 'Testperson' } }, 'assignee_user_id')).toBe('Testperson');
     });
 });
 

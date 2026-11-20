@@ -261,7 +261,6 @@ export function formatDateTime(value) {
     return dateTimeFormat.format(at);
 }
 
-/** Cell text for one layout column. */
 export function dictationLabel(row) {
     return row?.created_at ? 'Diktat vom ' + formatDateTime(row.created_at) : 'Diktat';
 }
@@ -270,13 +269,15 @@ function entryCount(count) {
     return count + (count === 1 ? ' Eintrag' : ' Einträge');
 }
 
+/** Cell text for one layout column. */
 export function cellText(row, key) {
     const value = row[key];
     if (DATE_COLUMNS.includes(key) && value !== null && value !== undefined && value !== '') return formatDateTime(value);
     if (key === 'status') return statusBadge(row).label;
     if (key === 'priority') return formatPriority(value);
     if (key === 'duration_seconds') return formatAudioDuration(value);
-    if (key === 'source_kind') return sourceLabel(value);
+    if (key === 'source_kind') return row.source_label || sourceLabel(value);
+    if (key === 'assignee_user_id' && row.assignee?.display_name) return row.assignee.display_name;
     if (ROLE_KEYS.includes(key)) return roleText(key, value);
     return value === null || value === undefined || value === '' ? '–' : String(value);
 }
@@ -674,7 +675,7 @@ export function createWorklistViewController(options) {
         colStyle: (col) => (COL_CLASS[col.key] ? null : { width: (Number(col.width) || 140) + 'px' }),
         statusTone: (row) => statusTone(row.status),
         prioClass: (row) => ({ high: 'hoch', low: 'niedrig', normal: 'mittel' })[priorityToneOf(row)],
-        sourceText: (row) => sourceLabel(row.source_kind),
+        sourceText: (row) => cellText(row, 'source_kind'),
         pagerInfo: () => 'Seite ' + view.page + (pages() === null ? '' : ' von ' + pages()) + ' · '
             + entryCount(view.total ?? worklist.rows.value.length),
     };

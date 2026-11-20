@@ -893,3 +893,7 @@
 .v8-ui .clinic-worklist-view :is(.listhead > span, .worktable th, .titletext small, .tablefooter > span) {
   color: var(--v8-text-2);
 }
+
+.v8-ui .clinic-recordings-view :is(.sort-label, .date-caption, .group-count, .record-subtitle, .date-fallback) {
+  color: var(--v8-text-2);
+}
