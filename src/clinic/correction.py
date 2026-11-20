@@ -441,7 +441,21 @@ def ingest_asr_result(
     if original is None:
         return []
     revision = add_asr_revision(dictation, original, text, model_ref)
-    return link_asr_segments(dictation, revision, segments_of(stored_transcription) or [])
+    links = link_asr_segments(dictation, revision, segments_of(stored_transcription) or [])
+    # Word timings are a side product: a failure here never drops the revision or the links.
+    try:
+        with db.session.begin_nested():
+            from src.clinic.alignment_ingest import store_asr_alignment
+
+            store_asr_alignment(dictation, revision, stored_transcription, model_ref)
+    except Exception as err:
+        import logging
+
+        from src.utils.error_text import log_failure
+
+        log_failure(logging.getLogger(__name__), logging.WARNING,
+                    f"ASR word timings of dictation {dictation.id} not stored", err)
+    return links
 
 
 def set_manual_link(

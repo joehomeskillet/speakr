@@ -233,11 +233,16 @@ class ConnectorRegistry:
             # TRANSCRIPTION_MODEL takes priority for custom Whisper variants
             model = os.environ.get('TRANSCRIPTION_MODEL', '') or os.environ.get('WHISPER_MODEL', 'whisper-1')
 
-            return {
+            config = {
                 'api_key': os.environ.get('TRANSCRIPTION_API_KEY', ''),
                 'base_url': base_url or None,
                 'model': model
             }
+            from src.clinic.config import clinic_mode_enabled
+            if clinic_mode_enabled() and os.environ.get(
+                    'TRANSCRIPTION_WORD_TIMESTAMPS', '').strip().lower() in ('1', 'true', 'yes'):
+                config['word_timestamps'] = True
+            return config
 
     def get_active_connector(self) -> BaseTranscriptionConnector:
         """
