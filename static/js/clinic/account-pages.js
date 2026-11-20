@@ -1,5 +1,6 @@
 const BASE = '/admin/users';
 export const PAGE_SIZE = 15;
+export const MISSING_POLICY_FILTER = 'missing';
 const MAX_PER_PAGE = 1000;
 
 function pathFor(page, perPage, { search, sort, order }) {
@@ -47,7 +48,7 @@ export async function readAccountPage(client, page, filters) {
     if (res.outcome !== 'ok') return res;
     const users = res.data.users.filter(user =>
         (!filters.role || user[filters.role]) &&
-        (!filters.source || (user.login_policy || 'local_only') === filters.source));
+        (!filters.source || (user.login_policy || MISSING_POLICY_FILTER) === filters.source));
     const pages = Math.max(1, Math.ceil(users.length / PAGE_SIZE));
     const current = Math.min(page, pages);
     return { outcome: 'ok', data: {

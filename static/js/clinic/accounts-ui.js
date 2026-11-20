@@ -19,7 +19,7 @@
  * implicit dictation access.
  */
 
-import { PAGE_SIZE, readAccountPage, readDirectory } from './account-pages.js';
+import { MISSING_POLICY_FILTER, PAGE_SIZE, readAccountPage, readDirectory } from './account-pages.js';
 
 export const LOGIN_POLICIES = ['local_only', 'local_and_entra', 'entra_only'];
 export const SELECTABLE_POLICIES = ['local_only'];
@@ -59,7 +59,8 @@ export const LABELS = Object.freeze({
     noImplicitAccess: 'Identitätsrollen geben keinen Zugriff auf Diktate. Fachrechte werden separat erteilt.',
     entraNote: 'Entra ist vorbereitet, aber noch nicht aktiviert.',
     statuses: { active: 'Aktiv', disabled: 'Deaktiviert', pending_activation: 'Aktivierung ausstehend' },
-    policies: { local_only: 'Nur lokal', local_and_entra: 'Lokal und Entra', entra_only: 'Nur Entra' },
+    policies: { local_only: 'Nur lokal', local_and_entra: 'Lokal und Entra', entra_only: 'Nur Entra',
+        device_only: 'Nur Gerät', [MISSING_POLICY_FILTER]: 'Keine Anmelderichtlinie' },
     errors: {
         duplicate: 'Benutzername oder E-Mail-Adresse ist bereits vergeben.',
         last_local_identity_admin: 'Zuerst eine weitere lokale Identitätsadministration aktivieren.',
@@ -100,7 +101,7 @@ function fromRow(row) {
         is_admin: !!row.is_admin,
         is_identity_admin: !!row.is_identity_admin,
         status: row.status || 'active',
-        login_policy: row.login_policy || 'local_only',
+        login_policy: row.login_policy || null,
         version: row.version,
     };
 }
@@ -424,6 +425,11 @@ export const AccountsAdminPanel = {
         };
     },
     computed: {
+        availablePolicies() {
+            const values = this.s.accounts.map(account => account.login_policy || MISSING_POLICY_FILTER);
+            if (this.source) values.push(this.source);
+            return [...new Set(values)];
+        },
         s() { return this.controller.state; },
         rows() { return this.s.table.users; },
     },
@@ -448,6 +454,7 @@ export const AccountsAdminPanel = {
                 search: this.query.trim(), role: this.role, source: this.source, sort, order,
             });
         },
+        policyLabel(policy) { return LABELS.policies[policy || MISSING_POLICY_FILTER] || policy; },
         seen(value) { return value ? new Date(value).toLocaleString('de-CH') : 'Noch nie'; },
     },
     async mounted() {
@@ -488,7 +495,7 @@ export const AccountsAdminPanel = {
       <option value="is_identity_admin">{{ labels.roleIdentity }}</option>
     </select></label>
     <label id="acc-source-filter" class="field"><span id="acc-source-label">Anmelderichtlinie</span><select aria-labelledby="acc-source-label" v-model="source" @change="browse()">
-      <option value="">Alle Richtlinien</option><option v-for="policy in policies" :key="policy" :value="policy">{{ labels.policies[policy] }}</option>
+      <option value="">Alle Richtlinien</option><option v-for="policy in availablePolicies" :key="policy" :value="policy">{{ policyLabel(policy) }}</option>
     </select></label>
     <label id="acc-sort-filter" class="field"><span id="acc-sort-label">Sortierung</span><select aria-labelledby="acc-sort-label" v-model="sortOrder" @change="browse()">
       <optgroup label="Benutzername"><option value="username:asc">Benutzername A–Z</option><option value="username:desc">Benutzername Z–A</option></optgroup>
@@ -530,7 +537,7 @@ export const AccountsAdminPanel = {
             </span>
           </td>
           <td class="cadm-account-status" :data-label="labels.status"><span class="pill-status" :class="statusClass[a.status] || 'pill-status--pending'">{{ labels.statuses[a.status] || a.status }}</span></td>
-          <td :id="'acc-' + a.id + '-policy'" :data-label="labels.loginPolicy">{{ labels.policies[a.login_policy] || a.login_policy }}</td>
+          <td :id="'acc-' + a.id + '-policy'" :data-label="labels.loginPolicy">{{ policyLabel(a.login_policy) }}</td>
           <td :id="'acc-' + a.id + '-actions'" class="cadm-col-actions">
             <span class="cadm-actions">
               <button type="button" class="btn btn--sm btn--ghost btn--icon" :title="labels.edit" :aria-label="labels.edit + ': ' + a.username" @click="openEditor($event, a.id)"><i class="fas fa-edit" aria-hidden="true"></i></button>
@@ -580,7 +587,8 @@ export const AccountsAdminPanel = {
         </div>
         <div class="cadm-field">
           <label for="acc-policy">{{ labels.loginPolicy }}</label>
-          <select id="acc-policy" class="field" v-model="s.draft.login_policy" aria-describedby="acc-entra">
+          <select id="acc-policy" class="field" v-model="s.draft.login_policy" :disabled="!s.base.login_policy" aria-describedby="acc-entra">
+            <option v-if="!policies.includes(s.base.login_policy)" :value="s.base.login_policy" disabled>{{ policyLabel(s.base.login_policy) }}</option>
             <option v-for="p in policies" :key="p" :value="p" :disabled="!selectable.includes(p) && p !== s.base.login_policy">{{ labels.policies[p] }}</option>
           </select>
           <p id="acc-entra" class="cadm-hint">{{ labels.entraNote }}</p>
