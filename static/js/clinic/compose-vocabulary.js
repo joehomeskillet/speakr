@@ -25,6 +25,7 @@ import { createVocabularyComponent } from './vocabulary-ui.js';
 import { createVoiceCommandsComponent } from './voice-commands-ui.js';
 import { createPanels } from './compose-resources.js';
 import { surfaceFor } from './tokens.js';
+import { CHILD_SCOPE } from './compose-users.js';
 
 export const TABS = Object.freeze([
     Object.freeze({ id: 'words', label: 'Wörter' }),
@@ -135,21 +136,25 @@ function box(kind) {
 }
 
 export const VOCABULARY_VIEW_TEMPLATE = `
-<section class="clinic-vocabulary-view" data-testid="clinic-vocabulary-view" aria-labelledby="cvv-title">
-  <h1 id="cvv-title">${TEXT.title}</h1>
-  <p v-if="state.status === 'denied'" role="alert" :style="errorStyle">${TEXT.denied}</p>
-  <p v-else-if="state.status === 'loading'" role="status" aria-live="polite">${TEXT.loading}</p>
-  <p v-else-if="state.status === 'forbidden'" role="alert" data-testid="forbidden" :style="errorStyle">${TEXT.forbidden}</p>
-  <p v-else-if="state.status === 'error'" role="alert" data-testid="load-error" :style="errorStyle">${TEXT.failed} {{ state.message }}
-    <button type="button" @click="load()">${TEXT.retry}</button></p>
+<section class="clinic-vocabulary-view space-y-4" data-testid="clinic-vocabulary-view" aria-labelledby="cvv-title">
+  <header>
+    <h1 id="cvv-title" class="text-lg font-semibold text-[var(--text-primary)]">${TEXT.title}</h1>
+    <p class="mt-1 text-sm text-[var(--text-muted)]">Wörter, Vorschläge, Aussprache und Erkennungsmodell für die Spracherkennung.</p>
+  </header>
+  <p v-if="state.status === 'denied'" role="alert" :style="errorStyle" class="rounded-lg border p-3 text-sm">${TEXT.denied}</p>
+  <p v-else-if="state.status === 'loading'" role="status" aria-live="polite" class="text-sm text-[var(--text-muted)]">${TEXT.loading}</p>
+  <p v-else-if="state.status === 'forbidden'" role="alert" data-testid="forbidden" :style="errorStyle" class="rounded-lg border p-3 text-sm">${TEXT.forbidden}</p>
+  <p v-else-if="state.status === 'error'" role="alert" data-testid="load-error" :style="errorStyle" class="rounded-lg border p-3 text-sm">${TEXT.failed} {{ state.message }}
+    <button type="button" class="btn btn--sm btn--ghost ml-2" @click="load()">${TEXT.retry}</button></p>
   <template v-else>
-    <p v-if="state.empty" role="status" data-testid="empty">${TEXT.empty}</p>
-    <div role="tablist" aria-label="${TEXT.tablist}" @keydown="onKey">
+    <p v-if="state.empty" role="status" data-testid="empty" class="rounded-lg border border-dashed border-[var(--border-primary)] p-4 text-sm text-[var(--text-muted)]">${TEXT.empty}</p>
+    <div role="tablist" aria-label="${TEXT.tablist}" class="inline-flex flex-wrap gap-1 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-tertiary)] p-1" @keydown="onKey">
       <button v-for="t in tabs" :key="t.id" type="button" role="tab" :id="'cvv-tab-' + t.id"
+        class="rounded-md px-3 py-1.5 text-sm font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)] aria-selected:bg-[var(--bg-secondary)] aria-selected:text-[var(--text-primary)] aria-selected:shadow-sm"
         :aria-selected="state.active === t.id ? 'true' : 'false'" :aria-controls="'cvv-panel-' + t.id"
         :tabindex="state.active === t.id ? 0 : -1" @click="select(t.id)">{{ t.label }}</button>
     </div>
-    <div role="tabpanel" :id="'cvv-panel-' + state.active" :aria-labelledby="'cvv-tab-' + state.active">
+    <div role="tabpanel" :id="'cvv-panel-' + state.active" :aria-labelledby="'cvv-tab-' + state.active" class="${CHILD_SCOPE}">
       <component :is="activeComponent" v-bind="activeProps" :key="state.epoch + ':' + state.active"></component>
     </div>
   </template>

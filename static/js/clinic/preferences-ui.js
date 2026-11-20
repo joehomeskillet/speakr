@@ -365,56 +365,57 @@ export function usePreferences(deps, VueArg) {
 
 const PANEL_TEMPLATE = `
 <section class="clinic-preferences" :aria-label="view.title" data-testid="clinic-preferences" @keydown="onKeydown">
-  <h2 class="text-lg font-medium mb-3">{{ view.title }}</h2>
+  <h2 class="text-lg font-semibold text-[var(--text-primary)]">{{ view.title }}</h2>
+  <p class="mb-4 mt-1 text-sm text-[var(--text-muted)]">Standardempfänger und abweichende Auswahl für Diktate festlegen.</p>
   <p v-if="view.error" role="alert" aria-live="assertive" class="mb-3 p-2 border rounded" :style="errorStyle"
      data-testid="clinic-preferences-error">{{ view.error.message }}</p>
   <p v-if="view.notice" role="status" aria-live="polite" class="mb-3 p-2 border rounded" :style="noticeStyle"
      data-testid="clinic-preferences-notice">{{ view.notice }}</p>
   <p v-if="loading" role="status" aria-live="polite">{{ view.labels.loading }}</p>
   <form v-else @submit.prevent="onSave" :aria-busy="busy ? 'true' : 'false'" novalidate>
-    <fieldset class="mb-4" :aria-label="view.a11y.modeGroup.label" role="radiogroup">
-      <legend class="font-medium mb-1">{{ view.a11y.modeGroup.label }}</legend>
-      <label v-for="m in view.modes" :key="m.value" class="block py-1">
+    <fieldset class="mb-4 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4" :aria-label="view.a11y.modeGroup.label" role="radiogroup">
+      <legend class="px-1 text-sm font-semibold text-[var(--text-primary)]">{{ view.a11y.modeGroup.label }}</legend>
+      <label v-for="m in view.modes" :key="m.value" class="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]">
         <input type="radio" name="clinic-preferences-mode" :value="m.value" :checked="m.selected" :disabled="m.disabled || busy"
                :data-testid="'clinic-preferences-mode-' + m.value" @change="controller.setMode(m.value)">
         {{ m.label }}
       </label>
     </fieldset>
     <div v-if="view.targets.length" class="mb-4">
-      <label for="clinic-preferences-target" class="block mb-1">{{ view.labels.target }}</label>
+      <label for="clinic-preferences-target" class="mb-1 block text-sm font-medium text-[var(--text-secondary)]">{{ view.labels.target }}</label>
       <select id="clinic-preferences-target" class="field field--sm" :disabled="busy" data-testid="clinic-preferences-target"
               @change="controller.setTarget($event.target.value)">
         <option value="" :selected="!view.targets.some((x) => x.selected)">–</option>
         <option v-for="x in view.targets" :key="x.value" :value="x.value" :selected="x.selected">{{ x.value }}</option>
       </select>
     </div>
-    <fieldset class="mb-4" :aria-label="view.a11y.choiceGroup.label" role="radiogroup">
-      <legend class="font-medium mb-1">{{ view.a11y.choiceGroup.label }}</legend>
-      <label v-for="c in view.choices" :key="c.value" class="block py-1">
+    <fieldset class="mb-4 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4" :aria-label="view.a11y.choiceGroup.label" role="radiogroup">
+      <legend class="px-1 text-sm font-semibold text-[var(--text-primary)]">{{ view.a11y.choiceGroup.label }}</legend>
+      <label v-for="c in view.choices" :key="c.value" class="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]">
         <input type="radio" name="clinic-preferences-choice" :value="c.value" :checked="c.selected" :disabled="c.disabled || busy"
                :data-testid="'clinic-preferences-choice-' + c.value" @change="controller.setChoice(c.value)">
         {{ c.label }}
       </label>
     </fieldset>
-    <fieldset v-if="view.settings.length" class="mb-4">
-      <legend class="font-medium mb-1">{{ view.labels.workstation }}</legend>
+    <fieldset v-if="view.settings.length" class="mb-4 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4">
+      <legend class="px-1 text-sm font-semibold text-[var(--text-primary)]">{{ view.labels.workstation }}</legend>
       <div v-for="s in view.settings" :key="s.key" class="py-1" :data-testid="'clinic-preferences-setting-' + s.key">
         <template v-if="s.locked">
           <span>{{ s.key }}: </span>
           <output :data-testid="'clinic-preferences-locked-' + s.key">{{ String(s.value) }}</output>
           <span class="text-sm"> ({{ s.lockedLabel }})</span>
         </template>
-        <label v-else-if="typeof s.value === 'boolean'">
+        <label v-else-if="typeof s.value === 'boolean'" class="inline-flex items-center gap-2 text-sm text-[var(--text-primary)]">
           <input type="checkbox" :checked="s.value" :disabled="busy" @change="controller.setWorkstationValue(s.key, $event.target.checked)">
           {{ s.key }}
         </label>
-        <label v-else>{{ s.key }}
+        <label v-else class="grid gap-1 text-sm font-medium text-[var(--text-secondary)]">{{ s.key }}
           <input type="text" class="field field--sm" :value="s.value" :disabled="busy" @input="controller.setWorkstationValue(s.key, $event.target.value)">
         </label>
       </div>
     </fieldset>
     <div class="flex flex-wrap gap-2">
-      <button type="submit" class="btn btn--sm" :disabled="!view.dirty || busy" data-testid="clinic-preferences-save">{{ view.labels.save }}</button>
+      <button type="submit" class="btn btn--sm btn--primary" :disabled="!view.dirty || busy" data-testid="clinic-preferences-save">{{ view.labels.save }}</button>
       <button type="button" class="btn btn--sm btn--ghost" :disabled="!view.dirty || busy" data-testid="clinic-preferences-cancel"
               @click="controller.cancel()">{{ view.labels.cancel }}</button>
       <button type="button" class="btn btn--sm btn--ghost" :disabled="busy" data-testid="clinic-preferences-reload"
