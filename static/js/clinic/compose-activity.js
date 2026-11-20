@@ -22,6 +22,7 @@
  */
 
 import { surfaceFor } from './tokens.js';
+import { V8_PAGE } from './compose-import.js';
 import { createHistoryComponent } from './history-ui.js';
 import { formatAudioDuration } from './worklist-ui.js';
 
@@ -31,6 +32,10 @@ const DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 export const LABELS = Object.freeze({
     title: 'Aktivität und Audit',
+    eyebrow: 'Verwaltung',
+    eyebrowScoped: 'Diktat',
+    subline: 'Verlauf eines Diktats und Statistik des eigenen Berechtigungsbereichs. Es werden nur Kennungen, Aktionen und Revisionsbezüge gezeigt, kein Diktattext.',
+    sublineScoped: 'Wer hat was an diesem Diktat geändert? Ereignisse mit Akteur, Aktion und betroffener Version.',
     historyTitle: 'Verlauf eines Diktats',
     historyOnlyTitle: 'Diktat / Verlauf',
     dictationId: 'Diktat-ID',
@@ -64,6 +69,7 @@ export const LABELS = Object.freeze({
     known: 'Mit bekannter Dauer',
     state: 'Vollständigkeit',
     unassigned: 'nicht zugewiesen',
+    historyEmpty: 'Diktat-ID eingeben, um den Verlauf anzuzeigen.',
     noExport: 'CSV-Export: nur über den autorisierten Serverbefehl, nicht in dieser Ansicht.',
 });
 
@@ -278,75 +284,103 @@ function surfaceStyle(name) {
 }
 
 export const ACTIVITY_TEMPLATE = `
-<div class="clinic-activity-view surface flex flex-col gap-5 p-4 md:p-6">
-  <p v-if="state.denied" role="alert">${LABELS.deniedUser}</p>
+<div class="${V8_PAGE} clinic-activity-view">
+  <p v-if="state.denied" class="note warning" role="alert">${LABELS.deniedUser}</p>
   <template v-else>
-    <h2 class="t-heading">{{ historyOnly ? '${LABELS.historyOnlyTitle}' : '${LABELS.title}' }}</h2>
-    <section role="region" aria-label="${LABELS.historyTitle}" data-testid="history-section" class="flex flex-col gap-3 [&_h2]:sr-only [&_ol]:m-0 [&_ol]:p-0 [&_ol]:list-none [&_ol]:flex [&_ol]:flex-col [&_ol]:gap-2 [&_li]:rounded-[var(--radius-md)] [&_li]:p-3 [&_li]:border [&_li]:border-[var(--border-primary)] [&_li]:t-body [&_dl]:grid [&_dl]:grid-cols-[max-content_1fr] [&_dl]:gap-x-4 [&_dl]:gap-y-1 [&_dl]:mt-2 [&_dl]:mb-0 [&_dt]:text-[13px] [&_dt]:opacity-80 [&_dd]:m-0 [&_dd]:break-all [&_nav]:flex [&_nav]:items-center [&_nav]:gap-3 [&_nav]:mt-3 [&_button]:min-h-[2.75rem] [&_button]:px-3 [&_button]:rounded-[var(--radius-md)] [&_button]:border [&_button]:border-[var(--border-primary)] [&_button]:bg-transparent [&_button]:text-[var(--text-primary)]">
-      <h3 v-if="!historyOnly" class="t-subhead mb-2">${LABELS.historyTitle}</h3>
-      <form v-if="!historyOnly" class="flex flex-wrap items-end gap-3" @submit.prevent="openHistory()">
-        <label for="act-dictation" class="t-meta">${LABELS.dictationId}</label>
-        <input id="act-dictation" class="field" type="text" autocomplete="off" spellcheck="false" v-model="state.dictationInput" />
-        <button type="submit" class="btn" aria-label="${LABELS.showHistory}">${LABELS.showHistory}</button>
+    <div class="pagehead">
+      <div>
+        <div class="eyebrow">{{ historyOnly ? '${LABELS.eyebrowScoped}' : '${LABELS.eyebrow}' }}</div>
+        <h1>{{ historyOnly ? '${LABELS.historyOnlyTitle}' : '${LABELS.title}' }}</h1>
+        <p class="subline">{{ historyOnly ? '${LABELS.sublineScoped}' : '${LABELS.subline}' }}</p>
+      </div>
+    </div>
+    <div class="stack">
+    <section role="region" aria-label="${LABELS.historyTitle}" data-testid="history-section" class="panel [&_.clinic-history>h2]:sr-only [&_ol]:m-0 [&_ol]:p-0 [&_ol]:list-none [&_ol]:grid [&_ol]:gap-3 [&_li]:rounded-lg [&_li]:p-4 [&_li]:border [&_li]:text-xs [&_li]:leading-relaxed [&_dl]:grid [&_dl]:grid-cols-[max-content_1fr] [&_dl]:gap-x-4 [&_dl]:gap-y-1 [&_dl]:mt-2 [&_dl]:mb-0 [&_dt]:text-[var(--muted)] [&_dd]:m-0 [&_dd]:break-all [&_nav]:flex [&_nav]:items-center [&_nav]:gap-3 [&_nav]:mt-4 [&_nav]:text-xs">
+      <h2 v-if="!historyOnly">${LABELS.historyTitle}</h2>
+      <form v-if="!historyOnly" class="filterbar" @submit.prevent="openHistory()">
+        <div class="field search">
+          <label for="act-dictation">${LABELS.dictationId}</label>
+          <input id="act-dictation" type="text" autocomplete="off" spellcheck="false" v-model="state.dictationInput" />
+        </div>
+        <button type="submit" class="primary" aria-label="${LABELS.showHistory}">${LABELS.showHistory}</button>
       </form>
-      <p v-if="state.historyMessage" role="alert" :style="errorStyle">{{ state.historyMessage }}</p>
+      <p v-if="state.historyMessage" class="note warning" role="alert">{{ state.historyMessage }}</p>
       <component v-if="state.dictationId" :is="historyComponent" :client="client" :dictation-id="state.dictationId"
         :key="state.epoch + ':' + state.dictationId"></component>
+      <p v-else-if="!historyOnly && !state.historyMessage" class="empty">${LABELS.historyEmpty}</p>
     </section>
-    <section v-if="!historyOnly" role="region" aria-label="${LABELS.statsTitle}" data-testid="statistics-section" class="flex flex-col gap-3" :aria-busy="state.status === 'loading'">
-      <h3 class="t-subhead">${LABELS.statsTitle}</h3>
-      <form class="flex flex-wrap items-end gap-3" @submit.prevent="load()">
-        <label for="act-basis">${LABELS.timeBasis}</label>
-        <select id="act-basis" class="field" v-model="state.form.timeBasis">
-          <option v-for="b in timeBases" :key="b.value" :value="b.value">{{ b.label }}</option>
-        </select>
-        <label for="act-from">${LABELS.from}</label>
-        <input id="act-from" class="field" type="date" v-model="state.form.from" />
-        <label for="act-to">${LABELS.to}</label>
-        <input id="act-to" class="field" type="date" v-model="state.form.to" />
-        <fieldset>
-          <legend>${LABELS.groupBy}</legend>
-          <label v-for="g in groups" :key="g.value">
-            <input type="checkbox" :checked="state.form.groupBy.includes(g.value)" @change="toggleGroup(g.value)" /> {{ g.label }}
-          </label>
+    <section v-if="!historyOnly" role="region" aria-label="${LABELS.statsTitle}" data-testid="statistics-section" class="panel" :aria-busy="state.status === 'loading'">
+      <h2>${LABELS.statsTitle}</h2>
+      <form @submit.prevent="load()">
+        <div class="filterbar">
+          <div class="field">
+            <label for="act-basis">${LABELS.timeBasis}</label>
+            <select id="act-basis" v-model="state.form.timeBasis">
+              <option v-for="b in timeBases" :key="b.value" :value="b.value">{{ b.label }}</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="act-from">${LABELS.from}</label>
+            <input id="act-from" type="date" v-model="state.form.from" />
+          </div>
+          <div class="field">
+            <label for="act-to">${LABELS.to}</label>
+            <input id="act-to" type="date" v-model="state.form.to" />
+          </div>
+          <div class="field">
+            <label for="act-grain">${LABELS.grain}</label>
+            <select id="act-grain" v-model="state.form.grain">
+              <option value="">-</option>
+              <option v-for="g in grains" :key="g.value" :value="g.value">{{ g.label }}</option>
+            </select>
+          </div>
+        </div>
+        <fieldset class="field" style="border: 0; padding: 0; min-width: 0">
+          <legend class="visually-hidden">${LABELS.groupBy}</legend>
+          <span>${LABELS.groupBy}</span>
+          <div class="chiprow">
+            <label v-for="g in groups" :key="g.value" class="inline-label">
+              <input type="checkbox" :checked="state.form.groupBy.includes(g.value)" @change="toggleGroup(g.value)" /> {{ g.label }}
+            </label>
+          </div>
         </fieldset>
-        <label for="act-grain">${LABELS.grain}</label>
-        <select id="act-grain" class="field" v-model="state.form.grain">
-          <option value="">-</option>
-          <option v-for="g in grains" :key="g.value" :value="g.value">{{ g.label }}</option>
-        </select>
-        <button type="submit" class="btn btn--primary" aria-label="${LABELS.load}">${LABELS.load}</button>
+        <div class="actions">
+          <button type="submit" class="primary" aria-label="${LABELS.load}">${LABELS.load}</button>
+        </div>
       </form>
-      <p v-if="state.status === 'loading'" role="status">${LABELS.loading}</p>
-      <p v-else-if="state.status === 'invalid'" role="alert" :style="errorStyle">{{ state.message }}</p>
-      <div v-else-if="state.status === 'denied' || state.status === 'stale' || state.status === 'error'" role="alert" :style="errorStyle">
+      <p v-if="state.status === 'loading'" class="result-count" role="status" style="margin-top: 14px">${LABELS.loading}</p>
+      <p v-else-if="state.status === 'invalid'" class="note warning" role="alert">{{ state.message }}</p>
+      <div v-else-if="state.status === 'denied' || state.status === 'stale' || state.status === 'error'" class="note warning" role="alert">
         <p>{{ state.message }}</p>
-        <button v-if="state.status !== 'denied'" type="button" class="btn" aria-label="${LABELS.retry}" @click="load()">${LABELS.retry}</button>
+        <button v-if="state.status !== 'denied'" type="button" class="small" aria-label="${LABELS.retry}" @click="load()">${LABELS.retry}</button>
       </div>
-      <p v-else-if="state.status === 'empty'" role="status">${LABELS.empty}</p>
+      <p v-else-if="state.status === 'empty'" class="empty" role="status" style="margin-top: 14px">${LABELS.empty}</p>
       <template v-if="state.view && (state.status === 'ready' || state.status === 'empty')">
-        <dl aria-label="${LABELS.provenance}">
-          <dt>${LABELS.timeBasis}</dt><dd>{{ state.view.provenance.timeBasis }}</dd>
-          <dt>${LABELS.zone}</dt><dd>{{ state.view.provenance.zone }}</dd>
-          <dt>${LABELS.window}</dt><dd>{{ state.view.provenance.window }} {{ state.view.provenance.start }} - {{ state.view.provenance.end }}</dd>
-          <dt>${LABELS.asOf}</dt><dd>{{ state.view.provenance.asOf }}</dd>
-          <dt>${LABELS.excluded}</dt><dd>{{ state.view.provenance.excluded }}</dd>
+        <dl class="metadata" aria-label="${LABELS.provenance}" style="margin-top: 18px">
+          <div><dt>${LABELS.timeBasis}</dt><dd>{{ state.view.provenance.timeBasis }}</dd></div>
+          <div><dt>${LABELS.zone}</dt><dd>{{ state.view.provenance.zone }}</dd></div>
+          <div><dt>${LABELS.window}</dt><dd>{{ state.view.provenance.window }} {{ state.view.provenance.start }} - {{ state.view.provenance.end }}</dd></div>
+          <div><dt>${LABELS.asOf}</dt><dd>{{ state.view.provenance.asOf }}</dd></div>
+          <div><dt>${LABELS.excluded}</dt><dd>{{ state.view.provenance.excluded }}</dd></div>
         </dl>
-        <table v-if="state.status === 'ready'" aria-label="${LABELS.statsTitle}">
-          <thead><tr>
-            <th v-for="c in state.view.columns" :key="c.key" scope="col">{{ c.label }}</th>
-            <th scope="col">${LABELS.count}</th><th scope="col">${LABELS.total}</th><th scope="col">${LABELS.average}</th>
-            <th scope="col">${LABELS.known}</th><th scope="col">${LABELS.state}</th>
-          </tr></thead>
-          <tbody><tr v-for="r in state.view.rows" :key="r.key">
-            <td v-for="(cell, n) in r.cells" :key="n">{{ cell }}</td>
-            <td>{{ r.count }}</td><td>{{ r.total }}</td><td>{{ r.average }}</td><td>{{ r.known }}</td>
-            <td><span :style="rowStyle(r.surface)">{{ r.stateLabel }}</span></td>
-          </tr></tbody>
-        </table>
+        <div v-if="state.status === 'ready'" class="table-wrap">
+          <table aria-label="${LABELS.statsTitle}">
+            <thead><tr>
+              <th v-for="c in state.view.columns" :key="c.key" scope="col">{{ c.label }}</th>
+              <th scope="col">${LABELS.count}</th><th scope="col">${LABELS.total}</th><th scope="col">${LABELS.average}</th>
+              <th scope="col">${LABELS.known}</th><th scope="col">${LABELS.state}</th>
+            </tr></thead>
+            <tbody><tr v-for="r in state.view.rows" :key="r.key">
+              <td v-for="(cell, n) in r.cells" :key="n">{{ cell }}</td>
+              <td>{{ r.count }}</td><td>{{ r.total }}</td><td>{{ r.average }}</td><td>{{ r.known }}</td>
+              <td><span class="tag dot" :class="r.surface === 'warning' ? 'wait' : ''">{{ r.stateLabel }}</span></td>
+            </tr></tbody>
+          </table>
+        </div>
       </template>
-      <p class="t-meta">${LABELS.noExport}</p>
+      <p class="hint" style="margin: 14px 0 0">${LABELS.noExport}</p>
     </section>
+    </div>
   </template>
 </div>`;
 
