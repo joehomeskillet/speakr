@@ -5,6 +5,7 @@ Synthetic rows only. Rows come from the real loader and the real get_worklist pr
 
 from __future__ import annotations
 
+import json
 import uuid
 
 import pytest
@@ -12,7 +13,7 @@ import pytest
 from src.app import app, db
 from src.clinic import policy, routes_worklist, workflow, worklist_entries
 from src.clinic.identity import create_tables as _create_identity_tables
-from src.clinic.models import ClinicDictation
+from src.clinic.models import ClinicDictation, ClinicOriginal
 from src.clinic.pools import ClinicAuthorPool, ClinicPoolRoute, ClinicStaffPool
 from src.clinic.worklist_layout import LayoutStore
 from src.models import Group, GroupMembership, Recording, User
@@ -47,6 +48,7 @@ def scene():
         author = _user("author", full_name="Dr. Anna Autorin")
         typist = _user("typist", full_name="Tina Tippt")
         stranger = _user("stranger", full_name="Sam Stranger")
+        lead = _user("lead", full_name="Lena Leitung")
         author_pool = ClinicAuthorPool(name=f"v8119 A {uuid.uuid4().hex[:6]}", created_by=admin.id)
         db.session.add(author_pool)
         db.session.flush()
@@ -54,6 +56,7 @@ def scene():
         db.session.add(group)
         db.session.flush()
         db.session.add(GroupMembership(group_id=group.id, user_id=typist.id, role="user"))
+        db.session.add(GroupMembership(group_id=group.id, user_id=lead.id, role="admin"))
         staff = ClinicStaffPool(group_id=group.id, created_by=admin.id)
         db.session.add(staff)
         db.session.flush()
@@ -71,8 +74,30 @@ def scene():
             id=dictation.id, author_user_id=author.id, pool_id=author_pool.id,
             assignee_user_id=typist.id, status=workflow.TO_WRITE, audio_seconds=5))
         db.session.commit()
-        return dict(author=author.id, typist=typist.id, stranger=stranger.id, dictation=dictation.id,
+        return dict(author=author.id, typist=typist.id, lead=lead.id, pool=author_pool.id, stranger=stranger.id, dictation=dictation.id,
                     staff=staff.id, staff_name=staff.name)
+
+
+def _add_dictation(scene, origin, *, assignee=True):
+    """A further synthetic dictation of the scene's author; origin None means no original row."""
+    rec = Recording(user_id=scene["author"], title="t", status="COMPLETED", original_filename="x.wav")
+    db.session.add(rec)
+    db.session.flush()
+    dictation = ClinicDictation(recording_id=rec.id, author_user_id=scene["author"],
+                                pool_id=scene["pool"], version_counter=1)
+    db.session.add(dictation)
+    db.session.flush()
+    db.session.add(workflow.ClinicWorkflowDictation(
+        id=dictation.id, author_user_id=scene["author"], pool_id=scene["pool"],
+        assignee_user_id=scene["typist"] if assignee else None, status=workflow.TO_WRITE,
+        audio_seconds=5))
+    if origin is not None:
+        digest = uuid.uuid4().hex
+        db.session.add(ClinicOriginal(
+            dictation_id=dictation.id, content_hash=digest, size_bytes=1, storage_key=digest,
+            receipt=json.dumps({"v": 1, "origin": origin}), origin_ref=f"{origin}:ref"))
+    db.session.commit()
+    return dictation.id
 
 
 def _rows(actor):
@@ -88,7 +113,7 @@ def test_rows_carry_names_pools_and_source_label(scene):
         assert row["staff_pools"] == [{"id": scene["staff"], "name": scene["staff_name"]}]
         assert row["assignee"] == {"id": str(scene["typist"]), "display_name": "Tina Tippt"}
         assert row["lease_holder"] is None
-        assert row["source_kind"] == "audio" and row["source_label"] == "Mikrofon"
+        assert row["source_kind"] == "audio" and row["source_label"] is None  # no original stored
         assert row["assignee_user_id"] == scene["typist"] and row["author_user_id"] == scene["author"]
 
 
@@ -97,15 +122,41 @@ def test_viewer_without_access_gets_no_row_and_so_no_names(scene):
         assert _rows(scene["stranger"]) == ()
 
 
-def test_unassigned_row_has_no_assignee_and_unknown_source_has_no_label(scene):
+def test_source_label_follows_original_receipt_origin(scene):
+    with app.app_context():
+        expected = {_add_dictation(scene, origin): label for origin, label in (
+            ("web-recorder", "Mikrofon"), ("web-upload", "Upload"), ("agent", "Import"),
+            ("batch", "Import"), ("legacy-backfill", "Import"), ("martian", None), (None, None))}
+        by_id = {row["dictation_id"]: row for row in _rows(scene["typist"])}
+        for dictation_id, label in expected.items():
+            assert by_id[dictation_id]["source_label"] == label
+            assert by_id[dictation_id]["source_kind"] == "audio"
+    assert routes_worklist.ORIGIN_LABELS["live"] == "Live"
+
+
+def test_unassigned_row_has_no_assignee(scene):
     with app.app_context():
         flow = db.session.get(workflow.ClinicWorkflowDictation, scene["dictation"])
         flow.assignee_user_id = None
         db.session.commit()
         (row,) = _rows(scene["author"])
         assert row["assignee"] is None and row["assignee_user_id"] is None
-    assert {k: routes_worklist.SOURCE_LABELS[k] for k in ("upload", "import", "live")} == {
-        "upload": "Upload", "import": "Import", "live": "Live"}
+
+
+def test_pool_lead_sees_unassigned_row_without_assignee(scene):
+    with app.app_context():
+        unassigned = _add_dictation(scene, "web-upload", assignee=False)
+        by_id = {row["dictation_id"]: row for row in _rows(scene["lead"])}
+        assert by_id[unassigned]["assignee"] is None
+        assert by_id[unassigned]["dictated_by"]["display_name"] == "Dr. Anna Autorin"
+
+
+def test_rows_never_contain_names_of_non_participants(scene):
+    with app.app_context():
+        rows = _rows(scene["typist"])
+        dump = json.dumps(rows, default=str)
+        assert "Sam Stranger" not in dump and "Lena Leitung" not in dump
+        assert "Tina Tippt" in dump and "Dr. Anna Autorin" in dump
 
 
 def test_rows_carry_no_patient_data(scene):

@@ -35,9 +35,10 @@ COLUMNS = (
 _DEFAULT_LAYOUT = {'version': 1, 'sort': [], 'group_by': [],
                    'columns': [{'key': key, 'width': 140, 'visible': True} for key in COLUMNS]}
 # Additive row fields (v8-119): the role fields the Aufnahmen API returns, set by the loader.
-ROLE_COLUMNS = ('dictated_by', 'staff_pools', 'lease_holder')
-SOURCE_LABELS = {'audio': 'Mikrofon', 'microphone': 'Mikrofon', 'upload': 'Upload',
-                 'import': 'Import', 'live': 'Live'}
+ROLE_COLUMNS = ('dictated_by', 'staff_pools', 'lease_holder', 'source_label')
+# ClinicOriginal receipt origin -> German source label; unknown origins get no label.
+ORIGIN_LABELS = {'web-recorder': 'Mikrofon', 'web-upload': 'Upload', 'agent': 'Import',
+                 'batch': 'Import', 'legacy-backfill': 'Import', 'live': 'Live'}
 _PROBLEMS = {400: ('INVALID_PAYLOAD', 'Ungültige Anfrage'),
              401: ('UNAUTHORIZED', 'Anmeldung erforderlich'),
              404: ('NOT_FOUND', 'Nicht gefunden')}
@@ -73,27 +74,27 @@ def _query_row(entry: WorklistEntry) -> dict:
 
 
 def _with_names(rows: list[Mapping]) -> list[dict]:
-    """For loader rows (those carrying the role fields) add assignee {id, display_name} and source_label to projected rows.
+    """For loader rows (those carrying the role fields) add assignee {id, display_name} to projected rows.
 
     Names come only from users that take part in a row the policy already admitted
     (author, assignee, lease holder); a user that cannot be resolved has no name.
     """
+    from src.clinic.dictation_roles import _chunks, _person  # lazy: avoids the import cycle
+
     ids = sorted({row['assignee_user_id'] for row in rows
                   if 'dictated_by' in row and row['assignee_user_id'] is not None})
-    names: dict = {}
-    for start in range(0, len(ids), 500):
-        part = ids[start:start + 500]
-        names.update({user.id: user.name or user.username
-                      for user in db.session.query(User).filter(User.id.in_(part))})
+    users: dict = {}
+    for part in _chunks(ids):
+        users.update({user.id: user for user in db.session.query(User).filter(User.id.in_(part))})
     result = []
     for row in rows:
         if 'dictated_by' not in row:  # not built by the loader: keep the plain projection
             result.append(dict(row))
             continue
         assignee_id = row['assignee_user_id']
-        assignee = None if assignee_id is None else {'id': str(assignee_id),
-                                                     'display_name': names.get(assignee_id)}
-        result.append(dict(row, assignee=assignee, source_label=SOURCE_LABELS.get(row['source_kind'])))
+        assignee = None if assignee_id is None else (
+            _person(users.get(assignee_id)) or {'id': str(assignee_id), 'display_name': None})
+        result.append(dict(row, assignee=assignee))
     return result
 
 
