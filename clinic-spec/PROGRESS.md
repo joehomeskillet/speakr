@@ -7,6 +7,3 @@ Keine Anwendung implementiert; kein Speakr-Build oder Windows-/Browser-/Geräte-
 S00 Baseline prüfen; P00 Quell-/Paritätsvorrang; P03 Browserfähigkeit/Agentgrenze; lokales Identity-/ACL-Slice. Unabhängig P10 tatsächliche ASR-/Lexikon-/Trainingscapabilities prüfen.
 ## Bei vorhandener Implementierung
 Bestehenden Fortschritt nicht durch diese Anfangsnotiz löschen; versioniert zusammenführen und bereits belegte Tests mit realen Artefakten übernehmen.
-
-## v8-147
-ASR-Trainingsaufträge enden im Modus `CLINIC_MODE` mit «Training nicht verfügbar», solange keine verifizierte lokale Ausführung angebunden ist. Die einmaligen Container-Startbefehle nehmen nicht an der Queue-Wahl teil. Der Staging-Nachweis steht aus.
