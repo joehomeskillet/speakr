@@ -228,7 +228,7 @@ export const AUTHORS_TEMPLATE = `
         </div>
         <p class="result-count" aria-live="polite">{{ controller.visible().length }} von {{ state.rows.length }} {{ labels.list }}</p>
         <p v-if="!controller.visible().length" class="empty">{{ labels.filterEmpty }}</p>
-        <div v-else class="table-wrap">
+        <div v-else class="table-wrap" role="region" :aria-label="labels.list" tabindex="0">
           <table :aria-label="labels.list">
             <thead><tr>
               <th scope="col">{{ labels.columns.name }}</th><th scope="col">{{ labels.columns.authorPools }}</th>
