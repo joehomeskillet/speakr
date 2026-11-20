@@ -106,6 +106,9 @@ export const TEXT = Object.freeze({
     newerRevision: 'Es liegt eine neuere Fassung vor als die geprüfte. Die Entscheidung ist gesperrt, bis der aktuelle Stand geladen und erneut geprüft wurde.',
     conflict: 'Der Stand hat sich geändert. Die Entscheidung ist gesperrt, bis der aktuelle Stand geladen wurde.',
     offline: 'Keine Verbindung: Es kann keine Entscheidung ausgeführt werden.',
+    beginAcceptance: 'Wählen Sie zuerst „Prüfung beginnen“, um die Fassung abzunehmen.',
+    foreignAcceptance: 'Eine andere Person bearbeitet das Diktat. Wählen Sie „Prüfung beginnen“, sobald es frei ist.',
+    noReviewLease: 'Für dieses Konto ist der Prüfstart gesperrt.',
     readOnly: 'Nur Lesezugriff: Es stehen keine Entscheidungen zur Verfügung.',
     actions: 'Entscheidung',
     separate: 'Freigeben, Fertigstellen und Archivieren sind getrennte Schritte. Ausgabe und Export erfolgen separat.',
@@ -248,6 +251,11 @@ export function createReviewViewController(options) {
         if (!isOnline()) return TEXT.offline;
         if (id === 'release' && markers().length > 0) return TEXT.blockers;
         if (wf.state.busy) return TEXT.loading;
+        if (id === 'accept' && !editor.lease.value.writable) {
+            const lease = editor.lease.value;
+            if (lease.mayAcquire === false) return TEXT.noReviewLease;
+            return lease.status === 'foreign' ? TEXT.foreignAcceptance : TEXT.beginAcceptance;
+        }
         return wf.blockedReason(id);
     }
 
@@ -642,7 +650,7 @@ const ReviewBody = {
                     :style="[FOCUS, a.id === 'accept' ? '${PRIMARY}' : null]" :disabled="a.disabled" :data-action="a.id" :aria-describedby="a.why ? 'crv-why-' + a.id : null"
                     @click="c.request(a.id)">{{ a.label }}</button>
           </div>
-          <template v-for="a in c.actions()" :key="'w' + a.id"><span v-if="a.why" :id="'crv-why-' + a.id" class="visually-hidden">{{ a.why }}</span></template>
+          <template v-for="a in c.actions()" :key="'w' + a.id"><span v-if="a.why" :id="'crv-why-' + a.id" :class="a.id === 'accept' ? 'hint' : 'visually-hidden'">{{ a.why }}</span></template>
 
           <form v-if="confirming" role="alertdialog" aria-labelledby="crv-confirm" class="state-box" style="margin-top: 16px"
                 data-testid="confirm-form" @submit.prevent="c.confirm()" @keydown.esc="c.cancel()">
