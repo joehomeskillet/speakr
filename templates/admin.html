@@ -5152,7 +5152,7 @@ Summarization Instructions:
             { id: 'commands-templates', label: 'Befehle und Vorlagen', probe: '/resources/commands', comp: 'clinic-commands-templates-view', props: v8props },
             { id: 'asr-profiles', label: 'Sprachprofile', probe: '/admin/clinic/training/schedule', probeVia: adminClient, comp: 'clinic-asr-profiles-view', props: { ...v8props, adminClient } },
             { id: 'import', label: 'Import', probe: '/imports/intents', comp: 'clinic-import-view', props: v8props },
-            { id: 'jobs', label: 'Verarbeitung', probe: '/jobs/health', comp: 'clinic-jobs-view', props: { client, canRetry: !team } },
+            { id: 'jobs', label: 'Verarbeitung', probe: '/jobs/health', comp: 'clinic-jobs-view', props: { client, canRetry: !team, adminLayout: true } },
             { id: 'activity', label: 'Aktivität und Audit', probe: '/statistics/aggregates', comp: 'clinic-activity-view', props: v8props },
         ].map((d) => Object.assign(d, { v8: true }));
         // Policy pages (v8-92): own navigation row; the page is hidden for accounts the admin API refuses.

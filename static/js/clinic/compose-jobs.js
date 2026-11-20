@@ -24,6 +24,9 @@ const ICON_REFRESH = '<svg class="ui-icon" viewBox="0 0 24 24" width="20" height
 export const COMPOSE_JOBS_VERSION = 1;
 export const FILTER_ALL = 'all';
 
+const REFRESH_BUTTON = `<button type="button" :disabled="c.state.value.loading" :aria-busy="c.state.value.loading ? 'true' : 'false'"
+              data-testid="reload" @click="c.load()">${ICON_REFRESH}<span>{{ c.text.refresh }}</span></button>`;
+
 export const TEXT = Object.freeze({
     title: 'Verarbeitung',
     eyebrow: 'Verwaltung',
@@ -202,6 +205,7 @@ export const JobsView = {
     props: {
         client: { type: Object, required: true },
         canRetry: { type: Boolean, default: false },
+        adminLayout: { type: Boolean, default: false },
         vue: { type: Object, default: null },
         onReconcile: { type: Function, default: null },
         autoStart: { type: Boolean, default: true },
@@ -230,9 +234,8 @@ export const JobsView = {
       <h1 id="cjv-title">{{ c.scoped() ? c.text.scopedTitle : c.text.title }}&nbsp;<span class="count-pill align-middle" data-testid="job-count">{{ c.rows.value.length }}</span></h1>
       <p class="subline">{{ c.scoped() ? c.text.sublineScoped : c.text.subline }}</p>
     </div>
-    <div class="head-actions">
-      <button type="button" :disabled="c.state.value.loading" :aria-busy="c.state.value.loading ? 'true' : 'false'"
-              data-testid="reload" @click="c.load()">${ICON_REFRESH}<span>{{ c.text.refresh }}</span></button>
+    <div v-if="!adminLayout || c.denied.value" class="head-actions">
+      ${REFRESH_BUTTON}
     </div>
   </div>
   <div role="status" aria-live="polite" class="result-count" data-testid="status">{{ c.state.value.loading ? c.text.loading : c.state.value.notice }}</div>
@@ -247,13 +250,14 @@ export const JobsView = {
     </div>
     <section class="panel" aria-labelledby="cjv-list">
       <h2 id="cjv-list">{{ c.scoped() ? 'Aufträge dieses Diktats' : c.text.list }}</h2>
-      <div class="filterbar">
+      <div class="filterbar" :class="{ 'cadm-jobs-filter': adminLayout }">
         <div class="field">
           <label for="cjv-filter">{{ c.text.filter }}</label>
           <select id="cjv-filter" data-testid="state-filter" :value="c.filter.value" @change="c.setFilter($event.target.value)">
             <option v-for="key in c.filterOptions.value" :key="key" :value="key">{{ c.filterLabel(key) }}</option>
           </select>
         </div>
+        <template v-if="adminLayout">${REFRESH_BUTTON}</template>
       </div>
       <p v-if="!c.rows.value.length" class="empty" data-testid="empty-state">{{ c.scoped() ? c.text.scopedEmpty : (c.state.value.failures.length ? c.text.emptyFiltered : c.text.empty) }}</p>
       <div v-else class="table-wrap">
