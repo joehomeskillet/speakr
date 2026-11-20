@@ -59,4 +59,15 @@ def test_no_horizontal_page_overflow_at_390_px_for_the_four_identity_panels(live
         page.wait_for_timeout(500)
         overflow = page.evaluate("document.documentElement.scrollWidth > innerWidth + 1 || document.body.scrollWidth > innerWidth + 1")
         assert not overflow, panel
+        spilled = page.evaluate(
+            """() => [...document.querySelectorAll('[data-testid=clinic-admin] *')].filter(el => {
+                if (el.getBoundingClientRect().right <= innerWidth + 1) return false;
+                for (let p = el.parentElement; p; p = p.parentElement) {
+                    const ox = getComputedStyle(p).overflowX;
+                    if ((ox === 'auto' || ox === 'scroll') && (p.matches('.cadm-nav, .cadm-tablewrap') || p.dataset.testid === 'clinic-admin')) return false;
+                }
+                return true;
+            }).map(el => el.className || el.tagName)"""
+        )
+        assert not spilled, (panel, spilled)
     assert not js_errors, js_errors
