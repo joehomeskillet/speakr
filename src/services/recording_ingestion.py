@@ -853,9 +853,11 @@ def handle_unique_conflict(error, *, filepath, on_conflict):
 
 
 def build_ingestion_response(recording, *, owner, duplicate_warning, reuse_duplicate,
-                             success_status):
+                             success_status, dictation_id=None):
     """The success answer for a stored recording: its dict, the duplicate warning, the replay flag."""
     response_data = recording.to_dict(viewer_user=owner)
+    if dictation_id is not None:
+        response_data['dictation_id'] = dictation_id
     if duplicate_warning:
         response_data['duplicate_warning'] = duplicate_warning
     if reuse_duplicate:
@@ -1386,13 +1388,14 @@ def ingest(
             return jsonify(api_error('upload_canceled')), 409
 
         from src.clinic.config import clinic_mode_enabled
+        dictation_id = None
         if clinic_mode_enabled():
             from src.clinic import web_ingest
-            refused = web_ingest.register_upload(
+            dictation_id = web_ingest.register_upload(
                 owner=owner, recording=recording, storage=storage, form=form, now=now,
                 meeting_date=meeting_date, processing_source=processing_source)
-            if refused is not None:
-                return refused
+            if isinstance(dictation_id, tuple):
+                return dictation_id
 
         enqueue_ingestion_jobs(
             recording,
@@ -1408,6 +1411,7 @@ def ingest(
             duplicate_warning=duplicate_warning,
             reuse_duplicate=reuse_duplicate,
             success_status=success_status,
+            dictation_id=dictation_id,
         )
 
     except RequestEntityTooLarge:

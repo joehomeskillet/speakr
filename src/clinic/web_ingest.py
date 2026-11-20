@@ -30,12 +30,14 @@ import os
 from datetime import datetime, timezone
 
 from flask import current_app, jsonify
+from sqlalchemy import or_
 
 from src.clinic import pool_policy, pools, startup
 from src.clinic.ingest import IngestError, IngestService
-from src.clinic.models import ClinicDictation
+from src.clinic.models import ClinicDictation, ClinicOriginal
 from src.clinic.workflow import DRAFT, ClinicWorkflowDictation
 from src.database import db
+from src.models import Recording
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +47,23 @@ MSG_NO_POOL = ('Ihr Benutzerkonto ist keinem Autorenpool zugeordnet. '
 MSG_FAILED = ('Die Aufnahme konnte nicht als Diktat angelegt werden. '
               'Bitte den Vorgang wiederholen.')
 _CHUNK = 1024 * 1024
+
+
+def dictation_for_recording(recording_id: int, *, session=None) -> ClinicDictation | None:
+    """Resolve a worker's recording, preferring the dictation's own anchor."""
+    session = db.session if session is None else session
+    dictations = session.query(ClinicDictation)
+    anchor = dictations.filter_by(recording_id=recording_id).one_or_none()
+    if anchor is not None:
+        return anchor
+    from src.clinic.legacy_backfill import ORIGIN_REF_PREFIXES
+    source = session.get(Recording, recording_id)
+    if source is None:
+        return None
+    refs = [ClinicOriginal.origin_ref.startswith(f'{prefix}{recording_id}:')
+            for prefix in ORIGIN_REF_PREFIXES]
+    return (dictations.join(ClinicOriginal).join(Recording, ClinicDictation.recording_id == Recording.id)
+            .filter(Recording.user_id == source.user_id, or_(*refs)).one_or_none())
 
 
 def author_pool_for(user_id: int) -> str | None:
@@ -97,8 +116,8 @@ def register_upload(*, owner, recording, storage, form, now: datetime,
                     meeting_date: datetime | None, processing_source: str):
     """Create the clinic dictation for a stored web upload.
 
-    Returns None when done (or when the upload is not a browser upload); otherwise a
-    ``(response, status)`` pair the caller returns instead of the normal answer.
+    Returns the dictation UUID on success, None for another upload source, or
+    a ``(response, status)`` pair when the upload is refused.
     ``meeting_date is now`` marks the upload-time fallback of the pipeline.
     """
     if processing_source != WEB_SOURCE:
@@ -138,4 +157,4 @@ def register_upload(*, owner, recording, storage, form, now: datetime,
     except Exception:
         logger.error('web ingest failed for user %s', owner.id, exc_info=True)
         return _refuse(recording, storage, 'clinic_ingest_failed', MSG_FAILED, 500)
-    return None
+    return receipt.dictation_id
