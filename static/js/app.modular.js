@@ -3103,6 +3103,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             const clinicAdminViews = clinicMenu ? CLINIC_ADMIN_VIEWS : [];
             const clinicAdminView = computed(() => clinicAdminViews.find((entry) => entry.view === currentView.value) || null);
             const clinicAdminAccess = ref(null);
+            const clinicAdminBody = ref(null);
+            const clinicAdminOwnHead = ref(false);
             const clinicAdminClient = clinicMenu ? createClinicAdminClient(() => clinicMenu.getUploadCsrfToken()) : null;
             const clinicAuthorsClient = clinicMenu ? createClinicRoutingClient(clinicWorklist.client, clinicAdminClient) : null;
             // The site-admin flag comes from the server render (data-clinic-admin), as admin.html does with is_admin: !team; it is never assumed.
@@ -3116,7 +3118,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     const access = {};
                     clinicAdminViews.forEach((entry) => { access[entry.view] = false; });
                     clinicAdminAccess.value = access;
-                    document.querySelectorAll('[data-clinic-admin-link]').forEach((link) => { link.hidden = true; });
                     clinicAdminProbe = Promise.resolve(access);
                 }
                 if (!clinicAdminProbe) {
@@ -3126,11 +3127,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                             // Withheld only when the API refuses the account (401/403); a missing route or a network error leaves the page to show its own state.
                             clinicAdminViews.forEach((entry, index) => { access[entry.view] = results[index].outcome !== 'permission'; });
                             clinicAdminAccess.value = access;
-                            // Menu entries of withheld pages are hidden (header-controls.html).
-                            document.querySelectorAll('[data-clinic-admin-link]').forEach((link) => {
-                                const entry = clinicAdminViews.find((item) => item.view === link.getAttribute('data-clinic-admin-link'));
-                                link.hidden = !!entry && !access[entry.view];
-                            });
                             return access;
                         });
                 }
@@ -3146,6 +3142,24 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return base;
             };
             if (clinicMenu) {
+                // Compositions can supply their page head after loading. Keep the component
+                // mounted while handing the page layout from the shell to the composition.
+                watch(clinicAdminBody, (body, previous, onCleanup) => {
+                    const syncHead = () => { clinicAdminOwnHead.value = !!body?.querySelector('.pagehead'); };
+                    syncHead();
+                    if (!body) return;
+                    const observer = new MutationObserver(syncHead);
+                    observer.observe(body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+                    onCleanup(() => observer.disconnect());
+                }, { flush: 'post' });
+                watch([clinicAdminAccess, currentView], ([access, view]) => {
+                    document.querySelectorAll('[data-clinic-admin-link]').forEach((link) => {
+                        const target = link.dataset.clinicAdminLink;
+                        link.hidden = !access?.[target];
+                        if (!link.hidden && target === view) link.setAttribute('aria-current', 'page');
+                        else link.removeAttribute('aria-current');
+                    });
+                }, { flush: 'post' });
                 watch(currentView, (view) => { if (clinicAdminViews.some((entry) => entry.view === view)) probeClinicAdmin(); }, { flush: 'sync', immediate: true });
                 if (appRootElement.dataset.clinicAdmin === 'True') onMounted(() => { probeClinicAdmin(); });
             }
@@ -5429,7 +5443,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 clinicLiveId, clinicLiveDraft, openClinicLive, openClinicMenuDictation,
                 // end V8 menu views (v8-71)
                 // V8 Verwaltung views (v8-114)
-                clinicAdminView, clinicAdminAllowed, clinicAdminAccess, clinicAdminProps
+                clinicAdminView, clinicAdminAllowed, clinicAdminAccess, clinicAdminProps, clinicAdminBody, clinicAdminOwnHead
                 // end V8 Verwaltung views (v8-114)
             };
         },

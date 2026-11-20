@@ -4,6 +4,7 @@
 /* Administration pages (v8-114): the element and class rules of clinic-v8.css that are written at zero specificity
    (:where(.v8-page ...)) lose to the preflight and to the app classes (.field, .grid, .tabs, .empty). The same rules,
    raised to the specificity of an element selector, for the pages that mark their root with .v8-admin-page. */
+.v8-ui [data-testid=clinic-admin-view],.v8-ui .v8-admin-page{font-family:Inter,"Segoe UI",Arial,sans-serif;--v8-muted:color-mix(in srgb,var(--muted) 90%,var(--v8-text-2))}
 *:where(.v8-admin-page *){box-sizing:border-box}
 a:where(.v8-admin-page *){color:var(--v8-text);text-underline-offset:3px}
 button:where(.v8-admin-page *),input:where(.v8-admin-page *),select:where(.v8-admin-page *),textarea:where(.v8-admin-page *){font:inherit}
@@ -42,7 +43,7 @@ td small:where(.v8-admin-page *){display:block;font-size:10px;color:var(--v8-mut
 .tabs button[aria-selected=true]:where(.v8-admin-page *){color:var(--v8-text);border-bottom-color:var(--burgundy)}
 .empty:where(.v8-admin-page *){border:1px dashed var(--line);padding:28px;text-align:center;font-size:13px;color:var(--v8-muted);border-radius:8px}
 /* Overrides inside an admin page: the shell rules above (primary, icon-button, field) are written for other views. */
-.v8-ui .v8-admin-page .field{appearance:auto;width:auto;min-height:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;font-size:inherit;margin:0 0 16px}
+.v8-ui .v8-admin-page .field:not(:where(input,select,textarea)){appearance:auto;width:auto;min-height:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;font-size:inherit;margin:0 0 16px}
 .v8-ui .v8-admin-page .filterbar .field{margin:0}
 .v8-ui .v8-admin-page .primary{background:var(--ink);border-color:var(--ink);color:#fff;padding:9px 13px;font-size:inherit;font-weight:600}
 .v8-ui .v8-admin-page .primary:hover:not(:disabled){background:#2c565b;border-color:#2c565b;color:#fff}
@@ -86,7 +87,16 @@ td small:where(.v8-admin-page *){display:block;font-size:10px;color:var(--v8-mut
 .v8-ui .v8-admin-page section[aria-labelledby=acc-title] > button{justify-self:start}
 .v8-ui .v8-admin-page section[aria-labelledby=acc-title] table{display:block;max-width:100%;overflow-x:auto;border:1px solid var(--line);border-radius:8px}
 .v8-ui .v8-admin-page section[aria-labelledby=acc-title] td button{margin-right:6px;min-height:30px;padding:5px 9px;font-size:12px}
-.v8-ui .v8-admin-page section[aria-labelledby=acc-title] form{display:grid;gap:8px;max-width:420px}
+.v8-ui .users-form-only form{display:flex;flex-wrap:wrap;align-items:center;gap:8px;max-width:420px}
+.v8-ui .users-form-only form > :not(button){flex-basis:100%}
+.v8-ui .users-form-only form label{font-size:12px;font-weight:650}
+.v8-ui .users-form-only form label:not(:first-child){margin-top:6px}
+.v8-ui .users-form-only form label:has(input){display:flex;align-items:center;gap:8px}
+.v8-ui .users-form-only form input[type=checkbox]{accent-color:var(--ink)}
+.v8-ui .users-form-only form button:has(+ button[type=submit]){background:var(--ink);border-color:var(--ink);color:var(--ui-text-inverse,white)}
+.v8-ui .users-form-only form button[type=submit]{display:none}
+.v8-ui .v8-admin-page .user-picker{max-width:320px}
+.v8-ui:is(#app,#global-header *) .v6-menu a[data-clinic-admin-link][aria-current=page]{background:var(--v8-s2);color:var(--v8-menu-hover-text)}
 /* pools-ui.js (editing of pool memberships) inside an admin page: pools as cards, members as rows. */
 .v8-ui .v8-admin-page .pools-ui{display:grid;gap:14px}
 .v8-ui .v8-admin-page .pools-ui > h2{font-size:14px;margin:0}
@@ -136,7 +146,7 @@ td small:where(.v8-admin-page *){display:block;font-size:10px;color:var(--v8-mut
 .v8-ui .v8-admin-plain .admin-plain-card{padding:22px 24px;min-width:0;overflow-x:auto}
 .v8-ui .v8-admin-plain .admin-plain-card > :is(section,div){display:block;min-width:0;padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;border-radius:0!important}
 .v8-ui .v8-admin-plain .admin-plain-card :is(section,div,form,fieldset,header){min-width:0}
-.v8-ui .v8-admin-plain .admin-plain-card h1,.v8-ui .v8-admin-plain .admin-plain-card :is(h1,h2)[tabindex="-1"]{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;margin:0}
+.v8-ui .v8-admin-plain .admin-plain-card > :is(section,div) > :is(h1,h2):first-child,.v8-ui .v8-admin-plain .admin-plain-card > section > header > h1{display:none}
 .v8-ui .v8-admin-plain .admin-plain-card h2{font-size:15px;line-height:1.35;font-weight:700;margin:24px 0 10px}
 .v8-ui .v8-admin-plain .admin-plain-card h3{font-size:14px;line-height:1.35;font-weight:700;margin:20px 0 8px}
 .v8-ui .v8-admin-plain .admin-plain-card :is(h2,h3):first-child{margin-top:0}
@@ -145,27 +155,36 @@ td small:where(.v8-admin-page *){display:block;font-size:10px;color:var(--v8-mut
 .v8-ui .v8-admin-plain .admin-plain-card :is(ul,ol):empty{display:none}
 .v8-ui .v8-admin-plain .admin-plain-card :is(section,div):last-child > :is(p,ul,table):last-child{margin-bottom:0}
 .v8-ui .v8-admin-plain .admin-plain-card section + section,.v8-ui .v8-admin-plain .admin-plain-card section + div[role=tabpanel]{margin-top:22px;padding-top:20px;border-top:1px solid var(--v8-line-2)}
-.v8-ui .v8-admin-plain .admin-plain-card :is(form,fieldset){display:block}
-.v8-ui .v8-admin-plain .admin-plain-card form + form{margin-top:18px}
-.v8-ui .v8-admin-plain .admin-plain-card label{display:block;font-size:12px;font-weight:650;line-height:1.4;margin:16px 0 6px}
-.v8-ui .v8-admin-plain .admin-plain-card label:first-child{margin-top:0}
-.v8-ui .v8-admin-plain .admin-plain-card label:has(> :is(input[type=checkbox],input[type=radio])){display:flex;align-items:center;gap:8px;font-weight:500;font-size:13px;margin:6px 16px 6px 0}
-.v8-ui .v8-admin-plain .admin-plain-card label:has(> select){display:flex;align-items:center;gap:8px;margin:0}
-.v8-ui .v8-admin-plain .admin-plain-card :is(input:not([type=checkbox]):not([type=radio]),select,textarea){display:block;width:100%;max-width:560px;min-height:40px;padding:10px 11px;border:1px solid #ccd8d3;border-radius:7px;background-color:var(--surface);color:var(--v8-text);font-size:13px;appearance:auto;box-shadow:none}
-.v8-ui .v8-admin-plain .admin-plain-card label:has(> select) select{display:inline-block;width:auto;min-width:140px}
-.v8-ui .v8-admin-plain .admin-plain-card textarea{min-height:100px;line-height:1.65;resize:vertical}
-.v8-ui .v8-admin-plain .admin-plain-card fieldset{margin:16px 0 18px;padding:12px 14px;border:1px solid var(--line);border-radius:8px;display:flex;flex-wrap:wrap;gap:0 18px}
-.v8-ui .v8-admin-plain .admin-plain-card legend{padding:0 6px;font-size:12px;font-weight:650}
-.v8-ui .v8-admin-plain .admin-plain-card button{margin:0;padding:9px 14px;min-height:38px;line-height:1.3}
-.v8-ui .v8-admin-plain .admin-plain-card :is(input,select,textarea,table,p,ul,ol,fieldset,label) + button{margin-top:12px}
-.v8-ui .v8-admin-plain .admin-plain-card button + button{margin-left:8px}
-.v8-ui .v8-admin-plain .admin-plain-card button + :is(p,table,label,h2,h3,form){margin-top:14px}
-.v8-ui .v8-admin-plain .admin-plain-card :is(input,select,textarea,ul) + :is(p,div,table){margin-top:12px}
-.v8-ui .v8-admin-plain .admin-plain-card :is(.flex,[role=radiogroup],[role=tablist]) > :is(button,label){margin:0}
-.v8-ui .v8-admin-plain .admin-plain-card [role=radiogroup]{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
-.v8-ui .v8-admin-plain .admin-plain-card [role=radiogroup] > button[aria-checked=true]{background:var(--ink);border-color:var(--ink);color:#fff}
-.v8-ui .v8-admin-plain .admin-plain-card button:is(.primary,.btn--primary,[type=submit]){background:var(--ink);border-color:var(--ink);color:#fff}
-.v8-ui .v8-admin-plain .admin-plain-card button:is(.primary,.btn--primary,[type=submit]):hover:not(:disabled){background:#2c565b;border-color:#2c565b;color:#fff}
+/* The P13–P15 compositions keep these legacy controls inside their own V8 panels. */
+.v8-ui :is(.v8-admin-plain .admin-plain-card,[data-testid=clinic-admin-plain] .panel:has(> :where(section:not(.panel)))){
+  & :is(p,div)[style*="background"],& p[role=status][style]{padding:10px 14px;border:1px solid var(--line);border-radius:8px}
+  & :is(form,fieldset){display:block}
+  & form + form{margin-top:18px}
+  & label{display:block;font-size:12px;font-weight:650;line-height:1.4;margin:16px 0 6px}
+  & label:first-child{margin-top:0}
+  & label:has(> :is(input[type=checkbox],input[type=radio])){display:flex;align-items:center;gap:8px;font-weight:500;font-size:13px;margin:6px 16px 6px 0}
+  & label:has(> select){display:grid;gap:6px;margin:0}
+  & :where(input:not([type=checkbox]):not([type=radio]),select,textarea){display:block;width:100%;max-width:560px;min-height:40px;padding:10px 11px;border:1px solid var(--line);border-radius:7px;background-color:var(--surface);color:var(--v8-text);font-size:13px;box-shadow:none}
+  & select:not([multiple]){appearance:none;padding-right:36px;font-weight:400}
+  & label > select{min-width:140px;height:38px;min-height:38px;margin:0;padding-block:4px}
+  & textarea{min-height:100px;line-height:1.65;resize:vertical}
+  & fieldset{margin:16px 0 18px;padding:12px 14px;border:1px solid var(--line);border-radius:8px;display:flex;flex-wrap:wrap;gap:0 18px}
+  & legend{padding:0 6px;font-size:12px;font-weight:650}
+  & button{margin:0;padding:9px 14px;min-height:38px;font-size:13px;line-height:1.3}
+  & .flex:has(> label > select){align-items:flex-end}
+  & :is(input,select,textarea,table,p,ul,ol,fieldset,label) + button{margin-top:12px}
+  & :is(section,div,fieldset,form):has(> button + button):not([role=tablist]){display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+  & :is(section,div,fieldset,form):has(> button + button) > :not(button){flex-basis:100%;min-width:0}
+  & :is(section,div,fieldset,form):has(> button + button) > button{margin:0}
+  & :is(section,div):has(> button + button) > form{margin-block:4px}
+  & button + :is(p,table,label,h2,h3,form){margin-top:14px}
+  & :is(input,select,textarea,ul) + :is(p,div,table){margin-top:12px}
+  & :is(.flex,[role=radiogroup],[role=tablist]) > :is(button,label){margin:0}
+  & [role=radiogroup]{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
+  & [role=radiogroup] > button[aria-checked=true]{background:var(--ink);border-color:var(--ink);color:#fff}
+  & button:is(.primary,.btn--primary,[type=submit]){background:var(--ink);border-color:var(--ink);color:#fff}
+  & button:is(.primary,.btn--primary,[type=submit]):hover:not(:disabled){background:#2c565b;border-color:#2c565b;color:#fff}
+}
 .v8-ui .v8-admin-plain .admin-plain-card :is(button,a,input,select,textarea):not(:focus-visible){outline:none!important}
 .v8-ui .v8-admin-plain .admin-plain-card :is(button,a,input,select,textarea):focus-visible{outline:2px solid var(--v8-text)!important;outline-offset:2px!important}
 .v8-ui .v8-admin-plain .admin-plain-card :is(.tag,.pill,.badge){display:inline-flex}
@@ -173,9 +192,9 @@ td small:where(.v8-admin-page *){display:block;font-size:10px;color:var(--v8-mut
 .v8-ui .v8-admin-plain .admin-plain-card :is(.tabs,[role=tablist]) button{border:0;border-bottom:3px solid transparent;border-radius:0;background:transparent;color:var(--v8-text-2);padding:10px 14px;margin:0}
 .v8-ui .v8-admin-plain .admin-plain-card :is(.tabs,[role=tablist]) button:is([aria-selected=true],[aria-current=true],.active){color:var(--v8-text);border-bottom-color:var(--burgundy)}
 .v8-ui .v8-admin-plain .admin-plain-card table{display:table;margin:12px 0;border:1px solid var(--line);border-radius:8px;border-collapse:separate;border-spacing:0;overflow:hidden}
-.v8-ui .v8-admin-plain .admin-plain-card :is(p,div)[style*="background"],.v8-ui .v8-admin-plain .admin-plain-card p[role=status][style]{padding:10px 14px;border:1px solid var(--line);border-radius:8px}
+.v8-ui .v8-admin-page .pools-ui :is(p,div)[style*="background"]{padding:10px 14px;border:1px solid var(--line);border-radius:8px}
 .v8-ui .v8-admin-plain .admin-plain-card [role=alert]{padding:10px 14px;border:1px solid var(--v8-err-line);border-radius:8px;background:var(--v8-err-bg);color:var(--v8-err-text)}
 .v8-ui .v8-admin-plain .admin-plain-card [role=alert] + :is([role=alert],h2,h3,section){margin-top:12px}
 .v8-ui .v8-admin-plain .admin-plain-card dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 16px}
 .v8-ui .v8-admin-plain .admin-plain-card dd{margin:0}
-@media(max-width:760px){.v8-ui .v8-admin-plain .page-title{font-size:26px}.v8-ui .v8-admin-plain .admin-plain-card{padding:16px}.v8-ui .v8-admin-plain .admin-plain-card label:has(> select){flex-wrap:wrap}.v8-ui .v8-admin-plain .admin-plain-card label:has(> select) select{width:100%}}
+@media(max-width:760px){.v8-ui .v8-admin-plain .page-title{font-size:26px}.v8-ui .v8-admin-plain .admin-plain-card{padding:16px}}

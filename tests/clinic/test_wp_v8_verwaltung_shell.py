@@ -77,6 +77,11 @@ def test_every_page_is_reachable_by_hash_with_breadcrumb_as_admin(live_server, b
         crumb = shell.locator("[data-testid=clinic-admin-breadcrumb]")
         assert [t.strip() for t in crumb.locator("a, span").all_inner_texts()] == ["Speakr", "›", "Verwaltung", "›", label]
         assert page.evaluate("window.location.hash") == route
+        current = page.locator("[data-clinic-admin-link][aria-current=page]")
+        if view in MENU_PAGES:
+            assert current.count() == 1 and current.get_attribute("data-clinic-admin-link") == view
+        else:
+            assert current.count() == 0
         # The primary tabs stay in the header; neither is the current page.
         assert page.locator("[data-testid=clinic-primary-nav] [aria-current=page]").count() == 0
     assert not js_errors, js_errors
@@ -212,11 +217,35 @@ def test_pages_without_own_head_get_the_shell_page_head_and_card(live_server, br
         _wait_page(page, view)
         plain = page.locator("[data-testid=clinic-admin-plain]")
         plain.wait_for(state="visible", timeout=30000)
+        if plain.locator(".pagehead h1:not(.page-title)").count():
+            # A composition with its own V8 layout owns both the title and the panels.
+            assert plain.locator(".pagehead").count() == 1
+            assert plain.locator(".admin-plain-card, .page-title").count() == 0
+            assert plain.locator(".panel").first.is_visible()
+            continue
         assert plain.locator(".pagehead .eyebrow").text_content().strip() == "Verwaltung"
         assert plain.locator(".pagehead .page-title").text_content().strip() == PAGES[view][1]
         assert plain.locator(".pagehead .subline").count() == 1
         assert plain.locator(".admin-plain-card").count() == 1
     assert not js_errors, js_errors
+
+
+def test_composition_can_take_over_the_shell_card_after_mount(live_server, browser):
+    base, _ids = live_server
+    page, errors = _login(browser, base, ADMIN_EMAIL)
+    page.goto(base + "/#/verwaltung/verarbeitung")
+    shell = _wait_page(page, "clinic-admin-jobs")
+    # Simulate the page head and panel a composition renders once its data arrives.
+    shell.locator(".clinic-jobs-view").evaluate("""el => el.insertAdjacentHTML('afterbegin',
+        '<header class="pagehead"><h1>Eigener Titel</h1></header><section class="panel">Inhalt</section>')""")
+    shell.locator(".admin-plain-card").wait_for(state="detached")
+    assert shell.locator(".pagehead").count() == 1
+    assert shell.locator(".pagehead h1").bounding_box()["height"] > 20
+    assert shell.locator("section.panel").evaluate("e => parseFloat(getComputedStyle(e).paddingTop)") > 0
+    shell.locator(".clinic-jobs-view .pagehead").evaluate("el => el.remove()")
+    shell.locator(".admin-plain-card").wait_for(state="visible")
+    assert shell.locator(".pagehead").count() == 1
+    assert not errors, errors
 
 
 def test_non_admin_gets_denied_on_every_page_and_no_admin_flag(live_server, browser):
@@ -315,6 +344,19 @@ def test_users_page_has_the_prototype_table_card_and_wraps_at_390(live_server, b
     # The edit button opens the editor of accounts-ui.js.
     card.locator("tbody tr").first.locator(".icon-button[aria-label^=Bearbeiten]").click()
     shell.locator("#acc-username").wait_for(state="visible", timeout=10000)
+    editor = shell.get_by_role("region", name="Konto bearbeiten: w226admin")
+    assert editor.get_by_role("heading").inner_text() == "Konto bearbeiten: w226admin"
+    apply = editor.get_by_role("button", name="Übernehmen")
+    cancel = editor.get_by_role("button", name="Abbrechen")
+    assert apply.bounding_box()["y"] == cancel.bounding_box()["y"]
+    assert not editor.get_by_role("button", name="OK", exact=True).count()
+    cancel.click()
+    shell.get_by_role("button", name="Fachrechte").click()
+    picker_card = shell.locator(".panel:has(#usr-pick)")
+    assert picker_card.get_by_role("status").inner_text() == "Bitte einen Benutzer wählen."
+    picker_card.get_by_label("Benutzer").select_option(label="w226typist")
+    picker_card.locator("#grants-title").wait_for(state="visible")
+    shell.get_by_role("button", name="Konten", exact=True).click()
     page.set_viewport_size({"width": 390, "height": 844})
     page.wait_for_timeout(300)
     hint = card.locator("p.hint")
@@ -322,3 +364,24 @@ def test_users_page_has_the_prototype_table_card_and_wraps_at_390(live_server, b
     assert box["x"] + box["width"] <= card_box["x"] + card_box["width"] + 1, (box, card_box)
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
     assert not js_errors, js_errors
+
+
+def test_jobs_filter_matches_the_refresh_button_at_both_widths(live_server, browser):
+    base, _ids = live_server
+    page, errors = _login(browser, base, ADMIN_EMAIL)
+    page.goto(base + "/#/verwaltung/verarbeitung")
+    shell = _wait_page(page, "clinic-admin-jobs")
+    field = shell.get_by_test_id("state-filter")
+    refresh = shell.get_by_test_id("reload")
+    for width, height in ((1440, 900), (390, 844)):
+        page.set_viewport_size({"width": width, "height": height})
+        style = field.evaluate("""el => {
+            const s = getComputedStyle(el);
+            return [s.appearance, s.backgroundImage, s.fontWeight];
+        }""")
+        assert style[0] == "none" and "svg" in style[1] and style[2] == "400", style
+        select_box, button_box = field.bounding_box(), refresh.bounding_box()
+        assert select_box["y"] == button_box["y"]
+        assert select_box["height"] == button_box["height"] == 38
+        assert refresh.evaluate("el => getComputedStyle(el).fontSize") == "13px"
+    assert not errors, errors

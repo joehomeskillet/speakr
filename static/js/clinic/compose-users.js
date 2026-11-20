@@ -252,7 +252,7 @@ export const USERS_TEMPLATE = `
       <p class="subline">{{ labels.subline }}</p>
     </div>
     <div v-if="accounts.loaded" class="head-actions">
-      <button type="button" class="primary" data-testid="user-create" @click="startCreate()">${ICONS.plus}<span>{{ acc.create }}</span></button>
+      <button type="button" class="primary" data-testid="user-create" @click="openEditor()">${ICONS.plus}<span>{{ acc.create }}</span></button>
     </div>
   </div>
   <p v-if="state.denied" role="alert" class="note burgundy">{{ labels.deniedAnonymous }}</p>
@@ -274,13 +274,6 @@ export const USERS_TEMPLATE = `
     <p v-else-if="accounts.loaded && !accounts.accounts.length" role="status" aria-live="polite" class="empty">{{ labels.empty }}</p>
     <p v-if="accounts.error && !accounts.loaded" role="alert" class="note burgundy">{{ accounts.message }}
       <button type="button" class="small" @click="load()">{{ labels.retry }}</button></p>
-    <div v-if="accounts.loaded && state.active !== 'accounts'" class="field" style="max-width: 320px">
-      <label for="usr-pick">{{ labels.user }}</label>
-      <select id="usr-pick" :value="state.selectedId === null ? '' : String(state.selectedId)" @change="selectUser($event.target.value)">
-        <option value="">-</option>
-        <option v-for="a in accounts.accounts" :key="a.id" :value="String(a.id)">{{ a.username }}</option>
-      </select>
-    </div>
     <section v-if="accounts.loaded && state.active === 'accounts' && accounts.accounts.length" class="panel" aria-labelledby="usr-list-title" data-testid="user-table-card">
       <h2 id="usr-list-title">{{ labels.listTitle }}</h2>
       <div class="filterbar">
@@ -321,7 +314,7 @@ export const USERS_TEMPLATE = `
               <td>{{ acc.policies[a.login_policy] || a.login_policy }}</td>
               <td><span class="tag" :class="a.status === 'active' ? 'neutral' : 'wait'">{{ acc.statuses[a.status] || a.status }}</span></td>
               <td class="row-actions">
-                <button type="button" class="icon-button" :aria-label="acc.edit + ': ' + a.username" :title="acc.edit" @click="accountsCtl.startEdit(a.id)">${ICONS.edit}</button>
+                <button type="button" class="icon-button" :aria-label="acc.edit + ': ' + a.username" :title="acc.edit" @click="openEditor(a.id)">${ICONS.edit}</button>
                 <button type="button" v-if="a.status === 'active'" class="icon-button" :disabled="accounts.busy" :aria-label="acc.disable + ': ' + a.username" :title="acc.disable" @click="accountsCtl.setStatus(a.id, 'disabled')">${ICONS.lock}</button>
                 <button type="button" v-if="a.status === 'disabled'" class="icon-button" :disabled="accounts.busy" :aria-label="acc.reactivate + ': ' + a.username" :title="acc.reactivate" @click="accountsCtl.setStatus(a.id, 'active')">${ICONS.unlock}</button>
                 <button type="button" class="icon-button" :disabled="accounts.busy" :aria-label="acc.recovery + ': ' + a.username" :title="acc.recovery" @click="accountsCtl.issueRecovery(a.id)">${ICONS.key}</button>
@@ -332,8 +325,17 @@ export const USERS_TEMPLATE = `
       </div>
       <p class="hint">{{ acc.noImplicitAccess }}</p>
     </section>
-    <div v-if="accounts.loaded" role="region" class="panel" :class="{ 'users-form-only': state.active === 'accounts' }" :aria-labelledby="'usr-sec-' + state.active">
-      <component :is="activeComponent" v-bind="activeProps" :key="state.epoch + ':' + state.active + ':' + state.selectedId"></component>
+    <div v-if="accounts.loaded" role="region" class="panel" :class="{ 'users-form-only': state.active === 'accounts' }" :aria-labelledby="state.active === 'accounts' && accounts.draft ? 'usr-editor-title' : 'usr-sec-' + state.active">
+      <div v-if="state.active !== 'accounts'" class="field user-picker">
+        <label for="usr-pick">{{ labels.user }}</label>
+        <select id="usr-pick" :value="state.selectedId === null ? '' : String(state.selectedId)" @change="selectUser($event.target.value)">
+          <option value="">–</option>
+          <option v-for="a in accounts.accounts" :key="a.id" :value="String(a.id)">{{ a.username }}</option>
+        </select>
+      </div>
+      <h2 v-if="state.active === 'accounts' && accounts.draft" id="usr-editor-title" ref="editorTitle" tabindex="-1">{{ accounts.base ? 'Konto bearbeiten: ' + accounts.base.username : acc.create }}</h2>
+      <p v-if="state.active !== 'accounts' && state.selectedId === null" class="hint" role="status">{{ labels.pickUser }}</p>
+      <component v-else :is="activeComponent" v-bind="activeProps" :key="state.epoch + ':' + state.active + ':' + state.selectedId"></component>
     </div>
     <div v-if="accounts.loaded" class="grid equal" style="margin-top: 20px">
       <section class="panel" aria-labelledby="usr-note-roles">
@@ -407,9 +409,15 @@ export const UsersView = {
         const visible = Vue.computed(() => filterAccounts(ctrl.accounts.state.accounts, filter));
         const countText = Vue.computed(() => visible.value.length + ' von ' + ctrl.accounts.state.accounts.length + ' Konten');
         const resetFilter = () => { filter.q = ''; filter.role = 'all'; filter.status = 'all'; };
-        const startCreate = () => { ctrl.select('accounts'); ctrl.accounts.startCreate(); };
+        const editorTitle = Vue.ref(null);
+        const openEditor = (id) => {
+            ctrl.select('accounts');
+            if (id == null) ctrl.accounts.startCreate();
+            else ctrl.accounts.startEdit(id);
+            Vue.nextTick(() => editorTitle.value?.focus());
+        };
         return {
-            filter, visible, countText, resetFilter, startCreate, roleLabel: roleLabelOf, accountsCtl: ctrl.accounts, acc: ACCOUNT_LABELS, accounts: ctrl.accounts.state,
+            filter, visible, countText, resetFilter, openEditor, editorTitle, roleLabel: roleLabelOf, accountsCtl: ctrl.accounts, acc: ACCOUNT_LABELS, accounts: ctrl.accounts.state,
             stats, state: ctrl.state, sections: SECTIONS, labels: LABELS, errorStyle,
             select: ctrl.select, load: ctrl.load, selectUser: ctrl.selectUser, activeComponent, activeProps,
         };

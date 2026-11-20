@@ -285,15 +285,15 @@
                         Diese Seite ist für dieses Konto nicht freigegeben.
                         <a href="#/aufnahmen" @click.prevent="goClinicView('clinic-recordings')">Zu den Aufnahmen</a>
                     </div>
-                    <div v-else-if="clinicAdminView.sub" class="v8-admin-page v8-admin-plain" data-testid="clinic-admin-plain">
-                        <div class="pagehead">
+                    <div v-else-if="clinicAdminView.sub" class="v8-admin-page" :class="{ 'v8-admin-plain': !clinicAdminOwnHead }" data-testid="clinic-admin-plain">
+                        <div v-if="!clinicAdminOwnHead" class="pagehead">
                             <div>
                                 <div class="eyebrow">Verwaltung</div>
-                                <div class="page-title" role="presentation" v-text="clinicAdminView.label"></div>
+                                <h1 class="page-title" v-text="clinicAdminView.label"></h1>
                                 <p class="subline" v-text="clinicAdminView.sub"></p>
                             </div>
                         </div>
-                        <div class="panel admin-plain-card">
+                        <div ref="clinicAdminBody" :class="clinicAdminOwnHead ? null : 'panel admin-plain-card'">
                             <component :is="clinicAdminView.tag" :key="clinicAdminView.view" v-bind="clinicAdminProps(clinicAdminView)"></component>
                         </div>
                     </div>
