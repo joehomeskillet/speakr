@@ -446,7 +446,7 @@ def _clinic_delivery_intent(item, session_row, now, device_map, alias_map, embed
     except AgentChannelError:
         return None
     if config:
-        owners = agent_channel.unique_root_owners(agent_channel.enabled_agent_roots())
+        owners = agent_channel.unique_root_owners(agent_channel.registered_agent_roots())
         if owners.get(item.root_id) != session_row.agent_id:
             return None
     if config.get("source_kind") == "device":

@@ -146,12 +146,24 @@ def test_ambiguous_registered_source_is_visible_only_for_admin_clarification(sce
     lead, admin = scene["other"], scene["admin"]
     peer = agent_channel.register_agent(scene["policy"], actor_user_id=admin.id, display_name="Second lab station",
                                         allowed_sources=["usb-1"], credential_fingerprint="bb" * 20)
+    other_machine = {**scene, "agent_id": peer["agent_id"], "principal": agent_channel.authenticate_agent("bb" * 20)}
+    ingest_id, body, _ = _upload(other_machine, _data("replacement-station"))
+    old = _finalize(other_machine, ingest_id, body)
+    delivery_id = old["import"]["delivery_id"]
+
     def roots(user, path):
         return {row["root_id"] for row in _items(_client(user), path)}
 
+    agent_channel.set_agent_enabled(scene["policy"], actor_user_id=admin.id, agent_id=scene["agent_id"], enabled=False)
+    assert old["import"]["status"] == "UNASSIGNED"
+    assert _finalize(other_machine, ingest_id, body)["import"] == old["import"]
+    assert delivery_id in {row["id"] for row in _items(_client(admin), "unassigned")}
+    assert delivery_id not in {row["id"] for row in _items(_client(lead), "unassigned")}
+    agent_channel.set_agent_enabled(scene["policy"], actor_user_id=admin.id, agent_id=scene["agent_id"], enabled=True)
     for path in ("inventory", "unassigned"):
         assert "usb-1" not in roots(lead, path)
         assert "usb-1" in roots(admin, path)
     agent_channel.set_agent_enabled(scene["policy"], actor_user_id=admin.id, agent_id=peer["agent_id"], enabled=False)
     for path in ("inventory", "unassigned"):
-        assert roots(lead, path) == {"usb-1"}
+        assert "usb-1" not in roots(lead, path)
+        assert "usb-1" in roots(admin, path)

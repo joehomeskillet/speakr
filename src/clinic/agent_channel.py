@@ -367,18 +367,17 @@ def agent_of(principal):
 
 # --- inventory -------------------------------------------------------------------
 
-def enabled_agent_roots():
-    rows = db.session.query(ClinicAgent.id, ClinicAgent.allowed_sources).filter(
-        ClinicAgent.enabled.is_(True)).order_by(ClinicAgent.id)
-    return {agent_id: set(json.loads(roots)) for agent_id, roots in rows}
+def registered_agent_roots():
+    rows = db.session.query(ClinicAgent.id, ClinicAgent.enabled, ClinicAgent.allowed_sources).order_by(ClinicAgent.id)
+    return {agent_id: (enabled, set(json.loads(roots))) for agent_id, enabled, roots in rows}
 
 
 def unique_root_owners(registry):
-    """Local aliases may be reused. Only one currently enabled registrant identifies a source."""
+    """A disabled machine retains its claim, so a replacement cannot inherit a local alias."""
     owners = {}
-    for agent_id, roots in registry.items():
+    for agent_id, (enabled, roots) in registry.items():
         for root in roots:
-            owners[root] = None if root in owners else agent_id
+            owners[root] = agent_id if enabled and root not in owners else None
     return owners
 
 

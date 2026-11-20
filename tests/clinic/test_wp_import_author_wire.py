@@ -161,14 +161,18 @@ def test_reused_source_alias_requires_clarification_for_both_registered_agents(e
     monkeypatch.setenv("CLINIC_IMPORT_ROOT_ALLOWLIST", "/test-root")
     import_source_config.create_source_config(actor_user_id=admin.id, source_kind="device", source_ref="usb-1",
         approved_root="/test-root", target_author_user_id=author.id, may_assign_author=lambda *_: True)
+    def deliver(agent, marker):
+        ingest_id, body, _ = _upload(agent, _data(marker))
+        return _finalize(agent, ingest_id, body)
+
+    first_intent = _intent(env)
+    original_receipt = deliver(env, "only-original-station")
+    assert original_receipt["import"]["intent_id"] == first_intent["id"]
+
     second = ch.register_agent(env["policy"], actor_user_id=admin.id, display_name="Second lab recorder",
                                allowed_sources=["usb-1"], credential_fingerprint="bb" * 20)
     peer = {**env, "agent_id": second["agent_id"], "principal": ch.authenticate_agent("bb" * 20)}
     expected = _intent(env)
-
-    def deliver(agent, marker):
-        ingest_id, body, _ = _upload(agent, _data(marker))
-        return _finalize(agent, ingest_id, body)
 
     for agent, marker in ((env, "station-one"), (peer, "station-two")):
         receipt = deliver(agent, marker)
@@ -180,10 +184,10 @@ def test_reused_source_alias_requires_clarification_for_both_registered_agents(e
         assert agent["service"].file_path(original.storage_key).read_bytes() == _data(marker)
     assert db.session.get(ic.ClinicImportIntent, expected["id"]).status == "OPEN"
 
+    ch.set_agent_enabled(env["policy"], actor_user_id=admin.id, agent_id=env["agent_id"], enabled=False)
+    assert deliver(peer, "only-replacement-enabled")["import"]["status"] == "UNASSIGNED"
+    ch.set_agent_enabled(env["policy"], actor_user_id=admin.id, agent_id=env["agent_id"], enabled=True)
     ch.set_agent_enabled(env["policy"], actor_user_id=admin.id, agent_id=second["agent_id"], enabled=False)
-    stored = deliver(env, "only-enabled-station")
-    assert stored["import"]["intent_id"] == expected["id"]
-    ch.set_agent_enabled(env["policy"], actor_user_id=admin.id, agent_id=second["agent_id"], enabled=True)
-    _intent(env)
-    assert deliver(env, "both-enabled-again")["import"]["status"] == "UNASSIGNED"
-    assert db.session.get(ClinicDictation, stored["dictation_id"]).author_user_id == author.id
+    assert deliver(env, "only-first-station-enabled-again")["import"]["status"] == "UNASSIGNED"
+    assert db.session.get(ic.ClinicImportIntent, expected["id"]).status == "OPEN"
+    assert db.session.get(ClinicDictation, original_receipt["dictation_id"]).author_user_id == author.id

@@ -82,8 +82,9 @@ def inventory():
     if not (can_import or led_pools):
         return _problem("FORBIDDEN")
 
-    roots_by_agent = agent_channel.enabled_agent_roots()
-    owners = agent_channel.unique_root_owners(roots_by_agent)
+    registry = agent_channel.registered_agent_roots()
+    owners = agent_channel.unique_root_owners(registry)
+    roots_by_agent = {agent: roots for agent, (enabled, roots) in registry.items() if enabled}
 
     def may_read(uid, action, scope):
         if uid != actor or action != "read_inventory" or scope.root_id not in roots_by_agent.get(scope.agent_id, ()):
@@ -116,7 +117,7 @@ def unassigned():
     if not (admin or led_pools):
         return _problem("FORBIDDEN")
 
-    owners = {} if admin else agent_channel.unique_root_owners(agent_channel.enabled_agent_roots())
+    owners = {} if admin else agent_channel.unique_root_owners(agent_channel.registered_agent_roots())
 
     def may_read(uid, action, scope):
         if uid != actor or action != "list_unassigned":
