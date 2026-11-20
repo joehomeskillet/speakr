@@ -1284,7 +1284,7 @@ def register_clinic_identity(flask_app):
     Preference stores are process-local; a durable store is a later package.
     """
     from src.clinic import (entra, pool_policy, routes_admin_dictations, routes_directory, routes_grants,
-                            routes_identity_providers, routes_pools, routes_preferences)
+                            routes_identity_providers, routes_pool_admin, routes_pools, routes_preferences)
     from src.clinic.last_selection import Allowed, SelectionStore
     from src.clinic.routes_metadata_fields import create_metadata_fields_blueprint
     from src.clinic.workstation_preferences import WorkstationPreferences
@@ -1310,6 +1310,7 @@ def register_clinic_identity(flask_app):
     flask_app.register_blueprint(routes_directory.blueprint)
     flask_app.register_blueprint(routes_admin_dictations.blueprint)
     flask_app.register_blueprint(routes_pools.blueprint)
+    flask_app.register_blueprint(routes_pool_admin.blueprint)
     flask_app.register_blueprint(routes_grants.GrantsApi().blueprint)
     flask_app.register_blueprint(create_metadata_fields_blueprint())
     flask_app.register_blueprint(routes_preferences.PreferenceRoutes(

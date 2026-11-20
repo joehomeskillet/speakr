@@ -150,7 +150,8 @@ _CLINIC_ASR = _split("""
 # endpoints run before a session exists, so they are PUBLIC (disabled providers answer
 # an inert 422; the handlers check CSRF, state and browser binding themselves). Pool
 # writes are AUTH: the handler admits an active site admin or a manage_pools holder,
-# who need not be a stock admin. Directory and grant changes need an active site admin.
+# who need not be a stock admin. The pool-admin handlers (v8-29) are AUTH too: each admits a
+# site admin or manage_pools holder, and the usage preview also a pool lead (not a site admin). Directory and grant changes need an active site admin.
 _CLINIC_IDENTITY_PUBLIC = _split("""
     clinic_identity_providers.discovery clinic_identity_providers.entra_login
     clinic_identity_providers.entra_callback clinic_identity_providers.iwa_login
@@ -160,6 +161,9 @@ _CLINIC_IDENTITY = _split("""
     clinic_identity_providers.entra_link_start clinic_identity_providers.link_request
     clinic_identity_providers.unlink
     clinic_pools.list_pools clinic_pools.put_pool
+    clinic_pool_admin.list_pools clinic_pool_admin.create_pool clinic_pool_admin.rename
+    clinic_pool_admin.set_active clinic_pool_admin.set_validity clinic_pool_admin.link
+    clinic_pool_admin.usage
     clinic_grants.read
     clinic_preferences.recipient_default clinic_preferences.recipient_resolve
     clinic_preferences.last_selection clinic_preferences.workstation_issue

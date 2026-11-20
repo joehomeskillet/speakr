@@ -3,7 +3,12 @@
 Real ``pools`` service and real tables; synthetic users and pools only.
 """
 
+import json
+import os
+import subprocess
+import sys
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 from flask import Flask, jsonify
@@ -153,8 +158,8 @@ def test_link_author_to_staff_pool_and_audit(world):
     author = c.post(PREFIX + "/pools", headers=h, json={"kind": "author", "name": "LA-" + _suffix()}).json
     r = c.post(f"{PREFIX}/pools/author/{author['id']}/links", headers=h, json={"staff_pool_id": world["staff"].id})
     assert r.status_code == 201
-    assert _history(r.json["id"], "added")[0]["detail"] == {
-        "author_pool_id": author["id"], "staff_pool_id": world["staff"].id}
+    link_ids = {"author_pool_id": author["id"], "staff_pool_id": world["staff"].id}
+    assert _history(r.json["id"], "added")[0]["detail"] == {**link_ids, "old": None, "new": link_ids}
     again = c.post(f"{PREFIX}/pools/author/{author['id']}/links", headers=h, json={"staff_pool_id": world["staff"].id})
     assert again.status_code == 409 and again.json["code"] == "already_linked"
     missing = c.post(f"{PREFIX}/pools/author/{author['id']}/links", headers=h, json={"staff_pool_id": "nope"})
@@ -321,3 +326,80 @@ def test_migration_is_additive_and_reversible(tmp_path):
     with engine.connect() as connection:
         assert connection.execute(text("SELECT id, name FROM clinic_author_pool")).one() == ("a", "Alt")
     assert migration_pool_admin.downgrade(engine) == []
+
+
+REACH_SCRIPT = r'''
+import json, sys
+from src.app import app, db
+from src.init_db import initialize_database
+from src.models import User
+from src.clinic import identity
+from src.clinic.route_policy import ROUTE_POLICY
+
+out = {}
+endpoints = {r.endpoint for r in app.url_map.iter_rules() if r.endpoint.startswith("clinic_pool_admin.")}
+out["endpoints"] = sorted(endpoints)
+out["unclassified"] = sorted(e for e in app.url_map._rules_by_endpoint if e not in ROUTE_POLICY)
+out["kinds"] = sorted({ROUTE_POLICY[e].kind for e in endpoints if e in ROUTE_POLICY})
+URL = "/api/clinic/v1/pool-admin/pools"
+if sys.argv[1] == "off":
+    with app.app_context():
+        initialize_database(app)
+    out["status"] = app.test_client().get(URL).status_code
+    print("RESULT:" + json.dumps(out)); sys.exit(0)
+with app.app_context():
+    initialize_database(app)
+    ids = {}
+    for name, admin in (("admin", True), ("plain", False)):
+        u = User(username=f"v829_{name}", email=f"v829_{name}@local.test", password="x", is_admin=admin)
+        db.session.add(u); db.session.flush(); ids[name] = u.id
+        db.session.add(identity.ClinicAccountPolicy(user_id=u.id, status="active"))
+    db.session.commit()
+
+def login(uid):
+    c = app.test_client()
+    with c.session_transaction() as s:
+        s["_user_id"] = str(uid); s["_fresh"] = True
+        s["clinic_provider"] = "local"; s["clinic_security_version"] = 0
+    return c, {"X-CSRF-Token": c.get("/api/csrf-token").json["csrf_token"]}
+
+ca, ha = login(ids["admin"]); cp, hp = login(ids["plain"])
+out["anon"] = app.test_client().get(URL).status_code
+out["plain"] = cp.get(URL).status_code
+out["admin_list"] = ca.get(URL).status_code
+made = ca.post(URL, headers=ha, json={"kind": "author", "name": "V829 Pool"})
+out["admin_create"] = made.status_code
+out["admin_usage"] = ca.get(f"{URL}/author/{made.json['id']}/usage").status_code
+out["plain_create"] = cp.post(URL, headers=hp, json={"kind": "author", "name": "V829 Other"}).status_code
+print("RESULT:" + json.dumps(out))
+'''
+
+
+def _reach(mode: str, tmp_path: Path) -> dict:
+    env = {**os.environ, "SQLALCHEMY_DATABASE_URI": f"sqlite:///{tmp_path / 'v829.db'}",
+           "UPLOAD_FOLDER": str(tmp_path / "uploads"), "RATELIMIT_ENABLED": "false",
+           "DISABLE_VOICE_EMBEDDING_CHECK": "true", "ENABLE_AUTO_PROCESSING": "false"}
+    env.pop("CLINIC_MODE", None)
+    if mode == "on":
+        env["CLINIC_MODE"] = "1"
+    done = subprocess.run([sys.executable, "-c", REACH_SCRIPT, mode], cwd=Path(__file__).resolve().parents[2],
+                          env=env, capture_output=True, text=True, timeout=300)
+    lines = [line for line in done.stdout.splitlines() if line.startswith("RESULT:")]
+    assert lines, done.stderr[-3000:]
+    return json.loads(lines[-1][len("RESULT:"):])
+
+
+def test_routes_are_mounted_classified_and_reachable_in_clinic_mode(tmp_path):
+    result = _reach("on", tmp_path)
+    assert result["endpoints"] == sorted(
+        f"clinic_pool_admin.{n}" for n in ("list_pools", "create_pool", "rename", "set_active",
+                                           "set_validity", "link", "usage"))
+    assert result["unclassified"] == [] and result["kinds"] == ["auth"]
+    assert result["anon"] in (302, 401)
+    assert (result["plain"], result["plain_create"]) == (403, 403)
+    assert (result["admin_list"], result["admin_create"], result["admin_usage"]) == (200, 201, 200)
+
+
+def test_routes_are_absent_with_clinic_mode_off(tmp_path):
+    result = _reach("off", tmp_path)
+    assert result["endpoints"] == [] and result["status"] == 404

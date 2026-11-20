@@ -449,7 +449,8 @@ def link_staff_pool(author_pool_id: str, staff_pool_id: str, *, actor_id: int) -
     db.session.flush()
     _history(
         actor_id, "route", row.id, "added",
-        {"author_pool_id": author.id, "staff_pool_id": staff.id},
+        {"author_pool_id": author.id, "staff_pool_id": staff.id,
+         "old": None, "new": {"author_pool_id": author.id, "staff_pool_id": staff.id}},
     )
     _commit()
     return row

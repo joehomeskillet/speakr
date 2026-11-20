@@ -6,8 +6,8 @@ is audited by the pool service in the append-only pool history with the old and 
 is never deleted: deactivation only refuses new routing, existing dictations and history stay readable.
 The usage preview is also open to a lead of the staff pool concerned (W13) and returns counts only.
 
-Mounting ``blueprint`` in the app and its route-policy rows are left to the consumer package that owns
-``app.py`` and ``route_policy.py``.
+``register_clinic_identity`` mounts ``blueprint``; its endpoints are AUTH rows in ``route_policy`` because
+the handlers decide admin, manager or lead themselves.
 """
 
 from __future__ import annotations
@@ -20,9 +20,8 @@ from flask_login import current_user
 from flask_wtf.csrf import CSRFError, validate_csrf
 from wtforms.validators import ValidationError
 
-from src.clinic import pools
+from src.clinic import pools, worklist_entries
 from src.clinic.config import clinic_mode_enabled
-from src.clinic.worklist_entries import LEAD_ROLE
 from src.database import db
 from src.models import GroupMembership
 
@@ -61,18 +60,12 @@ def _is_lead(user_id: int, kind: str, pool_id: str) -> bool:
     account = db.session.get(ClinicAccountPolicy, user_id, populate_existing=True)
     if account is not None and account.status != "active":
         return False
-    if kind == "staff":
-        pool = db.session.get(pools.ClinicStaffPool, pool_id)
-        group_ids = [] if pool is None else [pool.group_id]
-    else:
-        group_ids = [
-            row[0] for row in db.session.query(pools.ClinicStaffPool.group_id)
-            .join(pools.ClinicPoolRoute, pools.ClinicPoolRoute.staff_pool_id == pools.ClinicStaffPool.id)
-            .filter(pools.ClinicPoolRoute.author_pool_id == pool_id)
-        ]
-    return bool(group_ids) and db.session.query(GroupMembership.id).filter(
-        GroupMembership.user_id == user_id, GroupMembership.role == LEAD_ROLE,
-        GroupMembership.group_id.in_(group_ids),
+    if kind == "author":
+        return pool_id in worklist_entries._led_author_pools(user_id)
+    pool = db.session.get(pools.ClinicStaffPool, pool_id)
+    return pool is not None and db.session.query(GroupMembership.id).filter(
+        GroupMembership.user_id == user_id, GroupMembership.role == worklist_entries.LEAD_ROLE,
+        GroupMembership.group_id == pool.group_id,
     ).first() is not None
 
 
