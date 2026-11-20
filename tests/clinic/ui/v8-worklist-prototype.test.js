@@ -5,6 +5,7 @@ import {
     LIST_COLUMNS,
     WorklistView,
     cellText,
+    dictationLabel,
     countBuckets,
     createWorklistViewController,
     sourceLabel,
@@ -45,6 +46,11 @@ describe('V8 status buckets', () => {
         expect(statusTone('in_bearbeitung')).toBe('in-arbeit');
         expect(statusTone('abzunehmen')).toBe('wartet');
         expect(statusTone('fertiggestellt')).toBe('erledigt');
+    });
+
+    it('labels a dictation from its clinical timestamp, including older rows without a date', () => {
+        expect(dictationLabel(row('internal-key', { created_at: '2026-11-20T09:15:00Z' }))).toBe('Diktat vom 20.11.2026, 10:15');
+        expect(dictationLabel(row('internal-key'))).toBe('Diktat');
     });
 
     it('counts the loaded rows per bucket', () => {

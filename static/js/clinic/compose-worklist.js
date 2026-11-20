@@ -88,7 +88,6 @@ export const TEXT = Object.freeze({
     noPool: 'Kein Pool zugewiesen',
     eyebrow: 'Aufnahmenverwaltung',
     subline: 'Diktate nach Schreibkräfte-Pool und diktierender Person bearbeiten.',
-    entries: 'Einträge',
     kpiAll: 'Alle Diktate',
     kpiOpen: 'Offen',
     kpiWorking: 'In Bearbeitung',
@@ -104,7 +103,6 @@ export const TEXT = Object.freeze({
     selectRow: 'Eintrag auswählen',
     selected: 'ausgewählt',
     clearSelection: 'Auswahl aufheben',
-    pagerCount: 'Einträge',
     pagerFor: 'Seite',
     hintSelect: 'Eintrag auswählen, um Details anzuzeigen',
     updated: 'Aktualisiert',
@@ -265,6 +263,14 @@ export function formatDateTime(value) {
 }
 
 /** Cell text for one layout column. */
+export function dictationLabel(row) {
+    return row?.created_at ? 'Diktat vom ' + formatDateTime(row.created_at) : 'Diktat';
+}
+
+function entryCount(count) {
+    return count + (count === 1 ? ' Eintrag' : ' Einträge');
+}
+
 export function cellText(row, key) {
     const value = row[key];
     if (DATE_COLUMNS.includes(key) && value !== null && value !== undefined && value !== '') return formatDateTime(value);
@@ -656,7 +662,7 @@ export function createWorklistViewController(options) {
         vue: V, view, panels, selectedId, selectedRow: worklist.selectedRow, leaseState, leaseRun, paused,
         worklist, refresh, filters, layout, workflow, detailClient, displayed, columns, headerAttrs,
         start, dispose, reload, select, open, canOpen, onRowKey, goto, pages, hasNext, applyFilter,
-        key: rowKey, cell: cellText, badge: statusBadge, text: TEXT,
+        key: rowKey, cell: cellText, badge: statusBadge, dictationLabel, entryCount, text: TEXT,
         emptyCell: (row, key) => !ROLE_KEYS.includes(key) && key !== 'status' && cellText(row, key) === '–',
         priorityTone: priorityToneOf,
         pageLabel: () => 'Seite ' + view.page + (pages() === null ? '' : ' von ' + pages()),
@@ -677,7 +683,7 @@ export function createWorklistViewController(options) {
                 : refresh.lastUpdateLabel.value;
         },
         pagerInfo: () => 'Seite ' + view.page + (pages() === null ? '' : ' von ' + pages()) + ' · '
-            + (Number.isInteger(view.total) ? view.total : worklist.rows.value.length) + ' ' + TEXT.pagerCount,
+            + entryCount(view.total ?? worklist.rows.value.length),
     };
 }
 
@@ -736,7 +742,7 @@ export const WorklistView = {
       <div class="eyebrow">{{ c.text.eyebrow }}</div>
       <div class="hline">
         <h1 id="cwv-title" tabindex="-1">{{ c.text.title }}</h1>
-        <span class="count-pill" data-testid="result-count">{{ c.counts.value.all }} {{ c.text.entries }}</span>
+        <span class="count-pill" data-testid="result-count">{{ c.entryCount(c.view.total ?? c.counts.value.all) }}</span>
       </div>
       <p class="subtitle">{{ c.text.subline }}</p>
     </div>
@@ -793,7 +799,7 @@ export const WorklistView = {
       </WorklistFiltersPanel>
       <p v-if="c.paused.value" class="sr-only cl-sr-only">{{ c.text.paused }}</p>
       <div class="listhead">
-        <strong data-testid="list-count">{{ c.shownRows().length }} sichtbare von {{ c.counts.value.all }} Diktaten ({{ c.worklist.totals.value.formattedTotalDuration }})</strong>
+        <strong data-testid="list-count">{{ c.shownRows().length }} von {{ c.counts.value.all }} auf dieser Seite ({{ c.worklist.totals.value.formattedTotalDuration }})</strong>
         <span>{{ c.text.hintSelect }}</span>
       </div>
       <p class="sr-only cl-sr-only" id="cwv-keys">{{ c.text.keys }}</p>
@@ -828,14 +834,14 @@ export const WorklistView = {
                   <tr v-else tabindex="0" :class="c.selectedId.value === c.key(item.row) ? 'selected' : ''" data-row :data-id="c.key(item.row)"
                       :aria-selected="c.selectedId.value === c.key(item.row) ? 'true' : 'false'"
                       @click="c.select(item.row)" @dblclick="c.open(item.row)" @keydown="c.onRowKey($event, item.row)">
-                    <td class="check" @click.stop><input type="checkbox" class="rowcheck" :checked="c.isChecked(item.row)" :aria-label="c.text.selectRow + ': Diktat ' + c.key(item.row)" @change="c.toggleChecked(item.row)" @keydown.stop></td>
+                    <td class="check" @click.stop><input type="checkbox" class="rowcheck" :checked="c.isChecked(item.row)" :aria-label="c.text.selectRow + ': ' + c.dictationLabel(item.row)" @change="c.toggleChecked(item.row)" @keydown.stop></td>
                     <td>
                       <div class="titlecell">
                         <span class="mini-rec" aria-hidden="true">
                           <svg v-if="item.row.source_kind === 'manual_file' || item.row.source_kind === 'document'" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 3h10l4 4v14H5zM15 3v6h5M9 12h6M9 16h6"/></svg>
                           <svg v-else width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4M8 22h8"/></svg>
                         </span>
-                        <span class="titletext"><strong>{{ c.text.detail }} #{{ c.key(item.row) }}</strong><small>{{ c.text.recording }}</small></span>
+                        <span class="titletext"><strong>{{ c.dictationLabel(item.row) }}</strong><small>{{ c.text.recording }}</small></span>
                       </div>
                     </td>
                     <td v-for="col in c.columns()" :key="col.key" :data-label="col.label" :class="c.emptyCell(item.row, col.key) ? 'cl-empty' : ''">
@@ -854,7 +860,7 @@ export const WorklistView = {
                  @keydown.esc="c.select(null)">
             <div :key="c.selectedId.value">
               <div class="detailhead">
-                <div><strong id="cwv-detail-title">{{ c.text.detail }} #{{ c.selectedId.value }}</strong><small>{{ c.text.detailInfo }}</small></div>
+                <div><strong id="cwv-detail-title">{{ c.dictationLabel(c.selectedRow.value) }}</strong><small>{{ c.text.detailInfo }}</small></div>
                 <button type="button" class="icon-button closebtn" data-testid="close-detail" :aria-label="c.text.close" :title="c.text.close"
                         @click="c.select(null)"><svg class="ui-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
               </div>

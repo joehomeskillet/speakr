@@ -889,3 +889,7 @@
 .v8-ui .topbar .top-icon::after,.v8-ui .topbar .top-action::after,.v8-ui .topbar .v6-admin summary::after,.v8-ui .topbar button.topavatar::after{content:"";display:block;position:absolute;left:50%;top:50%;width:max(100%,44px);height:max(100%,44px);transform:translate(-50%,-50%)}}
 
 .v8-ui .workbench-links { display: flex; flex-wrap: wrap; gap: var(--ui-space-2); margin-block: var(--ui-space-4); }
+
+.v8-ui .clinic-worklist-view :is(.listhead > span, .worktable th, .titletext small, .tablefooter > span) {
+  color: var(--v8-text-2);
+}
