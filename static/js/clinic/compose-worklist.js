@@ -895,8 +895,9 @@ export const WorklistView = {
                           <svg v-if="item.row.source_kind === 'manual_file' || item.row.source_kind === 'document'" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 3h10l4 4v14H5zM15 3v6h5M9 12h6M9 16h6"/></svg>
                           <svg v-else width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4M8 22h8"/></svg>
                         </span>
-                        <div class="titletext"><strong>{{ c.referenceLabel(item.row) }}</strong>
-                          <span v-if="c.badge(item.row).processing" class="cl-processing">{{ c.badge(item.row).processing }}</span>
+                        <div class="titletext"><strong>{{ c.dictationLabel(item.row) }}</strong>
+                          <small class="cl-row-reference">{{ c.referenceLabel(item.row) }}</small>
+                          <span v-if="c.badge(item.row).processing" class="cl-processing">Spracherkennung: {{ c.badge(item.row).processing }}</span>
                         </div>
                       </div>
                       <details v-if="c.key(item.row)" class="cl-id-disclosure" @click.stop @dblclick.stop @keydown.stop
@@ -909,7 +910,7 @@ export const WorklistView = {
                       </details>
                     </td>
                     <td v-for="col in c.columns()" :key="col.key" :data-label="col.label" :class="c.emptyCell(item.row, col.key) ? 'cl-empty' : ''">
-                      <span v-if="col.key === 'status'" class="status cl-workflow-status" data-layout="pill-status" :class="c.statusTone(item.row)">{{ c.badge(item.row).workflow }}</span>
+                      <span v-if="col.key === 'status'" class="status cl-workflow-status" data-layout="pill-status" :class="c.statusTone(item.row)">Arbeitsstand: {{ c.badge(item.row).workflow }}</span>
                       <span v-else-if="col.key === 'priority'" class="prio" :class="c.prioClass(item.row)" :title="c.cell(item.row, col.key)"><span>{{ c.cell(item.row, col.key) }}</span></span>
                       <span v-else-if="col.key === 'staff_pools'" class="pool-pill" :title="c.cell(item.row, col.key)">{{ c.cell(item.row, col.key) }}</span>
                       <span v-else-if="col.key === 'dictated_by'" class="entity-name" :title="c.cell(item.row, col.key)">{{ c.cell(item.row, col.key) }}</span>
