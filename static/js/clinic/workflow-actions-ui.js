@@ -87,8 +87,10 @@ export function createWorkflowActions(options) {
     });
     // Same request id on a retry so the server replays instead of repeating.
     let pending = null;
+    let generation = 0;
 
     function load(server) {
+        generation += 1;
         const next = server || {};
         state.dictationId = next.dictationId || null;
         state.etag = next.etag || null;
@@ -133,6 +135,8 @@ export function createWorkflowActions(options) {
 
     function request(id) {
         if (!state.allowed.includes(id) || state.busy) return false;
+        const blocked = blockedReason(id);
+        if (blocked) { state.error = blocked; return false; }
         if (ACTIONS[id].confirm) {
             state.confirming = id;
             state.error = null;
@@ -177,7 +181,27 @@ export function createWorkflowActions(options) {
         return payload;
     }
 
+    function blockedReason(id) {
+        if (state.stale || !state.dictationId || !state.etag || !Number.isInteger(state.revision)) {
+            return 'Der Arbeitsstand ist nicht aktuell. Bitte neu laden.';
+        }
+        const b = state.binding;
+        if (id === 'submit' && (!b.audioRevisionId || !b.textRevisionId || !b.contextRevisionId || !b.acceptanceRuleId)) {
+            return 'Audio, Text, Fall-Kontext oder Abnahmeregel fehlen. Bitte neu laden.';
+        }
+        if (id === 'release' && (!b.release?.original_version_id || !b.release?.transcript_revision_id
+                || !b.release?.context_revision_id || !b.release?.text_sha256)) {
+            return 'Audio, geprüfter Text oder Fall-Kontext fehlen. Freigabe ist gesperrt.';
+        }
+        if ((id === 'accept' || id === 'reject') && !b.textRevisionId) return 'Die Textrevision fehlt.';
+        return null;
+    }
+
     async function send(id) {
+        if (state.busy || !state.allowed.includes(id)) return null;
+        const blocked = blockedReason(id);
+        if (blocked) { state.error = blocked; return null; }
+        const mine = generation;
         const spec = ACTIONS[id];
         const sig = id + '|' + state.etag;
         if (!pending || pending.sig !== sig) pending = { sig: sig, key: uuid() };
@@ -186,11 +210,22 @@ export function createWorkflowActions(options) {
         let res;
         try {
             if (spec.kind === 'command') {
-                const envelope = { command: spec.command, request_id: pending.key, expected_revision: state.revision, payload: body(id) };
+                const envelope = { command: spec.command, request_id: pending.key, expected_revision: state.revision + 1, payload: body(id) };
                 res = await client.command(envelope, { idempotencyKey: pending.key });
             } else {
-                res = await client.request(ROOT + state.dictationId + '/' + spec.path, {
-                    method: 'POST', body: body(id), idempotencyKey: pending.key, ifMatch: state.etag,
+                const payload = body(id);
+                if (id === 'release') {
+                    const proof = await client.request(ROOT + state.dictationId + '/leases');
+                    if (mine !== generation) return null;
+                    if (proof.outcome !== 'ok') res = proof;
+                    else if (!proof.data?.lease_id || proof.data.held !== true
+                            || !Number.isInteger(proof.data.generation) || proof.data.generation < 1) {
+                        res = { outcome: 'conflict', code: 'LEASE_REQUIRED',
+                            message: 'Bitte die Bearbeitung übernehmen. Nur der aktuelle Halter darf freigeben.' };
+                    } else Object.assign(payload, { lease_id: proof.data.lease_id, lease_generation: proof.data.generation });
+                }
+                if (!res) res = await client.request(ROOT + state.dictationId + '/' + spec.path, {
+                    method: 'POST', body: payload, idempotencyKey: pending.key, ifMatch: state.etag,
                 });
             }
         } finally {
@@ -215,7 +250,7 @@ export function createWorkflowActions(options) {
         return res;
     }
 
-    return { state, load, visible, groups, statuses, request, confirm, cancel, confirmText: (id) => translate('clinic.workflow.confirm.' + id, CONFIRM_TEXT[id] || '') };
+    return { state, load, visible, groups, statuses, request, confirm, cancel, blockedReason, confirmText: (id) => translate('clinic.workflow.confirm.' + id, CONFIRM_TEXT[id] || '') };
 }
 
 // Vue template for the panel. Native buttons, labelled controls, live region.

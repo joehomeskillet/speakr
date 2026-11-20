@@ -13,7 +13,8 @@ from flask import Blueprint, Response, abort, jsonify, session
 from flask_login import current_user
 from werkzeug.exceptions import HTTPException
 
-from src.clinic import revisions, workflow
+from src.clinic import audio_revisions, revisions, workflow
+from src.clinic.acceptance_policy import AcceptanceLedger, PolicyError, SCOPE_DICTATION
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.models import ClinicDictation
 from src.clinic.pools import ClinicAuthorPool, ClinicPoolRoute, ClinicStaffPool
@@ -55,7 +56,7 @@ _REQUIRED_TARGET = {'submit': workflow.TO_ACCEPT, 'release': workflow.DONE}
 
 
 def _capabilities(user: User, dictation: ClinicDictation, flow, snap: dict,
-                  authorize: Callable[[User, str, ClinicDictation], bool]) -> dict:
+                  authorize: Callable[[User, str, ClinicDictation], bool], acceptance_policy=None) -> dict:
     """Allowed workflow actions, their target status and the revision binding for the caller."""
     if flow is None:
         return dict(allowed_actions=[], transitions={}, binding={})
@@ -70,9 +71,17 @@ def _capabilities(user: User, dictation: ClinicDictation, flow, snap: dict,
     head = revisions.current_revision(dictation)
     binding = dict(textRevisionId=None if head is None else head.id,
                    contextRevisionId=snap['current_context_revision_id'])
-    if 'release' in allowed and head is not None:
+    try:
+        rule = (acceptance_policy(dictation) if acceptance_policy else
+                AcceptanceLedger().current(SCOPE_DICTATION, dictation.id))
+        binding['acceptanceRuleId'] = rule.rule_id
+    except PolicyError:
+        binding['acceptanceRuleId'] = None
+    audio = audio_revisions.current_audio_revision(dictation)
+    binding['audioRevisionId'] = None if audio is None else audio.id
+    if 'release' in allowed and head is not None and audio is not None:
         binding['release'] = dict(
-            original_version_id=snap['current_original_version_id'],
+            original_version_id=audio.id,
             transcript_revision_id=head.id, context_revision_id=snap['current_context_revision_id'],
             document_type='report', mode='PLATFORM_REVIEWED_KIS_DRAFT', text_sha256=head.normalised_text_hash)
     return dict(allowed_actions=allowed, transitions=transitions, binding=binding)
@@ -100,6 +109,7 @@ def _staff_pools(author_pool_id: str | None) -> list[dict]:
 def create_blueprint(
     *, authorize: Callable[[User, str, ClinicDictation], bool],
     dictation_snapshot: Callable[[ClinicDictation], dict],
+    acceptance_policy=None,
 ) -> Blueprint:
     """Mount with the trusted session channel and the current object policy.
 
@@ -160,7 +170,7 @@ def create_blueprint(
                 acceptance=snap['review_state'],
                 output='RELEASED' if snap['active_release_id'] else 'NOT_RELEASED',
             ),
-            **_capabilities(current_user, dictation, flow, snap, authorize),
+            **_capabilities(current_user, dictation, flow, snap, authorize, acceptance_policy),
         )
 
     return bp

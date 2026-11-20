@@ -219,6 +219,17 @@ def register_commands(
             action = action_for(payload)
             if action is None:
                 raise CommandProblem('CAPABILITY_UNAVAILABLE')
+            row = db.session.get(ClinicDictation, target, populate_existing=True)
+            if action == 'submit':
+                try:
+                    rule = acceptance_policy(row)
+                except PolicyError as error:
+                    raise CommandProblem('POLICY_DENIED') from error
+                if payload['acceptance_rule_id'] != rule.rule_id:
+                    raise CommandProblem('REVISION_CONFLICT')
+                current = _heads(row)
+                if current is None or current[2] != payload.get('context_revision_id'):
+                    raise CommandProblem('REVISION_CONFLICT')
             context = payload.get('context_revision_id')
             if context is not None:
                 bound = db.session.get(ClinicContextRevision, context)

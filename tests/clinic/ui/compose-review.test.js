@@ -67,6 +67,7 @@ function fakeClient(model, overrides = {}) {
         'GET /dictations/d1/audio-revisions/current': () => ok({ revision_id: 'a1', segments: [] }),
         'GET /dictations/d1/acceptance-policy': () => ok({ version: 2, acceptance_required: true, approver_ids: [7], decisions: [{ kind: 'reject', actor_id: 3, actor_name: 'Dr. Alt', revision_id: 'r0', reason: 'Dosis unklar', policy_version: 2 }] }),
         'POST /dictations/d1/releases': () => ok({ released: true }),
+        'GET /dictations/d1/leases': () => ok({ held: true, lease_id: 'l1', generation: 1 }),
         'POST /dictations/d1/archive': () => ok({ archived: true }),
         ...overrides,
     };
@@ -210,7 +211,7 @@ describe('compose-review accept flow', () => {
         const { body } = client.commands[0];
         expect(body.command).toBe('decide_acceptance');
         expect(body.payload).toMatchObject({ dictation_id: 'd1', text_revision_id: 'r1', decision: 'accept' });
-        expect(body.expected_revision).toBe(4);
+        expect(body.expected_revision).toBe(5);
         expect(c.confirming.value).toBeNull();
         c.dispose();
     });

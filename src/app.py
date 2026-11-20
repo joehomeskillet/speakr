@@ -1272,7 +1272,7 @@ def register_clinic_worklist(flask_app):
         dictation_snapshot=worklist_entries.dictation_snapshot))
     flask_app.register_blueprint(routes_dictation_detail.create_blueprint(
         authorize=lambda user, action, dictation: may(user.id, action, dictation),
-        dictation_snapshot=worklist_entries.dictation_snapshot))
+        dictation_snapshot=worklist_entries.dictation_snapshot, acceptance_policy=acceptance_policy))
     flask_app.register_blueprint(routes_templates.blueprint)
     flask_app.register_blueprint(routes_categories.blueprint)
     flask_app.register_blueprint(routes_regex.RegexApi(

@@ -187,7 +187,7 @@ def test_release_once_replays_and_refuses_stale_or_closed_gates(world):
 def test_acceptance_commands_dispatch_with_revision_and_policy(world):
     w = world
     submit = {'text_revision_id': w['head'].id, 'context_revision_id': w['context'].id,
-              'acceptance_rule_id': str(uuid4())}
+              'acceptance_rule_id': w['rules'][True].rule_id}
     assert _command(w, 'request_acceptance', submit, 1, token=False).status_code == 403
     stale = _command(w, 'request_acceptance', submit, 5)
     assert (stale.status_code, stale.json['code']) == (409, 'REVISION_CONFLICT')

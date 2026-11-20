@@ -163,7 +163,7 @@ out["publish_stale"] = admin.put_policy(d1["id"], 0, [users["approver"], users["
 out["audit_after_publish"] = audit_rows()
 
 held = approver.lease(d1["id"])
-submit = {"text_revision_id": d1["head"], "context_revision_id": d1["context"], "acceptance_rule_id": str(uuid.uuid4())}
+submit = {"text_revision_id": d1["head"], "context_revision_id": d1["context"], "acceptance_rule_id": body(approver.get(BASE.format(d1["id"]) + "/detail"))["binding"]["acceptanceRuleId"]}
 out["submit"] = approver.command(d1, "request_acceptance", submit).status_code
 out["state_before"] = body(approver.get(STATE.format(d1["id"])))["state"]
 out["author_cannot_accept"] = author.command(d1, "decide_acceptance", {"text_revision_id": d1["head"], "decision": "accept"}).status_code
@@ -179,7 +179,7 @@ out["status_after_release"] = status_of(d1)
 d2 = make_dictation()
 assert admin.put_policy(d2["id"], 0, [users["approver"]]).status_code == 200
 held2 = approver.lease(d2["id"])
-approver.command(d2, "request_acceptance", {"text_revision_id": d2["head"], "context_revision_id": d2["context"], "acceptance_rule_id": str(uuid.uuid4())})
+approver.command(d2, "request_acceptance", {"text_revision_id": d2["head"], "context_revision_id": d2["context"], "acceptance_rule_id": body(approver.get(BASE.format(d2["id"]) + "/detail"))["binding"]["acceptanceRuleId"]})
 assert approver.command(d2, "decide_acceptance", {"text_revision_id": d2["head"], "decision": "accept"}).status_code == 200
 out["d2_status_a"] = status_of(d2)
 audits_before = len(audit_rows())
@@ -209,7 +209,7 @@ out["d2_release_b"] = [rel_b2.status_code, (body(rel_b2) or {}).get("code")]
 d3 = make_dictation()
 assert admin.put_policy(d3["id"], 0, [users["approver"]]).status_code == 200
 approver.lease(d3["id"])
-approver.command(d3, "request_acceptance", {"text_revision_id": d3["head"], "context_revision_id": d3["context"], "acceptance_rule_id": str(uuid.uuid4())})
+approver.command(d3, "request_acceptance", {"text_revision_id": d3["head"], "context_revision_id": d3["context"], "acceptance_rule_id": body(approver.get(BASE.format(d3["id"]) + "/detail"))["binding"]["acceptanceRuleId"]})
 ret = approver.command(d3, "decide_acceptance", {"text_revision_id": d3["head"], "decision": "return", "reason": "Dosierung unklar"})
 out["d3_return"] = ret.status_code
 out["d3_viewer"] = [approver.get(STATE.format(d3["id"])).status_code, body(approver.get(STATE.format(d3["id"])))]

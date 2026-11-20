@@ -176,6 +176,7 @@ export function toWorkflowRow(dictationId, data) {
         asrStatus: d.asr_status || null,
         workState: d.status || null,
         binding: {
+            audioRevisionId: b.audio_revision_id,
             textRevisionId: b.text_revision_id,
             contextRevisionId: b.context_revision_id,
             acceptanceRuleId: b.acceptance_rule_id,
@@ -245,7 +246,7 @@ export function createReviewViewController(options) {
         if (!isOnline()) return TEXT.offline;
         if (id === 'release' && markers().length > 0) return TEXT.blockers;
         if (wf.state.busy) return TEXT.loading;
-        return null;
+        return wf.blockedReason(id);
     }
 
     function actions() {
@@ -397,16 +398,17 @@ export function createReviewViewController(options) {
         if (await checkNewer()) { error.value = TEXT.newerRevision; return fail('newer', TEXT.newerRevision); }
         if (disposed) return fail('cancelled', '');
         lastCall = null;
+        let confirmed = null;
         if (ACTIONS[id].confirm) {
             wf.request(id);
             wf.state.reason = reason.value;
             wf.state.confirmedContent = contentChecked.value;
             wf.state.confirmedContext = contextChecked.value;
-            await wf.confirm();
+            confirmed = await wf.confirm();
         } else {
             wf.request(id);
         }
-        const res = lastCall ? await lastCall : null;
+        const res = ACTIONS[id].confirm ? confirmed : (lastCall ? await lastCall : null);
         await Promise.resolve();
         await Promise.resolve();
         if (disposed) return fail('cancelled', '');

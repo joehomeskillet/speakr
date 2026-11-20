@@ -10,7 +10,7 @@ from tests.clinic.test_wp_workflow_api import NOW, _command, world  # noqa: F401
 
 def _to_accept(w):
     submit = {'text_revision_id': w['head'].id, 'context_revision_id': w['context'].id,
-              'acceptance_rule_id': str(uuid4())}
+              'acceptance_rule_id': w['rules'][True].rule_id}
     assert _command(w, 'request_acceptance', submit, 1).status_code == 200
     assert w['item'].status == workflow.TO_ACCEPT
     return {'text_revision_id': w['head'].id, 'decision': 'accept'}

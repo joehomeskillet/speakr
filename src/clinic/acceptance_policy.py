@@ -21,6 +21,7 @@ import json
 from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from uuid import NAMESPACE_URL, uuid5
 
 from flask import has_app_context
 from sqlalchemy import event
@@ -64,6 +65,12 @@ class AcceptancePolicyVersion:
     approver_pool_ids: frozenset[str]
     deny_user_ids: frozenset[int]
     recorded_at: datetime
+
+    @property
+    def rule_id(self) -> str:
+        """Stable public identity without a database id or schema change."""
+        name = json.dumps([self.scope, self.subject_id, self.version], separators=(",", ":"))
+        return str(uuid5(NAMESPACE_URL, "speakr:acceptance-policy:" + name))
 
     def as_rule(self) -> AcceptanceRule:
         return AcceptanceRule(
