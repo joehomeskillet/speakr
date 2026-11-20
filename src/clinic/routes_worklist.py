@@ -22,7 +22,8 @@ from src.clinic.saved_filters import FilterError, validate_filter
 from src.clinic.worklist_etag import list_etag
 from src.clinic.worklist_filters import SavedFilter, WorklistFilterStore, WorklistPage, query_worklist
 from src.clinic.worklist_layout import LayoutStore, StoredLayout
-from src.models import Recording
+from src.database import db
+from src.models import Recording, User
 from src.services.recording_changes import conditional, updated_at_us
 
 PREFIX = '/api/clinic/v1/worklist'
@@ -33,6 +34,10 @@ COLUMNS = (
 )
 _DEFAULT_LAYOUT = {'version': 1, 'sort': [], 'group_by': [],
                    'columns': [{'key': key, 'width': 140, 'visible': True} for key in COLUMNS]}
+# Additive row fields (v8-119): the role fields the Aufnahmen API returns, set by the loader.
+ROLE_COLUMNS = ('dictated_by', 'staff_pools', 'lease_holder')
+SOURCE_LABELS = {'audio': 'Mikrofon', 'microphone': 'Mikrofon', 'upload': 'Upload',
+                 'import': 'Import', 'live': 'Live'}
 _PROBLEMS = {400: ('INVALID_PAYLOAD', 'Ungültige Anfrage'),
              401: ('UNAUTHORIZED', 'Anmeldung erforderlich'),
              404: ('NOT_FOUND', 'Nicht gefunden')}
@@ -67,6 +72,31 @@ def _query_row(entry: WorklistEntry) -> dict:
                 **{'meta.notes': row['notes'], 'meta.recipient': row['recipient']})
 
 
+def _with_names(rows: list[Mapping]) -> list[dict]:
+    """For loader rows (those carrying the role fields) add assignee {id, display_name} and source_label to projected rows.
+
+    Names come only from users that take part in a row the policy already admitted
+    (author, assignee, lease holder); a user that cannot be resolved has no name.
+    """
+    ids = sorted({row['assignee_user_id'] for row in rows
+                  if 'dictated_by' in row and row['assignee_user_id'] is not None})
+    names: dict = {}
+    for start in range(0, len(ids), 500):
+        part = ids[start:start + 500]
+        names.update({user.id: user.name or user.username
+                      for user in db.session.query(User).filter(User.id.in_(part))})
+    result = []
+    for row in rows:
+        if 'dictated_by' not in row:  # not built by the loader: keep the plain projection
+            result.append(dict(row))
+            continue
+        assignee_id = row['assignee_user_id']
+        assignee = None if assignee_id is None else {'id': str(assignee_id),
+                                                     'display_name': names.get(assignee_id)}
+        result.append(dict(row, assignee=assignee, source_label=SOURCE_LABELS.get(row['source_kind'])))
+    return result
+
+
 def get_worklist(
     entries: Iterable[WorklistEntry], subject: policy.Subject, layouts: LayoutStore, *,
     spec: Mapping | None = None, search: str = '', page: int = 1, page_size: int = 20,
@@ -81,10 +111,11 @@ def get_worklist(
                             page_size=maxsize)
     # The layout sort is stable, so a unique base key makes ties independent of load order.
     stamps = {row['dictation_id']: row['recording_version'] for row in scoped.items}
-    base = sorted(({key: row[key] for key in COLUMNS} for row in scoped.items),
-                  key=lambda row: row['dictation_id'])
+    base = sorted(({key: row[key] for key in COLUMNS + ROLE_COLUMNS if key in row}
+                   for row in scoped.items), key=lambda row: row['dictation_id'])
     layout, ordered, groups = layouts.refresh(subject.user_id, subject.user_id, base,
                                               _DEFAULT_LAYOUT, COLUMNS)
+    ordered = _with_names(ordered)
     buckets: dict[str, list[Mapping]] = {}
     for row in ordered:
         buckets.setdefault(row['status'], []).append(row)
