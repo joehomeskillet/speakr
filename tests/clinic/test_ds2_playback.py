@@ -8,7 +8,7 @@ import uuid
 import pytest
 
 from src.app import app, db
-from src.clinic import decoder, dictation_playback
+from src.clinic import decoder, dictation_playback, policy
 from src.models import Recording, User
 
 from test_ds2_upload import DS2, stub_decoder  # noqa: F401  (fixture)
@@ -68,12 +68,26 @@ def test_lazy_derivative_is_served_with_range_and_original_untouched(
     assert not [p for p in tmp_path.iterdir() if p.name.startswith('.playback-')]
 
 
-def test_download_returns_the_original(clinic_on, owner, tmp_path, stub_decoder):
+@pytest.mark.parametrize('route', [
+    '/audio/{rid}?download=true',
+    '/api/v1/recordings/{rid}/audio',
+    '/api/v1/recordings/{rid}/audio?download=true',
+])
+def test_download_returns_the_original(clinic_on, owner, tmp_path, stub_decoder, route):
     stub_decoder()
     rec_id, src = _ds2_recording(owner, tmp_path)
-    response = _client(owner).get(f'/audio/{rec_id}?download=true')
+    url = route.format(rid=rec_id)
+    assert _client(owner).get(url).status_code == 403
+    policy.register_grant_provider(lambda uid: [
+        policy.Grant('own', frozenset({'audio_export'}))
+    ] if uid == owner else [])
+    response = _client(owner).get(url)
     assert response.status_code == 200
     assert response.get_data() == DS2
+    partial = _client(owner).get(url, headers={'Range': 'bytes=0-9'})
+    assert partial.status_code == 206
+    assert partial.get_data() == DS2[:10]
+    assert src.read_bytes() == DS2
     assert not (tmp_path / f'{src.stem}{dictation_playback.PLAYBACK_SUFFIX}').exists()
 
 

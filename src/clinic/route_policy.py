@@ -334,7 +334,8 @@ _RECORDING = {
         recordings.get_status recordings.get_summary_prompt recordings.index""",
     'play': """
         recordings.get_audio recordings.get_audio_peaks""",
-    'download': """
+    # This v1 endpoint serves the original even without an attachment flag.
+    'audio_export': """
         api_v1.download_audio""",
     'edit': """
         api_v1.add_external_ref api_v1.add_tags_to_recording api_v1.assign_speakers

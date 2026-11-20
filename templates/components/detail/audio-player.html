@@ -182,7 +182,7 @@
             <i class="fas fa-expand" aria-hidden="true"></i><span class="ph-row__label" v-text="t('tooltips.fullscreenVideo')"></span>
         </button>
     </template>
-    <a class="ph-row" data-phone-action="player-download" :href="'/audio/' + selectedRecording.id + '?download=true'" download>
+    <a {% if clinic_mode %}v-if="selectedRecording.can_download_audio === true" {% endif %}class="ph-row" data-phone-action="player-download" :href="'/audio/' + selectedRecording.id + '?download=true'" download>
         <i class="fas fa-download" aria-hidden="true"></i><span class="ph-row__label" v-text="t('buttons.downloadAudio')"></span>
     </a>
     {% endcall %}

@@ -498,6 +498,16 @@ class Recording(db.Model):
             'keep_audio_only': self.keep_audio_only,
         }
 
+        from src.clinic.config import clinic_mode_enabled
+        if clinic_mode_enabled():
+            from src.clinic import policy
+            data['can_download_audio'] = bool(
+                viewer_user is not None and policy.decide(
+                    policy.build_subject(viewer_user.id), 'audio_export',
+                    policy.build_facts(self.id, self.user_id),
+                ).allowed
+            )
+
         # Only compute expensive HTML conversions when explicitly requested
         if include_html:
             data['notes_html'] = md_to_html(user_notes) if user_notes else ""

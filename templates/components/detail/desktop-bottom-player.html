@@ -189,7 +189,7 @@
             </div>
 
             <!-- Download -->
-            <a :href="'/audio/' + selectedRecording.id + '?download=true'"
+            <a {% if clinic_mode %}v-if="selectedRecording.can_download_audio === true" {% endif %}:href="'/audio/' + selectedRecording.id + '?download=true'"
                download
                class="btn btn--icon"
                style="color: var(--text-accent);"
