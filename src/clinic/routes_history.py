@@ -189,6 +189,7 @@ def create_blueprint(
             return dict(holder_user_id=None, holder_name=None, until=None, generation=0, held=False)
         holder = db.session.get(User, row.holder_user_id)
         return dict(holder_user_id=row.holder_user_id, holder_name=(holder.name or holder.username) if holder else None,
+                    lease_id=row.id if row.holder_user_id == current_user.id and row.expires_at > now else None,
                     until=_utc(row.expires_at), generation=row.generation, held=row.expires_at > now)
 
     @bp.get(f'{PATH}/leases', defaults={'operation': 'get'})

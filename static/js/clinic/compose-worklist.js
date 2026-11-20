@@ -591,6 +591,15 @@ export function createWorklistViewController(options) {
         });
     }
 
+    async function loadWorkflowDetail(id, key) {
+        const result = await detailClient.request('/api/clinic/v1/dictations/' + encodeURIComponent(id) + '/detail');
+        if (disposed || detailId !== id || detailKey !== key) return;
+        if (result?.outcome === 'ok' && Array.isArray(result.data?.allowed_actions)) {
+            loadWorkflow({ ...result.data, dictation_id: id,
+                asr_status: result.data.status_axes?.processing, status: result.data.status_axes?.workflow });
+        }
+    }
+
     function openLease(id) {
         const ctrl = createLeaseController({
             client: detailClient,
@@ -624,10 +633,11 @@ export function createWorklistViewController(options) {
             detailId = id;
             selectedId.value = id;
             detailKey = key;
-            if (row) { loadWorkflow(row); openLease(id); } else workflow.load(null);
+            if (row) { loadWorkflow(row); openLease(id); loadWorkflowDetail(id, key); } else workflow.load(null);
         } else if (row && key !== detailKey) {
             detailKey = key;
             loadWorkflow(row);
+            loadWorkflowDetail(id, key);
         }
     }
     if (V && typeof V.watch === 'function') V.watch(() => worklist.selectedRow.value, syncDetail);
