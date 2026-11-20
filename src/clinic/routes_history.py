@@ -201,6 +201,8 @@ def create_blueprint(
             dictation = object_for(dictation_id, 'history')
             now = datetime.now(timezone.utc)
             return jsonify(dictation_id=dictation.id, may_take_over=takeover_allowed(current_user, dictation),
+                           may_acquire=authorize(current_user, 'review', dictation),
+                           may_listen=authorize(current_user, 'listen', dictation),
                            **holder_fields(lease.current(dictation.id), now))
         dictation = takeover_target(dictation_id) if operation == 'takeover' else object_for(dictation_id, 'review')
         actor, target = current_user.id, dictation.id

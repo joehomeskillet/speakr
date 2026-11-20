@@ -290,35 +290,41 @@ export function columnsComponent(vue, options) {
             return { editor };
         },
         template: `
-<section role="region" aria-labelledby="clinic-col-title" :aria-busy="editor.state.status === 'processing'" class="space-y-4">
-  <header>
-    <h2 id="clinic-col-title" class="text-lg font-semibold text-[var(--text-primary)]">${LABELS.title}</h2>
-    <p class="mt-1 text-sm text-[var(--text-muted)]">Bezeichnung, Anzeigetyp und XML-Pfad der Metadatenspalten festlegen.</p>
+<section role="region" aria-labelledby="clinic-col-title" :aria-busy="editor.state.status === 'processing'" class="v8-page v8-admin-page">
+  <header class="pagehead">
+    <div>
+      <div class="eyebrow">Verwaltung</div>
+      <h1 id="clinic-col-title">${LABELS.title}</h1>
+      <p class="subline">Bezeichnung, Anzeigetyp und XML-Pfad der Metadatenspalten festlegen.</p>
+    </div>
   </header>
-  <p v-if="editor.state.status === 'processing'" role="status" class="text-sm text-[var(--text-muted)]">Spalten werden geladen.</p>
-  <p v-else-if="editor.state.loaded && !editor.state.fields.length" role="status" class="rounded-lg border border-dashed border-[var(--border-primary)] p-4 text-sm text-[var(--text-muted)]">Keine Spalten vorhanden.</p>
-  <ul role="list" aria-label="${LABELS.list}" class="grid gap-3">
-    <li v-for="row in editor.state.fields" :key="row.name" class="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4" @keydown.enter.prevent="editor.save(row.name)" @keydown.esc="editor.revert(row.name)">
-      <p class="mb-3 font-mono text-xs text-[var(--text-muted)]">{{ row.name }}</p>
-      <div class="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_auto]">
-        <label>
-          <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">${LABELS.label}</span>
-          <input type="text" class="field" :value="row.label" :disabled="!row.available || !row.readable || !row.active" @change="editor.setLabel(row.name, $event.target.value)">
-        </label>
-        <label>
-          <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">${LABELS.displayType}</span>
-          <select class="field" :value="row.displayType" :disabled="!row.available || !row.readable || !row.active" @change="editor.setDisplayType(row.name, $event.target.value)">
-            <option v-for="type in editor.displayTypes" :key="type" :value="type">{{ editor.typeLabels[type] }}</option>
-          </select>
-        </label>
-        <label>
-          <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">${LABELS.xmlPath}</span>
-          <input type="text" class="field font-mono" :value="row.xmlPath" maxlength="${MAX_XML_PATH}" :disabled="!row.available || !row.readable || !row.active" @change="editor.setXmlPath(row.name, $event.target.value)">
-        </label>
-        <button type="button" class="btn btn--primary" :disabled="!row.available || !row.readable || !row.active || row.stale" @click="editor.save(row.name)">${LABELS.save}</button>
-      </div>
-    </li>
-  </ul>
+  <section class="panel" aria-labelledby="clinic-col-list-title">
+    <h2 id="clinic-col-list-title">Spaltenübersicht</h2>
+    <p v-if="editor.state.status === 'processing'" role="status" class="text-sm text-[var(--text-muted)]">Spalten werden geladen.</p>
+    <p v-else-if="editor.state.loaded && !editor.state.fields.length" role="status" class="empty">Keine Spalten vorhanden.</p>
+    <ul v-if="editor.state.fields.length" role="list" aria-label="${LABELS.list}" class="grid gap-3">
+      <li v-for="row in editor.state.fields" :key="row.name" class="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4" @keydown.enter.prevent="editor.save(row.name)" @keydown.esc="editor.revert(row.name)">
+        <p class="mb-3 font-mono text-xs text-[var(--text-muted)]">{{ row.name }}</p>
+        <div class="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_auto]">
+          <label>
+            <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">${LABELS.label}</span>
+            <input type="text" class="field" :value="row.label" :disabled="!row.available || !row.readable || !row.active" @change="editor.setLabel(row.name, $event.target.value)">
+          </label>
+          <label>
+            <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">${LABELS.displayType}</span>
+            <select class="field" :value="row.displayType" :disabled="!row.available || !row.readable || !row.active" @change="editor.setDisplayType(row.name, $event.target.value)">
+              <option v-for="type in editor.displayTypes" :key="type" :value="type">{{ editor.typeLabels[type] }}</option>
+            </select>
+          </label>
+          <label>
+            <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">${LABELS.xmlPath}</span>
+            <input type="text" class="field font-mono" :value="row.xmlPath" maxlength="${MAX_XML_PATH}" :disabled="!row.available || !row.readable || !row.active" @change="editor.setXmlPath(row.name, $event.target.value)">
+          </label>
+          <button type="button" class="btn btn--primary" :disabled="!row.available || !row.readable || !row.active || row.stale" @click="editor.save(row.name)">${LABELS.save}</button>
+        </div>
+      </li>
+    </ul>
+  </section>
 </section>`,
     };
 }

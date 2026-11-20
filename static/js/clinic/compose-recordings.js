@@ -76,7 +76,11 @@ export const RecordingsView = {
                 c.dispose();
             });
         }
-        return { c, scroller, root, onScroll, filtersOpen, t: TEXT, periods: PERIODS };
+        function rowContext(id) {
+            const row = c.state.rows.find((entry) => entry.dictationId === id);
+            return row && { dictator: row.author, pool: row.poolText };
+        }
+        return { c, rowContext, scroller, root, onScroll, filtersOpen, t: TEXT, periods: PERIODS };
     },
     template: `
 <section ref="root" class="clinic-recordings-view cl-view content-inner v8-page" data-testid="clinic-recordings-view" aria-labelledby="crv-title">
@@ -176,7 +180,7 @@ export const RecordingsView = {
           <span class="group-count">{{ g.countText }}</span>
         </div>
         <div class="record-group-list" data-testid="cards">
-          <a v-for="r in g.rows" :key="r.key" href="#" class="recording-row" style="text-decoration: none" data-row data-card :data-id="r.dictationId" data-testid="open-link"
+          <button v-for="r in g.rows" :key="r.key" type="button" class="recording-row" data-row data-card :data-id="r.dictationId" data-testid="open-link"
              :aria-label="r.ariaLabel" @click.prevent="c.open(r)">
             <time class="record-time" :datetime="r.datetime || null">{{ r.time }}</time>
             <span class="record-icon" aria-hidden="true">
@@ -195,7 +199,7 @@ export const RecordingsView = {
             <span class="record-source" aria-hidden="true"></span>
             <span class="record-duration">{{ r.duration }}</span>
             <span class="record-chevron" aria-hidden="true">›</span>
-          </a>
+          </button>
         </div>
       </section>
     </div>

@@ -24,7 +24,6 @@
 import { createVoiceCommandsComponent } from './voice-commands-ui.js';
 import { templatesComponent } from './templates-ui.js';
 import { surfaceFor } from './tokens.js';
-import { CHILD_SCOPE } from './compose-users.js';
 
 export const COMMANDS_TEMPLATES_VERSION = 1;
 
@@ -35,7 +34,9 @@ export const KINDS = Object.freeze([
 ]);
 
 export const TEXT = Object.freeze({
+    eyebrow: 'Verwaltung',
     title: 'Befehle und Vorlagen',
+    subline: 'Erlaubte Webbefehle und editierbare Textbausteine. Schutzbedürftige Aktionen erfordern eine bewusste Bestätigung.',
     kinds: 'Ressourcenwahl',
     reload: 'Neu laden',
     retry: 'Erneut versuchen',
@@ -151,27 +152,31 @@ export function createCommandsTemplatesController(deps) {
 }
 
 export const COMMANDS_TEMPLATES_TEMPLATE = `
-<section class="clinic-commands-templates-view space-y-4" data-testid="clinic-commands-templates-view" aria-labelledby="cct-title">
-  <header>
-    <h1 id="cct-title" class="text-lg font-semibold text-[var(--text-primary)]">${TEXT.title}</h1>
-    <p class="mt-1 text-sm text-[var(--text-muted)]">Sprachbefehle, Textbausteine und Vorlagen mit Einfügemarke.</p>
-  </header>
-  <p v-if="state.denied" role="alert" class="rounded-lg border p-3 text-sm border-[var(--border-primary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)]">${TEXT.denied}</p>
-  <template v-else>
-    <div role="tablist" aria-label="${TEXT.kinds}" class="inline-flex flex-wrap gap-1 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-tertiary)] p-1" @keydown="onKey">
-      <button v-for="k in kinds" :key="k.id" type="button" role="tab" :id="'cct-tab-' + k.id"
-        class="rounded-md px-3 py-1.5 text-sm font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)] aria-selected:bg-[var(--bg-secondary)] aria-selected:text-[var(--text-primary)] aria-selected:shadow-sm"
-        :aria-selected="state.kind === k.id ? 'true' : 'false'" :aria-controls="'cct-panel-' + k.id"
-        :tabindex="state.kind === k.id ? 0 : -1" @click="choose(k.id)">{{ k.label }}</button>
-      <button type="button" data-testid="reload" aria-label="${TEXT.reload}" title="${TEXT.reload}" class="rounded-md px-3 py-1.5 text-sm font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)] inline-flex items-center" @click="reload">
+<section class="v8-page clinic-commands-templates-view" data-testid="clinic-commands-templates-view" aria-labelledby="cct-title">
+  <div class="pagehead">
+    <div>
+      <div class="eyebrow">${TEXT.eyebrow}</div>
+      <h1 id="cct-title">${TEXT.title}</h1>
+      <p class="subline">${TEXT.subline}</p>
+    </div>
+    <div class="head-actions">
+      <button type="button" v-if="!state.denied" class="icon-button" data-testid="reload" aria-label="${TEXT.reload}" title="${TEXT.reload}" @click="reload">
         <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.5-3.5M13 2v3h-3" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
       </button>
     </div>
-    <div role="tabpanel" :id="'cct-panel-' + state.kind" :aria-labelledby="'cct-tab-' + state.kind" class="space-y-3">
+  </div>
+  <p v-if="state.denied" role="alert" class="note burgundy">${TEXT.denied}</p>
+  <template v-else>
+    <div class="tabs" role="tablist" aria-label="${TEXT.kinds}" @keydown="onKey">
+      <button v-for="k in kinds" :key="k.id" type="button" role="tab" :id="'cct-tab-' + k.id"
+        :aria-selected="state.kind === k.id ? 'true' : 'false'" :aria-controls="'cct-panel-' + k.id"
+        :tabindex="state.kind === k.id ? 0 : -1" @click="choose(k.id)">{{ k.label }}</button>
+    </div>
+    <div role="tabpanel" :id="'cct-panel-' + state.kind" :aria-labelledby="'cct-tab-' + state.kind">
       <slot name="${EDITOR_HOOK.slot}"></slot>
-      <p v-if="state.message" role="status" aria-live="polite" data-testid="state-message" :style="messageStyle" class="rounded-lg border p-3 text-sm">{{ state.message }}</p>
-      <button type="button" v-if="state.status === 'error'" data-testid="retry" class="btn btn--sm btn--ghost" @click="reload">${TEXT.retry}</button>
-      <div v-if="showChild" :class="state.kind === 'commands' ? childScope : ''">
+      <p v-if="state.message" role="status" aria-live="polite" data-testid="state-message" class="note" :class="noteClass" :style="messageStyle">{{ state.message }}</p>
+      <button type="button" class="small" v-if="state.status === 'error'" data-testid="retry" @click="reload">${TEXT.retry}</button>
+      <div class="panel" v-if="showChild">
         <component :is="childComponent" v-bind="childProps" :key="state.epoch + ':' + state.kind"></component>
       </div>
     </div>
@@ -227,8 +232,9 @@ export const CommandsTemplatesView = {
             if (tab) tab.focus();
         }
         return {
-            state: ctrl.state, kinds: KINDS, choose, reload, onKey, showChild, childComponent, childProps, childScope: CHILD_SCOPE,
+            state: ctrl.state, kinds: KINDS, choose, reload, onKey, showChild, childComponent, childProps,
             messageStyle: Vue.computed(() => messageStyle(ctrl.state.status)),
+            noteClass: Vue.computed(() => (ctrl.state.status === 'error' || ctrl.state.status === 'forbidden' ? 'burgundy' : (ctrl.state.status === 'unavailable' ? 'warning' : ''))),
         };
     },
 };

@@ -31,23 +31,22 @@
             {% if current_user.is_admin %}
             <section>
                 <h2>Organisation</h2>
-                <a href="/admin">Schreibkräfte-Pools</a>
-                <a href="/admin">Diktierende und Autorenpools</a>
-                <a href="/admin">Benutzer und Rollen</a>
+                <a href="/admin#/schreibkraefte-pools" data-clinic-admin-link="clinic-admin-pools">Schreibkräfte-Pools</a>
+                <a href="/admin#/diktierende" data-clinic-admin-link="clinic-admin-authors">Diktierende und Autorenpools</a>
+                <a href="/admin#/benutzer" data-clinic-admin-link="clinic-admin-users">Benutzer und Rollen</a>
             </section>
             <section>
                 <h2>Sprache und Verarbeitung</h2>
-                <a href="/admin">Wortschatz</a>
-                <a href="/admin">Sprachbefehle und Vorlagen</a>
-                <a href="/admin">ASR und Sprachprofile</a>
-                <a href="/admin">Verarbeitung</a>
+                <a href="/admin#/wortschatz" data-clinic-admin-link="clinic-admin-vocabulary">Wortschatz</a>
+                <a href="/admin#/befehle-vorlagen" data-clinic-admin-link="clinic-admin-commands">Sprachbefehle und Vorlagen</a>
+                <a href="/admin#/sprachprofile" data-clinic-admin-link="clinic-admin-asr">ASR und Sprachprofile</a>
+                <a href="/admin#/verarbeitung" data-clinic-admin-link="clinic-admin-jobs">Verarbeitung</a>
             </section>
             {% endif %}
             <section>
                 <h2>Betrieb und Zugriff</h2>
                 {% if current_user.is_admin %}
-                <a href="/admin">Aktivität und Audit</a>
-                <a href="/admin">Anmeldung und Zugriff</a>
+                <a href="/admin#/aktivitaet" data-clinic-admin-link="clinic-admin-activity">Aktivität und Audit</a>
                 {% endif %}
                 <a href="/#/einstellungen">Einstellungen</a>
                 <a href="/#/offline">Offline und Wiederherstellung</a>

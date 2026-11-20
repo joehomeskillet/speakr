@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { CorrectionView, TEXT } from '../../../static/js/clinic/compose-correction.js';
-import { createCorrectionToolbar, vTip } from '../../../static/js/clinic/correction-toolbar-ui.js';
+import { TEXT as TOOLBAR_TEXT, createCorrectionToolbar, vTip } from '../../../static/js/clinic/correction-toolbar-ui.js';
 import { createCorrectionToolbar as reExported } from '../../../static/js/clinic/correction-editor-ui.js';
 import { PlaybackTempo } from '../../../static/js/clinic/playback-tempo-ui.js';
 
@@ -79,6 +79,23 @@ describe('V8 Schreibplatz markup (prototype structure, test ids kept)', () => {
 });
 
 describe('toolbar additions for the V8 toolbar row', () => {
+    it('explains the unavailable server mark and preserves the clinical transcript and selection', () => {
+        const editor = fakeEditor('Text');
+        editor.st.start = editor.st.end = 4;
+        const toolbar = createCorrectionToolbar({ editor });
+        expect(toolbar.insertMarker()).toBe(false);
+        expect(editor.st).toEqual({ text: 'Text', start: 4, end: 4 });
+        expect(toolbar.getState().message).toBe(TOOLBAR_TEXT.markerUnavailable);
+        expect(toolbar.getState().canUndo).toBe(false);
+    });
+
+    it('blocks the marker without a lease', () => {
+        const editor = fakeEditor('Text');
+        const toolbar = createCorrectionToolbar({ editor, canEdit: () => false });
+        expect(toolbar.insertMarker()).toBe(false);
+        expect(editor.st.text).toBe('Text');
+    });
+
     it('never writes demo text into the transcript when the marker tool is used', () => {
         const editor = fakeEditor('Text');
         editor.st.start = editor.st.end = 4;

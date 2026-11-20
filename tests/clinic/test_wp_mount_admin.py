@@ -30,13 +30,14 @@ import time
 from pathlib import Path
 
 import pytest
+from playwright.sync_api import expect
 
 ROOT = Path(__file__).resolve().parents[2]
 PASSWORD = "Synthetic-pass-226!"
 ADMIN_EMAIL = "w226admin@local.test"
 LEAD_EMAIL = "w226lead@local.test"
 TEAM_PAGE = "/__w226/group-management"  # test-only route, see HARNESS
-PANELS = ["Konten", "Pools", "Fachrechte", "Verzeichnis", "Vorlagen", "Kategorien", "Regeln", "Spalten", "Vorgaben"]
+PANELS = ["Verzeichnis", "Kategorien", "Regeln", "Spalten", "Vorgaben"]
 
 SERVER = r'''
 import json, sys
@@ -68,6 +69,9 @@ with app.app_context():
     pool = pools.create_author_pool("Pool 226", actor_id=admin.id)
     pools.add_author_member(pool.id, typist.id, actor_id=admin.id)
     pools.add_author_member(pool.id, other.id, actor_id=admin.id)
+    if "statistics_grant" in sys.argv[5:]:
+        from src.clinic.statistics_access import grant_aggregate
+        grant_aggregate(admin.id, "author", author_ids=[typist.id])
     ids = dict(admin=admin.id, lead=lead.id, typist=typist.id, other=other.id)
 server = make_server("127.0.0.1", port, app, threaded=True)
 print("READY " + json.dumps(ids), flush=True)
@@ -139,14 +143,15 @@ def _render(tmp_path: Path, clinic: bool) -> dict:
 
 
 @pytest.fixture(scope="module")
-def live_server(tmp_path_factory):
+def live_server(tmp_path_factory, request):
     tmp = tmp_path_factory.mktemp("w226")
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
     log = tmp / "server.log"  # a file, not a pipe: nobody drains a pipe while the browser runs
+    options = [request.param] if hasattr(request, 'param') else []
     with open(log, "w") as out:
-        proc = subprocess.Popen([sys.executable, "-c", SERVER, str(port), PASSWORD, ADMIN_EMAIL, LEAD_EMAIL], cwd=ROOT,
+        proc = subprocess.Popen([sys.executable, "-c", SERVER, str(port), PASSWORD, ADMIN_EMAIL, LEAD_EMAIL, *options], cwd=ROOT,
                                 env=_env(tmp, True), stdout=out, stderr=subprocess.STDOUT, text=True)
         try:
             deadline = time.time() + 120
@@ -195,33 +200,31 @@ def test_admin_tab_panels_apply_and_membership_removal(live_server, browser):
     base, ids = live_server
     page, js_errors = _login(browser, base, ADMIN_EMAIL)
     page.goto(base + "/admin")
-    page.locator("[data-testid=admin-tab-clinic]").click()
-    page.locator("[data-testid=clinic-admin]").wait_for(state="visible", timeout=20000)
-
-    # The panels are registered in the Klinik section; the first one (accounts) is mounted.
+    nav = page.get_by_test_id("clinic-v8-nav")
+    users = page.get_by_test_id("clinic-v8-view-users")
+    expect(users.locator("#acc-title")).to_be_visible()
     assert _panel_names(page) == PANELS
-    page.locator("#acc-title").wait_for(state="visible", timeout=20000)
 
-    # Pool membership removal: confirm dialog, then one member is left (checked on the server).
-    page.locator("[data-testid=clinic-panel-pools]").click()
-    view = page.locator("[data-testid=clinic-view-pools]")
+    # The author pool page exposes the same membership editor and confirmation.
+    nav.get_by_role("button", name="Diktierende und Autorenpools", exact=True).click()
+    view = page.get_by_test_id("clinic-v8-view-authors")
+    view.locator("#authors-pools").click()
     remove = view.get_by_role("button", name="Entfernen")
     remove.first.wait_for(state="visible", timeout=20000)
     assert remove.count() == 2
     remove.first.click()
     view.get_by_role("alertdialog").wait_for(state="visible", timeout=20000)
     view.get_by_role("button", name="Ja, entfernen").click()
-    page.wait_for_function("document.querySelectorAll('[data-testid=clinic-view-pools] article li button').length === 1",
-                           timeout=20000)
+    expect(remove).to_have_count(1)
     members = page.evaluate("fetch('/api/clinic/v1/pools').then(r => r.json())"
                             ".then(d => d.author_pools.map(p => p.member_user_ids.length))")
     assert members == [1]
 
     # Save one permission through the grants panel (Speichern) for the typist; the entry is listed afterwards.
-    page.locator("[data-testid=clinic-panel-grants]").click()
-    view = page.locator("[data-testid=clinic-view-grants]")
-    view.locator("#clinic-grants-user").fill(str(ids["typist"]))
-    view.get_by_role("button", name="Fachrechte laden").click()
+    nav.get_by_role("button", name="Benutzer und Rollen", exact=True).click()
+    users.get_by_role("button", name="Fachrechte", exact=True).click()
+    users.get_by_label("Benutzer", exact=True).select_option(str(ids["typist"]))
+    view = users.get_by_role("region", name="Fachrechte", exact=True)
     view.locator("#grants-title").wait_for(state="visible", timeout=20000)
     view.get_by_text("Keine Einträge").wait_for(state="visible", timeout=20000)
     view.get_by_label("Ansehen").check()

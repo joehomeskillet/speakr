@@ -7,6 +7,8 @@ import sys
 import wave
 from pathlib import Path
 
+import pytest
+
 from src.app import app, db
 from src.clinic.audio_revisions import current_audio_revision, get_revision_edl
 from src.clinic.models import ClinicAudioRevision, ClinicDictation, ClinicOriginal
@@ -29,8 +31,24 @@ def _write_wav(path):
 def test_upload_initializes_audio_and_author_can_play_it(tmp_path):
     media = tmp_path / 'original.wav'
     _write_wav(media)
+    result = _upload_and_play(tmp_path, media)
+    assert result == [16000, 16000]
+
+
+@pytest.mark.parametrize(('suffix', 'codec'), [('webm', 'libopus'), ('mp4', 'aac')])
+def test_upload_plays_recorder_audio(tmp_path, suffix, codec):
+    media = tmp_path / f'recording.{suffix}'
+    subprocess.run(['ffmpeg', '-nostdin', '-v', 'error', '-f', 'lavfi', '-i',
+                    'sine=frequency=440:duration=1', '-c:a', codec, str(media)],
+                   check=True, timeout=30)
+    rate, frames = _upload_and_play(tmp_path, media)
+    assert rate == 16000
+    assert frames == pytest.approx(rate, abs=1024)  # AAC encoder padding
+
+
+def _upload_and_play(tmp_path, media):
     env = {**_env(tmp_path, True), 'CLINIC_ORIGINALS_ROOT': str(tmp_path / 'originals')}
-    result = _run(r'''
+    return _run(r'''
 import io, json, sys, wave
 from pathlib import Path
 from src.app import app, db
@@ -60,7 +78,7 @@ headers = {'X-CSRF-Token': client.get('/api/csrf-token').json['csrf_token']}
 for _ in range(2):
     with Path(sys.argv[1]).open('rb') as media:
         upload = client.post('/upload', headers=headers,
-                             data={'file': (media, 'original.wav'), 'client_upload_id': 'hotfix-upload'})
+                             data={'file': (media, Path(media.name).name), 'client_upload_id': 'hotfix-upload'})
     assert upload.status_code == 202, upload.get_data(as_text=True)
 with app.app_context():
     dictation = ClinicDictation.query.filter_by(author_user_id=uid).one()
@@ -75,7 +93,6 @@ assert audio.headers['X-Audio-Revision'] == revision_id
 with wave.open(io.BytesIO(audio.data), 'rb') as wav:
     print('RESULT' + json.dumps([wav.getframerate(), wav.getnframes()]))
 ''', env, str(media))
-    assert result == [16000, 16000]
 
 
 def test_repair_cli_plans_applies_and_skips_an_existing_head(clinic_on, author, tmp_path, monkeypatch):

@@ -798,12 +798,12 @@
 .v8-ui .v6-admin summary:focus-visible,.v8-ui .v6-menu a:focus-visible{outline:3px solid #d7a1b5;outline-offset:3px}
 .v8-ui .v6-menu{position:absolute;right:0;top:43px;width:520px;max-width:calc(100vw - 30px);max-height:74vh;overflow:auto;display:grid;grid-template-columns:1fr 1fr;gap:15px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--v8-text);padding:18px;box-shadow:0 12px 40px #1c3d4228;z-index:90}
 /* The standalone header applies its text color through an ID selector. */
-.v8-ui:is(#app,#global-header *) .v6-menu h2{color:var(--v8-text-2)}
-.v8-ui:is(#app,#global-header *) .v6-menu a{color:var(--v8-text)}
+.v8-ui:is(*,#global-header *) .v6-menu h2{color:var(--v8-text-2)}
+.v8-ui:is(*,#global-header *) .v6-menu a{color:var(--v8-text)}
 .v8-ui .v6-menu h2{font-size:10px;text-transform:uppercase;letter-spacing:.8px;margin:0 0 7px}
 .v8-ui .v6-menu a{display:block;padding:6px 7px;font-size:12px;border-radius:6px}
-.v8-ui:is(#app,#global-header *) :is(.v6-menu a,.v8-usermenu a,.v8-usermenu .v8-item):hover{background:var(--v8-s2);color:var(--v8-menu-hover-text)}
-.v8-ui:is(#app,#global-header *) .v8-usermenu :is(a,.v8-item):hover>span:not(.v8-badge){color:inherit}
+.v8-ui:is(*,#global-header *) :is(.v6-menu a,.v8-usermenu a,.v8-usermenu .v8-item):hover{background:var(--v8-s2);color:var(--v8-menu-hover-text)}
+.v8-ui:is(*,#global-header *) .v8-usermenu :is(a,.v8-item):hover>span:not(.v8-badge){color:inherit}
 .v8-ui .v6-context-link{display:inline-flex;align-items:center;padding:8px 12px;border:1px solid var(--line);border-radius:8px;font-size:12px}
 .v8-ui .topbar{z-index:80}
 .v8-ui .v6-preview-note{margin:0 0 16px;font-size:11px;color:var(--v8-text-2);padding:8px 11px;border:1px solid var(--line);background:var(--v8-s1);border-radius:7px}
@@ -885,3 +885,13 @@
 @media(max-width:700px){.v8-ui .topbar{padding:14px 12px}}
 @media(max-width:760px){.v8-ui .topbar .top-icon,.v8-ui .topbar .top-action,.v8-ui .topbar .v6-admin summary,.v8-ui .topbar button.topavatar{position:relative}
 .v8-ui .topbar .top-icon::after,.v8-ui .topbar .top-action::after,.v8-ui .topbar .v6-admin summary::after,.v8-ui .topbar button.topavatar::after{content:"";display:block;position:absolute;left:50%;top:50%;width:max(100%,44px);height:max(100%,44px);transform:translate(-50%,-50%)}}
+
+.v8-ui .workbench-links { display: flex; flex-wrap: wrap; gap: var(--ui-space-2); margin-block: var(--ui-space-4); }
+
+.v8-ui .clinic-worklist-view :is(.listhead > span, .worktable th, .titletext small, .tablefooter > span) {
+  color: var(--v8-text-2);
+}
+
+.v8-ui .clinic-recordings-view :is(.sort-label, .date-caption, .group-count, .record-subtitle, .date-fallback) {
+  color: var(--v8-text-2);
+}

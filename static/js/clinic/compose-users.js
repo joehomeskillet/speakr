@@ -46,6 +46,18 @@ export const LABELS = Object.freeze({
     poolsHint: 'Mitgliedschaften werden unter «Pools verwalten» geändert.',
     reload: 'Erneut laden',
     retry: 'Erneut versuchen',
+    eyebrow: 'Verwaltung',
+    subline: 'Lokale Benutzerkonten, Poolbezüge und Fachrechte getrennt verwalten.',
+    statAccounts: 'Benutzerkonten',
+    statActive: 'Aktive Konten',
+    statDisabled: 'Deaktivierte Konten',
+    statAdmins: 'Administration',
+    rolesTitle: 'Rollen und Zugriff',
+    rolesText: 'Rollen erlauben Funktionen. Poolbezüge und Fachrechte werden je Benutzer unter den Bereichen oben geändert.',
+    rolesNote: 'Der Zugriff auf ein konkretes Diktat bleibt zusätzlich an Benutzer, Pools und Objektberechtigungen gebunden. Eine Identitätsrolle gibt keinen Diktatzugriff.',
+    identityTitle: 'Anmeldung und Zugriff',
+    identityText: 'Wählen Sie das Konto, dessen Anmelderichtlinie Sie prüfen oder ändern möchten.',
+    identityLink: 'Anmelderichtlinie öffnen',
 });
 
 function userIdOf(user) {
@@ -119,13 +131,6 @@ export function createUsersController(deps) {
     return { state, accounts, setUser, select, selectUser, load, dispose };
 }
 
-/**
- * Utility classes for the foreign child panels (accounts-ui, grants-ui, vocabulary-ui, ...) that are embedded in the
- * composed admin views. They are set on a plain wrapper element, so descendants without a class attribute get table, field and
- * button styling in the look of the admin user list without editing those modules; classed elements keep their own look. Tokens only, no hard colours.
- */
-export const CHILD_SCOPE = 'overflow-x-auto [&_h2:not([class])]:text-base [&_h2:not([class])]:font-semibold [&_h2:not([class])]:mb-2 [&_h3:not([class])]:text-sm [&_h3:not([class])]:font-semibold [&_h3:not([class])]:mt-4 [&_h3:not([class])]:mb-2 [&_h4:not([class])]:text-sm [&_h4:not([class])]:font-medium [&_h4:not([class])]:mt-3 [&_h4:not([class])]:mb-1 [&_p:not([class])]:my-2 [&_p:not([class])]:text-sm [&_ul:not([class])]:my-2 [&_ul:not([class])]:space-y-1 [&_ul:not([class])]:text-sm [&_fieldset:not([class])]:my-3 [&_fieldset:not([class])]:rounded-lg [&_fieldset:not([class])]:border [&_fieldset:not([class])]:border-[var(--border-primary)] [&_fieldset:not([class])]:p-3 [&_legend:not([class])]:px-1 [&_legend:not([class])]:text-sm [&_legend:not([class])]:font-medium [&_label:not([class])]:mt-3 [&_label:not([class])]:mb-1 [&_label:not([class])]:block [&_label:not([class])]:text-sm [&_label:not([class])]:font-medium [&_label:not([class])]:text-[var(--text-secondary)] [&_table:not([class])]:w-full [&_table:not([class])]:min-w-[36rem] [&_table:not([class])]:border-collapse [&_table:not([class])]:text-sm [&_th:not([scope=row]):not([class])]:bg-[var(--bg-tertiary)] [&_th:not([scope=row]):not([class])]:px-3 [&_th:not([scope=row]):not([class])]:py-2 [&_th:not([scope=row]):not([class])]:text-left [&_th:not([scope=row]):not([class])]:text-xs [&_th:not([scope=row]):not([class])]:font-medium [&_th:not([scope=row]):not([class])]:uppercase [&_th:not([scope=row]):not([class])]:tracking-wider [&_th:not([scope=row]):not([class])]:text-[var(--text-muted)] [&_th[scope=row]:not([class])]:bg-transparent [&_th[scope=row]:not([class])]:normal-case [&_th[scope=row]:not([class])]:tracking-normal [&_th[scope=row]:not([class])]:border-t [&_th[scope=row]:not([class])]:border-[var(--border-primary)] [&_th[scope=row]:not([class])]:px-3 [&_th[scope=row]:not([class])]:py-2 [&_th[scope=row]:not([class])]:text-left [&_th[scope=row]:not([class])]:text-sm [&_th[scope=row]:not([class])]:font-medium [&_th[scope=row]:not([class])]:text-[var(--text-primary)] [&_td:not([class])]:border-t [&_td:not([class])]:border-[var(--border-primary)] [&_td:not([class])]:px-3 [&_td:not([class])]:py-2 [&_button:not([class])]:my-1 [&_button:not([class])]:mr-1 [&_button:not([class])]:rounded-md [&_button:not([class])]:border [&_button:not([class])]:border-[var(--border-primary)] [&_button:not([class])]:bg-[var(--bg-secondary)] [&_button:not([class])]:px-3 [&_button:not([class])]:py-1.5 [&_button:not([class])]:text-sm [&_button:not([class])]:font-medium [&_button:not([class])]:text-[var(--text-primary)] [&_button:hover:not([class])]:bg-[var(--bg-tertiary)] [&_button:disabled:not([class])]:cursor-not-allowed [&_button:disabled:not([class])]:opacity-50 [&_button:focus-visible:not([class])]:outline-none [&_button:focus-visible:not([class])]:ring-2 [&_button:focus-visible:not([class])]:ring-[var(--border-focus)] [&_input:not([type=checkbox]):not([type=radio]):not([class])]:my-1 [&_input:not([type=checkbox]):not([type=radio]):not([class])]:rounded-md [&_input:not([type=checkbox]):not([type=radio]):not([class])]:border [&_input:not([type=checkbox]):not([type=radio]):not([class])]:border-[var(--border-secondary)] [&_input:not([type=checkbox]):not([type=radio]):not([class])]:bg-[var(--bg-input)] [&_input:not([type=checkbox]):not([type=radio]):not([class])]:px-3 [&_input:not([type=checkbox]):not([type=radio]):not([class])]:py-1.5 [&_input:not([type=checkbox]):not([type=radio]):not([class])]:text-sm [&_input:not([type=checkbox]):not([type=radio]):not([class])]:text-[var(--text-primary)] [&_select:not([class])]:my-1 [&_select:not([class])]:rounded-md [&_select:not([class])]:border [&_select:not([class])]:border-[var(--border-secondary)] [&_select:not([class])]:bg-[var(--bg-input)] [&_select:not([class])]:px-3 [&_select:not([class])]:py-1.5 [&_select:not([class])]:text-sm [&_select:not([class])]:text-[var(--text-primary)] [&_textarea:not([class])]:my-1 [&_textarea:not([class])]:w-full [&_textarea:not([class])]:rounded-md [&_textarea:not([class])]:border [&_textarea:not([class])]:border-[var(--border-secondary)] [&_textarea:not([class])]:bg-[var(--bg-input)] [&_textarea:not([class])]:px-3 [&_textarea:not([class])]:py-2 [&_textarea:not([class])]:text-sm [&_textarea:not([class])]:text-[var(--text-primary)] [&_[role=radio][aria-checked=true]:not([class])]:bg-[var(--bg-tertiary)] [&_[role=radio][aria-checked=true]:not([class])]:border-[var(--border-focus)] [&_[role=radio][aria-checked=true]:not([class])]:font-semibold [&_[aria-selected=true]:not([class])]:bg-[var(--bg-tertiary)] [&_[aria-selected=true]:not([class])]:border-[var(--border-focus)] [&_[aria-selected=true]:not([class])]:font-semibold [&_[aria-pressed=true]:not([class])]:bg-[var(--bg-tertiary)] [&_[aria-pressed=true]:not([class])]:border-[var(--border-focus)] [&_[aria-pressed=true]:not([class])]:font-semibold [&>section:not([class])]:p-4 [&_input:not([type=checkbox]):not([type=radio]):not([class])]:mr-2 [&_select:not([class])]:mr-2';
-
 const ERROR_SURFACE = surfaceFor('error');
 const errorStyle = {
     background: ERROR_SURFACE.background, color: ERROR_SURFACE.color, borderColor: ERROR_SURFACE.border,
@@ -133,7 +138,7 @@ const errorStyle = {
 
 export const POOLS_PANEL_TEMPLATE = `
 <section aria-labelledby="usr-pools-title" class="space-y-3">
-  <h3 id="usr-pools-title" class="text-base font-semibold text-[var(--text-primary)]">{{ labels.sections_pools }}</h3>
+  <h3 id="usr-pools-title" class="sr-only">{{ labels.sections_pools }}</h3>
   <p v-if="!userId" role="status" class="rounded-lg border border-dashed border-[var(--border-primary)] p-4 text-sm text-[var(--text-muted)]">{{ labels.pickUser }}</p>
   <p v-if="state.status === 'error' || state.status === 'denied'" role="alert" :style="errorStyle" class="rounded-lg border p-3 text-sm">{{ state.message }}
     <button type="button" class="btn btn--sm btn--ghost ml-2" @click="store.reload()">{{ labels.retry }}</button></p>
@@ -181,32 +186,73 @@ export function createPoolsPanel(Vue) {
 }
 
 export const USERS_TEMPLATE = `
-<div class="clinic-users-view space-y-4">
-  <header>
-    <h2 class="text-lg font-semibold text-[var(--text-primary)]">{{ labels.title }}</h2>
-    <p class="mt-1 text-sm text-[var(--text-muted)]">Konten, Poolbezüge und Fachrechte der Benutzer.</p>
-  </header>
-  <p v-if="state.denied" role="alert" :style="errorStyle" class="rounded-lg border p-3 text-sm">{{ labels.deniedAnonymous }}</p>
-  <p v-else-if="state.forbidden" role="alert" :style="errorStyle" class="rounded-lg border p-3 text-sm">{{ labels.denied }}</p>
-  <template v-else>
-    <nav :aria-label="labels.sections" class="inline-flex flex-wrap gap-1 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-tertiary)] p-1">
-      <button v-for="s in sections" :key="s.id" type="button" :id="'usr-sec-' + s.id"
-        class="rounded-md px-3 py-1.5 text-sm font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)] aria-[current=true]:bg-[var(--bg-secondary)] aria-[current=true]:text-[var(--text-primary)] aria-[current=true]:shadow-sm"
-        :aria-current="state.active === s.id ? 'true' : 'false'" @click="select(s.id)">{{ s.label }}</button>
-    </nav>
-    <p v-if="accounts.loading" role="status" aria-live="polite" class="text-sm text-[var(--text-muted)]">{{ labels.loading }}</p>
-    <p v-else-if="accounts.loaded && !accounts.accounts.length" role="status" aria-live="polite" class="rounded-lg border border-dashed border-[var(--border-primary)] p-4 text-sm text-[var(--text-muted)]">{{ labels.empty }}</p>
-    <p v-if="accounts.error && !accounts.loaded" role="alert" :style="errorStyle" class="rounded-lg border p-3 text-sm">{{ accounts.message }}
-      <button type="button" class="btn btn--sm btn--ghost ml-2" @click="load()">{{ labels.retry }}</button></p>
-    <div v-if="accounts.loaded && state.active !== 'accounts'" class="flex flex-wrap items-center gap-2">
-      <label for="usr-pick" class="text-sm font-medium text-[var(--text-secondary)]">{{ labels.user }}</label>
-      <select id="usr-pick" class="field field--sm w-auto min-w-[12rem] max-w-full" :value="state.selectedId === null ? '' : String(state.selectedId)" @change="selectUser($event.target.value)">
-        <option value="">-</option>
-        <option v-for="a in accounts.accounts" :key="a.id" :value="String(a.id)">{{ a.username }}</option>
-      </select>
+<div class="clinic-users-view v8-page v8-admin-page" data-testid="clinic-users-view">
+  <div class="pagehead">
+    <div>
+      <div class="eyebrow">{{ labels.eyebrow }}</div>
+      <h1>{{ labels.title }}</h1>
+      <p class="subline">{{ labels.subline }}</p>
     </div>
-    <div v-if="accounts.loaded" role="region" :aria-labelledby="'usr-sec-' + state.active" class="${CHILD_SCOPE}">
+    <div v-if="accounts.loaded && !state.denied && !state.forbidden" class="head-actions">
+      <button type="button" class="primary" :disabled="accounts.busy" @click="startCreate"><span aria-hidden="true">+</span> Konto anlegen</button>
+    </div>
+  </div>
+  <p v-if="state.denied" role="alert" class="note burgundy">{{ labels.deniedAnonymous }}</p>
+  <p v-else-if="state.forbidden" role="alert" class="note burgundy">{{ labels.denied }}</p>
+  <template v-else>
+    <nav class="tabs" :aria-label="labels.sections">
+      <button v-for="s in sections" :key="s.id" type="button" :id="'usr-sec-' + s.id"
+        :aria-current="state.active === s.id ? 'true' : 'false'"
+        :style="state.active === s.id ? { borderBottomColor: 'var(--burgundy)', color: 'var(--v8-text)' } : null"
+        @click="select(s.id)">{{ s.label }}</button>
+    </nav>
+    <p v-if="accounts.loading" role="status" aria-live="polite" class="hint">{{ labels.loading }}</p>
+    <p v-else-if="accounts.loaded && !accounts.accounts.length" role="status" aria-live="polite" class="empty">{{ labels.empty }}</p>
+    <p v-if="accounts.error && !accounts.loaded" role="alert" class="note burgundy">{{ accounts.message }}
+      <button type="button" class="small" @click="load()">{{ labels.retry }}</button></p>
+    <div v-if="accounts.loaded" role="region" :class="{ panel: state.active !== 'accounts' }" :aria-labelledby="'usr-sec-' + state.active">
+      <div v-if="state.active !== 'accounts'" class="cadm-subsection-head">
+        <div>
+          <h2>{{ state.active === 'grants' ? sections[2].label : sections[1].label }}</h2>
+        </div>
+        <div class="field">
+          <label for="usr-pick">{{ labels.user }}</label>
+          <select id="usr-pick" :value="state.selectedId === null ? '' : String(state.selectedId)" @change="selectUser($event.target.value)">
+            <option value="">Konto wählen</option>
+            <option v-for="a in accounts.accounts" :key="a.id" :value="String(a.id)">{{ a.username }}</option>
+          </select>
+        </div>
+      </div>
       <component :is="activeComponent" v-bind="activeProps" :key="state.epoch + ':' + state.active + ':' + state.selectedId"></component>
+      <a v-if="state.active === 'accounts' && accounts.draft && accounts.draft.mode === 'edit'"
+         :href="'/admin#/system/audit?konto=' + encodeURIComponent(accounts.draft.id)" class="button">
+        Systemaktivität dieses Kontos
+      </a>
+    </div>
+    <div v-if="accounts.loaded && state.active === 'accounts'" class="stats cadm-account-summary" data-testid="user-stats">
+      <div class="stat"><span>{{ labels.statAccounts }}</span><strong>{{ stats.total }}</strong></div>
+      <div class="stat"><span>{{ labels.statActive }}</span><strong>{{ stats.active }}</strong></div>
+      <div class="stat"><span>{{ labels.statDisabled }}</span><strong>{{ stats.disabled }}</strong></div>
+      <div class="stat"><span>{{ labels.statAdmins }}</span><strong>{{ stats.admins }}</strong></div>
+    </div>
+    <div v-if="accounts.loaded && state.active === 'accounts'" class="grid equal" style="margin-top: 20px">
+      <section class="panel" aria-labelledby="usr-note-roles">
+        <h2 id="usr-note-roles">{{ labels.rolesTitle }}</h2>
+        <p class="hint">{{ labels.rolesText }}</p>
+        <div class="note">{{ labels.rolesNote }}</div>
+      </section>
+      <section class="panel" aria-labelledby="usr-note-identity">
+        <h2 id="usr-note-identity">{{ labels.identityTitle }}</h2>
+        <p class="hint">{{ labels.identityText }}</p>
+        <label class="field" for="usr-login-account">
+          {{ labels.user }}
+          <select id="usr-login-account" :value="state.selectedId ?? ''" @change="selectUser($event.target.value)">
+            <option value="">Konto wählen</option>
+            <option v-for="a in accounts.accounts" :key="a.id" :value="a.id">{{ a.username }}</option>
+          </select>
+        </label>
+        <button type="button" class="button" :disabled="state.selectedId === null || accounts.busy || (accounts.draft && accounts.draft.id !== state.selectedId)" @click="openLoginPolicy">{{ labels.identityLink }}</button>
+      </section>
     </div>
   </template>
 </div>`;
@@ -230,10 +276,12 @@ export const UsersView = {
         const poolsPanel = Vue.markRaw(createPoolsPanel(Vue));
         const grantsCache = {};
         const grantsFor = (userId) => {
-            if (!grantsCache[userId]) {
-                grantsCache[userId] = Vue.markRaw(createGrantsComponent(Vue, props.client, { userId, canEdit: true }));
+            const canEdit = props.currentUser?.is_admin === true;
+            const key = userId + ':' + canEdit;
+            if (!grantsCache[key]) {
+                grantsCache[key] = Vue.markRaw(createGrantsComponent(Vue, props.client, { userId, canEdit }));
             }
-            return grantsCache[userId];
+            return grantsCache[key];
         };
         const activeComponent = Vue.computed(() => {
             const id = ctrl.state.active;
@@ -243,7 +291,7 @@ export const UsersView = {
         });
         const activeProps = Vue.computed(() => {
             const id = ctrl.state.active;
-            if (id === 'accounts') return { controller: ctrl.accounts };
+            if (id === 'accounts') return { controller: ctrl.accounts, embedded: true };
             if (id === 'pools') return { client: props.client, userId: ctrl.state.selectedId };
             return {};
         });
@@ -253,8 +301,27 @@ export const UsersView = {
         });
         Vue.onMounted(() => ctrl.load());
         Vue.onBeforeUnmount(() => ctrl.dispose());
+        const stats = Vue.computed(() => {
+            const list = ctrl.accounts.state.accounts || [];
+            return {
+                total: list.length,
+                active: list.filter((a) => a.status === 'active').length,
+                disabled: list.filter((a) => a.status === 'disabled').length,
+                admins: list.filter((a) => a.is_admin).length,
+            };
+        });
         return {
-            state: ctrl.state, accounts: ctrl.accounts.state, sections: SECTIONS, labels: LABELS, errorStyle,
+            openLoginPolicy() {
+                ctrl.select('accounts');
+                if (!ctrl.accounts.state.draft) ctrl.accounts.startEdit(ctrl.state.selectedId);
+                Vue.nextTick(() => document.getElementById('acc-policy')?.focus());
+            },
+            startCreate() {
+                ctrl.select('accounts');
+                ctrl.accounts.startCreate();
+                Vue.nextTick(() => document.getElementById('acc-username')?.focus());
+            },
+            stats, state: ctrl.state, accounts: ctrl.accounts.state, sections: SECTIONS, labels: LABELS, errorStyle,
             select: ctrl.select, load: ctrl.load, selectUser: ctrl.selectUser, activeComponent, activeProps,
         };
     },

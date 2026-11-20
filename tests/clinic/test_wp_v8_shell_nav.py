@@ -160,6 +160,8 @@ def test_open_dictation_and_close_returns_to_origin(live_server, width, height):
             link.click()
             correction.wait_for(state="visible", timeout=30000)
             assert dictation in correction.inner_text()
+            assert correction.locator("[data-dictator-name]").inner_text() == "Synthetisch"
+            assert correction.locator("[data-pool-name]").inner_text() == "Kein Pool zugewiesen"
             back = page.locator("[data-testid=clinic-correction-back]")
             assert back.inner_text().strip() == "Zurück zu Aufnahmen"
             back.click()
@@ -172,11 +174,15 @@ def test_open_dictation_and_close_returns_to_origin(live_server, width, height):
             worklist.wait_for(state="visible", timeout=30000)
             row = page.locator("[data-row]").first
             row.wait_for(state="visible", timeout=30000)
+            author = row.locator('[data-label="Diktiert von"]').inner_text()
+            pool = row.locator('[data-label="Schreibkräfte-Pool"]').inner_text()
             row.click()
             worklist.get_by_role("button", name="Öffnen", exact=True).click()
             correction.wait_for(state="visible", timeout=30000)
             back = page.locator("[data-testid=clinic-correction-back]")
             assert back.inner_text().strip() == "Zurück zur Arbeitsliste"
+            assert correction.locator("[data-dictator-name]").inner_text() == author
+            assert correction.locator("[data-pool-name]").inner_text() == pool
             back.click()
             worklist.wait_for(state="visible", timeout=30000)
             assert page.locator("[data-testid=nav-clinic-worklist]").get_attribute("aria-current") == "page"
@@ -188,6 +194,18 @@ def test_open_dictation_and_close_returns_to_origin(live_server, width, height):
             correction.wait_for(state="visible", timeout=30000)
             page.go_back()
             recordings.wait_for(state="visible", timeout=30000)
+            page.go_forward()
+            correction.wait_for(state="visible", timeout=30000)
+            assert correction.locator("[data-dictator-name]").inner_text() == "Synthetisch"
+            assert "Synthetisch" not in page.evaluate("JSON.stringify(history.state)")
+            # History from an older tab can have an ID with no matching row in this page.
+            page.evaluate("""() => {
+                const state = {...history.state, dictationId: '00000000-0000-4000-8000-000000000001'};
+                history.replaceState(state, '', location.href);
+                dispatchEvent(new PopStateEvent('popstate', {state}));
+            }""")
+            assert correction.locator("[data-dictator-name]").inner_text() == "Nicht angegeben"
+            assert correction.locator("[data-pool-name]").inner_text() == "Nicht angegeben"
             assert not page.js_errors, page.js_errors
         finally:
             browser.close()

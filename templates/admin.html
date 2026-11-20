@@ -178,6 +178,7 @@
                      + .tabs-scroller wrapper so the horizontal chevron
                      buttons appear when the strip overflows. Tab IDs
                      not needed (Vue v-show binds the content). -->
+                {% if not clinic_mode %}
                 <div class="tabs-scroller flex-shrink-0" data-tabs-scroller>
                     <button type="button" class="tabs-scroller__nav tabs-scroller__nav--left" :aria-label="t('adminDashboard.scrollLeft')">
                         <i class="fas fa-chevron-left"></i>
@@ -223,19 +224,33 @@
                                 class="tab" data-audit-tab
                                 :class="{ 'is-active': activeTab === 'audit' }">
                             <i class="fas fa-clipboard-list"></i><span>${t('auditLog.tab')}</span>
-                        </button>{% if clinic_mode %}
-                        <button type="button" @click="activeTab = 'clinic'" class="tab" data-testid="admin-tab-clinic"
-                                :class="{ 'is-active': activeTab === 'clinic' }">
-                            <i class="fas fa-hospital" aria-hidden="true"></i><span>Klinik</span>
-                        </button>{% endif %}
+                        </button>
                     </nav>
                     <button type="button" class="tabs-scroller__nav tabs-scroller__nav--right" :aria-label="t('adminDashboard.scrollRight')">
                         <i class="fas fa-chevron-right"></i>
                     </button>
                 </div>
 
+                {% else %}
                 <div class="tab-content-wrapper">
-                
+                  <div class="tab-content">
+                    <div class="tab-scroll">
+                      <div id="clinic-admin-root" v-pre data-mode="admin" data-user-id="{{ current_user.id }}"></div>
+                    </div>
+                  </div>
+                </div>
+                <teleport v-if="activeTab !== 'mounting'" to="#clinic-admin-system-nav">
+                  <div class="cadm-nav__group" role="group" aria-labelledby="admin-system-label">
+                    <p id="admin-system-label" class="cadm-nav__label">System</p>
+                    <a href="#/system/statistik" class="cadm-nav__item" :class="{ 'is-active': activeTab === 'stats' }" :aria-current="activeTab === 'stats' ? 'page' : null">Systemstatistik</a>
+                    <a href="#/system/einstellungen" class="cadm-nav__item" :class="{ 'is-active': activeTab === 'settings' }" :aria-current="activeTab === 'settings' ? 'page' : null">Systemeinstellungen</a>
+                    <a href="#/system/audit" class="cadm-nav__item" data-audit-tab :class="{ 'is-active': activeTab === 'audit' }" :aria-current="activeTab === 'audit' ? 'page' : null">System-Auditprotokoll</a>
+                  </div>
+                </teleport>
+                <teleport v-if="activeTab !== 'mounting'" to="#clinic-admin-system-content">
+                {% endif %}
+                <div class="tab-content-wrapper"{% if clinic_mode %} v-show="activeTab !== 'clinic'"{% endif %}>
+                {% if not clinic_mode %}
                 <!-- User Management Tab -->
                 <div class="tab-content" :class="{ hidden: activeTab !== 'users' }">
                   <div class="tab-scroll">
@@ -369,6 +384,7 @@
                   <div class="tab-footer"></div>
                 </div>
 
+                {% endif %}
                 <!-- System Statistics Tab. One read, /admin/stats/overview,
                      for a range of 7, 30 or 90 days compared with the range
                      before it; recording states and the job queue come from
@@ -1521,17 +1537,9 @@ Summarization Instructions:
                   </div><!-- /.tab-scroll -->
                   <div class="tab-footer"></div>
                 </div><!-- /.tab-content (groups) -->
-                {% endif %}{% if clinic_mode %}
-
-                <!-- Klinik tab (CLINIC_MODE only): mounted by a separate Vue app, see the module script at the end of the page -->
-                <div class="tab-content" :class="{ hidden: activeTab !== 'clinic' }">
-                  <div class="tab-scroll">
-                    <div id="clinic-admin-root" v-pre data-mode="admin" data-user-id="{{ current_user.id }}"></div>
-                  </div>
-                  <div class="tab-footer"></div>
-                </div><!-- /.tab-content (clinic) -->{% endif %}
-
+                {% endif %}
                 </div><!-- /.tab-content-wrapper -->
+                {% if clinic_mode %}</teleport>{% endif %}
             </div><!-- /inner flex shell -->
         </main>
         <!-- Standalone footer removed; the copyright now lives in each
@@ -2216,7 +2224,33 @@ Summarization Instructions:
                 
                 // State
                 const isTeamAdminOnly = ref({% if is_group_admin_only %}true{% else %}false{% endif %});
-                const activeTab = ref({% if is_group_admin_only %}'teams'{% else %}'users'{% endif %});
+                const activeTab = ref({% if is_group_admin_only %}'teams'{% elif clinic_mode %}'mounting'{% else %}'users'{% endif %});
+                {% if clinic_mode %}
+                onMounted(() => {
+                    const tabFromHash = () => {
+                        const path = window.location.hash.split('?')[0];
+                        const pages = { '#/system/statistik': 'stats', '#/system/einstellungen': 'settings', '#/system/audit': 'audit' };
+                        if (pages[path] === 'audit') {
+                            const account = new URLSearchParams(window.location.hash.split('?')[1]).get('konto');
+                            auditFilters.value = { ...emptyAuditFilters(), user: /^\d+$/.test(account || '') ? account : '' };
+                        }
+                        activeTab.value = pages[path] || 'clinic';
+                        nextTick(() => {
+                            const nav = document.querySelector('#clinic-admin-root nav');
+                            const current = nav?.querySelector('[aria-current="page"]');
+                            if (!current || nav.scrollWidth <= nav.clientWidth) return;
+                            const item = current.getBoundingClientRect(), bounds = nav.getBoundingClientRect();
+                            if (item.left < bounds.left) nav.scrollLeft += item.left - bounds.left;
+                            else if (item.right > bounds.right) nav.scrollLeft += item.right - bounds.right;
+                        });
+                    };
+                    window.addEventListener('clinic-admin-panelchange', tabFromHash);
+                    // The inner navigation signals after its permission check and portal mount.
+                    window.addEventListener('hashchange', () => {
+                        if (activeTab.value !== 'mounting') tabFromHash();
+                    });
+                });
+                {% endif %}
                 const users = ref([]);
                 const stats = ref({
                     total_users: 0,
@@ -4291,7 +4325,7 @@ Summarization Instructions:
                 onMounted(async () => {
                     // Only load admin-specific data if user is full admin
                     if (!isTeamAdminOnly.value) {
-                        loadUsers();
+                        {% if not clinic_mode %}loadUsers();{% endif %}
                         loadStats();
                         loadVoiceEmbedding();
                         loadOverview();
@@ -4828,7 +4862,7 @@ Summarization Instructions:
             padding: var(--sp-2) var(--sp-3); text-align: left; vertical-align: top; border-bottom: 1px solid var(--border-primary);
         }
         .clinic-authors-view thead { background: var(--bg-tertiary); }
-        .clinic-authors-view td:nth-child(3) span { padding: var(--sp-1); border-radius: var(--radius-sm); }
+        .clinic-authors-view td .tag { padding: var(--sp-1); border-radius: var(--radius-sm); }
         .clinic-authors-view .pools-ui > *, .clinic-authors-view .pools-ui article > * { margin-block-start: var(--sp-2); }
         .clinic-authors-view .pools-ui article + article { margin-block-start: var(--sp-3); }
         .clinic-authors-view .pools-ui form {
@@ -4860,12 +4894,11 @@ Summarization Instructions:
                 gap: var(--sp-2) var(--sp-3); padding: var(--sp-3); border-block-end: 1px solid var(--border-primary);
             }
             .clinic-authors-view tbody :is(th, td) { padding: 0; border: 0; }
-            .clinic-authors-view td:nth-child(3) { grid-area: 1 / 2; justify-self: end; }
+            .clinic-authors-view td:nth-child(5) { grid-area: 1 / 2; justify-self: end; }
             .clinic-authors-view td::before { display: block; color: var(--text-muted); font-size: var(--fs-meta); }
-            .clinic-authors-view td:nth-child(2)::before { content: 'Benutzer-ID' / ''; }
+            .clinic-authors-view td:nth-child(2)::before { content: 'Autorenpools' / ''; }
             .clinic-authors-view td:nth-child(4)::before { content: 'Diktierrolle' / ''; }
-            .clinic-authors-view td:nth-child(5)::before { content: 'Autorenpools' / ''; }
-            .clinic-authors-view td:nth-child(6)::before { content: 'Schreibkräfte-Pools' / ''; }
+            .clinic-authors-view td:nth-child(3)::before { content: 'Schreibkräfte-Pools' / ''; }
         }
     </style>
     <script type="module">
@@ -4873,7 +4906,6 @@ Summarization Instructions:
         import { getUploadCsrfToken } from "{{ url_for('static', filename='js/modules/csrf.js', v=app_version) }}";
         import { createAccountsAdmin, AccountsAdminPanel } from "{{ url_for('static', filename='js/clinic/accounts-ui.js', v=app_version) }}";
         import { createPoolsComponent } from "{{ url_for('static', filename='js/clinic/pools-ui.js', v=app_version) }}";
-        import { createGrantsComponent, loadGrantUsers } from "{{ url_for('static', filename='js/clinic/grants-ui.js', v=app_version) }}";
         import { registerDirectoryReview } from "{{ url_for('static', filename='js/clinic/directory-ui.js', v=app_version) }}";
         import { templatesComponent } from "{{ url_for('static', filename='js/clinic/templates-ui.js', v=app_version) }}";
         import { categoriesComponent } from "{{ url_for('static', filename='js/clinic/categories-ui.js', v=app_version) }}";
@@ -4934,13 +4966,17 @@ Summarization Instructions:
             return { request, switchContext };
         }
         const adminClient = createAdminClient();
-        // The authors view shares one request interface between its account list and pool editor.
-        const authorsClient = {
-            request(path, options) {
-                return (path === '/admin/users' ? adminClient : client).request(path, options);
-            },
+
+        // The authors page reads the account list (/admin/users) and the pools (/pools) through one client:
+        // a call to /admin/... goes to the admin client, every other call to the clinic client (same split
+        // as the shell's routing client in app.modular.js).
+        const routingClient = {
+            request: (path, options) => (typeof path === 'string' && path.startsWith('/admin/') ? adminClient : client).request(path, options),
+            command: (...args) => client.command(...args),
+            switchContext: () => { client.switchContext(); adminClient.switchContext(); },
         };
 
+        // Regex rules act on one dictation: the panel needs its id. The API authorises preview and apply.
         const DirectoryHost = {
             emits: ['open-accounts'],
             setup() {
@@ -4971,50 +5007,6 @@ Summarization Instructions:
 </div>`,
         };
 
-        // Grants are read per user: the panel starts on the viewer's own id. The API decides who may read or change.
-        const GrantsHost = {
-            name: 'ClinicGrantsHost',
-            setup() {
-                const draft = ref('');
-                const users = ref([]);
-                const message = ref('');
-                const panel = ref(null);
-                const key = ref(0);
-                function open() {
-                    const selected = users.value.find(u => u.username === draft.value)
-                        || users.value.find(u => String(u.id) === draft.value);
-                    panel.value = selected
-                        ? markRaw(createGrantsComponent(window.Vue, client, { userId: selected.id, canEdit: !team }))
-                        : null;
-                    if (selected) draft.value = selected.username;
-                    message.value = selected ? '' : 'Bitte einen Benutzer aus der Liste wählen.';
-                    key.value += 1;
-                }
-                onMounted(async () => {
-                    const result = await loadGrantUsers(adminClient);
-                    users.value = result.users;
-                    message.value = result.message;
-                    const current = users.value.find(u => u.id === userId);
-                    if (current) { draft.value = current.username; open(); }
-                });
-                return { draft, users, message, panel, key, open };
-            },
-            template: `
-<div>
-  <form class="cadm-inline cadm-hostbar" @submit.prevent="open">
-    <div class="cadm-field">
-      <label for="clinic-grants-user">Benutzername</label>
-      <input id="clinic-grants-user" class="field" list="clinic-grant-users" autocomplete="off" :disabled="!users.length" v-model="draft" @input="panel = null">
-      <datalist id="clinic-grant-users"><option v-for="u in users" :key="u.id" :value="u.username"></option></datalist>
-    </div>
-    <button type="submit" class="btn btn--ghost" :disabled="!users.length">Fachrechte laden</button>
-  </form>
-  <p v-if="message" role="alert" v-text="message"></p>
-  <component :is="panel" v-if="panel" :key="key"></component>
-</div>`,
-        };
-
-        // Regex rules act on one dictation: the panel needs its id. The API authorises preview and apply.
         const RegexHost = {
             name: 'ClinicRegexHost',
             setup() {
@@ -5030,16 +5022,26 @@ Summarization Instructions:
                 return { draft, panel, dictationId, open, client };
             },
             template: `
-<div>
-  <form class="cadm-inline cadm-hostbar" @submit.prevent="open">
-    <div class="cadm-field">
-      <label for="clinic-regex-dictation">Diktat-ID</label>
-      <input id="clinic-regex-dictation" class="field" type="text" autocomplete="off" v-model="draft">
+<section class="v8-page v8-admin-page" aria-labelledby="cadm-rules-title">
+  <header class="pagehead">
+    <div>
+      <div class="eyebrow">Verwaltung</div>
+      <h1 id="cadm-rules-title">Regeln</h1>
+      <p class="subline">Metadatenregeln für ein Diktat laden und prüfen.</p>
     </div>
-    <button type="submit" class="btn btn--ghost">Regeln laden</button>
-  </form>
+  </header>
+  <section class="panel" aria-labelledby="cadm-rules-select">
+    <h2 id="cadm-rules-select">Diktat auswählen</h2>
+    <form class="cadm-inline" @submit.prevent="open">
+      <div class="cadm-field">
+        <label for="clinic-regex-dictation">Diktat-ID</label>
+        <input id="clinic-regex-dictation" class="field" type="text" autocomplete="off" v-model="draft">
+      </div>
+      <button type="submit" class="btn btn--primary">Regeln laden</button>
+    </form>
+  </section>
   <component :is="panel" v-if="panel" :key="dictationId" :client="client" :dictation-id="dictationId"></component>
-</div>`,
+</section>`,
         };
 
 
@@ -5127,24 +5129,24 @@ Summarization Instructions:
         };
 
         // probe: GET that decides, on the team page, whether the API authorises the panel for this account.
+        // Unified administration: the former single panels Konten, Pools, Fachrechte and Vorlagen are the
+        // same editors the composed pages carry (Benutzer und Rollen: Konten + Fachrechte; Diktierende und
+        // Autorenpools: Pool-Mitgliedschaften; Befehle und Vorlagen: Vorlagen), so they are no longer
+        // separate navigation targets.
         const defs = [
-            { id: 'accounts', label: 'Konten', probe: '/admin/users', comp: AccountsAdminPanel, props: { controller: createAccountsAdmin({ client: adminClient, reactive }) } },
-            { id: 'pools', label: 'Pools', probe: '/pools', comp: createPoolsComponent(window.Vue, client), props: {} },
-            { id: 'grants', label: 'Fachrechte', probe: '/identity/users/' + userId + '/grants', comp: GrantsHost, props: {} },
-            { id: 'directory', label: 'Verzeichnis', probe: '/directory/capability', comp: DirectoryHost, props: {} },
-            { id: 'templates', label: 'Vorlagen', probe: '/templates', comp: templatesComponent(window.Vue, { client }), props: {} },
+            { id: 'directory', label: 'Verzeichnis', probe: team ? '/directory/capability' : null, comp: DirectoryHost, props: {} },
             { id: 'categories', label: 'Kategorien', probe: '/categories', comp: categoriesComponent(window.Vue, { client }), props: {} },
             { id: 'regex', label: 'Regeln', probe: null, comp: RegexHost, props: {} },
             { id: 'columns', label: 'Spalten', probe: '/metadata-fields', comp: columnsComponent(window.Vue, { client }), props: {} },
             { id: 'preferences', label: 'Vorgaben', probe: '/preferences/recipient-default', comp: createPreferencesComponent(window.Vue, client, {}), props: {} },
         ].map((d) => Object.assign(d, { comp: typeof d.comp === 'string' ? d.comp : markRaw(d.comp) }));
 
-        // V8 administration pages (compose-*.js, registered on this app below). Same probe pattern:
+        // V8 administration pages (compose-*.js, registered on this app below). Own navigation row, same probe pattern:
         // the page stays hidden when the API answers 403/404. The component tag carries the module's registered name.
         const v8props = { client, currentUser: { id: userId, is_admin: !team } };
         const v8defs = [
-            { id: 'admin-pools', label: 'Schreibkräfte-Pools', probe: '/pool-admin/pools', comp: 'clinic-admin-pools-view', props: { client, userClient: client } },
-            { id: 'authors', label: 'Diktierende und Autorenpools', probe: '/admin/users', probeVia: adminClient, comp: 'clinic-authors-view', props: { ...v8props, client: authorsClient } },
+            { id: 'admin-pools', label: 'Schreibkräfte-Pools', probe: '/pool-admin/pools', comp: 'clinic-admin-pools-view', props: { client, userClient: adminClient } },
+            { id: 'authors', label: 'Diktierende und Autorenpools', probe: '/admin/users', probeVia: adminClient, comp: 'clinic-authors-view', props: { ...v8props, client: routingClient } },
             { id: 'users', label: 'Benutzer und Rollen', probe: '/admin/users', probeVia: adminClient, comp: 'clinic-users-view', props: { ...v8props, adminClient } },
             { id: 'vocabulary', label: 'Wortschatz', probe: '/vocabulary/search?scope=user&q=&mode=contains&status=all', comp: 'clinic-vocabulary-view', props: v8props },
             { id: 'commands-templates', label: 'Befehle und Vorlagen', probe: '/resources/commands', comp: 'clinic-commands-templates-view', props: v8props },
@@ -5153,31 +5155,72 @@ Summarization Instructions:
             { id: 'jobs', label: 'Verarbeitung', probe: '/jobs/health', comp: 'clinic-jobs-view', props: { client, canRetry: !team } },
             { id: 'activity', label: 'Aktivität und Audit', probe: '/statistics/aggregates', comp: 'clinic-activity-view', props: v8props },
         ].map((d) => Object.assign(d, { v8: true }));
-        // Policy pages (v8-92): the page is hidden for accounts the admin API refuses.
+        // Policy pages (v8-92): own navigation row; the page is hidden for accounts the admin API refuses.
         const policyDefs = [
             { id: 'acceptance', label: 'Abnahme', probe: '/admin/users', probeVia: adminClient, comp: AcceptanceHost, props: {} },
         ].map((d) => Object.assign(d, { policy: true, comp: markRaw(d.comp) }));
         const allDefs = defs.concat(v8defs, policyDefs);
 
-        // One grouped navigation over all panel families. Inside a family the original order is kept (tests and focus order rely on it);
-        // an id that is in no group (a panel added later) lands in "Weitere".
-        // Konten / Benutzer und Rollen and Pools / Schreibkräfte-Pools / Diktierende und Autorenpools cover the same ground; both stay.
+        // One grouped navigation over both families. Inside a family the original order is kept;
+        // an id that is in no group (a panel added later) lands in "Weitere". Every function appears once.
         const NAV_GROUPS = [
-            { id: 'accounts-pools', label: 'Konten und Pools', ids: ['accounts', 'admin-pools', 'authors', 'pools'] },
-            { id: 'roles-rights', label: 'Rollen und Rechte', ids: ['users', 'grants', 'directory'] },
-            { id: 'content', label: 'Inhalte', ids: ['templates', 'categories', 'regex', 'columns', 'vocabulary', 'commands-templates'] },
-            { id: 'operations', label: 'Betrieb', ids: ['preferences', 'asr-profiles', 'import', 'jobs', 'activity', 'acceptance'] },
+            { id: 'accounts-pools', label: 'Konten und Pools', ids: ['users', 'admin-pools', 'authors', 'directory'] },
+            { id: 'content', label: 'Inhalte', ids: ['categories', 'regex', 'columns', 'vocabulary', 'commands-templates'] },
+            { id: 'policy', label: 'Richtlinien', ids: policyDefs.map(d => d.id) },
+            { id: 'operations', label: 'Betrieb', ids: ['preferences', 'asr-profiles', 'import', 'jobs', 'activity'] },
         ];
+        // Deep links: /admin#/<page> selects the page; the nine pre-existing Verwaltung hashes keep their
+        // slugs (the shell forwards /#/verwaltung/<page> here), the remaining panels get their own.
+        // Back/forward follow the hash.
+        const SLUG_BY_ID = {
+            'admin-pools': 'schreibkraefte-pools', authors: 'diktierende', users: 'benutzer',
+            vocabulary: 'wortschatz', 'commands-templates': 'befehle-vorlagen', 'asr-profiles': 'sprachprofile',
+            import: 'import', jobs: 'verarbeitung', activity: 'aktivitaet',
+            directory: 'verzeichnis', categories: 'kategorien', regex: 'regeln', columns: 'spalten',
+            preferences: 'vorgaben', acceptance: 'abnahme',
+        };
 
         const Root = {
             setup() {
-                const shown = ref(team ? [] : defs);
-                const shownV8 = ref(team ? [] : v8defs);
-                const shownPolicy = ref(team ? [] : policyDefs);
+                // The probe rule applies at this entry too (a page is withheld when the API answers
+                // 401/403 for this account, e.g. the statistics page without statistics_access).
+                const shown = ref([]);
+                const shownV8 = ref([]);
+                const shownPolicy = ref([]);
                 const withheld = ref([]);
-                const probing = ref(team);
-                const activeId = ref(team ? null : defs[0].id);
-                const active = computed(() => allDefs.find((d) => d.id === activeId.value) || null);
+                const deniedIds = ref([]);
+                const probing = ref(true);
+                const idFromHash = () => {
+                    const matched = /^#\/([a-z-]+)$/.exec(window.location.hash);
+                    const id = matched && Object.keys(SLUG_BY_ID).find((key) => SLUG_BY_ID[key] === matched[1]);
+                    return id && allDefs.some((d) => d.id === id) ? id : null;
+                };
+                // Landing page: Benutzer und Rollen (it carries the former Konten panel).
+                const onSystemPage = () => !team && /^#\/system\/(statistik|einstellungen|audit)(?:\?|$)/.test(window.location.hash);
+                const selectedId = () => onSystemPage() ? null : (idFromHash() || (team ? null : 'users'));
+                const activeId = ref(selectedId());
+                const notifyShell = () => window.dispatchEvent(new Event('clinic-admin-panelchange'));
+                const open = (id) => {
+                    activeId.value = id;
+                    const slug = SLUG_BY_ID[id];
+                    if (slug && window.location.hash !== '#/' + slug) {
+                        window.history.pushState(null, '', '#/' + slug);
+                    }
+                    notifyShell();
+                };
+                const syncNavigation = () => {
+                    activeId.value = selectedId();
+                    notifyShell();
+                };
+                window.addEventListener('popstate', syncNavigation);
+                window.addEventListener('hashchange', syncNavigation);
+                const selected = computed(() => allDefs.find(d => d.id === activeId.value));
+                const viewName = computed(() => {
+                    const id = activeId.value;
+                    const suffix = { 'admin-pools': 'pools', 'commands-templates': 'commands', 'asr-profiles': 'asr' }[id] || id;
+                    return 'clinic-admin-' + suffix;
+                });
+                const active = computed(() => shown.value.concat(shownV8.value, shownPolicy.value).find((d) => d.id === activeId.value) || null);
                 const viewTestId = computed(() => (active.value && active.value.policy ? 'clinic-policy-view-' : active.value && active.value.v8 ? 'clinic-v8-view-' : 'clinic-view-') + (active.value ? active.value.id : ''));
                 const withheldText = computed(() => 'Für dieses Konto nicht freigegeben: ' + withheld.value.join(', ') + '.');
                 const groups = computed(() => {
@@ -5192,48 +5235,65 @@ Summarization Instructions:
                     if (rest.length) out.push({ id: 'more', label: 'Weitere', items: rest });
                     return out.filter((g) => g.items.length);
                 });
-                const groupOf = computed(() => {
-                    const found = groups.value.find((g) => g.items.some((d) => d.id === activeId.value));
-                    return found ? found.label : '';
-                });
                 async function probe() {
                     const results = await Promise.all(allDefs.map((d) => (d.probe ? (d.probeVia || client).request(d.probe) : Promise.resolve({ outcome: 'ok' }))));
-                    shown.value = defs.filter((d, i) => results[i].outcome === 'ok');
-                    shownV8.value = v8defs.filter((d, i) => results[defs.length + i].outcome === 'ok');
-                    shownPolicy.value = policyDefs.filter((d, i) => results[defs.length + v8defs.length + i].outcome === 'ok');
-                    withheld.value = defs.filter((d, i) => results[i].outcome !== 'ok').map((d) => d.label);
-                    const first = shown.value[0] || shownV8.value[0] || shownPolicy.value[0];
-                    activeId.value = first ? first.id : null;
+                    // Withheld only when the API refuses the account (401/403); a missing route or a
+                    // network error leaves the page to show its own state.
+                    const refused = (i) => results[i].outcome === 'permission';
+                    deniedIds.value = allDefs.filter((d, i) => refused(i)).map(d => d.id);
+                    shown.value = defs.filter((d, i) => !refused(i) && (!team || results[i].outcome === 'ok'));
+                    shownV8.value = v8defs.filter((d, i) => !refused(defs.length + i) && (!team || results[defs.length + i].outcome === 'ok'));
+                    shownPolicy.value = policyDefs.filter((d, i) => !refused(defs.length + v8defs.length + i) && (!team || results[defs.length + v8defs.length + i].outcome === 'ok'));
+                    withheld.value = allDefs.filter((d, i) => (team ? results[i].outcome !== 'ok' : refused(i))).map((d) => d.label);
+                    const visible = shown.value.concat(shownV8.value, shownPolicy.value);
+                    const wanted = idFromHash();
+                    if (wanted && visible.some((d) => d.id === wanted)) {
+                        activeId.value = wanted;
+                    } else if (!onSystemPage() && !wanted && !visible.some((d) => d.id === activeId.value)) {
+                        activeId.value = visible.length ? visible[0].id : null;
+                    }
                     probing.value = false;
+                    if (!team) window.Vue.nextTick(notifyShell);
                 }
-                onMounted(() => { if (team) probe(); });
-                return { shown, shownV8, withheld, withheldText, probing, activeId, active, viewTestId, groups, groupOf };
+                onMounted(probe);
+                return { team, shown, shownV8, withheld, withheldText, probing, activeId, active, viewTestId, groups, selected, viewName, deniedIds, open };
             },
             template: `
 <section class="cadm" aria-labelledby="clinic-admin-title" data-testid="clinic-admin">
   <header class="cadm-head">
-    <h2 id="clinic-admin-title" class="cadm-head__title">Klinik-Verwaltung</h2>
+    <h2 id="clinic-admin-title" class="cadm-head__title">Verwaltung</h2>
     <p class="cadm-head__lead">Konten, Pools, Rechte, Inhalte und Betrieb dieser Klinikinstanz.</p>
   </header>
   <p v-if="probing" role="status" class="cadm-state">Berechtigungen werden geprüft …</p>
   <template v-else>
-    <p v-if="withheld.length" role="status" class="banner banner--warn" data-testid="clinic-admin-withheld">
+    <p v-if="withheld.length && (!selected || active)" role="status" class="banner banner--warn" data-testid="clinic-admin-withheld">
       <i class="fas fa-lock" aria-hidden="true"></i><span v-text="withheldText"></span>
     </p>
     <div class="cadm-layout">
-      <nav v-if="groups.length" class="cadm-nav" aria-label="Klinik-Verwaltung" data-testid="clinic-v8-nav">
-        <div v-for="g in groups" :key="g.id" class="cadm-nav__group" role="group" :aria-labelledby="'cadm-group-' + g.id">
+      <nav v-if="groups.length || !team" class="cadm-nav" aria-label="Verwaltung" data-testid="clinic-v8-nav">
+        <div v-for="g in groups" :key="g.id" class="cadm-nav__group" role="group" :data-testid="g.id === 'policy' ? 'clinic-policy-nav' : null" :aria-labelledby="'cadm-group-' + g.id">
           <p class="cadm-nav__label" :id="'cadm-group-' + g.id" v-text="g.label"></p>
           <button v-for="d in g.items" :key="d.id" type="button" class="cadm-nav__item" :class="{ 'is-active': d.id === activeId }"
                   :aria-current="d.id === activeId ? 'page' : null" :data-testid="(d.policy ? 'clinic-policy-panel-' : d.v8 ? 'clinic-v8-panel-' : 'clinic-panel-') + d.id"
-                  @click="activeId = d.id"><span v-text="d.label"></span></button>
+                  @click="open(d.id)"><span v-if="d.id === 'users'" data-testid="admin-tab-clinic" :class="{ 'is-active': d.id === activeId }" v-text="d.label"></span><span v-else v-text="d.label"></span></button>
         </div>
+        <div v-if="!team" id="clinic-admin-system-nav"></div>
       </nav>
-      <div class="cadm-main">
-        <p v-if="active" class="cadm-crumb" v-text="groupOf + ' / ' + active.label"></p>
-        <div v-if="active" :key="active.id" :data-testid="viewTestId">
-          <component :is="active.comp" v-bind="active.props" @open-accounts="activeId = 'accounts'"></component>
-        </div>
+      <div class="cadm-main" :data-testid="active && active.id === 'users' ? 'clinic-view-accounts' : null">
+        <div v-if="!team" id="clinic-admin-system-content"></div>
+        <section v-if="selected" class="cadm-main" data-testid="clinic-admin-view" :data-admin-view="viewName" aria-labelledby="cadm-page-label">
+          <nav class="cadm-crumb" aria-label="Brotkrumennavigation" data-testid="clinic-admin-breadcrumb">
+            <a href="/#/aufnahmen">Speakr</a> <span aria-hidden="true">›</span> <span>Verwaltung</span>
+            <span aria-hidden="true">›</span> <span id="cadm-page-label" aria-current="page" v-text="selected.label"></span>
+          </nav>
+          <div v-if="active" :key="active.id" :data-testid="viewTestId">
+            <component :is="active.comp" v-bind="active.props" @open-accounts="open('users')"></component>
+          </div>
+          <p v-else-if="deniedIds.includes(selected.id)" role="status" class="banner banner--warn" data-testid="clinic-admin-denied">
+            <i class="fas fa-lock" aria-hidden="true"></i><span>Die Seite „<strong v-text="selected.label"></strong>“ ist für dieses Konto nicht freigegeben.</span>
+          </p>
+          <p v-else role="status" class="cadm-state">Die Verfügbarkeit dieser Seite konnte nicht geprüft werden.</p>
+        </section>
       </div>
     </div>
   </template>

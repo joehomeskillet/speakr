@@ -57,6 +57,7 @@ export const LABELS = Object.freeze({
     audioDenied: 'Keine Berechtigung für das Audio.',
     audioFailed: 'Das Audio konnte nicht geladen werden.',
     readOnly: 'Schreibgeschützt: Bearbeitung zuerst anfordern.',
+    readOnlyAccess: 'Sie haben für dieses Diktat Leserechte.',
     templateFailed: 'Die Vorlagen konnten nicht geladen werden.',
 });
 
@@ -305,7 +306,7 @@ export const CorrectionEditor = {
       :aria-readonly="String(!canEdit)" :aria-describedby="canEdit ? null : 'clinic-correction-readonly'"
       @input="onText"></textarea>
   </label>
-  <p v-if="!canEdit && !loading" id="clinic-correction-readonly">{{ LABELS.readOnly }}</p>
+  <p v-if="!canEdit && !loading" id="clinic-correction-readonly">{{ lease.mayAcquire === false ? LABELS.readOnlyAccess : LABELS.readOnly }}</p>
   <p v-if="dirty" role="note">{{ LABELS.unsaved }}</p>
   <div role="status" aria-live="polite">{{ announcement }}</div>
 </section>`,

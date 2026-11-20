@@ -6,6 +6,7 @@ import {
     LIST_COLUMNS,
     WorklistView,
     cellText,
+    dictationLabel,
     countBuckets,
     createWorklistViewController,
     sourceLabel,
@@ -48,6 +49,11 @@ describe('V8 status buckets', () => {
         expect(statusTone('fertiggestellt')).toBe('erledigt');
     });
 
+    it('labels a dictation from its clinical timestamp, including older rows without a date', () => {
+        expect(dictationLabel(row('internal-key', { created_at: '2026-11-20T09:15:00Z' }))).toBe('Diktat vom 20.11.2026, 10:15');
+        expect(dictationLabel(row('internal-key'))).toBe('Diktat');
+    });
+
     it('counts the loaded rows per bucket', () => {
         expect(countBuckets([row('1'), row('2', { status: 'in_bearbeitung' }), row('3', { status: 'abgenommen' }), null])).toEqual({ all: 3, open: 1, working: 1, done: 1 });
         expect(countBuckets(undefined)).toEqual({ all: 0, open: 0, working: 0, done: 0 });
@@ -60,6 +66,8 @@ describe('V8 status buckets', () => {
         expect(sourceLabel('neu')).toBe('neu');
         expect(sourceLabel(null)).toBe('–');
         expect(cellText({ source_kind: 'device' }, 'source_kind')).toBe('Diktiergerät');
+        expect(cellText({ source_kind: 'audio', source_label: 'Import' }, 'source_kind')).toBe('Import');
+        expect(cellText({ assignee_user_id: 7, assignee: { display_name: 'Testperson' } }, 'assignee_user_id')).toBe('Testperson');
     });
 });
 

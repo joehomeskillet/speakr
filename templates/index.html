@@ -67,7 +67,11 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tokens.css', v=app_version) }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css', v=app_version) }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/primitives.css', v=app_version) }}">
-    {% if clinic_mode %}{% set v8_css_linked = true %}<link rel="stylesheet" href="{{ url_for('static', filename='css/clinic-v8.css', v=app_version) }}">{% endif %}
+    {% if clinic_mode %}
+    {% set v8_css_linked = true %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/clinic-v8.css', v=app_version) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/clinic-admin.css', v=app_version) }}">
+    {% endif %}
     <link rel="stylesheet" href="{{ url_for('static', filename='css/clinic-lists.css', v=app_version) }}">
     <!-- The phone layout of the recording page and the recording list (below 768px) -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/phone.css', v=app_version) }}">
@@ -98,7 +102,7 @@
     <div id="app" v-cloak
          data-use-asr-endpoint="{{ use_asr_endpoint }}"
          data-clinic-mode="{{ 'True' if clinic_mode else 'False' }}"
-         {% if clinic_mode %}data-clinic-role="{{ clinic_role or 'author' }}"{% endif %}
+         {% if clinic_mode %}data-clinic-role="{{ clinic_role or 'author' }}" data-clinic-admin="{{ 'True' if current_user.is_admin else 'False' }}"{% endif %}
          data-connector-supports-diarization="{{ connector_supports_diarization }}"
          data-connector-supports-speaker-count="{{ connector_supports_speaker_count }}"
          data-connector-supports-exact-speaker-count="{{ connector_supports_exact_speaker_count }}"
@@ -178,32 +182,33 @@
                     </div>
                     <!-- end V8 menu views (v8-71) -->
                     <keep-alive>
-                        <clinic-recordings-view v-if="currentView === 'clinic-recordings'" :client="clinicClient" :current-user="clinicUser" @open="openClinicDictation"></clinic-recordings-view>
-                        <clinic-worklist-view v-else-if="currentView === 'clinic-worklist'" :client="clinicClient" :current-user="clinicUser" @open="openClinicDictation"></clinic-worklist-view>
+                        <clinic-recordings-view v-if="currentView === 'clinic-recordings'" :client="clinicClient" :current-user="clinicUser" ref="clinicListMount" @open="openClinicDictation"></clinic-recordings-view>
+                        <clinic-worklist-view v-else-if="currentView === 'clinic-worklist'" :client="clinicClient" :current-user="clinicUser" ref="clinicListMount" @open="openClinicDictation"></clinic-worklist-view>
                         <clinic-resources-view v-else-if="currentView === 'clinic-resources'" :client="clinicClient" :current-user="clinicUser"></clinic-resources-view>
                     </keep-alive>
                 </div>
                 <div v-if="clinicWorklistEnabled && currentView === 'clinic-correction' && clinicCorrectionId"
                      data-testid="clinic-correction-mount" data-clinic-shell-view ref="clinicCorrectionMount"
                      class="flex-1 overflow-y-auto content">
-                    <button type="button" data-testid="clinic-correction-back"
-                            class="mb-3 px-3 py-2 rounded border border-[var(--border-primary)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
-                            style="min-height: 2.75rem"
-                            @click="requestClinicCorrectionClose()"
-                            v-text="clinicOrigin === 'clinic-recordings' ? 'Zurück zu Aufnahmen' : 'Zurück zur Arbeitsliste'"></button>
+                    <clinic-correction-view :client="clinicClient" :dictation-id="clinicCorrectionId" :current-user="clinicUser"
+                                            :create-audio-context="clinicAudioContextFactory"
+                                            :dictator="clinicCorrectionRow.dictator" :pool="clinicCorrectionRow.pool"
+                                            @close="closeClinicCorrection">
+                        <template #back-action="{ close }">
+                            <button type="button" class="button" data-testid="clinic-correction-back" @click="close">
+                                <span data-testid="close" v-text="clinicOrigin === 'clinic-recordings' ? 'Zurück zu Aufnahmen' : 'Zurück zur Arbeitsliste'"></span>
+                            </button>
+                        </template>
+                    </clinic-correction-view>
                     <!-- V8 dictation views (v8-70) -->
-                    <nav aria-label="Diktat" data-testid="clinic-dictation-nav" class="flex flex-wrap items-center gap-2 mb-3">
+                    <nav aria-label="Diktat" data-testid="clinic-dictation-nav" class="workbench-links">
                         <button v-for="link in clinicDictationLinks" :key="link.view" type="button" :data-testid="'clinic-dictation-link-' + link.view.replace('clinic-', '')"
-                                class="px-3 py-2 rounded border border-[var(--border-primary)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
-                                style="min-height: 2.75rem"
+                                class="button"
                                 :class="{ 'font-semibold': currentView === link.view }"
                                 :aria-current="currentView === link.view ? 'page' : null"
                                 @click="openClinicDictationView(link.view)" v-text="link.label"></button>
                     </nav>
                     <!-- end V8 dictation views (v8-70) -->
-                    <clinic-correction-view :client="clinicClient" :dictation-id="clinicCorrectionId" :current-user="clinicUser"
-                                            :create-audio-context="clinicAudioContextFactory"
-                                            @close="closeClinicCorrection"></clinic-correction-view>
                 </div>
                 <!-- V8 dictation views (v8-70): details, review, output, processing and activity of the opened dictation. The id is state, not URL. -->
                 <div v-if="clinicWorklistEnabled && clinicDictationViewActive && clinicDictationId"
@@ -269,6 +274,23 @@
                     <clinic-offline-view v-else-if="currentView === 'clinic-offline'" :client="clinicClient" :who="clinicUser"></clinic-offline-view>
                 </div>
                 <!-- end V8 menu views (v8-71) -->
+                <!-- V8 Verwaltung views (v8-114): the administration pages inside the clinic shell. Hash routes #/verwaltung/<page>;
+                     the page is shown only when the API authorises its probe (templates/admin.html rule). The page head (eyebrow,
+                     title, subline, actions) belongs to the page component. -->
+                <div v-if="clinicWorklistEnabled && clinicAdminView"
+                     data-testid="clinic-admin-view" data-clinic-shell-view :data-admin-view="clinicAdminView.view"
+                     class="flex-1 overflow-y-auto content v8-page">
+                    <div class="breadcrumb" data-testid="clinic-admin-breadcrumb">
+                        <a href="#/aufnahmen" @click.prevent="goClinicView('clinic-recordings')">Speakr</a><span>›</span><span>Verwaltung</span><span>›</span><span v-text="clinicAdminView.label"></span>
+                    </div>
+                    <p v-if="clinicAdminAccess === null" role="status" aria-live="polite" data-testid="clinic-admin-probing">Berechtigungen werden geprüft …</p>
+                    <div v-else-if="!clinicAdminAllowed(clinicAdminView)" role="alert" class="note warning" data-testid="clinic-admin-denied">
+                        Diese Seite ist für dieses Konto nicht freigegeben.
+                        <a href="#/aufnahmen" @click.prevent="goClinicView('clinic-recordings')">Zu den Aufnahmen</a>
+                    </div>
+                    <component v-else :is="clinicAdminView.tag" :key="clinicAdminView.view" v-bind="clinicAdminProps(clinicAdminView)"></component>
+                </div>
+                <!-- end V8 Verwaltung views (v8-114) -->
                 {% endif %}
 
                 <!-- Recording View -->
@@ -329,6 +351,112 @@
     <style>
         /* No sidebar in the clinic shell: its toggle in the header has nothing to open. */
         #app[data-clinic-mode="True"] > header > div:first-child > button:first-child:has(> i.fa-bars) { display: none; }
+        /* Administration pages (v8-114): the element and class rules of clinic-v8.css that are written at zero specificity
+           (:where(.v8-page ...)) lose to the preflight and to the app classes (.field, .grid, .tabs, .empty). The same rules,
+           raised to the specificity of an element selector, for the pages that mark their root with .v8-admin-page. */
+        *:where(.v8-admin-page *){box-sizing:border-box}
+        a:where(.v8-admin-page *){color:var(--v8-text);text-underline-offset:3px}
+        button:where(.v8-admin-page *),input:where(.v8-admin-page *),select:where(.v8-admin-page *),textarea:where(.v8-admin-page *){font:inherit}
+        button:where(.v8-admin-page *),a:where(.v8-admin-page *),input:where(.v8-admin-page *),select:where(.v8-admin-page *),textarea:where(.v8-admin-page *),summary:where(.v8-admin-page *){outline-offset:4px}
+        button:focus-visible:where(.v8-admin-page *),a:focus-visible:where(.v8-admin-page *),input:focus-visible:where(.v8-admin-page *),select:focus-visible:where(.v8-admin-page *),textarea:focus-visible:where(.v8-admin-page *),summary:focus-visible:where(.v8-admin-page *){outline:3px solid #ba8196}
+        button:where(.v8-admin-page *),a:where(.v8-admin-page *),summary:where(.v8-admin-page *){-webkit-tap-highlight-color:transparent}
+        button:where(.v8-admin-page *){cursor:pointer}
+        button:disabled:where(.v8-admin-page *){cursor:default;opacity:.5}
+        button:where(.v8-admin-page *){border:1px solid var(--line);border-radius:8px;background-color:var(--surface);padding:9px 13px;font-weight:600;color:var(--v8-text);text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:38px}
+        button:hover:not(:disabled):where(.v8-admin-page *){background:var(--v8-s1);border-color:#b9c9c4}
+        h1:where(.v8-admin-page *){font-size:30px;line-height:1.2;font-weight:700;letter-spacing:-.8px;margin:0 0 9px}
+        h2:where(.v8-admin-page *){font-size:16px;line-height:1.35;margin:0 0 14px;letter-spacing:-.2px}
+        h3:where(.v8-admin-page *){font-size:14px;margin:0 0 10px}
+        p:where(.v8-admin-page *){margin:0 0 12px}
+        .grid:where(.v8-admin-page *){display:grid;grid-template-columns:1.6fr 1fr;gap:20px;align-items:start}
+        .grid.equal:where(.v8-admin-page *){grid-template-columns:1fr 1fr}
+        .grid.three:where(.v8-admin-page *){grid-template-columns:repeat(3,minmax(0,1fr))}
+        .field:where(.v8-admin-page *){display:grid;gap:6px;margin:0 0 16px}
+        .field label:where(.v8-admin-page *),.field>span:where(.v8-admin-page *){font-weight:650;font-size:12px}
+        .field small:where(.v8-admin-page *){font-size:11px;color:var(--v8-muted)}
+        input:not([type=checkbox]):not([type=radio]):not([type=range]):where(.v8-admin-page *),select:where(.v8-admin-page *),textarea:where(.v8-admin-page *){width:100%;padding:10px 11px;border:1px solid #ccd8d3;border-radius:7px;color:var(--v8-text);background-color:var(--surface);min-height:40px}
+        textarea:where(.v8-admin-page *){resize:vertical;min-height:100px;line-height:1.65}
+        .filterbar .field:where(.v8-admin-page *){margin:0;flex:0 1 175px}
+        .filterbar .field.search:where(.v8-admin-page *){flex:1 1 240px}
+        table:where(.v8-admin-page *){width:100%;border-collapse:collapse;text-align:left;font-size:12px;white-space:nowrap}
+        thead:where(.v8-admin-page *){background:var(--v8-s1)}
+        th:where(:not([scope=row])):where(.v8-admin-page *){font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:650;color:var(--v8-text-2);padding:12px 14px;border-bottom:1px solid var(--line)}
+        td:where(.v8-admin-page *){padding:13px 14px;border-bottom:1px solid var(--v8-line-2);vertical-align:middle}
+        tbody tr:last-child td:where(.v8-admin-page *){border-bottom:0}
+        tbody tr:hover:where(.v8-admin-page *){background:var(--surface)}
+        td strong:where(.v8-admin-page *){display:block;color:var(--v8-text);font-weight:650}
+        td small:where(.v8-admin-page *){display:block;font-size:10px;color:var(--v8-muted);margin-top:3px}
+        .tabs:where(.v8-admin-page *){display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:18px;overflow:auto}
+        .tabs button:where(.v8-admin-page *){white-space:nowrap;border:0;border-bottom:3px solid transparent;border-radius:0;background:transparent;padding:10px 14px;font-weight:600;color:var(--v8-text-2)}
+        .tabs button[aria-selected=true]:where(.v8-admin-page *){color:var(--v8-text);border-bottom-color:var(--burgundy)}
+        .empty:where(.v8-admin-page *){border:1px dashed var(--line);padding:28px;text-align:center;font-size:13px;color:var(--v8-muted);border-radius:8px}
+
+        /* Overrides inside an admin page: the shell rules above (primary, icon-button, field) are written for other views. */
+        .v8-ui .v8-admin-page .field{appearance:auto;width:auto;min-height:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;font-size:inherit;margin:0 0 16px}
+        .v8-ui .v8-admin-page .filterbar .field{margin:0}
+        .v8-ui .v8-admin-page .primary{background:var(--ink);border-color:var(--ink);color:#fff;padding:9px 13px;font-size:inherit;font-weight:600}
+        .v8-ui .v8-admin-page .primary:hover:not(:disabled){background:#2c565b;border-color:#2c565b;color:#fff}
+        .v8-ui .v8-admin-page .small{padding:5px 9px;min-height:30px;font-size:12px}
+        .v8-ui .v8-admin-page .danger{color:var(--danger)}
+        .v8-ui .v8-admin-page .icon-button{width:38px;height:38px;min-height:38px;padding:0;border-color:transparent;background:transparent;border-radius:7px;color:var(--v8-text-2)}
+        .v8-ui .v8-admin-page .icon-button:hover:not(:disabled){background:var(--v8-s2);border-color:var(--line);color:var(--v8-text)}
+        .v8-ui .v8-admin-page .subline{margin:0}
+        .v8-ui .v8-admin-page .pagehead h1{margin:0 0 9px}
+        .v8-ui .v8-admin-page .panel h2,.v8-ui .v8-admin-page .panel h3{font-weight:700}
+        .v8-ui .v8-admin-page h1{font-weight:700}
+        .v8-ui .v8-admin-page .empty{display:block;min-height:0;border:1px dashed var(--line);padding:28px;text-align:center;font-size:13px;color:var(--v8-muted);border-radius:8px;margin:0 0 12px}
+        .v8-ui .v8-admin-page .stat strong{font-weight:650}
+        .v8-ui .v8-admin-page .stats,.v8-ui .v8-admin-page .grid{margin-bottom:20px}
+        .v8-ui .v8-admin-page .grid > .panel{margin:0}
+        .v8-ui .v8-admin-page .note p{margin:6px 0 0}
+        .v8-ui .v8-admin-page .table-wrap table{margin:0}
+        .v8-ui .v8-admin-page th[scope=row] strong{display:block;color:var(--v8-text);font-weight:650}
+        .v8-ui .v8-admin-page th[scope=row] small{display:block;font-size:10px;font-weight:400;color:var(--v8-muted);margin-top:3px}
+        .v8-ui .v8-admin-page th[scope=row]{font-weight:inherit;padding:13px 14px;border-bottom:1px solid var(--v8-line-2);text-align:left}
+        .v8-ui .v8-admin-page tbody tr:last-child th[scope=row]{border-bottom:0}
+        .v8-ui .v8-admin-page tbody tr.is-selected{background:var(--v8-s1)}
+        .v8-ui .v8-admin-page td.wrap,.v8-ui .v8-admin-page th.wrap{white-space:normal;min-width:200px;max-width:380px}
+        .v8-ui .v8-admin-page ul,.v8-ui .v8-admin-page ol{margin:0;padding:0}
+        .v8-ui .v8-admin-page dl{margin:0}
+        .v8-ui .v8-admin-page dd{margin:0}
+        .v8-ui .v8-admin-page fieldset{min-width:0}
+        .v8-ui .v8-admin-page legend{padding:0}
+        .v8-ui .v8-admin-page .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+        .v8-ui .v8-admin-page label{display:block}
+        .v8-ui .v8-admin-page input[type=search]{-webkit-appearance:none;appearance:none}
+        .v8-ui .v8-admin-page input,.v8-ui .v8-admin-page select,.v8-ui .v8-admin-page textarea{font-size:13px}
+        .v8-ui .v8-admin-page .filterbar input,.v8-ui .v8-admin-page .filterbar select{font-size:12px}
+        .v8-ui .v8-admin-page .tag{font-size:11px}
+        .v8-ui [data-clinic-shell-view] :is(h1,h2,h3)[tabindex="-1"]:focus{outline:none}
+        /* accounts-ui.js panel inside an admin page: no inner box, table with the card border, compact row buttons. */
+        .v8-ui .v8-admin-page section[aria-labelledby=acc-title]{border:0!important;padding:0!important;background:transparent!important;overflow-x:auto;display:grid;gap:12px}
+        .v8-ui .v8-admin-page section[aria-labelledby=acc-title] > h2{margin:0}
+        .v8-ui .v8-admin-page section[aria-labelledby=acc-title] > p{margin:0;font-size:12px;color:var(--v8-muted)}
+        .v8-ui .v8-admin-page section[aria-labelledby=acc-title] > button{justify-self:start}
+        .v8-ui .v8-admin-page section[aria-labelledby=acc-title] table{border:1px solid var(--line);border-radius:8px;border-collapse:separate;border-spacing:0}
+        .v8-ui .v8-admin-page section[aria-labelledby=acc-title] td button{margin-right:6px;min-height:30px;padding:5px 9px;font-size:12px}
+        .v8-ui .v8-admin-page section[aria-labelledby=acc-title] form{display:grid;gap:8px;width:100%;max-width:52rem}
+        /* pools-ui.js (editing of pool memberships) inside an admin page: pools as cards, members as rows. */
+        .v8-ui .v8-admin-page .pools-ui{display:grid;gap:14px}
+        .v8-ui .v8-admin-page .pools-ui > h2{font-size:14px;margin:0}
+        .v8-ui .v8-admin-page .pools-ui > p{font-size:12px;color:var(--v8-muted);margin:0}
+        .v8-ui .v8-admin-page .pools-ui > button{justify-self:start}
+        .v8-ui .v8-admin-page .pools-ui > section{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;margin:0}
+        .v8-ui .v8-admin-page .pools-ui > section > h3{grid-column:1/-1;margin:0}
+        .v8-ui .v8-admin-page .pools-ui article{border:1px solid var(--line);border-radius:10px;background:var(--v8-s1);padding:14px;min-width:0}
+        .v8-ui .v8-admin-page .pools-ui article h4{font-size:13px;font-weight:700;margin:0 0 8px}
+        .v8-ui .v8-admin-page .pools-ui li{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid var(--v8-line-2);font-size:12px;list-style:none}
+        .v8-ui .v8-admin-page .pools-ui li button{min-height:28px;padding:3px 9px;font-size:12px}
+        .v8-ui .v8-admin-page .pools-ui form{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+        .v8-ui .v8-admin-page .pools-ui form label{flex:1 1 100%;font-weight:650;font-size:12px}
+        .v8-ui .v8-admin-page .pools-ui form input{flex:1 1 120px;min-height:34px;width:auto}
+        .v8-ui .v8-admin-page .pools-ui [role=alertdialog]{border:1px solid #e8dcc1;background:#faf6ec;border-radius:8px;padding:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+        .v8-ui .v8-admin-page .pools-ui [role=alertdialog] p{flex:1 1 100%;margin:0}
+        @media(max-width:1100px){.grid.equal:where(.v8-admin-page *){grid-template-columns:1fr 1fr}}
+        @media(max-width:760px){h1:where(.v8-admin-page *){font-size:26px}
+        .grid:where(.v8-admin-page *),.grid.equal:where(.v8-admin-page *),.grid.three:where(.v8-admin-page *){grid-template-columns:1fr}
+        .filterbar .field:where(.v8-admin-page *){flex:1 1 150px}}
+
     </style>
     {% endif %}
 

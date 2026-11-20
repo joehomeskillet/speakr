@@ -50,7 +50,8 @@ export const HOSTED_CSS = [
     '.v8-ui .v8-hosted .clinic-workflow-actions [role="group"]{display:flex;flex-wrap:wrap;gap:8px;margin:0}',
     '.v8-ui .v8-hosted .clinic-workflow-actions h3{flex:1 0 100%;margin:0;font-size:11px}',
     '.v8-ui .v8-hosted .clinic-workflow-actions form{display:grid;gap:8px;margin:0}',
-    '.v8-ui .viewcontrols select,.v8-ui .toolbar-right select{font-weight:600;min-height:34px;font-size:12px!important}',
+    '.v8-ui .viewcontrols select,.v8-ui .toolbar-right select{font-weight:600;min-height:34px}',
+    '@media (min-width:641px){.v8-ui .viewcontrols select,.v8-ui .toolbar-right select{font-size:12px}}',
     '.v8-ui .searchwrap input{font-weight:400}',
     '.v8-ui .clinic-worklist-view .filter-pill.active:hover{background:var(--v8-s1);color:var(--v8-text)}',
     '.v8-ui .worktable .prio{max-width:100%;vertical-align:middle}',
@@ -59,6 +60,7 @@ export const HOSTED_CSS = [
     '.v8-ui .worktable th,.v8-ui .listhead span,.v8-ui .worktable .titletext small,.v8-ui .tablefooter span{color:var(--v8-text-2)}',
     '.v8-ui .v8-empty{border:0;border-radius:0;min-height:260px}',
     '.v8-ui .v8-empty h2{font-weight:750}',
+    '.v8-ui .v8-empty p{color:var(--v8-muted)}',
 ].join('\n');
 
 /** Adds the stylesheet above once per document. */
@@ -94,7 +96,6 @@ export const TEXT = Object.freeze({
     noPool: 'Kein Pool zugewiesen',
     eyebrow: 'Aufnahmenverwaltung',
     subline: 'Diktate nach Schreibkräfte-Pool und diktierender Person bearbeiten.',
-    entries: 'Einträge',
     kpiAll: 'Alle Diktate',
     kpiOpen: 'Offen',
     kpiWorking: 'In Bearbeitung',
@@ -110,7 +111,6 @@ export const TEXT = Object.freeze({
     selectRow: 'Eintrag auswählen',
     selected: 'ausgewählt',
     clearSelection: 'Auswahl aufheben',
-    pagerCount: 'Einträge',
     pagerFor: 'Seite',
     hintSelect: 'Eintrag auswählen, um Details anzuzeigen',
     updated: 'Zuletzt aktualisiert:',
@@ -270,6 +270,14 @@ export function formatDateTime(value) {
     return dateTimeFormat.format(at);
 }
 
+export function dictationLabel(row) {
+    return row?.created_at ? 'Diktat vom ' + formatDateTime(row.created_at) : 'Diktat';
+}
+
+function entryCount(count) {
+    return count + (count === 1 ? ' Eintrag' : ' Einträge');
+}
+
 /** Cell text for one layout column. */
 export function cellText(row, key) {
     const value = row[key];
@@ -277,7 +285,8 @@ export function cellText(row, key) {
     if (key === 'status') return statusBadge(row).label;
     if (key === 'priority') return formatPriority(value);
     if (key === 'duration_seconds') return formatAudioDuration(value);
-    if (key === 'source_kind') return sourceLabel(value);
+    if (key === 'source_kind') return row.source_label || sourceLabel(value);
+    if (key === 'assignee_user_id' && row.assignee?.display_name) return row.assignee.display_name;
     if (ROLE_KEYS.includes(key)) return roleText(key, value);
     return value === null || value === undefined || value === '' ? '–' : String(value);
 }
@@ -523,10 +532,11 @@ export function createWorklistViewController(options) {
         syncDetail();
     }
 
-    // Open is blocked while the lease is held by someone else or was lost.
+    // A confirmed listening capability allows the player to open behind another writer's lease.
+    const listenOnly = computed(() => leaseState.value?.status === 'foreign' && leaseState.value.mayListen === true);
     const leaseBlocksOpen = () => {
         const status = leaseState.value && leaseState.value.status;
-        return status === 'foreign' || status === 'lost';
+        return status === 'lost' || (status === 'foreign' && !listenOnly.value);
     };
     const canOpen = computed(() => Boolean(worklist.selectedRow.value) && !leaseBlocksOpen());
 
@@ -537,7 +547,7 @@ export function createWorklistViewController(options) {
         const target = worklist.selectedRow.value;
         if (!target || leaseBlocksOpen()) return false;
         if (typeof options.onOpen === 'function') {
-            options.onOpen({ dictationId: rowKey(target), mode: getOpenMode(target, user.role) });
+            options.onOpen({ dictationId: rowKey(target), mode: listenOnly.value ? 'player' : getOpenMode(target, user.role) });
         }
         return true;
     }
@@ -662,8 +672,8 @@ export function createWorklistViewController(options) {
     return {
         vue: V, view, panels, selectedId, selectedRow: worklist.selectedRow, leaseState, leaseRun, paused,
         worklist, refresh, filters, layout, workflow, detailClient, displayed, columns, headerAttrs,
-        start, dispose, reload, select, open, canOpen, onRowKey, goto, pages, hasNext, applyFilter,
-        key: rowKey, cell: cellText, badge: statusBadge, text: TEXT,
+        start, dispose, reload, select, open, canOpen, listenOnly, onRowKey, goto, pages, hasNext, applyFilter,
+        key: rowKey, cell: cellText, badge: statusBadge, dictationLabel, entryCount, text: TEXT,
         emptyCell: (row, key) => !ROLE_KEYS.includes(key) && key !== 'status' && cellText(row, key) === '–',
         priorityTone: priorityToneOf,
         pageLabel: () => 'Seite ' + view.page + (pages() === null ? '' : ' von ' + pages()),
@@ -676,7 +686,7 @@ export function createWorklistViewController(options) {
         colStyle: (col) => (COL_CLASS[col.key] ? null : { width: (Number(col.width) || 140) + 'px' }),
         statusTone: (row) => statusTone(row.status),
         prioClass: (row) => ({ high: 'hoch', low: 'niedrig', normal: 'mittel' })[priorityToneOf(row)],
-        sourceText: (row) => sourceLabel(row.source_kind),
+        sourceText: (row) => cellText(row, 'source_kind'),
         updatedLabel: () => {
             const at = refresh.lastUpdate.value;
             return at instanceof Date && !Number.isNaN(at.getTime())
@@ -684,7 +694,7 @@ export function createWorklistViewController(options) {
                 : refresh.lastUpdateLabel.value;
         },
         pagerInfo: () => 'Seite ' + view.page + (pages() === null ? '' : ' von ' + pages()) + ' · '
-            + (view.chip === 'all' ? (view.total ?? worklist.rows.value.length) + ' ' + TEXT.pagerCount
+            + (view.chip === 'all' ? entryCount(view.total ?? worklist.rows.value.length)
                 : chipRows.value.length + ' sichtbar'),
     };
 }
@@ -726,7 +736,16 @@ export const WorklistView = {
         const parts = buildParts(V, c.detailClient);
         if (typeof V.onMounted === 'function' && props.autoStart) V.onMounted(() => c.start());
         if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => c.dispose());
-        return { c, parts };
+        function rowContext(id) {
+            const row = c.worklist.selectedRow.value;
+            if (!row || rowKey(row) !== id) return null;
+            const visible = c.columns().map((col) => col.key);
+            return {
+                dictator: visible.includes('dictated_by') && row.dictated_by ? cellText(row, 'dictated_by') : null,
+                pool: visible.includes('staff_pools') ? cellText(row, 'staff_pools') : null,
+            };
+        }
+        return { c, parts, rowContext };
     },
     template: `
 <section class="v8-page clinic-worklist-view" data-testid="clinic-worklist-view" aria-labelledby="cwv-title">
@@ -735,7 +754,7 @@ export const WorklistView = {
       <div class="eyebrow">{{ c.text.eyebrow }}</div>
       <div class="hline">
         <h1 id="cwv-title" tabindex="-1">{{ c.text.title }}</h1>
-        <span class="count-pill" data-testid="result-count">{{ c.counts.value.all }} {{ c.text.entries }}</span>
+        <span class="count-pill" data-testid="result-count">{{ c.entryCount(c.view.total ?? c.counts.value.all) }}</span>
       </div>
       <p class="subtitle">{{ c.text.subline }}</p>
     </div>
@@ -792,7 +811,7 @@ export const WorklistView = {
       </WorklistFiltersPanel>
       <p v-if="c.paused.value" class="sr-only cl-sr-only">{{ c.text.paused }}</p>
       <div v-if="c.chipRows.value.length" class="listhead">
-        <strong data-testid="list-count">{{ c.shownRows().length }} sichtbare von {{ c.counts.value.all }} Diktaten ({{ c.worklist.totals.value.formattedTotalDuration }})</strong>
+        <strong data-testid="list-count">{{ c.shownRows().length }} von {{ c.counts.value.all }} auf dieser Seite ({{ c.worklist.totals.value.formattedTotalDuration }})</strong>
         <span>{{ c.text.hintSelect }}</span>
       </div>
       <p class="sr-only cl-sr-only" id="cwv-keys">{{ c.text.keys }}</p>
@@ -826,14 +845,14 @@ export const WorklistView = {
                   <tr v-else tabindex="0" :class="c.selectedId.value === c.key(item.row) ? 'selected' : ''" data-row :data-id="c.key(item.row)"
                       :aria-selected="c.selectedId.value === c.key(item.row) ? 'true' : 'false'"
                       @click="c.select(item.row)" @dblclick="c.open(item.row)" @keydown="c.onRowKey($event, item.row)">
-                    <td class="check" @click.stop><input type="checkbox" class="rowcheck" :checked="c.isChecked(item.row)" :aria-label="c.text.selectRow + ': Diktat ' + c.key(item.row)" @change="c.toggleChecked(item.row)" @keydown.stop></td>
+                    <td class="check" @click.stop><input type="checkbox" class="rowcheck" :checked="c.isChecked(item.row)" :aria-label="c.text.selectRow + ': ' + c.dictationLabel(item.row)" @change="c.toggleChecked(item.row)" @keydown.stop></td>
                     <td>
                       <div class="titlecell">
                         <span class="mini-rec" aria-hidden="true">
                           <svg v-if="item.row.source_kind === 'manual_file' || item.row.source_kind === 'document'" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 3h10l4 4v14H5zM15 3v6h5M9 12h6M9 16h6"/></svg>
                           <svg v-else width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4M8 22h8"/></svg>
                         </span>
-                        <span class="titletext"><strong>{{ c.text.detail }} #{{ c.key(item.row) }}</strong><small>{{ c.text.recording }}</small></span>
+                        <span class="titletext"><strong>{{ c.dictationLabel(item.row) }}</strong><small>{{ c.text.recording }}</small></span>
                       </div>
                     </td>
                     <td v-for="col in c.columns()" :key="col.key" :data-label="col.label" :class="c.emptyCell(item.row, col.key) ? 'cl-empty' : ''">
@@ -852,7 +871,7 @@ export const WorklistView = {
                  @keydown.esc="c.select(null)">
             <div :key="c.selectedId.value">
               <div class="detailhead">
-                <div><strong id="cwv-detail-title">{{ c.text.detail }} #{{ c.selectedId.value }}</strong><small>{{ c.text.detailInfo }}</small></div>
+                <div><strong id="cwv-detail-title">{{ c.dictationLabel(c.selectedRow.value) }}</strong><small>{{ c.text.detailInfo }}</small></div>
                 <button type="button" class="icon-button closebtn" data-testid="close-detail" :aria-label="c.text.close" :title="c.text.close"
                         @click="c.select(null)"><svg class="ui-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
               </div>
@@ -872,7 +891,7 @@ export const WorklistView = {
                 <div class="v8-hosted" style="margin-top: 17px">
                   <div class="detail-bottom" style="margin-top: 0">
                     <button type="button" class="primary" data-testid="open-dictation"
-                            :disabled="!c.canOpen.value" @click="c.open()">{{ c.text.open }}</button>
+                            :disabled="!c.canOpen.value" @click="c.open()">{{ c.listenOnly.value ? 'Anhören' : c.text.open }}</button>
                   </div>
                   <component :is="parts.Lease" v-if="c.leaseState.value" :state="c.leaseState.value" :run="c.leaseRun" />
                   <component :is="parts.Workflow" :wf="c.workflow" />

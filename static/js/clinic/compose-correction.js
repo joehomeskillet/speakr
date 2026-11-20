@@ -131,6 +131,7 @@ export const TEXT = Object.freeze({
     modeGroup: 'Wiedergabe beim Korrigieren',
     modeRetry: 'Erneut speichern',
     readOnly: 'Schreibgeschützt: Bearbeitung zuerst anfordern.',
+    readOnlyAccess: 'Sie haben für dieses Diktat Leserechte.',
     unsaved: 'Nicht gespeicherte Änderungen sind vorhanden.',
     manual: 'Keine automatische Erkennung vorhanden. Bitte manuell transkribieren.',
     loading: 'Wird geladen …',
@@ -674,6 +675,7 @@ const LOCAL_CSS = `
 .v8-ui .editor-page .editor-aux{display:grid;gap:14px;margin-top:16px}
 .v8-ui .editor-page :is(.panel-header h2,.clinic-correction-waveform h3){font-size:14px;font-weight:700;letter-spacing:-.1px;color:var(--v8-text)}
 .v8-ui .editor-page .sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+@media(max-width:767px){.v8-ui .editor-page .document-id{display:block;min-width:0;max-width:9ch;overflow:hidden;text-overflow:ellipsis}.v8-ui .editor-page .document-title h2{flex-shrink:0}}
 @media(max-width:700px){
   .v8-ui .editor-page .editor-popover{position:static;width:auto;max-height:none;margin:8px 12px}
   .v8-ui .editor-page .find-row{display:grid;grid-template-columns:minmax(0,1fr) repeat(3,auto)}
@@ -864,9 +866,11 @@ export const CorrectionBody = {
       <p class="subline">{{ TEXT.subline }}</p>
     </div>
     <div class="head-actions">
-      <button type="button" class="button" :style="FOCUS" data-testid="close" @click="c.close()">
-        <UiIcon name="arrow-right" /><span>{{ TEXT.toWorklist }}</span>
-      </button>
+      <slot name="back-action" :close="c.close">
+        <button type="button" class="button" :style="FOCUS" data-testid="close" @click="c.close()">
+          <UiIcon name="arrow-right" /><span>{{ TEXT.toWorklist }}</span>
+        </button>
+      </slot>
     </div>
   </div>
   <p v-if="closeMessage" role="alert" class="note" :style="box('error')">{{ closeMessage }}</p>
@@ -884,7 +888,7 @@ export const CorrectionBody = {
       <div class="document-title">
         <UiIcon name="snippet" />
         <h2 style="font-weight: 700; color: var(--v8-text)">{{ TEXT.dictation }}</h2>
-        <span class="document-id">#{{ dictationId }}</span>
+        <span class="document-id" :title="dictationId">#{{ dictationId }}</span>
       </div>
       <div class="context-tools">
         <span class="tool-wrap" v-tip="{ label: TEXT.ctxAssignment }">
@@ -1036,7 +1040,7 @@ export const CorrectionBody = {
                     @input="onTextInput($event)" @keydown="onTextKeydown($event)" @select="followOn = false; c.onSelect($event)"
                     @keyup="c.onSelect($event)" @mouseup="c.onSelect($event)"></textarea>
         </div>
-        <p v-if="!canEdit && !loading" id="ccv-readonly" class="template-meta" style="margin: 0">{{ TEXT.readOnly }}</p>
+        <p v-if="!canEdit && !loading" id="ccv-readonly" class="template-meta" style="margin: 0">{{ lease.mayAcquire === false ? TEXT.readOnlyAccess : TEXT.readOnly }}</p>
         <section class="panel" :aria-label="TEXT.alignment" :data-status="alignStatus" data-testid="alignment">
           <div class="panel-header">
             <h2>{{ TEXT.alignment }}</h2>
@@ -1153,7 +1157,9 @@ export const CorrectionView = {
     emits: ['close'],
     template: `<CorrectionBody :key="dictationId" :client="client" :dictation-id="dictationId" :current-user="currentUser"
                               :vue="vue" :recording-id="recordingId" :create-audio-context="createAudioContext"
-        :dictator="dictator" :pool="pool" @close="$emit('close')" />`,
+        :dictator="dictator" :pool="pool" @close="$emit('close')">
+          <template v-if="$slots['back-action']" #back-action="scope"><slot name="back-action" v-bind="scope"></slot></template>
+        </CorrectionBody>`,
 };
 
 export function registerCorrectionView(app) {
