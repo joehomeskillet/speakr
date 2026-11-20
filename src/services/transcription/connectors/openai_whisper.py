@@ -83,6 +83,8 @@ class OpenAIWhisperConnector(BaseTranscriptionConnector):
             **options
         )
         self.model = config.get('model', 'whisper-1')
+        # Opt-in word granularity (clinic mode, local engine); default keeps the request unchanged.
+        self.word_timestamps = bool(config.get('word_timestamps', False))
 
     def _validate_config(self) -> None:
         """Validate required configuration."""
@@ -91,6 +93,39 @@ class OpenAIWhisperConnector(BaseTranscriptionConnector):
 
         if not self.config.get('api_key'):
             raise ConfigurationError("api_key is required for OpenAI Whisper connector")
+
+    @staticmethod
+    def _attach_top_level_words(segments, raw_words) -> None:
+        """Attach top-level words to the segment whose [start, end) holds the word start.
+
+        Segments that already carry their own words are left alone. A word with
+        no start, or outside every segment, is not stored. No time is estimated.
+        """
+        if not isinstance(raw_words, list) or not segments:
+            return
+        attached = {}
+        for word in raw_words:
+            if isinstance(word, dict):
+                item = word
+            elif hasattr(word, "model_dump"):
+                try:
+                    item = word.model_dump()
+                except Exception:
+                    item = vars(word)
+            else:
+                item = {"word": getattr(word, "word", ""), "start": getattr(word, "start", None),
+                        "end": getattr(word, "end", None)}
+            try:
+                start = float(item.get("start"))
+            except (ValueError, TypeError):
+                continue
+            for index, seg in enumerate(segments):
+                if seg.words is None and seg.start_time is not None and seg.end_time is not None \
+                        and seg.start_time <= start < seg.end_time:
+                    attached.setdefault(index, []).append(item)
+                    break
+        for index, items in attached.items():
+            segments[index].words = items
 
     def transcribe(self, request: TranscriptionRequest) -> TranscriptionResponse:
         """
@@ -108,7 +143,7 @@ class OpenAIWhisperConnector(BaseTranscriptionConnector):
                 "model": effective_model,
                 "file": request.audio_file,
                 "response_format": "verbose_json",
-                "timestamp_granularities": ["segment"],
+                "timestamp_granularities": ["segment", "word"] if self.word_timestamps else ["segment"],
             }
 
             if request.language:
@@ -142,16 +177,19 @@ class OpenAIWhisperConnector(BaseTranscriptionConnector):
             elif isinstance(transcript, dict):
                 text = str(transcript.get("text") or "")
                 raw_segments = transcript.get("segments")
+                raw_words = transcript.get("words")
                 detected_language = transcript.get("language")
                 duration = transcript.get("duration")
             elif hasattr(transcript, "text"):
                 text = str(getattr(transcript, "text", "") or "")
                 raw_segments = getattr(transcript, "segments", None)
+                raw_words = getattr(transcript, "words", None)
                 detected_language = getattr(transcript, "language", None)
                 duration = getattr(transcript, "duration", None)
             else:
                 text = ""
                 raw_segments = None
+                raw_words = None
                 detected_language = None
                 duration = None
 
@@ -210,6 +248,9 @@ class OpenAIWhisperConnector(BaseTranscriptionConnector):
                             words=parsed_words,
                         )
                     )
+
+            if self.word_timestamps:
+                self._attach_top_level_words(parsed_segments, raw_words)
 
             if not text and parsed_segments:
                 text = " ".join(s.text for s in parsed_segments).strip()
