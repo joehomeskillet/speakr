@@ -43,6 +43,8 @@ Database privileges and independently protected exports need their own operation
 
 ### Audit operations
 
+The event `admin.upstream_voice.purge` records removal of legacy voice-profile data. Its phase and counts distinguish completed cleanup from a remaining file operation.
+
 `audit.viewed`, `audit.exported`, `audit.pruned`, `audit.write_failed`.
 
 [Original Speakr guide](https://github.com/murtaza-nasir/speakr/blob/039a19b1f1c7f0ddaeac0a49b806845626f48a6c/docs/admin-guide/audit-log.md).

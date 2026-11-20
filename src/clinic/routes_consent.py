@@ -118,7 +118,11 @@ def _body(required: dict[str, type]) -> dict[str, Any] | tuple[Any, int]:
 def _replayed(user_id: int, expected: int, status: str, statement_hash: str | None = None) -> bool:
     """True when the request already produced the latest row (a retry of the same call)."""
     rows = vc.consent_history(user_id)
-    if not rows or rows[-1]["id"] != expected + 1 or rows[-1]["status"] != status:
+    if not rows or rows[-1]["status"] != status:
+        return False
+    # Consent IDs come from one sequence shared by all users.
+    previous_id = rows[-2]["id"] if len(rows) > 1 else 0
+    if previous_id != expected:
         return False
     return statement_hash is None or rows[-1]["statement_hash"] == statement_hash
 

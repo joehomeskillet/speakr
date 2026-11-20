@@ -43,6 +43,8 @@ Prüfen Sie Datenbankrechte und getrennt geschützte Exporte im Betrieb. Der Ere
 
 ### Protokollbetrieb
 
+Das Ereignis `admin.upstream_voice.purge` protokolliert das Bereinigen alter Stimmprofildaten. An Phase und Anzahl ist erkennbar, ob die Bereinigung abgeschlossen ist oder noch Dateien zu bearbeiten sind.
+
 `audit.viewed`, `audit.exported`, `audit.pruned`, `audit.write_failed`.
 
 [Originalanleitung von Speakr](https://github.com/murtaza-nasir/speakr/blob/039a19b1f1c7f0ddaeac0a49b806845626f48a6c/docs/admin-guide/audit-log.md).
