@@ -206,9 +206,8 @@ export function createAdminPoolsController(options) {
     const store = createPoolsStore(client, (next) => Object.assign(poolsView, next));
     const accounts = createAccountsAdmin({ client: options.userClient || client, reactive });
     const canManageRoles = () => options.currentUser?.is_admin === true;
-    // Expected v8-133 listing contract: members [{user_id, role: 'lead' | 'member'}].
-    // An absent role is unknown, never an implicit demotion.
-    const memberRole = (userId) => selected()?.members.find((m) => Number(m.user_id) === Number(userId))?.role;
+    const staffPool = (id) => poolsView.pools.staff.find((pool) => pool.id === id);
+    const memberRole = (userId) => staffPool(state.selectedId)?.memberRoles.find((m) => m.userId === userId)?.role;
 
     async function setLead(userId, enabled) {
         if (!canManageRoles() || disposed || state.busy || state.status !== 'ready'
@@ -244,10 +243,7 @@ export function createAdminPoolsController(options) {
         }
     }
 
-    const membersOf = (id) => {
-        const p = poolsView.pools.staff.find((x) => x.id === id);
-        return p ? p.memberUserIds : [];
-    };
+    const membersOf = (id) => staffPool(id)?.memberUserIds || [];
     const selected = () => state.meta.find((p) => p.id === state.selectedId) || null;
     const nameOf = (userId) => {
         const a = accounts.state.accounts.find((x) => Number(x.id) === Number(userId));
@@ -343,7 +339,6 @@ export function createAdminPoolsController(options) {
         state.meta = list.map((p) => ({
             id: String(p.id), name: String(p.name || ''), active: p.active !== false, routable: p.routable !== false,
             valid_from: p.valid_from || null, valid_to: p.valid_to || null,
-            members: Array.isArray(p.members) ? p.members : [],
         }));
         const loaded = await store.load();
         if (disposed) return res;

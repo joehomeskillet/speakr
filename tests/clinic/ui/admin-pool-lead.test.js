@@ -11,9 +11,9 @@ async function scene({ admin = true, outcome = 'ok', roles = true } = {}) {
             if (outcome === 'ok') role = options.body.role;
             return { outcome };
         }
-        if (path === '/pool-admin/pools') return ok({ staff_pools: [{ id: 's1', name: 'Nord',
-            members: roles ? [{ user_id: 2, role }] : undefined }] });
-        if (path === '/pools') return ok({ revision: 3, staff_pools: [{ id: 's1', name: 'Nord', member_user_ids: [2] }],
+        if (path === '/pool-admin/pools') return ok({ staff_pools: [{ id: 's1', name: 'Nord' }] });
+        if (path === '/pools') return ok({ revision: 3, staff_pools: [{ id: 's1', name: 'Nord', member_user_ids: [2],
+            members: roles ? [{ user_id: 2, role }] : undefined }],
             author_pools: [{ id: 'a1', name: 'Autoren', member_user_ids: [2] }] });
         return ok({});
     }) };
