@@ -24,6 +24,7 @@ from sqlalchemy.exc import IntegrityError
 
 from src.database import db
 
+from .audio_revisions import ClinicAudioSessionState
 from .models import (
     ClinicAudioRevision,
     ClinicContextRevision,
@@ -99,7 +100,19 @@ def _heads(model, dictation_id: str) -> set:
     return {rid for rid, _parent in rows if rid not in parents}
 
 
+def current_audio_id(dictation_id: str) -> str | None:
+    """Use the editor's play head; legacy audio without one needs exactly one leaf."""
+    selected = db.session.query(ClinicAudioSessionState.current_revision_id).filter_by(
+        dictation_id=dictation_id).scalar()
+    if selected is not None:
+        return selected
+    leaves = _heads(ClinicAudioRevision, dictation_id)
+    return next(iter(leaves)) if len(leaves) == 1 else None
+
+
 def _is_head(model, dictation_id: str, revision_id: str) -> bool:
+    if model is ClinicAudioRevision:
+        return revision_id == current_audio_id(dictation_id)
     # A forked history has several leaves; then no single head exists and the
     # bound revision is not treated as current (fails closed).
     return _heads(model, dictation_id) == {revision_id}
