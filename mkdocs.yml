@@ -131,6 +131,8 @@ exclude_docs: |
   README.md
   DOCUMENTATION_VERIFICATION_CHECKLIST.md
   ci-cd-setup.md
+  testing/connector-testing-checklist.md
+  PUSH_NOTIFICATIONS_SETUP.md
   .github-deploy.yml
 
 nav:
