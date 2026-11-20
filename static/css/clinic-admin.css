@@ -766,3 +766,35 @@
 }
 .cadm .clinic-jobs-view .cadm-jobs-filter select { appearance: none; font-weight: 400; }
 .cadm .clinic-jobs-view .cadm-jobs-filter button { font-size: 13px; }
+
+.cadm .clinic-model-selection .model-input {
+    display: grid;
+    gap: var(--sp-1);
+    margin-bottom: var(--sp-2);
+}
+.cadm .clinic-model-selection .model-input label {
+    font-size: var(--fs-label);
+    font-weight: 600;
+}
+.cadm .clinic-model-selection .model-input :is(input, select) {
+    width: 100%;
+    min-width: 0;
+}
+.cadm .clinic-model-selection .model-setting { margin-top: var(--sp-4); }
+.cadm .clinic-model-selection .model-effective {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--sp-1) var(--sp-2);
+    color: var(--text-muted);
+    font-size: var(--fs-meta);
+    overflow-wrap: anywhere;
+}
+.cadm .clinic-model-selection .model-effective strong { color: var(--text-primary); }
+.cadm .clinic-model-selection .model-save {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sp-3);
+    margin-top: var(--sp-4);
+}

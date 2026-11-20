@@ -174,7 +174,7 @@ _CLINIC_IDENTITY = _split("""
 
 _CLINIC_IDENTITY_ADMIN = _split("""
     clinic_directory.capability clinic_directory.preview clinic_directory.apply
-    clinic_grants.change
+    clinic_grants.change clinic_task_models.settings
 """)
 
 _ADMIN = _split("""

@@ -371,7 +371,7 @@ class LLMNotConfiguredError(ValueError):
 
 
 def call_llm_completion(messages, temperature=0.7, response_format=None, stream=False, max_tokens=None,
-                        user_id=None, operation_type=None, model_client=None):
+                        user_id=None, operation_type=None, model_client=None, model_name=None):
     """
     Centralized function for LLM API calls with proper error handling and logging.
 
@@ -387,6 +387,7 @@ def call_llm_completion(messages, temperature=0.7, response_format=None, stream=
     Returns:
         OpenAI completion object or generator (if streaming)
     """
+    effective_model = model_name or TEXT_MODEL_NAME
     completion_client = client if model_client is None else model_client
     if not completion_client:
         raise LLMNotConfiguredError("No text model is configured. Set TEXT_MODEL_BASE_URL, and TEXT_MODEL_API_KEY for a hosted service.")
@@ -409,10 +410,10 @@ def call_llm_completion(messages, temperature=0.7, response_format=None, stream=
     try:
         # Check if we're using GPT-5 with OpenAI API (or forced via env for
         # Azure AI Foundry and other gateways the URL check can't detect)
-        using_gpt5 = _gpt5_mode_forced() or (is_gpt5_model(TEXT_MODEL_NAME) and is_using_openai_api())
+        using_gpt5 = _gpt5_mode_forced() or (is_gpt5_model(effective_model) and is_using_openai_api())
 
         completion_args = {
-            "model": TEXT_MODEL_NAME,
+            "model": effective_model,
             "messages": messages,
             "stream": stream
         }
@@ -425,7 +426,7 @@ def call_llm_completion(messages, temperature=0.7, response_format=None, stream=
         if using_gpt5:
             # GPT-5 models don't support temperature, top_p, or logprobs
             # They use reasoning_effort and verbosity instead
-            logger.debug(f"Using GPT-5 model: {TEXT_MODEL_NAME} - applying GPT-5 specific parameters")
+            logger.debug(f"Using GPT-5 model: {effective_model} - applying GPT-5 specific parameters")
 
             # Get GPT-5 specific parameters from environment variables
             reasoning_effort = os.environ.get("GPT5_REASONING_EFFORT", "medium")  # minimal, low, medium, high
@@ -456,7 +457,7 @@ def call_llm_completion(messages, temperature=0.7, response_format=None, stream=
         # max_completion_tokens for GPT-5 and max_tokens otherwise.
         budget_key = 'max_completion_tokens' if using_gpt5 else 'max_tokens'
         logger.info(
-            f"LLM call: operation={operation_type or 'unspecified'}, model={TEXT_MODEL_NAME}, "
+            f"LLM call: operation={operation_type or 'unspecified'}, model={effective_model}, "
             f"{budget_key}={completion_args.get(budget_key, 'provider default')}"
         )
 
@@ -475,7 +476,7 @@ def call_llm_completion(messages, temperature=0.7, response_format=None, stream=
                     prompt_tokens=response.usage.prompt_tokens,
                     completion_tokens=response.usage.completion_tokens,
                     total_tokens=response.usage.total_tokens,
-                    model_name=TEXT_MODEL_NAME,
+                    model_name=effective_model,
                     cost=getattr(response.usage, 'cost', None),
                     cached_tokens=cached_tokens,
                     cache_write_tokens=cache_write_tokens
@@ -487,7 +488,7 @@ def call_llm_completion(messages, temperature=0.7, response_format=None, stream=
         if not stream and response.choices:
             content = response.choices[0].message.content
             if not content:
-                logger.warning(f"LLM returned empty content. Model: {TEXT_MODEL_NAME}, finish_reason: {response.choices[0].finish_reason}")
+                logger.warning(f"LLM returned empty content. Model: {effective_model}, finish_reason: {response.choices[0].finish_reason}")
                 # Log more details if available
                 # The refusal text and the tool-call arguments are model output
                 # about user content: DEBUG only (discussion #603).
@@ -507,7 +508,7 @@ def call_llm_completion(messages, temperature=0.7, response_format=None, stream=
         elapsed_str = f"{elapsed:.1f}s" if elapsed is not None else "unknown"
         logger.error(
             f"LLM request timed out after {elapsed_str} (configured read_timeout={LLM_REQUEST_TIMEOUT}s, "
-            f"max_retries={LLM_MAX_RETRIES}, model={TEXT_MODEL_NAME}). "
+            f"max_retries={LLM_MAX_RETRIES}, model={effective_model}). "
             f"If the elapsed time is much shorter than the configured timeout, an upstream proxy or the "
             f"provider is closing the connection early. For reasoning models that take longer to think, "
             f"increase LLM_REQUEST_TIMEOUT."

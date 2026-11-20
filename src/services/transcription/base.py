@@ -295,6 +295,13 @@ class BaseTranscriptionConnector(ABC):
         Honours the per-request override (issue #266) if present, otherwise
         falls back to the connector's configured default model.
         """
+        from src.clinic import config
+        if config.clinic_mode_enabled() and not self.config.get('clinic_gpu_target'):
+            from src.clinic.task_models import asr_is_local, override as clinic_override
+            if asr_is_local(self.config.get('base_url')):
+                saved = clinic_override('asr_cpu')
+                if saved:
+                    return saved
         override = (request.model or '').strip() if request and request.model else ''
         return override or getattr(self, 'model', '') or ''
 

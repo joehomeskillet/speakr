@@ -1224,7 +1224,7 @@ def merge_diarized_chunks(chunk_results):
     return merged_text, merged_segments, sorted(list(all_speakers))
 
 
-def transcribe_chunks_with_connector(connector, filepath, filename, mime_type, language, diarize=False, hotwords=None, initial_prompt=None, transcription_model=None, task_scope=None, engines=None):
+def transcribe_chunks_with_connector(connector, filepath, filename, mime_type, language, diarize=False, hotwords=None, initial_prompt=None, transcription_model=None, task_scope=None, engines=None, model_refs=None):
     """
     Transcribe a large audio file using chunking with the connector architecture.
 
@@ -1397,6 +1397,8 @@ def transcribe_chunks_with_connector(connector, filepath, filename, mime_type, l
                             'speakers': response.speakers if use_diarization else None
                         }
                         chunk_results.append(chunk_result)
+                        if model_refs is not None:
+                            model_refs.add(_response_model_ref(response))
                         current_app.logger.info(f"Chunk {i+1} transcribed successfully: {len(response.text)} characters")
                         success = True
 
@@ -1554,6 +1556,17 @@ def _record_actual_engine(connector, record, ran=None):
                 params=json.dumps(params, sort_keys=True, ensure_ascii=False)))
     except Exception as err:
         current_app.logger.warning(f"Could not record the ASR engine of job {job_id}: {type(err).__name__}")
+
+
+def _response_model_ref(response):
+    # Only concrete local connector metadata can identify a completed request.
+    provider = getattr(response, 'provider', None)
+    model = getattr(response, 'model', None)
+    if provider not in ('openai_whisper', 'asr_endpoint') or not isinstance(model, str) or not model.strip():
+        return None
+    if provider == "asr_endpoint" and model == "asr-endpoint":
+        model = "unspecified"
+    return f"{provider}:{model}"
 
 
 def _single_engine(engines):
@@ -2018,6 +2031,7 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
                 clinic_attempt = attempt_identity(job.job_id)
                 clinic_prior = {field: getattr(recording, field) for field in _TRANSCRIPT_STATE_FIELDS}
             for attempt in range(max_attempts):
+                model_refs = set() if clinic_prior is not None else None
                 try:
                     # A safe point: nothing was sent to the service yet.
                     job.check_cancel()
@@ -2033,7 +2047,7 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
                             initial_prompt=initial_prompt,
                             transcription_model=transcription_model,
                             task_scope=f"speakr-{recording.id}" if recording else None,
-                            engines=ran_engines,
+                            engines=ran_engines, model_refs=model_refs,
                         )
                         # A safe point: the result is dropped, nothing of it is stored.
                         job.check_cancel()
@@ -2093,6 +2107,8 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
                             _end_transaction_before_external_call(recording)
                             response = connector.transcribe(request)
                             ran_engines.append(getattr(response, 'engine_actual', None))
+                            if model_refs is not None:
+                                model_refs.add(_response_model_ref(response))
 
                         # A safe point: the result is dropped, nothing of it is stored.
                         job.check_cancel()
@@ -2267,10 +2283,13 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
 
             dictation = None
             if clinic_prior is not None:
-                dictation = _handle_late_asr(
-                    recording, clinic_prior,
-                    f"{connector_name}:{transcription_model or getattr(connector, 'model', None) or 'default'}",
-                    attempt=clinic_attempt)
+                if len(model_refs) > 1:
+                    model_ref = f"{connector_name}:mixed"
+                else:
+                    model_ref = next(iter(model_refs), None)
+                if not model_ref:
+                    model_ref = f"{connector_name}:{transcription_model or getattr(connector, 'model', None) or 'default'}"
+                dictation = _handle_late_asr(recording, clinic_prior, model_ref, attempt=clinic_attempt)
             if not has_asr_text:
                 current_app.logger.warning(
                     f"Transcription for recording {recording_id} returned no text; marking it failed")
