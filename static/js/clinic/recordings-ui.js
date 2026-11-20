@@ -41,12 +41,21 @@ export const TEXT = Object.freeze({
     noPool: 'Kein Pool zugewiesen',
     noAuthor: 'Unbekannt',
     none: '–',
-    apply: 'Filter anwenden',
-    reset: 'Filter zurücksetzen',
+    apply: 'Anwenden',
+    reset: 'Zurücksetzen',
     filters: 'Filter',
-    authorId: 'Diktierende (ID)',
-    poolId: 'Pool (ID)',
+    filtersShow: 'Filter anzeigen',
+    filtersHide: 'Filter ausblenden',
+    authorId: 'Diktierende',
+    poolId: 'Schreibkräfte-Pool',
+    authorAny: 'Alle Diktierenden',
+    poolAny: 'Alle Pools',
     statusAny: 'Alle Status',
+    range: 'Zeitraum',
+    activeFilters: 'Aktive Filter',
+    countOne: '1 Aufnahme',
+    countMany: '{n} Aufnahmen',
+    loadedOnly: 'Auswahl aus den geladenen Aufnahmen',
     from: 'Von',
     to: 'Bis',
     fallbackBadge: 'erfasst',
@@ -109,6 +118,7 @@ export function toViewRow(item) {
         fallbackLabel: fallback ? TEXT.fallbackBadge : '',
         fallbackTip: fallback ? (FALLBACK_TIP[source] || TEXT.fallbackUnknown) : '',
         author: nameOf(item.dictated_by) || TEXT.noAuthor,
+        authorId: item.dictated_by && item.dictated_by.id != null ? String(item.dictated_by.id) : '',
         pools,
         poolText: pools.length ? pools.join(', ') : TEXT.noPool,
         leaseHolder: nameOf(item.lease_holder) || TEXT.none,
@@ -130,6 +140,32 @@ export function groupByDay(rows) {
         else groups.push({ day: row.day, label: formatDay(row.day), rows: [row] });
     }
     return groups;
+}
+
+/**
+ * Filter choices by name. No list route of persons or pools is reachable for every role, so
+ * the options come from the rows the user may already see (dictated_by and staff_pools of the
+ * contract items). The registry only grows while the view lives, so a filter does not make its
+ * own choices disappear; the applied value stays in the list.
+ */
+export function collectOptions(registry, items) {
+    for (const item of Array.isArray(items) ? items : []) {
+        const person = item && item.dictated_by;
+        if (person && person.id != null && nameOf(person)) registry.authors.set(String(person.id), nameOf(person));
+        for (const pool of Array.isArray(item && item.staff_pools) ? item.staff_pools : []) {
+            if (pool && pool.id != null && pool.name) registry.pools.set(String(pool.id), String(pool.name));
+        }
+    }
+    return registry;
+}
+
+const byName = (a, b) => a.label.localeCompare(b.label, 'de-CH');
+
+export function optionList(map, selected) {
+    const list = [...map].map(([value, label]) => ({ value, label }));
+    const current = String(selected || '').trim();
+    if (current && !map.has(current)) list.push({ value: current, label: TEXT.noAuthor + ' (' + current + ')' });
+    return list.sort(byName);
 }
 
 /** Query path for one page; empty filters are left out. */
@@ -189,6 +225,28 @@ export function createRecordingsController(options) {
         error: null, denied: false, stale: false,
         filters: { ...emptyFilters() }, draft: { ...emptyFilters() },
     });
+    const registry = { authors: new Map(), pools: new Map() };
+    const optionState = reactive({ authors: [], pools: [] });
+    const picker = reactive({ author: '', pool: '' });
+    const registryOf = (kind) => (kind === 'pool' ? registry.pools : registry.authors);
+    const fieldOf = (kind) => (kind === 'pool' ? 'pool_id' : 'author_id');
+    // Text shown in a name field: the name of a known ID, else the ID as typed.
+    const textOf = (kind, id) => (id ? (registryOf(kind).get(String(id)) || String(id)) : '');
+    const refreshPickers = () => {
+        picker.author = textOf('author', state.draft.author_id);
+        picker.pool = textOf('pool', state.draft.pool_id);
+    };
+    const refreshOptions = () => {
+        optionState.authors = optionList(registry.authors, state.filters.author_id);
+        optionState.pools = optionList(registry.pools, state.filters.pool_id);
+    };
+    /** The user typed or picked a name: a known name sets its ID, bare digits are taken as an ID, anything else clears the filter value. */
+    function pick(kind, text) {
+        const typed = String(text || '').trim();
+        picker[kind] = String(text || '');
+        const hit = [...registryOf(kind)].find(([, name]) => name === typed);
+        state.draft[fieldOf(kind)] = hit ? hit[0] : (/^\d+$/.test(typed) ? typed : '');
+    }
     let scrollTop = 0;
     let sequence = 0;
     let disposed = false;
@@ -199,6 +257,7 @@ export function createRecordingsController(options) {
         memory.snapshot = {
             rows: state.rows.slice(), nextCursor: state.nextCursor,
             filters: { ...state.filters }, draft: { ...state.draft }, scrollTop,
+            options: { authors: [...registry.authors], pools: [...registry.pools] },
         };
     }
 
@@ -228,6 +287,8 @@ export function createRecordingsController(options) {
         state.loadingMore = false;
         if (res.outcome === 'ok') {
             const data = res.data || {};
+            collectOptions(registry, data.items);
+            refreshOptions();
             state.rows = mergePage([], Array.isArray(data.items) ? data.items : []);
             state.nextCursor = data.next_cursor || null;
             state.stale = false;
@@ -247,6 +308,8 @@ export function createRecordingsController(options) {
         state.loadingMore = false;
         if (res.outcome === 'ok') {
             const data = res.data || {};
+            collectOptions(registry, data.items);
+            refreshOptions();
             state.rows = mergePage(state.rows, Array.isArray(data.items) ? data.items : []);
             state.nextCursor = data.next_cursor || null;
         } else fail(res);
@@ -256,6 +319,7 @@ export function createRecordingsController(options) {
 
     function applyFilters() {
         state.filters = { ...state.draft };
+        refreshPickers();
         state.nextCursor = null;
         state.rows = [];
         return load();
@@ -263,6 +327,7 @@ export function createRecordingsController(options) {
 
     function resetFilters() {
         state.draft = { ...emptyFilters() };
+        refreshPickers();
         return applyFilters();
     }
 
@@ -276,6 +341,12 @@ export function createRecordingsController(options) {
                 filters: { ...snap.filters }, draft: { ...snap.draft },
             });
             scrollTop = snap.scrollTop || 0;
+            if (snap.options) {
+                registry.authors = new Map(snap.options.authors);
+                registry.pools = new Map(snap.options.pools);
+            }
+            refreshOptions();
+            refreshPickers();
             return null;
         }
         return load();
@@ -304,8 +375,14 @@ export function createRecordingsController(options) {
     }
 
     return {
-        state, start, load, loadMore, applyFilters, resetFilters, setScroll, open, dispose,
+        state, start, load, loadMore, applyFilters, resetFilters, setScroll, open, dispose, options: optionState, picker, pick,
+        activeFilterCount: () => FILTER_KEYS.filter((k) => String(state.filters[k] || '').trim() !== '').length,
+        countLabel: () => (state.rows.length === 1 ? TEXT.countOne : TEXT.countMany.replace('{n}', String(state.rows.length))) + (state.nextCursor ? '+' : ''),
         scrollTop: () => scrollTop, hasFilters, groups: () => groupByDay(state.rows),
         text: TEXT, statusOptions: STATUS_LABELS,
+        errorStyle: (() => {
+            const s = surfaceFor('error');
+            return { background: s.background, color: s.color, border: '1px solid ' + s.border };
+        })(),
     };
 }

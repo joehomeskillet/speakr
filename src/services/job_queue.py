@@ -45,7 +45,7 @@ TRANSCRIPTION_JOBS = ['transcribe', 'reprocess_transcription', 'stitch', 'merge'
 SUMMARY_JOBS = ['summarize', 'reprocess_summary', 'translate_transcription']
 # Clinic follow-ups (src/clinic): only enqueued in clinic mode, so upstream
 # behaviour is unchanged. They run on the fast summary workers.
-CLINIC_JOBS = ['clinic_finalize', 'clinic_output', 'clinic_notify']
+CLINIC_JOBS = ['clinic_finalize', 'clinic_output', 'clinic_notify', 'clinic_alignment']
 SUMMARY_JOBS += CLINIC_JOBS
 # Building a recording's Inquire chunks (embeddings) has its own workers, so a
 # slow embedding model never holds up a transcription or a summary (#541).
@@ -74,6 +74,7 @@ JOB_RUNNERS = {
     'clinic_finalize': '_run_clinic_job',
     'clinic_output': '_run_clinic_job',
     'clinic_notify': '_run_clinic_job',
+    'clinic_alignment': '_run_clinic_job',
 }
 
 # Jobs that run beside a recording's processing: they leave recording.status

@@ -1440,6 +1440,12 @@ def register_clinic_audio(flask_app):
         lambda actor, dictation_id: may(actor, 'edit', db.session.get(ClinicDictation, dictation_id)),
         IngestService(startup.originals_root(flask_app))))
     flask_app.register_blueprint(routes_correction.create_blueprint(authorize=lambda user, name, dictation: may(user.id, name, dictation), run_once=run_once))
+    # V8 alignment (v8-86)
+    from src.clinic import alignment_job, routes_alignment
+    from src.services.job_queue import register_clinic_handler
+    flask_app.register_blueprint(routes_alignment.create_blueprint(
+        authorize=lambda user, name, dictation: may(user.id, name, dictation), run_once=run_once))
+    register_clinic_handler('clinic_alignment', alignment_job.handle)
     flask_app.register_blueprint(routes_tts.TtsApi(tts_load, lambda: None, None).blueprint)
     flask_app.register_blueprint(routes_clipboard.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation),
@@ -1508,6 +1514,10 @@ if _clinic_mode_enabled():
     register_clinic_worklist(app)
     register_clinic_audio(app)
     register_clinic_operations(app)
+    # --- v8-90: clinic job handlers (start) ---
+    from src.clinic.job_handlers import register_clinic_job_handlers
+    register_clinic_job_handlers(app)
+    # --- end v8-90 ---
     register_clinic_voice_consent(app)  # v8-75
 
 # PWA Web Share Target (issue #285): the native share sheet cannot round-trip

@@ -26,6 +26,9 @@ from pathlib import Path
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.clinic import decoder
+from src.clinic.audio_revisions import init_audio_revision
+from src.clinic.config import clinic_mode_enabled
 from src.clinic.models import ClinicDictation, ClinicOriginal
 from src.database import db
 from src.models import Recording, User
@@ -44,7 +47,7 @@ _CHUNK = 1024 * 1024
 
 
 class IngestError(Exception):
-    """Refusal with a stable ``code``: invalid, conflict, author_required or storage_failed."""
+    """Ingest or original-probe failure with a stable ``code``."""
 
     def __init__(self, code: str, message: str = ''):
         self.code = code
@@ -69,6 +72,25 @@ def storage_key_for(idempotency_key: str) -> str:
     """Stable relative key. The file name is not a conversion of the audio."""
     digest = hashlib.sha256(idempotency_key.encode('utf-8')).hexdigest()
     return f'clinic/originals/v1/{digest}'
+
+
+def probe_original_duration_ms(path: Path, content_hash: str) -> int:
+    """Measure the decoded samples used by playback, including codec padding removal."""
+    try:
+        if not path.is_file():
+            raise IngestError('missing_original_file')
+        with tempfile.TemporaryDirectory(prefix='clinic-duration-') as tmp:
+            result = decoder.decode_to_wav(path, tmp)
+    except OSError as exc:
+        raise IngestError('original_read_failed') from exc
+    if result.status != decoder.OK:
+        raise IngestError(f'audio_{result.status}')
+    if result.input_sha256 is None or not hmac.compare_digest(result.input_sha256, content_hash):
+        raise IngestError('original_hash_mismatch')
+    # Round down so the edit list cannot end beyond the decoded sample count.
+    if result.duration_s is None or result.duration_s < 0.001:
+        raise IngestError('audio_too_short')
+    return int(result.duration_s * 1000)
 
 
 def _commit() -> None:
@@ -216,8 +238,20 @@ class IngestService:
             raise IngestError('author_required', 'author_user_id is required to record the original')
         if db.session.get(User, author_user_id) is None:
             raise IngestError('invalid', 'author_user_id does not exist')
+        duration_ms = None
+        if clinic_mode_enabled():
+            try:
+                duration_ms = probe_original_duration_ms(dest, digest)
+            except IngestError as error:
+                # Keep the immutable receipt even when the media cannot yet be decoded.
+                logger.warning('clinic ingest: initial audio revision deferred (%s)', error.code)
+            # Decoding can take time. Recheck for a receipt published meanwhile.
+            existing = _existing(storage_key)
+            if existing is not None:
+                return _reuse(existing, digest, size, author_user_id)
         return _insert_row(
-            author_user_id, storage_key, digest, size, origin, origin_ref, key, moment, commit=commit,
+            author_user_id, storage_key, digest, size, origin, origin_ref, key, moment,
+            duration_ms=duration_ms, commit=commit,
         )
 
     def _publish(self, spool: Path, dest: Path, digest: str) -> None:
@@ -329,7 +363,7 @@ def _receipt_text(key: str, digest: str, size: int, origin: str, origin_ref: str
 
 
 def _insert_row(author_user_id, storage_key, digest, size, origin, origin_ref, key, moment,
-                *, commit=True) -> IngestReceipt:
+                *, duration_ms, commit=True) -> IngestReceipt:
     recording = Recording(
         user_id=author_user_id,
         status='PENDING',
@@ -359,6 +393,8 @@ def _insert_row(author_user_id, storage_key, digest, size, origin, origin_ref, k
         )
         db.session.add(original)
         db.session.flush()
+        if duration_ms is not None:
+            init_audio_revision(dictation, original, duration_ms)
         receipt = _receipt_of(original)
         if commit:
             _commit()

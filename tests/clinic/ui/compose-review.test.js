@@ -431,3 +431,105 @@ describe('compose-review offline, release of other revisions and cleanup', () =>
         c.dispose();
     });
 });
+
+
+describe('compose-review acceptance state (v8-74 route)', () => {
+    const route = 'GET /dictations/d1/acceptance-state';
+    const heads = { text_revision_id: 'r1', audio_revision_id: 'a1', context_revision_id: 'c1' };
+    const states = {
+        offen: { state: 'offen', label: 'Noch keine Entscheidung', current: heads },
+        angenommen: { state: 'angenommen', label: 'Abgenommen', current: heads },
+        wiedervorlage: { state: 'wiedervorlage', label: 'Wiedervorlage: Text, Audio oder Kontext hat sich nach der Abnahme geändert', current: heads },
+        zurueckgegeben: { state: 'zurueckgegeben', label: 'Zurückgegeben', current: heads },
+    };
+    const withState = (body) => opened(server(), { [route]: () => ok(body) });
+
+    it('reads the route of the dictation and keeps the other reads unchanged', async () => {
+        const { c, client } = await withState(states.offen);
+        expect(client.calls.filter((x) => x.path.endsWith('/dictations/d1/acceptance-state'))).toHaveLength(1);
+        expect(c.status.value).toBe('ready');
+        c.dispose();
+    });
+
+    it('renders offen as Abzunehmen when acceptance is required', async () => {
+        const { c } = await withState(states.offen);
+        expect(c.acceptanceView()).toEqual({ state: 'offen', required: true, label: TEXT.toAccept, tone: 'warn', acceptedRevision: null, moved: false, reason: null });
+    });
+
+    it('renders offen without a requirement as no decision yet and not required', async () => {
+        const { c } = await opened(server(), {
+            [route]: () => ok(states.offen),
+            'GET /dictations/d1/acceptance-policy': () => ok({ version: 2, acceptance_required: false, approver_ids: [], decisions: [] }),
+        });
+        expect(c.acceptanceView()).toMatchObject({ state: 'offen', required: false, label: TEXT.noDecisionYet });
+    });
+
+    it('renders angenommen as Abgenommen and names the accepted revision', async () => {
+        const { c } = await withState(states.angenommen);
+        expect(c.acceptanceView()).toMatchObject({ state: 'angenommen', label: TEXT.accepted, acceptedRevision: 'r1', moved: false });
+    });
+
+    it('renders wiedervorlage as Abzunehmen again with the moved note and no accepted revision', async () => {
+        const { c } = await withState(states.wiedervorlage);
+        expect(c.acceptanceView()).toMatchObject({ state: 'wiedervorlage', label: TEXT.toAccept, moved: true, acceptedRevision: null });
+    });
+
+    it('renders zurueckgegeben as Zurückgewiesen; the reason only when the response has one', async () => {
+        const without = await withState(states.zurueckgegeben);
+        expect(without.c.acceptanceView()).toMatchObject({ state: 'zurueckgegeben', label: TEXT.rejected, reason: null });
+        const withReason = await withState({ ...states.zurueckgegeben, reject_reason: 'Dosis unklar' });
+        expect(withReason.c.acceptanceView().reason).toBe('Dosis unklar');
+        const blank = await withState({ ...states.zurueckgegeben, reject_reason: '' });
+        expect(blank.c.acceptanceView().reason).toBeNull();
+    });
+
+    it('ignores a reject reason outside the returned state', async () => {
+        const { c } = await withState({ ...states.angenommen, reject_reason: 'alt' });
+        expect(c.acceptanceView().reason).toBeNull();
+    });
+
+    it('a 403 shows the existing denied state and offers nothing', async () => {
+        const { c, client } = await opened(server(), { [route]: () => fail('permission', 403, 'x') });
+        expect(c.status.value).toBe('denied');
+        expect(c.acceptanceView()).toBeNull();
+        expect(c.actions()).toEqual([]);
+        expect(client.commands).toHaveLength(0);
+    });
+
+    it('shows no panel and still loads when the route is absent (404) or fails', async () => {
+        for (const res of [fail('http', 404, 'nicht gefunden'), fail('network', 0, 'x')]) {
+            const { c } = await opened(server(), { [route]: () => res });
+            expect(c.status.value).toBe('ready');
+            expect(c.acceptanceView()).toBeNull();
+            expect(c.actions().length).toBeGreaterThan(0);
+        }
+    });
+
+    it('keeps accept and reject on the workflow command and reloads the state afterwards', async () => {
+        const { c, client } = await withState(states.offen);
+        await c.request('accept');
+        await c.confirm();
+        expect(client.commands).toHaveLength(1);
+        expect(client.commands[0].body).toMatchObject({ command: 'decide_acceptance', payload: { decision: 'accept', text_revision_id: 'r1' } });
+        expect(client.calls.filter((x) => x.path.endsWith('/acceptance-state'))).toHaveLength(2);
+        await c.request('reject');
+        c.reason.value = 'Dosis unklar';
+        await c.confirm();
+        expect(client.commands[1].body.payload).toMatchObject({ decision: 'return', reason: 'Dosis unklar' });
+    });
+
+    it('template shows the panel parts only from the view model and uses no patient field', () => {
+        const body = JSON.stringify(Object.values(ReviewView.components).map((c) => c.template));
+        for (const id of ['acceptance-state', 'acceptance-required', 'acceptance-revision', 'acceptance-moved', 'acceptance-reason']) {
+            expect(body).toContain('data-testid=\\"' + id + '\\"');
+        }
+        expect(body).toContain('c.acceptanceView().reason');
+    });
+
+    it('dispose clears the acceptance state', async () => {
+        const { c } = await withState(states.angenommen);
+        c.dispose();
+        expect(c.acceptance.value).toBeNull();
+        expect(c.acceptanceView()).toBeNull();
+    });
+});

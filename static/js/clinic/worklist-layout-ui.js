@@ -27,6 +27,9 @@ export const LABELS = Object.freeze({
     narrow: 'Spalte schmaler',
     show: 'Spalte anzeigen',
     hide: 'Spalte ausblenden',
+    view: 'Ansicht',
+    close: 'Schliessen',
+    columns: 'Spalten',
     groupBy: 'Gruppieren nach',
     groupNone: 'Keine Gruppierung',
     save: 'Layout speichern',
@@ -350,31 +353,45 @@ export function WorklistLayoutControls(Vue) {
         name: 'WorklistLayoutControls',
         props: { layout: { type: Object, required: true } },
         setup(props) {
-            return { LABELS, L: props.layout };
+            const open = Vue.ref(false);
+            return { LABELS, L: props.layout, open };
         },
         template: `
-<section :aria-label="LABELS.region">
-  <p v-if="L.banner()" :role="L.banner().role" :style="L.banner().style">{{ L.banner().text }}</p>
-  <p class="sr-only">{{ LABELS.keys }}</p>
-  <div role="row">
-    <span v-for="c in L.state.layout.columns" :key="c.key" v-bind="L.headerProps(c.key)"
-          :style="{ width: c.width + 'px', opacity: c.visible ? 1 : 0.5 }"
-          @keydown="L.onKeydown(c.key, $event)" @click="L.cycleSort(c.key)">
-      {{ L.labelOf(c.key) }}
-      <button type="button" :aria-label="(c.visible ? LABELS.hide : LABELS.show) + ': ' + L.labelOf(c.key)"
-              :disabled="!L.state.canEdit" @click.stop="L.toggleVisible(c.key)">{{ c.visible ? '−' : '+' }}</button>
-    </span>
-  </div>
-  <label>{{ LABELS.groupBy }}
-    <select :disabled="!L.state.canEdit" :value="L.state.layout.group_by[0] || ''"
+<div class="cl-pop" :aria-label="LABELS.region" role="group" @keydown.esc="open = false">
+  <button type="button" class="btn btn--ghost cl-btn" data-testid="view-toggle" aria-controls="wl-view-panel"
+          :aria-expanded="open ? 'true' : 'false'" @click="open = !open">
+    <i class="fa-solid fa-table-columns" aria-hidden="true"></i>{{ LABELS.view }}
+    <span v-if="L.banner()" class="cl-dot" aria-hidden="true"></span>
+  </button>
+  <div v-show="open" id="wl-view-panel" class="cl-popover" role="group" :aria-label="LABELS.view" data-testid="view-panel">
+    <div class="cl-panel__head">
+      <h3 class="cl-panel__title">{{ LABELS.view }}</h3>
+      <button type="button" class="btn btn--quiet btn--icon" :aria-label="LABELS.close" @click="open = false"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+    </div>
+    <p v-if="L.banner()" :role="L.banner().role" class="cl-note" :style="L.banner().style">{{ L.banner().text }}</p>
+    <p class="cl-sr-only">{{ LABELS.keys }}</p>
+    <span class="cl-section-label" id="wl-cols-label">{{ LABELS.columns }}</span>
+    <ul class="cl-checklist" role="group" aria-labelledby="wl-cols-label">
+      <li v-for="c in L.state.layout.columns" :key="c.key">
+        <label class="cl-check">
+          <input type="checkbox" :checked="c.visible" :disabled="!L.state.canEdit" :aria-label="(c.visible ? LABELS.hide : LABELS.show) + ': ' + L.labelOf(c.key)"
+                 @change="L.toggleVisible(c.key)">
+          <span>{{ L.labelOf(c.key) }}</span>
+        </label>
+      </li>
+    </ul>
+    <label class="cl-section-label" for="wl-group-by">{{ LABELS.groupBy }}</label>
+    <select id="wl-group-by" class="field" :disabled="!L.state.canEdit" :value="L.state.layout.group_by[0] || ''"
             @change="L.setGroupBy($event.target.value ? [$event.target.value] : [])">
       <option value="">{{ LABELS.groupNone }}</option>
       <option v-for="c in L.state.layout.columns" :key="c.key" :value="c.key">{{ L.labelOf(c.key) }}</option>
     </select>
-  </label>
-  <button type="button" :disabled="!L.state.canEdit || !L.state.dirty || L.state.status === 'saving'"
-          @click="L.save()">{{ LABELS.save }}</button>
-  <button type="button" @click="L.load()">{{ LABELS.reload }}</button>
-</section>`,
+    <div class="cl-panel__foot">
+      <button type="button" class="btn btn--primary" :disabled="!L.state.canEdit || !L.state.dirty || L.state.status === 'saving'"
+              @click="L.save()">{{ LABELS.save }}</button>
+      <button type="button" class="btn btn--ghost" @click="L.load()">{{ LABELS.reload }}</button>
+    </div>
+  </div>
+</div>`,
     });
 }

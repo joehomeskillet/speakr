@@ -67,6 +67,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tokens.css', v=app_version) }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css', v=app_version) }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/primitives.css', v=app_version) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/clinic-lists.css', v=app_version) }}">
     <!-- The phone layout of the recording page and the recording list (below 768px) -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/phone.css', v=app_version) }}">
     <!-- The processing queue: the indicator and the panel -->
@@ -222,7 +223,7 @@
                     <clinic-review-view v-else-if="currentView === 'clinic-review'" :client="clinicClient" :dictation-id="clinicDictationId" :current-user="clinicUser"
                                         @close="closeClinicDictationView" @correct="openClinicEditorFromView"></clinic-review-view>
                     <clinic-output-view v-else-if="currentView === 'clinic-output'" :client="clinicClient" :dictation-id="clinicDictationId"></clinic-output-view>
-                    <clinic-jobs-view v-else-if="currentView === 'clinic-jobs'" :client="clinicClient"></clinic-jobs-view>
+                    <clinic-jobs-view v-else-if="currentView === 'clinic-jobs'" :client="clinicClient" :dictation-id="clinicDictationId"></clinic-jobs-view>
                     <clinic-activity-view v-else-if="currentView === 'clinic-activity'" :client="clinicClient" :current-user="clinicUser" :dictation-id="clinicDictationId"></clinic-activity-view>
                 </div>
                 <!-- end V8 dictation views (v8-70) -->

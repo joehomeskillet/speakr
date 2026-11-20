@@ -32,6 +32,7 @@ const DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
 export const LABELS = Object.freeze({
     title: 'Aktivität und Audit',
     historyTitle: 'Verlauf eines Diktats',
+    historyOnlyTitle: 'Diktat / Verlauf',
     dictationId: 'Diktat-ID',
     showHistory: 'Verlauf anzeigen',
     historyInvalid: 'Bitte eine gültige Diktat-ID eingeben.',
@@ -277,32 +278,32 @@ function surfaceStyle(name) {
 }
 
 export const ACTIVITY_TEMPLATE = `
-<div class="clinic-activity-view">
+<div class="clinic-activity-view surface flex flex-col gap-5 p-4 md:p-6">
   <p v-if="state.denied" role="alert">${LABELS.deniedUser}</p>
   <template v-else>
-    <h2>${LABELS.title}</h2>
-    <section role="region" aria-label="${LABELS.historyTitle}">
-      <h3>${LABELS.historyTitle}</h3>
-      <form @submit.prevent="openHistory()">
-        <label for="act-dictation">${LABELS.dictationId}</label>
-        <input id="act-dictation" type="text" autocomplete="off" spellcheck="false" v-model="state.dictationInput" />
-        <button type="submit" aria-label="${LABELS.showHistory}">${LABELS.showHistory}</button>
+    <h2 class="t-heading">{{ historyOnly ? '${LABELS.historyOnlyTitle}' : '${LABELS.title}' }}</h2>
+    <section role="region" aria-label="${LABELS.historyTitle}" data-testid="history-section" class="flex flex-col gap-3 [&_h2]:sr-only [&_ol]:m-0 [&_ol]:p-0 [&_ol]:list-none [&_ol]:flex [&_ol]:flex-col [&_ol]:gap-2 [&_li]:rounded-[var(--radius-md)] [&_li]:p-3 [&_li]:border [&_li]:border-[var(--border-primary)] [&_li]:t-body [&_dl]:grid [&_dl]:grid-cols-[max-content_1fr] [&_dl]:gap-x-4 [&_dl]:gap-y-1 [&_dl]:mt-2 [&_dl]:mb-0 [&_dt]:text-[13px] [&_dt]:opacity-80 [&_dd]:m-0 [&_dd]:break-all [&_nav]:flex [&_nav]:items-center [&_nav]:gap-3 [&_nav]:mt-3 [&_button]:min-h-[2.75rem] [&_button]:px-3 [&_button]:rounded-[var(--radius-md)] [&_button]:border [&_button]:border-[var(--border-primary)] [&_button]:bg-transparent [&_button]:text-[var(--text-primary)]">
+      <h3 v-if="!historyOnly" class="t-subhead mb-2">${LABELS.historyTitle}</h3>
+      <form v-if="!historyOnly" class="flex flex-wrap items-end gap-3" @submit.prevent="openHistory()">
+        <label for="act-dictation" class="t-meta">${LABELS.dictationId}</label>
+        <input id="act-dictation" class="field" type="text" autocomplete="off" spellcheck="false" v-model="state.dictationInput" />
+        <button type="submit" class="btn" aria-label="${LABELS.showHistory}">${LABELS.showHistory}</button>
       </form>
       <p v-if="state.historyMessage" role="alert" :style="errorStyle">{{ state.historyMessage }}</p>
       <component v-if="state.dictationId" :is="historyComponent" :client="client" :dictation-id="state.dictationId"
         :key="state.epoch + ':' + state.dictationId"></component>
     </section>
-    <section role="region" aria-label="${LABELS.statsTitle}" :aria-busy="state.status === 'loading'">
-      <h3>${LABELS.statsTitle}</h3>
-      <form @submit.prevent="load()">
+    <section v-if="!historyOnly" role="region" aria-label="${LABELS.statsTitle}" data-testid="statistics-section" class="flex flex-col gap-3" :aria-busy="state.status === 'loading'">
+      <h3 class="t-subhead">${LABELS.statsTitle}</h3>
+      <form class="flex flex-wrap items-end gap-3" @submit.prevent="load()">
         <label for="act-basis">${LABELS.timeBasis}</label>
-        <select id="act-basis" v-model="state.form.timeBasis">
+        <select id="act-basis" class="field" v-model="state.form.timeBasis">
           <option v-for="b in timeBases" :key="b.value" :value="b.value">{{ b.label }}</option>
         </select>
         <label for="act-from">${LABELS.from}</label>
-        <input id="act-from" type="date" v-model="state.form.from" />
+        <input id="act-from" class="field" type="date" v-model="state.form.from" />
         <label for="act-to">${LABELS.to}</label>
-        <input id="act-to" type="date" v-model="state.form.to" />
+        <input id="act-to" class="field" type="date" v-model="state.form.to" />
         <fieldset>
           <legend>${LABELS.groupBy}</legend>
           <label v-for="g in groups" :key="g.value">
@@ -310,17 +311,17 @@ export const ACTIVITY_TEMPLATE = `
           </label>
         </fieldset>
         <label for="act-grain">${LABELS.grain}</label>
-        <select id="act-grain" v-model="state.form.grain">
+        <select id="act-grain" class="field" v-model="state.form.grain">
           <option value="">-</option>
           <option v-for="g in grains" :key="g.value" :value="g.value">{{ g.label }}</option>
         </select>
-        <button type="submit" aria-label="${LABELS.load}">${LABELS.load}</button>
+        <button type="submit" class="btn btn--primary" aria-label="${LABELS.load}">${LABELS.load}</button>
       </form>
       <p v-if="state.status === 'loading'" role="status">${LABELS.loading}</p>
       <p v-else-if="state.status === 'invalid'" role="alert" :style="errorStyle">{{ state.message }}</p>
       <div v-else-if="state.status === 'denied' || state.status === 'stale' || state.status === 'error'" role="alert" :style="errorStyle">
         <p>{{ state.message }}</p>
-        <button v-if="state.status !== 'denied'" type="button" aria-label="${LABELS.retry}" @click="load()">${LABELS.retry}</button>
+        <button v-if="state.status !== 'denied'" type="button" class="btn" aria-label="${LABELS.retry}" @click="load()">${LABELS.retry}</button>
       </div>
       <p v-else-if="state.status === 'empty'" role="status">${LABELS.empty}</p>
       <template v-if="state.view && (state.status === 'ready' || state.status === 'empty')">
@@ -344,7 +345,7 @@ export const ACTIVITY_TEMPLATE = `
           </tr></tbody>
         </table>
       </template>
-      <p>${LABELS.noExport}</p>
+      <p class="t-meta">${LABELS.noExport}</p>
     </section>
   </template>
 </div>`;
@@ -367,12 +368,16 @@ export const ActivityView = {
         });
         const historyComponent = Vue.markRaw(createHistoryComponent(Vue));
         Vue.watch(() => userIdOf(props.currentUser), () => ctrl.setUser(props.currentUser));
+        // History-only mode: with a dictation id the view shows that dictation's history and no account statistics.
+        const historyOnly = Vue.computed(() => Boolean(props.dictationId));
+        Vue.watch(() => props.dictationId, (id) => { if (id) ctrl.openHistory(id); });
         if (props.dictationId) ctrl.openHistory(props.dictationId);
         Vue.onBeforeUnmount(() => ctrl.dispose());
         return {
             state: ctrl.state,
             client: props.client,
-            load: ctrl.load,
+            historyOnly,
+            load: () => (historyOnly.value ? null : ctrl.load()),
             toggleGroup: ctrl.toggleGroup,
             openHistory: ctrl.openHistory,
             historyComponent,

@@ -40,6 +40,10 @@ export const LABELS = Object.freeze({
     op: 'Operator',
     value: 'Wert',
     search: 'Metadatensuche',
+    filter: 'Filter',
+    editor: 'Filter bearbeiten',
+    activeCount: 'Aktive Bedingungen',
+    noConditions: 'Noch keine Bedingung. Mit «Bedingung hinzufügen» lässt sich der Filter eingrenzen.',
     addCondition: 'Bedingung hinzufügen',
     removeCondition: 'Bedingung entfernen',
     save: 'Speichern',
@@ -352,57 +356,92 @@ export const WorklistFiltersPanel = {
     name: 'WorklistFiltersPanel',
     props: { controller: { type: Object, required: true } },
     data() {
-        return { labels: LABELS, fields: FIELDS, operators: OPERATORS, max: MAX_FILTERS, focusNote: FOCUS_NOTE, boxStyle: BOX, errorStyle: `background:${ERROR_SURFACE.background};color:${ERROR_SURFACE.color};border:1px solid ${ERROR_SURFACE.border};` };
+        return { open: false, labels: LABELS, fields: FIELDS, operators: OPERATORS, max: MAX_FILTERS, focusNote: FOCUS_NOTE, boxStyle: BOX, errorStyle: `background:${ERROR_SURFACE.background};color:${ERROR_SURFACE.color};border:1px solid ${ERROR_SURFACE.border};` };
     },
     computed: {
         s() { return this.controller.state; },
+        activeCount() {
+            const spec = ((this.s.filters || []).find((f) => f.id === this.s.selectedId) || {}).spec || {};
+            return (spec.all || []).length + (spec.any || []).length + (String(this.s.query || '').trim() ? 1 : 0);
+        },
         countLabel() { return this.labels.count.replace('{n}', this.s.filters.length).replace('{max}', this.max); },
     },
     mounted() { if (!this.s.loaded) this.controller.load(); },
     template: `
-<section aria-labelledby="wf-title" :style="boxStyle" :aria-busy="s.loading || s.busy ? 'true' : 'false'">
-  <h2 id="wf-title">{{ labels.title }}</h2>
-  <p id="wf-count" aria-live="polite">{{ countLabel }}</p>
-  <div role="status" aria-live="polite">
-    <p v-if="s.message && !s.error">{{ s.message }}</p>
+<section aria-labelledby="wf-title" class="wf-panel" :aria-busy="s.loading || s.busy ? 'true' : 'false'">
+  <h2 id="wf-title" class="cl-sr-only">{{ labels.title }}</h2>
+  <div class="cl-toolbar" data-testid="filter-toolbar">
+    <div class="cl-toolbar__group" data-testid="refresh-bar">
+      <slot name="start"></slot>
+    </div>
+    <span class="cl-toolbar__spacer" aria-hidden="true"></span>
+    <div class="cl-toolbar__search">
+      <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+      <label for="wf-search" class="cl-sr-only">{{ labels.search }}</label>
+      <input id="wf-search" type="search" class="field" maxlength="200" autocomplete="off" :placeholder="labels.search" :value="s.query"
+             @keydown.enter.prevent="controller.setQuery($event.target.value)"
+             @change="controller.setQuery($event.target.value)">
+    </div>
+    <div class="cl-toolbar__group">
+      <button type="button" class="btn btn--ghost cl-btn" data-testid="filter-toggle" aria-controls="wf-editor"
+              :aria-expanded="open ? 'true' : 'false'" @click="open = !open">
+        <i class="fa-solid fa-sliders" aria-hidden="true"></i>{{ labels.filter }}
+        <span v-if="activeCount" class="cl-badge" data-testid="filter-count"><span class="cl-sr-only">{{ labels.activeCount }}: </span>{{ activeCount }}</span>
+      </button>
+      <label for="wf-select" class="cl-sr-only">{{ labels.select }}</label>
+      <select id="wf-select" class="field cl-select" :value="s.selectedId || ''" @change="controller.select($event.target.value || null)">
+        <option value="">{{ labels.none }}</option>
+        <option v-for="f in s.filters" :key="f.id" :value="f.id">{{ f.name }}</option>
+      </select>
+      <slot name="end"></slot>
+    </div>
   </div>
-  <p v-if="s.error" role="alert" :style="errorStyle">{{ s.message }}
-    <button type="button" v-if="s.error === 'network'" @click="controller.load()">{{ labels.reload }}</button>
+  <div role="status" aria-live="polite">
+    <p v-if="s.message && !s.error" class="cl-note cl-hint">{{ s.message }}</p>
+  </div>
+  <p v-if="s.error" role="alert" class="cl-error" :style="errorStyle">{{ s.message }}
+    <button type="button" class="btn btn--ghost btn--sm" v-if="s.error === 'network'" @click="controller.load()">{{ labels.reload }}</button>
   </p>
-  <label for="wf-select">{{ labels.select }}</label>
-  <select id="wf-select" :value="s.selectedId || ''" @change="controller.select($event.target.value || null)">
-    <option value="">{{ labels.none }}</option>
-    <option v-for="f in s.filters" :key="f.id" :value="f.id">{{ f.name }}</option>
-  </select>
-  <label for="wf-search">{{ labels.search }}</label>
-  <input id="wf-search" type="search" maxlength="200" autocomplete="off" :value="s.query"
-         @keydown.enter.prevent="controller.setQuery($event.target.value)"
-         @change="controller.setQuery($event.target.value)">
-  <form @submit.prevent="controller.save(false)" novalidate>
-    <label for="wf-name">{{ labels.name }}</label>
-    <input id="wf-name" type="text" maxlength="60" autocomplete="off" v-model="s.draft.name"
-           :readonly="!s.specLoaded"
-           :aria-invalid="s.error === 'name_required' || s.error === 'name_too_long' ? 'true' : 'false'">
-    <fieldset v-for="(c, i) in s.draft.conditions" :key="i">
-      <legend>{{ labels.fields[c.field] || c.field }}</legend>
-      <label :for="'wf-f' + i">{{ labels.field }}</label>
-      <select :id="'wf-f' + i" v-model="c.field">
-        <option v-for="f in fields" :key="f" :value="f">{{ labels.fields[f] }}</option>
-      </select>
-      <label :for="'wf-o' + i">{{ labels.op }}</label>
-      <select :id="'wf-o' + i" v-model="c.op">
-        <option v-for="o in operators" :key="o" :value="o">{{ labels.ops[o] }}</option>
-      </select>
-      <template v-if="c.op !== 'is_null'">
-        <label :for="'wf-v' + i">{{ labels.value }}</label>
-        <input :id="'wf-v' + i" type="text" autocomplete="off" v-model="c.value">
-      </template>
-      <button type="button" @click="controller.removeCondition(i)">{{ labels.removeCondition }}</button>
-    </fieldset>
-    <button type="button" @click="controller.addCondition()">{{ labels.addCondition }}</button>
-    <button type="submit" :disabled="s.busy || !s.specLoaded">{{ labels.save }}</button>
-    <button type="button" :disabled="s.busy || !s.specLoaded || s.limitReached || !s.selectedId" @click="controller.save(true)">{{ labels.saveNew }}</button>
-    <button type="button" :disabled="s.busy || !s.specLoaded || !s.selectedId" @click="controller.remove()">{{ labels.remove }}</button>
-  </form>
+  <div v-show="open" id="wf-editor" class="cl-panel" :style="boxStyle" data-testid="filter-editor">
+    <div class="cl-panel__head">
+      <h3 class="cl-panel__title">{{ labels.editor }}</h3>
+      <p id="wf-count" aria-live="polite" class="cl-hint">{{ countLabel }}</p>
+    </div>
+    <form @submit.prevent="controller.save(false)" novalidate>
+      <label for="wf-name" class="cl-label cl-namefield">{{ labels.name }}
+        <input id="wf-name" type="text" class="field" maxlength="60" autocomplete="off" v-model="s.draft.name"
+               :readonly="!s.specLoaded"
+               :aria-invalid="s.error === 'name_required' || s.error === 'name_too_long' ? 'true' : 'false'">
+      </label>
+      <p v-if="!s.draft.conditions.length" class="cl-hint cl-hint--pad">{{ labels.noConditions }}</p>
+      <div class="cl-conditions">
+        <fieldset v-for="(c, i) in s.draft.conditions" :key="i" class="cl-condition">
+          <legend>{{ labels.fields[c.field] || c.field }}</legend>
+          <label :for="'wf-f' + i" class="cl-label">{{ labels.field }}
+            <select :id="'wf-f' + i" class="field" v-model="c.field">
+              <option v-for="f in fields" :key="f" :value="f">{{ labels.fields[f] }}</option>
+            </select>
+          </label>
+          <label :for="'wf-o' + i" class="cl-label">{{ labels.op }}
+            <select :id="'wf-o' + i" class="field" v-model="c.op">
+              <option v-for="o in operators" :key="o" :value="o">{{ labels.ops[o] }}</option>
+            </select>
+          </label>
+          <label v-if="c.op !== 'is_null'" :for="'wf-v' + i" class="cl-label">{{ labels.value }}
+            <input :id="'wf-v' + i" type="text" class="field" autocomplete="off" v-model="c.value">
+          </label>
+          <span v-else></span>
+          <button type="button" class="btn btn--ghost" @click="controller.removeCondition(i)"><i class="fa-solid fa-xmark" aria-hidden="true"></i>{{ labels.removeCondition }}</button>
+        </fieldset>
+      </div>
+      <div class="cl-panel__foot">
+        <button type="button" class="btn btn--ghost" @click="controller.addCondition()"><i class="fa-solid fa-plus" aria-hidden="true"></i>{{ labels.addCondition }}</button>
+        <span class="cl-toolbar__spacer" aria-hidden="true"></span>
+        <button type="submit" class="btn btn--primary" :disabled="s.busy || !s.specLoaded">{{ labels.save }}</button>
+        <button type="button" class="btn btn--ghost" :disabled="s.busy || !s.specLoaded || s.limitReached || !s.selectedId" @click="controller.save(true)">{{ labels.saveNew }}</button>
+        <button type="button" class="btn btn--ghost" :disabled="s.busy || !s.specLoaded || !s.selectedId" @click="controller.remove()"><i class="fa-regular fa-trash-can" aria-hidden="true"></i>{{ labels.remove }}</button>
+      </div>
+    </form>
+  </div>
 </section>`,
 };

@@ -420,9 +420,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             // Set when the correction is left towards another view (tab, menu link, browser back).
             let clinicPendingView = null;
             const clinicActiveTab = computed(() => (currentView.value === 'clinic-correction' || currentView.value in CLINIC_DICTATION_HASH ? clinicOrigin.value : currentView.value));
-            // The worklist reports { dictationId, mode }; author_case keeps its current behaviour.
+            // The correction view gets the user's permissions from the server.
             const openClinicDictation = (payload) => {
-                if (!payload || (payload.mode !== 'correction' && payload.mode !== 'player')) return;
+                if (!payload || !['correction', 'player', 'author_case'].includes(payload.mode)) return;
                 if (payload.dictationId === undefined || payload.dictationId === null) return;
                 if (currentView.value !== 'clinic-correction') clinicOrigin.value = currentView.value === 'clinic-worklist' ? 'clinic-worklist' : 'clinic-recordings';
                 clinicCorrectionId.value = String(payload.dictationId);

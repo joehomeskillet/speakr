@@ -21,6 +21,7 @@ identifiers only, never patient identifiers, audio or transcript text.
 
 from __future__ import annotations
 
+import json
 from datetime import timezone
 
 from sqlalchemy import and_, or_
@@ -66,6 +67,26 @@ def _open_mode(actor: int, dictation: ClinicDictation, status: str) -> str:
     return "player" if status == workflow.TO_WRITE else "correction"
 
 
+def _source_labels(dictation_ids: list[str]) -> dict[str, str]:
+    """German source label per dictation from its earliest original receipt origin (unknown: absent)."""
+    earliest: dict[str, tuple] = {}
+    for start in range(0, len(dictation_ids), 500):
+        part = dictation_ids[start:start + 500]
+        for original in db.session.query(ClinicOriginal).filter(ClinicOriginal.dictation_id.in_(part)):
+            key = (stamp(original.created_at) or "", original.id)
+            if original.dictation_id not in earliest or key < earliest[original.dictation_id][0]:
+                earliest[original.dictation_id] = (key, original.receipt)
+    labels = {}
+    for dictation_id, (_key, receipt) in earliest.items():
+        try:
+            origin = json.loads(receipt).get("origin")
+        except (ValueError, AttributeError):
+            continue
+        if isinstance(origin, str) and origin in routes_worklist.ORIGIN_LABELS:
+            labels[dictation_id] = routes_worklist.ORIGIN_LABELS[origin]
+    return labels
+
+
 def load_entries(actor: int) -> list[routes_worklist.WorklistEntry]:
     """Entries the actor may see (W12/W13); the live view policy still decides every row."""
     item = workflow.ClinicWorkflowDictation
@@ -85,6 +106,7 @@ def load_entries(actor: int) -> list[routes_worklist.WorklistEntry]:
 
     found = list(query)
     roles = project_roles(dictation for dictation, _row, _rec in found)
+    labels = _source_labels([dictation.id for dictation, _row, _rec in found])
     entries = []
     for dictation, row, rec in found:
         if admin and actor not in (dictation.author_user_id, rec.user_id):
@@ -97,7 +119,7 @@ def load_entries(actor: int) -> list[routes_worklist.WorklistEntry]:
             assigned_at=None, notes=rec.notes or "", created_at=stamp(row.created_at),
             duration_seconds=row.audio_seconds, recipient=None, source_kind="audio",
             open_mode=_open_mode(actor, dictation, row.status), revision=dictation.version_counter,
-            **roles[dictation.id]), dictation.pool_id))
+            source_label=labels.get(dictation.id), **roles[dictation.id]), dictation.pool_id))
     return entries
 
 
