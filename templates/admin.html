@@ -5023,16 +5023,26 @@ Summarization Instructions:
                 return { draft, panel, dictationId, open, client };
             },
             template: `
-<div>
-  <form class="cadm-inline cadm-hostbar" @submit.prevent="open">
-    <div class="cadm-field">
-      <label for="clinic-regex-dictation">Diktat-ID</label>
-      <input id="clinic-regex-dictation" class="field" type="text" autocomplete="off" v-model="draft">
+<section class="v8-page v8-admin-page" aria-labelledby="cadm-rules-title">
+  <header class="pagehead">
+    <div>
+      <div class="eyebrow">Verwaltung</div>
+      <h1 id="cadm-rules-title">Regeln</h1>
+      <p class="subline">Metadatenregeln für ein Diktat laden und prüfen.</p>
     </div>
-    <button type="submit" class="btn btn--ghost">Regeln laden</button>
-  </form>
+  </header>
+  <section class="panel" aria-labelledby="cadm-rules-select">
+    <h2 id="cadm-rules-select">Diktat auswählen</h2>
+    <form class="cadm-inline" @submit.prevent="open">
+      <div class="cadm-field">
+        <label for="clinic-regex-dictation">Diktat-ID</label>
+        <input id="clinic-regex-dictation" class="field" type="text" autocomplete="off" v-model="draft">
+      </div>
+      <button type="submit" class="btn btn--primary">Regeln laden</button>
+    </form>
+  </section>
   <component :is="panel" v-if="panel" :key="dictationId" :client="client" :dictation-id="dictationId"></component>
-</div>`,
+</section>`,
         };
 
 
