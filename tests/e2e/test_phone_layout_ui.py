@@ -796,7 +796,24 @@ def test_the_switch_stays_pinned_over_a_long_transcript(phone, long_transcript):
     phone.check("the pinned bar over a long transcript")
 
 
-def test_find_from_the_pinned_bar(phone, long_transcript):
+@pytest.fixture(params=["default", "focus"])
+def find_theme(phone, browser, request):
+    # A fresh signed-in context has only the theme supplied by the server, including null.
+    context = browser.new_context()
+    try:
+        snapshot = context.new_page()
+        login(snapshot, BASE, ADMIN_EMAIL, ADMIN_PASSWORD)
+        saved = snapshot.evaluate("localStorage.getItem('uiTheme')")
+    finally:
+        context.close()
+    phone.set_theme(request.param)
+    try:
+        yield request.param
+    finally:
+        phone.set_theme(saved)
+
+
+def test_find_from_the_pinned_bar(phone, long_transcript, find_theme):
     page = phone.page
     phone.open(phone.ids[LONG_TITLE], tab="transcript")
     page.locator(SEGMENT).first.wait_for(state="visible", timeout=60000)
@@ -808,6 +825,16 @@ def test_find_from_the_pinned_bar(phone, long_transcript):
     phone.wait("() => { const el = document.querySelector('[data-transcript-find] .find-replace-bar__count'); return !!el && el.textContent.trim() === '1'; }")
     field.press("Enter")
     phone.wait_in_view(7000)
+    assert page.locator("html").get_attribute("data-ui-theme") == find_theme
+    # Rendering a distant virtual row precedes the browser's final scroll position.
+    phone.wait("""index => {
+        const row = document.querySelector('[data-segment-index="' + index + '"]');
+        if (!row) return false;
+        const match = row.getBoundingClientRect();
+        const bar = document.querySelector('[data-phone-transcript-bar]').getBoundingClientRect();
+        const player = document.querySelector('[data-mobile-player]').getBoundingClientRect();
+        return match.top >= bar.bottom - 1 && match.bottom <= player.top + 1;
+    }""", 7000)
     # The match is below the bar with its find field, and marked
     place = bar_place(page)
     box = phone.segment(7000).bounding_box()
@@ -815,7 +842,7 @@ def test_find_from_the_pinned_bar(phone, long_transcript):
     assert abs(place["barTop"] - place["topBarBottom"]) <= 1, place
     phone.wait("() => typeof CSS === 'undefined' || !CSS.highlights || CSS.highlights.has('transcript-find-current')")
     phone.no_sideways_scroll("the find bar")
-    phone.shot("phone-layout-test-find")
+    phone.shot(f"phone-layout-test-find-{find_theme}")
     # A second word, with several matches: next and previous
     field.fill("segment 1234")
     phone.wait("() => document.querySelector('[data-transcript-find] .find-replace-bar__count').textContent.trim() === '11'")
