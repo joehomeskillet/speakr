@@ -245,19 +245,6 @@ def _purge_new_accounts(user_ids, recording_ids):
     _purge_orphan_jobs()
 
 
-def _ensure_issuer_user():
-    """PostgreSQL enforces foreign keys: tests name user id 1 as the issuer of
-    recovery tokens. Keep one such account for the session (SQLite does not check)."""
-    if db.engine.dialect.name != "postgresql" or db.session.get(User, 1) is not None:
-        return
-    db.session.add(User(id=1, username="clinic_issuer", email="clinic_issuer@local.test",
-                        password="x", is_admin=True))
-    db.session.commit()
-    db.session.execute(text(
-        "SELECT setval(pg_get_serial_sequence('\"user\"', 'id'), (SELECT MAX(id) FROM \"user\"))"))
-    db.session.commit()
-
-
 @pytest.fixture(scope="session", autouse=True)
 def _clinic_tables_exist():
     """Every clinic table exists before the first test of the process. Several test
@@ -274,7 +261,6 @@ def clinic_isolation():
         _purge_clinic_rows()
         _purge_audit_rows()
         _purge_orphan_jobs()
-        _ensure_issuer_user()
         users = [row[0] for row in db.session.query(User.id).all()]
         recordings = [row[0] for row in db.session.query(Recording.id).all()]
     yield

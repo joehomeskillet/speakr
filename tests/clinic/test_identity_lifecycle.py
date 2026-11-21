@@ -32,9 +32,17 @@ def good_hash():
 
 
 @pytest.fixture(autouse=True)
-def ctx():
+def ctx(clinic_isolation):
     with app.app_context():
         identity.create_tables()
+        # The original recovery contract names issuer 1. Only this module needs it.
+        # clinic_isolation snapshots existing accounts before this fixture runs.
+        if db.engine.dialect.name == "postgresql" and db.session.get(User, 1) is None:
+            # Reserve the first sequence value on a fresh database without rewinding it.
+            db.session.execute(text("""SELECT nextval(pg_get_serial_sequence('"user"', 'id'))"""))
+            db.session.add(User(id=1, username="clinic_issuer", email="clinic_issuer@local.test",
+                                password="x", is_admin=True))
+            db.session.commit()
         db.session.rollback()
         for model in (identity.ClinicLocalRecovery, identity.ClinicBootstrapMarker,
                       identity.ClinicAccountPolicy):
