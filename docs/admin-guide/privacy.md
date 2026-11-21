@@ -1,258 +1,282 @@
 # Privacy and regulated data
+<small>[Deutsch](../de/admin-guide/privacy.md)</small>
 
-This page is written for an administrator who plans a deployment for regulated data, such as student records under FERPA or health information under HIPAA. The data that is stored, logged, cached, deleted and sent to other services in this release is listed here. The deployment itself, the surrounding systems and the people with access are outside the scope of the page.
+This page is for administrators of the web-only clinic dictation fork of Speakr v0.11.1 (pinned upstream base `48d3018`). It lists what the clinic build stores, sends to other services and keeps in the browser, which upstream features that would send or expose data are removed or locked, and where the evidence ends. The hosting, the surrounding systems and the people with access are outside the scope of this page. Nothing on this page is legal advice.
 
-## Responsibility for compliance
+Everything below applies only when `CLINIC_MODE` is `1`, `true`, `yes` or `on`. The switch is read on every call. With clinic mode off, the route guard, the feature locks and the clinic-mode checks are inert. Features removed from the code stay absent, and the integrity triggers stay installed. This manual does not cover operation with clinic mode off.
 
-No compliance with FERPA, HIPAA or any other law or regulation is claimed for Speakr, and Speakr is not certified under any of them. A deployment is not made compliant by software alone. Compliance depends on the configuration, the hosting, the contracts with every service to which data is sent, and the practices of the people involved, and it is assessed by the compliance office of the institution.
+## Status and evidence limits
 
-The features that support a deployment with regulated data are local transcription and language models, automatic retention, the [audit log](audit-log.md), and the settings for sessions, API tokens and webhooks. Their configuration, and everything outside the application, remains the responsibility of the operator. Nothing on this page is legal advice.
+- No compliance with HIPAA, the GDPR, the Swiss Federal Act on Data Protection or any other law or regulation is claimed for this build, and it is not certified under any of them. The build has no clinical approval, is not declared production-ready and does not reach 1:1 parity with the legacy dictation product.
+- The contract file that clinic mode loads, `clinic-spec/config/dev.defaults.json`, is the development profile `local-web-parity-lab` with `synthetic_only: true`. Its `privacy` block sets `production_approved`, `allow_real_data` and `retention_policy_approved` to `false`.
+- `clinic-spec/config/production.template.json` is not read at runtime. It has `enabled: false`, an empty `approved_gates` list, and `null` for every retention value (`policy_reference`, `audio_days`, `transcript_days`, `audit_days`, `backup_days`) and every recovery value (RPO, RTO, restore evidence).
+- Tests with mocks, fixtures or synthetic data are not evidence for Philips devices, Microsoft Entra, a KIS (hospital information system) or foot pedals.
+- The application does not encrypt data at rest. Database content, original files, working copies and exported files are stored as plain data.
+- The web-parity gaps in `clinic-spec/planning/web-parity-gaps.json` stay open. The gaps that matter for privacy are named where they apply.
 
-## Stored data
+Status terms: see [Status vocabulary](index.md#status-vocabulary).
 
-### Database
+## Default deny in clinic mode
 
-All text is kept in the application database (SQLite by default, PostgreSQL as an option) as plain text. No column is encrypted by the application.
+- Every request endpoint is looked up in the clinic route-policy table. An endpoint that the table does not list is refused with 403 `clinic_unclassified_route` and a warning log line.
+- A feature is usable only when the `features` map of `dev.defaults.json` (or of the directory named by `CLINIC_CONFIG_DIR`) names it with the value `true`. A name that the file does not know is locked. A route of a locked feature answers 403 `clinic_feature_disabled`.
+- The switches are in the contract file, not in the admin interface. Every upstream feature that sends or exposes data is `false` there: `public_sharing`, `personal_api_tokens`, `token_query_parameters`, `user_webhooks`, `auto_deletion`, `email_exports`, `speaker_identification` and others. `internal_sharing`, `push_notifications` and `cloud_provider_selection` are not named and therefore locked. This manual gives no instruction to change these values.
+- Chat, Inquire and the generative summary do not follow their flag. They depend only on a local text model (see [Optional local AI](#optional-local-ai)).
 
-| Data | Table |
-|---|---|
-| Title, participants, notes, transcript, translation, summary, original file name, storage path of the media, error text, prompt variables, resolved hotwords and initial prompt, name of the exported file. Voice embeddings of every voice of the recording, named or not, under its diarization label, when embeddings are returned by the transcription service. | `recording` |
-| Transcript passages, their embeddings and the name of the main speaker of each passage when that speaker is named, when Ask Ambrose is enabled (`ENABLE_INQUIRE_MODE=true`) | `transcript_chunk` |
-| Speakers that a user named: name, email address and aliases when entered, voice embeddings, and short quotes of up to 200 characters. Nothing is stored here for an unnamed voice (see [Diarization labels](#diarization-labels)). | `speaker`, `speaker_voice_sample`, `speaker_snippet` |
-| Job parameters (including hotwords and initial prompt) and error text of a job | `processing_job` |
-| Public links, internal shares and per-user notes on a shared recording, from an earlier release. This build does not write these tables and does not map them. | `share`, `internal_share`, `shared_recording_state` |
-| Sessions of recordings made in the browser and of uploads in slices. While a session is in progress: the file name of the upload, or the title, notes and options entered when the recording was finished. Afterwards: ids, sizes, times, the status and error text, without the file name, the title and the notes (see [Recording sessions](#recording-sessions)). | `recording_session` |
-| Parts of an upload that is joined into one recording, with the original file name, for one day. Ids of uploads named by the browser, for one day. | `upload_join_part`, `client_upload` |
-| References of a recording to other systems: reference, address and label | `recording_external_ref` |
-| Tags and folders with their names, prompts, default hotwords and default initial prompts. Groups, memberships and permissions. | `tag`, `folder`, `recording_tags`, `group`, `group_membership`, `permission_grant` |
-| Templates of a user for transcripts, titles, exports and initial prompts | `transcript_template`, `naming_template`, `export_template`, `initial_prompt_template` |
-| Name and filters of an Ask Ambrose session: tags, speaker names, dates and recording ids | `inquire_session` |
-| The [audit log](audit-log.md): sign-ins, access to recordings, changes and administrative actions, each with time, account, client address and user agent. Ids and codes only; no title, file name or content. | `audit_event` |
-| Changes of internal shares recorded by earlier releases, with the client address and a note. This build does not write the table, does not map it, and does not copy its rows into `audit_event` on startup. Rows already copied by an earlier version stay in `audit_event`. | `share_audit_log` |
-| Webhook addresses and signing secrets in plain text. For every delivery: the payload, the first 2000 characters of the answer of the receiver, and error text. | `webhook`, `webhook_delivery` |
-| Token and audio-second counts per user and day. | `token_usage`, `transcription_usage` |
-| API tokens as SHA-256 hashes, with name, scopes, expiry and time of last use | `api_token` |
-| Accounts: username, email address, bcrypt password hash, SSO subject, name, job title and company when entered, prompts, hotwords and preferences, and the time of the last use of the account | `user` |
-| Failed sign-in counters per account and client address. An IPv6 address is stored as its `/64` network. | `login_failure` |
-| Id of each deleted recording with the user id, the time and the reason, for the changes feed of the API | `recording_tombstone` |
-| Notices shown in the interface, as a message key with parameters | `notification` |
-| Push subscriptions of browsers: endpoint and keys. A subscription can be stored through the API only (see [Outbound connections](#outbound-connections)). | `push_subscriptions` |
-| System settings, among them the default prompts set by an administrator | `system_setting` |
-| Fingerprint of the voice embedding model and the embedding of a bundled test clip. No user data. | `voice_embedding_space` |
+## Local-only processing
 
-For the last use of an account, only the time of the last request is kept, in one column of the `user` table. The time is updated at most once every five minutes, and no history of requests, addresses or routes is stored for it. Requests that are sent on a timer from an open tab are not counted. The time is shown to site administrators in the [user list](user-management.md#monitoring-usage-patterns).
+### Speech recognition
 
-Service keys (LLM, transcription, embeddings, SMTP, SSO) are read from environment variables and are not written to the database.
+Status: Available. Speech recognition runs on services that the institution operates. There is no cloud speech recognition and no cloud fallback.
 
-### Diarization labels
+- Only three transcription connectors are registered: `openai_whisper` (an OpenAI-compatible local service such as Speaches, address in `TRANSCRIPTION_BASE_URL`), `asr_endpoint` (WhisperX or whisper-asr-webservice, address in `ASR_BASE_URL`) and `clinic_stub`. All other upstream connectors are removed (Upstream only). Any other `TRANSCRIPTION_CONNECTOR` value fails with `Unknown connector: <name>`.
+- The contract declares `asr.cloud_fallback`, `asr.realtime_cloud_fallback`, `asr.diarization` and `asr.llm_postprocessing` as `false`. The code does not read these values; the behavior described on this page comes from the code. The only fallback in the code goes from a local GPU service to the local CPU service.
+- In clinic mode the `openai_whisper` connector fails closed. An empty or non-local `TRANSCRIPTION_BASE_URL` stops the connector with `CLINIC_MODE is active: transcription base URL must point to a local or private service ...`. This includes the OpenAI default address. Local means: a loopback address (`localhost`, `127.0.0.0/8`, `::1`), a private address (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `fc00::/7`), a link-local address (`169.254.0.0/16`, `fe80::/10`), a host name without a dot, or a name that ends in `.local`, `.internal`, `.lan` or `.localhost`.
+- Open gap: the `asr_endpoint` connector checks only that `ASR_BASE_URL` is set. Its address is not checked for locality in clinic mode. Point `ASR_BASE_URL` only at a host of the institution.
+- Default off: GPU first, CPU second. With `CLINIC_GPU_ASR_BASE_URL` set, a job goes to the GPU service first. On a timeout, a connection error, an HTTP 5xx answer or an unhealthy `/healthz`, the same job runs once on the CPU service. The GPU target uses the same connector class, so the same locality check applies to its address.
+- Default off: transcription hints. In clinic mode the initial prompt and the hotwords are dropped from every source (admin defaults, user, tag, folder) unless `CLINIC_ASR_PROMPTS_ENABLED` is on. Then prompt and hotwords share a cap of 55 words.
+- Hotwords and profile settings only bias the decoding, and entries of the vocabulary (**Wortschatz** (vocabulary)) are not sent with the batch recognition request. None of them is acoustic training. Runs started with **Optimierung starten** (start optimization) are refused with `CAPABILITY_UNAVAILABLE`, and no model is trained or adapted.
+- `clinic_stub` returns fixed synthetic sentences. It is a test double and refuses to run with `CLINIC_PROFILE=production`.
+- At startup one warning per service is logged when `ASR_BASE_URL`, `TRANSCRIPTION_BASE_URL`, a text, chat or translation model address or `EMBEDDING_BASE_URL` uses plain `http://` to another machine. Private ranges are reported too, because the content still crosses a network. The warning does not block the start.
+- The recognition quality for German clinical dictation has not been measured.
 
-A diarization label is the placeholder of a voice that has not been named, such as `SPEAKER_00`, `Speaker 1`, `spk_0` or `Unknown Speaker`. A label is kept in the transcript, where an unnamed turn is shown under it. A label is never stored as a person: no row in `speaker`, `speaker_voice_sample` or `speaker_snippet` is written for a label, and labels are left out of `recording.participants`, of `transcript_chunk.speaker_name` and of the speaker filters stored in `inquire_session`. The rule is defined in `src/utils/speaker_labels.py`.
+Setup details: [Local speech recognition](whisperx-setup.md) and [Model Configuration](model-configuration.md).
 
-When a recording is transcribed or reprocessed, the labels in the result of the transcription service are stored in one form: `SPEAKER_00`, `SPEAKER_01` and so on. A letter (`A`), a number (`0`) and a numbered label in another form (`S01`, `SPEAKER_0`, `Speaker 1`) are converted. Two kinds of label are stored as received: a label of the unknown family (`Unknown`, `UNKNOWN_SPEAKER`), and text without a number, which is taken for a name supplied by the service. Transcripts stored by earlier releases are not rewritten.
+### Optional local AI
 
-In earlier releases a label could be stored as a person. At the first start after the upgrade, such entries are removed once (migration `0008_remove_generic_speaker_labels`):
+- No language-model client exists unless `TEXT_MODEL_BASE_URL` or `TEXT_MODEL_API_KEY` is set. Without `TEXT_MODEL_BASE_URL`, the client uses the code default `https://openrouter.ai/api/v1`, a hosted service.
+- Chat, Inquire and the generative summary routes are locked unless `TEXT_MODEL_BASE_URL` is local and each of `CHAT_MODEL_BASE_URL`, `TRANSLATION_MODEL_BASE_URL` and `EMBEDDING_BASE_URL` is local when it is set. One public address locks all three features. For text models, local means a loopback or private address or a host name in `CLINIC_LOCAL_MODEL_HOSTS` (default `speaches,host.docker.internal,localhost`). Any other host name without a dot is not local, and an address with user information, a backslash or whitespace is refused.
+- The clinic interface has no chat and no Ask Ambrose interface (see [Ambrose Settings](ambrose.md)).
+- Open gap: automatic title and summary. In clinic mode a finished transcription queues a `summarize` job for the title and, when automatic summaries apply, the summary of the stock recording row. This path has no locality check of its own. With only `TEXT_MODEL_API_KEY` set, the client uses the hosted default `https://openrouter.ai/api/v1`, and the automatic title and summary send the transcript there. The same happens with a hosted `TEXT_MODEL_BASE_URL`. Configure a local text model or none. The system setting `disable_auto_summarization` (default `false`) and the per-user automatic summary switch stop the summary, not the title.
+- Open gap: with `ENABLE_INQUIRE_MODE=true` (default `false`), every completed recording queues an index job for transcript passages and embeddings, without a clinic check. Keep `ENABLE_INQUIRE_MODE` off.
+- No language model rewrites the dictation text. A transcript revision is either `ASR` or `HUMAN` (`TRANSCRIPT_KINDS` in `src/clinic/models.py`).
+- In verification: an AI summary per dictation, shown read-only in the panel **KI-Zusammenfassung** (AI summary). It runs only when clinic mode is on, the generative summary is unlocked, a language-model client exists and its address is local. There is no hosted fallback. The request ignores proxy environment variables, does not follow redirects, and replaces a provider error with a generic message so that the error text cannot quote the transcript. The input is the current saved text revision, cut to `transcript_length_limit` (default 30000 characters). The summary never changes the dictation text. It is created automatically only for the first recognized text of a new dictation, and only when `disable_auto_summarization` is off, the author's own automatic-summary switch is on and the author has the view and edit rights. A user with the edit right can request it on the current saved text (at least 10 characters) with **Zusammenfassung erstellen** (create summary) or **Zusammenfassung neu erstellen** (create again). Every read of the panel's state, including the polls while a summary is being created, is recorded as `recording.content.read` with `part=summary`, and every request as `recording.reprocessed` with `kind=summary`. With this feature, the working copy of a linked dictation gets only a title, no stock summary. The admin page **Modellwahl** (model selection), also in verification, stores model names only; service addresses and keys stay in environment variables. These features are not part of the current released build; labels and availability may change.
 
-- Saved speakers whose name is a label are deleted, together with their voice samples and quotes. In transcripts, the link from a segment to such a speaker is cleared; the text and the visible label of the segment are not changed.
-- Labels are removed from the participants of recordings. The `updated_at` of these recordings is set, so that the new value is read by API clients.
-- The speaker name of transcript passages is cleared where it is a label. The text of the passage is not changed.
-- Labels are removed from the speaker filters of Ask Ambrose sessions.
-- A saved speaker named like a label is kept when an email address or aliases were entered for it. Such a speaker is not listed anywhere; its id is written to the log, and it can be renamed or deleted through the API by that id.
+### Speaker service
 
-The log line of the cleanup holds counts and ids, never a name. The counts can be read beforehand with a command that has read-only access to the database. The recordings whose stored transcript still holds labels in another form are counted by the same command.
+Status: Default off. `CLINIC_SPEAKER_SERVICE_URL` names a separate local process that computes voice embeddings. Each call is tried once, with a timeout of 120 s (5 s for the health check). Open gap: the address is not checked for locality. Set it only to a host of the institution. The service is used only for consented voice profiles (see [Voice profiles](#voice-profiles-opt-in-only)).
 
-```bash
-docker compose exec app python scripts/generic_speakers_dry_run.py
+## Data stored by the clinic build
 
-# A copy or another database
-python scripts/generic_speakers_dry_run.py --database-uri sqlite:////path/to/copy.db
-```
+The upstream tables remain in the database (SQLite by default, PostgreSQL as an option). In clinic mode the stock `recording` row of the transcription working copy holds the recognized transcript and, when a text model is configured, the title and the summary. The anchor recording of the dictation takes over the title unless it already has one. The clinic build adds the following stores and files.
 
-### Files
+| Data | Where | Protection |
+|---|---|---|
+| Dictation originals, written bit for bit and fsynced | Files under `CLINIC_ORIGINALS_ROOT` (default `UPLOAD_FOLDER`) at `clinic/originals/v1/<SHA-256 of the idempotency key>`; receipt with hash and size in `clinic_original_version` | Always the local file system, whatever `FILE_STORAGE_BACKEND` says. Database triggers refuse UPDATE and DELETE of the receipt. |
+| Working copy for transcription | Storage backend, key `clinic/imports/asr/<id>/Diktat.<ext>`, and a stock `recording` row with the file name `Diktat.<ext>` | Goes to the S3 bucket when `FILE_STORAGE_BACKEND=s3`. |
+| Audio and chunks during conversion and transcription | Temporary folder of the container | Deleted when the job ends; can remain after a crash until the container is recreated. |
+| Chunks of a stock browser recording and slices of a large stock upload in progress | `UPLOAD_FOLDER/_sessions/<session id>/` | Removed at finalization; abandoned sessions are handled by the hourly cleanup (see [Deletion, archival and retention](#deletion-archival-and-retention)). |
+| Files in conversion | `UPLOAD_FOLDER/_staging/`, or `FILE_STORAGE_STAGING_DIR` | Local file system. |
+| Waveform data | `UPLOAD_FOLDER/_peaks/` | Removed with the audio. |
+| Playable MP3 of a DS2/DSS dictation | `<stem>.playback.mp3` next to the audio file of the recording | Derived copy for the browser player; the original is unchanged. |
+| Every recognized and every human text revision | `clinic_transcript_revision` (full text) | Database triggers refuse UPDATE and DELETE. |
+| Audio edits | `clinic_audio_revision` and the audio edit tables | Non-destructive edit list over the original. The ORM refuses UPDATE and DELETE on the edit tables; their database triggers are prepared but not installed at startup. |
+| Case context: source system, tenant scope, case reference and patient reference | `clinic_context_revision` | One row per revision. |
+| Releases with the exact audio, text and context revisions and the text hash; KIS delivery ledger with payload hash and external document id | `clinic_release`, `clinic_delivery` | Delivery history rows are appended, never changed. |
+| Voice consent history (status, purpose, SHA-256 of the declaration), voice embeddings (vectors only, no audio), consent audit rows | `clinic_voice_consent`, `clinic_voice_embedding`, `clinic_voice_consent_audit` | Consent and consent audit are append-only through database triggers. |
+| Import agent: inventory (relative path, size, modification time, SHA-256), intents, ingest sessions, upload chunks with audio bytes, reported outcomes | `clinic_agent_inventory`, `clinic_agent_intent`, `clinic_agent_ingest`, `clinic_agent_chunk`, `clinic_agent_outcome` | Chunks are deleted when the ingest is stored or aborted. Outcomes are never changed by the channel. |
+| Activation and reset codes | `clinic_local_recovery` | Only the SHA-256 of the code is stored. |
+| Output receipts | `clinic_output_receipt` | Append-only through database triggers. |
+| Pool, membership, lead and grant changes with old and new values | `clinic_pool_history` | The ORM refuses UPDATE and DELETE; there is no database trigger. No page lists the rows. |
+| Audit log | `audit_event` | See [Audit Log](audit-log.md). |
 
-| Location | Content |
-|---|---|
-| `UPLOAD_FOLDER` (default `/data/uploads`), or an S3 bucket when `FILE_STORAGE_BACKEND=s3` | Audio and video of every recording. The path of a file, and the key of an S3 object, end with the original file name. |
-| `UPLOAD_FOLDER/_sessions/<session id>/` | Chunks of a recording made in the browser, and slices of a large upload, while in progress. The folder is removed when the recording is finalized. A session without a request for `RECORDING_SESSION_TTL_HOURS` (default 24) is handled by the hourly cleanup: a recording with chunks is finished and placed in the library of the user as a recovered recording, and an empty session or an unfinished upload in slices is discarded. |
-| `UPLOAD_FOLDER/_peaks/` | Waveform data per recording, removed together with the audio |
-| `UPLOAD_FOLDER/_staging/` (or `FILE_STORAGE_STAGING_DIR`) | Files in conversion before they are moved to the storage backend |
-| The temporary folder of the container (`/tmp`) | Converted audio and chunks of ordinary recordings during processing. The files are deleted when a job ends. After a crash or a kill of the process, files can remain until the container is recreated. The result of a transcription service is processed in memory and is not written to a file by any connector. |
-| `AUTO_EXPORT_DIR` (default `/data/exports`), only with `ENABLE_AUTO_EXPORT=true` | Transcript and summary of each recording as a file |
-| `AUTO_PROCESS_WATCH_DIR`, only with `ENABLE_AUTO_PROCESSING=true` | Audio placed there for automatic import |
-| `HF_HOME` (`/data/instance/huggingface`) | The local embedding model, no user data |
+With `PRESERVE_TEMP_AUDIO=true`, a debug copy of every converted file stays in the temporary folder; leave it unset.
 
-With `PRESERVE_TEMP_AUDIO=true`, a debug copy of each converted file is kept in the temporary folder. The variable must stay unset in a deployment for regulated data.
+Tables of public links and internal shares from an earlier release (`share`, `internal_share`, `shared_recording_state`, `share_audit_log`) are not read, written or dropped by this build.
 
-### Deletion and retention
+The import agent secrets (`CLINIC_AGENT_PROXY_SECRET`, `CLINIC_AGENT_MASTER_SECRET`) are read from environment variables. Where to store originals, working copies and backups is described in [File Storage](storage.md).
 
-When a recording is deleted, by its owner, through the API or by a retention rule, the following is removed: the media file, the waveform data, the transcript passages and embeddings, the calendar events, the tag assignments, the speaker quotes, the processing jobs, the session of a recording that was made in the browser or uploaded in slices, the rows of the recording in the old table `share_audit_log`, and a job still held by a WhisperX transcription service.
+## Originals and revisions are immutable
 
-The following remains after the deletion of a recording:
+- Database triggers refuse UPDATE and DELETE of originals and transcript revisions. SQLite answers `clinic original is immutable` or `clinic original cannot be deleted`, and `clinic transcript revision is immutable` or `clinic transcript revision cannot be deleted`. PostgreSQL answers `clinic original is immutable` or `clinic transcript revision is immutable` for both operations. Other database engines get no trigger.
+- The anchor recording of a dictation keeps an empty `audio_path`, so a stock conversion job cannot rewrite the original.
+- At startup in clinic mode the original store is swept, with one log line: `Clinic original sweep: scanned=… removed_leftovers=… incomplete=… awaiting_row=… errors=…`. Only leftovers of interrupted writes (`.partial-` hard links) are removed; incomplete files and files without a row are reported, never deleted.
 
-- A tombstone row with the recording id, the user id, the time and the reason, for the changes feed of the API. Tombstones are removed after `RECORDING_TOMBSTONE_DAYS` (default 90).
-- The rows in `webhook_delivery` of every event sent for the recording. The title is part of each payload, and the original file name is part of the `recording.created` payload. A `recording.deleted` event with the title is queued for every subscribed webhook. Delivery rows are removed `webhook_delivery_retention_days` days after their creation (default 30; with 0 they are kept without limit). With `webhook_omit_titles=true` (default `false`), the title and the original file name are left out of every payload.
-- Speaker profiles and voice embeddings learned from the recording, until the speaker is deleted. A speaker profile without any recording is removed by the cleanup of orphaned speakers.
-- The exported file, when automatic export is enabled. By default the file is renamed with the `[deleted]_` prefix and its content is kept. With `auto_export_delete_with_recording=true` (default `false`), the file is deleted together with the recording. Files renamed before the setting was turned on are not removed afterwards.
-- The usage counts in `token_usage` and `transcription_usage`. These rows hold numbers per user and day, without a recording id.
-- The rows of the [audit log](audit-log.md) that name the recording: who opened, played, downloaded, changed and deleted it, and when. The rows hold the id of the recording and of its owner, without a title or any content. Share events written by an earlier version are among them: the rows of `audit_event` have no link to the recording or to an account, so they remain after the deletion of either. They are removed after `audit_log_retention_days` days (default 365; with 0 they are kept without limit). The same applies after the deletion of an account: the rows that name the account remain, by id, and the username is kept in the row of its deletion.
-- Log lines already written, and any copy held by an external service to which the audio or the text was sent.
-- The media file itself, in the case of a storage error during a deletion by a user. The error is logged with the id of the recording and the storage path without the original file name.
+## Deletion, archival and retention
 
-With the option to delete only the audio, the media file and the waveform data are removed. Transcript, summary, notes, tags and shares remain.
+- Status: Upstream only. Manual hard deletion is locked: the stock delete routes for recordings and their audio, the bulk and API v1 deletes and the admin user delete answer 403 `clinic_feature_disabled`. Accounts are deactivated instead of deleted (see [User Management](user-management.md)).
+- Automatic retention only archives. Every `DELETION_MODE` value archives and keeps files and rows. Dictation anchor recordings are created exempt from retention, so the sweep skips them unless the exemption is turned off (the clinic UI has no control for it; see [Retention](retention.md)). No approved clinic retention policy exists. See [Retention](retention.md).
+- In clinic mode the daily audit pruning deletes nothing and logs `Audit pruning withheld (separate_privileged_retention): N row(s) past cutoff ... kept`. In clinic mode no process deletes audit rows; the separately privileged retention process is not part of the repository.
+- What is still deleted in clinic mode:
+    - all enrolled voice embeddings of a user when that user revokes the voice consent;
+    - upload chunks of the import agent, once the ingest is stored or aborted;
+    - recordings without an owner, by the daily cleanup at 02:00 server time after a mark from the previous run (unchanged upstream);
+    - tombstones, webhook delivery rows and abandoned recording sessions (a browser recording with chunks is finished as a recovered recording instead), by the hourly upstream cleanup (unchanged upstream); `RECORDING_SESSION_CLEANUP_INTERVAL_SECONDS=0` turns this cleanup off.
+- Backups are outside the application. A backup must cover `CLINIC_ORIGINALS_ROOT`, which holds the originals even with `FILE_STORAGE_BACKEND=s3`, and must receive the same protection as the live system.
 
-### Recording sessions
+## Browser storage, BYOD and offline use
 
-For a recording made in the browser, and for a large upload sent in slices, a row is kept in `recording_session`. Text of the user is held in the row only while it is needed:
+### Client profiles
 
-- The file name of an upload in slices is cleared when the upload is finalized, when it fails, when it is canceled, and when an abandoned session is expired by the hourly cleanup.
-- The title, notes and options entered at the end of a browser recording are cleared when the audio has been assembled, when the session is canceled, and when it is expired. After a failed assembly they are kept for the repeat of the job, until the recording is deleted.
-- When a recording is deleted, the row of its session is deleted with it. A session whose audio is still being assembled at that moment keeps its row, without the text and without the link to the recording, until it is expired by the hourly cleanup.
+The client profile is a server decision. No header, user agent or host name sent by the browser selects it. Until a trusted ingress mapping exists, every request gets the default profile `managed_web_online`. The profiles in `clinic-spec/config/client-capabilities.json`:
 
-A session that has ended without a deletion of its recording keeps its row with ids, sizes, times, the status and error text. These rows are removed together with the account.
+| Profile | UI label | Audio kept in the browser | Document export |
+|---|---|---|---|
+| `managed_web_online` (default) | **Verwaltetes Web, nur online** (managed web, online only) | No | Controlled by rights |
+| `byod_internal` | **Eigenes Gerät, nur online** (own device, online only) | No | No |
+| `kis_webview` | **KIS-Ansicht, nur online** (KIS view, online only) | No | By manufacturer contract and policy |
+| `managed_web_offline` | **Verwaltetes Web, Offline freigegeben** (managed web, offline approved) | Encrypted, opt-in after gate `G-MANAGED-WEB-OFFLINE` | Controlled by rights |
 
-In earlier releases the text stayed in the row after the end of the session and after the deletion of the recording. At the first start after the upgrade, it is cleared once in every session that is finalized, canceled or expired, in every failed upload in slices, and in every failed session whose recording no longer exists (migration `0010_clear_ended_session_text`). No row is deleted by this step, and the log line holds a count only.
+Because no request is mapped to `byod_internal` today, the profile rules that depend on it (for example the refusal of bundle exports for unmanaged clients) do not take effect yet. The browser storage rules below apply to every browser.
 
-Tombstones, webhook delivery rows, and abandoned recording sessions are removed by one hourly cleanup. With `RECORDING_SESSION_CLEANUP_INTERVAL_SECONDS=0` that cleanup is off, and none of the three is removed. Audit log rows are removed by a separate daily run.
+### What the browser keeps
 
-Automatic retention is off by default. An administrator enables it with `ENABLE_AUTO_DELETION=true` and `GLOBAL_RETENTION_DAYS`, and selects with `DELETION_MODE` whether the whole recording (`full_recording`) or only its audio (`audio_only`) is removed. Details are given in [Retention](retention.md).
+Status: Available.
+
+- The clinic recorder (**Neue Aufnahme** (new recording)) keeps audio and title in memory only and never writes to IndexedDB, `localStorage` or `sessionStorage`. After a failed upload it shows: **Der Upload ist fehlgeschlagen. Die Aufnahme wird nicht lokal gespeichert. Bitte erneut aufnehmen.** (The upload failed. The recording is not stored locally. Please record again.)
+- The IndexedDB stores of the stock recorder and upload, `SpeakrRecordings` (crash recovery) and `SpeakrFailedUploads` (retry), are gated in clinic mode. They are used only when the page carries `data-clinic-persistent-audio="True"`, and no template renders that attribute.
+- The voice consent view and the offline modules write nothing to browser storage, and no login or session token is read or written by them.
+- Clinic values kept in `localStorage`: the foot pedal key settings of the workstation (key codes, step seconds, auto-rewind) and, per user, the id of the last selected worklist filter. The filters themselves are stored on the server.
+- Not clinic-gated (unchanged upstream): interface preferences (theme, column widths, volume, playback rate), the id of the last selected recording, the defaults of the upload dialog, and for a stock upload larger than 16 MiB that is sent in slices, the file name, size and modification time with its session id for up to 24 hours. `sessionStorage` holds the time zone and a dismissed microphone notice.
+- The service worker is registered on the signed-in pages, the clinic pages included, when the browser has a secure context (`https`, or `http` on `localhost` or `127.0.0.1`). Its Cache Storage (`speakr-static-<version>`) holds only application files under `/static/`. No page and no response under `/api/`, `/audio/`, `/recording/` or `/admin` is stored.
+- At sign-out, the server sets the cookie `speakr_signed_out` (no data), and the sign-in page that follows clears Cache Storage, the `sessionStorage` of the tab, the IndexedDB stores `SpeakrRecordings` and `SpeakrFailedUploads`, and the `localStorage` entry `speakr.slicedUploads`. An idle-timeout logout is not a sign-out and clears nothing. Interface preferences, the pedal settings, the worklist filter id, the stock recorder's session id (`speakr.serverRecordingSession`, written only with `ENABLE_SERVER_RECORDING_CHUNKS=true`, default `false`) and the `sessionStorage` of other open tabs stay.
+- The application cannot guarantee that a browser keeps no data: downloads, the browser cache and operating-system copies are outside its control.
+
+### Managed offline profile
+
+Status: Prepared, disabled.
+
+- `GET /api/clinic/v1/offline-web/capability` (clinic mode, browser session, `Cache-Control: no-store`) always answers `available: false` with the message `Offline-Speicherung ist nicht freigegeben.` (offline storage is not approved). No trusted browser verification and no grant provider are wired.
+- The contract sets `web_client.managed_offline_enabled` and `web_client.byod_persistence_enabled` to `false`; the code reads only the first. The profile `managed_web_offline` has `enabled_by_default: false`.
+- Even when wired, the server allows offline storage only for the profile `managed_web_offline`, a verified browser, a current server grant with version, quota and key policy `encrypted_user_unlock`, and `managed_offline_enabled: true`.
+- The browser modules seal each record with AES-GCM, bound to user, profile, dictation and sequence. The data key is wrapped with a key derived from the user's passphrase (PBKDF2-SHA-256, 600000 iterations) and is held in memory only. There is no default storage adapter. A revoked grant and a sign-out purge the stored records. Without a grant, nothing is stored.
+- The view **Offline und Wiederherstellung** (offline and recovery) in the menu **Verwaltung & Seiten** (administration and pages) shows: **Offline-Speicherung ist nicht freigegeben. Es wird nichts lokal gespeichert und es gibt keine lokale Wiederherstellung. Bereits auf dem Server bestätigte Daten bleiben über die Arbeitsliste erreichbar.** (Offline storage is not approved. Nothing is stored locally and there is no local recovery. Data already confirmed on the server stays reachable through the worklist.)
+
+## Tokens and secrets
+
+- No token or secret is kept in browser storage. The session cookie is `HttpOnly` and cannot be read by scripts, the CSRF token comes with each page, and no clinic module writes a token to `localStorage`, `sessionStorage` or IndexedDB.
+- No token in the URL. The setting `api_query_tokens_enabled` is forced to `false` in clinic mode. A token in the `?token=` query parameter authenticates nothing, on any method. A settings write that tries to raise the value is refused with 403 `clinic_policy_ceiling`, and a conflicting stored value is logged at startup as `clinic policy overrides stored setting <key>=<value> (effective: False)`.
+- Personal API tokens are locked (Upstream only). A request that authenticates with a token instead of a browser session is refused with 403 `clinic_feature_disabled` on every non-public route. Token management and the SSO token exchange are disabled, and `sso_api_tokens_enabled` is forced to `false`.
+- Sign-in is local only; the upstream OIDC routes refuse in clinic mode, and Microsoft Entra is prepared, disabled (see [Sign-in and identity providers](sso-setup.md)). Local passwords have 15 to 128 characters, a built-in blocklist that `CLINIC_PASSWORD_BLOCKLIST_FILE` extends, and scrypt hashes. Administrators never set passwords. A one-time code (**Einmalcode ausstellen** (issue one-time code)) has 256 bits, is valid for 30 minutes and once, is shown once with `Cache-Control: no-store` and is stored as SHA-256 only. See [User Management](user-management.md).
+- The import agent authenticates with a machine credential at a trusted mTLS ingress, never with a session. `CLINIC_AGENT_PROXY_SECRET` and `CLINIC_AGENT_MASTER_SECRET` need at least 32 bytes each. When one is missing, a random value per process is used, every agent request answers 401, and the log says `Clinic import agent: <NAME> is not set or shorter than 32 bytes; agent requests are refused until it is configured`.
+- Session cookies are `HttpOnly` and `SameSite=Lax`. The `Secure` flag is set only with `SESSION_COOKIE_SECURE=true` (default `false`). The cookie for **Angemeldet bleiben** (English interface: **Remember me**) lasts `REMEMBER_COOKIE_DAYS` days (default 30) and is not accepted while an idle timeout is set. The idle timeout is the system setting `session_idle_timeout_minutes` (default 0, no timeout).
+- Open gap: the contract values `identity.session_idle_minutes` (15) and `identity.session_absolute_hours` (8) are not read by the code.
+
+## Voice profiles: opt-in only
+
+- Status: Upstream only. Upstream speaker identification is locked (`speaker_identification`): its routes are disabled, voice embeddings of diarized speakers, patients included, are not stored on the recording, and the contextual naming of speakers by a language model returns nothing in clinic mode.
+- Diarization: with `asr_endpoint`, a job asks the service for diarization unless `ASR_DIARIZE=false` (default `true`). Speaker labels such as `SPEAKER_00` are then stored in the segment list of the working copy's transcript; the clinic text revision holds the segment text without labels. Voice embeddings returned for diarized speakers are discarded in clinic mode; keep `ASR_RETURN_SPEAKER_EMBEDDINGS` unset (default `false`).
+- Status: Available. A user may consent to a voice profile of their own voice only, for the purpose `author_recognition`. The routes act on the signed-in user only: `GET /api/clinic/v1/voice-consent`, `POST /api/clinic/v1/voice-consent/grant` and `POST /api/clinic/v1/voice-consent/revoke`, plus the enrollment API under `/api/clinic/v1/voice/`. Writes to `/api/clinic/v1/voice-consent` need the browser session, an `X-CSRF-Token` header and an `Idempotency-Key` of 8 to 255 characters; a body that names another subject (for example `user_id`, `actor`, `patient_id`, `role`, `is_admin`) is refused with 403 `forbidden_field`. Writes to the enrollment API need the browser session, a CSRF header, an `Idempotency-Key` of 8 to 128 characters and `If-Match`; a sample is a WAV body (16 kHz, mono, 16-bit, 3 to 30 seconds). Neither an administrator nor a service can consent or enrol a voice for someone else.
+- Stored: each grant and each revocation as a new row with the SHA-256 of the declaration shown, not its text; enrolled embeddings as vectors only, never audio. The temporary WAV file of an enrollment is deleted after the embedding. Enrollment without active consent is refused.
+- A revocation deletes every enrolled embedding of the user, in every embedding space, in the same transaction, and writes an audit row with the number of deleted vectors. The consent history stays. Address-book speaker profiles of other people are not touched.
+- Where users find it: **Verwaltung & Seiten** (administration and pages) > **Einstellungen** (settings). Accounts with the **Administrationsrolle** also see the panel **Eigenes Stimmprofil (freiwillig)** (own voice profile, optional) on the admin page **Sprachprofile** (speech profiles), reached through the menu entry **ASR und Sprachprofile**. That panel too covers only the administrator's own voice. Labels: **Einwilligen** (consent), **Einwilligung widerrufen** (revoke consent), **Widerruf bestätigen** (confirm revocation); states **Keine Einwilligung erteilt**, **Einwilligung erteilt**, **Einwilligung widerrufen**; after a revocation **Einwilligung widerrufen. Stimmprofil und Vorschläge sind entfernt.** (consent revoked; voice profile and suggestions are removed).
+- Available (API only): enrollment. No page records an enrollment sample, and the embedding needs the speaker service (Default off). Prepared, disabled: the author suggestion from consented profiles is not wired to any route. A suggestion would only ever be a proposal that a person confirms, and patients never get a profile.
+- Prepared, disabled: a clean-up of upstream speaker data (speaker rows, samples, quotes and speaker names in transcripts) exists in code but has no command and no route.
+
+## Access by administrators and other roles
+
+The clinic build separates site administration (**Administrationsrolle** (administration role)), local identity administration (**Identitätsadministration** (identity administration)), pool leads (**Leitung** (lead), limited to their pools) and the rights for release (**Freigeben** (release)) and for original-audio export (**Originalaudio exportieren** (export original audio)). Details: [User Management](user-management.md) and [Group Management](group-management.md).
+
+- An active site administrator (administration role and an active clinic account) may view and play every clinic dictation and read its corrections. Editing, export, release, original-audio export, archiving and deletion need explicit rights (**Fachrechte**) like for anyone else.
+- The admin dictation overview returns metadata only and writes no audit row. The transcript and audio of any user's dictation open without a confirmation or reason prompt. Each opening is recorded without de-duplication, as `recording.content.read` with `part=transcript` or as `recording.media.played`. The audit row is stored first; when it cannot be stored, the answer is 503 `audit_unavailable`. With `audit_log_enabled` off, such openings are refused, and with `audit_log_record_views` off, audio openings are refused too.
+- Each foreign row that the worklist returns to a site administrator is recorded as `recording.content.read` with `part=worklist`.
+- An identity role gives no dictation access. The UI says: **Identitätsrollen geben keinen Zugriff auf Diktate. Fachrechte werden separat erteilt.** (identity roles give no access to dictations; professional rights are granted separately).
+- A stock audio download (`download=true`) needs the right `audio_export`. It is not an own default, and site administrators do not get it from their role.
+- **Systemstatistik** (system statistics) shows usernames and the five latest failed recordings with up to 300 characters of their stored error text (unchanged upstream; see [Logs](#logs)). See [System Statistics](statistics.md).
+- A person with access to the server or the database can read everything. Through the application, audit rows cannot be changed (the ORM refuses it). The database triggers for `audit_event` exist in code but are not installed at startup, and a database role without DELETE on `audit_event` is a deployment matter.
+
+## Outbound connections
+
+| Destination | Data | Status and control |
+|---|---|---|
+| Local speech recognition | Audio, language, and hints only with `CLINIC_ASR_PROMPTS_ENABLED` | Available. `TRANSCRIPTION_BASE_URL` and `CLINIC_GPU_ASR_BASE_URL` must be local. `ASR_BASE_URL` is not checked (Open gap). |
+| Transcription service, at startup | Bundled test clip, no user data | Only with `asr_endpoint` and `ASR_RETURN_SPEAKER_EMBEDDINGS=true`, when no reference exists or the configuration changed. Off with `DISABLE_VOICE_EMBEDDING_CHECK=true`. |
+| Text model (title, summary; chat and Inquire only when local) | Transcript and prompts | Default off (no LLM client until `TEXT_MODEL_BASE_URL` or `TEXT_MODEL_API_KEY` is set). Locality check of the automatic title and summary job: Open gap. |
+| Embedding service | Transcript passages | Only with `ENABLE_INQUIRE_MODE=true`; keep it off. |
+| Speaker service | Audio of a consented enrollment sample | Default off. `CLINIC_SPEAKER_SERVICE_URL`; its locality is not checked (Open gap). |
+| KIS | Released documents | Simulated (only with `CLINIC_PROFILE=staging`, synthetic in-memory MockKIS, no KIS evidence); otherwise the adapter is disabled, sends nothing, and final release is refused. |
+| Import agent | Inbound only: the agent connects to the server through the mTLS ingress | Prepared, disabled. The server routes under `/api/clinic/v1/agent/` exist, but no supported route, command or script registers an agent, creates an approved source or creates an import intent. The Philips device side is Simulated (simulator mode and fixtures, no device evidence). The server opens no connection to the agent. Ingress contract: [Recording sessions](recording-sessions.md#import-agent-channel-and-ingress). |
+| Webhooks | None | Upstream only. Dispatch is off while `user_webhooks` is locked, whatever `WEBHOOK_GLOBAL_ENABLED` says. See [Webhooks](webhooks.md). |
+| Web push | None | Upstream only. The push routes are disabled. |
+| SMTP server | Upstream completion and failure mail, with the recording title in the subject | Not clinic-gated. Sent only when `SMTP_HOST`, `SMTP_USERNAME` and `SMTP_PASSWORD` are set and the user opted in. Not reviewed for clinical use; leave SMTP unset. See [Email Setup](email-setup.md). |
+| OIDC identity provider | None | Upstream only. The SSO routes refuse in clinic mode. |
+| S3 storage | Transcription working copies | Only with `FILE_STORAGE_BACKEND=s3`. Originals stay local. |
+
+Requests use the scheme of the configured address. With an `http://` address, audio and text cross the network unencrypted. The plain-http startup warning does not cover `CLINIC_GPU_ASR_BASE_URL` and `CLINIC_SPEAKER_SERVICE_URL`; check their scheme yourself.
+
+The default Content-Security-Policy limits scripts, styles, fonts and connections to the origin of the instance (inline scripts and styles are allowed). `CONTENT_SECURITY_POLICY` replaces it, and `SECURITY_HEADERS_ENABLED=false` turns the security headers off; do not widen or disable them.
+
+In-app workflow notices (for example **Abnahme angefordert** (acceptance requested)) stay inside the application. They use fixed German texts and carry no patient data.
 
 ## Logs
 
-All log output is written to the standard output of the container. No log file is created by the application, and no HTTP access log is configured for the application server. The retention of the output depends on the Docker logging driver and on any log collector of the host.
+Logging is unchanged from upstream. All output goes to the standard output of the process. The application creates no log file, and no HTTP access log is configured for the application server. The retention of the output depends on the container logging driver and on any log collector of the host.
 
 | `LOG_LEVEL` | Content of the log |
 |---|---|
-| `ERROR`, `WARNING` | Failures, with ids. An error of a transcription service, an LLM provider or the embedding API is logged as its class, provider, HTTP status, error code and length, without its text. |
-| `INFO` (default) | In addition: ids, lengths, counts, durations, model names and service addresses. No transcript, summary, title, prompt, hotword or search query. Users, groups, tags, folders, speakers, naming templates and recordings are named by id. A file is named by a label with an identifier, without its original file name; the labels are listed below the table. |
+| `ERROR`, `WARNING` | Failures, with ids. An error of a transcription service, a language-model provider or the embedding API is logged as its class, provider, HTTP status, error code and length, without its text. |
+| `INFO` (default) | In addition: ids, lengths, counts, durations, model names and service addresses. No transcript, summary, title, prompt, hotword or search query. Users, groups, tags, folders, speakers, naming templates and recordings are named by id. A file is named by a label without its original file name. |
 | `DEBUG` | In addition: titles, summaries, prompts, model replies, search queries, hotwords, usernames, group, tag and speaker names, original file names, recipient addresses of sent email, and the full text and traceback of provider errors. |
 
-`DEBUG` is unsuitable for a deployment with regulated data, except for a short diagnosis on a test instance.
+`DEBUG` is unsuitable for regulated data, except for a short diagnosis on a test instance.
 
-The storage path of a recording ends with the original file name. At `INFO` and above, a file is named by one of the following labels. No label holds the original file name, and no label consists of the extension alone.
+Errors of the operating system, the database and FFmpeg are logged with their text at `WARNING` and `ERROR`. In the upload, conversion, probe, chunking, watch folder, export, storage deletion and FFmpeg code, a file named in such text is replaced by its label; in the traceback of an error logged above `DEBUG`, the same replacement is applied to the exception text. In other code a file path can appear in the message of an error line.
 
-| File | Label | Identifier |
-|---|---|---|
-| Upload in the staging folder | `<stored file 20261115101500_0123456789ab.mp3>` | Timestamp and the first 12 characters of the random id |
-| Stored media of a recording, named by its storage path | `<stored file local://recordings/2026/11/42/20261115101500.mp3>` | Directory part with the id of the recording, and the timestamp at the start of the name |
-| Stored media named by its local path, and the files derived from it (converted, compressed and extracted audio, chunks) | `<stored file 20261115101500.mp3 of recording 42>`, `<stored file 20261115101500.mp3 chunk 3 of recording 42>` | Timestamp, chunk number and id of the recording |
-| Converted file in the staging folder | `<stored file 20261115101500_0123456789ab.mp3>` or `<staged file 0123456789ab.mp3>` | Timestamp of the source file, where its name has one, and the first 12 characters of the random id |
-| Download copy of an S3 object | `<s3 copy ab12cd34.mp3 of recording 42>` | Random part of the temporary file name |
-| Any other file: an input of the watch folder, an export file, a temporary file | `<file 4f3a1c9b2d.m4a>` | Keyed digest of the file name |
-
-The keyed digest is the first 10 hexadecimal characters of an HMAC-SHA-256 of the file name. The key is derived from `SECRET_KEY`, so the same file name has the same label in every worker process and after a restart, and a guessed file name cannot be confirmed from a label without the key. After a change of `SECRET_KEY` the labels differ from the earlier ones.
-
-In the lines of a job of the queue, every label ends with the id of the recording. After an upload is stored, one line holds the staging label, the id of the recording and the label of the stored media: `Stored upload <stored file 20261115101500_0123456789ab.mp3> of recording 42 as <stored file local://recordings/2026/11/42/20261115101502.mp3>`. A staging object of the FunASR connector is named by its folder, the digest of its name and the extension.
-
-Errors of the operating system, the database and FFmpeg are logged with their text at `WARNING` and `ERROR`. In the upload, conversion, probe, chunking, watch folder, export, storage deletion and FFmpeg code, a file named in such text is replaced by its label. This covers storage paths and keys, names of staged and stored files, quoted paths, absolute paths that end in a file name with an extension, and paths below the upload, staging, watch and export folders. In the traceback of an error logged above `DEBUG`, the same replacement is applied to the exception text; the lines of the frames, with file, line number and source line, are unchanged. A relative file name with spaces, written without quotes, is not recognized. In other code a file path can appear in the message of an error line.
+An audit row that cannot be written is logged at `ERROR` as one line that starts with `AUDIT-FALLBACK`. The line holds ids and no content; see [Audit Log](audit-log.md).
 
 ### Error text shown to the user
 
-The error text of a failed job is stored in `processing_job.error_message` and on the recording, shown to the owner in place of the transcript or the summary, and sent in the failure webhook and the failure email. The text is built from the error of the provider as follows:
+The error text of a failed job is stored on the job and on the recording, shown in place of the transcript or the summary, listed in **Systemstatistik** (system statistics), and sent in the upstream failure email when SMTP is configured. No failure webhook is sent while `user_webhooks` is locked. The text is built as follows:
 
 - The failed step and the HTTP status are kept.
-- From a structured error body, only the message field of the provider (`error`, `error.message`, `message`, `detail`, `msg`, `error_description`, `description` or `reason`) is kept, cut to 300 characters, with its error code and type. The other fields of the body are dropped.
-- An unstructured body, such as a traceback, is kept in the bounded form in which credentials and directories are already replaced.
+- From a structured error body, only the message field of the provider (`error`, `error.message`, `message`, `detail`, `msg`, `error_description`, `description` or `reason`) is kept, cut to 300 characters, with its error code and type.
+- An unstructured body, such as a traceback, is kept in a bounded form in which credentials and directories are replaced.
 - Every passage of 20 or more characters, and every quoted string of 4 or more characters, that also occurs in the transcript, the summary, the notes, the title, the participants, the original file name, the initial prompt or the hotwords of the recording is replaced by `[content removed]`.
 - The result is limited to 500 characters, with both ends kept.
 
 A repetition of fewer than 20 characters outside quotation marks is not detected. Text taken from the audio itself, such as a transcribed passage in the error of a transcription service, is not detected either.
 
-### Audit log fallback
+## Removed or locked upstream features
 
-An audit event that cannot be written to the database after four further attempts, or for which the queue of the writer is full, is written to the log as one line that begins with `AUDIT-FALLBACK`, at the level `ERROR`. The line holds the values of the audit row: event name, time, ids, outcome, the user agent and, unless `audit_log_store_ip` is `off`, the client address. It holds no title, file name or content. See [Failures](audit-log.md#failures).
+| Upstream feature | Status in the clinic build |
+|---|---|
+| Other transcription connectors: hosted (OpenAI Transcribe, Azure OpenAI, Mistral, AssemblyAI, Alibaba FunASR, Tencent, Mossland) and self-hosted (VibeVoice, OpenASR) | Upstream only: removed from the code. |
+| Public share links | Upstream only: removed from the code. |
+| Internal shares, groups, group tags and folders | Upstream only: locked (`internal_sharing`). |
+| Incognito mode | Upstream only: removed from the code. |
+| Event extraction and calendar export | Upstream only: removed from the code. |
+| Self-registration, e-mail verification, password reset by e-mail | Upstream only: removed. Account recovery is the local one-time code. |
+| User webhooks | Upstream only: locked (`user_webhooks`). |
+| Personal API tokens and `?token=` | Upstream only: locked (`personal_api_tokens`, `token_query_parameters`). |
+| Web push | Upstream only: locked (`push_notifications`). |
+| OIDC single sign-on | Upstream only: the routes refuse in clinic mode. |
+| Chat, Ask Ambrose, Inquire | Upstream only: no clinic interface; routes locked unless every text-model address is local (see [Ambrose Settings](ambrose.md)). |
+| Speaker identification and speaker profiles from recordings | Upstream only: locked; replaced by the opt-in voice profile. |
+| Upload from external voice recorder apps | Upstream only: locked (`external_ingest`). |
+| Unversioned stock exports (Word downloads, template download) | Upstream only: locked (`stock_unversioned_export`). |
+| Manual deletion of recordings and accounts | Upstream only: locked (`clinical_user_hard_delete`). |
+| Automatic export (`ENABLE_AUTO_EXPORT`) and the watch folder (`ENABLE_AUTO_PROCESSING`) | Upstream only (not clinic-gated): the code still runs when a variable is set; only the admin start, stop, trigger and configuration routes of the watch folder are locked (`auto_process`). Leave both variables unset. See [System Settings](system-settings.md#upstream-functions-without-a-clinic-check). |
 
-## Outbound connections
+## Checklist for a clinic deployment
 
-No telemetry, analytics or update check is contained in the application. The following connections are made by the server.
+1. Set `CLINIC_MODE=1` and keep the contract files in `clinic-spec/config` (or in `CLINIC_CONFIG_DIR`). If a contract file is missing or unreadable, requests fail with an error; the build never falls back to upstream defaults.
+2. Point `TRANSCRIPTION_BASE_URL` (and `CLINIC_GPU_ASR_BASE_URL`, if used) at local services. If `ASR_BASE_URL` is used, point it only at a host of the institution: it is not checked. With `asr_endpoint`, set `ASR_DIARIZE=false` unless the institution wants speaker labels, and leave `ASR_RETURN_SPEAKER_EMBEDDINGS` unset.
+3. Leave `TEXT_MODEL_BASE_URL` and `TEXT_MODEL_API_KEY` unset, or point the text model to a local service. Leave `CHAT_MODEL_BASE_URL`, `TRANSLATION_MODEL_BASE_URL` and `EMBEDDING_BASE_URL` unset or local.
+4. Keep `ENABLE_INQUIRE_MODE` off, and leave `ENABLE_AUTO_EXPORT`, `ENABLE_AUTO_PROCESSING` and `PRESERVE_TEMP_AUDIO` unset.
+5. Leave `SMTP_HOST` unset.
+6. Set `CLINIC_SPEAKER_SERVICE_URL` only to a local service, or leave it unset.
+7. Terminate TLS at a reverse proxy, set `SESSION_COOKIE_SECURE=true`, set `TRUSTED_PROXY_HOPS` to the number of proxies, and protect or turn off the access log of the proxy. Set `session_idle_timeout_minutes` to the idle time the institution allows.
+8. Place `UPLOAD_FOLDER`, `CLINIC_ORIGINALS_ROOT`, the database and the backups on encrypted volumes. Back up `CLINIC_ORIGINALS_ROOT` together with the database.
+9. Keep `FILE_STORAGE_BACKEND=local`, or use an S3 service of the institution for the working copies.
+10. Keep `LOG_LEVEL` at `INFO` or higher, and set a size limit and a retention period for the container logs.
+11. Keep `audit_log_enabled` and `audit_log_record_views` on, decide on `audit_log_store_ip`, and export the audit log regularly from an admin browser session (see [Audit Log](audit-log.md)).
+12. Configure `CLINIC_AGENT_PROXY_SECRET` and `CLINIC_AGENT_MASTER_SECRET` (at least 32 bytes each) only together with a trusted mTLS ingress. The import-agent channel is Prepared, disabled; see [Recording sessions](recording-sessions.md#import-agent-channel-and-ingress).
+13. Do not use `CLINIC_PROFILE=staging` with real data: it uses the synthetic KIS mock.
+14. Keep a list of the people with access to the host, the database and the backups. Each of them can read all dictations.
+15. Ask users on shared computers to sign out and close the other tabs, or to use one browser profile per person; see [What the browser keeps](#what-the-browser-keeps).
 
-| Destination | Data sent | Control |
-|---|---|---|
-| Transcription service | Audio, language, initial prompt, hotwords, speaker count, and voice samples of earlier chunks for some connectors. With asynchronous jobs of a WhisperX service, also a key built from the recording id, and a hash of the audio. | Required. The address is set with `ASR_BASE_URL` or `TRANSCRIPTION_BASE_URL` and the connector with `TRANSCRIPTION_CONNECTOR`. With a local service, the audio stays on the network of the institution. For a hosted connector, the address of its vendor is the default. |
-| LLM for titles, summaries and speaker identification | Transcript and prompts, with recording details such as participants and notes where the prompt includes them | `TEXT_MODEL_BASE_URL`. The default of the variable is `https://openrouter.ai/api/v1`. Without a text model, these features are unavailable. |
-| LLM for chat and for translation | Transcript, question, chat history; text to translate | `CHAT_MODEL_BASE_URL` and `TRANSLATION_MODEL_BASE_URL`. When unset, the text model is used. |
-| Embedding API | Transcript passages and search queries | Only with `ENABLE_INQUIRE_MODE=true` and `EMBEDDING_BASE_URL` set. Without `EMBEDDING_BASE_URL`, embeddings are computed inside the container. |
-| Hugging Face Hub | No user data. The local embedding model is downloaded on first use. | Only with Ask Ambrose and local embeddings. The model can be placed in `HF_HOME` in advance, and the download is prevented with `HF_HUB_OFFLINE=1`. |
-| Webhook addresses of users | Recording id, title, original file name, language, durations and error text, depending on the event. No transcript or summary. | All deliveries are stopped with `WEBHOOK_GLOBAL_ENABLED=false`. With `webhook_omit_titles=true`, the title and the original file name are left out. |
-| SMTP server | For users with the completion email enabled: a message with the recording title in the subject, and a shortened error text after a failure. | No mail is sent without `SMTP_HOST`. |
-| SSO provider (OIDC) | Discovery, token and user information requests during sign-in | `ENABLE_SSO` |
-| S3 storage | Audio and video, under a key that ends with the original file name | Only with `FILE_STORAGE_BACKEND=s3` |
-| Transcription service, at startup | A bundled test clip for the check of voice embeddings. No user data. | Sent only to the configured transcription service. The check is turned off with `DISABLE_VOICE_EMBEDDING_CHECK=true`. |
+## Open gaps
 
-Requests to these services are made over the scheme of the configured address. With an `http://` address, audio and text cross the network without encryption.
+- `ASR_BASE_URL` and `CLINIC_SPEAKER_SERVICE_URL` are not checked for locality.
+- The automatic title and summary of the current release are not locality-gated, and Inquire indexing with `ENABLE_INQUIRE_MODE=true` has no clinic check.
+- No approved retention policy exists, and the separately privileged process for deleting audit rows is not part of the repository.
+- The contract session limits (15 minutes idle, 8 hours absolute) are not enforced.
+- No client is mapped to the BYOD profile, so its export refusal does not take effect.
+- The audit log is not protected against a person with database access, and the application has no encryption at rest.
+- Stock browser entries that are not clinic-gated can hold the file name of a large upload for up to 24 hours.
+- Recognition quality, Entra, the KIS integration, Philips devices and foot pedals have no real-world evidence.
+- Web parity: a local mail draft with the original audio (WG-EXP-009) and the reading of local Windows accounts (WG-ADM-009) stay open.
 
-At startup, one warning per service is written to the log when an `http://` address is configured for the transcription service (`ASR_BASE_URL`, `TRANSCRIPTION_BASE_URL`), for the text, chat or translation model, or for the embedding service, and the host of the address is another machine. No warning is written for a loopback address (`localhost`, `127.0.0.0/8`, `::1`), for a host name without a dot, which is the form of a service name on the same Docker Compose network, or for `host.docker.internal`. An address in a private range (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) is reported, because the content still crosses a network. Only the service, the variable and the host are named in the warning. Webhook addresses are set by each user per webhook, and an `http://` address is refused there unless the user allows it for that webhook, so no webhook address is checked at startup.
+## Upstream documentation
 
-Scripts, styles and fonts of the web interface are downloaded once, with checksums, when the Docker image is built, and are served by the instance. At runtime nothing is loaded from a third party, and scripts, styles, fonts and connections are limited to the origin of the instance through the default `Content-Security-Policy` header.
-
-Push subscriptions of browsers can be stored through the API, but no push message is sent by the code of this release, and no push subscription is created and no notification permission is requested by the web interface.
-
-## Browser storage
-
-| Store | Content | Lifetime |
-|---|---|---|
-| Session cookie, and a remember cookie after "Remember me" | Signed session data, with the time of the last request when an idle timeout is set | The session cookie ends with the browser session, or earlier through an idle timeout (see [Access control](#access-control)). The remember cookie lasts `REMEMBER_COOKIE_DAYS` (default 30) and is not accepted while an idle timeout is set. |
-| `localStorage` | Interface preferences, the id of the last selected recording, and the defaults of the upload dialog. For an ordinary upload in slices that has not finished: the file name, size and modification time of the file with the id of its session, for at most 24 hours. The id of a recording session in progress. | Until cleared in the browser. The entry of an upload is removed when the upload ends, and at sign-out. |
-| `sessionStorage` | Chat threads of the open recordings | Until the tab is closed, or until sign-out |
-| IndexedDB `SpeakrRecordings` | Audio chunks and notes of an ordinary recording in progress, for recovery after a crash. | Until the recording is uploaded or discarded, or until sign-out |
-| IndexedDB `SpeakrFailedUploads` | The file of an ordinary upload that failed, for a later retry. | Until the retry succeeds or the entry is removed, or until sign-out |
-| Cache Storage of the service worker (`speakr-static-<version>`) | The application files under `/static/` only: scripts, styles, fonts, images and translation files. No page, no response of `/api/`, `/audio/`, `/recording/`, `/share/` or `/admin`. | Until the next release is opened, until sign-out, or until the site data is cleared |
-| Cookie `speakr_signed_out` | The value `1`, without user data. It is set by the server in the answer to a sign-out and is removed by the sign-in page once the browser has been cleared. | Seconds; at most the browser session |
-
-### Service worker
-
-The service worker is served at `/sw.js` and is registered on the signed-in pages with the scope `/`. It is not registered for a visitor who is not signed in, such as the reader of a public link. A secure context is required by browsers: `https`, or `http` on `localhost` or `127.0.0.1`. Over plain `http` on another address no service worker exists, and the interface is used without it.
-
-- Application files under `/static/` are kept in Cache Storage. A file of the current release is taken from there first.
-- A page is always requested from the server. When the server cannot be reached, a fixed page with the text "You are offline" is shown. It is part of the worker file and contains no user data. Pages are never stored, because they contain user data and CSRF tokens.
-- Every other request is passed to the server untouched: all requests under `/api/`, `/audio/`, `/recording/`, `/share/` and `/admin`, sign-in and sign-out, uploads, every request that is not a `GET`, media requests, and requests to another origin. No API response and no content of a recording is stored.
-- When a new release is opened, the cache of the release before it is deleted. A cache left by an earlier release (`Speakr-cache-<version>`) and its registration for `/static/` are removed at the first visit after the upgrade.
-- Push messages, system notifications and background sync are not implemented.
-
-### Sign-out
-
-At sign-out, the following is removed from the browser: every entry in Cache Storage, the whole `sessionStorage` of the tab, the content of the IndexedDB stores `SpeakrRecordings` and `SpeakrFailedUploads`, and the `localStorage` entry of uploads in slices that have not finished, with their file names, sizes and modification times. The removal is carried out on the sign-in page that follows the sign-out, so nothing is removed when a sign-out is canceled.
-
-When the browser holds a recording that was not finished, uploads that failed, or an upload in slices that has not finished and can still be resumed, a question is shown before the sign-out. The recording and the failed uploads exist nowhere else, and an unfinished upload in slices cannot be resumed after the sign-out. With **Cancel**, the copies and the session are kept. The slices already received by the server are discarded by the hourly cleanup once the session of the upload has expired (see [Files](#files)).
-
-Not removed at sign-out: the other content of `localStorage`, which is the interface preferences, the defaults of the upload dialog, the id of the last selected recording and the id of a recording session in progress, and the `sessionStorage` of other open tabs of the same browser. The end of a session through an idle timeout is not a sign-out, and nothing is removed from the browser then. On a shared computer, every person must sign out after use and close the other tabs, or a separate browser profile must be used for each person.
-
-## Access control
-
-- **Shares.** Public share links and internal shares are not part of this build. An existing `share`, `internal_share` or `shared_recording_state` table is left in place and is not mapped.
-- **Administrators.**- **Administrators.** A site administrator has no route to read the transcript, the summary, the notes or the media of a recording of another user. No title, file name or tag name of a recording of another user is returned to a site administrator either: the admin pages hold counts and sizes per account, and the five latest failed recordings of the instance are listed on the statistics page by id, with the username, the time and the stored error text (see [Error text shown to the user](#error-text-shown-to-the-user)). The processing of recordings for Ask Ambrose on the admin page covers the recordings of all accounts. In its answer, a recording that failed is named by its id and the kind of the error, and each run is recorded in the audit log as `admin.inquire.processed`, with counts. A site administrator can also delete a recording of another user by its id through API v1, change its exemption from retention, and cancel its running job; these actions are recorded. An administrator can set the password of any account, and a person with access to the server or the database can read everything. Each password set by an administrator, each change of an account, a role or a system setting, and each reading or export of the audit log is recorded in the [audit log](audit-log.md).
-- **API tokens.** Tokens are stored as SHA-256 hashes. Scopes and an expiry date are optional, and a token without a date never expires. A token in the `?token=` query parameter is accepted on `GET` and `HEAD` requests by default (`api_query_tokens_enabled=true`) and then appears in the access log of a reverse proxy. With `api_query_tokens_enabled=false`, a token in the query parameter is refused on every method, and a token must be sent in a header.
-- **Sessions.** Cookies are `HttpOnly` and `SameSite=Lax`. The `Secure` flag is set only with `SESSION_COOKIE_SECURE=true`. A warning is logged when `APP_BASE_URL` is an https address, or a request is received over HTTPS, while the flag is off. With `session_idle_timeout_minutes` above 0, a user must sign in again after that time without a request from the browser session; requests that are sent on a timer from an open tab are not counted, and API tokens are not affected. The default is 0, without an idle timeout. See [Session idle timeout](system-settings.md#session-idle-timeout).
-- **Passwords.** At least 8 characters with upper case, lower case, digit and special character are required. After 5 wrong passwords for one account from one address, sign-in from that address is refused for 15 minutes. Both numbers are system settings (`login_max_failed_attempts`, `login_lockout_minutes`).
-- **Single sign-on.** With `ENABLE_SSO=true`, sign-in is delegated to an OIDC provider, and the password form is removed for everyone except administrators with `SSO_DISABLE_PASSWORD_LOGIN=true`.
-
-## Checklist for a fully local deployment
-
-1. Run the transcription service on hardware of the institution, and set `ASR_BASE_URL` (or `TRANSCRIPTION_BASE_URL`) to it. See [WhisperX Setup](whisperx-setup.md).
-2. Run the LLM locally, and set `TEXT_MODEL_BASE_URL` to it explicitly, because the default is a hosted service. Leave `CHAT_MODEL_BASE_URL` and `TRANSLATION_MODEL_BASE_URL` unset or point them to local services.
-3. Leave `EMBEDDING_BASE_URL` unset or point it to a local service. With Ask Ambrose and local embeddings, place the model in `HF_HOME` and set `HF_HUB_OFFLINE=1`.
-4. Use HTTPS, or a private network that only these hosts share, between Speakr and each of these services. Read the warnings about plain `http://` addresses in the log after the first start.
-5. Set `WEBHOOK_GLOBAL_ENABLED=false`, unless webhooks to internal systems are approved. For approved webhooks, set `webhook_omit_titles=true`, and set `webhook_delivery_retention_days` in line with the records policy of the institution.
-6. Leave `SMTP_HOST` unset, or use the mail server of the institution. Recording titles appear in completion emails.
-7. Keep `FILE_STORAGE_BACKEND=local`, or use an S3 service of the institution.
-8. Terminate TLS at a reverse proxy, set `SESSION_COOKIE_SECURE=true`, and set `TRUSTED_PROXY_HOPS` to the number of proxies. Turn off or protect the access log of the proxy. Set `session_idle_timeout_minutes` to the idle time allowed by the institution, and set `api_query_tokens_enabled=false` once tokens are no longer sent in the URL by any client.
-9. Place the data volume (`/data/uploads`, `/data/instance`), the database and the backups on encrypted disks or volumes. No data is encrypted by the application.
-10. Keep `LOG_LEVEL` at `INFO` or higher, and set a size limit and a retention period for the container logs. At `INFO`, a file is named without its original file name; the remaining case, the text of a system error, is described under [Logs](#logs).
-11. Use `ENABLE_SSO=true` with `SSO_DISABLE_PASSWORD_LOGIN=true` when the institution has an identity provider.
-12. Define retention with `ENABLE_AUTO_DELETION`, `GLOBAL_RETENTION_DAYS` and `DELETION_MODE`, in line with the records policy of the institution.
-13. Leave `ENABLE_AUTO_EXPORT`, `ENABLE_AUTO_PROCESSING` and `PRESERVE_TEMP_AUDIO` unset unless their folders are covered by the same protection. With automatic export in use, set `auto_export_delete_with_recording=true`.
-14. Apply the retention and the encryption of the live system to its backups. Recordings deleted later are still present in an older backup.
-15. Keep a list of the people with access to the host, the Docker daemon, the database and the backups. Each of them can read all recordings.
-16. Set `audit_log_retention_days` to the period required by the institution, and decide on `audit_log_store_ip` and `audit_log_record_views`. Export the [audit log](audit-log.md#access-for-an-external-system) on a schedule to a system outside the reach of the server administrators, and keep the `AUDIT-FALLBACK` lines of the container log.
-17. Instruct users on shared computers to sign out after use and to close the other tabs, or give each user a separate browser profile. The data removed at sign-out is listed under [Sign-out](#sign-out).
-
-## Known limits
-
-- **Access that is not recorded in the audit log.** Lists of recordings, searches, questions to Ask Ambrose or to the chat of a recording, and text that is copied or saved in the browser after a recording was opened are not recorded. Up to one second of read and sign-in events can be missing after a kill of the server process. The full list is given under [Events that are not recorded](audit-log.md#events-that-are-not-recorded).
-- **The audit log can be changed in the database.** No row is changed or deleted through a route of the application, but the table is not protected against a person with access to the database. A copy on another system is made with the export.
-- **No encryption at rest in the application.** Database content, media files, webhook signing secrets and exported files are stored as plain data.
-- **Content in the browser.** Audio of an ordinary recording in progress and files of failed ordinary uploads are kept in IndexedDB, and chat threads in `sessionStorage`, as listed under [Browser storage](#browser-storage). The file name, size and modification time of an unfinished upload in slices are kept in `localStorage` for at most 24 hours. All of these are removed at sign-out, but not when a session ends through an idle timeout or when the browser is closed without a sign-out. The id of the last selected recording stays in `localStorage` after a sign-out.
-- **Titles and file names after deletion.** They are kept in the webhook delivery rows for `webhook_delivery_retention_days`, unless `webhook_omit_titles` is on.
-- **Exported files after deletion.** They are kept under a `[deleted]_` name unless `auto_export_delete_with_recording` is on.
-- **System error text in the default log.** Errors of the operating system, the database and FFmpeg are logged with their text, as described under [Logs](#logs).
-- **Short repetitions in error text shown to the user.** See [Error text shown to the user](#error-text-shown-to-the-user).
-- **No idle timeout by default** for sessions, and no expiry for API tokens without a date. An idle timeout is set with `session_idle_timeout_minutes`.
-- **Tokens in the URL by default.** The `?token=` query parameter is accepted until `api_query_tokens_enabled` is set to `false`.
+Upstream Speakr documentation (pinned original; describes upstream Speakr, not this build): [Privacy and regulated data](https://github.com/murtaza-nasir/speakr/blob/039a19b1f1c7f0ddaeac0a49b806845626f48a6c/docs/admin-guide/privacy.md).

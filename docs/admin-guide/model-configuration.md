@@ -1,788 +1,322 @@
 # Model Configuration
+<small>[Deutsch](../de/admin-guide/model-configuration.md)</small>
 
-This guide covers how to configure AI models for text generation in Speakr, including support for OpenAI's GPT-5 series and other language models.
+This page describes how the clinic build chooses and reaches its models: the local speech recognition (ASR) model for transcription and the local text model for titles and summaries. Everything below applies with `CLINIC_MODE` on (`1`, `true`, `yes` or `on`). With clinic mode off, upstream Speakr behavior applies.
 
-## Overview
+In the released clinic build, models are configured only through environment variables of the deployment. A per-task model selection page for administrators and automatic, revision-bound dictation summaries exist as a feature that is **in verification**; they are described at the end of this page and are not part of the released build.
 
-Speakr uses AI models for several key features:
+## Status overview
 
-- **Summary Generation**: Creating intelligent summaries of your transcriptions
-- **Title Generation**: Automatically generating descriptive titles for recordings
-- **Interactive Chat**: Answering questions about your recordings
-- **Speaker Identification**: Detecting speaker names from conversation context
+| Area | Status |
+|------|--------|
+| Local ASR through an OpenAI-compatible service such as Speaches (`TRANSCRIPTION_BASE_URL`) | Available |
+| WhisperX or whisper-asr-webservice (`ASR_BASE_URL`) | Available; locality check: Open gap (see below) |
+| GPU first, CPU second fallback (`CLINIC_GPU_ASR_BASE_URL`) | Default off |
+| Local text model for titles and summaries (`TEXT_MODEL_*`) | Default off (no LLM client until `TEXT_MODEL_BASE_URL` or `TEXT_MODEL_API_KEY` is set); locality check of the automatic title and summary job: Open gap |
+| Model discovery and saving in the **Transcription models** panel | Upstream only (panel visible; **Discover** and **Save selection** answer 403 `clinic_feature_disabled`) |
+| Model from a per-author server ASR profile | Prepared, disabled |
+| Page **Modellwahl** (model selection), automatic dictation summaries, panel **KI-Zusammenfassung** (AI summary) | In verification |
+| Cloud ASR connectors, hosted text-model providers, GPT-5 settings, separate chat and translation models, embedding models | Upstream only |
 
-These features are powered by large language models (LLMs) configured through your `.env` file.
+Speech recognition runs locally only. The build has no cloud ASR connector and no cloud fallback. Locality is enforced for `TRANSCRIPTION_BASE_URL` and `CLINIC_GPU_ASR_BASE_URL`; `ASR_BASE_URL` is not checked (Open gap, see below).
 
-## Basic Configuration
+## Who configures what
 
-The text generation model is configured using three environment variables:
+- **Deployment operator (no application role).** All model endpoints, model names and keys are environment variables of the server process. Restart the application after changing them. No page lets anyone enter a model service URL or a model API key.
+- **Site administration** (**Administrationsrolle**, stock `User.is_admin`). Opens **Verwaltung** › **System** › **Systemeinstellungen** (system settings) with the settings that touch models: `disable_auto_summarization`, `transcript_length_limit` and `asr_timeout_seconds` (see [System Settings](system-settings.md)). Each change is audited as `admin.setting.changed`.
+- **Active site administration** (**Administrationsrolle** plus a clinic account with status **Aktiv** (active)). Only this role may use the **Modellwahl** page that is in verification.
+- **Local identity administration** (**Identitätsadministration**) and **pool leads** (**Leitung**). No model configuration at all.
+- **Fachrechte** (professional rights). In the summary feature that is in verification, reading a summary needs **Ansehen** (view) and requesting one needs **Bearbeiten** (edit) on the dictation. The separate rights **Freigeben** (release) and **Originalaudio exportieren** (original-audio export) play no part in model configuration. See [User Management](user-management.md).
+
+## Speech recognition models (released build)
+
+### Connectors
+
+Only three transcription connectors are registered:
+
+| Connector | Selected by | Use |
+|-----------|-------------|-----|
+| `openai_whisper` | `TRANSCRIPTION_BASE_URL` (default when `ASR_BASE_URL` is unset) | Local OpenAI-compatible ASR such as Speaches |
+| `asr_endpoint` | `ASR_BASE_URL` (or the deprecated `USE_ASR_ENDPOINT=true`) | Self-hosted WhisperX or whisper-asr-webservice |
+| `clinic_stub` | `TRANSCRIPTION_CONNECTOR=clinic_stub` only | Synthetic test double that returns fixed sentences; not speech recognition, refuses to run with `CLINIC_PROFILE=production` |
+
+Selection order: `TRANSCRIPTION_CONNECTOR`, then `ASR_BASE_URL`, then `openai_whisper`. Any other connector name leaves the connector uninitialized: the startup log shows `Failed to initialize transcription connector: ... Unknown connector: <name>. Available: [...]`. Setup of the services themselves is described in [Local ASR setup](whisperx-setup.md).
+
+A connector configuration error does not stop the start by itself. The startup log shows `Failed to initialize transcription connector: <reason>`, and a legacy check runs. The process exits only if that check fails too: with `ERROR: No transcription service configured!` when `USE_ASR_ENDPOINT` is not `true` and `TRANSCRIPTION_BASE_URL` or `TRANSCRIPTION_API_KEY` is empty, or with `ERROR: ASR enabled but ASR_BASE_URL not configured!` when `USE_ASR_ENDPOINT=true` and `ASR_BASE_URL` is empty. Otherwise the application starts, and every transcription job fails with the same configuration error until it is fixed.
+
+### Local endpoint rule for ASR
+
+In clinic mode the `openai_whisper` connector fails closed. An empty `TRANSCRIPTION_BASE_URL`, or one that is not local, raises `CLINIC_MODE is active: transcription base URL must point to a local or private service ...`. For ASR, local means: `localhost`, a loopback, private (RFC 1918, IPv6 ULA) or link-local address, any single-label host name (for example a compose service name such as `speaches`), or a name ending in `.local`, `.internal`, `.lan` or `.localhost`. The GPU target is checked the same way.
+
+!!! warning "Open gap: `ASR_BASE_URL` is not checked"
+    The `asr_endpoint` connector only checks that `ASR_BASE_URL` is set. A public address is not refused in clinic mode; at most a startup warning is logged for plain `http` to another host. Point `ASR_BASE_URL` only at a local service.
+
+### ASR variables
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `TRANSCRIPTION_CONNECTOR` | auto-detect | `openai_whisper`, `asr_endpoint` or `clinic_stub` |
+| `TRANSCRIPTION_BASE_URL` | unset | Local OpenAI-compatible ASR, for example `http://speaches:8000/v1` |
+| `TRANSCRIPTION_API_KEY` | unset | Must not be empty for `openai_whisper`; a local service accepts a placeholder such as `not-needed-for-local` |
+| `TRANSCRIPTION_MODEL` | `whisper-1` | Model of `openai_whisper` (legacy name `WHISPER_MODEL`); the example configuration uses `Systran/faster-distil-whisper-large-v3` |
+| `TRANSCRIPTION_TIMEOUT` | `3600` s in clinic mode | Read timeout of `openai_whisper`; must be a positive number, otherwise the connector is not initialized and the error names the variable (see Connectors above) |
+| `TRANSCRIPTION_MAX_RETRIES` | `0` in clinic mode | SDK retries of `openai_whisper`; integer `>= 0`, otherwise the same error handling as for `TRANSCRIPTION_TIMEOUT` |
+| `ASR_BASE_URL` | unset | WhisperX or whisper-asr-webservice; not locality-checked (Open gap) |
+| `ASR_TIMEOUT` | `1800` s (through `asr_timeout_seconds`) | Timeout of `asr_endpoint`; takes precedence over the system setting `asr_timeout_seconds`, which applies only to this connector |
+| `TRANSCRIPTION_MODELS_AVAILABLE` / `TRANSCRIPTION_MODEL_LABELS` | unset | Comma-separated model IDs and optional display names. Shown as the model list when no list is stored in the database; when a job's model is checked (step 2 below), these IDs are accepted in addition to a stored list |
+
+### GPU first, CPU second (Default off)
+
+With `CLINIC_GPU_ASR_BASE_URL` set, every job of the `openai_whisper` or `asr_endpoint` connector (never `clinic_stub`) goes to the GPU target first. The configured connector stays the CPU target.
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `CLINIC_GPU_ASR_BASE_URL` | unset (fallback off) | OpenAI-compatible GPU ASR; must be local |
+| `CLINIC_GPU_ASR_TIMEOUT` | `300` s | GPU request timeout; an invalid or non-positive value falls back to 300 |
+| `CLINIC_GPU_ASR_API_KEY` | key of the CPU target, else `local` | Key for the GPU target |
+| `CLINIC_GPU_ASR_MODEL` | unset | Pinned GPU model name |
+
+Before each transcription request the application calls `/healthz` at the root of the GPU service (5 s timeout). If that call times out, is unreachable or answers non-2xx, or if the GPU request fails with a timeout, a connection error or HTTP 500 or higher, the same job runs once on the CPU target. The GPU target is not retried, and a CPU failure is the job's failure. Any other GPU error, for example HTTP 404 `model_not_found`, fails the job without CPU fallback. Log lines: `ASR GPU target <url> configured (timeout <n>s); CPU target stays the fallback` at startup, `ASR: sending job to GPU target <url>` per job, and `ASR fallback: GPU target <url> not used (<reason>); transcribing on CPU target <url>` on fallback.
+
+Model name sent to the GPU target:
+
+1. `CLINIC_GPU_ASR_MODEL`, when set.
+2. Otherwise, for the bundled OpenVINO GPU service, the model that its `/healthz` reports.
+3. Otherwise the same model name the CPU target would receive.
+
+The bundled GPU service accepts only its `ASR_MODEL_NAME` (default `whisper-large-v3-turbo-int8-ov`) and `whisper-1`. Any other name gets HTTP 404 `model_not_found`, and the job fails. Service details: [Local ASR setup](whisperx-setup.md).
+
+### Which ASR model a job uses
+
+For each batch job the model is resolved in this order:
+
+1. A model passed with the request (upload, reprocess), else the default transcription model of the first tag (in tag order) that sets one, else the folder default.
+2. If an allowlist exists (the list stored by the **Transcription models** panel, `TRANSCRIPTION_MODELS_AVAILABLE`, or both), a value from step 1 that is on neither list is dropped with a log warning.
+3. If step 1 gave no value, the stored admin default `transcription_default_model` applies, when set.
+4. Otherwise the connector's own model (`TRANSCRIPTION_MODEL` for `openai_whisper`). `asr_endpoint` has no configured model: it sends the `model` query parameter only when steps 1 to 3 give a model; otherwise the service uses the model it has loaded.
+
+The clinic dictation views offer no model choice. A value dropped in step 2 falls through to the connector's own model, not to the admin default.
+
+### The Transcription models panel
+
+**Systemeinstellungen** (system settings) still shows the upstream panel **Transcription models** (German UI: **Transkriptionsmodelle**). An administrator can read the stored list and default. In clinic mode the buttons **Discover** (**Erkennen**) and **Save selection** (**Auswahl speichern**) call routes under the feature lock `cloud_provider_selection`, which the clinic contract does not enable, so both answer 403 `clinic_feature_disabled`. A list or default stored earlier stays in effect and cannot be changed in the UI. To extend the allowlist, add IDs to `TRANSCRIPTION_MODELS_AVAILABLE`; entries of a stored list cannot be removed in clinic mode.
+
+### Per-author ASR profiles (Prepared, disabled)
+
+The server profile of an author can name a language and a model. It applies to a job only when the capability registry holds runtime evidence for the exact target, and the released build never fills that registry. Every job therefore runs with the clinic defaults (language `de` unless a request, tag, folder or the owner sets one) and records the reason in its job parameters. Hotwords and profile settings bias the decoder; they are not acoustic training. In clinic mode the initial prompt and the hotwords reach the recognizer only with `CLINIC_ASR_PROMPTS_ENABLED` on (`1`, `true`, `yes` or `on`; default off); then they share a cap of 55 words. See [Default Prompts](prompts.md) and [Local ASR setup](whisperx-setup.md).
+
+## Text model for titles and summaries (released build)
+
+### Variables
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `TEXT_MODEL_BASE_URL` | code default `https://openrouter.ai/api/v1`, used only when set explicitly or a key exists | OpenAI-compatible endpoint of the text model |
+| `TEXT_MODEL_API_KEY` | unset | Optional for a local server; without it the placeholder `not-needed` is sent |
+| `TEXT_MODEL_NAME` | `openai/gpt-3.5-turbo` | Model ID; set it to an ID your local server serves |
+| `CLINIC_LOCAL_MODEL_HOSTS` | `speaches,host.docker.internal,localhost` | Comma-separated host names that count as local; a set value replaces the default list |
+| `CLINIC_LLM_TIMEOUT_SECONDS` | `120` | Per-call timeout of title and summary calls in clinic mode; replaces `LLM_REQUEST_TIMEOUT` (600) |
+| `CLINIC_LLM_MAX_RETRIES` | `2` | Per-call retries in clinic mode; replaces `LLM_MAX_RETRIES`. Invalid values of both clinic variables fall back to their defaults |
+| `LLM_CONNECT_TIMEOUT`, `LLM_WRITE_TIMEOUT` | `30` each | Connect and write timeouts in seconds of the text-model client (read timeout: `LLM_REQUEST_TIMEOUT`). They apply to the chat and translation calls; in clinic mode, title and summary calls replace them with the single per-call timeout `CLINIC_LLM_TIMEOUT_SECONDS` |
+| `SUMMARY_MAX_TOKENS` | `3000` | Maximum output tokens of a summary |
+| `TITLE_MAX_TOKENS` | `5000` | Maximum output tokens of a title call |
+| `TEXT_MODEL_EXTRA_BODY` | unset | JSON object added to every text-model request (see below) |
+| `PREFIX_CACHE_OPTIMIZED_PROMPTS` | `false` | Lays out title and summary prompts with a shared prefix (see below) |
+
+No language-model client is created unless `TEXT_MODEL_BASE_URL` is set explicitly or `TEXT_MODEL_API_KEY` exists. Without a client there are no titles or summaries, and nothing is sent.
+
+### The local-model rule
+
+In clinic mode the stock summary, title and translation routes (`generate_summary_endpoint`, `reprocess_summary`, `regenerate_title`, `translate_transcription`, `api_regenerate_title`, `start_summarization`) answer 403 `clinic_feature_disabled` unless the text model is local. The same rule locks chat and Inquire. The rule counts as met only when:
+
+- `TEXT_MODEL_BASE_URL` is set and local, and
+- each of `CHAT_MODEL_BASE_URL`, `TRANSLATION_MODEL_BASE_URL` and `EMBEDDING_BASE_URL` that is set is local too. One public URL locks all of these features.
+
+For text models, local means a loopback or private address (`127.0.0.0/8`, `::1`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `fc00::/7`) or a host on `CLINIC_LOCAL_MODEL_HOSTS`. This is stricter than the ASR rule: a bare single-label name that is not on the list is **not** local, and a URL with user info (`@`), a backslash or whitespace is refused. The flag `features.generative_summary` in the clinic defaults file does not decide this; only the locality of the URLs does.
+
+!!! warning "Shipped examples are not clinic-ready"
+    The example files `config/env.asr.example`, `config/env.transcription.example` ([clinic fork source](https://github.com/joehomeskillet/speakr/blob/main/config/env.transcription.example)), `config/env.whisper.example` and `config/env.whisperx.example` all set `TEXT_MODEL_BASE_URL=https://openrouter.ai/api/v1`, a hosted service. Replace it with a local endpoint before you enable clinic mode.
+
+Example with a local text-model service named `llm` (placeholders in angle brackets):
 
 ```bash
-TEXT_MODEL_BASE_URL=https://openrouter.ai/api/v1
-TEXT_MODEL_API_KEY=your_api_key_here
-TEXT_MODEL_NAME=openai/gpt-4o-mini
+CLINIC_MODE=1
+
+# Speech recognition
+TRANSCRIPTION_BASE_URL=http://speaches:8000/v1
+TRANSCRIPTION_API_KEY=not-needed-for-local
+TRANSCRIPTION_MODEL=Systran/faster-distil-whisper-large-v3
+
+# Text model: the service name must be on the local-host list
+CLINIC_LOCAL_MODEL_HOSTS=speaches,host.docker.internal,localhost,llm
+TEXT_MODEL_BASE_URL=http://llm:<port>/v1
+TEXT_MODEL_NAME=<model-id>
 ```
 
-### Choosing a Provider
+The released text-model client and the `openai_whisper` connector do not switch off the HTTP proxy environment variables of the process (for example `HTTPS_PROXY`). Make sure such settings do not route local model traffic out of the network.
 
-**OpenRouter** (recommended for most users): Provides access to multiple AI models through a single API, often at competitive prices. Supports GPT-4, Claude, and many other models. Configure using `TEXT_MODEL_BASE_URL=https://openrouter.ai/api/v1`.
+### Request parameters and prefix caching
 
-**OpenAI Direct**: Use OpenAI's API directly for access to their latest models including GPT-5. Configure using `TEXT_MODEL_BASE_URL=https://api.openai.com/v1`. This option is required for GPT-5 models with their specialized parameters.
-
-**Custom Endpoints**: Speakr works with any OpenAI-compatible API endpoint, including self-hosted solutions like LocalAI, Ollama with OpenAI compatibility, or enterprise API gateways.
-
-**Local servers without a key**: `TEXT_MODEL_API_KEY` is optional. Leave it unset for a server that needs no key, such as Ollama, vLLM or llama.cpp on your own network; set only `TEXT_MODEL_BASE_URL` and `TEXT_MODEL_NAME`.
-
-**Google Gemini (OpenAI-compatible)**: Google exposes Gemini models behind an OpenAI-compatible URL. Point Speakr at it like any other base URL:
+`TEXT_MODEL_EXTRA_BODY` holds a JSON object that is merged last into every request to the text model, so it overrides fields such as `max_tokens`. Use it for server-specific options of a local server, for example to turn off thinking for a Qwen3 model on vLLM, SGLang or llama.cpp:
 
 ```bash
-TEXT_MODEL_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
-TEXT_MODEL_API_KEY=your_google_api_key
-TEXT_MODEL_NAME=gemini-2.0-flash
-```
-
-No special connector is needed; Speakr's standard LLM client works with the endpoint directly.
-
-## GPT-5 Support
-
-Speakr fully supports OpenAI's GPT-5 model family, automatically detecting and adjusting API parameters when you use GPT-5 models with the official OpenAI API.
-
-### Requirements
-
-- **OpenAI Python SDK**: Version 2.2.0 or higher (included in `requirements.txt`)
-- **OpenAI API**: Must use `TEXT_MODEL_BASE_URL=https://api.openai.com/v1`
-- **Valid API Key**: An OpenAI API key with GPT-5 access
-
-### Supported GPT-5 Models
-
-- **gpt-5**: Best for complex reasoning, broad world knowledge, and code-heavy tasks
-- **gpt-5-mini**: Cost-optimized reasoning and chat; balances speed, cost, and capability
-- **gpt-5-nano**: High-throughput tasks, especially simple instruction-following
-- **gpt-5-chat-latest**: Latest GPT-5 chat model
-
-### Key Differences from GPT-4
-
-GPT-5 models use different parameters than previous models:
-
-**Unsupported Parameters** (will cause errors if used):
-
-- `temperature` - Replaced by `reasoning_effort` and `verbosity`
-- `top_p` - Not supported
-- `logprobs` - Not supported
-
-**New GPT-5 Parameters**:
-
-**Reasoning Effort**: Controls how many reasoning tokens the model generates before producing a response.
-
-- **minimal**: Fastest responses, minimal reasoning tokens (best for simple tasks)
-- **low**: Fast responses with basic reasoning
-- **medium**: Balanced reasoning and speed (default, recommended)
-- **high**: Maximum reasoning for complex tasks like coding and multi-step planning
-
-**Verbosity**: Controls how many output tokens are generated.
-
-- **low**: Concise responses
-- **medium**: Balanced detail (default)
-- **high**: Thorough explanations and detailed code
-
-**Token Limits**: GPT-5 uses `max_completion_tokens` instead of `max_tokens`.
-
-### Configuring GPT-5
-
-Add these settings to your `.env` file:
-
-```bash
-# Use OpenAI API endpoint
-TEXT_MODEL_BASE_URL=https://api.openai.com/v1
-TEXT_MODEL_API_KEY=your_openai_api_key
-TEXT_MODEL_NAME=gpt-5-mini
-
-# GPT-5 specific parameters (optional, defaults shown)
-GPT5_REASONING_EFFORT=medium
-GPT5_VERBOSITY=medium
-```
-
-### GPT-5 Configuration Examples
-
-**Fast Summarization (Low Cost)**:
-```bash
-TEXT_MODEL_NAME=gpt-5-nano
-GPT5_REASONING_EFFORT=minimal
-GPT5_VERBOSITY=low
-```
-
-**Standard Usage (Recommended)**:
-```bash
-TEXT_MODEL_NAME=gpt-5-mini
-GPT5_REASONING_EFFORT=medium
-GPT5_VERBOSITY=medium
-```
-
-**Complex Analysis (High Quality)**:
-```bash
-TEXT_MODEL_NAME=gpt-5
-GPT5_REASONING_EFFORT=high
-GPT5_VERBOSITY=high
-```
-
-### Automatic Detection
-
-Speakr automatically detects when you're using:
-
-1. A GPT-5 model (based on model name)
-2. The official OpenAI API (based on base URL containing `api.openai.com`)
-
-### GPT-5 Through Azure AI Foundry and Other Gateways
-
-The automatic detection only activates on the official OpenAI API URL. If you serve a GPT-5 model through Azure AI Foundry or another gateway, requests fail with an error such as `Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.` In that case, force GPT-5 parameter handling explicitly:
-
-```bash
-# Force GPT-5 parameters (reasoning_effort, verbosity, max_completion_tokens)
-# regardless of the base URL
-GPT5_FORCE_MODE=true
-
-# Same, for a separately configured chat model (not inherited from the above)
-# CHAT_GPT5_FORCE_MODE=true
-
-# Same, for a separately configured translation model (not inherited from the above)
-# TRANSLATION_GPT5_FORCE_MODE=true
-```
-
-When both conditions are met, Speakr automatically:
-
-- Removes `temperature` parameter from API calls
-- Adds `reasoning_effort` parameter
-- Adds `verbosity` parameter
-- Uses `max_completion_tokens` instead of `max_tokens`
-- Logs that GPT-5 parameters are being used
-
-Check your logs for confirmation:
-```
-Using GPT-5 model: gpt-5-mini - applying GPT-5 specific parameters
-```
-
-### Using GPT-5 Through OpenRouter
-
-If you use GPT-5 models through OpenRouter or other proxy services, the automatic GPT-5 parameter handling will **not** activate. These services typically handle parameter translation themselves, so Speakr uses standard parameters (temperature, max_tokens, etc.).
-
-### Use Cases
-
-**Summarization**:
-
-- Fast summaries: `gpt-5-nano` with `minimal` effort and `low` verbosity
-- Standard summaries: `gpt-5-mini` with `medium` effort and `medium` verbosity
-- Detailed summaries: `gpt-5` with `medium` effort and `high` verbosity
-
-**Chat**:
-
-- Quick Q&A: `gpt-5-mini` with `minimal` effort and `low` verbosity
-- Standard conversation: `gpt-5-mini` with `low` effort and `medium` verbosity
-- Complex analysis: `gpt-5` with `high` effort and `medium` verbosity
-
-### Troubleshooting GPT-5
-
-**Error: "Unsupported parameter 'temperature'"**
-
-This means GPT-5 detection failed. Check that:
-
-1. `TEXT_MODEL_BASE_URL` contains `api.openai.com`
-2. `TEXT_MODEL_NAME` starts with `gpt-5` or is one of: `gpt-5`, `gpt-5-mini`, `gpt-5-nano`, `gpt-5-chat-latest`
-
-**Error: "Invalid reasoning_effort value"**
-
-Valid values are: `minimal`, `low`, `medium`, `high`
-
-**Error: "Invalid verbosity value"**
-
-Valid values are: `low`, `medium`, `high`
-
-### Migrating from GPT-4 to GPT-5
-
-1. **Update dependencies** (required for GPT-5):
-   ```bash
-   pip install -r requirements.txt
-   ```
-   This upgrades the OpenAI SDK to version 2.2.0 or higher.
-
-2. Update your `.env` file:
-   ```bash
-   TEXT_MODEL_NAME=gpt-5-mini  # or gpt-5, gpt-5-nano
-   ```
-
-3. Add GPT-5 parameters (optional):
-   ```bash
-   GPT5_REASONING_EFFORT=medium
-   GPT5_VERBOSITY=medium
-   ```
-
-4. Restart Speakr:
-   ```bash
-   docker compose restart
-   ```
-
-5. Check logs for confirmation:
-   ```
-   Using GPT-5 model: gpt-5-mini - applying GPT-5 specific parameters
-   ```
-
-### Performance Considerations
-
-- **Cost**: `gpt-5-nano` < `gpt-5-mini` < `gpt-5`
-- **Speed**: `minimal` < `low` < `medium` < `high` reasoning effort
-- **Quality**: Generally increases with model size and reasoning effort
-- **Token usage**: Higher verbosity = more output tokens
-
-For most use cases, we recommend:
-
-- **Model**: `gpt-5-mini`
-- **Reasoning**: `medium`
-- **Verbosity**: `medium`
-
-This provides a good balance of cost, speed, and quality.
-
-## Separate Chat Model Configuration
-
-Speakr allows you to configure a separate model specifically for real-time chat interactions, while using a different model for background tasks like summarization and title generation. This enables you to:
-
-- **Use different service tiers**: Configure a faster, more expensive model for interactive chat while using a cheaper model for background processing
-- **Optimize costs**: Use a budget-friendly model for summarization while keeping a high-quality model for chat
-- **Balance speed and quality**: Prioritize low latency for chat while accepting slower processing for summaries
-
-### Configuration
-
-Add these optional environment variables to your `.env` file:
-
-```bash
-# Chat Model Configuration (Optional)
-# If not set, chat will use TEXT_MODEL_* settings
-CHAT_MODEL_API_KEY=your_chat_api_key
-CHAT_MODEL_BASE_URL=https://openrouter.ai/api/v1
-CHAT_MODEL_NAME=openai/gpt-4o
-```
-
-### Fallback Behavior
-
-| Configuration | Behavior |
-|--------------|----------|
-| No `CHAT_MODEL_*` variables set | Chat uses `TEXT_MODEL_*` settings (default) |
-| Only `CHAT_MODEL_NAME` set | Falls back to `TEXT_MODEL_*` (a key or a base URL is required) |
-| Only `CHAT_MODEL_API_KEY` set | Falls back to `TEXT_MODEL_*` (model name required) |
-| `CHAT_MODEL_API_KEY` + `CHAT_MODEL_NAME` set | Uses chat config with `TEXT_MODEL_BASE_URL` |
-| `CHAT_MODEL_BASE_URL` + `CHAT_MODEL_NAME` set | Uses a dedicated chat server; no key is sent unless `CHAT_MODEL_API_KEY` is set (suits a local server) |
-| All `CHAT_MODEL_*` variables set | Uses fully dedicated chat configuration |
-
-The text model's key is sent only to the text model's server. For a chat model on another server, `CHAT_MODEL_API_KEY` is used, or no key.
-
-### GPT-5 Settings for Chat
-
-If you use GPT-5 models for chat, you can configure separate GPT-5 parameters:
-
-```bash
-# Chat-specific GPT-5 settings (optional)
-# Falls back to GPT5_* settings if not specified
-CHAT_GPT5_REASONING_EFFORT=medium
-CHAT_GPT5_VERBOSITY=medium
-```
-
-### Example Configurations
-
-**Cheap Summarization + Premium Chat**:
-```bash
-# Background tasks: Use budget model
-TEXT_MODEL_BASE_URL=https://openrouter.ai/api/v1
-TEXT_MODEL_API_KEY=your_openrouter_key
-TEXT_MODEL_NAME=openai/gpt-4o-mini
-
-# Interactive chat: Use premium model
-CHAT_MODEL_API_KEY=your_openai_key
-CHAT_MODEL_BASE_URL=https://api.openai.com/v1
-CHAT_MODEL_NAME=gpt-5-mini
-CHAT_GPT5_REASONING_EFFORT=low
-CHAT_GPT5_VERBOSITY=medium
-```
-
-**Same Provider, Different Models**:
-```bash
-# Background tasks: Smaller model
-TEXT_MODEL_BASE_URL=https://openrouter.ai/api/v1
-TEXT_MODEL_API_KEY=your_api_key
-TEXT_MODEL_NAME=google/gemini-2.5-flash-lite
-
-# Interactive chat: Larger model (same provider)
-CHAT_MODEL_NAME=openai/gpt-4o
-# Note: CHAT_MODEL_API_KEY not needed if using same key
-# Note: CHAT_MODEL_BASE_URL not needed if using same endpoint
-```
-
-**Different Service Tiers (OpenAI)**:
-```bash
-# Background tasks: Standard tier
-TEXT_MODEL_BASE_URL=https://api.openai.com/v1
-TEXT_MODEL_API_KEY=your_standard_tier_key
-TEXT_MODEL_NAME=gpt-4o-mini
-
-# Interactive chat: Priority tier for faster responses
-CHAT_MODEL_API_KEY=your_priority_tier_key
-CHAT_MODEL_NAME=gpt-4o
-```
-
-### When to Use Separate Chat Models
-
-**Recommended for**:
-
-- High-volume deployments where chat responsiveness is critical
-- Users who need different service tiers for different operations
-- Cost optimization when chat usage is significantly higher than summarization
-
-**Not needed for**:
-
-- Small deployments with low usage
-- When using the same model for all operations is acceptable
-- Simple setups where configuration simplicity is preferred
-
-## Separate Translation Model Configuration
-
-Speakr can translate recordings with a dedicated model instead of the text model used for summaries and titles. This lets you send translation to a cheaper, faster or multilingual model while keeping the text model for the rest of the application. Speaker labels and timestamps are preserved regardless of the model; the model only translates the spoken text.
-
-The dedicated model is used for both manual translations and automatic translation after transcription. Translation token usage is recorded under the `translation` operation type, so it is separated from summaries and chat in the token statistics.
-
-### Configuration
-
-Add these optional environment variables to your `.env` file:
-
-```bash
-# Translation Model Configuration (Optional)
-# If not set, translation uses the TEXT_MODEL_* settings
-TRANSLATION_MODEL_API_KEY=your_translation_api_key
-TRANSLATION_MODEL_BASE_URL=https://openrouter.ai/api/v1
-TRANSLATION_MODEL_NAME=openai/gpt-4o-mini
-```
-
-A dedicated translation model needs `TRANSLATION_MODEL_NAME` and either its own key or its own base URL. Without both parts, Speakr falls back to the text model.
-
-### Fallback Behavior
-
-| Configuration | Behavior |
-|--------------|----------|
-| No `TRANSLATION_MODEL_*` variables set | Translation uses `TEXT_MODEL_*` settings (default) |
-| Only `TRANSLATION_MODEL_NAME` set | Falls back to `TEXT_MODEL_*` (a key or a base URL is required) |
-| Only `TRANSLATION_MODEL_API_KEY` set | Falls back to `TEXT_MODEL_*` (model name required) |
-| `TRANSLATION_MODEL_API_KEY` + `TRANSLATION_MODEL_NAME` set | Uses translation config with `TEXT_MODEL_BASE_URL` |
-| `TRANSLATION_MODEL_BASE_URL` + `TRANSLATION_MODEL_NAME` set | Uses a dedicated translation server; no key is sent unless `TRANSLATION_MODEL_API_KEY` is set (suits a local server) |
-| All `TRANSLATION_MODEL_*` variables set | Uses fully dedicated translation configuration |
-
-The text model's key is sent only to the text model's server. For a translation model on another server, set `TRANSLATION_MODEL_API_KEY`, or leave it unset for a local server that needs no authentication.
-
-### Example Configuration
-
-```bash
-# Summaries, titles and chat: general-purpose model
-TEXT_MODEL_BASE_URL=https://openrouter.ai/api/v1
-TEXT_MODEL_API_KEY=your_openrouter_key
-TEXT_MODEL_NAME=openai/gpt-4o-mini
-
-# Translation: cheaper multilingual model on the same provider
-TRANSLATION_MODEL_NAME=google/gemini-2.5-flash-lite
-TRANSLATION_MODEL_API_KEY=your_openrouter_key
-# Note: TRANSLATION_MODEL_BASE_URL not needed when the text model uses the same endpoint
-```
-
-### When to Use a Separate Translation Model
-
-**Recommended for**:
-
-- Translating long or numerous transcripts where a cheaper model is sufficient
-- Deployments that need a model with better coverage of the target languages
-- Routing translation to a local server while summaries and chat use a hosted API
-
-**Not needed for**:
-
-- Small deployments where the text model already translates well
-- When using the same model for all operations is acceptable
-- When translation is disabled and no user will trigger it manually
-
-## Model Selection Guidelines
-
-### For Summaries
-
-The model you choose significantly impacts summary quality:
-
-- **GPT-4 or better**: Produces nuanced, context-aware summaries with excellent understanding of complex topics
-- **GPT-5-mini**: Excellent balance of quality and cost for most summarization needs
-- **GPT-3.5/4o-mini**: Budget-friendly option, suitable for straightforward content
-- **Claude models**: Strong performance on structured content and technical material
-
-### For Chat
-
-Chat features benefit from more capable models:
-
-- **GPT-5**: Best for complex multi-turn conversations and detailed analysis
-- **GPT-5-mini**: Recommended for most chat use cases
-- **Claude**: Excellent for technical discussions and code-related queries
-
-### Cost Optimization
-
-To reduce costs while maintaining quality:
-
-1. **Use smaller models for simple tasks**: `gpt-5-nano` or `gpt-4o-mini` handle straightforward summaries well
-2. **Adjust GPT-5 reasoning effort**: Use `minimal` or `low` for quick tasks
-3. **Set token limits**: Configure `SUMMARY_MAX_TOKENS` and `CHAT_MAX_TOKENS` in your `.env`
-4. **Use OpenRouter**: Often provides better rates than direct API access
-
-### Testing Configuration
-
-After changing model configuration:
-
-1. Restart the Speakr container
-2. Create a test recording
-3. Review the generated summary and title
-4. Test the chat feature
-5. Monitor logs for any errors or warnings
-
-## Provider-Specific Request Parameters
-
-Reasoning ("thinking") is controlled differently by each provider, and some models think by default, which makes summaries, titles and translations slower and more expensive. `TEXT_MODEL_EXTRA_BODY` holds a JSON object whose fields are added to every request to the text model. `CHAT_MODEL_EXTRA_BODY` is the same setting for a separately configured chat model, and `TRANSLATION_MODEL_EXTRA_BODY` for a separately configured translation model.
-
-```bash
-# Turn off thinking for a Qwen3 model on vLLM, SGLang or llama.cpp
 TEXT_MODEL_EXTRA_BODY={"chat_template_kwargs": {"enable_thinking": false}}
 ```
 
-The fields are sent unchanged, so they must be ones your provider and model accept:
-
-| Provider | Example |
-|----------|---------|
-| OpenRouter, any reasoning model | `{"reasoning": {"effort": "low"}}`, or `{"reasoning": {"enabled": false}}` to turn reasoning off |
-| OpenAI (o-series, GPT-5) | `{"reasoning_effort": "minimal"}` |
-| vLLM, SGLang or llama.cpp, Qwen3 and similar models | `{"chat_template_kwargs": {"enable_thinking": false}}` |
-| vLLM, gpt-oss | `{"reasoning_effort": "low"}` |
-
-The name of the `chat_template_kwargs` field depends on the model's chat template and is given on the model card.
-
-- The fields are added after Speakr's own parameters and replace any with the same name, including the GPT-5 settings and `max_tokens`.
-- When chat or translation uses the text model, `TEXT_MODEL_EXTRA_BODY` applies to it as well. A separately configured chat or translation model does not inherit it.
-- In `.env`, the JSON is written without surrounding quotes.
-- If the value is not a JSON object, requests to that model fail with an error that names the variable.
-- When a provider rejects a request, the log lists the fields added by this setting. Some servers ignore fields they do not recognise, so compare response times or token counts before and after a change to confirm its effect.
-- Reasoning tokens are counted as completion tokens in the token statistics. The reasoning text is not stored with summaries, titles or chat answers.
+A value that is not a JSON object is logged at startup, and requests to the text model fail until it is corrected. When the server rejects a request, the log names the added fields.
 
-## Environment Variables Reference
+`PREFIX_CACHE_OPTIMIZED_PROMPTS=true` gives the title and summary prompts a byte-identical system message and transcript-first user block. A local inference server with automatic prefix caching (for example vLLM started with `--enable-prefix-caching`) can then reuse the transcript prefix between the two calls. With the flag on, both prompts use a shared system message and a reworded task block after the transcript, so the output can differ. Default off; check summary quality before you enable it. Prompt texts and their order of precedence are described in [Default Prompts](prompts.md).
 
-```bash
-# Required: API endpoint
-TEXT_MODEL_BASE_URL=https://api.openai.com/v1
+### Automatic titles and summaries in the released build
 
-# API key (can be left out for a local server without authentication)
-TEXT_MODEL_API_KEY=your_api_key_here
+In clinic mode a transcription job never calls the language model itself. It queues a `summarize` follow-up job on the summary queue. That job writes the title and, when automatic summarization applies, the stock summary of the recording. Automatic summarization applies when the system setting `disable_auto_summarization` is not `true`, the user's preference `auto_summarization` is not off, and a language-model client exists. In clinic mode the switch for that preference (**Auto-summarize**) sits on the account tab **Prompt options**, which is not rendered, so the preference keeps its default (on) unless it is changed through the API.
 
-# Required: Model identifier
-TEXT_MODEL_NAME=gpt-5-mini
-
-# Optional: Maximum tokens for summaries (default: 8000)
-SUMMARY_MAX_TOKENS=8000
-
-# Optional: Maximum tokens for chat responses (default: 2000)
-CHAT_MAX_TOKENS=2000
-
-# Optional: Maximum tokens for AI title generation (default: 100)
-# Bump for reasoning models (o1, Kimi 2.5, etc.) that consume budget on hidden thinking tokens
-TITLE_MAX_TOKENS=200
-
-# Optional: Prefix-cache-friendly title/summary prompts (default: false). See below.
-PREFIX_CACHE_OPTIMIZED_PROMPTS=false
-# Optional: cache breakpoints for Anthropic models (default: false). See below.
-TEXT_MODEL_CACHE_BREAKPOINTS=false
-
-# GPT-5 specific (only used with GPT-5 models and OpenAI API)
-GPT5_REASONING_EFFORT=medium  # minimal, low, medium, high
-GPT5_VERBOSITY=medium          # low, medium, high
-
-# Chat model configuration (optional - falls back to TEXT_MODEL_* if not set)
-CHAT_MODEL_API_KEY=your_chat_api_key
-CHAT_MODEL_BASE_URL=https://openrouter.ai/api/v1
-CHAT_MODEL_NAME=openai/gpt-4o
-
-# Chat-specific GPT-5 settings (optional - falls back to GPT5_* if not set)
-CHAT_GPT5_REASONING_EFFORT=medium  # minimal, low, medium, high
-CHAT_GPT5_VERBOSITY=medium          # low, medium, high
-
-# Translation model configuration (optional - falls back to TEXT_MODEL_* if not set)
-TRANSLATION_MODEL_API_KEY=your_translation_api_key
-TRANSLATION_MODEL_BASE_URL=https://openrouter.ai/api/v1
-TRANSLATION_MODEL_NAME=openai/gpt-4o-mini
-
-# Optional: force GPT-5 parameter handling for a separately configured
-# translation model (not inherited from GPT5_FORCE_MODE)
-# TRANSLATION_GPT5_FORCE_MODE=true
-
-# Provider-specific request parameters, a JSON object (optional)
-# See Provider-Specific Request Parameters above
-TEXT_MODEL_EXTRA_BODY={"reasoning": {"effort": "low"}}
-CHAT_MODEL_EXTRA_BODY={"reasoning": {"effort": "low"}}
-TRANSLATION_MODEL_EXTRA_BODY={"reasoning": {"effort": "low"}}
-```
-
-Not every model applies each reasoning field. With some models on OpenRouter, the effort level and the reasoning token limit are ignored, and only `{"reasoning": {"enabled": false}}` changes the amount of reasoning. After a change, check the reasoning token count of a few summary calls in your provider's request log.
-
-## Prefix-Cache-Friendly Prompts (`PREFIX_CACHE_OPTIMIZED_PROMPTS`)
-
-**Default: `false`. Opt-in.**
-
-For each recording, Speakr makes two LLM calls over the same transcript
-back-to-back: title generation, then summary generation. By default these two
-calls use different system messages and different text before the transcript, so
-they share no common prefix.
-
-Self-hosted, OpenAI-compatible inference servers that implement **Automatic
-Prefix Caching** — vLLM (APC), llama.cpp / Ollama (KV reuse), SGLang
-(RadixAttention), TGI — can skip recomputing a prompt's KV cache when a new
-request shares a prefix with a recent one. Because the title and summary prompts
-don't share a prefix today, the expensive transcript prefill is computed twice.
-
-When `PREFIX_CACHE_OPTIMIZED_PROMPTS=true`, Speakr rewrites the title and summary
-prompts so they use a byte-identical system message and a byte-identical
-transcript-first user block, pushing all per-task instructions into the suffix
-after the transcript. The backend then prefills the transcript once (on the
-title call) and reuses it on the summary call, prefilling only the short
-trailing instructions.
-
-**When to enable it:**
-
-- You self-host the text model on a backend with automatic prefix caching, or
-  you use a hosted model with prompt caching (OpenAI models cache a shared
-  prefix automatically; Anthropic models also need
-  `TEXT_MODEL_CACHE_BREAKPOINTS`, described below), and
-- Your transcripts are large (long diarized meetings), so the transcript
-  dominates the title and summary cost.
-
-**When to leave it off (the default):**
-
-- You want the exact upstream prompt wording. With the flag off, prompts are
-  unchanged.
-
-Scope is title + summary only. The flag has no effect on chat
-or other calls.
-
-### Enabling prefix caching on your backend
+!!! warning "Open gap: automatic titles and summaries are not locality-checked"
+    The automatic follow-up job has no locality check of its own; the local-model rule above guards only the stock summary and title routes. Whether titles and summaries of transcripts stay local therefore depends on configuring a local `TEXT_MODEL_BASE_URL`. Do not configure a hosted text model in clinic mode. Never set `TEXT_MODEL_API_KEY` without a local `TEXT_MODEL_BASE_URL`: a key alone creates a client with the code default `https://openrouter.ai/api/v1`. Leave both unset, or point them at a local service.
 
-This flag only changes how Speakr *shapes* its prompts so that a shared prefix
-exists. The caching itself has to be turned on at the inference server, and it is
-off by default on most backends. The settings below are for vLLM; other servers
-(llama.cpp / Ollama, SGLang, TGI) have their own equivalents.
+Title and summary calls count against the user's **Tokenlimit pro Monat** (monthly token limit), see [User Management](user-management.md). Language-model usage per model appears in [System Statistics](statistics.md).
 
-- **Turn caching on.** Start vLLM with `--enable-prefix-caching`. Without it,
-  the title and summary calls still send a byte-identical transcript prefix, but
-  the server recomputes that prefix every time and the flag delivers no benefit.
+## Model selection page "Modellwahl" (In verification)
 
-- **Make the saving visible (optional).** vLLM only reports per-request cache
-  hits in the API response when it is *also* started with
-  `--enable-prompt-tokens-details`, which defaults to off. With that flag set,
-  each response includes `usage.prompt_tokens_details.cached_tokens`, which
-  Speakr records and shows in the admin dashboard under **System Statistics →
-  Usage and Cost**, in the prompt-cache line below the language-model chart. Without it, caching still works, but the
-  dashboard shows zero cache reads because the server never reports them. You can
-  confirm caching independently from vLLM's `/metrics` endpoint, which exposes
-  `vllm:prefix_cache_hits_total` and `vllm:prompt_tokens_cached_total` regardless
-  of this flag.
+**Status: In verification.** This page is not part of the current released clinic build. Labels and availability may change. The description follows the code of the feature as it currently stands. All labels are German only.
 
-Example vLLM launch:
+### Location and access
 
-```bash
-vllm serve <model> \
-  --enable-prefix-caching \
-  --enable-prompt-tokens-details \
-  # ... your other flags (--tensor-parallel-size, --max-model-len, etc.)
-```
+- **Verwaltung** › group **System** › **Modellwahl**, between **Systemeinstellungen** and **System-Auditprotokoll**; address `/admin#/system/modelle`. Rendered only with clinic mode on.
+- Breadcrumb `Speakr › Verwaltung › Modellwahl`, heading **Modellwahl**, subline "Lokale Modelle für neue Verarbeitungsaufträge festlegen." (set local models for new processing jobs).
+- Page and API (`GET`/`PUT /api/clinic/v1/admin/task-models`) are for an active site administrator only: `User.is_admin` plus a clinic account with status **Aktiv** (active). An identity administrator without the **Administrationsrolle**, a pool lead or a deactivated administrator gets 403; a pool lead does not see the link. Without a sign-in the API answers 401, a `PUT` without a valid CSRF token 403, and with clinic mode off 404.
 
-A note on what to expect: the very first call over a transcript is always a cache
-miss and reports zero cached tokens; the saving appears on the second call that
-reuses the prefix.
+### Fields
 
-### Cache breakpoints for Anthropic models (`TEXT_MODEL_CACHE_BREAKPOINTS`)
+| Panel | Field | Task |
+|-------|-------|------|
+| **Transkription** — "Überträgt die Aufnahme in Text." | **GPU-Modell** | GPU target of the ASR fallback |
+| | **CPU-Modell** | Configured (CPU) ASR connector |
+| **Zusammenfassung** — "Fasst das gespeicherte Transkript zusammen." | **Textmodell** | Clinic dictation summaries only |
 
-**Default: `false`. Used only together with `PREFIX_CACHE_OPTIMIZED_PROMPTS=true`.**
+The page stores model identifiers only. Service URLs and keys stay in the deployment configuration. An identifier has at most 200 printable characters, consists of letters, digits and `_ . + : -` in segments separated by `/`, and contains no `:/`. Values such as `https://…`, `file:/…`, `../private` or a line break are refused with 400 `invalid_model`.
 
-Anthropic models, called directly or through OpenRouter, cache a prompt only up
-to an explicit `cache_control` breakpoint. Without one, the transcript is billed
-in full on both the title and the summary call.
+### Verified local catalogs
 
-```bash
-PREFIX_CACHE_OPTIMIZED_PROMPTS=true
-TEXT_MODEL_CACHE_BREAKPOINTS=true
-```
+For each task the server asks the local service which models it serves. Each request ignores proxy environment variables, follows no redirect and has a short timeout (2 s for the GPU health check, 1.5 s for catalogs). A catalog is queried only when the service URL is local.
 
-With both settings on, the user message of the title and summary calls is sent
-as two text parts: the shared transcript block, marked with
-`"cache_control": {"type": "ephemeral"}`, and the task instructions. The text of
-the prompt is unchanged. The title call writes the transcript to the cache, and
-the summary call a few seconds later reads it at a tenth of the input price.
-Anthropic charges 1.25 times the input price for a cache write, so a call with
-no second call within five minutes, such as a summary regenerated on its own,
-costs slightly more on its transcript part. Prompts shorter than the model's
-minimum cacheable length (about 1,000 to 4,000 tokens, depending on the model)
-are not cached.
+- **GPU-Modell:** `/healthz` at the root of `CLINIC_GPU_ASR_BASE_URL`. Only the bundled OpenVINO service counts (`model_loaded` true and an `openvino_genai` version). The choices are its reported model and `whisper-1`.
+- **CPU-Modell:** `GET <base URL>/models` of the configured connector (`/v1/models` for `asr_endpoint`).
+- **Textmodell:** `GET <text-model base URL>/models`.
 
-The cache reads and writes are recorded and shown under **System Statistics →
-Usage and Cost**.
+A response with `has_more`, without a `data` list, or with any invalid ID counts as no catalog.
 
-Enable this setting only for a provider that accepts a list of text parts in a
-message and the `cache_control` field. Through OpenRouter, other models accept
-the request and ignore the field. Some local and OpenAI-compatible servers
-reject it; with such a server, the title and summary calls fail until the
-setting is turned off.
-
-## Per-Upload, Per-Tag, Per-Folder Transcription Models
+With a verified catalog the field is a drop-down whose first option is **Vorgabe übernehmen** (use the default). A saved ID that is no longer in the catalog is shown as a disabled option. Saving an ID outside the catalog is refused with 400, unless the value is unchanged. Without a verified catalog the field is free text. For **CPU-Modell** it suggests the IDs of the list stored in the panel **Modellkatalog für die Aufnahme** (model catalog for recording, see below) and of `TRANSCRIPTION_MODELS_AVAILABLE`. Any valid ID is then accepted, so check that the service actually serves it.
 
-By default Speakr uses the single `TRANSCRIPTION_MODEL` set in `.env` for every recording. If your users transcribe different kinds of recordings (calls, meetings, dictations, multi-speaker interviews) you can publish a list of models they're allowed to choose from at upload time.
-
-```bash
-# Comma-separated list of model identifiers users can pick.
-TRANSCRIPTION_MODELS_AVAILABLE=whisper-1,whisper-large-v3
-# Optional parallel list of display names. Falls back to the model id when omitted.
-TRANSCRIPTION_MODEL_LABELS=Whisper-1,Whisper Large v3
-```
+### Inactive service versus missing selection
 
-When the list is non-empty, a "Transcription model" dropdown appears in the upload form's Advanced ASR Options and in the reprocess modal. Tags and folders also gain a "Default transcription model" field in their edit forms — set one and any recording uploaded with that tag or in that folder uses the chosen model unless the user picks a different one at upload time.
+Below each field the page shows one of three lines:
 
-Resolution order at upload time:
+| Line | Meaning |
+|------|---------|
+| **Wirksam: <ID>** (effective) | The service is active and this ID is sent with new requests. For an inherited CPU value, a model chosen at upload or set on a tag or folder still takes precedence |
+| **Wirksam: Keine Modellkennung gemeldet** (effective: no model ID reported) | The service is active, but the page cannot confirm an ID: nothing is saved or inherited, or the saved or inherited ID is not in the verified catalog. In the latter case new requests still send that ID, and the local service may refuse it |
+| **Derzeit inaktiv: Kein Modell aktiv** (currently inactive: no model active) | The task's local service is not active: the CPU connector URL is not local, `CLINIC_GPU_ASR_BASE_URL` is unset or not local, or no local text model is ready |
 
-1. Per-upload selection (Advanced ASR Options dropdown)
-2. First tag's `default_transcription_model`
-3. Folder's `default_transcription_model`
-4. The default transcription model chosen by an administrator in the admin settings
-5. The connector's own model. For the OpenAI, Mistral and VibeVoice connectors this is `TRANSCRIPTION_MODEL`. The `asr_endpoint` connector has none: it sends no `model` parameter, and the ASR service uses its own default.
+Each line also names the source of the value: **Hier festgelegt** (set here), **Installationsvorgabe** (deployment default), **Vom lokalen Dienst** (reported by the local service), **Bestehender Standard** (existing default) or **Keine Vorgabe** (no default). Footer: "Ohne eigene Auswahl gilt die Vorgabe der Installation oder des lokalen Dienstes."
 
-If the override isn't in `TRANSCRIPTION_MODELS_AVAILABLE`, it's dropped with a warning in the log and the recording uses the connector's own model, which guards against stale browser caches sending old model ids. The same resolution applies to reprocessing, bulk reprocessing, API v1, watch folders and the startup voice embedding check.
+Inherited values when nothing is saved:
 
-The override is propagated to the connector via the `model` field on `TranscriptionRequest`. Connectors that key on a model name (OpenAI Whisper) honour it directly. The `asr_endpoint` connector forwards the override as a `model=` query parameter; the [whisperx-asr-service](https://github.com/murtaza-nasir/whisperx-asr-service) fork uses it to switch the loaded Whisper model on demand, while the upstream `ahmetoner/whisper-asr-webservice` ignores unknown query parameters, so the override is safe in either case.
+- **CPU-Modell:** the stored `transcription_default_model` (**Bestehender Standard**), otherwise the connector's configured model (**Installationsvorgabe**). `asr_endpoint` has no configured model; without a stored default the line shows **Keine Vorgabe**.
+- **GPU-Modell** (only with `CLINIC_GPU_ASR_BASE_URL` set): `CLINIC_GPU_ASR_MODEL` (**Installationsvorgabe**), otherwise the model the GPU service reports (**Vom lokalen Dienst**), otherwise the CPU connector's configured model (**Installationsvorgabe**).
+- **Textmodell:** `TEXT_MODEL_NAME` (**Installationsvorgabe**).
 
-!!! warning "List only models compatible with the active connector"
-    The dropdown changes the model name **within the currently active connector**; it does not switch between providers. Speakr selects exactly one connector at startup based on `TRANSCRIPTION_CONNECTOR`, `USE_ASR_ENDPOINT`, and `TRANSCRIPTION_BASE_URL`, and every transcription request is routed there. If the list contains a model name the active connector does not recognise, requests for that model fail with a 500 from the upstream service.
+### Effect of a saved selection
 
-    For a WhisperX backend, list Whisper variants (`large-v3`, `medium`, `distil-medium.en`, etc.). For OpenAI-compatible Whisper, list supported model identifiers (e.g. `whisper-1`, `Systran/faster-whisper-large-v3`). Mixing providers in one dropdown is a planned feature for a future release.
+- The server reads the selection from the database on every model request, so a saved value applies at once to new requests. Completed jobs are not reprocessed. A running chunked job reads the selection for each chunk request and can switch models mid-job; its text revision then records `<connector>:mixed`. An empty value (**Vorgabe übernehmen** or a cleared field) returns to the inherited default.
+- A saved **CPU-Modell** replaces the model of the request, including a choice at upload or reprocess and tag or folder defaults, but only while the CPU target URL is local.
+- A saved **GPU-Modell** takes precedence over `CLINIC_GPU_ASR_MODEL` and over the model the service reports, but only while the GPU URL is local. It only sets the model name sent with the request; it does not load or switch a model on the GPU service.
+- **Textmodell** applies only to clinic dictation summaries. Titles and all other language-model calls keep `TEXT_MODEL_NAME`.
 
-### Admin-Managed Model List with `/v1/models` Discovery
+### Saving, conflicts and errors
 
-For connectors that expose an OpenAI-compatible `/v1/models` endpoint (such as Speaches or the WhisperX ASR service when configured to advertise its loaded models), admins can curate the available list directly from the **Default Prompts → Transcription Models** section of the admin dashboard rather than via env var. Click "Refresh from connector" to query `/v1/models`, tick the models you want users to see, and save.
+**Modellwahl speichern** (save model selection) stays disabled until a value changes. Success shows "Modellwahl gespeichert." Saving uses a revision: if someone else saved in between, the server answers 409 `stale_revision`, the page shows "Die Modellwahl wurde zwischenzeitlich geändert. Bitte den aktuellen Stand neu laden." with the button **Neu laden** (reload), and the draft is kept. Other messages: "Für die Modellwahl fehlt die Administratorberechtigung." (403), "Mindestens eine Modellkennung ist für den lokalen Dienst ungültig." (400), "Die Modellwahl konnte nicht geladen werden." and "Die Modellwahl konnte nicht gespeichert werden."
 
-The DB-backed list (stored in the `system_setting` table) overrides `TRANSCRIPTION_MODELS_AVAILABLE` when set. To revert to env-var control, clear the list in the dashboard. The env var is still useful for installations where the connector does not advertise its models or where you want config-as-code behaviour.
+### Storage, audit and logs
 
-When a connector returns a richer model object (display name, description, supported languages), those fields are used to render the dropdown labels. Otherwise the model id is used as both id and label, the same as with `TRANSCRIPTION_MODEL_LABELS`.
+- The selection is stored as the system setting `clinic_task_models` (a JSON object with revision and models). **Systemeinstellungen** does not list this key, and a generic `POST /admin/settings` for it answers 400 `use_task_models_api`.
+- Each save writes `admin.setting.changed` with the key `clinic_task_models`. Old and new model IDs are not recorded. See [Audit Log](audit-log.md).
+- The language-model log line and the token usage record name the model actually used. An ASR text revision records the model of the response as `<connector>:<model>`; mixed chunk models are recorded as `<connector>:mixed`, and an `asr_endpoint` response without a submitted model name (including a resumed job) as `asr_endpoint:unspecified`.
+- In **Systemeinstellungen**, the panel **Transcription models** is renamed **Modellkatalog für die Aufnahme** (model catalog for recording) with the note "Sichtbare Modelle und Anzeigenamen für die Aufnahme. Der Katalogstandard gilt für die CPU-Transkription, solange in der Modellwahl keine eigene CPU-Kennung festgelegt ist."
 
-!!! note "Localising model labels"
-    Model identifiers are typically brand names (Whisper, GPT-4o, VibeVoice) and are not translated by Speakr's i18n system. If you want localised labels for users on a non-English UI, set `TRANSCRIPTION_MODEL_LABELS` to your translated names: the labels you provide are used verbatim in the dropdown regardless of UI language. The same applies to admin-managed lists curated from the dashboard.
+## Automatic dictation summaries (In verification)
 
-## Configurable Embedding Model
+**Status: In verification.** Not part of the current released clinic build. Labels and availability may change. The summary is a separate, read-only text: it never edits, replaces or is inserted into the dictation text. Verification so far uses synthetic data only; no statement is made about summary quality or clinical suitability.
 
-Speakr's Inquire mode (semantic search) uses [sentence-transformers](https://www.sbert.net/) to embed transcript chunks locally by default. The default model is `all-MiniLM-L6-v2` (384-dim vectors), which is fast, small, and sufficient for most use cases.
+### Where it appears
 
-To use a different local model, set:
+The panel **KI-Zusammenfassung** (AI summary) appears in the **Schreibplatz**, collapsed and loaded only when opened, and in the **Diktatdetails**, expanded once the detail has loaded. The text is rendered as limited Markdown (headings, lists, paragraphs, bold, italic); links and images appear as plain text and raw HTML as literal text.
 
-```bash
-EMBEDDING_MODEL=all-mpnet-base-v2          # 768-dim, higher quality
-# or
-EMBEDDING_MODEL=multi-qa-MiniLM-L6-cos-v1  # tuned for question-answering
-```
+Status texts: "Für dieses Diktat liegt noch keine KI-Zusammenfassung vor." (none yet), "Die Zusammenfassung wird nach der Transkription automatisch erstellt." (waiting for the first transcription), "Die KI-Zusammenfassung wartet auf die Verarbeitung." (queued), "Die KI-Zusammenfassung wird erstellt …" (processing), "Die Erstellung ist fehlgeschlagen." (failed) and "Der Bezug zur aktuellen Textfassung ist nicht bestätigt." (stale). While the panel is open and a job is pending, it refreshes every 2.5 s. The buttons **Zusammenfassung erstellen** (create) and **Zusammenfassung neu erstellen** (recreate) appear only for users with edit rights, while a local model is ready and the current saved text has at least 10 usable characters, and not while a job is pending or an error message is shown; with an error message the panel offers **Stand erneut laden** (reload status) instead. With unsaved edits the panel notes "Die Zusammenfassung verwendet die zuletzt gespeicherte Textfassung."
 
-Any sentence-transformers compatible model name works.
+### Bound to a text revision
 
-### Remote (API-based) Embeddings
+Each dictation has at most one stored summary, bound to the exact text revision it describes. Its status is `ready` only while that revision is current. After a later correction it becomes `stale`; it is not regenerated automatically. Older stock summaries of the recording are shown only as `stale`, error markers as `failed` without text, and a summary from an ambiguous historical source recording is not shown.
 
-If you would rather offload embeddings to an OpenAI-compatible HTTP endpoint (vLLM, OpenRouter, OpenAI, Together, or any other compatible provider), set `EMBEDDING_BASE_URL` and Speakr switches to API mode. The same `EMBEDDING_MODEL` env var becomes the model identifier sent in each request.
+### Permissions and audit
 
-```bash
-# OpenAI directly
-EMBEDDING_BASE_URL=https://api.openai.com/v1
-EMBEDDING_API_KEY=sk-...
-EMBEDDING_MODEL=text-embedding-3-small
-EMBEDDING_DIMENSIONS=768   # optional, only honoured by providers that support output-dim trimming
-```
+| Action | Requirement | Otherwise |
+|--------|-------------|-----------|
+| Read (`GET /api/clinic/v1/dictations/<id>/summary`) | **Ansehen** (view) on the dictation, active account | 404 |
+| Request (`POST`, same address) | **Bearbeiten** (edit), CSRF token | 403 |
+| | A local model is ready | 503 `SUMMARY_UNAVAILABLE`, UI "Der lokale KI-Dienst ist derzeit nicht verfügbar." |
+| | A current text of at least 10 characters | 409, UI "Zum Erstellen wird ein aktueller Diktattext benötigt." |
 
-```bash
-# Self-hosted vLLM serving an embedding model
-EMBEDDING_BASE_URL=http://vllm-host:8000/v1
-EMBEDDING_API_KEY=not-needed
-EMBEDDING_MODEL=BAAI/bge-large-en-v1.5
-```
+An active site administrator can read summaries through the view right of site administration, but gets 403 on a request without the edit right. Each read, including each automatic refresh, is audited as `recording.content.read` with `part=summary`; each manual request as `recording.reprocessed` with `kind=summary`.
 
-```bash
-# OpenRouter
-EMBEDDING_BASE_URL=https://openrouter.ai/api/v1
-EMBEDDING_API_KEY=sk-or-...
-EMBEDDING_MODEL=openai/text-embedding-3-large
-```
+### Processing
 
-For Voyage AI's official endpoint, use:
+- The summary runs as job type `clinic_dictation_summary` on the existing summary queue (`ProcessingJob`/`JobQueue`), in the background; the recording is not set to processing. A repeated request while a job is queued creates no second job.
+- Input is the current saved text revision, which may be corrected, not the raw ASR text. It is cut to `transcript_length_limit` (default 30000 characters, `-1` = no limit). The prompt follows the existing hierarchy described in [Default Prompts](prompts.md). Output is limited by `SUMMARY_MAX_TOKENS` (3000), and the reply must end with `finish_reason` `stop`.
+- The model is the saved **Textmodell**, otherwise `TEXT_MODEL_NAME`. The request ignores proxy environment variables and follows no redirect. Provider errors are replaced by a generic message so that the error text cannot quote the transcript.
+- Before using the text and again after the model call, the worker checks the user's view and edit rights, the account, a ready local model, the automatic setting for automatic jobs, and an unchanged text revision. If anything changed, the job fails without storing a result.
 
-```env
-ENABLE_INQUIRE_MODE=true
-EMBEDDING_BASE_URL=https://api.voyageai.com/v1
-EMBEDDING_API_KEY=your-voyage-api-key
-EMBEDDING_MODEL=voyage-4-lite
-# EMBEDDING_DIMENSIONS=1024  # optional; must be supported by the model
-```
+### Automatic summary after the first transcript
 
-When `EMBEDDING_BASE_URL` points at `api.voyageai.com`, requests are sent in
-Voyage's format: `EMBEDDING_DIMENSIONS` is sent as `output_dimension`, recording
-chunks are sent with `input_type=document` and searches with `input_type=query`.
-Requests to any other host, including a proxy for Voyage, keep the
-OpenAI-compatible format. No Voyage SDK or local model is required. Meeting text
-and search queries are sent to Voyage for embedding. If Voyage refuses the
-configured dimension, indexing fails and searches use text search until the
-setting is corrected.
+The first successful ASR revision of a new clinic dictation (job type `transcribe`) queues a summary job in the same transaction. The job runs as the author. All of these must hold:
 
-After changing embedding providers, models, or dimensions, use **Admin →
-Vector Store → Re-embed all recordings** to rebuild existing vectors. Audio does
-not need to be transcribed again.
+- the system setting `disable_auto_summarization` is not `true`;
+- the author's preference `auto_summarization` is not off;
+- a local model is ready;
+- the author has view and edit rights on the dictation;
+- the first ASR text is usable and at least 10 characters long.
 
-API mode does not require sentence-transformers to be installed, so the lightweight Docker image (`learnedmachine/speakr:lite`) can now run full semantic search by combining `EMBEDDING_BASE_URL` with any compatible provider. The lite image already ships `openai` and `scikit-learn`, so no further dependencies are needed.
+There is no backfill. Existing dictations, repeated recognition, later ASR deliveries and human corrections trigger no automatic summary; a user with edit rights can request one manually. If the author's automatic setting is switched off after the job was queued, the job fails without a model call.
 
-### Compatibility Note
+With this feature, the stock follow-up job (`summarize`) writes only the title, and no stock summary, for recordings that belong to a clinic dictation; the dictation's summary is bound to its first ASR revision.
 
-The active embedding identifier (provider plus model) is recorded in `system_setting` on first startup. If you later change `EMBEDDING_MODEL` or `EMBEDDING_BASE_URL`, Speakr logs a warning at startup and Inquire mode will return wrong results until you reprocess affected recordings, because chunks embedded with the previous configuration occupy a different vector space. To rebuild embeddings after a change, reprocess each recording.
+### Without a local text model
+
+A local model is ready only when clinic mode is on, the local-model rule above is met, a language-model client exists and its base URL is local. Otherwise no automatic job is queued, no create button is shown, a request answers 503, and **Modellwahl** shows **Derzeit inaktiv: Kein Modell aktiv** for **Textmodell**. There is no fallback to a hosted model.
+
+## Upstream only
+
+These parts of the upstream page do not apply to the clinic build. The variables may still exist in the code, but they are not clinic instructions:
+
+- Hosted text-model providers (OpenRouter, OpenAI, Azure AI Foundry and other gateways) and cost optimization. In clinic mode a hosted URL locks the stock summary routes, and the automatic follow-up path must not be pointed at one (see the open gap above).
+- GPT-5 settings (`GPT5_REASONING_EFFORT`, `GPT5_VERBOSITY`, `GPT5_FORCE_MODE`, `CHAT_GPT5_*`, `TRANSLATION_GPT5_FORCE_MODE`) and cache breakpoints for Anthropic models (`TEXT_MODEL_CACHE_BREAKPOINTS`).
+- Separate chat and translation models (`CHAT_MODEL_*`, `TRANSLATION_MODEL_*`, `CHAT_MAX_TOKENS`, `ENABLE_STREAM_OPTIONS`): chat and translation have no clinic UI. If their URLs are set, they must be local, or the local-model features lock.
+- Embedding models (`EMBEDDING_*`) for Inquire; see [Ambrose settings](ambrose.md) and [Vector Store](vector-store.md). A set, non-local `EMBEDDING_BASE_URL` also locks the local-model features.
+- Cloud transcription connectors (OpenAI Transcribe, Azure OpenAI, Mistral Voxtral and its chunking, VibeVoice and others) are removed from the fork.
+- Model curation as described upstream: the **Default Prompts** tab is not rendered in clinic mode, and the **Transcription models** panel in **Systemeinstellungen** cannot discover or save (see above).
+
+Upstream Speakr documentation (pinned original): [Model Configuration](https://github.com/murtaza-nasir/speakr/blob/039a19b1f1c7f0ddaeac0a49b806845626f48a6c/docs/admin-guide/model-configuration.md).
 
 ## Troubleshooting
 
-### Model Not Responding
-
-Check logs for authentication errors:
-```bash
-docker compose logs -f app | grep "LLM"
-```
-
-Common issues:
-
-- Invalid API key
-- Model name not available on your plan
-- Rate limits exceeded
-- Insufficient credits
-
-### Poor Summary Quality
-
-Try these adjustments:
-
-- Upgrade to a more capable model
-- Increase `SUMMARY_MAX_TOKENS`
-- Review and refine [custom prompts](prompts.md)
-- For GPT-5: increase reasoning effort to `medium` or `high`
-
-### High Costs
-
-Reduce costs with:
-
-- Switch to smaller models (`gpt-5-nano`, `gpt-4o-mini`)
-- Lower token limits
-- For GPT-5: reduce reasoning effort to `minimal` or `low`
-- Use OpenRouter for better rates
-
-## Additional Resources
-
-- [OpenAI GPT-5 Documentation](https://platform.openai.com/docs/guides/latest-model)
-- [OpenAI Chat Completions API](https://platform.openai.com/docs/api-reference/chat)
-- [OpenRouter Documentation](https://openrouter.ai/docs)
-- [Custom Prompts Guide](prompts.md)
-- [System Settings](system-settings.md)
-
----
-
-Next: [Default Prompts](prompts.md) | Back to [Admin Guide](index.md)
+- **Transcription jobs fail, and the startup log shows `Failed to initialize transcription connector: ... CLINIC_MODE is active: transcription base URL must point to a local or private service`.** `TRANSCRIPTION_BASE_URL` or `CLINIC_GPU_ASR_BASE_URL` is not local. Jobs fail until this is fixed.
+- **Transcription jobs fail, and the startup log shows `Failed to initialize transcription connector: ... Unknown connector: ...`.** `TRANSCRIPTION_CONNECTOR` names a removed connector; use `openai_whisper`, `asr_endpoint` or `clinic_stub`.
+- **Transcription jobs fail, and the startup log shows `Failed to initialize transcription connector: ... TRANSCRIPTION_TIMEOUT=... is invalid`** (or the same for `TRANSCRIPTION_MAX_RETRIES`). Use a positive number of seconds or a non-negative integer.
+- **The application exits at startup with `ERROR: No transcription service configured!`** (or `ERROR: ASR enabled but ASR_BASE_URL not configured!`). The connector failed and the legacy check failed too: `TRANSCRIPTION_BASE_URL` or `TRANSCRIPTION_API_KEY` is empty (or `USE_ASR_ENDPOINT=true` without `ASR_BASE_URL`). The preceding `Failed to initialize transcription connector: ...` line names the connector error.
+- **Summary or title routes answer 403 `clinic_feature_disabled`.** The text model is not local: check `TEXT_MODEL_BASE_URL` and every set `CHAT_MODEL_BASE_URL`, `TRANSLATION_MODEL_BASE_URL` and `EMBEDDING_BASE_URL`, and add a service name to `CLINIC_LOCAL_MODEL_HOSTS` if needed.
+- **Discover** (**Erkennen**) or **Save selection** (**Auswahl speichern**) **answers 403.** Expected in clinic mode (see the **Transcription models** panel above).
+- **GPU jobs fail with `model_not_found`.** The model name does not match the GPU service. Remove or correct `CLINIC_GPU_ASR_MODEL`; 4xx errors do not fall back to the CPU.
+- **Check a change.** Restart the application. In the startup log, confirm `Transcription connector initialized: <name>`, with the GPU fallback also `ASR GPU target <url> configured (timeout <n>s); CPU target stays the fallback`, and `LLM client initialized: <url> / <model>` (or `Failed to initialize LLM client: ...` when no text model is configured). Then run one synthetic test dictation.
+- **Which values are in effect.** Each text-model call logs `LLM call: operation=..., model=..., max_tokens=...`.
+- **Cut-off or empty summaries.** The log says `Raise SUMMARY_MAX_TOKENS or limit reasoning with TEXT_MODEL_EXTRA_BODY.` Raise `SUMMARY_MAX_TOKENS` or turn off thinking with `TEXT_MODEL_EXTRA_BODY`.
+- **Slow or hanging language model.** In clinic mode each call stops after `CLINIC_LLM_TIMEOUT_SECONDS` (120 s) with at most `CLINIC_LLM_MAX_RETRIES` (2) retries; transcription workers are not blocked, because titles and summaries run on the summary queue.

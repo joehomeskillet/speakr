@@ -1,438 +1,301 @@
 ---
 layout: default
-title: WhisperX ASR Setup
+title: Local ASR Setup
 parent: Admin Guide
 nav_order: 8
 ---
 
-# WhisperX ASR Service Setup
+# Local Speech Recognition (ASR) Setup
+<small>[Deutsch](../de/admin-guide/whisperx-setup.md)</small>
 
-WhisperX is an advanced ASR (Automatic Speech Recognition) service that provides superior speaker diarization and word-level timestamps compared to standard Whisper implementations. This guide covers setting up WhisperX as an alternative ASR backend for Speakr.
+In the clinic build, speech recognition runs only on local services. This page replaces the upstream WhisperX setup guide. It covers the local CPU service, the optional GPU service with CPU fallback, timeouts, status views, the optional speaker service and what hotwords can and cannot do.
 
-## Overview
+The clinic rules on this page (address locality check, GPU fallback, clinic timeouts and retries, hint switch, German default language) apply only when `CLINIC_MODE` is `1`, `true`, `yes` or `on`. Independently of that, the clinic build knows only the `openai_whisper`, `asr_endpoint` and `clinic_stub` connectors; the upstream cloud connectors are absent even with clinic mode off. With clinic mode off, however, `TRANSCRIPTION_BASE_URL` is not checked, and an empty value sends audio to the default endpoint of the OpenAI SDK. `CLINIC_MODE` is off by default: run the clinic build with it on.
 
-**WhisperX Benefits:**
+Service addresses, keys, timeouts and switches of speech recognition are environment variables of the deployment. Only `asr_timeout_seconds` and `asr_async_jobs` (both for `asr_endpoint` only) are in **Systemeinstellungen** (System settings); the model default is described in [Model Configuration](model-configuration.md). The connector, including the GPU wrapper, is built once per app process, so restart the app after you change an environment variable. There is no admin page that sets ASR service addresses or keys.
 
-- ✅ Better speaker diarization accuracy (Pyannote.audio 4.0)
-- ✅ More precise word-level timestamps
-- ✅ Improved multi-speaker handling
-- ✅ **Voice profile support** with 256-dimensional speaker embeddings
-- ✅ Automatic speaker recognition across recordings
-- ✅ Active development and updates
-- ✅ Production-ready Docker deployment
+## Status overview
 
-**vs. Standard Whisper ASR:**
+| Function | Status | Short note |
+|---|---|---|
+| Local OpenAI-compatible ASR service (for example Speaches) through the `openai_whisper` connector | Available | The service address must be local or private; otherwise the connector refuses to start. |
+| GPU first, CPU second (bundled OpenVINO GPU service) | Default off | Active only when `CLINIC_GPU_ASR_BASE_URL` is set. One fallback to the CPU target, no GPU retry. |
+| `asr_endpoint` connector (WhisperX, whisper-asr-webservice) | Available (unchanged upstream connector) | Its address `ASR_BASE_URL` is **not** checked for locality (Open gap; see the section on this connector below). |
+| Cloud ASR connectors (OpenAI GPT-4o Transcribe, Azure OpenAI, Mistral, Tencent, Alibaba FunASR, Mossland, AssemblyAI, VibeVoice, OpenASR) | Upstream only | Removed from the clinic build. No code path falls back to a cloud recognizer. |
+| Transcription hints (initial prompt, hotwords) | Default off | Dropped unless `CLINIC_ASR_PROMPTS_ENABLED` is on. |
+| Word timestamps | Default off | `TRANSCRIPTION_WORD_TIMESTAMPS`. |
+| Per-author server ASR profiles (language, model, hotword sets) | Prepared, disabled | Never applied in the current build; jobs use the German defaults. |
+| **Optimierung** (optimization runs), pronunciation training, negative lexicon | Prepared, disabled | Every training run is refused. Nothing is trained or adapted. |
+| Live ASR adapter (`CLINIC_LIVE_ASR_BASE_URL`) | Prepared, disabled | No route or job uses it. |
+| Speaker service (own voice profile) | Default off | Separate local process, only with the user's own consent. |
+| Voice-based author suggestion | Prepared, disabled | Code exists; no route or job calls it. |
+| WhisperX service setup (Hugging Face token, pyannote), voice profiles from speaker embeddings, speaker identification | Upstream only | Speaker identification is locked in clinic mode; diarized embeddings are not stored. Diarization itself is requested by `asr_endpoint` by default (`ASR_DIARIZE`). |
+| `clinic_stub` connector | Simulated | Synthetic test double; returns fixed sentences. |
+| Per-task model selection (GPU and CPU model) | In verification | Not part of the current released build. |
+| German clinical recognition quality | Open gap | Not measured: no word error rate on German clinic audio, no Philips recorder audio. |
 
-- Standard: Simple, lightweight, good for single speakers, no voice profiles
-- WhisperX: Advanced diarization, voice profiles, better for meetings/conversations
+## Connector selection
 
-## Prerequisites
+Only three transcription connectors exist in the clinic build: `openai_whisper`, `asr_endpoint` and `clinic_stub`. The app picks one in this order:
 
-### Hardware Requirements
+1. `TRANSCRIPTION_CONNECTOR`, if set (`openai_whisper`, `asr_endpoint` or `clinic_stub`). Any other name fails with `Unknown connector: <name>. Available: [...]`.
+2. `asr_endpoint`, if `ASR_BASE_URL` is set (or the deprecated `USE_ASR_ENDPOINT=true`, which logs a deprecation warning).
+3. Otherwise `openai_whisper`, with the model from `TRANSCRIPTION_MODEL`, then the legacy `WHISPER_MODEL`, then `whisper-1`.
 
-**Minimum:**
+For a clinic installation, use `openai_whisper` with a local service. The startup log names the result, for example `Initialized transcription connector: openai_whisper`.
 
-- NVIDIA GPU with 8GB+ VRAM (RTX 3060, RTX 2080, etc.)
-- 16GB RAM
-- 50GB free disk space
+## CPU path: local OpenAI-compatible service
 
-**Recommended:**
-
-- NVIDIA GPU with 16GB+ VRAM (RTX 3080, RTX 4080, A100)
-- 32GB RAM
-- 100GB SSD storage
-
-### Software Requirements
-
-- Docker and Docker Compose
-- NVIDIA Container Toolkit
-- Hugging Face account with model access
-
-## Quick Start
-
-### 1. Get the WhisperX Service
-
-The WhisperX ASR service is maintained in a separate repository:
+The recommended path is an OpenAI-compatible service such as Speaches, reached through the `openai_whisper` connector. The repository does not ship a Speaches deployment. The example file [config/env.transcription.example](https://github.com/joehomeskillet/speakr/blob/main/config/env.transcription.example) (clinic fork source) expects a service named `speaches` on the same Docker network:
 
 ```bash
-# Clone the WhisperX ASR service
-git clone https://github.com/murtaza-nasir/whisperx-asr-service.git
-cd whisperx-asr-service
+CLINIC_MODE=1
+TRANSCRIPTION_CONNECTOR=openai_whisper
+TRANSCRIPTION_BASE_URL=http://speaches:8000/v1
+TRANSCRIPTION_API_KEY=not-needed-for-local
+TRANSCRIPTION_MODEL=Systran/faster-distil-whisper-large-v3
 ```
 
-### 2. Configure Hugging Face Access
+Rules in clinic mode:
 
-**Complete ALL steps below to enable speaker diarization:**
+- **The address must be local (fail closed).** `TRANSCRIPTION_BASE_URL` must point to loopback (`localhost`, 127.0.0.0/8, ::1), a private address (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, fc00::/7), a link-local address, a single-label host name such as a Compose service name, or a name ending in `.local`, `.internal`, `.lan` or `.localhost`. An empty value is also refused, so the OpenAI default never applies. The connector then fails with `CLINIC_MODE is active: transcription base URL must point to a local or private service ...`.
+- **A key is required.** `TRANSCRIPTION_API_KEY` must not be empty. A local service without authentication accepts any placeholder.
+- **Model.** The model value in the example file is a starting point only. No model has been benchmarked on German clinic audio. The model the request names can also come from an upload, a tag, a folder or the admin default; see [Model Configuration](model-configuration.md).
+- **Large files.** The connector accepts files up to 25 MB. Larger files are split by the app (`ENABLE_CHUNKING`, default `true`; size from `CHUNK_LIMIT`, `20MB` in the example file; overlap `CHUNK_OVERLAP_SECONDS`, default `3`).
 
-#### Step 1: Create Account
-- Visit: [https://huggingface.co/join](https://huggingface.co/join)
-- Sign up with your email
+The `asr_endpoint` connector targets services that expose a `/asr` endpoint (whisper-asr-webservice, WhisperX). Connect an OpenAI-compatible service such as Speaches through `openai_whisper`.
 
-#### Step 2: Accept Model Agreements (CRITICAL - ALL THREE REQUIRED)
+## GPU path with automatic CPU fallback
 
-You must accept agreements for **all three models** used by the diarization pipeline:
-
-1. **Main diarization model:**
-    - [https://huggingface.co/pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1)
-
-2. **Segmentation model:**
-    - [https://huggingface.co/pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0)
-
-3. **Speaker diarization 3.1:**
-    - [https://huggingface.co/pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1)
-
-For each model:
-
-- Click the **"Agree and access repository"** button
-- Fill out form (Company/university: your organization, Use case: "Meeting note taker")
-- Submit (approval is instant)
-
-#### Step 3: Generate Access Token
-- Visit: [https://huggingface.co/settings/tokens](https://huggingface.co/settings/tokens)
-- Click **"New token"**
-- Name: `whisperx-diarization`
-- Permission: **Read**
-- Click **"Generate token"**
-- Copy the token (starts with `hf_...`)
-
-**⚠️ Important:** You MUST accept the model agreement in Step 2. Without this, you'll get "403 Access Denied" errors even with a valid token.
-
-### 3. Set Up Environment
+**Status: Default off.** The GPU path is used only when clinic mode is on and `CLINIC_GPU_ASR_BASE_URL` is set. The app then wraps the configured connector (`openai_whisper` or `asr_endpoint`; never `clinic_stub`). This covers upload, reprocessing, retries and chunked jobs.
 
 ```bash
-# Copy example configuration
-cp .env.example .env
-
-# Edit and add your Hugging Face token
-nano .env
+CLINIC_GPU_ASR_BASE_URL=http://gpu-asr:8000/v1
+# CLINIC_GPU_ASR_TIMEOUT=300
+# CLINIC_GPU_ASR_API_KEY=<secret>
+# CLINIC_GPU_ASR_MODEL=
 ```
 
-Update `.env`:
-```bash
-HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-DEVICE=cuda
-COMPUTE_TYPE=float16
-BATCH_SIZE=16
-```
+- The GPU target is an OpenAI-compatible client. Its address must also be local; a non-local value makes the connector start fail.
+- Text after `#` in the address is ignored.
+- `CLINIC_GPU_ASR_API_KEY` falls back to the CPU key, then to `local`.
 
-### 4. Deploy the Service
+### Order and fallback conditions
 
-```bash
-# Build Docker image
-docker compose build
+For each job (and each chunk):
 
-# Start service
-docker compose up -d
+1. The app calls `/healthz` at the root of the GPU address (5 s timeout).
+2. If the health check answers 2xx, the job goes to the GPU target, with one attempt and no retry.
+3. The same job runs **once** on the CPU target if one of these happens:
+   - `/healthz` times out, is unreachable or answers with a status of 300 or higher;
+   - the GPU request times out, has a connection error or answers HTTP 500 or higher.
+4. A CPU failure ends this attempt. Within an attempt there is no second fallback and no cloud fallback. Whether the job runs again is decided by the job queue (see the section Timeouts and retries below); each new attempt starts again with `/healthz`.
 
-# Check logs
-docker compose logs -f
-```
+Any other GPU error ends the attempt **without** CPU fallback, for example `404 model_not_found`, `400 invalid_audio` or `413 payload_too_large`.
 
-### 5. Test the Service
+### GPU model name
 
-```bash
-# Health check
-curl http://localhost:9000/health
+- With `CLINIC_GPU_ASR_MODEL` set, every GPU request uses that name.
+- Without it, and when `/healthz` identifies the bundled OpenVINO service (`model_loaded: true` and an `openvino_genai` version), the request uses the model name reported there.
+- Otherwise the request uses the CPU model or the per-request model.
 
-# Should return:
-{
-  "status": "healthy",
-  "device": "cuda",
-  "loaded_models": []
-}
-```
+The bundled service accepts only its own model name and `whisper-1`. Any other name gives `404 model_not_found` and fails the job without fallback. Set the pin only to one of these two names.
 
-## Integration with Speakr
+### Log lines
 
-### Same Machine Deployment
+| When | Level | Text |
+|---|---|---|
+| Connector start | INFO | `ASR GPU target <url> configured (timeout <n>s); CPU target stays the fallback` |
+| Each GPU job | INFO | `ASR: sending job to GPU target <url>` |
+| Fallback | WARNING | `ASR fallback: GPU target <url> not used (<reason>); transcribing on CPU target <url>` |
 
-If WhisperX is running on the same machine as Speakr:
+Fallbacks are logged only; they are not written to the audit log. Each clinic job stores the planned engine (`selected`, `fallback`) and, after the run, the engine that ran (`actual`) in a `clinic_asr` record of its processing job. No page displays this record.
 
-Update Speakr's `.env` file:
+### Bundled OpenVINO GPU service
 
-```bash
-# Enable ASR endpoint
-USE_ASR_ENDPOINT=true
+**Status: Default off.** The service lives in [deployment/gpu-asr-service](https://github.com/joehomeskillet/speakr/blob/main/deployment/gpu-asr-service/docker-compose.snippet.yml) (clinic fork source). A comment in the compose snippet states that the service is not yet the default ASR. It is not part of a default deployment.
 
-# Point to WhisperX service
-ASR_BASE_URL=http://whisperx-asr-api:9000
+- **API.** `POST /v1/audio/transcriptions` (OpenAI-compatible, `json` or `verbose_json`) and `GET /healthz`, on port 8000.
+- **Engine.** OpenVINO GenAI `WhisperPipeline` on the Intel GPU device `GPU.0`, model `whisper-large-v3-turbo-int8-ov`.
+- **Build.** The image build downloads the Intel GPU runtime packages and the model files at a pinned model revision. The build fails if a SHA-256 checksum does not match (`model.sha256`). The model is not in the repository.
+- **Runtime.** One gunicorn worker and one engine thread: requests run strictly one after another. Audio is decoded in memory with ffmpeg and not stored.
+- **Health.** `/healthz` returns `status`, `model_loaded`, `model`, `device` and `versions`; it answers 503 while the model is not loaded. The Docker health check calls `curl http://127.0.0.1:8000/healthz` every 30 s.
+- **Timeout.** A request longer than `ASR_TIMEOUT_S` answers `504 engine_timeout`. In Speakr this counts as HTTP 5xx and triggers the CPU fallback.
+- **Devices.** The snippet passes `/dev/dri` into the container and adds the render group from `RENDER_GID` (default `109`, the group of `/dev/dri/renderD*`).
 
-# Enable voice profile features (speaker embeddings)
-ASR_RETURN_SPEAKER_EMBEDDINGS=true
-```
+Environment variables of the GPU service container (not of Speakr):
 
-> **Important:** The `ASR_RETURN_SPEAKER_EMBEDDINGS=true` setting is required to enable voice profile features. This setting is supported by WhisperX, and should not be enabled when using the basic OpenAI Whisper ASR Webservice.
+| Variable | Default | Meaning |
+|---|---|---|
+| `ASR_MODEL_DIR` | `/models/whisper-large-v3-turbo-int8-ov` | Model directory in the container |
+| `ASR_MODEL_NAME` | `whisper-large-v3-turbo-int8-ov` | Served model name; requests may name this or `whisper-1` |
+| `ASR_DEVICE` | `GPU.0` | OpenVINO device |
+| `ASR_TIMEOUT_S` | `300` | Maximum time per request, in seconds |
+| `ASR_PROMPTS_ENABLED` | `0` | Prompt switch of the service (`1`, `true`, `yes` = on) |
+| `ASR_PROMPT_MAX_WORDS` | `55` | Word budget for the prompt; can only be lowered |
+| `ASR_MAX_UPLOAD_BYTES` | `536870912` (512 MiB) | Upload limit; above it `413 payload_too_large` |
 
-Restart Speakr:
-
-```bash
-docker compose restart
-```
-
-### Separate GPU Machine Deployment
-
-If WhisperX is on a dedicated GPU server:
-
-**On GPU Machine:**
-
-1. Expose service to network in `docker-compose.yml`:
-    ```yaml
-    ports:
-     - "0.0.0.0:9000:9000"
-    ```
-
-2. Configure firewall:
-    ```bash
-    sudo ufw allow 9000/tcp
-    ```
-
-**On Speakr Machine:**
-
-Update Speakr's `.env`:
+Check the service from a container on the same network:
 
 ```bash
-USE_ASR_ENDPOINT=true
-ASR_BASE_URL=http://GPU_MACHINE_IP:9000
-ASR_RETURN_SPEAKER_EMBEDDINGS=true
+curl http://gpu-asr:8000/healthz
 ```
 
-Replace `GPU_MACHINE_IP` with actual IP address.
+## Timeouts and retries
 
-### Asynchronous Jobs
+| Path | Setting | Clinic default | Note |
+|---|---|---|---|
+| CPU target (`openai_whisper`) | `TRANSCRIPTION_TIMEOUT` (seconds, > 0) | 3600 | Without clinic mode: SDK default 600 s |
+| CPU target (`openai_whisper`) | `TRANSCRIPTION_MAX_RETRIES` (integer >= 0) | 0 | Without clinic mode: SDK default 2. An invalid value of either variable is a configuration error. |
+| GPU target | `CLINIC_GPU_ASR_TIMEOUT` | 300 | Invalid or <= 0 gives 300. No SDK retries; within an attempt the CPU fallback takes the place of a retry. |
+| GPU health check | fixed | 5 s | |
+| `asr_endpoint` | `ASR_TIMEOUT`, then the legacy env var `asr_timeout_seconds`, then the system setting `asr_timeout_seconds`, then 1800 | 1800 (seeded setting) | Read on each call. Applies only to `asr_endpoint`. |
+| Job queue (all paths) | `JOB_MAX_RETRIES` | 3 | Maximum attempts per job, transient errors only; see [System Settings](system-settings.md). |
 
-From version 0.5.0, the WhisperX ASR service has an asynchronous jobs API, which is advertised in `/health`. The API is used automatically: the audio is submitted as a job, the job is polled until it is done, and the transcript is deleted from the service once it has been fetched. After a dropped connection or a restart of Speakr, the saved job is polled again, and the transcription is not lost. For older versions of the service, the synchronous `/asr` request is used as before.
+After each failed attempt the job queue decides whether the job runs again. An error that is not classified as permanent, for example a timeout, a connection error or HTTP 5xx, re-queues the whole job until `JOB_MAX_RETRIES` attempts are used (default `3`, so at most three attempts in total). With a GPU target, each new attempt starts again with `/healthz`, then GPU, then CPU. A permanent error fails the job at once: HTTP 400, 401, 402, 403, 404 or 413, or an error message with a pattern such as `model not found` or `invalid file format`. After a timeout on the CPU target, the same audio is therefore sent again, despite `TRANSCRIPTION_MAX_RETRIES=0`; plan for up to three CPU requests of up to 3600 s each per job.
 
-To keep the synchronous request with a current service, set `ASR_ASYNC_JOBS=false` in `.env` or turn off `asr_async_jobs` in System Settings. See [Asynchronous WhisperX Jobs](system-settings.md#asynchronous-whisperx-jobs) for the details.
+The system setting `asr_timeout_seconds` (shown in **Systemeinstellungen** (System settings), in seconds) has no effect on the Speaches path or the GPU target. See [System Settings](system-settings.md). A change of a system setting is audited as `admin.setting.changed`; for `asr_timeout_seconds` only the key name is stored.
 
-## Configuration
+## Repeated recognition and late results
 
-### Performance Tuning
+- **Erneut transkribieren** (repeat transcription) in the **Schreibplatz** (correction view) needs an open edit lease, playable audio, a saved text and no unsaved changes. The new result is checked against the current text, audio revision and source job; a stale or duplicate result is not applied. The server also requires the right **Bearbeiten** (Edit) on the dictation and the current edit lease (`lease_generation`). It refuses the request with `recording_already_processing` while an ASR job for the dictation is queued or running. For the edit right, see [User Management](user-management.md).
+- If the current text is a human correction, the ASR result is kept as a side revision. The human revision stays current.
+- The ASR profile view reports the wait policy: manual entry (**Manuell schreiben**, write manually) is offered after 120 s, or after the profile's `skip_wait_minutes` if that value is at most 14 minutes (a larger value is ignored and 120 s applies); ASR counts as timed out after 900 s. A late ASR result is kept as a side revision and never replaces manual work.
+- Failed jobs can be retried on the **Verarbeitung** (Processing) page; see the section Status and health below.
 
-Edit WhisperX service `.env`:
+## Language and transcription hints
 
-**High-End GPU (RTX 3080+, A100):**
-```bash
-BATCH_SIZE=32
-COMPUTE_TYPE=float16
-```
+- **Language.** A clinic job without a language from the request, tag, folder or owner gets `de` (German). The value `auto` forces automatic detection.
+- **Hints off by default.** In clinic mode, batch jobs drop the initial prompt and hotwords from every source (admin default, user, tag, folder, upload) unless `CLINIC_ASR_PROMPTS_ENABLED` is `1`, `true`, `yes` or `on`. A job without a clinic record also runs with hints off.
+- **Word cap.** With the switch on, initial prompt and hotwords share one budget of 55 words; the initial prompt is counted first. The `openai_whisper` connector sends both together as one `prompt` field.
+- **GPU service.** The bundled GPU service has its own switch `ASR_PROMPTS_ENABLED` (default off). With it off, it discards the prompt and logs `prompt/hotwords ignored: ASR_PROMPTS_ENABLED is off (<n> words)`. Hints reach the GPU engine only when both switches are on.
+- The admin default hotwords and initial prompt (`admin_default_hotwords`, `admin_default_initial_prompt`) therefore have no effect in clinic mode by default. See [Prompts](prompts.md).
 
-**Mid-Range GPU (RTX 3060, RTX 2080):**
-```bash
-BATCH_SIZE=16
-COMPUTE_TYPE=float16
-```
+### Hotwords are not training
 
-**Low-End GPU (GTX 1660, RTX 2060):**
-```bash
-BATCH_SIZE=8
-COMPUTE_TYPE=int8
-```
+Hotwords, prompts, vocabulary and profile settings bias the decoder. They do not train or adapt the acoustic or language model.
 
-### Model Selection
+- **Wortschatz** (vocabulary) entries are not sent with the ASR request.
+- Per-author server profiles apply to a job only with recorded runtime evidence for the exact target. The current build records no such evidence, so every job runs on the German defaults (Prepared, disabled).
+- **Optimierung starten** (start optimization) on the **Sprachprofile** page creates a job of type `asr_training` only when the run is scheduled (**Lauf eingeplant.**, run scheduled). The other outcomes create no new job: a run for the same material is already active, the start is outside the time window or deferred because another run is active, the minimum data are missing, or scheduling fails. The queue refuses every such job with `CAPABILITY_UNAVAILABLE`; the job overview shows **Training nicht verfügbar** (training not available). No model is trained.
+- Pronunciation training and the negative lexicon answer `CAPABILITY_UNAVAILABLE` without evidence. Saving a list or a phonetic hint is not proof of any effect on recognition.
+- Correction-based adaptation stays an open requirement under the open production gate `G-ASR-PARITY`.
 
-Speakr sends a model with each request when one is configured: the model chosen at upload, a tag's or folder's default transcription model, or the default transcription model set by an administrator. When none of these is set, the request names no model and the service uses its own default.
+The page itself states: **"Eine Wortliste ersetzt kein Akustiktraining."** (A word list does not replace acoustic training.)
 
-On whisperx-asr-service, that default is `PRELOAD_MODEL`, the model it also loads at startup. If `PRELOAD_MODEL` is empty, including when the service's `.env` omits it under Docker Compose, requests that name no model fail with `Invalid model size ''` on service versions before 0.4.2. Either set `PRELOAD_MODEL` (for example `large-v3`) in the service's `.env`, or choose a default transcription model in Speakr's admin settings. From 0.4.2 the service also accepts `DEFAULT_MODEL`, which sets the default without preloading anything, for a GPU shared with other applications.
+### The Wortschatz page
 
-Available options:
+**Wortschatz** (vocabulary; `/admin#/wortschatz`, header menu section **Sprache und Verarbeitung**) has the tabs **Wörter** (words), **Vorschläge** (proposals), **Aussprache** (pronunciation) and **Enginewirkung** (engine effect).
 
-| Model | Quality | Speed | VRAM Required |
-|-------|---------|-------|---------------|
-| tiny | Low | Fastest | 1GB |
-| base | Low | Very Fast | 1GB |
-| small | Medium | Fast | 2GB |
-| medium | Good | Moderate | 5GB |
-| large-v2 | Excellent | Slow | 10GB |
-| large-v3 | Best | Slow | 10GB |
+- **Wörter:** under **Aktueller Bereich** (current scope), choose **Persönlich** (personal, the **Eigene Liste**, own list) or **Autorenpool** (author pool) with **Autorenpool wählen** (choose author pool). Each entry has a **Schreibweise** (written form), a **Gesprochen** (spoken) form and the status **Aktiv** or **Unterdrückt** (suppressed). The actions are **Wortliste importieren** (import word list), **Markierten Text hinzufügen** (add selected text), **Unterdrücken** (suppress), **Reaktivieren** (reactivate), **Wortliste exportieren** (export word list) and **Wirksame Liste exportieren** (export effective list).
+- Every signed-in account may change its own personal list. Only a member of an author pool may open the pool list, and changing it needs further authority; see [Effects on shared pool resources](group-management.md#effects-on-shared-pool-resources). A site administrator who is not a member of the author pool cannot open its list.
+- **Vorschläge:** the review queue for proposed vocabulary changes; one of its decisions is **Für den Pool übernehmen** (accept for the pool). It stays empty in the released build, because no code creates proposals. The tab then shows **Keine Vorschläge zu prüfen.** (no proposals to review).
+- Word list entries are not sent with the ASR request and are no acoustic training (see above).
 
-**Recommendation:** Use `large-v3` for best quality, `small` for speed.
+## Status and health
 
-## Custom Vocabulary & Transcription Hints
+There is no admin page that shows the live health of the ASR or speaker services. Use these views:
 
-WhisperX supports both **hotwords** and **initial_prompt** parameters to improve transcription accuracy for domain-specific content.
+| Where | Who | What it shows |
+|---|---|---|
+| **Verwaltung** › **Betrieb** › **Sprachprofile** (Speech profiles), `/admin#/sprachprofile`; header menu entry **ASR und Sprachprofile** | Active site administrators; the page is withheld for other accounts | Panel **Spracherkennung** (speech recognition) for the signed-in account. **Verwendete Erkennung** (engine used) shows **Nicht ermittelt** (not determined), because no capability evidence is recorded; it does not show the engine that ran. **Eingabehinweise (Prompts)** always shows **Aus** (off), also when `CLINIC_ASR_PROMPTS_ENABLED` is on. **Fähigkeiten und Nachweise** (capabilities and evidence) shows no capability as **Nachgewiesen** (proven). |
+| **Verwaltung** › **Betrieb** › **Verarbeitung** (Processing), `/admin#/verarbeitung` | Active site administrators see all jobs; other accounts see only jobs of dictations they may view | Job counts, stuck jobs (processing longer than 1800 s), the last failures with **Fehlerdetails ausgeblendet.** (error details hidden). No transcript, parameters or audio path. **Erneut versuchen** (retry) is allowed only for active site administrators. |
+| Account page (`/account`), tab **About**, section **Speech recognition** | Every signed-in user sees the model; only site administrators also see **Endpoint** | The CPU connector's model and address, not the GPU target. Without `TRANSCRIPTION_BASE_URL`, the endpoint shows the text `https://api.openai.com/v1` as a display default only; in clinic mode such a connector cannot start. |
+| App log | Whoever has access to the deployment's application log (not a right in the web interface) | Connector start and fallback lines (see above). At startup, one warning per ASR address that uses plain `http` to another machine (`ASR_BASE_URL`, `TRANSCRIPTION_BASE_URL`), private addresses included; loopback, single-label and Docker host names are exempt. |
 
-- **Hotwords** - Comma-separated terms the model should prioritize (brand names, acronyms, jargon). Passed as the `hotwords` query parameter to the ASR endpoint.
-- **Initial Prompt** - Context text that guides the model's word choices. Passed as the `initial_prompt` query parameter.
+An active site administrator means: the **Administrationsrolle** (administration role) plus a clinic account with the status **Aktiv** (active). An **Optimierung** run only covers the calling administrator's own approved corrections. See [User Management](user-management.md).
 
-Set these at any level in Speakr: per-user defaults, per-tag, per-folder, or per-upload in the Advanced ASR options. See the [Custom Vocabulary feature docs](../features.md#custom-vocabulary--transcription-hints) for details on the precedence hierarchy.
+## Speaker service (optional)
 
-!!! note "ASR Service Compatibility"
-    The WhisperX ASR service (`learnedmachine/whisperx-asr-service`) fully supports both `hotwords` and `initial_prompt` parameters. The community `whisper-asr-webservice` by ahmetoner supports `initial_prompt` but does not currently expose a `hotwords` parameter through its API.
+**Status: Default off.** The speaker service is a separate local process for consented own-voice profiles. Transcription does not need it.
 
-## Speaker Diarization
+- Source: `deployment/speaker-service`. CPU only, port 8090, models pinned by SHA-256 at build time, one worker, runs as a non-root user.
+- Endpoints: `GET /healthz`, `POST /embed`, `POST /diarize` (raw WAV body). `/healthz` answers 503 while the models are not loaded.
+- Container limits: `SPEAKER_MAX_BYTES` (default 268435456, 256 MiB), `SPEAKER_MIN_EMBED_SECONDS` (default `3.0`, seconds), `SPEAKER_MIN_DIARIZE_SECONDS` (default `1.0`, seconds).
+- Speakr reaches it only through `CLINIC_SPEAKER_SERVICE_URL`, with a 120 s timeout (health check 5 s) and no retries. Without the variable, no voice profile can be created. Open gap: Speakr does not check this address for locality. Point it only at a local service.
+- It is used only for the user's own voice enrollment after consent (**Eigenes Stimmprofil (freiwillig)**, own voice profile, voluntary). Voice-based author suggestion is Prepared, disabled. The processing pipeline does not call `/diarize`.
+- Consent and revocation are described in [Privacy](privacy.md).
 
-WhisperX provides superior speaker diarization compared to standard implementations.
+## asr_endpoint connector (WhisperX, whisper-asr-webservice)
 
-### Settings in Speakr
+**Status: Available (unchanged upstream connector), not the recommended clinic path.**
 
-When uploading or processing recordings:
+> **Open gap: `ASR_BASE_URL` is not checked for locality.** In clinic mode only `TRANSCRIPTION_BASE_URL` and `CLINIC_GPU_ASR_BASE_URL` are checked. A public `ASR_BASE_URL` is not refused; the only protection is the startup warning for plain `http`. Point `ASR_BASE_URL` only at a local or private host.
 
-- **Min speakers:** Minimum expected number of speakers
-- **Max speakers:** Maximum expected number of speakers
-- Leave blank for automatic detection
+If you run a self-hosted WhisperX or whisper-asr-webservice on a local host:
 
-**Tips:**
+- `ASR_BASE_URL`, `ASR_API_KEY` (default empty).
+- Timeout: see the table above (default 1800 s from the system setting).
+- `ASR_ASYNC_JOBS` / system setting `asr_async_jobs` (default `true`): when the service advertises the WhisperX jobs API in `/health`, the audio is submitted as a job and polled until it is done. The connector then deletes the job and its transcript on the service; it also deletes it after a failure on the service and after a cancel. A retry of the Speakr job resumes a saved job. Services without the jobs API, or `ASR_ASYNC_JOBS=false`, get the synchronous `/asr` request. See [System Settings](system-settings.md). A change is audited as `admin.setting.changed` with old and new value.
+- A model name is sent only when the request names one; otherwise the service uses its own default model. With `CLINIC_ASR_PROMPTS_ENABLED` on, this connector sends the initial prompt and the hotwords as the separate parameters `initial_prompt` and `hotwords`.
+- `ASR_ENABLE_CHUNKING` (default `false`) and `ASR_MAX_DURATION_SECONDS` (default `7200`) enable app-level chunking.
+- **Diarization.** The clinic contract value `asr.diarization: false` in `clinic-spec/config/dev.defaults.json` is not read by the code. With this connector, diarization follows `ASR_DIARIZE` (default `true`), plus `ASR_MIN_SPEAKERS` and `ASR_MAX_SPEAKERS`. Set `ASR_DIARIZE=false` if the service should not diarize.
+- **Speaker embeddings (Upstream only).** In clinic mode, voice embeddings of diarized speakers are not stored on the recording, and the upstream speaker identification routes are locked. `ASR_RETURN_SPEAKER_EMBEDDINGS` therefore gives no voice profiles.
+- The GPU fallback also wraps this connector: GPU first, then `asr_endpoint` as the CPU target.
 
-- Set `min_speakers=2` and `max_speakers=6` for typical meetings
-- For interviews: `min_speakers=2`, `max_speakers=2`
-- For panels: `min_speakers=3`, `max_speakers=8`
+The upstream WhisperX service setup (Hugging Face token, pyannote model agreements, NVIDIA GPU tuning, voice profiles) is Upstream only. It is not part of the clinic build and has not been reviewed for clinical use.
 
-### After Transcription
+## Synthetic test connector
 
-Use Speakr's speaker identification feature to assign real names to detected speakers. WhisperX's improved diarization makes this more accurate.
+**Status: Simulated.** `TRANSCRIPTION_CONNECTOR=clinic_stub` selects an offline test double. It opens no network connection and recognizes no speech. It accepts only PCM WAV and returns four fixed sentences ("Synthetischer Diktattext eins." … "vier."), marked `synthetic` and `not_asr_quality_proof`. It refuses to run with `CLINIC_PROFILE=production` and is never wrapped by the GPU fallback. Never use it for real dictations.
 
-## Monitoring
+## Per-task model selection (in verification)
 
-### Check Service Health
+**Status: In verification. Not part of the current released build; labels and availability may change.**
 
-```bash
-# Container status
-cd /path/to/whisperx-asr-service
-docker compose ps
+The page **Modellwahl** (model selection) under **Verwaltung** › **System** (in verification) stores model identifiers per task. For speech recognition, its panel **Transkription** (transcription) has two fields:
 
-# View logs
-docker compose logs -f
+- **GPU-Modell** (GPU model) for the GPU target of the fallback, and **CPU-Modell** (CPU model) for the configured (CPU) connector.
+- A saved **CPU-Modell** replaces the model of the request only while the CPU target URL is local.
+- A saved **GPU-Modell** takes precedence over `CLINIC_GPU_ASR_MODEL` and over the model the GPU service reports, only while the GPU URL is local. It only sets the model name sent with the request; it does not load or switch a model on the service.
 
-# Check GPU usage
-nvidia-smi -l 1
-```
+The page also sets the summary text model (**Zusammenfassung** › **Textmodell**, summary › text model). Full description, including catalogs, the status lines **Wirksam** (effective) and **Derzeit inaktiv** (currently inactive), access and audit: [Model Configuration](model-configuration.md).
 
-### Performance Metrics
+## Speakr environment variables
 
-Monitor in Speakr's admin interface:
-
-- Transcription times
-- Error rates
-- Model usage statistics
+| Variable | Default | Meaning |
+|---|---|---|
+| `CLINIC_MODE` | off | Turns on all clinic ASR rules on this page |
+| `TRANSCRIPTION_CONNECTOR` | auto-detect | `openai_whisper`, `asr_endpoint` or `clinic_stub` |
+| `TRANSCRIPTION_BASE_URL` | unset | Local OpenAI-compatible ASR; required and local in clinic mode |
+| `TRANSCRIPTION_API_KEY` | unset | Must not be empty; any placeholder for a local service |
+| `TRANSCRIPTION_MODEL` (legacy `WHISPER_MODEL`) | `whisper-1` | CPU model |
+| `TRANSCRIPTION_TIMEOUT` | 3600 in clinic mode | Read timeout, seconds |
+| `TRANSCRIPTION_MAX_RETRIES` | 0 in clinic mode | SDK retries |
+| `JOB_MAX_RETRIES` | `3` | Maximum attempts per job for transient errors; see [System Settings](system-settings.md) |
+| `TRANSCRIPTION_WORD_TIMESTAMPS` | off | `1`, `true`, `yes`: request word timestamps (clinic mode only; the GPU target inherits it) |
+| `TRANSCRIPTION_MODELS_AVAILABLE` | empty | Model allowlist; see [Model Configuration](model-configuration.md) |
+| `CLINIC_ASR_PROMPTS_ENABLED` | off | Lets initial prompt and hotwords through, 55-word cap |
+| `CLINIC_GPU_ASR_BASE_URL` | unset | Enables GPU first, CPU second; must be local |
+| `CLINIC_GPU_ASR_TIMEOUT` | 300 | GPU request timeout, seconds |
+| `CLINIC_GPU_ASR_API_KEY` | CPU key, else `local` | Key for the GPU target |
+| `CLINIC_GPU_ASR_MODEL` | unset | Pinned GPU model name |
+| `ASR_BASE_URL` | unset | `asr_endpoint` address; not checked for locality |
+| `ASR_API_KEY` | empty | Key for `asr_endpoint` |
+| `ASR_TIMEOUT` | unset (setting: 1800) | `asr_endpoint` timeout; overrides the system setting |
+| `ASR_ASYNC_JOBS` | `true` | WhisperX jobs API, when advertised |
+| `ASR_DIARIZE` | `true` | Diarization request of `asr_endpoint` |
+| `ASR_MIN_SPEAKERS` / `ASR_MAX_SPEAKERS` | unset | Speaker count hints of `asr_endpoint` |
+| `ASR_RETURN_SPEAKER_EMBEDDINGS` | `false` | Upstream only; embeddings are not stored in clinic mode |
+| `ASR_ENABLE_CHUNKING` / `ASR_MAX_DURATION_SECONDS` | `false` / `7200` | App-level chunking for `asr_endpoint` |
+| `USE_ASR_ENDPOINT` | `false` | Deprecated; use `ASR_BASE_URL` |
+| `CLINIC_SPEAKER_SERVICE_URL` | unset | Local speaker service |
+| `CLINIC_PROFILE` | unset | `production` makes `clinic_stub` refuse to run |
+| `CLINIC_LIVE_ASR_BASE_URL` | unset | Live ASR adapter; not wired (Prepared, disabled) |
 
 ## Troubleshooting
 
-### WhisperX Service Won't Start
+| Symptom | Cause and fix |
+|---|---|
+| `CLINIC_MODE is active: transcription base URL must point to a local or private service ...` | `TRANSCRIPTION_BASE_URL` or `CLINIC_GPU_ASR_BASE_URL` is empty or public. Use a local or private address. |
+| `Unknown connector: <name>. Available: [...]` | `TRANSCRIPTION_CONNECTOR` names a connector that the clinic build removed. |
+| `TRANSCRIPTION_TIMEOUT=... is invalid` | Use a positive number of seconds (`TRANSCRIPTION_MAX_RETRIES`: an integer >= 0). |
+| Many `ASR fallback: GPU target ... not used` warnings | GPU service down or unhealthy. Check `/healthz` and the GPU container log. |
+| Jobs fail with `model_not_found` on the GPU | `CLINIC_GPU_ASR_MODEL` or the request names a model the GPU service does not serve. No fallback for 4xx answers. |
+| Hotwords seem to have no effect | Expected: hints are off by default (`CLINIC_ASR_PROMPTS_ENABLED`, and `ASR_PROMPTS_ENABLED` on the GPU service). |
+| **Verwendete Erkennung: Nicht ermittelt** | Expected in the current build; see the section Status and health. |
+| `.ds2` / `.dss` recordings end as failed | Outside Docker, set `CLINIC_DSS_CODEC_BIN` to the `dss-decode` binary; the Docker image sets it to `/usr/local/bin/dss-decode`. |
 
-**Check logs:**
-```bash
-docker compose logs whisperx-asr
-```
+## Upstream reference
 
-**Common issues:**
-
-- GPU not accessible: Verify `nvidia-smi` works
-- Invalid HF_TOKEN: Check token and model agreements
-- Port conflict: Change port in `docker-compose.yml`
-
-### Speakr Can't Connect
-
-**Test connectivity:**
-```bash
-curl http://ASR_BASE_URL/health
-```
-
-**Solutions:**
-
-- Verify firewall rules
-- Check network connectivity
-- Ensure service is running
-- Try IP address instead of hostname
-
-### Slow Processing
-
-**Solutions:**
-
-- Increase `BATCH_SIZE` (if GPU has memory)
-- Use smaller model (`small` instead of `large-v3`)
-- Disable diarization for faster processing
-- Check GPU usage with `nvidia-smi`
-
-### Out of Memory
-
-**Error:** `CUDA out of memory`
-
-**Solutions:**
-
-1. Reduce `BATCH_SIZE`: Set to `8` or `4`
-2. Use smaller model
-3. Use `COMPUTE_TYPE=int8`
-4. Close other GPU applications
-
-### Speaker Diarization Fails
-
-**Check:**
-
-1. HF_TOKEN is set correctly in `.env`
-2. Accepted pyannote model agreements
-3. Service has internet access (for first-time model download)
-
-**Solutions:**
-
-- Regenerate HF token
-- Accept model agreements again
-- Check logs for specific errors
-
-If diarization breaks specifically after enabling `HF_HUB_OFFLINE=1`, the container is missing `HF_HOME=/.cache` and the diarization model was never stored in the cache volume. See [Diarization Fails After Enabling Offline Mode](../troubleshooting.md#diarization-fails-after-enabling-offline-mode-whisperx-asr-service).
-
-## Upgrading
-
-### Update WhisperX Service
-
-```bash
-cd /path/to/whisperx-asr-service
-
-# Pull latest changes (if using Git)
-git pull
-
-# Rebuild image
-docker compose build --no-cache
-
-# Restart service
-docker compose up -d
-```
-
-### Update Models
-
-Models are cached automatically. To use newer models:
-
-```bash
-# Remove cache volume
-docker compose down -v
-
-# Restart (models will re-download)
-docker compose up -d
-```
-
-## Performance Benchmarks
-
-Tested on RTX 3080 (10GB VRAM):
-
-| Model | 10min Audio | Processing Time | Real-time Factor |
-|-------|-------------|-----------------|------------------|
-| small | 10 min | 45 sec | 13x |
-| medium | 10 min | 90 sec | 6.7x |
-| large-v3 | 10 min | 180 sec | 3.3x |
-
-*With diarization: add ~30% processing time*
-
-## Comparison: WhisperX vs Standard Whisper
-
-| Feature | Standard Whisper | WhisperX |
-|---------|-----------------|----------|
-| Transcription Quality | Excellent | Excellent |
-| Word Timestamps | Good | Excellent |
-| Speaker Diarization | Good | Excellent |
-| Voice Profiles | ❌ Not supported | ✅ 256-dim embeddings |
-| Speaker Recognition | ❌ Manual only | ✅ Automatic matching |
-| Setup Complexity | Low | Medium |
-| Resource Usage | Lower | Higher |
-| Active Development | Moderate | High |
-| Production Ready | Yes | Yes |
-
-> **Note:** To enable voice profile features with WhisperX, you must set `ASR_RETURN_SPEAKER_EMBEDDINGS=true` in Speakr's `.env` file. This setting is disabled by default for compatibility with the basic ASR webservice.
-
-## Getting Help
-
-- **Service Documentation:** See WhisperX service README
-- **WhisperX Issues:** [GitHub](https://github.com/m-bain/whisperX/issues)
-- **Speakr Integration:** Check Speakr logs and admin dashboard
-
----
-
-For detailed setup instructions, see the [WhisperX Service Setup Guide](https://github.com/murtaza-nasir/whisperx-asr-service/blob/main/SETUP_GUIDE.md).
+The original WhisperX instructions (service repository, Hugging Face token, pyannote agreements, GPU tuning, voice profiles) are not instructions for the clinic build. Upstream Speakr documentation: [WhisperX Setup (pinned upstream version)](https://github.com/murtaza-nasir/speakr/blob/039a19b1f1c7f0ddaeac0a49b806845626f48a6c/docs/admin-guide/whisperx-setup.md).

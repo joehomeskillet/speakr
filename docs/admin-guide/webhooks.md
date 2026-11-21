@@ -1,331 +1,283 @@
 # Webhooks
+<small>[Deutsch](../de/admin-guide/webhooks.md)</small>
 
-Speakr can POST a signed JSON envelope to any HTTPS URL when a
-recording's lifecycle changes. Use it to push events into automation
-flows (n8n, Make, Zapier), home dashboards, or any service that
-prefers push over polling `GET /api/v1/recordings`.
+In the clinic build (`CLINIC_MODE` on), user webhooks are locked. The application sends no webhook
+events, and users and administrators cannot create or manage webhooks. This page describes what is
+locked, which webhook settings still appear and what they do, and the mechanisms the clinic build
+implements instead: in-app workflow notices, the output view **Ausgabe** (Output) and the KIS interface,
+which is simulated only.
 
-Webhooks are configured per-user from **Account settings → Webhooks**,
-or programmatically via the `/api/v1/webhooks` API.
+## Status overview
 
-## Event vocabulary
-
-| Event | Fired when | Payload `data` fields |
-|---|---|---|
-| `recording.created` | A recording row is created (upload arrived) | `recording_id`, `title`, `file_size`, `original_filename` |
-| `recording.transcription.started` | Worker picks up a transcribe or reprocess-transcription job and the audio file is on disk | `recording_id`, `title` |
-| `recording.transcription.completed` | Transcription job finished successfully | `recording_id`, `title`, `language`, `audio_duration_seconds`, `transcription_duration_seconds` |
-| `recording.transcription.failed` | Transcription failed permanently (retries exhausted), the transcription service returned no text, or the owner's monthly transcription budget was used up | `recording_id`, `title`, `error` |
-| `recording.summary.completed` | Summary generated successfully | `recording_id`, `title`, `summarization_duration_seconds` |
-| `recording.summary.failed` | Summary failed permanently | `recording_id`, `title`, `error` |
-| `recording.updated` | A change a user can see, from the web app or the API (see below) | `recording_id`, `title`, `fields_changed` (list of strings), `updated_at` |
-| `recording.deleted` | Recording removed | `recording_id`, `title` |
-| `webhook.test` | Synthetic event from the **Test** button or `POST /api/v1/webhooks/{id}/test` | `reason`, `webhook_id` |
-
-All events listed above fire in the current backend. The
-`recording.transcription.started` event fires only after the audio
-file's existence on disk is confirmed, so subscribers don't see
-misleading started→failed sequences for jobs that abort immediately
-(e.g. the audio file was deleted between upload and worker pickup).
-
-`recording.transcription.completed` fires only when the recording did not
-end `FAILED`. When the automatic summary that runs after a transcription
-fails, the transcript is kept and the recording is `FAILED`: subscribers
-receive `recording.summary.failed` and no `recording.transcription.completed`
-for that run. A later summary reprocess that succeeds sends
-`recording.summary.completed`.
-
-A transcription that returned no text also ends `FAILED`, without a
-transcript and without a retry, since silent audio would come back empty
-again. Subscribers receive `recording.transcription.failed` once, with the
-`error` "The transcription service returned no text. The recording may
-contain no speech, or the service failed without reporting an error.", and no
-`recording.transcription.completed`.
-
-A recording whose owner has used up the monthly transcription budget ends
-`FAILED` in the same way, before any audio is sent to the transcription
-service and without a retry. Subscribers receive
-`recording.transcription.failed` once, with the budget message shown on the
-recording as `error`, and no `recording.transcription.completed`. The message
-is in the owner's interface language.
-
-`recording.updated` fires once per saved change, whether the change was made in the web
-app, through API v1 or by a speaker rename or merge. `fields_changed` uses these words:
-
-| Word | Changed |
+| Function | Status in the clinic build |
 |---|---|
-| `title`, `participants`, `notes`, `summary`, `meeting_date`, `folder_id` | that field |
-| `transcript` | the transcript text or its speaker names |
-| `speakers` | which name each diarization label shows |
-| `tags` | a tag was added, removed or reordered |
-| `external_refs` | the webhook owner's external references |
-| `is_inbox`, `is_highlighted`, `is_archived` | the owner's flags |
-| `audio` | the audio was removed |
-| `deletion_exempt`, `prompt_variables` | that setting |
+| User webhooks (`/api/v1/webhooks`, account tab "Webhooks") | Upstream only (locked in clinic mode) |
+| Polling API v1 with a personal API token | Upstream only (locked in clinic mode) |
+| Web push notifications | Upstream only (locked in clinic mode) |
+| In-app workflow notices (user menu, **Benachrichtigungen** / Notifications) | Available |
+| Output view **Ausgabe**: TXT, DOCX, **Zwischenablage** (clipboard) | Available as a view. Every target needs an active final release, which is currently possible only with `CLINIC_PROFILE=staging` (Simulated). TXT and DOCX are rendered on the server, but no route returns the file. |
+| KIS target in **Ausgabe**, KIS context for final release | Simulated (only with `CLINIC_PROFILE=staging`, synthetic MockKIS, no KIS evidence); otherwise the adapter is disabled and final release is refused |
+| Reconciliation of a KIS delivery with an unclear outcome | Prepared, disabled (no route, no UI) |
+| Server-side export folders, ODT output, DOCX bookmark templates | Prepared, disabled (library code, no route) |
+| Insert into an open Word or Writer document, window or key automation, local mail client with audio attachment, Word add-in | Open gap (WG-EXP-004, WG-EXP-005, WG-EXP-007, WG-EXP-009, WG-EXP-010) |
 
-Status changes during processing fire no `recording.updated`; the lifecycle events above
-cover them.
+## Webhooks in clinic mode
 
-Bursts are merged: a `recording.updated` with the same `recording_id` and `fields_changed`
-as a delivery that has not been attempted yet replaces that delivery's `data`, so a notes
-autosave sends one delivery with the latest state.
+In clinic mode every feature switch is locked unless the contract file
+`clinic-spec/config/dev.defaults.json` (or the same file in the directory named by `CLINIC_CONFIG_DIR`)
+sets it to `true` under `features`. The exceptions are `chat`, `inquire` and `generative_summary`: they depend
+on a local text model, not on this switch. The shipped file sets `"user_webhooks": false`. While this lock holds:
 
-This build does not send webhook events for a recording another user shared. An older `webhook.include_shared` column is unused.
+- **Routes refused.** The route policy lists all ten webhook endpoints (`webhooks.*`, mounted under
+  `/api/v1/webhooks`: list, create, read, update, delete, rotate secret, test, list deliveries, read
+  delivery, replay) as disabled under `user_webhooks`. The guard answers `403` with
+  `"code": "clinic_feature_disabled"` and `"feature": "user_webhooks"`, before it checks the sign-in.
+  A request that authenticates with an API token instead of a browser session is refused one step
+  earlier with `"feature": "personal_api_tokens"`.
+- **Nothing is dispatched.** Every webhook entry point checks the lock first: the event call
+  (`emit_webhook_event`), the hook that queues `recording.updated`, and every pass of the dispatcher.
+  No delivery row is created and no HTTP request leaves the server. `WEBHOOK_GLOBAL_ENABLED=true`
+  cannot override the lock.
+- **No UI.** On `/account` the "Webhooks" tab and its script `account-webhooks.js` are not rendered.
+  A clinic test in `tests/clinic/` asserts this.
+- **Log line.** In the process that runs the background work (not in a web-only worker with
+  `CLINIC_WEB_ONLY=1`), the dispatcher thread still starts and logs
+  `Webhook dispatcher started (interval=<n>s)`. It skips every pass while the lock holds.
+- **No audit events.** The audit catalogue has no webhook events. See [Audit log](audit-log.md).
 
-Since v0.10.11-alpha, edits made in the web app fire `recording.updated` too. Before, only
-`PATCH /api/v1/recordings/{id}` did, so receivers subscribed to this event get more of them.
+The binding decision D21 in `clinic-spec/config/decisions.json` excludes personal webhooks. Editing the
+contract file is not an operating procedure for this build, and this manual gives no steps to unlock the
+feature.
 
-## Envelope
+Source (clinic fork): [src/clinic/route_policy.py](https://github.com/joehomeskillet/speakr/blob/main/src/clinic/route_policy.py),
+[src/services/webhook_dispatch.py](https://github.com/joehomeskillet/speakr/blob/main/src/services/webhook_dispatch.py).
 
-Every delivery is a `POST` with a JSON body shaped like:
+### Remaining webhook settings and variables
 
-```json
-{
-  "id": "f4e6a4e1-3b9b-4a04-9d4f-0e7a5d8b3c10",
-  "type": "recording.transcription.completed",
-  "timestamp": "2026-06-04T15:23:11.124000Z",
-  "occurred_at": "2026-06-04T15:23:11.124000Z",
-  "user_id": 42,
-  "data": {
-    "recording_id": 9173,
-    "title": "Q3 planning",
-    "language": "en",
-    "audio_duration_seconds": 3624.7,
-    "transcription_duration_seconds": 212,
-    "updated_at": "2026-06-04T15:23:10.981233Z"
-  }
-}
-```
+In site administration, **Systemeinstellungen** (System settings, `/admin#/system/einstellungen`) still lists two
+webhook settings. Only an account with the **Administrationsrolle** (administration role) can change them. While
+the audit log is on, each change is audited as `admin.setting.changed` with the old and the new value.
 
-- `id` is one UUID per event; every webhook that receives the event gets the same `id`.
-- `timestamp` and `occurred_at` are the time the event happened (UTC, microseconds). They do
-  not change on retries: the body is stored once and every attempt sends the same bytes.
-- `data` of every `recording.*` event carries `updated_at`, the recording's last change as
-  in the API, and `external_refs`, the webhook owner's references (both absent for
-  `recording.deleted`).
-- The body is `json.dumps(envelope, separators=(',', ':'), ensure_ascii=False)` in UTF-8.
-  Verify the signature over the raw bytes you received, never over re-serialised JSON.
+| Setting | Environment variable | Default | Effect in clinic mode |
+|---|---|---|---|
+| `webhook_omit_titles` | `WEBHOOK_OMIT_TITLES` | `false` | None. No payload is built. |
+| `webhook_delivery_retention_days` | `WEBHOOK_DELIVERY_RETENTION_DAYS` | `30` | Removes only delivery rows that already exist, for example from operation before clinic mode was switched on. `0` keeps them. |
 
-`language` is the language the transcription service reported for that recording,
-as an ISO 639-1 code. It reflects what was detected or used for that audio, not the
-user's current transcription-language preference. Fields are omitted when Speakr does
-not have a value, so `language` is absent for backends that report none, and for
-recordings transcribed before v0.10.6-alpha, which is when Speakr began storing it.
+The removal runs in the background cleanup thread, every `RECORDING_SESSION_CLEANUP_INTERVAL_SECONDS`
+(default `3600`), and logs `Pruned <n> webhook delivery record(s)`. With `RECORDING_SESSION_CLEANUP_INTERVAL_SECONDS`
+set to `0` or less, the cleanup thread, and with it this removal, does not run.
 
+The shipped env examples (`config/env.*.example`) list further webhook variables, commented out. They are
+upstream only and have no effect in clinic mode: `WEBHOOK_GLOBAL_ENABLED`, `WEBHOOK_MAX_PER_USER`,
+`WEBHOOK_DELIVERY_TIMEOUT_SECONDS`, `WEBHOOK_MAX_ATTEMPTS`, `WEBHOOK_AUTOPAUSE_FAILURES`,
+`WEBHOOK_TRIAL_INTERVAL_SECONDS`, `WEBHOOK_INTRANET_HOST_ALLOWLIST` and `WEBHOOK_SECRET_GRACE_HOURS`.
+`WEBHOOK_DISPATCHER_INTERVAL_SECONDS` (default `5`, at least `1`) only sets how often the idle dispatcher wakes
+up; its value appears in the log line `interval=<n>s`.
 
-Headers:
+### Webhook data from an earlier upstream instance
 
-| Header | Purpose |
-|---|---|
-| `Content-Type: application/json` | Body format |
-| `User-Agent: Speakr-Webhook/1.0` | Identifies Speakr to receivers |
-| `Speakr-Event` | The event type, for routing without parsing the body |
-| `Speakr-Delivery-Id` | The envelope `id`; use it for idempotency |
-| `Speakr-Signature-V2` | `t=<send time, Unix seconds>,v1=<hex>`: HMAC-SHA256 of `"<t>." + raw body`. Verify this one when it is present. |
-| `Speakr-Signature` | `sha256=<hex>`: HMAC-SHA256 of the raw body |
-| `Speakr-Attempt` | `1` for the first attempt, `2` for the first retry, and so on |
-| `Speakr-Timestamp` | ISO 8601 UTC send time. **Not signed**: do not use it for freshness checks. |
+When an existing Speakr instance is switched to clinic mode, its rows in the tables `webhook` and
+`webhook_delivery` stay in the database. Nothing is sent, and no route or page shows or manages them.
+Delivery rows, including queued ones, are removed by age as described above. Webhook rows are not removed.
 
-## Signature verification
+- A delivery row holds the payload that was sent (recording id, title and original file name unless
+  `webhook_omit_titles` was on, error text), the receiver's HTTP status and the first 2,000 characters of its
+  answer.
+- A webhook row keeps the name, target URL, subscribed events and the HMAC signing secret (and a previous secret
+  during a rotation).
 
-Every receiver must verify a signature before trusting the body. Without it, anyone who
-guesses the URL can forge events.
+### Upstream behavior with clinic mode off
 
-Verify `Speakr-Signature-V2` when it is present. Its signature covers the send time `t`, so
-a receiver can refuse old deliveries (for example `|now - t| > 300` seconds) while every
-retry still passes: each attempt is signed with its own send time over the same body.
-During a secret rotation the header carries two `v1=` values; accept a match with either.
+With `CLINIC_MODE` off, none of these locks apply and the webhook feature behaves as in upstream Speakr,
+with one difference: the fork sends no share, calendar-event or shared-recording events. The available
+event types are `recording.created`, `recording.transcription.started`,
+`recording.transcription.completed`, `recording.transcription.failed`, `recording.summary.completed`,
+`recording.summary.failed`, `recording.updated`, `recording.deleted` and `webhook.test`.
 
-### Python (V2)
+Upstream Speakr documentation (not valid for the clinic build):
+[Webhooks, upstream Speakr](https://github.com/murtaza-nasir/speakr/blob/039a19b1f1c7f0ddaeac0a49b806845626f48a6c/docs/admin-guide/webhooks.md).
 
-```python
-import hmac
-import hashlib
-import time
+## Alternative: in-app workflow notices
 
-def verify_speakr_v2(secret: str, raw_body: bytes, header: str, window: int = 300) -> bool:
-    parts = [p.split('=', 1) for p in header.split(',') if '=' in p]
-    try:
-        t = int(next(v for k, v in parts if k == 't'))
-    except (StopIteration, ValueError):
-        return False
-    if abs(time.time() - t) > window:
-        return False
-    expected = hmac.new(secret.encode(), f'{t}.'.encode() + raw_body, hashlib.sha256).hexdigest()
-    return any(hmac.compare_digest(expected, v) for k, v in parts if k == 'v1')
-```
+**Status: Available.** The clinic build informs users about acceptance and completion through in-app
+notices. Nothing leaves the server, no SMTP server is needed, and there is nothing to configure.
 
-### Node.js (V2)
+**Where.** In the page header, the user menu (the avatar with the initials) shows an unread badge and the
+entry **Benachrichtigungen** (English interface: **Notifications**). Each notice has **Ansehen** (View)
+and a dismiss button (**Ausblenden**, Dismiss). The header polls the unread count every 60 seconds.
 
-```js
-const crypto = require('crypto');
+| Event | Stored title (fixed German text) | Recipients | Triggered by |
+|---|---|---|---|
+| `acceptance_requested` | **Abnahme angefordert** (acceptance requested) | Approvers of the published acceptance policy of the dictation: listed approvers and members of approver author pools, minus the deny list | **Zur Abnahme einreichen** (submit for acceptance); also when the text changes after an acceptance and a new acceptance is required |
+| `acceptance_rejected` | **Abnahme abgelehnt** (acceptance rejected) | The current assignee, that is the person the dictation is returned to | **Zur Korrektur zurückweisen** (return for correction) |
+| `accepted` | **Diktat abgenommen** (dictation accepted) | Author and assignee | **Zusätzlich abnehmen** (accept) |
+| `completed` | **Diktat fertiggestellt** (dictation completed) | Author | **Endgültig freigeben** (final release) |
 
-function verifySpeakrV2(secret, rawBody, header, windowSeconds = 300) {
-    if (!header) return false;
-    const parts = header.split(',').map(p => p.split('='));
-    const t = Number((parts.find(([k]) => k === 't') || [])[1]);
-    if (!Number.isInteger(t) || Math.abs(Date.now() / 1000 - t) > windowSeconds) return false;
-    const expected = crypto.createHmac('sha256', secret)
-        .update(Buffer.concat([Buffer.from(`${t}.`), rawBody])).digest();
-    return parts.filter(([k]) => k === 'v1').some(([, v]) => {
-        const given = Buffer.from(v || '', 'hex');
-        return given.length === expected.length && crypto.timingSafeEqual(expected, given);
-    });
-}
-```
+Rules, as implemented:
 
-### Python (V1, `Speakr-Signature`)
+- The acting user is never notified.
+- Each recipient is checked again when the notice is delivered. An active account with the
+  **Administrationsrolle** (administration role) always passes. Every other recipient needs the `view` action on the dictation through the pool policy;
+  a recipient who fails the check is dropped.
+- A notice is delivered as a job of type `clinic_notify` through the existing job queue. The job
+  overview **Verarbeitung** lists it as **Benachrichtigung**.
+- Each recipient gets at most one notice per transition (key
+  `clinic.wf:<event>:<dictation>:<transition>`). A retried job delivers only to recipients whose notice
+  could not be stored. A dismissed notice is not brought back.
+- The stored text is a fixed German title and body, for example "Das Diktat wartet auf Ihre Abnahme."
+  It contains no transcript and no patient data. Only the context keys `count`, `priority_label` and
+  `deadline_date` are allowed, and the current triggers pass none.
 
-```python
-import hmac
-import hashlib
+Constraints:
 
-def verify_speakr(secret: str, raw_body: bytes, signature_header: str) -> bool:
-    if not signature_header.startswith('sha256='):
-        return False
-    expected = hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
-    given = signature_header[len('sha256='):]
-    return hmac.compare_digest(expected, given)
-```
+- **Diktat fertiggestellt** needs a final release. Outside the staging profile, final release is not
+  possible (see [KIS interface](#kis-interface-simulated)), so this notice does not occur there.
+- The panel renders a notice from its message key (`clinic.workflow.<event>`) through the interface
+  translations. The shipped locale files contain no entry for these keys, so according to the code the
+  panel shows the key instead of the stored German title and body.
+- According to the code, the **Ansehen** link points to `/clinic/dictations/<id>`, a path the application does
+  not route, so it opens an error page. Open the dictation from **Arbeitsliste** (worklist) instead.
+- Workflow notices are never sent by e-mail or webhook.
 
-### Node.js (V1)
+The upstream completion and failure e-mail is separate. It has no clinic gate and is described in
+[Email Setup](email-setup.md).
 
-```js
-const crypto = require('crypto');
+## Alternative: output view "Ausgabe"
 
-function verifySpeakr(secret, rawBody, signatureHeader) {
-    if (!signatureHeader || !signatureHeader.startsWith('sha256=')) return false;
-    const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
-    const given = signatureHeader.slice('sha256='.length);
-    try {
-        return crypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(given, 'hex'));
-    } catch (_) {
-        return false;
-    }
-}
-```
+**Status: Available** (as a view), with the constraints below. In an opened dictation, the view **Ausgabe**
+(Output, `#/diktat/ausgabe`) sits next to **Details**, **Prüfen und Freigeben**, **Verarbeitung** and
+**Verlauf**. The table **Ausgabeziele** (output targets) lists **Textdatei (TXT)**, **Word-Dokument (DOCX)** and
+**KIS**, each with **Ausgabe starten** (start output) and its own status. The panel **Zwischenablage**
+(clipboard) with **Als Text kopieren** (copy as text) and **Mit Formatierung kopieren** (copy with formatting)
+appears only when a released version exists. Without a release the view shows
+**Keine freigegebene Version. Eine Ausgabe ist erst nach der Freigabe möglich.** (no released version; output
+is possible only after release). Final release needs a trusted KIS context, so outside `CLINIC_PROFILE=staging`
+no output target can be used (see [KIS interface](#kis-interface-simulated)).
 
-### Bash (for sanity-checking)
+- **Rights.** Output needs the Fachrecht **Exportieren** (Export, action `export`), also for
+  **Zwischenablage**. Accounts with the **Administrationsrolle** (administration role, site administration) do
+  not hold it by default. Final release (**Endgültig freigeben**) needs the separate right **Freigeben**
+  (release), and original-audio export the separate right **Originalaudio exportieren** (export original audio).
+  See [User Management](user-management.md) and [Group Management](group-management.md).
+- **TXT, DOCX and KIS** output only the transcript revision of the active release. Any other revision is
+  refused with `409` `NOT_RELEASED` ("Nur die freigegebene Version kann ausgegeben werden"). Each
+  request needs a CSRF token and a UUID `Idempotency-Key`. For TXT and DOCX, a repeated request with the same
+  key replays the stored result. For KIS, every repeated request returns the recorded outcome of that release,
+  whatever key it sends.
+- **A ready file job is not a saved file.** Status `ready` means the file was rendered on the server. The
+  view shows **Datei erzeugt (noch nicht gespeichert)** (file created, not yet saved). The clinic build has no
+  route that returns the rendered TXT or DOCX file. The job keeps only the file name, MIME type and SHA-256, so
+  nothing can be downloaded from **Ausgabe**.
+- **Zwischenablage** copies the released revision through the browser Clipboard API, as an explicit
+  user action ("Explizite Browseraktion. Es wird nichts automatisch übertragen."). The server serves the text
+  only while the released revision is still the current text; otherwise it answers `409` and the panel shows
+  **Die Version ist veraltet. Bitte neu laden.** (the version is outdated, please reload). The server prepares
+  the formats and records the outcome the browser reports (copied, denied or aborted). Only `copied`
+  appends an output receipt. There is no operating-system window, focus or key automation.
+- **API only, no clinic view:** `GET /api/clinic/v1/bundles/<dictation-id>/export` with `format=txt`, `rtf` or
+  `sdict` returns the current text (no release needed) to a signed-in browser session with **Exportieren**, on
+  the default client profile `managed_web_online`. An `.sdict` bundle contains an empty audio file, no
+  dictation audio.
+- **Prepared, disabled:** approved server-side export folders (server alias, collision policy `fail`,
+  `version` or `unique_name`), ODT output from a template and versioned DOCX bookmark templates exist
+  as library code only. No route uses them.
+- **Open gaps:** inserting into an open Word or Writer document (WG-EXP-004, WG-EXP-005), window and key
+  automation (WG-EXP-007), opening a local mail client with an audio attachment (WG-EXP-009) and a Word
+  add-in (WG-EXP-010) stay open. The clinic build offers no equivalent.
 
-```bash
-echo -n "$RAW_BODY" | openssl dgst -sha256 -hmac "$SECRET" | awk '{print "sha256="$2}'
-```
+## KIS interface (Simulated)
 
-Compare the output against the `Speakr-Signature` header value.
+The KIS (clinical information system) is not a webhook target. A KIS delivery goes only through the
+configured KIS adapter, and the adapter depends only on `CLINIC_PROFILE`:
 
-### Idempotency
-
-Answer `2xx` to a `Speakr-Delivery-Id` you have already processed. Any other `4xx` counts as
-a permanent failure, so refusing a repeat with `409` would stop the retries of a delivery
-you never finished.
-
-### Secret rotation
-
-`POST /api/v1/webhooks/{id}/rotate-secret` returns the new secret once. The previous secret
-stays valid for `WEBHOOK_SECRET_GRACE_HOURS` (default 24): until then `Speakr-Signature-V2`
-carries a second `v1=` value signed with it, so a receiver can switch to the new secret
-without missing deliveries. `Speakr-Signature` uses the new secret at once. The webhook's
-`previous_secret_valid_until` shows when the grace ends; the old secret itself is never
-returned.
-
-## Retry policy
-
-Delivery attempts use the following backoff schedule:
-
-| Attempt | Delay before this attempt |
-|---|---|
-| 1 | immediate |
-| 2 | 30 s |
-| 3 | 2 min |
-| 4 | 10 min |
-| 5 | 1 hour |
-
-After attempt 5, status flips to `permanent_failure` and the webhook's
-`consecutive_failures` counter increments. When it reaches
-`WEBHOOK_AUTOPAUSE_FAILURES` (default 10) the webhook is auto-paused. An
-auto-paused webhook gets one trial delivery every
-`WEBHOOK_TRIAL_INTERVAL_SECONDS` (default 3600); a successful trial resumes it.
-Re-enabling it by hand also clears the pause.
-
-A replay (`POST /api/v1/webhooks/{id}/deliveries/{did}/replay`) is a new
-delivery: a new `id`, a new `timestamp` and `occurred_at`, and `replayed_from`
-with the old `id`.
-
-**Retryable HTTP responses:** 408, 429, 5xx, plus network errors and
-timeouts.
-**Non-retryable:** 2xx (success), 3xx (we disable `allow_redirects` on
-purpose), 4xx other than 408/429.
-
-A successful delivery (2xx) resets `consecutive_failures` to 0.
-
-## SSRF guard
-
-Webhook URLs are validated at save time and again at dispatch time:
-
-- Scheme must be `http://` or `https://`. `http://` is rejected unless
-  the webhook has `allow_http=true`.
-- The hostname is resolved; if any returned address is private
-  (RFC 1918, link-local, loopback, multicast, reserved), the URL is
-  rejected.
-- Operators can carve out internal hosts via
-  `WEBHOOK_INTRANET_HOST_ALLOWLIST` — a regex matched against the
-  hostname.
-
-This prevents accidentally pointing a webhook at an internal service
-(metadata endpoints, admin consoles) that should not receive Speakr
-payloads.
-
-## Configuration
-
-| Env var | Default | Purpose |
+| `CLINIC_PROFILE` | Adapter | Effect |
 |---|---|---|
-| `WEBHOOK_GLOBAL_ENABLED` | `true` | Admin kill switch. Set to `false` to disable all dispatch system-wide. |
-| `WEBHOOK_MAX_PER_USER` | `10` | Hard cap on webhooks per user. |
-| `WEBHOOK_DELIVERY_TIMEOUT_SECONDS` | `10` | Per-attempt HTTP timeout. |
-| `WEBHOOK_MAX_ATTEMPTS` | `5` | Retry cap before `permanent_failure`. |
-| `WEBHOOK_AUTOPAUSE_FAILURES` | `10` | Consecutive failures before auto-pause. |
-| `WEBHOOK_DISPATCHER_INTERVAL_SECONDS` | `5` | How often the dispatcher polls for due deliveries. |
-| `WEBHOOK_INTRANET_HOST_ALLOWLIST` | empty | Regex of allowed private hosts. Empty = SSRF block always applies. |
-| `WEBHOOK_TRIAL_INTERVAL_SECONDS` | `3600` | Trial delivery interval for an auto-paused webhook; `0` disables trials. |
-| `WEBHOOK_SECRET_GRACE_HOURS` | `24` | How long the previous secret still signs `Speakr-Signature-V2` after a rotation; `0` ends it at once. |
-| `WEBHOOK_DELIVERY_RETENTION_DAYS` | `30` | Days after which a delivery record is removed; `0` keeps the records without limit. Also a system setting (`webhook_delivery_retention_days`). |
-| `WEBHOOK_OMIT_TITLES` | `false` | With `true`, `title` and `original_filename` are left out of every payload. Also a system setting (`webhook_omit_titles`). |
+| unset or any other value | `DisabledAdapter` | Refuses everything. Nothing is sent. |
+| `staging` | `MockKisAdapter` | Synthetic, scriptable test double that keeps documents in memory only. |
+| `production` | `DisabledAdapter` | `MockKisAdapter` refuses to start under this profile. |
 
-### Retention of delivery records
+No environment variable, system setting or configuration file selects a real KIS adapter. A vendor
+adapter is prepared in code: it stays disabled until all ten manufacturer contract fields and a transport
+are supplied, and nothing in the application builds it. The `kis` sections of
+`clinic-spec/config/dev.defaults.json` and `production.template.json` (for example
+`automatic_retry_unknown: false`) are declarative and not read by the code. The production gate G-KIS is
+open: the manufacturer contract (WebView, context and rights, write, receipt, lookup, addendum) is missing.
 
-A row in `webhook_delivery` holds the payload that was sent and the first 2,000 characters of the answer of the receiver. Every row older than `webhook_delivery_retention_days` (default 30) is removed by the hourly cleanup, whatever its state. With `0`, no row is removed. A removed delivery is no longer listed and cannot be replayed.
+With `DisabledAdapter`:
 
-### Payloads without titles
+- **Endgültig freigeben** (final release) is refused with `422` `UNTRUSTED_CONTEXT`.
+- Without an active release (the normal case, because final release fails), **Ausgabe** shows
+  **Keine freigegebene Version.** for TXT, DOCX and KIS, and an output request is refused with `409`
+  `NOT_RELEASED`. Only if an active release already exists (for example from earlier staging operation with the
+  same database) does the KIS target show **nicht verfügbar** (not available), and a KIS request answers `503`
+  `KIS_UNAVAILABLE` ("Keine KIS-Anbindung konfiguriert"). In no case is a row written to the delivery ledger
+  `clinic_delivery`.
 
-By default, `title` is part of the `data` of most recording events, and `original_filename` is part of `recording.created`. With `webhook_omit_titles` set to `true`, both fields are left out of every payload from then on, for all webhooks of the instance. A receiver identifies the recording by `recording_id` and reads the title through the API when it has a token. Payloads already stored in `webhook_delivery` are not changed.
+With `CLINIC_PROFILE=staging`, a synthetic case ID in the format `SYN-0001` (`SYN-` and 4 to 8
+digits) can be bound through `/api/clinic/v1/dictations/<id>/context`. Only in this profile, the dictation
+view **Details** shows the section **Fall-ID verknüpfen** (link case ID) with the field **Synthetische Fall-ID**
+(synthetic case ID) and the button **Fall-ID verknüpfen**. Binding needs view and edit rights on the dictation
+and a current edit lock. Without the lock, the route answers `423` ("Eine aktive Bearbeitungssperre ist
+erforderlich"), and the view shows **Bearbeitung zuerst anfordern.** (request editing first). If the staging
+profile or an enabled `MockKisAdapter` is missing, the route answers `503` ("Fall-ID-Simulation nicht
+verfügbar"). It also needs the client profile `managed_web_online` or `managed_web_offline` (otherwise `403`). Results with
+`MockKisAdapter` are not evidence of a KIS integration.
 
-## API surface
+### KIS context
 
-All endpoints under `/api/v1/webhooks` require an authenticated session
-or an API token. The OpenAPI schema documents every field.
+- A KIS context (source system, tenant, case reference, patient reference) is created only through a grant
+  that the server verifies: it is bound to the acting user and the dictation, expires within 60 seconds and has
+  a single-use nonce. Context revisions are append-only. No resolver for a real KIS grant exists in the clinic
+  build. The only caller is the staging simulation: the route `/api/clinic/v1/dictations/<id>/context` builds
+  the grant on the server from the entered `SYN-` case ID (tenant `staging`, random patient reference).
+  Nothing external is verified, and this is not evidence of a KIS integration.
+- The binding work order forbids deriving the KIS context from a window name, the page DOM or the
+  transcript. The context fields are taken only from the verified grant.
+- Final release accepts only the current context revision bound to a consumed grant. A disabled adapter,
+  or a mock adapter under `CLINIC_PROFILE=production`, is never trusted.
+- A KIS delivery sends only the context revision bound to the release, only when its four context fields
+  are present, and only when the adapter accepts the context.
 
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/api/v1/webhooks` | List the caller's webhooks. Returns `event_types` + `max_per_user` for UI rendering. |
-| POST | `/api/v1/webhooks` | Create a webhook. Response includes the secret **once**; capture it. |
-| GET | `/api/v1/webhooks/{id}` | Read one. Secret is never returned. |
-| PATCH | `/api/v1/webhooks/{id}` | Update name / url / events / enabled / allow_http. |
-| DELETE | `/api/v1/webhooks/{id}` | Delete (cascades to deliveries). |
-| POST | `/api/v1/webhooks/{id}/rotate-secret` | Generate a fresh HMAC secret. Returned once; the previous one stays valid for the grace period. |
-| POST | `/api/v1/webhooks/{id}/test` | Queue a synthetic `webhook.test` delivery. |
-| GET | `/api/v1/webhooks/{id}/deliveries` | Recent deliveries (default 50, max 200). |
-| GET | `/api/v1/webhooks/{id}/deliveries/{did}` | Full delivery record including the original payload. |
-| POST | `/api/v1/webhooks/{id}/deliveries/{did}/replay` | Re-fire the payload as a new delivery. |
+### Unclear outcome (UNKNOWN): reconcile before any retry
 
-## Operational notes
+- The delivery ledger row is committed as `PENDING` before the adapter is called. The ledger key is
+  `export:<release id>`, so each release is sent at most once to a target.
+- A timeout or an unreadable answer sets the row to `UNKNOWN`. An unexpected error leaves the row
+  `PENDING`, which blocks in the same way. A repeated request then sends nothing and returns `UNKNOWN`
+  ("outcome unclear: reconcile first"). **Ausgabe** shows
+  **Unbekannt: Bitte Status abgleichen, nicht erneut senden.** (unknown: reconcile the status, do not send
+  again). Its button **Status prüfen** (check status) only reads the stored state and never sends again.
+- Only a reconciliation through the adapter's lookup resolves the state. "Confirmed" marks the delivery
+  as delivered. "Absent" permits exactly one new attempt. "Unknown" keeps it blocked. Each reconciliation
+  and each permitted retry is appended as a history row (`<key>#hNNNN:<KIND>`), and history rows are
+  never changed.
+- The application currently enqueues no output job (`clinic_output`); KIS output from **Ausgabe** goes
+  directly through the delivery ledger. If such a job exists and failed after the delivery started,
+  **Verarbeitung** lists it with the state `UNKNOWN`. Instead of **Erneut versuchen** (retry) it shows
+  **Abgleich prüfen** (check reconciliation). The button sends nothing and runs no reconciliation; it only shows
+  the hint "Das Ergebnis ist unbekannt. Bitte im Abgleich prüfen." A retry request through the API is refused
+  with `422` `RECONCILE_REQUIRED`.
+- Retrying any other failed job in **Verarbeitung** is offered and accepted only for active accounts with the
+  **Administrationsrolle** (administration role). Other users see jobs read-only.
+- No route and no page runs the reconciliation. It exists only as a service function, and no real KIS
+  adapter exists to run it against. An `UNKNOWN` delivery therefore stays blocked, and the code never
+  retries it automatically.
 
-- The dispatcher runs in a daemon thread inside the Speakr web process.
-  In multi-worker Gunicorn setups, every worker runs its own dispatcher;
-  the dispatcher polls the database with a small batch limit so the
-  total outbound throughput is naturally bounded.
-- `webhook_delivery` rows are removed after
-  `webhook_delivery_retention_days` (default 30). See
-  [Retention of delivery records](#retention-of-delivery-records).
-- Auto-paused webhooks stay in the database with `enabled=false`,
-  `auto_paused=true`. The user re-enables manually after fixing their
-  receiver; that also clears the `auto_paused` flag.
+Source (clinic fork): [src/clinic/kis.py](https://github.com/joehomeskillet/speakr/blob/main/src/clinic/kis.py).
+
+## What is not an alternative
+
+- **Polling the API with a token.** In clinic mode, a request that authenticates with an API token and
+  has no browser session is refused with `403` `clinic_feature_disabled` (`personal_api_tokens`). The
+  token routes are disabled too.
+- **Web push.** The push routes (`push.*`) are disabled under `push_notifications`.
+- **E-mail as a KIS or webhook substitute.** See [Email Setup](email-setup.md).
+
+## Related pages
+
+- [System Settings](system-settings.md)
+- [User Management](user-management.md)
+- [Group Management](group-management.md)
+- [Audit log](audit-log.md)
+- [Privacy and regulated data](privacy.md)
+- [Email Setup](email-setup.md)

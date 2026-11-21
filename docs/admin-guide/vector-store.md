@@ -1,90 +1,77 @@
-# Vector Store Management
+# Vector Store
+<small>[Deutsch](../de/admin-guide/vector-store.md)</small>
 
-The Vector Store tab controls the intelligence behind Inquire Mode, Speakr's semantic search capability that lets users find information across all their recordings using natural language questions. This is where you monitor and manage the embedding system that transforms transcripts into searchable knowledge.
+Status in the clinic build: **Upstream only**.
 
-![Vector Store Management](../assets/images/screenshots/admin-vector-store.png)
+In upstream Speakr, the admin tab **Vector store** manages Inquire Mode. Inquire splits each transcript into chunks, computes embeddings for them and stores them for semantic search on the Ask page. The clinic build does not offer this function. With `CLINIC_MODE` on, the tab is not rendered, the clinic route policy locks the Inquire routes except the per-recording index route, and no clinic page uses semantic search.
 
-## Understanding Inquire Mode
+Transcripts are not chunked or embedded automatically as long as `ENABLE_INQUIRE_MODE` stays off. The manual upstream tools and routes named in the section "Keep Inquire indexing off" do not check this switch, so nobody may use them. This rests on configuration, not on a code check. To find dictations, the clinic build uses structured lists with metadata filters (section "Finding dictations in the clinic build").
 
-Inquire Mode is the search behind the [Ask Ambrose](../user-guide/inquire-mode.md) page (see also [Ambrose settings](ambrose.md)). It breaks each transcript into overlapping chunks of text, converts these chunks into mathematical representations called embeddings, and stores them in a searchable format. When users ask questions, their query gets converted to the same mathematical format and compared against all stored chunks to find the most relevant information.
+## Status overview
 
-This approach goes beyond simple keyword matching. The system understands that "budget concerns" relates to "financial constraints" and "cost overruns" even though the exact words differ. This semantic understanding makes Inquire Mode powerful for discovering information that users might not remember precisely.
+| Component | Status | Behavior with `CLINIC_MODE` on |
+|---|---|---|
+| Admin tab **Vector store** (German UI: **Vektorspeicher**) | Upstream only | Not rendered. The clinic **Verwaltung** (administration) shell at `/admin` has no page for it. |
+| Ask page `/inquire` (alias `/ask`) and the header button **Ask Ambrose** | Upstream only | The clinic header has no entry point. The route is refused, also with a local text model. |
+| Inquire API: `/api/inquire/sessions`, `/api/inquire/search`, `/api/inquire/chat`, `/api/inquire/download`, `/api/inquire/available_filters`, `/api/v1/inquire` | Upstream only | Disabled by the clinic route policy (feature `inquire`). |
+| Admin routes `/admin/inquire/status` and `/admin/inquire/process-recordings` (upstream button **Re-embed all recordings**) | Upstream only | Disabled by the clinic route policy (feature `inquire`). See the warning below. |
+| Admin route `/api/admin/migrate_recordings` | Upstream only | Disabled (feature `generic_admin_content_access`, which the clinic defaults do not enable). |
+| Per-recording index route `POST /api/recording/<recording_id>/process_chunks` | Upstream only | Not locked under `inquire`. The route policy treats the call as an edit of the named recording, and the handler accepts only the owner of the recording (for a clinic dictation, only with a valid edit lease). It chunks and embeds that recording without checking `ENABLE_INQUIRE_MODE`, clinic mode or whether `EMBEDDING_BASE_URL` is local. The call is not audited. No clinic page calls it. |
+| Automatic chunking and embedding of transcripts (job type `index_chunks`, start-up backfill) | Upstream only | Switched off by `ENABLE_INQUIRE_MODE=false` (default). With `true` it runs without a clinic check. Keep it off. The manual paths `scripts/migrate_existing_recordings.py`, `/admin/inquire/process-recordings` and `POST /api/recording/<recording_id>/process_chunks` chunk transcripts whatever this switch says. |
+| Search over transcript text in lists | Upstream only | No clinic page searches transcript text. The upstream endpoints `GET /api/recordings?q=` and `GET /api/v1/search` stay reachable for signed-in accounts. They match the transcript text of the recordings the caller can access (`/api/recordings`) or owns (`/api/v1/search`). No clinic page calls them. |
 
-!!! note "Lightweight Image"
-    The `lite` Docker image (`learnedmachine/speakr:lite`) ships without the local sentence-transformers model. Two options to enable semantic search on lite:
-    - Set `EMBEDDING_BASE_URL` to an OpenAI-compatible embeddings endpoint (vLLM, OpenRouter, OpenAI, etc.). Inquire Mode then runs in full semantic-search mode using API-generated vectors. See [Model Configuration](model-configuration.md#configurable-embedding-model) for setup.
-    - Switch to the `latest` image tag, which includes the local sentence-transformers model.
+## How clinic mode blocks Inquire
 
-    Without either, Inquire Mode falls back to keyword-based text search.
+Clinic mode is on when `CLINIC_MODE` is `1`, `true`, `yes` or `on`. Three independent layers then apply:
 
-## The Embedding Model
+1. **Admin page.** `/admin` renders the clinic **Verwaltung** shell instead of the upstream tab strip. The vector store tab and its panel are not rendered, and the page's Inquire state is forced off. A clinic test in `tests/clinic/` checks that the tab markup is absent in clinic mode and present with clinic mode off.
+2. **Route guard.** The clinic route policy locks the Ask page, the Inquire API and the two Inquire admin routes under the feature `inquire` (`403 clinic_feature_disabled`). The per-recording index route is an exception, see "Keep Inquire indexing off". The lock lifts only when every text-model endpoint is local, and even then a request that names no recording, such as the Ask page or the admin status route, gets `403 clinic_feature_unsupported`. A request that names recordings passes only when the caller may edit every one of them under the central policy. The lock rules are in [Ambrose Settings](ambrose.md); what counts as local is in [Model Configuration](model-configuration.md).
+3. **Upstream switch.** Unless `ENABLE_INQUIRE_MODE=true` (default `false`), the Ask page redirects to the recordings list with a warning, and the Inquire API endpoints answer `403` (`inquire_disabled`, or `feature_disabled` for `/api/v1/inquire`). The admin routes `/admin/inquire/status` and `/admin/inquire/process-recordings` do not check this switch.
 
-By default, Speakr uses the all-MiniLM-L6-v2 model. It generates 384-dimensional vectors and runs efficiently on CPU-only systems, which makes advanced search accessible without GPU infrastructure. The default is suitable for English-dominant deployments and small-to-medium recording libraries.
+## Keep Inquire indexing off
 
-For larger libraries, multilingual content, or higher-quality semantic matching, the `EMBEDDING_MODEL` environment variable accepts any sentence-transformers identifier (`all-mpnet-base-v2`, `paraphrase-multilingual-MiniLM-L12-v2`, and similar). For deployments that prefer not to load embedding models locally, setting `EMBEDDING_BASE_URL` switches Speakr to an OpenAI-compatible HTTP endpoint, allowing the use of providers such as OpenAI, OpenRouter, or a self-hosted vLLM server. See [Model Configuration → Configurable Embedding Model](model-configuration.md#configurable-embedding-model) for the full set of supported environment variables and migration guidance.
+!!! warning "Inquire indexing has no clinic check"
+    Keep `ENABLE_INQUIRE_MODE` unset or set to `false`. The clinic template [`clinic-spec/config/upstream.env.example`](https://github.com/joehomeskillet/speakr/blob/main/clinic-spec/config/upstream.env.example) (clinic fork) sets `ENABLE_INQUIRE_MODE=false`. With `true`, the upstream indexing also runs in clinic mode:
 
-Changing the model or provider on an existing instance produces vectors that do not match what is stored. Speakr records the active configuration in `system_setting` on first run and logs a warning at startup if it changes. After such a change, reprocess recordings to rebuild the index.
+    - When the processing of a recording completes, a job of type `index_chunks` is queued for it. This includes the recordings behind clinic dictations, which also carry the transcript text.
+    - At every start, the migration step "inquire mode chunk backfill" chunks and embeds up to 10 completed recordings that have no chunks yet.
+    - After a transcript edit or a speaker assignment through the upstream recording routes, an `index_chunks` job is queued as well. Renaming or merging speaker profiles does the same, but those routes are locked in clinic mode under the feature `speaker_identification`.
 
-## Processing Status Overview
+    None of these paths checks clinic mode, the `inquire` feature lock or whether the embedding endpoint is local. The chunks are stored as text in the table `transcript_chunk`. Vectors are produced only when an embedding backend is available. With `EMBEDDING_BASE_URL` set, the chunk text goes to that endpoint without a locality check. Otherwise a local sentence-transformers model (`EMBEDDING_MODEL`, default `all-MiniLM-L6-v2`) is used if the package is installed: the default image build (`LIGHTWEIGHT=0`) installs it from `requirements-embeddings.lock`, while `requirements.lock` (`LIGHTWEIGHT=1`) does not contain it, and the chunks are then stored without vectors. A non-local `EMBEDDING_BASE_URL` locks chat, Inquire and generative summaries in clinic mode, but it does not stop this indexing.
 
-The status cards give you immediate insight into your vector store's health. Total Recordings shows how many audio files exist in your system, while Processed for Inquire indicates how many have been converted to searchable embeddings. These numbers should eventually match, though there's often a lag as background processing catches up.
+Checks for administrators:
 
-Need Processing reveals recordings waiting for embedding generation. This number grows when users upload new content and shrinks as the background processor works through the queue. A consistently high number might indicate processing has stalled or your system is overwhelmed.
+- At start-up the application prints `Inquire Mode: Disabled (set ENABLE_INQUIRE_MODE=true to enable)`. Any other "Inquire Mode" line means the switch is on.
+- Do not run `scripts/migrate_existing_recordings.py` or `scripts/migrate_docker.sh`, which calls it. The script chunks and embeds completed recordings and checks neither `ENABLE_INQUIRE_MODE` nor clinic mode.
+- Do not send requests to `/admin/inquire/process-recordings`. With a fully local text model, a request from an account with the **Administrationsrolle** (administration role, site administration) can pass the guard when it names recordings that account may edit. The handler then ignores the named IDs, selects completed recordings by its own rules and chunks them, whether `ENABLE_INQUIRE_MODE` is on or not.
+- Do not send requests to `POST /api/recording/<recording_id>/process_chunks`. Every account may call it for its own recordings, also with `ENABLE_INQUIRE_MODE=false`; for a clinic dictation the guard requires a valid edit lease. The call is not audited. With `EMBEDDING_BASE_URL` set, the chunk text goes to that endpoint, whether it is local or not.
+- Leave `EMBEDDING_MODEL` and `EMBEDDING_BASE_URL` out of the clinic configuration. They configure only the upstream Inquire embeddings. Outside of them, only the clinic local-model check and the start-up warning about services reached over plain http read `EMBEDDING_BASE_URL`. Without it, no chunk text goes to an embedding endpoint. The default image build (`LIGHTWEIGHT=0`) still contains sentence-transformers, so an indexing path that runs anyway stores local vectors.
 
-Total Chunks shows the granular pieces your recordings have been divided into. A typical one-hour recording might generate 50-60 chunks, depending on transcript density. This chunking ensures relevant segments can be found even in very long recordings.
+When `/admin/inquire/process-recordings` or `/api/admin/migrate_recordings` finds at least one recording to process, it writes `admin.inquire.processed` at the end of the run (details `processed`, `failed`, `total`, `force`). A call that finds nothing to process, or that aborts with an error before the end of the run, writes no event. `POST /api/recording/<recording_id>/process_chunks` is not audited. The clinic UI offers no way to trigger these routes. See [Audit Log](audit-log.md).
 
-The Embeddings Status indicator provides a quick health check. "Available" in green means everything is working correctly. Other states might indicate the model is loading, processing is running, or attention is needed.
+## Finding dictations in the clinic build
 
-## Processing Progress
+The clinic build finds dictations through lists with structured filters on metadata. Each list shows only the dictations the signed-in account may see. The visibility rules are described in [User Management](user-management.md) and [Group Management](group-management.md).
 
-The processing progress bar shows real-time advancement through the embedding queue. When at 100%, all recordings are processed and searchable. Lower percentages indicate work in progress, with the bar filling as recordings are completed.
+| View | Location | Filters | Search |
+|---|---|---|---|
+| **Arbeitsliste** (worklist) | `/#/arbeitsliste` | **Gespeicherte Filter** (saved filters): at most 20 per user, at most 20 conditions each, on status, priority, author, pool, title, created, deadline, assignee and audio length. Regular expressions are not allowed. The filters are stored per user in the database. | **Metadatensuche** (metadata search), at most 200 characters, evaluated on the server. Every word must occur in the title, notes or recipient of a dictation. |
+| **Aufnahmen** (recordings) | `/#/aufnahmen` | Evaluated on the server: **Diktiert von** (dictated by), **Schreibkräfte-Pool** (staff pool), **Status der Aufnahme** (recording status) and **Zeitraum der Aufnahme** (recording period). | **Aufnahmen durchsuchen** (search recordings), placeholder "Person, Pool oder Fall-ID suchen …". It runs in the browser over the rows already loaded and matches author, pool, Fall-ID or dictation ID. |
+| **Archiv** (archive) | `/#/archiv` | Only dictations in the workflow state **Zu archivieren** (to be archived), filtered by **Von** (from), **Bis** (to), **Diktiert von** and **Schreibkräfte-Pool**. | None. The view is read-only; see [Retention](retention.md). |
 
-This visual feedback helps you understand system status at a glance. A stuck progress bar suggests processing has stopped. Slow progress might indicate system resource constraints. Rapid progress shows everything is working efficiently.
+None of these searches reads transcript text. Inside an opened dictation, the correction editor offers **Suchen und Ersetzen** (find and replace) within the current text only.
 
-## Managing the Processing Queue
+## Upstream reference
 
-The Refresh Status button updates all statistics and progress indicators, useful for monitoring active processing or verifying recent uploads have been queued. The interface doesn't auto-refresh, so manual refreshes ensure you're seeing current information.
+Upstream Speakr documentation (pinned upstream version, not applicable to the clinic build): [Vector Store Management](https://github.com/murtaza-nasir/speakr/blob/039a19b1f1c7f0ddaeac0a49b806845626f48a6c/docs/admin-guide/vector-store.md). It describes the status cards, the embedding model, **Re-embed all** and embedding token tracking. None of these apply with `CLINIC_MODE` on.
 
-When the system shows recordings need processing but progress isn't advancing, several factors might be at play. The background processor might have stopped, the embedding model might have failed to load, or system resources might be exhausted. Check your logs for specific error messages.
+## Related pages
 
-The processing system is designed to be resilient. If processing fails for a specific recording, the system marks it and moves on rather than getting stuck. These failures appear in your logs and might require manual intervention to resolve.
-
-## Re-Embed All
-
-The **Re-embed all** button at the top of the Vector Store tab clears every stored embedding and queues every recording for re-processing through the current embedding configuration. Use it after changing `EMBEDDING_MODEL`, switching from local to API-mode (`EMBEDDING_BASE_URL`), or changing `EMBEDDING_DIMENSIONS`, since old vectors generated by the previous configuration cannot be compared meaningfully against new query vectors.
-
-A confirmation modal appears before the action runs. Re-embedding a large library is bandwidth-intensive when API-mode is configured (every chunk goes back to the embedding provider) and CPU-intensive in local mode, so plan for the workload. Embedding token usage from the run shows up in the Statistics tab's embedding chart, apart from the language-model tokens.
-
-If only a subset of recordings is affected by the configuration change (for example, you re-uploaded one folder), reprocessing those recordings individually is more efficient than the global re-embed.
-
-## Embedding Token Tracking
-
-The Vector Store tab also shows embedding API token usage and estimated cost when API-mode is configured (`EMBEDDING_BASE_URL` is set). This is tracked separately from LLM operations because embedding pricing is typically much lower per token but request volume is much higher (every chunk of every recording is one or more requests). The same numbers feed the embedding chart, the monthly cost and the cost by model on the Statistics tab; see [System Statistics](statistics.md#usage-and-cost).
-
-## Optimizing Performance
-
-Processing performance depends heavily on your system resources. The embedding model needs about 500MB of RAM when loaded, plus additional memory for processing text. CPU speed directly impacts how quickly embeddings are generated - a modern multi-core processor can handle several recordings simultaneously.
-
-Disk I/O also matters. The system reads transcripts, processes them, and writes embeddings back to the database. Fast storage, particularly SSDs, significantly improves processing throughput. If your vector store is on a different disk than your transcripts, ensure both have adequate performance.
-
-Network latency shouldn't affect processing since everything happens locally, but database performance matters. Regular database maintenance, including index optimization and vacuum operations, keeps queries fast even as your vector store grows.
-
-## Troubleshooting Common Issues
-
-When Inquire Mode returns poor results despite processed recordings, the issue might be query formulation rather than the vector store. Encourage users to ask complete questions rather than typing keywords. "What did John say about the budget?" works better than just "John budget."
-
-If processing seems frozen, check whether the sentence-transformers library is properly installed. The system gracefully degrades without it, disabling Inquire Mode rather than crashing, but processing won't advance. Your logs will show whether the embedding model loaded successfully.
-
-Memory errors during processing usually indicate your system is trying to process too much simultaneously. The chunking system prevents individual recordings from overwhelming memory, but processing multiple large recordings in parallel might exceed available RAM.
-
-## Scaling Considerations
-
-The vector store grows predictably with your content. Each chunk requires about 2KB of storage for its embedding and metadata. A typical one-hour recording generating 50 chunks needs about 100KB of embedding storage. Ten thousand hours of recordings might require 100MB for embeddings - manageable even on modest systems.
-
-Search performance remains fast even with large vector stores thanks to efficient indexing. However, extremely large instances (hundreds of thousands of recordings) might benefit from dedicated vector database solutions rather than the built-in SQLite storage.
-
-If your instance grows beyond comfortable limits, consider archiving old recordings. The vector store only includes active recordings, so removing obsolete content improves both storage and search performance.
+- [Ambrose Settings](ambrose.md): status of the upstream assistant and chat in the clinic build.
+- [Model Configuration](model-configuration.md): local text-model endpoints and `CLINIC_LOCAL_MODEL_HOSTS`.
+- [Audit Log](audit-log.md): event catalog, including `admin.inquire.processed`.
+- [Retention](retention.md): archival and the **Archiv** view.
 
 ---
 
-Return to [Admin Guide Overview](index.md) →
+Return to [Admin Guide](index.md)

@@ -1,173 +1,157 @@
 # Default Prompts
+<small>[Deutsch](../de/admin-guide/prompts.md)</small>
 
-The Default Prompts tab lets you shape how AI interprets and [summarizes recordings](../features.md#automatic-summarization) across your entire Speakr instance. This is where you establish the baseline intelligence that users experience when they haven't customized their own [personal prompts](../user-guide/settings.md#custom-prompts-tab).
+This page covers the prompts that the clinic build sends to a text model (LLM): the summary prompt and the title prompt, where they come from, and who can change them. It also covers the transcription hints that some upstream prompt settings send to the speech recognizer. Everything described here applies only when `CLINIC_MODE` is on (`1`, `true`, `yes` or `on`).
 
-![Default Prompts](../assets/images/screenshots/admin-default-prompt.png)
+In upstream Speakr, site administrators edit the default summary prompt, the default title prompt, the default transcription hints and the generation temperatures in the admin tab **Default prompts**. In clinic mode this tab is not rendered, and the clinic build has no other editor for these values. The clinic build ships German clinic defaults instead.
 
-## Understanding Prompt Hierarchy
+## Status overview
 
-Speakr uses a sophisticated hierarchy to determine which prompt to use for any given recording. This system provides flexibility while maintaining control, ensuring users get appropriate summaries while allowing customization where needed.
+| Item | Status in the clinic build |
+|---|---|
+| Admin tab **Default prompts** (summary prompt editor, **Default transcription hints**, **Default title prompt**, temperature fields, "View full LLM prompt structure") | Upstream only: not rendered in clinic mode |
+| Account tab **Prompt options** (personal summary and title prompt, **Auto-summarize** toggle) | Upstream only: not rendered in clinic mode |
+| Shipped German clinic summary prompt and title prompt | Available |
+| Prompt hierarchy tag > folder > user > admin default > shipped default | Available (code); the admin and user levels have no clinic UI |
+| Tag and folder prompt fields under **Tags & folders** on the account page | Available (per user, not an admin setting) |
+| Generation temperatures (`/admin/llm-temperatures`) | Available as an API only, no UI |
+| Transcription hints (initial prompt, hotwords) reaching the recognizer | Default off (`CLINIC_ASR_PROMPTS_ENABLED`) |
+| Contextual speaker naming prompt | Upstream only: the step returns nothing in clinic mode |
+| Automatic stock title and summary after transcription | Default off (no LLM client until `TEXT_MODEL_BASE_URL` or `TEXT_MODEL_API_KEY` is set); locality check of the automatic title and summary job: Open gap |
+| Automatic local dictation summary and its panel **KI-Zusammenfassung** (AI summary) in **Schreibplatz** (workspace) and **Diktatdetails** (dictation details) | In verification |
 
-At the top of the hierarchy are tag-specific prompts. When a recording has [tags](../user-guide/settings.md#tag-management-tab) with associated prompts, these take absolute priority. Learn about [tag management](../features.md#tagging-system) in the features guide. Multiple tag prompts concatenate intelligently, allowing sophisticated prompt stacking for specialized content types.
+## Clinic stance on generated text
 
-Next comes the user's personal custom prompt, set in their [account settings](../user-guide/settings.md#custom-prompts-tab). Users can also configure [language preferences](../user-guide/settings.md#language-preferences) for their summaries. This allows individuals to tailor summaries to their specific needs without affecting others. Many users never set this, making your admin default even more important.
+The binding work order of the fork forbids generative clinical rewriting ("keine generative klinische Umschreibung") and cloud speech recognition. In the code, a summary is always a separate text: the stock summary is stored in its own field of the recording, and the transcript is not changed. A summary is never inserted into, and never replaces, the dictation text.
 
-Your admin default prompt, configured on this page, serves as the foundation for most summaries. This is what new users experience and what long-term users rely on when they haven't customized their settings. It shapes the overall intelligence and utility of your Speakr instance.
+The decision register (`clinic-spec/config/decisions.json`, decision D21) still lists "No LLM rewrite/chat/summaries/voiceprints/RAG/public share/personal webhooks". That file is labeled as development defaults, not clinical approval. The code instead keeps chat, Inquire and generative summaries available only against local models: they stay locked unless every configured model endpoint (text, chat, translation, embedding) is local (`LOCAL_MODEL_FEATURES` in `src/clinic/config.py`). The flag `features.generative_summary: false` in `clinic-spec/config/dev.defaults.json` does not decide this. The two positions are not reconciled in the specification. No summary feature of the fork has a clinical approval, and the available test evidence is synthetic only. Summary quality has not been measured.
 
-Finally, if all else fails, a hardcoded system fallback ensures summaries are always generated. You'll rarely see this in practice, but it provides a safety net ensuring the system never fails to produce output.
+## Shipped clinic prompts
 
-## Crafting Effective Default Prompts
+With clinic mode on, the shipped defaults for the summary and the title are German clinic prompts. They are defined in `src/clinic/prompts.py` ([clinic fork source](https://github.com/joehomeskillet/speakr/blob/main/src/clinic/prompts.py)); the upstream defaults in `src/config/prompts.py` stay unchanged.
 
-Your default prompt is more than technical instruction - it's a template for understanding. The prompt shown in the interface demonstrates a balanced approach, requesting key issues, decisions, and action items. This structure works well for business meetings but might not suit all contexts.
+**When they apply.** The clinic prompt replaces the admin default when the admin value (`admin_default_summary_prompt` or `admin_default_title_prompt`) is unset or still equal to the upstream default. Any other admin, user, tag or folder prompt wins, as upstream. A database initialized with clinic mode on is seeded with the clinic prompts. A database initialized without clinic mode holds the upstream default, which then resolves to the clinic prompt as soon as clinic mode is on.
 
-Consider your user base when designing prompts. A research institution might emphasize methodologies and findings. A legal firm could focus on case details and precedents. For multi-language support, see [language configuration](../features.md#language-support) and [troubleshooting language issues](../troubleshooting.md#summary-language-doesnt-match-preference). A creative agency might highlight concepts and client feedback. The prompt should reflect what matters most to your users.
+**Summary prompt.** It asks for a structured German clinic summary of a medical dictation from an addiction clinic (withdrawal and addiction treatment), in Markdown, with these headings in this order:
 
-The AI responds best to clear, structured requests. Use bullet points or numbered sections to organize the output. Specify the level of detail you want - "brief overview" versus "comprehensive analysis" produces very different results. Include examples if certain formats are crucial.
+- `Anlass / Fragestellung`
+- `Suchtanamnese` (substances, consumption pattern, last intake, earlier withdrawals and therapies)
+- `Aktueller Befund / Psychischer Status` (including withdrawal symptoms and named scores, for example CIWA-Ar, COWS)
+- `Diagnosen` (as dictated; ICD-10 codes only when they are named)
+- `Medikation / Entzugsbehandlung`
+- `Procedere / Nächste Schritte`
+- `Offene Punkte / Unklarheiten` (unclear or contradictory passages of the dictation)
 
-Remember that this prompt applies to everything from five-minute check-ins to two-hour workshops. Design for versatility. Avoid overly specific requirements that might not apply to all content. Focus on extracting universally valuable information while allowing the AI flexibility to adapt to different recording types.
+Its rules tell the model to use content from the transcript only and invent nothing, to leave out a section the dictation says nothing about, to add no diagnoses, dosages or recommendations, to copy numbers, dosages, dates and names exactly as dictated, to write concise medical German, and to mark unclear or unintelligible speech recognition passages with `«[bitte prüfen]»` instead of guessing. These rules are instructions to the model. No code checks that a summary follows them.
 
-## The Default Prompt Editor
+**Title prompt.** Verbatim:
 
-The large text area displays your current default prompt, with full markdown support for formatting. You can use bold for emphasis, lists for structure, and even code blocks if you need to show example formats. The editor expands to accommodate longer prompts, though conciseness generally produces better results.
+```text
+- Titel auf Deutsch
+- Höchstens 8 Wörter
+- Keine Wendungen wie "Diktat zu" oder "Bericht über"
+- Nur das Hauptthema nennen (z. B. Aufnahme, Verlauf, Entzug, Austritt)
+```
 
-Changes save immediately when you click the Save changes button. There's no draft or staging - modifications affect all new summaries instantly. Users can [regenerate summaries](../user-guide/transcripts.md) to apply updated prompts to existing recordings. The Reset to Default button provides a safety net, reverting to the original prompt if your customizations don't work as expected.
+**Output language.** In clinic mode, summaries and titles are requested in German unless the user's account has another output language set.
 
-The timestamp shows when the prompt was last modified, helpful for tracking changes over time. If multiple admins manage your instance, this helps coordinate who changed what and when.
+## Prompt hierarchy
 
-## Default Title Prompt
+The code keeps the upstream precedence for both prompts.
 
-The **Default title prompt** card sets the instructions for AI-generated recording titles across the deployment. It applies when no tag, folder or user title prompt is set, and leaving it blank falls back to the built-in default (at most eight words, no filler phrases such as "Discussion about", only the main topic). The transcript, the user's output language and the rule that the model replies with the title alone are added in code, after the transcript, so editing the instructions does not affect prefix caching.
+Summary: tag > folder > user > admin default > shipped default.
 
-Title prompts use the same precedence as summary prompts: tag, then folder, then the user's own title prompt, then this default, then the built-in default. Group administrators can set a title prompt on group tags and folders as well.
+- **Tag:** every tag visible to the user that carries a summary prompt contributes; the prompts are joined in the order the tags were added.
+- **Folder:** the folder prompt applies only when the summary is generated for the owner of the recording.
+- **User:** the user's personal summary prompt.
+- **Admin default:** `admin_default_summary_prompt`, with the clinic rule above.
+- **Shipped default:** the German clinic prompt.
 
-## Generation Temperature
+Title: tag > folder > user > admin default (`admin_default_title_prompt`) > shipped default, with the same joining rule for tag prompts.
 
-In the Default Prompts tab, you can also set the sampling temperature for three kinds of requests to the language model: summaries, titles and chat. A value saved here applies to every user. Without a saved value, the built-in default is used: 0.5 for summaries, 0.7 for titles, and 0.7 for chat. Below each field, the value in use is displayed, with a note when it is the default. To restore the default, use the reset button beside the field, or clear the field and save. Values must lie between 0 and 2. Output is more consistent at lower values, for example 0 for repeatable summaries with a local model. A change takes effect with the next request, without a restart. The temperatures for Inquire and speaker identification are fixed and cannot be changed here, and no temperature is sent to models that do not accept one, such as GPT-5.
+A higher level replaces the lower levels; it does not extend them. A tag, folder or personal prompt therefore replaces the shipped clinic prompt including its rules (no invention, no added diagnoses, dosages or recommendations, `«[bitte prüfen]»` markers). Users can set tag and folder prompts themselves on the account page; the clinic build has no administrative control or check for them.
 
-## Understanding the LLM Prompt Structure
+A prompt holds only instructions. The code adds the transcript and the output-language instruction, for titles also the rule to reply with the title alone, and for the stock summary the context block described below. A changed prompt applies only to summaries and titles generated afterwards; existing ones are not regenerated.
 
-The expandable "View full LLM prompt structure" section reveals how your prompt fits into the complete instruction sent to the AI. This technical view shows the system prompt, your custom prompt, and the transcript integration.
+Where each level can be changed in the clinic build:
 
-Understanding this structure helps you write better prompts. You'll see that certain instructions are already handled by the system prompt, so you don't need to repeat them. You'll understand how your prompt interacts with the transcript text and why certain phrasings work better than others.
+| Level | Where | Who |
+|---|---|---|
+| Tag, folder | Account page, tab **Tags & folders**, edit dialog of a tag or folder, tab **Summary & templates**: fields **Custom summary prompt** (tag) or **Custom prompt** (folder), and **Title prompt**. The folder subtab is shown only when folders are enabled (`enable_folders`). | The signed-in user, for their own tags and folders |
+| User | No UI: the account tab **Prompt options** is not rendered. A personal prompt saved earlier still applies. | — |
+| Admin default | No UI: the admin tab is not rendered, and the keys are hidden from the **Systemeinstellungen** (System settings) list. | See below |
+| Shipped default | Code only | — |
 
-This transparency also helps with troubleshooting. If summaries aren't meeting expectations, reviewing the full prompt structure often reveals why. Perhaps your instructions conflict with system instructions, or maybe you're requesting information that isn't typically in transcripts.
+The setting keys `admin_default_summary_prompt` and `admin_default_title_prompt` are still read. The stock endpoint `POST /admin/settings` still accepts them from a site administrator (**Administrationsrolle** (administration role), `User.is_admin`). The flag **Identitätsadministration** (identity administration), a pool lead (**Leitung**, lead) and the rights **Freigeben** (release) and **Originalaudio exportieren** (export original audio) do not grant this. While the audit log is on, each write is recorded in the **System-Auditprotokoll** (system audit log) as `admin.setting.changed` with the key name only, without old or new text (see [Audit Log](audit-log.md)). The clinic build has no UI and no supported clinic procedure for such a change. The request body is `{"key": "admin_default_summary_prompt", "value": "<prompt>", "setting_type": "string"}` (likewise for `admin_default_title_prompt`); a browser session also needs a valid CSRF token. An empty value, or the upstream default text, makes the shipped clinic prompt apply again. A changed admin default affects the summaries and titles of every user who has no tag, folder or personal prompt.
 
-## Practical Prompt Strategies
+The keys `admin_default_initial_prompt`, `admin_default_hotwords` and `admin_default_contextual_speaker_prompt` are hidden from the settings list as well. The contextual speaker naming step returns no result in clinic mode, so its prompt has no effect.
 
-Start with a proven structure and iterate based on results. The default prompt works well because it requests concrete, actionable information. Key issues provide context, decisions document outcomes, and action items drive follow-up.
+## Generation temperatures
 
-Test your prompts with various recording types before deploying widely. A prompt that works beautifully for formal presentations might fail for casual conversations. Upload test recordings with different characteristics and evaluate the summaries produced.
+The temperatures for summary, title and chat requests have no UI in clinic mode. The API stays available to site administrators (`User.is_admin`):
 
-Consider seasonal or project-based adjustments. During planning seasons, you might emphasize goals and strategies. During execution phases, focus on progress and blockers. You can update the default prompt as organizational needs evolve.
+- `GET /admin/llm-temperatures` returns, per kind, the effective value, its source (`admin` or `default`) and the default.
+- `POST /admin/llm-temperatures` with `{"values": {"summary": 0.2, "chat": null}}` saves a value between 0 and 2; `null` or an empty string clears it. An unknown kind gives 400 `unknown_temperature`, an invalid value 400 `invalid_temperature`.
 
-Monitor user feedback about summary quality. If users frequently edit summaries or complain about missing information, your prompt might need adjustment. The best prompt is one users rarely need to modify.
+| Kind | Default |
+|---|---|
+| `summary` | 0.5 |
+| `title` | 0.7 |
+| `chat` | 0.7 |
 
-## Advanced Prompt Techniques
+Values are read on every request, so a change applies to the next request without a restart. While the audit log is on, each change is audited as `admin.setting.changed` with the key (`llm_temperature_summary`, `llm_temperature_title` or `llm_temperature_chat`) and no values. The upstream event-extraction temperature does not exist in the fork. Chat has no clinic UI (see [Ambrose](ambrose.md)).
 
-Layer instructions for nuanced output. Instead of just requesting "action items," specify "action items with responsible parties and due dates if mentioned." This precision helps the AI extract more valuable information when it's available.
+## Where prompts are used in the released build
 
-Use conditional language for flexibility. Phrases like "if applicable" or "when discussed" allow the AI to skip sections that don't apply to every recording. This prevents forced, irrelevant content in summaries.
+In clinic mode a transcription job never calls the text model itself. After the transcript is stored, it queues a follow-up job of type `summarize` on the summary queue. That job first runs the title step, then the summary when automatic summarization applies. Automatic summarization applies when all of these hold:
 
-Consider the AI model's strengths and limitations. Current models excel at identifying themes, extracting specific information, and organizing content. They struggle with complex reasoning, mathematical calculations, and information not explicitly stated. Design prompts that play to these strengths.
+- the system setting `disable_auto_summarization` is not `true` (default `false`; shown under **Systemeinstellungen**);
+- the user's own automatic summarization preference is not switched off (default on; its toggle **Auto-summarize** is in the hidden **Prompt options** tab, so users have no UI to change it in clinic mode);
+- a text model is configured (`TEXT_MODEL_BASE_URL` or `TEXT_MODEL_API_KEY` is set).
 
-Balance detail with readability. Extremely detailed prompts might produce comprehensive summaries that users don't read. Sometimes a concise, focused summary serves users better than exhaustive documentation.
+The title step runs regardless of `disable_auto_summarization`. It calls the text model only when no naming template applies or the template uses the AI title.
 
-## Creative Tag Prompt Use Cases
+The stock summary uses the recording's stored transcript, cut to `transcript_length_limit` characters (default 30000, `-1` = no limit). The request adds a context block with the current date, the recording date and title, folder, tags, the owner's name, job title and company when these are set, and the owner's notes on the recording when the owner chose to include them. Output is limited by `SUMMARY_MAX_TOKENS` (default 3000); titles by `TITLE_MAX_TOKENS` (default 5000). In clinic mode each text model call uses `CLINIC_LLM_TIMEOUT_SECONDS` (default 120) and `CLINIC_LLM_MAX_RETRIES` (default 2); see [Model Configuration](model-configuration.md).
 
-Tags with custom prompts unlock powerful transformation capabilities. Here are creative ways people use this feature:
+The released clinic views **Schreibplatz** and **Diktatdetails** do not display a summary.
 
-### Recipe Recordings
+**Open gap.** This automatic follow-up path has no locality check of its own. It runs as soon as `TEXT_MODEL_BASE_URL` or `TEXT_MODEL_API_KEY` is set; with only a key set, the code default `https://openrouter.ai/api/v1`, a hosted service, applies. Only the manual stock routes (generate or reprocess a summary, regenerate a title, translate, start summarization) are locked in clinic mode unless every configured text, chat, translation and embedding URL is local. `disable_auto_summarization` stops automatic summaries but not automatic titles. Do not configure a hosted text model in clinic mode; see [Model Configuration](model-configuration.md).
 
-Create a "Recipe" tag with a prompt like: "Convert this free-form cooking narration into a properly formatted recipe with ingredients list, step-by-step instructions, cooking times, and servings. Organize ingredients by quantity and item. Number the steps clearly."
+## Transcription hints
 
-When you record yourself cooking while talking through what you're doing - "okay I'm adding maybe two cups of flour, bit more actually, and then half a cup of sugar, no wait three quarters" - the AI transforms that messy stream-of-consciousness into a clean, usable recipe format with organized ingredients and numbered steps.
+The upstream card **Default transcription hints** (default initial prompt and hotwords) was part of the hidden admin tab. In clinic mode, batch transcription jobs drop the initial prompt and the hotwords from every source (upload or reprocess request, tag, folder, user, admin default) unless `CLINIC_ASR_PROMPTS_ENABLED` is on (default off). When it is on, prompt and hotwords share a cap of 55 words: the initial prompt is kept first, the hotwords get the remaining words. The bundled GPU speech recognition service has its own switch `ASR_PROMPTS_ENABLED` (default off); hints reach the GPU engine only when both switches are on. Hints bias decoding only; they are not acoustic training. Details: [Local ASR setup](whisperx-setup.md) and [System Settings](system-settings.md).
 
-### Lecture Notes
+## In verification: automatic local dictation summary
 
-A "Lecture" tag could use: "Extract the main concepts, supporting examples, key terminology with definitions, and any practical applications mentioned. Organize in an outline format suitable for study notes."
+> **In verification.** This feature is not part of the current released build. Labels and availability may change. The description follows the code under verification.
 
-Students record lectures as they happen. The messy 90-minute recording becomes organized study notes with concepts clearly labeled, examples pulled out, and terminology defined. Much more useful than trying to review the raw transcript.
+The feature adds a read-only panel **KI-Zusammenfassung** (AI summary) to the clinic views **Schreibplatz** (collapsed, loaded when opened) and **Diktatdetails** (expanded). The labels are German only.
 
-### Meeting Action Items
+**Prompt.** The summary uses the same hierarchy as above (tag > folder > user > admin default > shipped default, German clinic prompt in clinic mode). It is resolved for the user the job runs for: the author for an automatic summary, the requesting user for a manual one. The folder level applies only when that user owns the dictation's recording.
 
-Create a "Project Meeting" tag with: "Focus exclusively on action items, decisions made, and next steps. For each action item, identify who is responsible and any mentioned deadlines. Ignore general discussion."
+**Input.** The model receives the current saved text revision of the dictation, which may already be corrected, not the raw recognition text. The text is cut to `transcript_length_limit`. Unlike the stock summary, no context block (date, title, tags, user profile) is added. The output language is the user's output language, German by default.
 
-The group spends an hour talking about a project. The summary ignores all the background discussion and debate, giving you just the concrete outcomes - who's doing what and when.
+**Limits.** `SUMMARY_MAX_TOKENS` (default 3000) and the `summary` temperature apply. A reply whose finish reason is not `stop`, or that is empty, fails the job. The request ignores proxy environment variables and does not follow redirects. Provider errors are replaced by a generic message, so that error text cannot quote the transcript. In clinic mode the call also uses `CLINIC_LLM_TIMEOUT_SECONDS` and `CLINIC_LLM_MAX_RETRIES`.
 
-### Brainstorming Sessions
+A summary is produced only with a ready local text model; there is no hosted fallback. The model can be chosen per task on the system page **Modellwahl** (model selection), field **Textmodell** (text model), which is also in verification and applies only to these dictation summaries. Only an active site administrator (**Administrationsrolle** (administration role) plus a clinic account with status **Aktiv** (active)) can open and save **Modellwahl**; **Identitätsadministration** (identity administration), **Leitung** (lead), **Freigeben** (release) and **Originalaudio exportieren** (export original audio) do not grant it.
 
-A "Ideas" tag with: "List every distinct idea mentioned, no matter how brief the discussion. For each idea, note any immediate reactions or concerns raised. Don't evaluate or synthesize - just capture everything."
+The automatic trigger, who may read or request a summary, revision binding, audit events and test evidence are described in [Model Configuration](model-configuration.md), section "Automatic dictation summaries (In verification)".
 
-Free-flowing creative sessions produce transcripts full of half-formed thoughts and tangents. This prompt pulls out every idea fragment so nothing gets lost in the noise.
+## Related settings
 
-### Code Review Sessions
+| Setting | Default | Effect |
+|---|---|---|
+| `disable_auto_summarization` (Systemeinstellungen) | `false` | `true` stops automatic summaries for all users; titles still run |
+| `transcript_length_limit` (Systemeinstellungen) | `30000` | Characters of text sent for a summary or title; `-1` = no limit; audited with old and new value |
+| `SUMMARY_MAX_TOKENS` (env) | `3000` | Maximum output tokens of a summary |
+| `TITLE_MAX_TOKENS` (env) | `5000` | Maximum output tokens of a title |
+| `CLINIC_LLM_TIMEOUT_SECONDS` / `CLINIC_LLM_MAX_RETRIES` (env) | `120` / `2` | Per-call limits in clinic mode |
+| `TEXT_MODEL_BASE_URL` (env) | code default `https://openrouter.ai/api/v1`, used only when set or when a key exists | Text model endpoint; it and every set `CHAT_`/`TRANSLATION_`/`EMBEDDING_` URL must be local for the locked generative features |
+| `CLINIC_LOCAL_MODEL_HOSTS` (env) | `speaches,host.docker.internal,localhost` | Comma-separated service names that count as local; a set value replaces the default list (loopback and private addresses always count) |
+| `CLINIC_ASR_PROMPTS_ENABLED` (env) | off | Lets initial prompt and hotwords reach the recognizer (55-word cap) |
 
-"Code Review" tag: "For each piece of code or system discussed, list: 1) What was reviewed, 2) Issues identified, 3) Suggested changes, 4) Who will implement fixes. Use technical language, don't simplify."
+## Upstream reference
 
-Technical discussions stay technical. The summary uses proper terminology and maintains the level of detail needed for developers to act on the feedback.
+The upstream page explains the **Default prompts** editor, the "View full LLM prompt structure" view, prompt-writing strategies and creative tag prompt examples (recipes, lectures, code reviews, brainstorming). None of this is a clinic procedure: the editor is not rendered in clinic mode, and the examples do not fit clinical dictation.
 
-## Tag Stacking and Order
-
-When a recording has multiple tags with prompts, they concatenate in the order tags were applied. This creates powerful combinations:
-
-### Example: Personal Lecture + Specific Course
-
-You have a personal "My Lectures" tag with: "Organize as study notes with clear headers."
-
-You also tag with "Biology 301" which adds: "Pay special attention to biological processes, terminology, and diagrams mentioned."
-
-The result combines both: study notes format focused on biological content. The order doesn't matter much here since they're complementary.
-
-### Example: Client Meeting + Legal Review
-
-"Client Meeting" tag: "Extract client requirements, concerns, and preferences."
-
-"Legal Review" tag: "Identify any legal considerations, compliance requirements, or risk factors mentioned."
-
-Together, you get client needs plus legal implications in one summary - useful when client calls touch on contractual matters. If you tagged "Legal Review" first and "Client Meeting" second, the legal aspects would be emphasized first, then client concerns.
-
-### Example: Recipe + Dietary Restriction
-
-"Recipe" tag: "Convert to formatted recipe."
-
-"Gluten Free" tag: "Note which ingredients contain gluten and suggest substitutions."
-
-The recipe gets formatted properly, plus you get automatic gluten-free adaptation notes. Perfect when you're adapting traditional recipes for dietary needs.
-
-### When Order Matters
-
-More specific prompts should generally come last, as they refine the output from general prompts. Start broad (format type) then add specifics (focus areas).
-
-If you tag "Technical Details" + "Executive Summary", you're asking for detailed technical content presented as an executive summary - probably condensed but still technical.
-
-Reverse it to "Executive Summary" + "Technical Details" and you're requesting executive-level content with technical depth where applicable - probably less detailed overall.
-
-Test your tag combinations with sample recordings to see which order produces the results you want.
-
-## Coordinating with User Prompts
-
-Your default prompt should complement, not compete with, user customization. Design it as a solid foundation that works for most cases while encouraging power users to customize for their specific needs.
-
-Communicate your prompt strategy to users. Let them know what the default prompt emphasizes so they can decide whether customization would benefit them. Share examples of effective user prompts that build on your default.
-
-Consider documenting prompt best practices for your users. If certain departments need specialized summaries, provide recommended prompts they can use. This empowers users while maintaining consistency where it matters.
-
-## Measuring Prompt Effectiveness
-
-Track how often users modify AI-generated summaries. Frequent edits suggest your prompt isn't capturing what users need. Minimal edits indicate your prompt effectively extracts valuable information.
-
-Review a sample of summaries periodically. Do they consistently include the requested sections? Is the information accurate and relevant? Are users adding similar information that the prompt should request?
-
-Gather feedback during user reviews or support interactions. Ask specifically about summary quality and whether the default format meets their needs. Users who don't customize their prompts rely entirely on your default, making their feedback crucial.
-
-## Common Prompt Pitfalls
-
-Avoid overly restrictive prompts that force structure onto incompatible content. Not every recording has "decisions" or "action items." Forcing the AI to find these when they don't exist produces meaningless filler.
-
-Don't request information the AI can't provide. Asking for "unspoken concerns" or "what wasn't discussed" goes beyond transcript analysis. The AI can only work with what was actually said and recorded.
-
-Resist the temptation to make prompts too long. Each instruction adds complexity and potential confusion. Focus on what's most important rather than trying to capture every possible detail.
-
----
-
-Next: [Vector Store](vector-store.md) →
+Upstream Speakr documentation (pinned original, upstream only): [Default Prompts](https://github.com/murtaza-nasir/speakr/blob/039a19b1f1c7f0ddaeac0a49b806845626f48a6c/docs/admin-guide/prompts.md)
