@@ -65,6 +65,12 @@ class Admin:
         self.page = self.context.new_page()
         self.problems = PageProblems(self.page, BASE)
         login(self.page, BASE, ADMIN_EMAIL, ADMIN_PASSWORD)
+        # The account bootstrap populates this fresh browser's storage from the
+        # server. Keep the original choices across all parametrized theme visits.
+        theme, dark = self.page.evaluate("() => [localStorage.getItem('uiTheme'), localStorage.getItem('darkMode')]")
+        self.original_theme = {"ui_theme": theme}
+        if dark is not None:
+            self.original_theme["dark_mode"] = dark == "true"
         self.problems.reset()
 
     def csrf(self):
@@ -405,15 +411,15 @@ def test_view_activity_opens_the_tab_for_one_user(admin):
 @pytest.mark.parametrize("theme", THEMES)
 def test_the_tab_in_every_theme_light_and_dark(admin, theme):
     page = admin.page
-    saved = page.locator("html").get_attribute("data-ui-theme") or "default"
     response = admin.api("POST", "/api/user/preferences", {"ui_theme": theme})
     assert response.ok, f"could not save the theme {theme}: HTTP {response.status}"
     try:
         for mode in ("light", "dark"):
-            # The mode saved with the account wins over the browser's own; an earlier test file
-            # may have saved one, so both are set
-            response = admin.api("POST", "/api/user/preferences", {"dark_mode": mode == "dark"})
-            assert response.ok, f"could not save the {mode} mode: HTTP {response.status}"
+            # For an account without a stored mode, the real page follows the
+            # browser preference. Leave its nullable account setting untouched.
+            if "dark_mode" in admin.original_theme:
+                response = admin.api("POST", "/api/user/preferences", {"dark_mode": mode == "dark"})
+                assert response.ok, f"could not save the {mode} mode: HTTP {response.status}"
             page.evaluate("(dark) => localStorage.setItem('darkMode', dark)", "true" if mode == "dark" else "false")
             admin.open_admin()
             assert page.locator("html").get_attribute("data-ui-theme") == theme
@@ -471,8 +477,9 @@ def test_the_tab_in_every_theme_light_and_dark(admin, theme):
             finally:
                 page.set_viewport_size(DESKTOP)
     finally:
-        admin.api("POST", "/api/user/preferences", {"ui_theme": saved})
-        page.evaluate("() => localStorage.removeItem('darkMode')")
+        restored = admin.api("POST", "/api/user/preferences", admin.original_theme)
+        assert restored.ok, f"could not restore the account theme: HTTP {restored.status}"
+        page.evaluate("() => { localStorage.removeItem('uiTheme'); localStorage.removeItem('darkMode'); }")
 
 
 def test_the_notice_is_dismissed_once(admin):
