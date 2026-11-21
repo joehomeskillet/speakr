@@ -49,9 +49,11 @@ jobs:
       - name: Install dependencies
         run: pip install --require-hashes --no-deps -r requirements.lock -r requirements-dev.lock
 
+      # Source fixtures inspect the mounted Vue instance. The source browser smoke
+      # and image smoke below independently exercise the production Vue build.
       - name: Prepare the browser tests in the full suite
         run: |
-          PRODUCTION=1 python scripts/download_offline_deps.py
+          python scripts/download_offline_deps.py
           python -m playwright install --with-deps chromium
           npm install --prefix "$RUNNER_TEMP/speakr-a11y" --ignore-scripts --no-save --package-lock=false axe-core@4.11.3
           echo "AXE_CORE_JS=$RUNNER_TEMP/speakr-a11y/node_modules/axe-core/axe.min.js" >> "$GITHUB_ENV"
@@ -113,9 +115,11 @@ jobs:
       - name: Install dependencies
         run: pip install --require-hashes --no-deps -r requirements.lock -r requirements-dev.lock
 
+      # Source fixtures inspect the mounted Vue instance. The source browser smoke
+      # and image smoke below independently exercise the production Vue build.
       - name: Prepare the browser tests in the full suite
         run: |
-          PRODUCTION=1 python scripts/download_offline_deps.py
+          python scripts/download_offline_deps.py
           python -m playwright install --with-deps chromium
           npm install --prefix "$RUNNER_TEMP/speakr-a11y" --ignore-scripts --no-save --package-lock=false axe-core@4.11.3
           echo "AXE_CORE_JS=$RUNNER_TEMP/speakr-a11y/node_modules/axe-core/axe.min.js" >> "$GITHUB_ENV"
