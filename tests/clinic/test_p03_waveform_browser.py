@@ -2,6 +2,7 @@
 import os
 import re
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 from playwright.sync_api import expect, sync_playwright
@@ -45,12 +46,18 @@ def test_wave_transport_and_theme_use_actual_cut_revision(detail_server, width, 
             expect(media).to_have_js_property("currentTime", 0)
             slider.click(position={"x": int(track["width"] * .65), "y": int(track["height"] / 2)})
             assert panel.locator("line.played").count() > 0
+            assert all(method == "GET" for method, _ in calls)
+            theme_start = len(calls)
             colors = []
             for theme in ("light", "dark"):
                 if theme == "dark":
                     menu = page.locator("[data-user-menu-toggle]:visible")
                     menu.click()
-                    page.locator("[data-user-menu-dropdown] .v8-theme").click()
+                    with page.expect_response(lambda r: urlsplit(r.url).path == "/api/user/preferences"
+                                              and r.request.method == "POST") as saved:
+                        page.locator("[data-user-menu-dropdown] .v8-theme").click()
+                    assert saved.value.ok
+                    assert saved.value.request.post_data_json == {"dark_mode": True}
                     menu.click()
                     expect(page.locator("html")).to_have_class(re.compile(r"\bdark\b"))
                 colors.append(panel.evaluate("e => getComputedStyle(e).backgroundColor"))
@@ -60,7 +67,9 @@ def test_wave_transport_and_theme_use_actual_cut_revision(detail_server, width, 
                     page.screenshot(path=str(out / f"p03-{theme}-{width}.png"))
                     panel.screenshot(path=str(out / f"p03-wave-{theme}-{width}.png"))
             assert colors[0] != colors[1]
-            assert all(method == "GET" for method, _ in calls)
+            assert [(method, path) for method, path in calls[theme_start:] if method != "GET"] == [
+                ("POST", "/api/user/preferences"),
+            ]
             assert not page.js_errors
         finally:
             browser.close()
