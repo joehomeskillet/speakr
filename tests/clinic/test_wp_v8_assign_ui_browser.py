@@ -9,7 +9,7 @@ import time
 from playwright.sync_api import sync_playwright, expect
 
 ROOT = Path(__file__).resolve().parents[2]
-PROTOTYPE = Path('/root/work/wp-backlog/ui-v8/03_Prototyp')
+PROTOTYPE = ROOT / 'tests/fixtures/prototypes/ui-v8'
 SERVER = r'''
 import runpy, sys
 from flask import session, send_from_directory
@@ -47,7 +47,7 @@ Vue.createApp({components: {'clinic-worklist-view': WorklistView}, setup() { ret
 </script></body></html>""".replace('USER_ID', str(uid))
 @app.get('/prototype/<path:name>')
 def prototype(name):
-    return send_from_directory('/root/work/wp-backlog/ui-v8/03_Prototyp', name)
+    return send_from_directory(sys.argv[2], name)
 server = make_server('127.0.0.1', int(sys.argv[1]), app, threaded=True)
 print('READY', flush=True)
 server.serve_forever()
@@ -66,7 +66,7 @@ def test_assignment_browser(tmp_path):
         port = sock.getsockname()[1]
     log = tmp_path / 'server.log'
     with log.open('w') as stream:
-        process = subprocess.Popen([sys.executable, '-c', SERVER, str(port)], cwd=ROOT, env=env,
+        process = subprocess.Popen([sys.executable, '-c', SERVER, str(port), str(PROTOTYPE)], cwd=ROOT, env=env,
                                    stdout=stream, stderr=subprocess.STDOUT)
         try:
             deadline = time.monotonic() + 90
@@ -123,13 +123,12 @@ def test_assignment_browser(tmp_path):
                     expect(page.get_by_role('button', name='Zuweisen', exact=True)).to_have_count(0)
                     expect(page.get_by_role('button', name='Für mich übernehmen')).to_have_count(0)
                     assert not errors, errors
-                    if PROTOTYPE.exists():
-                        page.goto(base + '/prototype/index.html#arbeitsliste')
-                        for width, height in [(1440, 900), (1280, 720), (390, 844)]:
-                            page.set_viewport_size({'width': width, 'height': height})
-                            page.screenshot(path=str(output / f'prototype-{width}.png'))
-                        page.evaluate('openPoolDialog(4524)')
-                        page.screenshot(path=str(output / 'prototype-pool-dialog.png'))
+                    assert page.goto(base + '/prototype/index.html#arbeitsliste').status == 200
+                    for width, height in [(1440, 900), (1280, 720), (390, 844)]:
+                        page.set_viewport_size({'width': width, 'height': height})
+                        page.screenshot(path=str(output / f'prototype-{width}.png'))
+                    page.evaluate('openPoolDialog(4524)')
+                    page.screenshot(path=str(output / 'prototype-pool-dialog.png'))
                     print(f'Browser: {browser.version}; real lead assignment, typist visibility, focus, Escape, six screenshots passed; proofs: {output}')
                     (output / 'result.txt').write_text(f'Chromium {browser.version}\nReal Flask candidates/assignment routes; lead assignment and self-assignment; typist row visibility; keyboard focus and Escape; six Light/Dark screenshots. No page errors.\n')
                 finally:
