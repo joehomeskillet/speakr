@@ -32,7 +32,9 @@ def test_review_live_endpoint_and_visual(live_server, width):
             root.locator('[data-testid=revisions]').scroll_into_view_if_needed()
             page.screenshot(path=str(proof / f'review-evidence-{width}.png'), full_page=True)
             assert not page.js_errors, page.js_errors
-            page.goto('file:///root/work/wp-backlog/ui-v8/03_Prototyp/freigabe.html')
+            prototype = Path(__file__).resolve().parents[1] / 'fixtures/prototypes/ui-v8/freigabe.html'
+            page.goto(prototype.as_uri())
+            assert 'Freigeben' in page.title()
             page.screenshot(path=str(proof / f'prototype-{width}.png'), full_page=True)
         finally:
             browser.close()
