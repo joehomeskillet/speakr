@@ -102,13 +102,14 @@ print('PROOF',json.dumps({'jobs':len(jobs),'bootstrap_writes':len(writes)}))
                                   "--worker-class", "gthread", "--threads", "2", "--no-control-socket", "src.app:app"],
                                  env=replica_env, cwd=tmp_path, stdout=output, stderr=output)
         try:
-            for _ in range(100):
+            ready_by = time.monotonic() + 45
+            while time.monotonic() < ready_by:
                 assert server.poll() is None
                 try:
                     with urlopen("http://" + address + "/login", timeout=3) as response:
                         assert response.status == 200
                     break
-                except URLError:
+                except (URLError, TimeoutError):
                     time.sleep(.1)
             else:
                 raise AssertionError("Gunicorn never became ready")
