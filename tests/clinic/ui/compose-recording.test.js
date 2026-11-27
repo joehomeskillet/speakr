@@ -52,7 +52,7 @@ describe('recording view controller', () => {
         expect(() => createRecordingViewController({ currentUser: { id: 1 }, recorder: recorder() })).toThrow('uploadFile');
     });
 
-    it('shows the logged-in user as author and offers no picker', () => {
+    it('uses the logged-in user as author without showing author controls', () => {
         const { c } = make();
         const m = c.model();
         expect(m.author).toBe('Dr. Muster');
@@ -60,7 +60,7 @@ describe('recording view controller', () => {
         expect(Object.keys(c)).not.toContain('setAuthor');
         expect(Object.keys(c)).not.toContain('setPool');
         expect(RECORDING_TEMPLATE).not.toMatch(/<select|author-picker|pool/i);
-        expect(RECORDING_TEMPLATE).toContain('c.text.author');
+        expect(RECORDING_TEMPLATE).not.toContain('c.text.author');
         expect(TEXT.author).toBe('Diktiert von');
     });
 

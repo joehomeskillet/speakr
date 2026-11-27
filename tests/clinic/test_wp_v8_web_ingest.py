@@ -98,17 +98,19 @@ def test_microphone_title_reaches_the_recordings_list_without_exposing_renames(c
     assert response.status_code == 202, response.get_data(as_text=True)
     dictation_id = response.json['dictation_id']
     with app.app_context():
-        def list_own():
-            return recordings_list.list_recordings(worklist_entries.load_entries(author['id']),
-                                                   policy.build_subject(author['id']))
+        def list_own() -> dict:
+            projection = recordings_list.list_recordings(worklist_entries.load_entries(author['id']),
+                                                         policy.build_subject(author['id']))
+            [row] = [item for item in projection['items'] if item['dictation_id'] == dictation_id]
+            return row
 
-        assert list_own()['items'][0]['capture_label'] == label
+        assert list_own()['capture_label'] == label
         dictation = db.session.get(ClinicDictation, dictation_id)
         anchor = db.session.get(Recording, dictation.recording_id)
         assert anchor.title == label
         anchor.title = 'Private Freitextbezeichnung'
         db.session.commit()
-        [listed] = list_own()['items']
+        listed = list_own()
         assert 'capture_label' not in listed
         assert 'Private Freitextbezeichnung' not in listed.values()
 

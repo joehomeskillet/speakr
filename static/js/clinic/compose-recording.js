@@ -32,7 +32,7 @@ import { surfaceFor } from './tokens.js';
 export { receiptDictationId };
 export const COMPOSE_RECORDING_VERSION = 1;
 
-const TOUCH = 'min-height: 3rem';
+const TOUCH = 'min-height: 2.75rem; min-block-size: max(2.75rem, 48px)';
 const LINK = `${TOUCH}; display: inline-flex; align-items: center; text-decoration: underline`;
 
 export const TEXT = Object.freeze({
