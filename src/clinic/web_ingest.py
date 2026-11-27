@@ -6,8 +6,8 @@ mode, after the upload was stored as a recording. It hands the stored bytes to
 dictation to the logged-in author and the author's pool, and adds the work-list row.
 
 * Author: the logged-in uploader (``dictated_by``).
-* Pool: the one author pool of that user (same rule as the preference routes). A user in no
-  pool gets a German refusal instead of a dictation nobody could see.
+* Pool: the author's current selection (same rule as the preference routes). An author with
+  no usable pool gets a German refusal instead of a dictation nobody could see.
 * Idempotency key: ``web:<user>:<client_upload_id>``, or the content hash when the browser
   sent no id. The same key and bytes return the existing dictation.
 * Time: the recording time (form, file name, file date, embedded metadata) when the upload
@@ -36,7 +36,7 @@ from datetime import datetime, timezone
 from flask import current_app, jsonify
 from sqlalchemy import or_
 
-from src.clinic import pool_policy, pools, startup
+from src.clinic import app_wiring, startup
 from src.clinic.ingest import IngestError, IngestService
 from src.clinic.models import ClinicDictation, ClinicOriginal
 from src.clinic.workflow import DRAFT, ClinicWorkflowDictation
@@ -48,6 +48,8 @@ logger = logging.getLogger(__name__)
 WEB_SOURCE = 'upload'  # processing_source of the browser upload and recorder finalisation
 MSG_NO_POOL = ('Ihr Benutzerkonto ist keinem Autorenpool zugeordnet. '
                'Die Aufnahme wurde nicht als Diktat angelegt.')
+MSG_RESELECT_POOL = ('Der gewählte Autorenpool ist nicht mehr verfügbar. '
+                     'Bitte wählen Sie einen Autorenpool neu aus.')
 MSG_FAILED = ('Die Aufnahme konnte nicht als Diktat angelegt werden. '
               'Bitte den Vorgang wiederholen.')
 _CHUNK = 1024 * 1024
@@ -106,16 +108,7 @@ def dictations_for_recordings(recording_ids, *, session=None):
 
 
 def author_pool_for(user_id: int) -> str | None:
-    """One author pool per user is the clinic rule; a user in none has no pool.
-
-    Inactive or out-of-validity pools are skipped (first remaining id wins).
-    """
-    now = datetime.now(timezone.utc)
-    for pool_id in sorted(pool_policy.author_pool_ids(user_id)):
-        pool = db.session.get(pools.ClinicAuthorPool, pool_id)
-        if pool is not None and pools.is_routable(pool, now):
-            return pool_id
-    return None
+    return app_wiring.choose_author_pool(user_id)
 
 
 def _utc(naive: datetime) -> datetime:
@@ -202,10 +195,6 @@ def register_upload(*, owner, recording, storage, form, now: datetime,
     """
     if processing_source != WEB_SOURCE:
         return None
-    pool_id = author_pool_for(owner.id)
-    if pool_id is None:
-        return _refuse(recording, storage, 'clinic_no_author_pool', MSG_NO_POOL, 403)
-
     from src.services.upload_cancel import client_upload_id_from
     time_source = _time_source(form, now, meeting_date)
     moment = _utc(now if time_source == 'upload' else meeting_date)
@@ -214,6 +203,12 @@ def register_upload(*, owner, recording, storage, form, now: datetime,
     # parsers that split off the recording id still match.
     asr_mark = ':asr=off' if not speech_recognition_requested(form) else ''
     try:
+        selection = app_wiring.active_author_pool(owner.id)
+        pool_id = selection.pool_id
+        if selection.reselection_required:
+            return _refuse(recording, storage, 'clinic_author_pool_reselection_required', MSG_RESELECT_POOL, 403)
+        if pool_id is None:
+            return _refuse(recording, storage, 'clinic_no_author_pool', MSG_NO_POOL, 403)
         with storage.materialize(recording.audio_path) as stored:
             path = stored.local_path
             size = os.path.getsize(path)

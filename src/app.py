@@ -1353,11 +1353,6 @@ def register_clinic_identity(flask_app):
     def disabled_exchange(_pending, _code):
         raise entra.EntraDisabled()
 
-    def author_pool_for(user_id):
-        # One author pool per user is the clinic rule; a user in none has no author recipient default.
-        # The model has no active-pool flag: first pool by name, then id (app_wiring.choose_author_pool).
-        return app_wiring.choose_author_pool(user_id)
-
     def allowed_for(user_id):
         # Current roles only: author = member of an author pool; typist = member of a staff pool linked
         # to an author pool. A typist gets no own author (no author context by default).
@@ -1387,7 +1382,7 @@ def register_clinic_identity(flask_app):
     flask_app.register_blueprint(routes_grants.GrantsApi().blueprint)
     flask_app.register_blueprint(create_metadata_fields_blueprint())
     flask_app.register_blueprint(routes_preferences.PreferenceRoutes(
-        allowed_for=allowed_for, author_pool_for=author_pool_for,
+        allowed_for=allowed_for, author_pool_for=app_wiring.choose_author_pool,
         selections=SelectionStore(preferences=PresetUserPreferences()), workstations=WorkstationPreferences()).blueprint)
 
 

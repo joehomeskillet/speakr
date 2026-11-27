@@ -1,12 +1,15 @@
 """Durable pieces behind the clinic wiring in src/app.py.
 
-- choose_author_pool: the one-author-pool-per-user rule made deterministic.
+- choose_author_pool: resolve the saved author pool against current memberships.
 - DurableProtectionStore: protection records in the database (survive a restart).
 - make_source_loader: read-only decoded WAV sources of one dictation for the derived rendering.
 """
 from __future__ import annotations
 
+import json
 import tempfile
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlalchemy.exc import IntegrityError
@@ -14,30 +17,60 @@ from sqlalchemy.exc import IntegrityError
 from src.clinic import audio_revisions, decoder, dictation_lock
 from src.clinic.audio_render import AudioSource
 from src.clinic.models import ClinicOriginal
-from datetime import datetime, timezone
-
 from src.clinic.pools import ClinicAuthorPool, ClinicAuthorPoolMember, is_routable
+from src.clinic.presets import ClinicPreset, set_preset
 from src.database import db
 from src.services.storage.locator import local_path_from_key
 
 
-def choose_author_pool(user_id):
-    """Author pool id of the user, or None when the user is in none.
+_ACTIVE_POOL_KEY = "active_author_pool"
 
-    The rule: among the member pools that are routable now (active, inside valid_from /
-    valid_to; a null bound is open), the one with the alphabetically first name (pool names
-    are unique), pool id as the final tie-break. The same input always gives the same pool,
-    independent of row or UUID order.
-    """
+
+@dataclass(frozen=True)
+class ActiveAuthorPool:
+    pool_id: str | None
+    reselection_required: bool
+    pools: tuple[ClinicAuthorPool, ...]
+
+
+class ActivePoolNotAllowed(ValueError):
+    pass
+
+
+def _routable_member_pools(user_id: int) -> tuple[ClinicAuthorPool, ...]:
     now = datetime.now(timezone.utc)
-    pools = (db.session.query(ClinicAuthorPool)
-             .join(ClinicAuthorPoolMember, ClinicAuthorPoolMember.pool_id == ClinicAuthorPool.id)
-             .filter(ClinicAuthorPoolMember.user_id == user_id)
-             .order_by(ClinicAuthorPool.name, ClinicAuthorPool.id).all())
-    for pool in pools:
-        if is_routable(pool, now):
-            return pool.id
-    return None
+    members = (db.session.query(ClinicAuthorPool)
+               .join(ClinicAuthorPoolMember, ClinicAuthorPoolMember.pool_id == ClinicAuthorPool.id)
+               .filter(ClinicAuthorPoolMember.user_id == user_id)
+               .order_by(ClinicAuthorPool.name, ClinicAuthorPool.id).all())
+    return tuple(pool for pool in members if is_routable(pool, now))
+
+
+def active_author_pool(user_id: int) -> ActiveAuthorPool:
+    """Fall back by name only when the user has never chosen a pool."""
+    pools = _routable_member_pools(user_id)
+    saved = db.session.query(ClinicPreset.value_json).filter_by(
+        scope="user", scope_id=str(user_id), key=_ACTIVE_POOL_KEY,
+    ).scalar()
+    if saved is None:
+        return ActiveAuthorPool(pools[0].id if pools else None, False, pools)
+    pool_id = json.loads(saved)
+    if any(pool.id == pool_id for pool in pools):
+        return ActiveAuthorPool(pool_id, False, pools)
+    return ActiveAuthorPool(None, True, pools)
+
+
+def set_active_author_pool(user_id: int, pool_id: str) -> ActiveAuthorPool:
+    pools = _routable_member_pools(user_id)
+    if not any(pool.id == pool_id for pool in pools):
+        raise ActivePoolNotAllowed(pool_id)
+    set_preset(_ACTIVE_POOL_KEY, pool_id, scope="user", scope_id=user_id)
+    db.session.commit()
+    return ActiveAuthorPool(pool_id, False, pools)
+
+
+def choose_author_pool(user_id: int) -> str | None:
+    return active_author_pool(user_id).pool_id
 
 
 class ClinicDictationProtection(db.Model):
