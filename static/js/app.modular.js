@@ -595,6 +595,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const openClinicEditorFromView = () => {
                 if (clinicDictationId.value === null) return;
                 clinicCorrectionId.value = clinicDictationId.value;
+                clinicOpenMode.value = 'correction';
                 clinicDictationId.value = null;
                 currentView.value = 'clinic-correction';
             };
@@ -623,7 +624,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const syncClinicHash = (view) => {
                     const hash = CLINIC_VIEW_HASH[view];
                     if (!hash || window.location.hash === hash) return;
-                    window.history.pushState({ clinicView: view, dictationId: clinicCorrectionId.value, origin: clinicOrigin.value }, '', hash);
+                    window.history.pushState({ clinicView: view, dictationId: clinicCorrectionId.value, origin: clinicOrigin.value,
+                        openMode: view === 'clinic-correction' ? clinicOpenMode.value : null }, '', hash);
                 };
                 if (CLINIC_VIEW_HASH[currentView.value] !== window.location.hash) {
                     window.history.replaceState(window.history.state, '', CLINIC_VIEW_HASH[currentView.value]);
@@ -642,6 +644,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     if (reopen) {
                         clinicCorrectionId.value = String(state.dictationId);
                         clinicOrigin.value = state.origin === 'clinic-worklist' ? 'clinic-worklist' : 'clinic-recordings';
+                        clinicOpenMode.value = state.openMode === 'player' ? 'player' : 'correction';
                     }
                     currentView.value = target;
                 });

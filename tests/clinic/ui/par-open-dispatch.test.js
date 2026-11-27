@@ -23,6 +23,11 @@ describe('PAR-WF-001 open dispatch', () => {
             .toEqual({ surface: 'correction', dictationId: 'own', openMode: 'correction' });
     });
 
+    it('opens own case details for an author who also works as a typist', () => {
+        expect(open({ dictationId: 'own', mode: 'author_case', author_user_id: 9 }, worklist(typist)))
+            .toEqual({ surface: 'details', dictationId: 'own', openMode: null });
+    });
+
     it('sends a permitted typist to the player, the correction editor, or stays closed', () => {
         expect(open({
             dictationId: 'audio', mode: 'player', status: 'zu_schreiben', source_kind: 'audio', author_user_id: 7,

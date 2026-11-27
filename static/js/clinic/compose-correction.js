@@ -63,8 +63,9 @@ export function resolveClinicOpenTarget(payload, context) {
     const user = ctx.user || {};
     const role = String(user.role || ctx.role || '').toLowerCase();
     const authorId = payload.author_user_id != null ? payload.author_user_id : payload.authorUserId;
-    const foreignAuthor = authorId != null && user.id != null && String(user.id) !== '' && String(authorId) !== String(user.id);
-    if (mode === 'author_case' && (foreignAuthor || role === 'typist' || role === 'staff')) return null;
+    const hasAuthor = authorId != null && user.id != null && String(user.id) !== '';
+    const isAuthor = hasAuthor && String(authorId) === String(user.id);
+    if (mode === 'author_case' && !isAuthor && (hasAuthor || role === 'typist' || role === 'staff')) return null;
     if (mode === 'author_case' && ctx.view !== 'clinic-recordings') {
         return { surface: 'details', dictationId: id, openMode: null };
     }
@@ -1014,8 +1015,8 @@ export const CorrectionBody = {
         </span>
       </div>
       <p class="word-sync-info" role="status" aria-live="polite">
-        <template v-if="audio.status !== 'ready' && audio.status !== 'idle' && audio.status !== 'loading'">{{ audio.message }} </template>
-        <template v-if="alignmentNotice"><span data-testid="alignment-notice">{{ alignmentNotice }}</span> </template>
+        <template v-if="audio.status !== 'ready' && audio.status !== 'idle' && audio.status !== 'loading'">{{ audio.message + ' ' }}</template>
+        <span v-if="alignmentNotice" data-testid="alignment-notice">{{ alignmentNotice + ' ' }}</span>
         <span v-if="pedalStatus" data-testid="pedal-status">{{ pedalStatus }}</span>
       </p>
 
