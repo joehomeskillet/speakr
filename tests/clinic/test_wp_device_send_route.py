@@ -10,9 +10,9 @@ import pytest
 
 from src.app import app, db
 from src.clinic import agent_channel as channel
-from src.clinic import agent_channel_ingest, import_centre, import_source_config, policy
+from src.clinic import agent_channel_ingest, import_centre, import_source_config, policy, pools
 from src.clinic.identity import ClinicAccountPolicy
-from src.models import AuditEvent
+from src.models import AuditEvent, Group, GroupMembership
 
 from test_import_centre import _env as _env, _sha, env as env
 from test_stub_asr import FIXTURE
@@ -97,6 +97,34 @@ def _verify_batches(env, scene):
     assert import_centre.ClinicImportIntent.query.count() == channel.ClinicAgentIntent.query.count() == 3
 
 
+def _verify_recipients(env, scene):
+    client, rows, _ = scene
+    admin, author, typist = (env[key] for key in ("admin", "author", "other"))
+    typist.name = "Synthetischer Schreibdienst"
+    author_pool = pools.ClinicAuthorPool(name="Geräteversand", created_by=admin.id)
+    group = Group(name="Schreibdienst", created_by=admin.id)
+    db.session.add_all([author_pool, group])
+    db.session.flush()
+    staff = pools.ClinicStaffPool(group_id=group.id, created_by=admin.id)
+    db.session.add_all([staff, GroupMembership(group_id=group.id, user_id=typist.id, role="member")])
+    db.session.flush()
+    db.session.add(pools.ClinicPoolRoute(author_pool_id=author_pool.id, staff_pool_id=staff.id, created_by=admin.id))
+    db.session.commit()
+    pools.add_author_member(author_pool.id, author.id, actor_id=admin.id)
+
+    inventory = _call(client, "inventory").json
+    assert inventory["recipients"] == [{"id": typist.id, "name": typist.name}]
+    assert [item["device_recipient_ids"] for item in inventory["items"]] == [[typist.id]] * 3
+    assert _call(_client(typist), "inventory").status_code == 403
+    batch = dict(agent_id=env["agent_id"], source_snapshot_ids=[row["snapshot_id"] for row in rows[:2]],
+                 overrides={"recipient_user_id": {"op": "set", "value": typist.id}, "asr": "disable"})
+    assert [item["status"] for item in _call(client, "device-send", body=batch).json["items"]] == ["OPEN"] * 2
+    queued = _call(client, "intents").json["items"]
+    assert {item["source_ref"] for item in queued} == {row["source_id"] for row in rows[:2]}
+    assert [item["metadata"]["recipient_user_id"] for item in queued] == [{"op": "set", "value": typist.id}] * 2
+    assert [item["metadata"]["asr"] for item in queued] == ["disable"] * 2
+
+
 def _verify_retry(env, scene):
     client, rows, data = scene
     batch = dict(agent_id=env["agent_id"], source_snapshot_ids=[rows[0]["snapshot_id"]])
@@ -164,7 +192,7 @@ def _verify_concurrent(env, scene):
     assert import_centre.ClinicImportIntent.query.count() == channel.ClinicAgentIntent.query.count() == 1
 
 
-@pytest.mark.parametrize("verify", [_verify_batches, _verify_retry, _verify_concurrent])
+@pytest.mark.parametrize("verify", [_verify_batches, _verify_recipients, _verify_retry, _verify_concurrent])
 def test_device_send(env, request, verify):
     if "clinic_imports_web.device_send" not in app.view_functions:
         for path in ("device-send", "intents", f"intents/{uuid4()}/retry"):

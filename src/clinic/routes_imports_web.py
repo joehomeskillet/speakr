@@ -17,6 +17,7 @@ from src.clinic import (
 from src.clinic import routes_import_sources_web as source_routing
 from src.clinic.admin_dictation_access import _is_active_site_admin
 from src.clinic.config import clinic_mode_enabled
+from src.clinic.dictation_roles import display_name
 from src.clinic.identity import ClinicAccountPolicy
 from src.clinic.ingest import IngestError
 from src.clinic.migration_import_intent_metadata import interpret
@@ -24,6 +25,7 @@ from src.clinic.parity_dispatch import MAX_BODY_BYTES, CommandProblem, _problem,
 from src.clinic.parity_receipts import ClinicParityReceipt, run_once, scope_key
 from src.clinic.pool_policy import author_pool_ids
 from src.database import db
+from src.models import User
 from src.services import audit
 
 
@@ -155,13 +157,17 @@ def _route_snapshot(item, actor, owners, now):
     return config, eligible_pools
 
 
+def _effective_pool(pool_id, eligible_pools):
+    return pool_id or (next(iter(eligible_pools)) if len(eligible_pools) == 1 else None)
+
+
 def _metadata(overrides, pool_id, eligible_pools):
     pool_override = overrides.get("pool_id")
     if isinstance(pool_override, dict) and pool_override.get("op") == "set":
         pool_id = pool_override.get("value")
         if not isinstance(pool_id, str) or pool_id not in eligible_pools:
             raise agent_channel.AgentChannelError("forbidden", "ineligible pool")
-    pool_id = pool_id or (next(iter(eligible_pools)) if len(eligible_pools) == 1 else None)
+    pool_id = _effective_pool(pool_id, eligible_pools)
     approved = recipient_defaults.eligible_user_ids(pool_id) if pool_id else ()
     return import_centre._stored_metadata(overrides, approved)
 
@@ -323,15 +329,35 @@ def inventory():
     )
     visibility = import_visibility.ClarificationPolicy(may_access=may_read)
     items = []
+    recipients_by_pool = {None: ()}
+    now = agent_channel.utcnow()
     for agent_id in roots_by_agent:
         body = import_visibility.list_inventory(visibility, channel_policy, actor_user_id=actor, agent_id=agent_id)
         snapshots = {
-            (row.source_id, row.snapshot_version): row.id
+            (row.source_id, row.snapshot_version): row
             for row in agent_channel.ClinicAgentInventory.query.filter_by(agent_id=agent_id)
         }
-        items.extend(row | {"agent_id": agent_id, "snapshot_id": snapshots[row["source_id"], row["snapshot_version"]]}
-                     for row in body["items"] if (row["source_id"], row["snapshot_version"]) in snapshots)
-    return jsonify(items=items, count=len(items), can_clarify=bool(admin or led_pools))
+        for row in body["items"]:
+            snapshot = snapshots.get((row["source_id"], row["snapshot_version"]))
+            if snapshot is None:
+                continue
+            item = row | {"agent_id": agent_id, "snapshot_id": snapshot.id}
+            items.append(item)
+            if not can_import or snapshot.size <= 0:
+                continue
+            try:
+                config, eligible_pools = _route_snapshot(snapshot, actor, owners, now)
+            except agent_channel.AgentChannelError:
+                continue
+            if config["source_kind"] == "device":
+                pool_id = _effective_pool(config["target_pool_id"], eligible_pools)
+                if pool_id not in recipients_by_pool:
+                    recipients_by_pool[pool_id] = recipient_defaults.eligible_user_ids(pool_id)
+                item["device_recipient_ids"] = recipients_by_pool[pool_id]
+    recipient_ids = {uid for pool_recipients in recipients_by_pool.values() for uid in pool_recipients}
+    users = User.query.filter(User.id.in_(recipient_ids)).order_by(User.name, User.username, User.id) if recipient_ids else ()
+    recipients = [{"id": user.id, "name": display_name(user)} for user in users]
+    return jsonify(items=items, count=len(items), can_clarify=bool(admin or led_pools), recipients=recipients)
 
 
 def _clarification_policy():
