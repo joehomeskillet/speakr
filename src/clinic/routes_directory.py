@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import Counter
 from typing import Any
 
 from flask import Blueprint, abort, current_app, jsonify, request
@@ -29,10 +30,10 @@ from src.clinic import directory_diff as dd
 from src.clinic import identity, ldap_profile, pools
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.directory_provider import PROVIDER_EXTENSION, SnapshotProvider
-from src.clinic.directory_reconcile import Action, DirectoryReconcileError, LocalUser
+from src.clinic.directory_reconcile import Action, DirectoryReconcileError, LocalUser, normalise_directory_email
 from src.clinic.entra import ClinicExternalIdentity
 from src.database import db
-from src.models import GroupMembership, User
+from src.models import Group, GroupMembership, User
 
 PREFIX = "/api/clinic/v1/directory"
 # Identity and authority come from the session, never from the request.
@@ -120,12 +121,31 @@ def preview_hash(preview: dd.DirectoryPreview) -> str:
 
 
 def _preview_json(preview: dd.DirectoryPreview) -> dict[str, Any]:
+    users = {user.id: user for user in preview.local_users}
+    entries = {entry.object_id: entry for entry in preview.snapshot.entries}
+    membership_counts = Counter((row.user_id, row.pool_kind) for row in preview.local_memberships)
+    actions = []
+    for action in preview.actions:
+        row = _action_json(action)
+        entry = entries[action.object_id]
+        user = users.get(action.local_user_id)
+        row["account_label"] = user.username if user else entry.account
+        if action.kind == "create_pending_user":
+            row["after"] = entry.display_name
+        elif action.kind == "update_display_name":
+            row.update(before=user.display_name, after=entry.display_name)
+        elif action.kind == "update_email":
+            row.update(before=user.email, after=normalise_directory_email(entry.email))
+        actions.append(row)
     return {
         "source": preview.snapshot.source, "version": preview.source_version, "hash": preview_hash(preview),
+        "link_new_available": preview.snapshot.source == identity.DIRECTORY_SOURCE,
         "changed_fields": [{"user_id": local.id, "object_id": entry.object_id, "fields": list(fields)}
                            for local, entry, fields in preview.differences.changed],
-        "actions": [_action_json(a) for a in preview.actions],
-        "membership_changes": [_change_json(c) for c in preview.membership_changes],
+        "actions": actions,
+        "membership_changes": [dict(_change_json(c), account_label=users[c.user_id].username,
+                                    current_count=membership_counts[c.user_id, c.pool_kind])
+                               for c in preview.membership_changes],
         "ambiguous": len(preview.differences.ambiguous),
         "unmatchable": len(preview.differences.unmatchable),
     }
@@ -248,7 +268,16 @@ def _body() -> dict:
 
 @blueprint.get(PREFIX + "/capability")
 def capability():
-    return jsonify(directory_available=_read_snapshot() is not None, local_accounts=True,
+    available = _read_snapshot() is not None
+    options = []
+    if available:
+        author = pools.ClinicAuthorPool
+        staff = pools.ClinicStaffPool
+        options = [{"kind": "author", "id": pool_id, "name": name}
+                   for pool_id, name in db.session.query(author.id, author.name).order_by(author.name)]
+        options += [{"kind": "staff", "id": pool_id, "name": name}
+                    for pool_id, name in db.session.query(staff.id, Group.name).join(Group).order_by(Group.name)]
+    return jsonify(directory_available=available, local_accounts=True, pool_options=options,
                    local_windows_accounts="unavailable", gap="WG-ADM-009")
 
 

@@ -4919,7 +4919,7 @@ Summarization Instructions:
         import { getUploadCsrfToken } from "{{ url_for('static', filename='js/modules/csrf.js', v=app_version) }}";
         import { createAccountsAdmin, AccountsAdminPanel } from "{{ url_for('static', filename='js/clinic/accounts-ui.js', v=app_version) }}";
         import { createPoolsComponent } from "{{ url_for('static', filename='js/clinic/pools-ui.js', v=app_version) }}";
-        import { registerDirectoryReview } from "{{ url_for('static', filename='js/clinic/directory-ui.js', v=app_version) }}";
+        import { registerDirectoryReview, WINDOWS_GAP } from "{{ url_for('static', filename='js/clinic/directory-ui.js', v=app_version) }}";
         import { templatesComponent } from "{{ url_for('static', filename='js/clinic/templates-ui.js', v=app_version) }}";
         import { categoriesComponent } from "{{ url_for('static', filename='js/clinic/categories-ui.js', v=app_version) }}";
         import { columnsComponent } from "{{ url_for('static', filename='js/clinic/columns-ui.js', v=app_version) }}";
@@ -5013,9 +5013,10 @@ Summarization Instructions:
 <div class="clinic-directory-host">
   <clinic-directory-review v-if="available" :client="client" @open-accounts="$emit('open-accounts')"></clinic-directory-review>
   <section v-else aria-labelledby="directory-status-title">
-    <h2 id="directory-status-title" class="t-heading">Verzeichnisabgleich</h2>
+    <h2 id="directory-status-title" class="t-heading clinic-directory-heading">Verzeichnisabgleich</h2>
     <p role="status" v-text="message"></p>
-    <button type="button" class="btn btn--ghost" @click="$emit('open-accounts')">Lokale Konten verwalten</button>
+    <p role="note">${WINDOWS_GAP}</p>
+    <button type="button" class="btn btn--ghost min-h-12" @click="$emit('open-accounts')">Lokale Konten verwalten</button>
   </section>
 </div>`,
         };

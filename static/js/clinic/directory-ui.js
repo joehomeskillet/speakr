@@ -14,27 +14,30 @@ import { createClinicApiClient } from './api-client.js';
 import { surfaceFor } from './tokens.js';
 
 const BASE = '/directory';
+const GROUP_KIND = { author: 'Diktiergruppe', staff: 'Schreibgruppe' };
+export const WINDOWS_GAP = 'WG-ADM-009 offen. Lokale Windows-Konten dieses Arbeitsplatzes sind im Browser nicht verfügbar.';
 
 export const LABELS = Object.freeze({
     title: 'Verzeichnisabgleich',
-    description: 'Vergleicht lokale Konten mit dem Verzeichnis. Vorschau laden, Auswahl prüfen und erst nach der Bestätigung anwenden.',
+    description: 'Prüfen Sie die Unterschiede zwischen dem Verzeichnis und den Appkonten. Erst Ihre Bestätigung übernimmt die Auswahl.',
     reload: 'Vorschau laden',
-    additions: 'Neue Identitäten',
+    additions: 'Neue Personen im Verzeichnis',
     modifications: 'Änderungen',
-    disabled: 'Zu deaktivierende Identitäten',
-    memberships: 'Poolzuordnungen',
+    disabled: 'Konten zur Deaktivierung',
+    memberships: 'Mitgliedschaften in Arbeitsgruppen',
     empty: 'Keine Änderungen.',
     review: 'Auswahl prüfen',
     confirmTitle: 'Änderungen bestätigen',
-    confirm: 'Verbindlich anwenden',
-    cancel: 'Zurück',
+    confirm: 'Auswahl übernehmen',
+    cancel: 'Abbrechen',
     retry: 'Erneut versuchen',
     local: 'Lokale Konten verwalten',
     providers: 'Anbieterstatus',
-    unresolved: 'Nicht aktiviert / nicht verifiziert: IWA, LDAP und Entra sind nicht verifiziert. '
-        + 'Die Auswahl lokaler Windows-Konten bleibt offen.',
-    linkRequired: 'Verknüpfung nötig (lokale Konten verwalten)',
-    archiveOnly: 'Es wird nichts gelöscht, Konten werden nur deaktiviert.',
+    unresolved: WINDOWS_GAP + ' IWA, LDAP und Entra sind nicht verifiziert.',
+    linkRequired: 'Das Verzeichnis unterstützt hier keine Kontoanlage.',
+    link: 'Appkonto anlegen',
+    linkConfirm: 'Anlegen und verknüpfen',
+    linkTitle: 'Kontoanlage bestätigen',
 });
 
 const REASONS = Object.freeze({
@@ -44,6 +47,8 @@ const REASONS = Object.freeze({
     nothing_selected: 'Es ist nichts ausgewählt.',
     no_preview: 'Es liegt keine Vorschau vor.',
     not_confirmed: 'Die Bestätigung fehlt.',
+    processing: 'Der Vorgang läuft bereits.',
+    link_uncertain: 'Die Kontoanlage konnte nicht bestätigt werden. Laden Sie die Vorschau neu, um den Stand zu prüfen.',
     failure: 'Der Vorgang ist fehlgeschlagen. Bitte erneut versuchen.',
 });
 
@@ -70,6 +75,15 @@ function memberKey(m) {
     return 'm:' + [m.kind, m.subject_id, m.pool_kind, m.pool_id].join(':');
 }
 
+function actionText(action) {
+    const { kind, account_label: account, before, after } = action;
+    if (!account) return action.detail || action.object_id;
+    if (kind === 'create_pending_user') return `${after} (${account})`;
+    if (kind === 'deactivate') return `${account} deaktivieren`;
+    const field = kind === 'update_email' ? 'E-Mail-Adresse' : 'Anzeigename';
+    return `${field} für ${account} von ${before || 'leer'} auf ${after} ändern`;
+}
+
 /** Group the preview into the three review lists plus pool changes. */
 export function groupPreview(preview) {
     const actions = (preview && preview.actions) || [];
@@ -88,14 +102,16 @@ export function createDirectoryReview(options) {
     const opts = options || {};
     const client = opts.client || createClinicApiClient();
     const wrap = opts.reactive || ((value) => value);
-    const managedPools = Array.isArray(opts.managedPools) ? opts.managedPools : [];
     const state = wrap({
         status: 'normal',
         preview: null, // { version, hash, source, ... }; memory only
         selected: {}, // key -> true
         confirming: false,
+        linking: null,
+        managedPools: Array.isArray(opts.managedPools) ? opts.managedPools : [],
         stale: false,
         message: '',
+        success: '',
         capability: null,
     });
 
@@ -103,11 +119,11 @@ export function createDirectoryReview(options) {
         state.status = surfaceFor(status).status;
     }
 
-    function fail(row) {
-        const code = failureCode(row);
-        if (code === 'stale') {
+    function fail(row, code = failureCode(row)) {
+        if (code === 'stale' || code === 'link_uncertain') {
             state.stale = true;
             state.confirming = false;
+            state.linking = null;
         }
         setStatus(code === 'failure' || code === 'unavailable' ? 'error' : 'warning');
         state.message = REASONS[code];
@@ -115,15 +131,17 @@ export function createDirectoryReview(options) {
     }
 
     async function load() {
+        if (state.status === 'processing') return refuse('processing');
+        cancel();
         setStatus('processing');
-        state.confirming = false;
+        state.preview = null;
+        state.message = '';
+        state.success = '';
         const cap = await client.request(BASE + '/capability');
         if (cap.outcome === 'ok') state.capability = cap.data;
-        const row = await client.request(BASE + '/preview', { method: 'POST', body: { managed_pools: managedPools } });
-        if (row.outcome !== 'ok') {
-            // Keep a stale preview visible but unusable; fail() sets the reload requirement.
-            return fail(row);
-        }
+        const row = await client.request(BASE + '/preview', { method: 'POST', body: { managed_pools: state.managedPools } });
+        // A failed reload leaves no usable preview.
+        if (row.outcome !== 'ok') return fail(row);
         state.preview = row.data;
         state.stale = false;
         state.message = '';
@@ -138,10 +156,19 @@ export function createDirectoryReview(options) {
     }
 
     function toggle(key) {
-        if (state.stale || !(key in state.selected) && !selectable(key)) return;
+        if (state.status === 'processing' || state.stale || !selectable(key)) return;
         if (state.selected[key]) delete state.selected[key];
         else state.selected[key] = true;
-        state.confirming = false;
+        cancel();
+    }
+
+    function choosePool({ kind, id }, checked) {
+        if (state.status === 'processing') return;
+        const keep = state.managedPools.filter((pool) => pool.kind !== kind || pool.id !== id);
+        state.managedPools = checked ? [...keep, { kind, id }] : keep;
+        state.preview = null;
+        state.success = '';
+        cancel();
     }
 
     function selectable(key) {
@@ -155,26 +182,41 @@ export function createDirectoryReview(options) {
         const g = groupPreview(state.preview);
         return {
             actions: [...g.modifications, ...g.disabled]
-                .filter((a) => state.selected[actionKey(a)])
-                .map((a) => ({ kind: a.kind, object_id: a.object_id })),
-            memberships: g.memberships
-                .filter((m) => state.selected[memberKey(m)])
-                .map((m) => ({ kind: m.kind, subject_id: m.subject_id, pool_kind: m.pool_kind, pool_id: m.pool_id })),
+                .filter((a) => state.selected[actionKey(a)]),
+            memberships: g.memberships.filter((m) => state.selected[memberKey(m)]),
         };
     }
 
+    function lastMemberships(memberships) {
+        const remaining = new Map();
+        for (const m of memberships) {
+            const key = `${m.user_id}:${m.pool_kind}`;
+            const count = remaining.get(key)?.count ?? m.current_count;
+            remaining.set(key, { member: m, count: count + (m.kind === 'add' ? 1 : -1) });
+        }
+        return [...remaining.values()].filter(({ count }) => count === 0).map(({ member }) => member);
+    }
+
     /** First step: show what will be applied. No request is made. */
-    function review() {
+    function review(objectId) {
+        if (state.status === 'processing') return refuse('processing');
         if (!state.preview) return refuse('no_preview');
         if (state.stale) return refuse('stale');
-        const sel = selection();
-        if (sel.actions.length + sel.memberships.length === 0) return refuse('nothing_selected');
+        const link = objectId === undefined || !state.preview.link_new_available ? null
+            : groupPreview(state.preview).additions.find((a) => a.object_id === objectId);
+        const { actions, memberships } = selection();
+        const count = objectId === undefined ? actions.length + memberships.length : Number(Boolean(link));
+        if (!count) return refuse('nothing_selected');
+        state.linking = link;
+        state.message = '';
         state.confirming = true;
-        return { ok: true, count: sel.actions.length + sel.memberships.length };
+        return { ok: true, count };
     }
 
     function cancel() {
+        if (state.status === 'processing') return;
         state.confirming = false;
+        state.linking = null;
     }
 
     /** Second step: explicit confirmation bound to version and hash. */
@@ -182,25 +224,31 @@ export function createDirectoryReview(options) {
         if (!state.preview) return refuse('no_preview');
         if (state.stale) return refuse('stale');
         if (!state.confirming) return refuse('not_confirmed');
-        const sel = selection();
+        if (state.status === 'processing') return refuse('processing');
+        const { version, hash } = state.preview;
+        const { actions, memberships } = selection();
+        const link = state.linking;
+        const changes = link ? { object_id: link.object_id } : {
+            actions: actions.map(({ kind, object_id }) => ({ kind, object_id })),
+            memberships: memberships.map(({ kind, subject_id, pool_kind, pool_id }) => ({ kind, subject_id, pool_kind, pool_id })),
+        };
         setStatus('processing');
-        const row = await client.request(BASE + '/apply', {
+        state.message = '';
+        const row = await client.request(BASE + (link ? '/link-new' : '/apply'), {
             method: 'POST',
-            body: {
-                version: state.preview.version,
-                hash: state.preview.hash,
-                managed_pools: managedPools,
-                actions: sel.actions,
-                memberships: sel.memberships,
-            },
+            body: { version, hash, managed_pools: state.managedPools, ...changes },
         });
-        if (row.outcome !== 'ok') return fail(row);
+        if (row.outcome !== 'ok') {
+            const code = failureCode(row);
+            return fail(row, link && row.outcome === 'network' && code === 'failure' ? 'link_uncertain' : code);
+        }
         // Applied: the old preview is obsolete, a reload is required for the next round.
         state.preview = null;
         state.selected = {};
-        state.confirming = false;
-        state.message = '';
+        state.success = link ? 'Das Appkonto wurde angelegt und verknüpft. Es wartet auf die Freischaltung.'
+            : 'Die gewählten Änderungen wurden übernommen.';
         setStatus('success');
+        cancel();
         return { ok: true, applied: row.data };
     }
 
@@ -221,14 +269,17 @@ export function createDirectoryReview(options) {
         state.preview = null;
         state.selected = {};
         state.confirming = false;
+        state.linking = null;
         state.stale = false;
         state.message = '';
+        state.success = '';
         state.capability = null;
         state.status = 'normal';
         client.switchContext({ accountId: null, dictationId: null });
     }
 
-    return { state, load, toggle, review, cancel, apply, onKey, reset, groups: () => groupPreview(state.preview) };
+    return { state, load, toggle, review, cancel, apply, onKey, reset, choosePool, selection, lastMemberships,
+        groups: () => groupPreview(state.preview) };
 }
 
 export function useDirectoryReview(vue, options) {
@@ -259,63 +310,124 @@ export const DirectoryReview = {
             ctrl.state.message = REASONS.permission;
         }
         const hasChanges = () => Object.values(ctrl.groups()).some((list) => list.length > 0);
-        return { ctrl, state: ctrl.state, labels: LABELS, allowed, key: { a: actionKey, m: memberKey }, hasChanges };
+        const poolOptions = () => ctrl.state.capability?.pool_options || [];
+        const poolChosen = (option) => ctrl.state.managedPools.some((p) => p.kind === option.kind && p.id === option.id);
+        const poolKind = (kind) => GROUP_KIND[kind];
+        function membershipText(m) {
+            const pool = poolOptions().find((p) => p.id === m.pool_id && p.kind === m.pool_kind);
+            const label = `${poolKind(m.pool_kind)} ${pool?.name || m.pool_id}`;
+            return m.kind === 'add' ? `${m.account_label} zu ${label} hinzufügen`
+                : `${m.account_label} aus ${label} entfernen`;
+        }
+        async function openConfirmation(dialog, objectId) {
+            if (!ctrl.review(objectId).ok) return;
+            await vue.nextTick();
+            dialog.showModal();
+            dialog.querySelector('h3').focus();
+        }
+        function closeConfirmation(dialog) {
+            if (ctrl.state.status === 'processing') return;
+            ctrl.cancel();
+            dialog.close();
+        }
+        async function submitConfirmation(dialog, reload) {
+            await ctrl.apply();
+            if (!ctrl.state.confirming) {
+                dialog.close();
+                await vue.nextTick();
+                reload.focus();
+            } else {
+                await vue.nextTick();
+                dialog.querySelector('[role="alert"]')?.focus();
+            }
+        }
+        return { ctrl, state: ctrl.state, labels: LABELS, allowed, key: { a: actionKey, m: memberKey },
+            hasChanges, poolOptions, poolChosen, poolKind, actionText, membershipText,
+            openConfirmation, closeConfirmation, submitConfirmation };
     },
     template: `
-<section role="region" class="cadm-panel" aria-labelledby="clinic-dir-title" :aria-busy="state.status === 'processing'">
+<section role="region" class="cadm-panel clinic-directory-review" aria-labelledby="clinic-dir-title" :aria-busy="state.status === 'processing'">
   <header class="cadm-panel__head">
     <div>
-      <h2 id="clinic-dir-title" class="cadm-title">${LABELS.title}</h2>
+      <h2 id="clinic-dir-title" class="cadm-title clinic-directory-heading">${LABELS.title}</h2>
       <p class="cadm-desc">${LABELS.description}</p>
     </div>
     <div class="cadm-panel__tools">
-      <button type="button" class="btn btn--primary" :disabled="!allowed || state.status === 'processing'" @click="ctrl.load()"><i class="fas fa-sync-alt" aria-hidden="true"></i><span>{{ state.message && !state.stale ? '${LABELS.retry}' : '${LABELS.reload}' }}</span></button>
+      <button ref="reload" type="button" class="btn" :class="state.preview ? 'btn--ghost' : 'btn--primary'" :disabled="!allowed || state.status === 'processing'" @click="ctrl.load()"><i class="fas fa-sync-alt" aria-hidden="true"></i><span>{{ state.message && !state.stale ? '${LABELS.retry}' : '${LABELS.reload}' }}</span></button>
       <button type="button" class="btn btn--ghost" @click="$emit('open-accounts')"><i class="fas fa-users-cog" aria-hidden="true"></i><span>${LABELS.local}</span></button>
     </div>
   </header>
   <p role="note" class="banner banner--warn"><i class="fas fa-exclamation-triangle" aria-hidden="true"></i><span>${LABELS.unresolved}</span></p>
-  <p class="banner banner--info"><i class="fas fa-info-circle" aria-hidden="true"></i><span>${LABELS.archiveOnly}</span></p>
-  <p v-if="state.message" role="alert" class="banner banner--danger"><i class="fas fa-exclamation-circle" aria-hidden="true"></i><span>{{ state.message }}</span></p>
-  <div v-if="state.preview && !state.stale" class="cadm-section">
-    <p class="cadm-hint">{{ state.preview.source }} · {{ state.preview.version }}</p>
-    <p v-if="!hasChanges()" class="cadm-empty">${LABELS.empty}</p>
-    <section class="cadm-section">
+  <p v-if="state.message && !state.confirming" role="alert" class="banner banner--danger">{{ state.message }}</p>
+  <p v-if="state.success" role="status" class="banner banner--info">{{ state.success }}</p>
+  <p v-if="state.preview && !state.stale && !hasChanges()" class="cadm-empty">${LABELS.empty}</p>
+  <fieldset v-if="poolOptions().length" class="cadm-fieldset" :disabled="state.status === 'processing'">
+    <legend>Arbeitsgruppen für den Abgleich</legend>
+    <div class="w-full">Wählen Sie nur Gruppen, deren Mitglieder dieses Verzeichnis verwaltet. Laden Sie danach die Vorschau.</div>
+    <label v-for="p in poolOptions()" :key="p.kind + ':' + p.id" class="cadm-check">
+      <input type="checkbox" :checked="poolChosen(p)" @change="ctrl.choosePool(p, $event.target.checked)">
+      <span>{{ poolKind(p.kind) }} {{ p.name }}</span>
+    </label>
+  </fieldset>
+  <div v-if="state.preview && !state.stale && hasChanges()" class="cadm-section">
+    <section v-if="ctrl.groups().additions.length" class="cadm-section">
       <h3 class="cadm-subtitle">${LABELS.additions} <span class="pill-status pill-status--pending">{{ ctrl.groups().additions.length }}</span></h3>
-      <ul role="list" aria-label="${LABELS.additions}" class="cadm-rows" :class="{ 'cadm-rows--empty': !ctrl.groups().additions.length }">
-        <li v-if="!ctrl.groups().additions.length">–</li>
-        <li v-for="a in ctrl.groups().additions" :key="key.a(a)"><span>{{ a.detail || a.object_id }}</span><span class="pill-status pill-status--warn">${LABELS.linkRequired}</span></li>
+      <ul role="list" aria-label="${LABELS.additions}" class="cadm-rows">
+        <li v-for="a in ctrl.groups().additions" :key="key.a(a)">
+          <span>{{ actionText(a) }}</span>
+          <button v-if="state.preview.link_new_available" type="button" class="btn btn--ghost"
+            :aria-label="labels.link + ' für ' + actionText(a)" @click="openConfirmation($refs.confirmDialog, a.object_id)">${LABELS.link}</button>
+          <span v-else>${LABELS.linkRequired}</span>
+        </li>
       </ul>
     </section>
-    <section class="cadm-section">
-      <h3 class="cadm-subtitle">${LABELS.modifications} <span class="pill-status pill-status--pending">{{ ctrl.groups().modifications.length }}</span></h3>
-      <ul role="list" aria-label="${LABELS.modifications}" class="cadm-rows" :class="{ 'cadm-rows--empty': !ctrl.groups().modifications.length }">
-        <li v-if="!ctrl.groups().modifications.length">–</li>
-        <li v-for="a in ctrl.groups().modifications" :key="key.a(a)"><label class="cadm-check"><input type="checkbox" :checked="state.selected[key.a(a)]" @change="ctrl.toggle(key.a(a))" @keydown="ctrl.onKey(key.a(a), $event)"> {{ a.detail || a.object_id }}</label></li>
-      </ul>
-    </section>
-    <section class="cadm-section">
-      <h3 class="cadm-subtitle">${LABELS.disabled} <span class="pill-status pill-status--pending">{{ ctrl.groups().disabled.length }}</span></h3>
-      <ul role="list" aria-label="${LABELS.disabled}" class="cadm-rows" :class="{ 'cadm-rows--empty': !ctrl.groups().disabled.length }">
-        <li v-if="!ctrl.groups().disabled.length">–</li>
-        <li v-for="a in ctrl.groups().disabled" :key="key.a(a)"><label class="cadm-check"><input type="checkbox" :checked="state.selected[key.a(a)]" @change="ctrl.toggle(key.a(a))" @keydown="ctrl.onKey(key.a(a), $event)"> {{ a.detail || a.object_id }}</label></li>
-      </ul>
-    </section>
-    <section class="cadm-section">
+    <template v-for="group in ['modifications', 'disabled']" :key="group">
+      <section v-if="ctrl.groups()[group].length" class="cadm-section">
+        <h3 class="cadm-subtitle">{{ labels[group] }} <span class="pill-status pill-status--pending">{{ ctrl.groups()[group].length }}</span></h3>
+        <ul role="list" :aria-label="labels[group]" class="cadm-rows">
+          <li v-for="a in ctrl.groups()[group]" :key="key.a(a)">
+            <label class="cadm-check"><input type="checkbox" :checked="state.selected[key.a(a)]" @change="ctrl.toggle(key.a(a))">
+              <span>{{ actionText(a) }}</span>
+            </label>
+          </li>
+        </ul>
+      </section>
+    </template>
+    <section v-if="ctrl.groups().memberships.length" class="cadm-section">
       <h3 class="cadm-subtitle">${LABELS.memberships} <span class="pill-status pill-status--pending">{{ ctrl.groups().memberships.length }}</span></h3>
-      <ul role="list" aria-label="${LABELS.memberships}" class="cadm-rows" :class="{ 'cadm-rows--empty': !ctrl.groups().memberships.length }">
-        <li v-if="!ctrl.groups().memberships.length">–</li>
-        <li v-for="m in ctrl.groups().memberships" :key="key.m(m)"><label class="cadm-check"><input type="checkbox" :checked="state.selected[key.m(m)]" @change="ctrl.toggle(key.m(m))" @keydown="ctrl.onKey(key.m(m), $event)"> {{ m.kind }} {{ m.pool_kind }} {{ m.pool_id }} ({{ m.subject_id }})</label></li>
+      <ul role="list" aria-label="${LABELS.memberships}" class="cadm-rows">
+        <li v-for="m in ctrl.groups().memberships" :key="key.m(m)">
+          <label class="cadm-check"><input type="checkbox" :checked="state.selected[key.m(m)]" @change="ctrl.toggle(key.m(m))">
+            <span>{{ membershipText(m) }}</span>
+          </label>
+        </li>
       </ul>
     </section>
-    <div class="cadm-form__actions">
-      <button type="button" class="btn btn--primary" @click="ctrl.review()">${LABELS.review}</button>
-    </div>
-    <div v-if="state.confirming" role="alertdialog" aria-label="${LABELS.confirmTitle}" class="banner banner--warn cadm-dialog" @keydown.esc="ctrl.cancel()">
-      <h3 class="cadm-subtitle">${LABELS.confirmTitle}</h3>
-      <button type="button" class="btn btn--danger btn--sm" @click="ctrl.apply()">${LABELS.confirm}</button>
-      <button type="button" class="btn btn--ghost btn--sm" @click="ctrl.cancel()">${LABELS.cancel}</button>
+    <div v-if="ctrl.groups().modifications.length || ctrl.groups().disabled.length || ctrl.groups().memberships.length" class="cadm-form__actions">
+      <button type="button" class="btn btn--primary" :disabled="!Object.keys(state.selected).length" @click="openConfirmation($refs.confirmDialog)">${LABELS.review}</button>
     </div>
   </div>
+  <dialog ref="confirmDialog" role="alertdialog" aria-labelledby="clinic-dir-confirm-title" :aria-busy="state.status === 'processing'"
+    @cancel.prevent="closeConfirmation($refs.confirmDialog)">
+    <template v-if="state.confirming">
+      <h3 id="clinic-dir-confirm-title" class="cadm-subtitle" tabindex="-1">{{ state.linking ? labels.linkTitle : labels.confirmTitle }}</h3>
+      <p v-if="state.linking">Für {{ actionText(state.linking) }} wird ein Appkonto angelegt und mit dem Verzeichniseintrag verbunden. Das Konto wartet danach auf die Freischaltung.</p>
+      <template v-else>
+        <ul class="cadm-rows cadm-rows--plain" aria-label="Gewählte Änderungen">
+          <li v-for="a in ctrl.selection().actions" :key="key.a(a)">{{ actionText(a) }}</li>
+          <li v-for="m in ctrl.selection().memberships" :key="key.m(m)">{{ membershipText(m) }}</li>
+        </ul>
+        <p v-for="m in ctrl.lastMemberships(ctrl.selection().memberships)" :key="key.m(m)" class="banner banner--warn">
+          {{ m.account_label }} verliert die letzte Zuordnung zu einer {{ poolKind(m.pool_kind) }}.
+        </p>
+      </template>
+      <p v-if="state.message" tabindex="-1" role="alert" class="banner banner--danger">{{ state.message }}</p>
+      <div class="flex flex-wrap gap-2">
+        <button type="button" class="btn btn--ghost" :disabled="state.status === 'processing'" @click="closeConfirmation($refs.confirmDialog)">${LABELS.cancel}</button>
+        <button type="button" class="btn btn--primary" :disabled="state.status === 'processing'" @click="submitConfirmation($refs.confirmDialog, $refs.reload)">{{ state.linking ? labels.linkConfirm : labels.confirm }}</button>
+      </div>
+    </template>
+  </dialog>
 </section>`,
 };
 
