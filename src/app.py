@@ -1589,6 +1589,14 @@ _session_policy.init_app(app)
 # init_app puts its idle hook at index 0: put the clinic guard back in front.
 from src.clinic.guard import ensure_guard_first as _ensure_guard_first
 _ensure_guard_first(app)
+if _clinic_mode_enabled():
+    from src.clinic import case_handoff
+
+    app.register_blueprint(case_handoff.create_blueprint(app.view_functions['recordings.index']))
+    # The guard and idle-session checks occupy the first two positions.
+    app.before_request_funcs[None].insert(2, case_handoff.capture)
+    for _access_logger in ('werkzeug', 'gunicorn.access'):
+        logging.getLogger(_access_logger).addFilter(case_handoff.CaseAccessLogFilter())
 from src.config.outbound_warnings import log_plain_http_warnings as _log_plain_http_warnings
 _log_plain_http_warnings(app)
 

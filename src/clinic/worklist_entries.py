@@ -233,8 +233,14 @@ def _asr_state(dictation, status: str, outcomes=None) -> str:
                 outcome, 'SKIPPED' if status == workflow.TO_WRITE else 'PENDING')
 
 
-def case_displays(dictation_ids):
+def case_displays(dictation_ids, *, trusted_case=None):
     """Unique context heads without loading full snapshots for each list row."""
+    if trusted_case is not None:
+        from flask import current_app
+        from .finalize_gates import trusted_context
+        from .routes_output import configured_adapter
+
+        adapter = configured_adapter(current_app)
     result = {}
     for start in range(0, len(dictation_ids), 500):
         rows = db.session.query(ClinicContextRevision).filter(
@@ -244,8 +250,12 @@ def case_displays(dictation_ids):
         for row in rows:
             if row.id not in parents:
                 heads.setdefault(row.dictation_id, []).append(row)
-        result.update({did: values[0].case_ref if len(values) == 1 else None
-                       for did, values in heads.items()})
+        for did, values in heads.items():
+            head = values[0] if len(values) == 1 else None
+            if trusted_case is None:
+                result[did] = head.case_ref if head else None
+            elif head and head.case_ref == trusted_case and trusted_context(head, adapter):
+                result[did] = head.case_ref
     return result
 
 
