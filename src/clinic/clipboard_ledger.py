@@ -57,7 +57,12 @@ class AuditClipboardLedger(MutableMapping[str, OutputAttempt]):
     def __getitem__(self, key):
         entries = self._entries(key=key)
         # Optimistic read token, scoped to this DB session, not authoritative state.
-        db.session.info.setdefault('clipboard_ledger_reads', {})[key] = entries.get(key)
+        transaction = db.session().get_transaction()
+        snapshot = db.session.info.get('clipboard_ledger_reads')
+        if snapshot is None or snapshot[0] is not transaction:
+            snapshot = (transaction, {})
+            db.session.info['clipboard_ledger_reads'] = snapshot
+        snapshot[1].setdefault(key, entries.get(key))
         return entries[key]
 
     def __iter__(self):
@@ -82,7 +87,9 @@ class AuditClipboardLedger(MutableMapping[str, OutputAttempt]):
                 raise OutputAttemptError('clipboard dictation does not exist')
             entries = self._entries(dictation_id)
             old = self._entries(key=key).get(key)
-            observed = db.session.info.get('clipboard_ledger_reads', {})
+            snapshot = db.session.info.get('clipboard_ledger_reads')
+            observed = (snapshot[1] if snapshot is not None
+                        and snapshot[0] is db.session().get_transaction() else {})
             if key not in observed or observed[key] != old:
                 raise OutputAttemptError('clipboard claim changed since it was read')
             if old is None or old.status == FAILED:

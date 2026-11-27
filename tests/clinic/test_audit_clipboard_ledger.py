@@ -198,3 +198,21 @@ def test_other_dictation_and_unrelated_receipts_are_isolated(case, world):
     assert ledger[second.idempotency_key] == second
     with pytest.raises(OutputAttemptError):
         ledger[first.idempotency_key] = replace(second, idempotency_key=first.idempotency_key)
+
+
+def test_mapping_expansion_cannot_replace_first_read_token(case):
+    claim, _ = prepare(case)
+    db.session.rollback()
+    ledger = AuditClipboardLedger()
+    assert ledger.get(claim.idempotency_key) is None
+    with app.app_context():
+        other = AuditClipboardLedger()
+        assert other.get(claim.idempotency_key) is None
+        other[claim.idempotency_key] = claim
+        db.session.commit()
+    # prepare_clipboard expands the mapping after its first .get(). A worker
+    # committing between those reads must not turn this new claim into an abort.
+    assert {**ledger}[claim.idempotency_key] == claim
+    with pytest.raises(OutputAttemptError):
+        ledger[claim.idempotency_key] = claim
+    assert ledger[claim.idempotency_key] == claim
