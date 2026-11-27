@@ -11,7 +11,7 @@ from uuid import uuid4
 from src.clinic import pools, revisions, workflow
 from src.clinic.models import ClinicAudioRevision, ClinicDictation, ClinicOriginal
 from src.database import db
-from src.models import AuditEvent, ProcessingJob
+from src.models import AuditEvent, ProcessingJob, Recording
 from src.services import audit
 from test_wp_v8_assignment_route import ROOT, _client, _dictation, _user
 
@@ -120,6 +120,28 @@ def _exercise():
     assert {row['dictation_id']: row['status'] for row in worklist.json['items']} == {
         idle: workflow.TO_WRITE, asr: workflow.TO_CORRECT, running: workflow.PREP_ONLINE, silent: workflow.DRAFT,
     }
+    with app.app_context():
+        labelled = _draft(author, pool)
+        db.session.commit()
+    admin = _client(app, other)
+    created = admin[0].post('/api/clinic/v1/categories', headers=admin[1], json={
+        'name': 'Versand', 'categories': ['Ambulant', 'Stationär'], 'required': True})
+    assert created.status_code == 201, created.get_data(as_text=True)
+    choice = {'set_id': created.json['id'], 'version': created.json['version'], 'value': 'Ambulant'}
+    missing = post(labelled)
+    assert missing.status_code == 422 and missing.json['code'] == 'missing_category', missing.get_data(as_text=True)
+    with app.app_context():
+        row = db.session.get(ClinicDictation, labelled)
+        assert row.version_counter == 0
+        assert db.session.get(workflow.ClinicWorkflowDictation, labelled).status == workflow.DRAFT
+        assert not (db.session.get(Recording, row.recording_id).notes or '').strip()
+    chosen = post(labelled, body={'categories': [choice]})
+    assert chosen.status_code == 200, chosen.get_data(as_text=True)
+    with app.app_context():
+        row = db.session.get(ClinicDictation, labelled)
+        assert 'Ambulant' in (db.session.get(Recording, row.recording_id).notes or '')
+    assert browser[0].post('/api/clinic/v1/categories', headers=browser[1],
+                           json={'name': 'Fremd', 'categories': ['Notfall'], 'required': True}).status_code == 403
     with app.app_context():
         for target, status in ((idle, workflow.TO_WRITE), (asr, workflow.TO_CORRECT),
                                (running, workflow.PREP_ONLINE)):
