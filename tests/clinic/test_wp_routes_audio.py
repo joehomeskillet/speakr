@@ -26,7 +26,7 @@ EXPECTED = {
     "clinic_dictation_properties.set_protection", "clinic_dictation_properties.unlock",
     "clinic_bundle.export", "clinic_bundle.import_session",
     "clinic_live.pause", "clinic_live.resume_recording", "clinic_live.append_phrase",
-    "clinic_live.resume", "clinic_live.switch_draft",
+    "clinic_live.resume", "clinic_live.switch_draft", "clinic_live.phrase_audio",
     "clinic_correction.get_correction", "clinic_correction.save", "clinic_correction.add_marker",
     "clinic_correction.change_marker",
     "clinic_tts.capability", "clinic_tts.speak",
@@ -61,6 +61,9 @@ out["kinds"] = {e: ROUTE_POLICY[e].kind for e in endpoints if e.startswith("clin
 out["parity_rules"] = sum(1 for r in app.url_map.iter_rules() if r.endpoint == "clinic_parity.execute")
 
 from src.clinic.audio_revisions import init_audio_revision
+from src.clinic import live_session, startup
+from src.clinic.ingest import IngestService
+from src.clinic.live_commit import commit_asr_phrase
 from src.clinic.lease import acquire
 from src.clinic.revisions import add_asr_revision
 
@@ -106,6 +109,22 @@ with app.app_context():
     init_audio_revision(dic2, orig2, ms)
     db.session.commit()
     rec_id, did, did2, head_id, asr_id, gen = rec.id, dic.id, dic2.id, head.id, asr.id, lease.generation
+    live_recording = Recording(user_id=ids["a"], title="Synthetic live", status="PENDING")
+    db.session.add(live_recording); db.session.flush()
+    live_draft = ClinicDictation(recording_id=live_recording.id, author_user_id=ids["a"])
+    db.session.add(live_draft); db.session.flush()
+    live_did = live_draft.id
+    now = datetime.now(timezone.utc)
+    sid = live_session.start(live_did, ids["a"], now).id
+    db.session.commit()
+    live_clip = commit_asr_phrase(
+        IngestService(startup.originals_root(app)), dictation_id=live_did, session_id=sid,
+        user_id=ids["a"], client_id=None, now=now, generation=1, sequence=1, event_id="one",
+        audio_start_ms=0, audio_end_ms=ms, audio=pcm, expected_audio_revision_id=None,
+        expected_text_revision_id=None, text="Synthetische Live-Phrase.", model_ref="model:test")
+    live_session.end(sid, ids["a"], now)
+    db.session.commit()
+    live_recording_id = live_recording.id
 
 def login(uid):
     c = app.test_client()
@@ -144,6 +163,20 @@ out["edit_body"] = first.get_data(as_text=True)[:300]
 out["edit_replay"] = ca.post(D + "/audio-edits", headers={**ha, **k}, json=cut).status_code
 out["edit_stale"] = ca.post(D + "/audio-edits", headers={**ha, **key()}, json=cut).status_code
 out["derived"] = [ca.get(D + "/audio/derived").status_code, cb.get(D + "/audio/derived").status_code]
+
+live_url = f"/api/clinic/v1/live/dictations/{live_did}"
+resume = ca.post(live_url + "/resume", headers=ha, json={})
+phrase = resume.json["events"][0]
+clip_url = f"{live_url}/phrases/{live_clip.phrase_id}/audio"
+playback = ca.get(clip_url, headers={"Range": "bytes=0-3"})
+out["live_phrase"] = [resume.status_code, resume.json["read_only"], phrase["text"],
+                      phrase["audio_url"] == clip_url, playback.status_code, playback.data == b"RIFF",
+                      cb.get(clip_url).status_code]
+with app.app_context():
+    audit.flush()
+    live_reads = db.session.query(AuditEvent).filter_by(
+        actor_user_id=ids["a"], recording_id=live_recording_id, event="recording.content.read").count()
+    out["live_reads"] = live_reads
 
 # correction
 correction = ca.get(D + "/correction")
@@ -273,6 +306,11 @@ def test_audio_is_scoped_to_the_actor_and_an_active_admin_may_open_it(on):
     assert on["audio_admin"] == [200, 404]  # W12: active admin yes, disabled admin no
     assert on["admin_audit"] == 1 and on["gone_audit"] == 0
     assert on["derived"] == [503, 404]  # no durable audio source is wired: unavailable, not faked
+
+
+def test_live_phrase_recovery_is_mounted_with_audited_playback(on):
+    assert on["live_phrase"] == [200, True, "Synthetische Live-Phrase.", True, 206, True, 404]
+    assert on["live_reads"] == 2
 
 
 def test_audio_edit_csrf_cross_user_stale_and_replay(on):

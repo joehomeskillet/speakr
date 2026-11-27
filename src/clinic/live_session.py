@@ -338,15 +338,15 @@ def recover(
     now: datetime,
     client_id: str | None = None,
     timeout: float | None = None,
-    *, generation: int | None = None,
+    *, generation: int | None = None, allow_ended: bool = True,
 ) -> tuple[ClinicLiveSession, ResumePoint]:
     """Reopen this holder's interrupted session and return the last receipt.
 
     Works for a session whose lock lapsed but is still open, and for one that
     was ended with reason ``expired`` when nobody has taken the dictation
-    since. A session the holder ended on purpose is not recovered. An open,
-    unexpired session of someone else raises ``active_session``. With nothing
-    to recover it raises ``no_session``.
+    since, unless ``allow_ended`` is false. A session the holder ended on purpose
+    is not recovered. An open, unexpired session of someone else raises
+    ``active_session``. With nothing to recover it raises ``no_session``.
     """
     now = _require_now(now)
     seconds = lock_timeout(timeout)
@@ -361,6 +361,8 @@ def recover(
         if current.author_user_id != user_id:
             raise LiveSessionError(NO_SESSION, current)
         session = current
+    elif not allow_ended:
+        raise LiveSessionError(NO_SESSION)
     else:
         session = (
             db.session.query(ClinicLiveSession)
