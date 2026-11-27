@@ -29,6 +29,7 @@ from typing import Callable, Optional
 
 from sqlalchemy import CheckConstraint, ForeignKey, UniqueConstraint
 
+from src.clinic.migration_inventory_hints import provenance, replay_hints, upgrade as upgrade_inventory_hints
 from src.database import db
 from src.models import User  # noqa: F401  (resolves the user.id foreign key)
 
@@ -121,6 +122,10 @@ class ClinicAgentInventory(db.Model):
     mtime_utc = _ts(nullable=False)
     sha256 = db.Column(db.String(64), nullable=False)
     snapshot_version = db.Column(db.String(128), nullable=False)
+    # Optional claims. NULL / unknown is not Philips EOL and grants no author right.
+    claimed_author_code = db.Column(db.String(128), nullable=True)
+    completion_source = db.Column(db.String(32), nullable=True, default="unknown")
+    evidence_level = db.Column(db.String(32), nullable=True, default="unverified")
     reported_at = _ts(nullable=False, default=utcnow)
     __table_args__ = (
         UniqueConstraint("agent_id", "source_id", "snapshot_version", name="uq_clinic_agent_inventory"),
@@ -211,10 +216,12 @@ AGENT_TABLES = (
 
 
 def create_tables(bind=None):
-    """Create the channel tables if they are missing."""
+    """Create the channel tables if they are missing, then add hint columns on older ones."""
+    target = bind or db.engine
     db.metadata.create_all(
-        bind=bind or db.engine, tables=[m.__table__ for m in AGENT_TABLES], checkfirst=True
+        bind=target, tables=[m.__table__ for m in AGENT_TABLES], checkfirst=True
     )
+    upgrade_inventory_hints(target)
 
 
 def transactional(fn):
@@ -412,20 +419,27 @@ def report_inventory(principal, policy, body, *, now=None):
 
     Every item is checked before anything is stored; one item outside the
     registered sources refuses the whole report. No author, patient or
-    dictation right is derived from an inventory.
+    dictation right is derived from an inventory. Optional hint fields are
+    stored as claims: a missing or unknown mark stays unknown, and file
+    stability is not recorded as Philips EOL.
     """
     agent = agent_of(principal)
     now = aware(now) or utcnow()
     allowed = set(json.loads(agent.allowed_sources))
-    items = [_clean_item(policy, raw) for raw in (body or {}).get("items", [])]
+    raw_items = (body or {}).get("items", [])
+    items = [_clean_item(policy, raw) for raw in raw_items]
     outside = sorted({i["root_id"] for i in items} - allowed)
     if outside:
         raise AgentChannelError("forbidden", "source root not registered for this agent: " + outside[0])
-    for item in items:
+    for raw, item in zip(raw_items, items):
         row = inventory_row(agent.id, item["source_id"], item["snapshot_version"])
         if row is None:
             row = ClinicAgentInventory(agent_id=agent.id)
             db.session.add(row)
+            previous = None
+        else:
+            previous = provenance(row.claimed_author_code, row.completion_source, row.evidence_level)
+        item = {**item, **replay_hints(previous, raw)}
         for name, value in item.items():
             setattr(row, name, value)
         row.reported_at = now
@@ -445,7 +459,8 @@ def list_inventory(policy, *, actor_user_id, agent_id):
         ClinicAgentInventory.source_id, ClinicAgentInventory.snapshot_version)
     return [{"source_id": r.source_id, "root_id": r.root_id, "relative_path": r.relative_path,
              "size": r.size, "mtime_utc": stamp(r.mtime_utc), "sha256": r.sha256,
-             "snapshot_version": r.snapshot_version} for r in rows]
+             "snapshot_version": r.snapshot_version,
+             **provenance(r.claimed_author_code, r.completion_source, r.evidence_level)} for r in rows]
 
 
 # --- intents ---------------------------------------------------------------------
