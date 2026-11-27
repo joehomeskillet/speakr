@@ -390,6 +390,7 @@
     .cadm-nav__group + .cadm-nav__group { padding-left: var(--sp-3); border-left: var(--border-hairline) solid var(--border-primary); }
     .cadm-nav__label { position: sticky; left: 0; align-self: flex-start; margin: 0; padding: 0; white-space: nowrap; }
     .cadm-nav__item { width: auto; white-space: nowrap; padding: var(--sp-2) var(--sp-3); }
+    .cadm-nav__item:focus-visible { outline-offset: -2px; }
     .cadm-nav__notice { white-space: nowrap; }
     .cadm-nav__item.is-active { box-shadow: inset 0 -3px 0 var(--border-accent); border-radius: var(--radius-md) var(--radius-md) 0 0; }
 }
