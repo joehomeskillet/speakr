@@ -96,9 +96,9 @@ describe('audio markers ui', () => {
         const moved = { ...marker('M1'), position_ms: 3000, version: 2 };
         const removed = { ...marker('M1'), deleted: true, version: 2 };
         const routes = happy({
-            ['POST ' + base + '/markers']: ok(created),
-            ['POST ' + base + '/markers/M1/move']: ok(moved),
-            ['POST ' + base + '/markers/M1/delete']: ok(removed),
+            ['POST ' + base + '/correction/markers']: ok(created),
+            ['POST ' + base + '/correction/markers/M1/move']: ok(moved),
+            ['POST ' + base + '/correction/markers/M1/delete']: ok(removed),
         });
         const { api, calls } = await make(routes);
         const res = await api.create({ type: 'INDEX' });
@@ -118,7 +118,7 @@ describe('audio markers ui', () => {
     });
 
     it('marks a phrase as an anchored INDEX marker at the audio time of its word', async () => {
-        const routes = happy({ ['POST ' + base + '/markers']: ok(marker('M3', { marker_type: 'INDEX', position_ms: 500 })) });
+        const routes = happy({ ['POST ' + base + '/correction/markers']: ok(marker('M3', { marker_type: 'INDEX', position_ms: 500 })) });
         const { api, calls } = await make(routes, mockEditor(), mockAlignment({ start: 7, end: 18 }));
         expect((await api.markPhrase()).ok).toBe(true);
         expect(calls.at(-1).options.body).toEqual({
@@ -137,10 +137,10 @@ describe('audio markers ui', () => {
         const readOnly = await make(happy(), mockEditor({ canEdit: { value: false } }));
         expect(await readOnly.api.create()).toMatchObject({ ok: false, code: 'readOnly' });
         expect(readOnly.api.writable.value).toBe(false);
-        const routes = happy({ ['POST ' + base + '/markers']: fail('permission', 403) });
+        const routes = happy({ ['POST ' + base + '/correction/markers']: fail('permission', 403) });
         const { api } = await make(routes);
         expect(await api.create()).toMatchObject({ ok: false, code: 'denied', message: LABELS.denied });
-        const locked = await make(happy({ ['POST ' + base + '/markers']: fail('conflict', 423) }));
+        const locked = await make(happy({ ['POST ' + base + '/correction/markers']: fail('conflict', 423) }));
         expect(await locked.api.create()).toMatchObject({ ok: false, code: 'locked' });
     });
 
@@ -148,7 +148,7 @@ describe('audio markers ui', () => {
         let reads = 0;
         const routes = happy({
             ['GET ' + base + '/correction']: () => { reads += 1; return ok({ markers: [marker('M1', { version: reads === 1 ? 1 : 2 })] }); },
-            ['POST ' + base + '/markers/M1/move']: fail('conflict', 409),
+            ['POST ' + base + '/correction/markers/M1/move']: fail('conflict', 409),
         });
         const { api } = await make(routes);
         expect(await api.move('M1', 2000)).toMatchObject({ ok: false, code: 'stale', message: LABELS.stale });
@@ -158,7 +158,7 @@ describe('audio markers ui', () => {
 
     it('reuses the idempotency key after a network failure and shows load errors with retry', async () => {
         let n = 0;
-        const routes = happy({ ['POST ' + base + '/markers']: () => (++n === 1 ? fail('network', 0) : ok(marker('M4'))) });
+        const routes = happy({ ['POST ' + base + '/correction/markers']: () => (++n === 1 ? fail('network', 0) : ok(marker('M4'))) });
         let keys = 0;
         const { api, calls } = await make(routes, mockEditor(), mockAlignment(), { newKey: () => 'key-' + (++keys) + '-abcdef' });
         expect(await api.create({ positionMs: 100 })).toMatchObject({ ok: false, code: 'failed' });
