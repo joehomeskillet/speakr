@@ -22,6 +22,7 @@ MODEL_MODULES = (
     "presets",
     "vocabulary",
     "correction",
+    "correction_recognition_marks",
     "live_session",
     "asr_profiles",
     "audio_revisions",
