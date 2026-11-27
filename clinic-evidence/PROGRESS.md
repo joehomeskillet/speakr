@@ -1,5 +1,9 @@
 # Speakr V8: geprüfte Änderungen im Klinik-Webclient
 
+## P-216 – Lokale Inline-Grafiken
+
+Im Klinikbetrieb nimmt die Flask-API validierte PNGs pro Diktat auf und liefert sie nur nach erneuter Zugriffskontrolle über eine unveränderliche Inhalts-ID aus. Kein Abruf externer Quellen, keine aktive Grafik und keine Bildanhänge. Editoranschluss, Staging-Prüfung und BT-LIVE-005 bleiben offen.
+
 ## Q-05 vom 27. November 2026 – KIS nur lesend (X-KIS-1)
 
 Die Freigabe schliesst das Diktat in Speakr ab. Dateiausgabe und Zwischenablage bleiben verfügbar. Der Klinikbetrieb bietet keinen KIS-Versand an. Bestehende Zustellbelege und Audit-Ereignisse bleiben erhalten. Der synthetische MockKIS-Kompatibilitätspfad erfordert eine explizite Aktivierung im Staging-Profil.
