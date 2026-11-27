@@ -108,7 +108,7 @@ describe('recordings view model', () => {
         expect(row.poolText).toBe('Pool A, Pool B');
         expect(row.leaseHolder).toBe('Frau Typ');
         const none = toViewRow(item('2', { staff_pools: [], dictated_by: null }));
-        expect(none.poolText).toBe('Kein Pool zugewiesen');
+        expect(none.poolText).toBe('Kein Schreibdienst zugeordnet');
         expect(none.leaseHolder).toBe('–');
         expect(none.author).toBe('Unbekannt');
     });

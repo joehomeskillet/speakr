@@ -150,7 +150,7 @@ describe('retention labels', () => {
         await c.load();
         const row = c.rows.value[0];
         expect(c.retention(row)).toBe('Hold');
-        expect(c.pool(row)).toBe('Kein Pool zugewiesen');
+        expect(c.pool(row)).toBe('Kein Schreibdienst zugeordnet');
         expect(c.author(row)).toBe('Dr. Muster');
         expect(c.archived(row)).toBe(formatMoment('2026-08-01T10:00:00Z'));
         expect(c.archived(row)).toBe('01.08.2026 12:00');

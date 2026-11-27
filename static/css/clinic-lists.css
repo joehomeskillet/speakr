@@ -133,8 +133,12 @@
     .clinic-recordings-view #crv-role-filters { grid-template-columns: minmax(0, 1fr); }
 }
 
-@media (min-width: 360px) and (max-width: 700px) {
-    .clinic-recordings-view #crv-role-filters { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
+@media (min-width: 390px) and (max-width: 700px) {
+    .clinic-recordings-view #crv-role-filters {
+        grid-template-columns: minmax(0, 1.08fr) minmax(0, 1fr);
+        gap: var(--sp-1);
+    }
+    .v8-ui .clinic-recordings-view #crv-role-filters input.record-select { padding-inline-start: var(--sp-2); }
 }
 
 @media (max-width: 767px) {

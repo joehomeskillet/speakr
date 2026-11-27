@@ -82,7 +82,7 @@ def _exercise():
     key = str(uuid4())
     unrouted = post(idle, key=key)
     assert unrouted.status_code == 409 and unrouted.mimetype == 'application/problem+json'
-    assert unrouted.json['detail'] == 'Kein Schreibkräfte-Pool zugeordnet.'
+    assert unrouted.json['detail'] == 'Das Diktat wurde nicht gesendet. Es ist kein Schreibdienst zugeordnet.'
     with app.app_context():
         staff = pools.create_staff_pool('Schreibdienst', actor_id=other)
         pools.link_staff_pool(pool, staff.id, actor_id=other)
@@ -93,10 +93,16 @@ def _exercise():
     assert browser[0].get(preflight).json == {'routable': False}
     with app.app_context():
         db.session.get(pools.ClinicStaffPool, staff_id).active = True
-        db.session.commit()
+        for name, active in (('Ambulanz', True), ('Inaktiver Dienst', False)):
+            staff = pools.create_staff_pool(name, actor_id=other)
+            pools.link_staff_pool(pool, staff.id, actor_id=other)
+            pools.set_pool_active('staff', staff.id, active, actor_id=other)
 
+    service_names = ['Ambulanz', 'Schreibdienst']
     available = browser[0].get(preflight)
-    assert available.status_code == 200 and available.json == {'routable': True}
+    assert available.status_code == 200 and available.json == {
+        'routable': True, 'staff_service_names': service_names,
+    }
     assert available.headers['Cache-Control'] == 'no-store'
     assert post(silent).json['code'] == 'AUDIO_REQUIRED'
     with patch.object(audit, 'record_in_tx', return_value=None):
@@ -113,7 +119,8 @@ def _exercise():
         first, replay = workers.map(retry, clients)
     assert first.status_code == replay.status_code == 200, (first.json, replay.json)
     assert first.json == replay.json == {'dictation_id': idle, 'status': workflow.TO_WRITE,
-                                         'version': 1, 'etag': f'"{idle}:1"'}
+                                         'version': 1, 'etag': f'"{idle}:1"',
+                                         'staff_service_names': service_names}
     repeated = post(idle, version=1)
     assert repeated.status_code == 409 and repeated.json['state']['status'] == workflow.TO_WRITE
     assert post(idle, key=key, version=1).json['code'] == 'IDEMPOTENCY_CONFLICT'
@@ -150,6 +157,14 @@ def _exercise():
         assert 'Ambulant' in (db.session.get(Recording, row.recording_id).notes or '')
     assert browser[0].post('/api/clinic/v1/categories', headers=browser[1],
                            json={'name': 'Fremd', 'categories': ['Notfall'], 'required': True}).status_code == 403
+    with app.app_context():
+        pools.rename_pool('staff', staff_id, 'Zentraler Schreibdienst', actor_id=other)
+    assert browser[0].get(preflight).json == {
+        'routable': True, 'staff_service_names': ['Ambulanz', 'Zentraler Schreibdienst'],
+    }
+    after_rename = post(idle, key=key)
+    assert after_rename.status_code == 200 and after_rename.json == first.json
+
     with app.app_context():
         for target, status in ((idle, workflow.TO_WRITE), (asr, workflow.TO_CORRECT),
                                (running, workflow.PREP_ONLINE)):
