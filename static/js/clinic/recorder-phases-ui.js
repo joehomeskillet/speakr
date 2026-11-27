@@ -29,6 +29,10 @@ export const LABELS = Object.freeze({
     stop: 'Aufnahme beenden',
     rewind: 'Zurückspulen',
     play: 'Abspielen',
+    pausePlayback: 'Wiedergabe pausieren',
+    playbackFailed: 'Die Aufnahme konnte nicht abgespielt werden.',
+    beginning: 'Anfang',
+    end: 'Ende',
     send: 'Entwurf sichern',
     retry: 'Erneut senden',
     cancel: 'Abbrechen',
@@ -67,6 +71,7 @@ export function createClinicRecorder(audio, state, uploadFile) {
         pauseRecording: audio.pauseRecording,
         resumeRecording: audio.resumeRecording,
         stopRecording,
+        reviewSource: () => state.audioBlobURL.value,
         async discardRecording() {
             await stopRecording();
             await audio.clearRecording();
@@ -95,6 +100,8 @@ export function createClinicRecorder(audio, state, uploadFile) {
  */
 export function createRecorderPhases(options) {
     const { recorder, player = null, api = null, authorized = () => true } = options;
+    let media = player;
+    let capturePending = false;
     const listeners = new Set();
     let generation = 0;
     let state = { phase: 'title', title: '', error: null, receipt: null };
@@ -127,12 +134,16 @@ export function createRecorderPhases(options) {
     async function start() {
         const blocked = guard(['ready']);
         if (blocked) return blocked;
+        if (capturePending) return denied('capture_pending');
         if (!state.title.trim()) return denied('missing_title');
+        capturePending = true;
         try {
             await recorder.startRecording();
         } catch (e) {
             set({ error: 'start_failed' });
             return denied('start_failed');
+        } finally {
+            capturePending = false;
         }
         set({ phase: 'recording', error: null });
         return { ok: true };
@@ -157,22 +168,63 @@ export function createRecorderPhases(options) {
     async function stop() {
         const blocked = guard(['recording', 'paused']);
         if (blocked) return blocked;
-        await recorder.stopRecording();
+        if (capturePending) return denied('capture_pending');
+        capturePending = true;
+        try {
+            await recorder.stopRecording();
+        } finally {
+            capturePending = false;
+        }
         set({ phase: 'review' });
         return { ok: true };
     }
 
-    function rewind() {
+    function setPlayer(element) {
+        media = player || element;
+        set({});
+    }
+
+    function seek(time) {
         const blocked = guard(['review']);
         if (blocked) return blocked;
-        if (player) player.currentTime = 0;
+        if (!media || !Number.isFinite(time)) return denied('playback_unavailable');
+        const duration = Number.isFinite(media.duration) ? media.duration : Infinity;
+        media.currentTime = Math.max(0, Math.min(time, duration));
         return { ok: true };
     }
 
-    function play() {
+    const rewind = () => seek(0);
+    const end = () => seek(media?.duration);
+    const skip = (seconds) => seek(media?.currentTime + seconds);
+    const playing = () => media?.paused === false && !media.ended;
+
+    function syncPlayback() {
+        set({});
+    }
+
+    function playbackFailed() {
+        if (state.phase === 'review') set({ error: 'playback_failed' });
+    }
+
+    async function play() {
         const blocked = guard(['review']);
         if (blocked) return blocked;
-        if (player && typeof player.play === 'function') player.play();
+        if (!media || typeof media.play !== 'function') return denied('playback_unavailable');
+        try {
+            if (playing()) media.pause();
+            else if (media.currentTime !== media.duration || media.ended) await media.play();
+            set({ error: null });
+            return { ok: true };
+        } catch (e) {
+            if (e.name !== 'AbortError') playbackFailed();
+            return denied('playback_failed');
+        }
+    }
+
+    function stopPlayback() {
+        const blocked = guard(['review']);
+        if (blocked) return blocked;
+        media?.pause?.();
         return { ok: true };
     }
 
@@ -181,6 +233,7 @@ export function createRecorderPhases(options) {
         if (blocked) return blocked;
         if (!state.title.trim()) return denied('missing_title');
         const mine = ++generation;
+        media?.pause?.();
         set({ phase: 'sending', error: null });
         let receipt = null;
         try {
@@ -201,6 +254,7 @@ export function createRecorderPhases(options) {
         if (!authorized()) return denied('unauthorized');
         if (state.phase === 'sending' || state.phase === 'sent') return denied('invalid_phase');
         generation += 1;
+        media?.pause?.();
         if (state.phase !== 'title' && state.phase !== 'ready') {
             try {
                 await recorder.discardRecording();
@@ -231,8 +285,12 @@ export function createRecorderPhases(options) {
             row('pause', LABELS.pause, p === 'recording'),
             row('resume', LABELS.resume, p === 'paused'),
             row('stop', LABELS.stop, p === 'recording' || p === 'paused'),
-            row('rewind', LABELS.rewind, p === 'review'),
-            row('play', LABELS.play, p === 'review'),
+            row('rewind', LABELS.rewind, p === 'review' && !!media),
+            row('play', playing() ? LABELS.pausePlayback : LABELS.play, p === 'review' && !!media),
+            ...(p === 'review' ? [
+                row('beginning', LABELS.beginning, !!media),
+                row('end', LABELS.end, Number.isFinite(media?.duration)),
+            ] : []),
             row('send', p === 'failed' ? LABELS.retry : LABELS.send, (p === 'review' || p === 'failed') && hasTitle),
             row('cancel', LABELS.cancel, p !== 'sending' && p !== 'sent'),
         ];
@@ -245,6 +303,7 @@ export function createRecorderPhases(options) {
         if (p === 'sending') return LABELS.sending;
         if (!state.title.trim() && isTitleEditable(p)) return LABELS.titleHint;
         if (p === 'failed') return LABELS.failed;
+        if (state.error === 'playback_failed') return LABELS.playbackFailed;
         return '';
     }
 
@@ -259,11 +318,12 @@ export function createRecorderPhases(options) {
             return () => listeners.delete(listener);
         },
         setTitle, start, pause, resume, stop, rewind, play, send, cancel, reset,
+        beginning: rewind, end, skip, stopPlayback, setPlayer, syncPlayback, playbackFailed,
         controls, announcement, surface,
     };
 }
 
-const ACTIONS = ['start', 'pause', 'resume', 'stop', 'rewind', 'play', 'send', 'cancel'];
+const ACTIONS = ['start', 'pause', 'resume', 'stop', 'rewind', 'play', 'beginning', 'end', 'send', 'cancel'];
 
 /** Vue composable: reactive snapshot plus the phase actions. */
 export function useRecorderPhases(vue, options) {

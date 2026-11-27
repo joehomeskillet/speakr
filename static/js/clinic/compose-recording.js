@@ -384,16 +384,19 @@ export function createRecordingViewController(options) {
         setMode, setTitle: (value) => machine.setTitle(value),
         start: () => machine.start(), pause: () => machine.pause(), resume: () => machine.resume(),
         stop: () => machine.stop(), rewind: () => machine.rewind(), play: () => machine.play(),
+        beginning: machine.beginning, end: machine.end,
         send: () => machine.send(), cancel: () => machine.cancel(),
         selectFile, sendFile, cancelFile, submit,
         openCreated, toWorklist, another, dispose,
     };
 }
 
-const RECORDER_ACTIONS = ['start', 'pause', 'resume', 'stop', 'rewind', 'play', 'send', 'cancel'];
+const RECORDER_ACTIONS = ['start', 'pause', 'resume', 'stop', 'rewind', 'play', 'beginning', 'end', 'send', 'cancel'];
+const REVIEW_SKIP_SECONDS = 5;
+const CAPTURE_TOGGLE = { ready: 'start', recording: 'pause', paused: 'resume' };
 
 export const RECORDING_TEMPLATE = `
-<section class="clinic-recording-view v8-page" data-testid="clinic-recording-view" aria-labelledby="crv-title">
+<section ref="root" class="clinic-recording-view v8-page" data-testid="clinic-recording-view" aria-labelledby="crv-title">
   <nav class="breadcrumb" aria-label="Pfad"><span>Speakr</span><span aria-hidden="true">›</span><span>{{ c.text.eyebrow }}</span><span aria-hidden="true">›</span><span aria-current="page">{{ c.text.title }}</span></nav>
   <div class="pagehead">
     <div>
@@ -441,12 +444,16 @@ export const RECORDING_TEMPLATE = `
             <div class="recorder compact-recorder" :class="{ recording: m.phase === 'recording' }">
               <div role="group" :aria-label="c.text.recordingControls" class="recorder-controls">
                 <button v-for="b in iconControls(m.controls)" :key="b.id" type="button" class="icon-button" :class="{ 'record-button': b.id === 'start' }"
-                        :data-testid="'rec-' + b.id" :disabled="b.disabled" :aria-disabled="b.disabled ? 'true' : 'false'" :aria-label="b.label" :title="b.label" @click="act(b.id)">
+                        :data-testid="'rec-' + b.id" :disabled="b.disabled" :aria-disabled="b.disabled ? 'true' : 'false'" :aria-label="b.label" :title="b.label" :aria-keyshortcuts="shortcuts[b.id]" @click="act(b.id)">
                   <svg viewBox="0 0 24 24" width="19" height="19" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false"><path :d="icons[b.id]"></path></svg>
                 </button>
               </div>
               <div class="recorder-caption"><strong>{{ captions[m.phase] || m.phase }}</strong></div>
             </div>
+            <audio v-if="m.phase === 'review' && reviewSource()" :ref="bindReview" hidden :src="reviewSource()" preload="auto"
+                   @loadedmetadata="loadReview" @durationchange="c.machine.syncPlayback()" @seeked="finishDurationProbe"
+                   @play="c.machine.syncPlayback()" @pause="c.machine.syncPlayback()" @ended="c.machine.syncPlayback()"
+                   @error="c.machine.playbackFailed()"></audio>
             <div class="actions text-sm" style="margin-top: 12px">
               <button v-for="b in textControls(m.controls)" :key="b.id" type="button" class="button" :style="b.id === 'send' ? '${PRIMARY}' : null" style="min-height: 2.75rem"
                       :data-testid="'rec-' + b.id" :disabled="b.disabled" :aria-disabled="b.disabled ? 'true' : 'false'" @click="act(b.id)">{{ b.id === 'send' && m.phase === 'failed' ? c.text.retrySave : b.label }}</button>
@@ -507,10 +514,71 @@ export const RecordingView = {
         const tick = V.ref(0);
         const off = c.subscribe(() => { tick.value += 1; });
         const m = V.computed(() => (tick.value, c.model()));
-        if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => { off(); c.dispose(); });
+        const root = V.ref(null);
+        const reviewSource = () => props.player ? null : props.recorder.reviewSource?.();
+        let probingDuration = false;
+        function bindReview(media) {
+            if (!media) {
+                probingDuration = false;
+                c.machine.setPlayer(null);
+            }
+        }
+        function loadReview({ currentTarget: media }) {
+            if (media.duration === Infinity) {
+                probingDuration = true;
+                media.currentTime = Number.MAX_SAFE_INTEGER;
+            } else {
+                c.machine.setPlayer(media);
+            }
+        }
+        function finishDurationProbe({ currentTarget: media }) {
+            if (!probingDuration) return;
+            probingDuration = false;
+            media.currentTime = 0;
+            c.machine.setPlayer(media);
+        }
+        const shortcuts = {
+            start: 'Alt+Shift+R', pause: 'Alt+Shift+R', resume: 'Alt+Shift+R',
+            play: 'Alt+Shift+Space', stop: 'Alt+Shift+S',
+        };
+        function onKeydown(event) {
+            const doc = root.value?.ownerDocument;
+            if (!doc || event.defaultPrevented || event.isComposing || event.ctrlKey || event.metaKey || !event.altKey || !event.shiftKey) return;
+            if (event.target !== doc.body && !root.value.contains(event.target)) return;
+            const { mode, phase, controls } = m.value;
+            if (mode !== 'record' || props.authorized?.() === false) return;
+            const review = phase === 'review' && controls.some(b => b.id === 'play' && !b.disabled);
+            let action;
+            switch (event.key.toLowerCase()) {
+                case 'r': action = c[CAPTURE_TOGGLE[phase]]; break;
+                case 's': action = phase === 'recording' || phase === 'paused' ? c.stop : review ? c.machine.stopPlayback : null; break;
+                case ' ': action = review && c.play; break;
+                case 'arrowleft': action = review && (() => c.machine.skip(-REVIEW_SKIP_SECONDS)); break;
+                case 'arrowright': action = review && (() => c.machine.skip(REVIEW_SKIP_SECONDS)); break;
+            }
+            if (!action) return;
+            event.preventDefault();
+            if (!event.repeat) return action();
+        }
+        let doc;
+        V.onMounted?.(() => {
+            doc = root.value.ownerDocument;
+            doc.addEventListener('keydown', onKeydown);
+        });
+        V.onBeforeUnmount?.(() => {
+            doc?.removeEventListener('keydown', onKeydown);
+            off();
+            return c.dispose();
+        });
         return {
             c,
             m,
+            root,
+            reviewSource,
+            bindReview,
+            loadReview,
+            finishDurationProbe,
+            shortcuts,
             captions: PHASE_CAPTIONS,
             icons: ICON_PATHS,
             iconControls: (list) => list.filter((b) => ICON_PATHS[b.id]),

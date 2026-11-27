@@ -132,6 +132,52 @@ describe('vocabulary ui', () => {
         expect(store.state.exportText).toBe('Metformin');
     });
 
+    it('previews legacy bytes without refreshing the list and imports with the same options', async () => {
+        const preview = { added: 1, updated: 0, skipped: 1, errors: [{ line: 3, reason: 'invalid_encoding' }], dry_run: true };
+        const { store, writes, reads } = setup([ok(preview), ok({ ...preview, dry_run: false })]);
+        const file = new Blob([Uint8Array.of(0xc4, 0x72, 0x7a, 0x74)]);
+        file.name = 'Wörter.TXT';
+        await store.importFile(file, 'cp1252', 'skip', true);
+        const body = { scope: 'user', content_base64: 'xHJ6dA==', encoding: 'cp1252', duplicate_rule: 'skip' };
+        expect(writes()[0][1].body).toEqual({ ...body, dry_run: true });
+        expect(store.state.importResult).toEqual(preview);
+        expect(reads()).toHaveLength(0);
+
+        await store.importFile(file, 'cp1252', 'skip', false);
+        expect(writes()[1][1].body).toEqual(body);
+        expect(store.state.importResult).toEqual({ ...preview, dry_run: false });
+        expect(reads()).toHaveLength(1);
+    });
+
+    it('does not queue failed previews or send payloads exceeding the API body limit', async () => {
+        const { store, writes } = setup([bad('network')]);
+        await store.importText('Ärztin', 'replace', true);
+        expect(store.state.failedWrite).toBeNull();
+        expect((await store.importText('ä'.repeat(131072), 'replace')).outcome).toBe('validation');
+        expect(writes()).toHaveLength(1);
+    });
+
+    it('does not expose an export or an import report from a previous list', async () => {
+        let finishExport;
+        let finishImport;
+        const client = { request: vi.fn((path) => {
+            if (path.startsWith('/vocabulary/export')) return new Promise((resolve) => { finishExport = resolve; });
+            if (path === '/vocabulary/import') return new Promise((resolve) => { finishImport = resolve; });
+            return Promise.resolve(ok({ entries: [] }));
+        }) };
+        const store = createVocabularyStore(client);
+        const download = store.exportList(false);
+        const importJob = store.importText('Ärztin');
+        await Promise.resolve();
+        await store.setScope('pool', 'p1');
+        finishExport(ok({ content: 'Ärztin' }));
+        finishImport(ok({ added: 1 }));
+        expect(await download).toBeNull();
+        expect(await importJob).toBeNull();
+        expect(store.state.exportText).toBe('');
+        expect(store.state.importResult).toBeNull();
+    });
+
     it('has german labels, accessible markup, keyboard search, no hex colours and no storage', () => {
         expect(label('clinic.vocabulary.addSelection')).toContain('hinzufügen');
         expect(VOCABULARY_TEMPLATE).toContain('aria-live="polite"');

@@ -15,9 +15,7 @@
  *   ImportView                 Vue options object, props client, currentUser, vue (optional)
  *   registerImportView(app)    app.component('clinic-import-view', ImportView)
  *
- * Endpoints (relative to /api/clinic/v1; see ENDPOINTS). None of them has an
- * HTTP route at clinic/main yet; the services behind them exist in
- * src/clinic/import_centre.py, import_visibility.py and device_inventory_view.py.
+ * Endpoints are relative to /api/clinic/v1 (see ENDPOINTS).
  * The agent HTTP routes belong to package v8-13.
  */
 
@@ -55,6 +53,7 @@ export const ENDPOINTS = Object.freeze({
     intents: '/imports/intents',
     inventory: '/imports/inventory',
     unassigned: '/imports/unassigned',
+    candidates: (id) => '/imports/unassigned/' + encodeURIComponent(id) + '/candidates',
     assign: (id) => '/imports/unassigned/' + encodeURIComponent(id) + '/assign',
     retry: (id) => '/imports/intents/' + encodeURIComponent(id) + '/retry',
 });
@@ -65,7 +64,7 @@ export const ACTION_TABLE = 'max-md:[&_th]:px-1.5 max-md:[&_td]:px-1.5 max-md:[&
 export const TEXT = Object.freeze({
     title: 'Dateien und Geräteimport',
     eyebrow: 'Aufnahmen',
-    subline: 'Importaufträge, Geräteinventar und Klärliste. Dateien ohne eindeutige Zuordnung bleiben sichtbar, bis ein Auftrag ausdrücklich zugewiesen wird.',
+    subline: 'Importaufträge, Geräteinventar und Klärliste. Dateien ohne eindeutige Zuordnung bleiben sichtbar, bis Autor und Pool ausgewählt wurden.',
     colSource: 'Quelle',
     colFiles: 'Dateien',
     colStatus: 'Status',
@@ -84,7 +83,7 @@ export const TEXT = Object.freeze({
     clarification: 'Klärliste',
     clarificationEmpty: 'Keine Dateien in Klärung.',
     clarificationFailed: 'Die Klärliste konnte nicht geladen werden.',
-    clarificationHint: 'Unbekannte oder widersprüchliche Zuordnungen bleiben hier, bis ein Auftrag ausdrücklich zugewiesen wird.',
+    clarificationHint: 'Wählen Sie für jede ungeklärte Datei einen Autor und einen Pool.',
     assign: 'Zuweisen',
     confirm: 'Zuweisung bestätigen',
     cancel: 'Abbrechen',
@@ -93,7 +92,8 @@ export const TEXT = Object.freeze({
     assigned: 'Die Datei wurde zugewiesen.',
     assignFailed: 'Die Zuweisung ist fehlgeschlagen.',
     retryFailed: 'Der Versuch ist fehlgeschlagen. Ein erneuter Versuch verwendet denselben Schlüssel.',
-    intent: 'Importauftrag',
+    assignmentTarget: 'Autor und Pool',
+    noTargets: 'Keine verfügbaren Zuordnungen',
 });
 
 // Intent states of import_centre.py plus FAILED for a delivery that did not complete.
@@ -150,13 +150,12 @@ export function createImportController(deps) {
     if (userId === null) throw new Error('currentUser.id is required');
     const makeState = deps.makeState || plain;
     const newKey = deps.newKey || defaultKey;
-    const canClarify = mayClarify(user);
-
     const state = makeState({
         loading: false,
         intents: [], intentsError: null,
         inventory: [], inventoryError: null, inventoryLoaded: false,
         unassigned: [], unassignedError: null, clarificationDenied: false,
+        canClarify: mayClarify(user), candidates: null, target: null,
         pending: null, // delivery id awaiting confirmation
         busy: {}, // item id -> true while a write is in flight
         notice: null,
@@ -182,14 +181,17 @@ export function createImportController(deps) {
     async function loadInventory() {
         const res = await client.request(ENDPOINTS.inventory);
         if (disposed) return res;
-        if (res.outcome === 'ok') { state.inventory = rows(res); state.inventoryError = null; state.inventoryLoaded = true; }
+        if (res.outcome === 'ok') {
+            state.inventory = rows(res); state.inventoryError = null; state.inventoryLoaded = true;
+            state.canClarify = res.data?.can_clarify ?? mayClarify(user);
+        }
         else state.inventoryError = res.outcome === 'permission' ? TEXT.denied : TEXT.inventoryFailed;
         return res;
     }
 
     // An ordinary actor never requests the clarification list.
     async function loadUnassigned() {
-        if (!canClarify) return null;
+        if (!state.canClarify) return null;
         const res = await client.request(ENDPOINTS.unassigned);
         if (disposed) return res;
         if (res.outcome === 'ok') { state.unassigned = rows(res); state.unassignedError = null; state.clarificationDenied = false; }
@@ -202,18 +204,30 @@ export function createImportController(deps) {
         if (disposed) return;
         state.loading = true;
         try {
-            await Promise.all([loadIntents(), loadInventory(), loadUnassigned()]);
+            await Promise.all([loadIntents(), loadInventory().then(loadUnassigned)]);
         } finally {
             if (!disposed) state.loading = false;
         }
     }
 
     function askAssign(deliveryId) {
-        if (!canClarify || state.clarificationDenied) return false;
+        if (!state.canClarify || state.clarificationDenied) return false;
         state.pending = String(deliveryId);
+        state.candidates = null;
+        state.target = null;
+        state.notice = null;
         return true;
     }
     const cancelAssign = () => { state.pending = null; };
+
+    async function loadCandidates(deliveryId) {
+        const id = String(deliveryId);
+        if (state.pending !== id) return;
+        const res = await client.request(ENDPOINTS.candidates(id));
+        if (disposed || state.pending !== id) return;
+        state.candidates = rows(res);
+        if (res.outcome !== 'ok') state.notice = TEXT.assignFailed;
+    }
 
     // One request per call; a second call for the same item while one is in flight is ignored.
     async function write(action, id, path, body) {
@@ -228,12 +242,15 @@ export function createImportController(deps) {
         }
     }
 
-    /** Assigns the confirmed delivery to an open import intent. Needs askAssign first. */
-    async function confirmAssign(deliveryId, intentId, snapshotVersion) {
+    /** Assigns the confirmed delivery to a candidate or to an existing import intent. */
+    async function confirmAssign(deliveryId, target, snapshotVersion) {
         const id = String(deliveryId);
-        if (!canClarify || state.pending !== id || intentId == null) return null;
+        if (!state.canClarify || state.pending !== id || target == null) return null;
+        const selection = typeof target === 'object'
+            ? { target_author_user_id: target.target_author_user_id, target_pool_id: target.target_pool_id }
+            : { intent_id: String(target) };
         const res = await write('assign', id, ENDPOINTS.assign(id), {
-            intent_id: String(intentId), expected_snapshot_version: snapshotVersion == null ? null : String(snapshotVersion),
+            ...selection, expected_snapshot_version: snapshotVersion == null ? null : String(snapshotVersion),
         });
         if (!res || disposed) return res;
         if (res.outcome === 'ok') {
@@ -266,12 +283,13 @@ export function createImportController(deps) {
         disposed = true;
         keys.clear();
         state.intents = []; state.inventory = []; state.unassigned = []; state.pending = null;
+        state.candidates = null; state.target = null;
         client.switchContext({ accountId: null, dictationId: null });
     }
 
     return {
-        state, canClarify, load, loadIntents, loadInventory, loadUnassigned,
-        askAssign, cancelAssign, confirmAssign, retry, dispose,
+        state, get canClarify() { return state.canClarify; }, load, loadIntents, loadInventory, loadUnassigned,
+        askAssign, loadCandidates, cancelAssign, confirmAssign, retry, dispose,
         isBusy: (action, id) => Boolean(state.busy[action + ':' + id]),
         retryable: (row) => RETRYABLE.has(String(row && row.status).toUpperCase()),
         statusView, text: TEXT, size: formatSize, when: formatWhen,
@@ -360,19 +378,20 @@ export const IMPORT_TEMPLATE = `
               <tr data-unassigned :data-id="item.id">
                 <td><strong>{{ item.relative_path }}</strong><small>{{ item.source_id }}</small></td>
                 <td>
-                  <button v-if="c.state.pending !== item.id" type="button" class="small" data-testid="assign" @click="c.askAssign(item.id)">{{ c.text.assign }}</button>
+                  <button v-if="c.state.pending !== item.id" type="button" class="small" data-testid="assign" @click="c.askAssign(item.id) && c.loadCandidates(item.id)">{{ c.text.assign }}</button>
                 </td>
               </tr>
               <tr v-if="c.state.pending === item.id">
                 <td colspan="2">
                   <div class="actions">
-                    <label class="w-full md:w-auto md:flex md:items-center md:gap-2">{{ c.text.intent }}
-                      <select v-model="choice[item.id]" class="block min-w-0 md:w-auto">
-                        <option v-for="i in c.state.intents.filter((r) => r.status === 'OPEN')" :key="i.id" :value="i.id">{{ i.source_ref }}</option>
+                    <label class="w-full md:w-auto md:flex md:items-center md:gap-2">{{ c.text.assignmentTarget }}
+                      <select v-model="c.state.target" :disabled="!c.state.candidates?.length" class="block min-w-0 md:w-auto">
+                        <option :value="null" disabled>{{ c.state.candidates === null ? c.text.loading : c.state.candidates.length ? c.text.assignmentTarget : c.text.noTargets }}</option>
+                        <option v-for="target in c.state.candidates" :key="target.target_author_user_id + ':' + target.target_pool_id" :value="target">{{ target.author_name }} · {{ target.pool_name }}</option>
                       </select>
                     </label>
-                    <button type="button" class="small primary" data-testid="confirm-assign" :disabled="c.isBusy('assign', item.id) || !choice[item.id]"
-                            @click="c.confirmAssign(item.id, choice[item.id], item.snapshot_version)">{{ c.text.confirm }}</button>
+                    <button type="button" class="small primary" data-testid="confirm-assign" :disabled="c.isBusy('assign', item.id) || !c.state.target"
+                            @click="c.confirmAssign(item.id, c.state.target, item.snapshot_version)">{{ c.text.confirm }}</button>
                     <button type="button" class="small" @click="c.cancelAssign()">{{ c.text.cancel }}</button>
                   </div>
                 </td>
@@ -397,10 +416,9 @@ export const ImportView = {
         const V = props.vue || (typeof window !== 'undefined' ? window.Vue : null);
         if (!V) throw new Error('Vue is required to mount the import view');
         const c = createImportController({ client: props.client, currentUser: props.currentUser, makeState: V.reactive });
-        const choice = V.reactive({});
         if (typeof V.onMounted === 'function') V.onMounted(() => c.load());
         if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => c.dispose());
-        return { c, choice };
+        return { c };
     },
     template: IMPORT_TEMPLATE,
 };

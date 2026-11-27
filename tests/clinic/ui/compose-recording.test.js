@@ -409,11 +409,12 @@ describe('no browser storage', () => {
 });
 
 function fakeVue() {
-    const hooks = { unmount: [] };
+    const hooks = { mount: [], unmount: [] };
     return {
         hooks,
         ref: (v) => ({ value: v }),
         computed: (fn) => ({ get value() { return fn(); } }),
+        onMounted: (fn) => hooks.mount.push(fn),
         onBeforeUnmount: (fn) => hooks.unmount.push(fn),
     };
 }
@@ -453,6 +454,88 @@ describe('view registration and setup', () => {
         expect(view.m.value.created).toEqual({ dictationId: 'rec-1' });
         view.act('nope');
         await Vue.hooks.unmount[0]();
+    });
+
+    it('reviews an attached take without restarting capture and exposes playback errors', async () => {
+        const rec = { ...recorder(), reviewSource: () => 'blob:take' };
+        const view = RecordingView.setup({ currentUser: { id: 2 }, recorder: rec, uploadFile: vi.fn(), vue: fakeVue() }, {});
+        const media = { duration: Infinity, currentTime: 0, paused: true, play: vi.fn(), pause: vi.fn() };
+        const disabled = (id) => view.m.value.controls.find(b => b.id === id).disabled;
+        await toReview(view.c);
+        expect(view.reviewSource()).toBe('blob:take');
+        expect(disabled('play')).toBe(true);
+        view.loadReview({ currentTarget: media });
+        expect(media.currentTime).toBeGreaterThan(0);
+        expect(disabled('end')).toBe(true);
+        media.duration = 12;
+        view.finishDurationProbe({ currentTarget: media });
+        expect(media.currentTime).toBe(0);
+        expect(disabled('end')).toBe(false);
+        view.act('end');
+        expect(media.currentTime).toBe(12);
+        await view.c.play();
+        expect(media.play).not.toHaveBeenCalled();
+        view.act('beginning');
+        expect(media.currentTime).toBe(0);
+        media.play.mockRejectedValueOnce(new Error('unavailable'));
+        expect((await view.c.play()).code).toBe('playback_failed');
+        expect(view.m.value.message).toMatch(/nicht abgespielt/);
+        expect((await view.c.play()).ok).toBe(true);
+        expect(view.m.value.message).toBe('');
+        media.currentTime = 8;
+        view.act('rewind');
+        expect(media.currentTime).toBe(0);
+        expect(rec.startRecording).toHaveBeenCalledOnce();
+        await view.c.cancel();
+        expect(media.pause).toHaveBeenCalledOnce();
+        view.bindReview(null);
+        expect(disabled('play')).toBe(true);
+    });
+
+    it('dispatches only the enabled recorder chords in the mounted view', async () => {
+        const rec = recorder();
+        const vue = fakeVue();
+        const player = { duration: 12, currentTime: 0, paused: true,
+            play: vi.fn(() => { player.paused = false; }), pause: vi.fn(() => { player.paused = true; }) };
+        const view = RecordingView.setup({ currentUser: { id: 2 }, recorder: rec, uploadFile: vi.fn(), vue, player }, {});
+        const doc = { body: {}, addEventListener: vi.fn(), removeEventListener: vi.fn() };
+        const inside = {};
+        view.root.value = { ownerDocument: doc, contains: (target) => target === inside };
+        vue.hooks.mount[0]();
+        const [type, dispatch] = doc.addEventListener.mock.calls[0];
+        expect(type).toBe('keydown');
+        const press = (key, extra) => dispatch({ key, altKey: true, shiftKey: true, target: inside, preventDefault: vi.fn(), ...extra });
+        view.c.setTitle('Bericht');
+        await press(' ');
+        await press('R', { target: { tagName: 'TEXTAREA' } });
+        await press('R', { ctrlKey: true });
+        await press('R', { repeat: true });
+        expect(rec.startRecording).not.toHaveBeenCalled();
+        await press('R', { target: doc.body });
+        expect(view.m.value.phase).toBe('recording');
+        await press('R');
+        expect(view.m.value.phase).toBe('paused');
+        await press('R');
+        expect(view.m.value.phase).toBe('recording');
+        await press('S');
+        expect(rec.stopRecording).toHaveBeenCalledOnce();
+        expect(view.m.value.phase).toBe('review');
+        await press('ArrowRight');
+        expect(player.currentTime).toBe(5);
+        await press('ArrowLeft');
+        await press('ArrowLeft');
+        expect(player.currentTime).toBe(0);
+        await press(' ', { target: { tagName: 'INPUT' } });
+        expect(player.play).not.toHaveBeenCalled();
+        await press(' ');
+        await press(' ');
+        await press(' ');
+        await press('S');
+        expect(player.play).toHaveBeenCalledTimes(2);
+        expect(player.pause).toHaveBeenCalledTimes(2);
+        expect(rec.startRecording).toHaveBeenCalledOnce();
+        await vue.hooks.unmount[0]();
+        expect(doc.removeEventListener).toHaveBeenCalledWith('keydown', dispatch);
     });
 
     it('throws without Vue', () => {
