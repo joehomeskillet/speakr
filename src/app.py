@@ -1540,15 +1540,16 @@ def register_clinic_operations(flask_app):
 
 # --- v8-75: voice consent and voice enrollment routes ---
 def register_clinic_voice_consent(flask_app):
-    """Mount the own-user voice consent and voice enrollment blueprints.
+    """Mount own-user voice consent, enrollment and the admin voice purge.
 
     Called at startup only in clinic mode. Voice profiles are opt-in: enrollment is refused
     without active consent and again after revocation (enforced in voice_consent).
-    Both modules authenticate the browser session and check CSRF themselves.
+    The blueprints authenticate the browser session and check CSRF themselves.
     """
-    from src.clinic import routes_consent, routes_voice_enrollment
+    from src.clinic import routes_consent, routes_voice_enrollment, routes_voice_purge
     flask_app.register_blueprint(routes_consent.blueprint)
     flask_app.register_blueprint(routes_voice_enrollment.blueprint)
+    flask_app.register_blueprint(routes_voice_purge.blueprint)
 # --- end v8-75 ---
 
 

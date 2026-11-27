@@ -79,4 +79,5 @@ ADMIN: tuple[str, ...] = (
     'clinic_training.start',
     'clinic_training.status',
     'clinic_training.cancel',
+    'clinic_voice_purge.purge',
 )
