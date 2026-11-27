@@ -125,6 +125,7 @@ function headersFor(method, token, options) {
     }
     if (options.idempotencyKey) headers['Idempotency-Key'] = options.idempotencyKey;
     if (options.ifMatch) headers['If-Match'] = options.ifMatch;
+    if (options.caseView) headers['X-Clinic-Case-View'] = options.caseView;
     if (options.body !== undefined && method !== 'GET' && method !== 'HEAD') {
         headers['Content-Type'] = 'application/json';
     }

@@ -134,7 +134,8 @@ def store_phrase(
     storage_key = ingest.storage_key_for(key)
 
     try:
-        session = live_session.heartbeat(session_id, user_id, now)
+        session = live_session.heartbeat(
+            session_id, user_id, now, client_id=client_id, generation=generation)
         if session.dictation_id != dictation_id or (
             session.client_id is not None and session.client_id != client_id
         ):
@@ -197,7 +198,9 @@ def store_phrase(
             envelope_hash=envelope_hash,
         )
         db.session.add(phrase)
-        live_session.acknowledge(session_id, user_id, now, sequence, audio_end_ms, transcript_revision_id)
+        live_session.acknowledge(
+            session_id, user_id, now, sequence, audio_end_ms, transcript_revision_id,
+            client_id=client_id, generation=generation)
         receipt = _receipt(phrase)
         db.session.commit()
         return receipt
