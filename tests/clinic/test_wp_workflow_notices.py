@@ -3,7 +3,7 @@
 import pytest
 from flask import Flask
 
-from src.clinic import workflow
+from src.clinic import notification_preferences, workflow
 from src.clinic.models import ClinicDictation
 from src.clinic.workflow_notifications import KIND, emit, event_key
 from src.database import db
@@ -103,6 +103,33 @@ def test_recipient_without_current_visibility_is_dropped(case):
     result = send("acceptance_requested")
     assert (result.created, result.dropped) == ((), (ids["acceptor"],))
     assert _rows() == []
+
+
+@pytest.mark.parametrize("event,triggers,status", [
+    ("acceptance_requested", (), workflow.TO_ACCEPT),
+    ("completed", ("accept", "complete"), workflow.DONE),
+])
+def test_only_enabled_event_is_delivered_without_changing_status(case, event, triggers, status):
+    item, ids, state, send = case
+    author, typist, acceptor = (ids[role] for role in ("author", "typist", "acceptor"))
+    for trigger in triggers:
+        workflow.transition(db.session(), item.id, trigger)
+    db.session.commit()
+
+    notification_preferences.set_event(author, event, False, 0)
+    assert item.status == status
+    state["visible"].remove(acceptor)
+    options = {"acceptor_ids": (author, typist, acceptor)}
+    result = send(event, actor="typist", transition="disabled", **options)
+    assert (result.created, result.failed) == ((), ())
+    assert result.dropped == ((acceptor,) if event == "acceptance_requested" else ())
+    assert _rows() == []
+
+    notification_preferences.set_event(author, event, True, 1)
+    result = send(event, actor="typist", transition="enabled", **options)
+    assert result.created == (author,)
+    assert [row.user_id for row in _rows()] == [author]
+    assert item.status == status
 
 
 def test_rolled_back_transition_gives_no_false_completion(case):

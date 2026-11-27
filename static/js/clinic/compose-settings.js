@@ -116,8 +116,9 @@ export function createSettingsController(deps) {
     // Same surface as the shared client; every answer is observed once.
     const tapped = {
         request: async (path, options) => {
+            const epoch = state.epoch;
             const res = await client.request(path, options);
-            note(path, options, res);
+            if (state.epoch === epoch) note(path, options, res);
             return res;
         },
         command: (...args) => client.command(...args),
@@ -409,6 +410,117 @@ const CONSENT_TEMPLATE = `
   </div>
 </section>`;
 
+const NOTIFICATION_PATH = '/preferences/notifications';
+const NOTIFICATION_LABELS = Object.freeze({
+    acceptance_requested: 'Abnahme angefordert',
+    acceptance_rejected: 'Abnahme abgelehnt',
+    accepted: 'Diktat abgenommen',
+    completed: 'Diktat fertiggestellt',
+});
+
+const NOTIFICATION_TEMPLATE = `
+<section class="panel" aria-labelledby="clinic-settings-notifications-title" data-testid="clinic-settings-notifications">
+  <h2 id="clinic-settings-notifications-title" style="overflow-wrap: break-word">Benachrichtigungen</h2>
+  <p v-if="rows.length" class="hint">Wählen Sie, welche Hinweise Sie in Speakr erhalten möchten.</p>
+  <label v-for="row in rows" :key="row.event" class="inline-label min-h-12">
+    <input type="checkbox" class="shrink-0" :name="row.event" :checked="row.enabled" :aria-disabled="busy"
+           @change="save(row, $event)">
+    <span>{{ row.label }}</span>
+  </label>
+  <p v-if="choices && !rows.length" class="hint">Für Sie sind keine Benachrichtigungen zur Auswahl verfügbar.</p>
+  <p role="status" :class="message && (warning ? '${NOTE_WARNING}' : 'note')">{{ message }}</p>
+  <button v-if="!choices && warning && !busy" class="secondary mt-ui-2 min-h-12" type="button" @click="load">
+    Erneut laden
+  </button>
+</section>`;
+
+function notificationChoices(res) {
+    const data = res?.data;
+    const channel = data?.channels?.in_app;
+    if (res?.outcome !== 'ok' || !Number.isInteger(data?.version) || data.version < 0
+        || !channel || typeof channel !== 'object' || Array.isArray(channel)) return null;
+    return data;
+}
+
+function createNotificationSettingsComponent(Vue, client, settingsState) {
+    return {
+        name: 'ClinicNotificationSettings',
+        template: NOTIFICATION_TEMPLATE,
+        setup() {
+            const epoch = settingsState.epoch;
+            let disposed = false;
+            const active = () => !disposed && settingsState.epoch === epoch;
+            Vue.onBeforeUnmount(() => { disposed = true; });
+
+            const choices = Vue.shallowRef(null);
+            const busy = Vue.ref(false);
+            const message = Vue.ref('');
+            const warning = Vue.ref(false);
+            const rows = Vue.computed(() => Object.entries(NOTIFICATION_LABELS).flatMap(([event, label]) => {
+                const enabled = choices.value?.channels.in_app[event];
+                return typeof enabled === 'boolean' ? [{ event, label, enabled }] : [];
+            }));
+
+            async function readChoices(afterConflict = false) {
+                let current = null;
+                try {
+                    current = notificationChoices(await client.request(NOTIFICATION_PATH));
+                } catch {
+                    current = null;
+                }
+                if (!active()) return;
+                choices.value = current;
+                warning.value = afterConflict || !current;
+                message.value = !current ? 'Benachrichtigungen konnten nicht geladen werden.'
+                    : afterConflict ? 'Die Einstellungen wurden inzwischen geändert. Bitte wählen Sie erneut.' : '';
+            }
+
+            async function load() {
+                if (busy.value || !active()) return;
+                busy.value = true;
+                warning.value = false;
+                message.value = 'Benachrichtigungen werden geladen …';
+                await readChoices();
+                if (active()) busy.value = false;
+            }
+
+            async function save(row, change) {
+                const input = change.target;
+                const enabled = input.checked;
+                input.checked = row.enabled;
+                if (busy.value || !active() || enabled === row.enabled) return;
+                busy.value = true;
+                warning.value = false;
+                message.value = 'Wird gespeichert …';
+                try {
+                    const res = await client.request(NOTIFICATION_PATH, {
+                        method: 'PUT', body: { event: row.event, enabled, expected_version: choices.value.version },
+                    });
+                    if (!active()) return;
+                    if (res?.outcome === 'conflict' || res?.status === 409 || res?.code === 'stale_version') {
+                        message.value = 'Der aktuelle Stand wird geladen …';
+                        await readChoices(true);
+                    } else {
+                        const saved = notificationChoices(res);
+                        if (saved?.channels.in_app[row.event] !== enabled) throw new Error('Unconfirmed preference');
+                        choices.value = saved;
+                        message.value = `${row.label}: ${enabled ? 'eingeschaltet' : 'ausgeschaltet'}. Gespeichert.`;
+                    }
+                } catch {
+                    if (!active()) return;
+                    warning.value = true;
+                    message.value = 'Speichern konnte nicht bestätigt werden. Bitte versuchen Sie es erneut.';
+                } finally {
+                    if (active()) busy.value = false;
+                }
+            }
+
+            Vue.onMounted(load);
+            return { choices, rows, busy, warning, message, load, save };
+        },
+    };
+}
+
 export const SETTINGS_TEMPLATE = `
 <div class="clinic-settings-view v8-page ${HEADINGS}">
   <nav class="breadcrumb" aria-label="Brotkrumennavigation">
@@ -438,6 +550,7 @@ export const SETTINGS_TEMPLATE = `
             </div>
           </dl>
         </section>
+        <component :is="notifications" :key="'n:' + state.epoch"></component>
       </div>
       <div class="space-y-5 min-w-0">
         <section class="panel clinic-settings-correction ${CHOICES} [&_legend]:!text-[16px] [&_legend]:!mb-[14px] [&_legend]:tracking-[-0.2px] [&_[role=alert]]:mt-3 [&_[role=alert]]:rounded-lg [&_[role=alert]]:border [&_[role=alert]]:border-[color:var(--line)] [&_[role=alert]]:bg-[var(--v8-s2)] [&_[role=alert]]:p-3 [&_[role=alert]]:text-xs [&_.clinic-correction-mode]:grid [&_.clinic-correction-mode]:grid-cols-[auto_1fr] [&_.clinic-correction-mode]:gap-x-2 [&_.clinic-correction-mode]:items-baseline [&_.clinic-correction-mode]:text-[13px] [&_.clinic-correction-mode_small]:col-start-2 [&_.clinic-correction-mode_small]:text-[color:var(--v8-muted)]"><component :is="correction" :audio="audio" :client="client" :vue="vue" :key="'c:' + state.epoch"></component></section>
@@ -473,13 +586,14 @@ export const SettingsView = {
         const pedal = Vue.markRaw(createPedalSettingsComponent(Vue));
         const handmic = Vue.markRaw(createHandmicSettingsComponent(Vue, globalThis.navigator?.hid));
         const consent = Vue.markRaw(createConsentComponent(Vue, ctrl.client, { t: props.t }));
+        const notifications = Vue.markRaw(createNotificationSettingsComponent(Vue, ctrl.client, ctrl.state));
         const s = surfaceFor('error');
         const errorStyle = { background: s.background, color: s.color, borderColor: s.border };
         Vue.watch(() => userIdOf(props.currentUser), () => ctrl.setUser(props.currentUser));
         Vue.onBeforeUnmount(() => ctrl.dispose());
         return {
             state: ctrl.state, labels: LABELS, rows: ctrl.originRows, client: ctrl.client, vue: props.vue,
-            audio: NO_AUDIO, preferences, correction, pedal, handmic, consent, errorStyle,
+            audio: NO_AUDIO, preferences, correction, pedal, handmic, consent, notifications, errorStyle,
         };
     },
 };
