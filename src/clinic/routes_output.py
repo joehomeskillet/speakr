@@ -8,7 +8,8 @@ policy itself:
   transcript revision it expects; a different or unreleased revision is a 409.
 * File exports are rendered from the revision the release binds. The job keeps
   the release and revision ids and the content hash. The durable receipt lets any worker
-  return the same job for a replay by the same actor.
+  return the same job for a replay by the same actor. A failed render is stored on
+  that same per-format receipt, so a reload still shows the failed target.
 * KIS delivery goes through `kis.deliver`, whose delivery ledger is the
   idempotency record. A disabled adapter answers 503 `KIS_UNAVAILABLE`; no
   success is ever reported without an adapter answer.
@@ -94,6 +95,35 @@ def _job_view(job: dict) -> dict:
     return {key: value for key, value in job.items() if key not in ('actor_id', 'request')}
 
 
+def _failed_file_job(job_id, fmt, dictation_id, release_id, revision_id, actor_id, reason) -> dict:
+    """Durable per-target failure. No file bytes and no exception text."""
+    return {
+        'id': job_id, 'kind': 'file', 'status': 'failed', 'format': fmt,
+        'dictation_id': dictation_id, 'release_id': release_id, 'revision_id': revision_id,
+        'reason': reason, 'actor_id': actor_id,
+    }
+
+
+def _latest_file_results(actor_id: int, release_id: str) -> dict:
+    """Newest file receipt per format for this actor and release."""
+    digests = [f'{release_id}:{fmt}' for fmt in FILE_FORMATS]
+    rows = (
+        db.session.query(parity_receipts.ClinicParityReceipt)
+        .filter(parity_receipts.ClinicParityReceipt.digest.in_(digests))
+        .all()
+    )
+    rows.sort(key=lambda row: (row.created_at, row.scope_key))
+    found = {}
+    for row in rows:
+        result = row.result if isinstance(row.result, dict) else {}
+        if result.get('kind') != 'file' or result.get('actor_id') != actor_id:
+            continue
+        fmt = result.get('format')
+        if fmt in FILE_FORMATS:
+            found[fmt] = result
+    return found
+
+
 def create_blueprint(
     *, authorize: Callable[[User, str, ClinicDictation], bool],
     adapter_for: Callable[[], kis.KisAdapter],
@@ -157,8 +187,14 @@ def create_blueprint(
             gate = 'forbidden'
         elif active is None:
             gate = 'not_released'
-        listed = [{'id': fmt, 'channel': 'file', 'available': gate is None, 'reason': gate}
-                  for fmt in FILE_FORMATS]
+        known = _latest_file_results(current_user.id, active.id) if active is not None else {}
+        listed = []
+        for fmt in FILE_FORMATS:
+            item = {'id': fmt, 'channel': 'file', 'available': gate is None, 'reason': gate}
+            if fmt in known:
+                item['status'] = known[fmt].get('status')
+                item['job_id'] = known[fmt].get('id')
+            listed.append(item)
         kis_reason = gate or (None if adapter_for().enabled else 'kis_unavailable')
         listed.append({'id': KIS_FORMAT, 'channel': 'kis', 'available': kis_reason is None,
                        'reason': kis_reason})
@@ -188,27 +224,42 @@ def create_blueprint(
 
     def _file_export(dictation: ClinicDictation, active: ClinicRelease, fmt: str, key: str) -> Response:
         actor_id = current_user.id
-        job_id = str(uuid5(NAMESPACE_URL, f'speakr/file-export/{actor_id}/{dictation.id}/{key}'))
-        scope = (actor_id, 'file_export', dictation.id, job_id)
+        dictation_id = dictation.id
+        release_id = active.id
+        revision_id = active.transcript_revision_id
+        job_id = str(uuid5(NAMESPACE_URL, f'speakr/file-export/{actor_id}/{dictation_id}/{key}'))
+        scope = (actor_id, 'file_export', dictation_id, job_id)
+        digest = f'{release_id}:{fmt}'
 
         def render_job():
-            rendered = FILE_FORMATS[fmt](active)
+            # A renderer error used to roll back with no receipt, so the target vanished on reload.
+            try:
+                rendered = FILE_FORMATS[fmt](active)
+            except export_service.ExportRefused as refused:
+                db.session.rollback()
+                return _failed_file_job(
+                    job_id, fmt, dictation_id, release_id, revision_id, actor_id, refused.reason)
+            except Exception:
+                db.session.rollback()
+                return _failed_file_job(
+                    job_id, fmt, dictation_id, release_id, revision_id, actor_id, 'render_failed')
             return {
                 'id': job_id, 'kind': 'file', 'status': 'ready', 'format': fmt,
-                'dictation_id': dictation.id, 'release_id': active.id,
+                'dictation_id': dictation_id, 'release_id': release_id,
                 'revision_id': rendered.transcript_revision_id, 'filename': rendered.filename,
                 'mimetype': rendered.mimetype, 'sha256': rendered.sha256, 'actor_id': actor_id,
             }
 
         try:
-            job, replayed = parity_receipts.run_once_with_replay(scope, f'{active.id}:{fmt}', render_job)
-        except export_service.ExportRefused as refused:
-            return _problem(409, 'EXPORT_REFUSED', reason=refused.reason)
+            job, replayed = parity_receipts.run_once_with_replay(scope, digest, render_job)
         except CommandProblem as conflict:
             return _problem(409, str(conflict))
         if jobs is not None:
             # Preserve the optional caller-supplied index of observed jobs.
-            jobs[(actor_id, dictation.id, key)] = jobs[('id', job_id)] = job
+            jobs[(actor_id, dictation_id, key)] = jobs[('id', job_id)] = job
+        if job.get('status') == 'failed' and not replayed and job.get('reason') != 'render_failed':
+            return _problem(409, 'EXPORT_REFUSED', reason=job.get('reason'), format=fmt,
+                            target_status='failed', id=job['id'])
         response = jsonify(_job_view(job) | {'replayed': replayed})
         response.status_code = 200 if replayed else 201
         return response

@@ -1,4 +1,4 @@
-"""DOCX and plain-text export of a bound clinic release.
+"""DOCX, RTF and plain-text export of a bound clinic release.
 
 Acceptance catalog entries T-021, WB-013, WB-014 and WB-016 stay not_run.
 These tests cover the service rules behind released text, draft marking and
@@ -21,14 +21,18 @@ from src.clinic.export import (
     DOWNLOAD_STARTED,
     DRAFT_MARK,
     RENDERED,
+    RTF_MIMETYPE,
     USER_CONFIRMED,
     ExportRefused,
     download_started,
     export_filename,
     render_docx,
+    render_rtf,
     render_text,
     user_confirmed,
 )
+from src.clinic.output import CHANNEL_TEXT, FORMAT_FORMATTED, record_output
+from src.clinic.output_rtf import RTFValidationError, text_to_rtf, validate_rtf
 from src.clinic.models import (
     ClinicAudioRevision,
     ClinicContextRevision,
@@ -252,7 +256,7 @@ def test_released_export_contains_exactly_the_bound_text(clinic_db):
 def test_export_refuses_hash_mismatch(clinic_db):
     release, _transcript, _dict_b = _released()
     release.text_hash = 'f' * 64
-    for render in (render_text, render_docx):
+    for render in (render_text, render_docx, render_rtf):
         with pytest.raises(ExportRefused) as caught:
             render(release)
         assert caught.value.reason == 'hash_mismatch'
@@ -269,7 +273,7 @@ def test_export_refuses_revision_of_another_dictation(clinic_db, field):
         release.audio_revision_id = _audio(dict_b, content_hash='c' * 64).id
     else:
         release.context_revision_id = _context(dict_b).id
-    for render in (render_text, render_docx):
+    for render in (render_text, render_docx, render_rtf):
         with pytest.raises(ExportRefused) as caught:
             render(release)
         assert caught.value.reason == 'foreign_revision'
@@ -295,7 +299,7 @@ def test_persisted_foreign_revision_still_rejected_by_the_database(clinic_db):
         db.session.flush()
 
 
-@pytest.mark.parametrize('render', [render_text, render_docx])
+@pytest.mark.parametrize('render', [render_text, render_docx, render_rtf])
 def test_draft_without_explicit_flag_is_refused(clinic_db, render):
     _author, dict_a, _dict_b, _audio, transcript, _context = _pair()
     with pytest.raises(ExportRefused) as caught:
@@ -361,6 +365,12 @@ def test_filename_sanitising(clinic_db):
     _assert_single_segment(umlaut)
     assert 'Ärztlicher Bericht' in umlaut
 
+    rtf_name = render_rtf(release).filename
+    _assert_single_segment(rtf_name)
+    assert rtf_name.endswith('.rtf')
+    assert rtf_name.startswith('clinic-released-')
+    assert transcript.id in rtf_name
+
 
 def test_docx_roundtrip_umlauts_and_long_text(clinic_db):
     # Revisions are append-only: bind the release to a revision created with LONG.
@@ -377,6 +387,124 @@ def test_docx_roundtrip_umlauts_and_long_text(clinic_db):
     assert len(LONG) > 8000
     assert rendered.sha256 == hashlib.sha256(rendered.content).hexdigest()
     assert rendered.content[:2] == b'PK'
+
+
+def _release_header(release, transcript) -> str:
+    released_at = release.created_at.isoformat() if release.created_at is not None else ''
+    return '\n'.join([
+        'Status: freigegeben',
+        f'Freigegeben am: {released_at}',
+        f'Freigabe-ID: {release.id}',
+        f'Diktat-ID: {release.dictation_id}',
+        f'Textrevision: {transcript.id}',
+        f'Audiorevision: {release.audio_revision_id}',
+        f'Kontextrevision: {release.context_revision_id}',
+        f'Text-Hash: {release.text_hash}',
+        f'Dokumenttyp: {release.document_type}',
+        f'Freigabeart: {release.release_type}',
+        'Renderer: clinic-export-1',
+    ])
+
+
+def test_render_rtf_embeds_header_and_formatted_body(clinic_db):
+    body = 'Befund: **stabil** und *ruhig*. Größe äöü.'
+    author, dict_a, _dict_b, audio, transcript, context = _pair(body=body)
+    release = _release(dict_a, audio, transcript, context, author)
+    rendered = render_rtf(release)
+
+    assert rendered.mimetype == RTF_MIMETYPE == 'application/rtf'
+    assert rendered.filename.endswith('.rtf')
+    assert rendered.content.startswith(b'{\\rtf1')
+    assert rendered.sha256 == hashlib.sha256(rendered.content).hexdigest()
+    assert rendered.release_id == release.id
+    assert rendered.dictation_id == dict_a.id
+    assert rendered.transcript_revision_id == transcript.id
+    assert rendered.audio_revision_id == audio.id
+    assert rendered.context_revision_id == context.id
+    assert rendered.text_hash == transcript.normalised_text_hash
+    assert rendered.mode == 'released'
+    assert rendered.outcome.action == RENDERED
+    assert rendered.outcome.mimetype == RTF_MIMETYPE
+    assert rendered.outcome.local_save_proven is False
+    assert rendered.outcome.text_hash == transcript.normalised_text_hash
+
+    expected = text_to_rtf(
+        _release_header(release, transcript) + '\n\n' + body,
+        title='Freigegebenes Diktat',
+    )
+    assert rendered.content == expected
+
+    document = validate_rtf(rendered.content)
+    assert document.groups_balanced is True
+    assert document.is_valid is True
+    assert 'Status: freigegeben' in document.full_text
+    assert release.id in document.full_text
+    assert transcript.id in document.full_text
+    assert release.text_hash in document.full_text
+    assert 'Größe' in document.full_text
+    assert DRAFT_MARK not in document.full_text
+    assert OTHER not in document.full_text
+    assert any(
+        span.bold and 'stabil' in span.text
+        for paragraph in document.styled_paragraphs
+        for span in paragraph
+    )
+    assert any(
+        span.italic and 'ruhig' in span.text
+        for paragraph in document.styled_paragraphs
+        for span in paragraph
+    )
+
+    receipt = record_output(
+        dict_a,
+        transcript,
+        author.id,
+        CHANNEL_TEXT,
+        'rtf',
+        text_format=FORMAT_FORMATTED,
+    )
+    assert receipt.dictation_id == rendered.dictation_id
+    assert receipt.transcript_revision_id == rendered.transcript_revision_id
+    assert receipt.text_hash == rendered.text_hash
+    assert receipt.text_format == FORMAT_FORMATTED
+
+
+def test_draft_rtf_is_marked_and_balanced(clinic_db):
+    _author, _dict_a, _dict_b, _audio_row, transcript, _context = _pair(body=BODY)
+    rendered = render_rtf(transcript, allow_draft=True)
+
+    assert rendered.release_id is None
+    assert rendered.mode == 'draft'
+    assert rendered.mimetype == RTF_MIMETYPE
+    assert rendered.filename.endswith('.rtf')
+    assert rendered.text_hash == transcript.normalised_text_hash
+    assert rendered.outcome.local_save_proven is False
+    document = validate_rtf(rendered.content)
+    assert document.groups_balanced is True
+    assert document.full_text.count(DRAFT_MARK) >= 2
+    assert 'Status: Entwurf' in document.full_text
+    assert 'Größe' in document.full_text
+    assert OTHER not in document.full_text
+
+
+def test_render_rtf_refuses_unbalanced_or_invalid_groups(clinic_db, monkeypatch):
+    release, _transcript, _dict_b = _released()
+
+    class _Unbalanced:
+        groups_balanced = False
+
+    monkeypatch.setattr('src.clinic.export.validate_rtf', lambda _data: _Unbalanced())
+    with pytest.raises(ExportRefused) as caught:
+        render_rtf(release)
+    assert caught.value.reason == 'rtf_unbalanced'
+
+    def _invalid(_data):
+        raise RTFValidationError('broken')
+
+    monkeypatch.setattr('src.clinic.export.validate_rtf', _invalid)
+    with pytest.raises(ExportRefused) as caught:
+        render_rtf(release)
+    assert caught.value.reason == 'rtf_invalid'
 
 
 def test_download_outcome_does_not_prove_a_local_save(clinic_db):
