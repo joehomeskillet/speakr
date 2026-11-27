@@ -294,8 +294,11 @@ export function createCorrectionViewController(options) {
     let alignmentRoot = null;
     let knownRevision;
     let disposed = false;
+    let opening = null;
+    let closing = false;
     const stops = [];
     const audioListeners = [];
+    let activeRange = null;
     let tempo = null;
     let pedal = null;
     let pedalReady = Promise.resolve(null);
@@ -313,6 +316,56 @@ export function createCorrectionViewController(options) {
     };
     const getPositionMs = () => (audioEl.value ? Math.round(position() * 1000) : null);
     const seek = (seconds) => { if (audioEl.value) audioEl.value.currentTime = seconds; };
+
+    function clearRange() {
+        const range = activeRange;
+        activeRange = null;
+        if (range?.frame != null) range.view.cancelAnimationFrame(range.frame);
+        return range;
+    }
+
+    function stopRange() {
+        clearRange()?.el.pause();
+    }
+
+    function checkRange() {
+        const range = activeRange;
+        if (!range) return;
+        if (editor.textRevisionId.value !== range.textRevision || editor.audio.value !== range.audio) {
+            stopRange();
+        } else if (range.el.currentTime >= range.end) {
+            stopRange();
+            range.el.currentTime = range.end;
+        }
+    }
+
+    async function playRange(start, end) {
+        const el = audioEl.value;
+        const audio = editor.audio.value;
+        if (!el || audio.status !== 'ready' || !audio.src || !el.currentSrc
+            || el.currentSrc !== new URL(audio.src, el.ownerDocument.baseURI).href
+            || !Number.isFinite(el.duration) || !Number.isFinite(start) || !Number.isFinite(end)
+            || start < 0 || start >= end || start >= el.duration || end > el.duration + 0.001) return false;
+        clearRange();
+        const range = { el, start, end: Math.min(end, el.duration), audio,
+            textRevision: editor.textRevisionId.value, view: el.ownerDocument.defaultView };
+        activeRange = range;
+        try {
+            el.currentTime = start;
+            await el.play();
+        } catch {
+            if (activeRange === range) clearRange();
+            return false;
+        }
+        if (activeRange !== range) return false;
+        // Keep short marks bounded between the media element's timeupdate events.
+        const tick = () => {
+            checkRange();
+            if (activeRange === range) range.frame = range.view.requestAnimationFrame(tick);
+        };
+        if (range.view?.requestAnimationFrame) range.frame = range.view.requestAnimationFrame(tick);
+        return true;
+    }
 
     const alignment = useCorrectionAlignment({ editor, client, dictationId, seek, vue: V || undefined });
 
@@ -370,6 +423,7 @@ export function createCorrectionViewController(options) {
 
     // --- audio wiring -------------------------------------------------------
     function unbindAudio() {
+        stopRange();
         for (const [node, name, fn] of audioListeners.splice(0)) {
             if (typeof node.removeEventListener === 'function') node.removeEventListener(name, fn);
         }
@@ -405,8 +459,15 @@ export function createCorrectionViewController(options) {
             if (gainContext && typeof gainContext.resume === 'function') Promise.resolve(gainContext.resume()).catch(() => {});
             if (gain) gain.start();
         });
-        listen('pause', () => { if (gain) gain.stop(); });
-        listen('ended', () => { if (gain) gain.stop(); });
+        const onPlaybackStop = () => {
+            if (el.paused) clearRange();
+            if (gain) gain.stop();
+        };
+        listen('pause', onPlaybackStop);
+        listen('ended', onPlaybackStop);
+        listen('timeupdate', checkRange);
+        listen('seeking', () => { if (activeRange && Math.abs(el.currentTime - activeRange.start) > 0.001) clearRange(); });
+        listen('emptied', clearRange);
         // Same tempo controller the player buttons use (seek, rewind); the pedal calls it too.
         tempo = usePlaybackTempo({ audio: el, onSync });
         // Highlight follows the real media position (rAF while playing, events otherwise); it never touches focus or editor state.
@@ -455,7 +516,10 @@ export function createCorrectionViewController(options) {
         return alignment.refresh();
     }
 
-    if (api.watch) stops.push(api.watch(editor.textRevisionId, () => { syncRevision(); }));
+    if (api.watch) {
+        stops.push(api.watch(editor.textRevisionId, () => { checkRange(); syncRevision(); }));
+        stops.push(api.watch(editor.audio, checkRange));
+    }
 
     async function save() {
         const res = await saver.save();
@@ -579,16 +643,44 @@ export function createCorrectionViewController(options) {
         return applied;
     }
 
-    async function start() {
-        if (disposed) return null;
-        modes.start();
-        pedalReady = startPedal();
-        return load();
+    async function open() {
+        if (opts.openMode === 'correction') {
+            const res = await client.request('/dictations/' + encodeURIComponent(dictationId) + '/leases');
+            if (!disposed && res.outcome === 'ok' && res.data?.may_acquire === true) await editor.acquire();
+        }
+        const res = await load();
+        if (!disposed && !res?.ok && opts.openMode === 'correction'
+            && editor.lease.value.status === 'held') await editor.release();
+        return res;
+    }
+
+    function start() {
+        if (disposed) return Promise.resolve(null);
+        if (!opening) {
+            modes.start();
+            pedalReady = startPedal();
+            opening = open();
+        }
+        return opening;
     }
 
     /** Unsaved edits are saved before the page is told to close; a failed save keeps the view open. */
     async function close() {
-        if (disposed) return false;
+        if (disposed || closing) return false;
+        closing = true;
+        try {
+            if (opening) await opening;
+            if (disposed || !(await saveBeforeClose())) return false;
+            if (editor.lease.value.status === 'held') await editor.release();
+            if (disposed) return false;
+            if (typeof opts.onClose === 'function') opts.onClose({ dictationId });
+            return true;
+        } finally {
+            closing = false;
+        }
+    }
+
+    async function saveBeforeClose() {
         // A save can settle an older pending operation and leave newer text dirty (reconcile first),
         // or the text can change while the save is awaited: save again, bounded, until nothing is dirty.
         // A save already in flight (autosave follow-up) is awaited, not counted as a failure or a pass.
@@ -606,7 +698,6 @@ export function createCorrectionViewController(options) {
                 return false;
             }
         }
-        if (typeof opts.onClose === 'function') opts.onClose({ dictationId });
         return true;
     }
 
@@ -635,7 +726,7 @@ export function createCorrectionViewController(options) {
         vue: V, api, editor, alignment, modes, saver, repeat, gain: () => gain,
         ready, loadGeneration, revisionGeneration, audioEl, gainState, closeMessage, resumeLabel,
         recordingId: () => opts.recordingId || editor.audio.value.recordingId || null,
-        peaksKey, peaksFetch,
+        peaksKey, peaksFetch, playRange,
         stepSeconds: v8 ? STEP_SECONDS_V8 : STEP_SECONDS,
         leaseRun, leaseButtons,
         pedalStatus, pedalReady: () => pedalReady, pedal: () => pedal, setPedalSettings,
@@ -776,7 +867,8 @@ export const CorrectionBody = {
             dictationId: props.dictationId,
             currentUser: props.currentUser,
             vue: props.vue || undefined,
-            contract: 'v8', // the mounted view runs the V8 save contract: lease controller, reconcile first, +-5 s step
+                         contract: 'v8', // the mounted view runs the V8 save contract: lease controller, reconcile first, +-5 s step
+            openMode: props.openMode,
             recordingId: props.recordingId || undefined,
             createAudioContext: props.createAudioContext || undefined,
             onClose: () => { if (ctx && typeof ctx.emit === 'function') ctx.emit('close'); },
@@ -1188,8 +1280,8 @@ export const CorrectionBody = {
       </fieldset>
     </section>
     <section class="panel">
-      <CorrectionWaveform :key="'w' + loadGeneration + audio.revisionId" :editor="c.editor" :alignment="c.alignment" :client="c.client"
-                          :dictation-id="dictationId" :recording-id="c.peaksKey()" :fetch-fn="c.peaksFetch" :seek="c.seek" :vue="c.vue" />
+      <CorrectionWaveform :key="'w' + loadGeneration + '-' + revisionGeneration + audio.revisionId" :editor="c.editor" :alignment="c.alignment" :client="c.client"
+                          :dictation-id="dictationId" :recording-id="c.peaksKey()" :fetch-fn="c.peaksFetch" :play-range="c.playRange" :vue="c.vue" />
     </section>
 
   </div>
