@@ -16,7 +16,7 @@ def test_recorder_can_retry_and_opens_no_upload_modal(app_base):
         try:
             context = browser.new_context(storage_state=login(browser, app_base, ROLES["author"]))
             page = context.new_page()
-            page.goto(app_base + "/#/neu")
+            page.goto(app_base + "/#/aufnahme")
             view = page.get_by_test_id("clinic-recording-view")
             expect(view.get_by_test_id("rec-start")).to_be_enabled()
             expect(view.locator("input")).to_have_count(0)
@@ -35,7 +35,7 @@ def test_recorder_can_retry_and_opens_no_upload_modal(app_base):
             view.get_by_test_id("rec-stop").click()
             page.route("**/upload", lambda route: route.fulfill(status=503), times=1)
             view.get_by_test_id("rec-send").click()
-            expect(view.get_by_test_id("status")).to_contain_text("Senden fehlgeschlagen")
+            expect(view.get_by_test_id("status")).to_contain_text("Speichern nicht bestätigt")
             assert page.url.endswith("/#/neu")
 
             with page.expect_response(app_base + "/upload") as upload:
@@ -44,7 +44,13 @@ def test_recorder_can_retry_and_opens_no_upload_modal(app_base):
             receipt = upload.value.json()
             assert re.fullmatch(r"Diktat \d{2}\.\d{2}\.\d{4} \d{2}:\d{2}", receipt["title"]), receipt
             expect(view.get_by_test_id("created-id")).to_have_text(receipt["dictation_id"])
-            expect(view.get_by_test_id("status")).to_have_text("Eingereicht.")
+            expect(view.get_by_test_id("status")).to_contain_text("Gespeichert.")
+            view.get_by_test_id("submit-draft").click()
+            expect(view.get_by_test_id("send-default")).to_have_text(
+                "Alle berechtigten Schreibkräfte (lead-v860, typist-v860)")
+            view.get_by_role("button", name="Jetzt einreichen").click()
+            expect(view.get_by_test_id("status")).to_have_text(
+                "Eingereicht. Ziel: Alle berechtigten Schreibkräfte (lead-v860, typist-v860)")
             assert page.url.endswith("/#/neu")
             assert page.evaluate("window.stockUploadUsed") is False
             assert posts == [app_base + "/upload"] * 2

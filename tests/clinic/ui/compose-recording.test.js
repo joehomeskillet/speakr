@@ -59,7 +59,8 @@ describe('recording view controller', () => {
         expect(m.authorId).toBe('4');
         expect(Object.keys(c)).not.toContain('setAuthor');
         expect(Object.keys(c)).not.toContain('setPool');
-        expect(RECORDING_TEMPLATE).not.toMatch(/<select|author-picker|pool/i);
+        const sendTarget = /<select id="crv-send-target"[^>]*>[\s\S]*?<\/select>/;
+        expect(RECORDING_TEMPLATE.replace(sendTarget, '')).not.toMatch(/<select|author-picker|pool/i);
         expect(RECORDING_TEMPLATE).not.toContain('c.text.author');
         expect(TEXT.author).toBe('Diktiert von');
     });
@@ -200,7 +201,7 @@ describe('recording view controller', () => {
         expect(c.model().message).toContain('Datei hochladen');
     });
 
-    it('offers Zur Arbeitsliste and Öffnen only after success', async () => {
+    it('offers Zur Arbeitsliste and Diktat öffnen only after success', async () => {
         const { c, onOpen, onWorklist } = make();
         expect(c.openCreated()).toBe(false);
         expect(c.toWorklist()).toBe(false);
@@ -211,7 +212,7 @@ describe('recording view controller', () => {
         expect(c.openCreated()).toBe(true);
         expect(onOpen).toHaveBeenCalledWith({ dictationId: 'rec-1' });
         expect(TEXT.toWorklist).toBe('Zur Arbeitsliste');
-        expect(TEXT.open).toBe('Öffnen');
+        expect(TEXT.open).toBe('Diktat öffnen');
     });
 
     it('starts the next dictation clean after success', async () => {

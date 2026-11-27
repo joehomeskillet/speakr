@@ -53,17 +53,20 @@ export const TEXT = Object.freeze({
     routingPending: 'Berechtigung wird geprüft …',
     routingMissing: 'Ihr Konto ist noch keinem Autorenpool zugeordnet. Bitte wenden Sie sich an die Verwaltung.',
     routingError: 'Die Berechtigung konnte nicht geprüft werden. Bitte laden Sie die Seite neu.',
-    recordFailed: 'Senden fehlgeschlagen. Der Entwurf wurde nicht gesendet. Die Aufnahme wird nicht lokal gespeichert.',
-    fileFailed: 'Hochladen fehlgeschlagen. Der Entwurf wurde nicht gesendet. Die Audiodatei wird nicht lokal gespeichert.',
-    sent: 'Gespeichert. Noch nicht an den Schreibdienst gesendet.',
+    recordFailed: 'Speichern nicht bestätigt. Das Diktat wurde nicht gesendet. Die Aufnahme wird nicht lokal gespeichert.',
+    fileFailed: 'Speichern nicht bestätigt. Das Diktat wurde nicht gesendet. Die Audiodatei wird nicht lokal gespeichert.',
+    sent: 'Gespeichert.',
     submit: 'Einreichen',
     retrySave: 'Erneut sichern',
     submitting: 'Diktat wird eingereicht …',
+    checkingTarget: 'Das vorgesehene Ziel wird geladen …',
+    targetUnavailable: 'Die Vorgabe ist nicht verfügbar.',
+    previewFailed: 'Das vorgesehene Ziel konnte nicht geladen werden. Bitte erneut versuchen.',
     submitted: 'Eingereicht.',
     submitUnknown: 'Einreichung nicht bestätigt. Bitte erneut versuchen.',
     created: 'Erstelltes Diktat',
     toWorklist: 'Zur Arbeitsliste',
-    open: 'Öffnen',
+    open: 'Diktat öffnen',
     another: 'Weitere Aufnahme',
     discardFailed: 'Die Aufnahme konnte nicht verworfen werden.',
     denied: 'Keine Berechtigung für diese Aktion.',
@@ -121,8 +124,11 @@ export function isAudioFile(file) {
 const SEND_REFUSALS = Object.freeze({
     AUDIO_REQUIRED: 'Für diesen Entwurf liegt keine gültige Audiofassung vor.',
     NOT_DRAFT: 'Das Diktat ist kein neuer Entwurf mehr. Bitte den aktuellen Stand öffnen.',
-    NO_STAFF_POOL: 'Kein Schreibkräfte-Pool zugeordnet.',
-    STALE_VERSION: 'Der Entwurf wurde geändert. Bitte den aktuellen Stand prüfen.',
+    NO_STAFF_POOL: 'Für dieses Diktat ist kein Schreibteam erreichbar.',
+    STALE_VERSION: 'Der Entwurf oder die Vorgabe wurde geändert. Bitte das Ziel erneut prüfen.',
+    RECIPIENT_NOT_ELIGIBLE: 'Das gewählte Ziel ist nicht mehr verfügbar. Bitte das Ziel erneut prüfen.',
+    CHOICE_DISABLED: 'Die erlaubten Ziele haben sich geändert. Bitte das Ziel erneut prüfen.',
+    PERSON_NOT_ALLOWED: 'Die erlaubten Ziele haben sich geändert. Bitte das Ziel erneut prüfen.',
 });
 
 function displayName(user) {
@@ -155,6 +161,9 @@ export function createRecordingViewController(options) {
     let submission = null;
     let submitError = '';
     let pendingSend = null;
+    let sendPreview = null;
+    let selectedTarget = -1;
+    let confirmedTarget = '';
     // A host that calls checkRouting() right after mounting (RecordingView) starts without the pending state.
     let routing = opts.oneButton && !opts.preflightOnMount ? 'routingPending' : null;
 
@@ -251,33 +260,85 @@ export function createRecordingViewController(options) {
             && allowed() && !state.disposed && !submission;
     }
 
-    async function submit() {
-        if (!canSubmit()) return denied('invalid_phase');
+    const dictationPath = () => '/dictations/' + encodeURIComponent(receipt().dictation_id);
+
+    function handleRefusal(result) {
+        submitError = SEND_REFUSALS[result.code] || result.message;
+        if (result.code === 'NOT_DRAFT') submission = 'notDraft';
+    }
+
+    async function prepareSubmit() {
+        if (!canSubmit() || sendPreview) return denied('invalid_phase');
         const id = receipt().dictation_id;
-        const path = '/dictations/' + encodeURIComponent(id);
+        submission = 'checkingTarget';
+        submitError = '';
+        notify();
+        try {
+            const res = await client.request(dictationPath() + '/send-preview');
+            if (state.disposed || !allowed()) return denied('cancelled');
+            const data = res.data;
+            if (res.outcome === 'ok' && data?.dictation_id === id && data.etag
+                && Number.isInteger(data.default_version) && Array.isArray(data.options)) {
+                sendPreview = data;
+                return { ok: true };
+            }
+            handleRefusal(res);
+            return denied(res.code || 'preview_unavailable');
+        } catch {
+            return denied('preview_unavailable');
+        } finally {
+            if (submission === 'checkingTarget') submission = null;
+            if (!sendPreview) submitError ||= TEXT.previewFailed;
+            if (!state.disposed) notify();
+        }
+    }
+
+    function selectTarget(index) {
+        if (!allowed() || !sendPreview || submission || pendingSend) return;
+        if (index !== -1 && !sendPreview.options[index]) return;
+        selectedTarget = index;
+        notify();
+    }
+
+    function cancelSubmit() {
+        if (!sendPreview || submission || pendingSend) return;
+        sendPreview = null;
+        selectedTarget = -1;
+        notify();
+    }
+
+    const canConfirm = () => canSubmit() && !!(sendPreview?.options[selectedTarget] || sendPreview?.default_label);
+
+    async function submit() {
+        if (!canConfirm()) return denied('invalid_phase');
+        const id = receipt().dictation_id;
+        const path = dictationPath();
         submission = 'submitting';
         submitError = '';
         notify();
         try {
             if (!pendingSend) {
-                const detail = await client.request(path + '/detail');
-                if (detail.outcome !== 'ok' || detail.data?.dictation_id !== id || !detail.data.etag) {
-                    submitError = detail.message || 'Der aktuelle Diktatstand konnte nicht geladen werden.';
-                    return denied('detail_unavailable');
-                }
-                pendingSend = { idempotencyKey: globalThis.crypto.randomUUID(), ifMatch: detail.data.etag };
+                const body = { expected_version: sendPreview.default_version };
+                const override = sendPreview.options[selectedTarget];
+                if (override) body.override = { mode: override.mode, target_ids: override.target_ids };
+                pendingSend = { method: 'POST', body, idempotencyKey: globalThis.crypto.randomUUID(), ifMatch: sendPreview.etag };
             }
             if (state.disposed || !allowed()) return denied('cancelled');
-            const res = await client.request(path + '/send', { method: 'POST', body: {}, ...pendingSend });
-            if (state.disposed) return denied('cancelled');
-            if (res.outcome === 'ok' && res.data?.dictation_id === id && res.data.status) {
+            const res = await client.request(path + '/send', pendingSend);
+            if (state.disposed || !allowed()) return denied('cancelled');
+            const label = res.data?.routing_target?.label;
+            if (res.outcome === 'ok' && res.data?.dictation_id === id && res.data.status && typeof label === 'string' && label) {
+                confirmedTarget = label;
+                sendPreview = null;
+                pendingSend = null;
                 submission = 'submitted';
                 return { ok: true };
             }
             if (['conflict', 'permission', 'validation'].includes(res.outcome)) {
                 pendingSend = null;
-                submitError = SEND_REFUSALS[res.code] || res.message;
-                if (res.code === 'NOT_DRAFT') submission = 'notDraft';
+                sendPreview = null;
+                selectedTarget = -1;
+                handleRefusal(res);
             }
             return denied(res.code || 'unconfirmed');
         } catch {
@@ -293,11 +354,7 @@ export function createRecordingViewController(options) {
 
     async function sendRecording() {
         if (state.mode !== 'record' || routing || state.disposed) return denied('invalid_phase');
-        if (!receipt()) {
-            const uploaded = await machine.send();
-            if (!uploaded.ok) return uploaded;
-        }
-        return submit();
+        return machine.send();
     }
 
     /** Opens the created dictation in the page; false when none was created. */
@@ -316,10 +373,12 @@ export function createRecordingViewController(options) {
 
     /** Starts the next dictation from a clean state after a successful send. */
     function another() {
-        if (!created() || submission === 'submitting') return denied('invalid_phase');
+        if (!created() || submission === 'submitting' || submission === 'checkingTarget' || pendingSend) return denied('invalid_phase');
         submission = null;
         submitError = '';
-        pendingSend = null;
+        sendPreview = null;
+        selectedTarget = -1;
+        confirmedTarget = '';
         Object.assign(state, { file: null, filePhase: 'idle', fileError: null, fileReceipt: null });
         if (machine.getState().phase === 'sent') machine.reset();
         if (client && typeof client.switchContext === 'function') client.switchContext({});
@@ -337,6 +396,7 @@ export function createRecordingViewController(options) {
         if (routing) return TEXT[routing];
         if (submitError) return submitError;
         if (submission) return TEXT[submission];
+        if (sendPreview) return '';
         const s = machine.getState();
         if (state.mode === 'file') {
             if (state.filePhase === 'sending') return TEXT.uploading;
@@ -348,14 +408,13 @@ export function createRecordingViewController(options) {
         if (s.error === 'microphone_denied') return TEXT.microphoneDenied;
         if (s.error === 'start_failed') return TEXT.startFailed;
         if (s.error === 'discard_failed') return TEXT.discardFailed;
-        if (s.phase === 'sent') return opts.oneButton ? '' : TEXT.sent;
-        if (opts.oneButton && s.phase === 'sending') return TEXT.submitting;
+        if (s.phase === 'sent') return TEXT.sent;
         return machine.announcement();
     }
 
     function surface() {
         if (submitError) return surfaceFor('error');
-        if (submission === 'submitting') return surfaceFor('processing');
+        if (submission === 'submitting' || submission === 'checkingTarget') return surfaceFor('processing');
         if (state.mode !== 'file') return machine.surface();
         const status = { idle: 'normal', selected: 'pending', sending: 'processing', sent: 'success', failed: 'error' }[state.filePhase];
         return surfaceFor(status);
@@ -370,6 +429,11 @@ export function createRecordingViewController(options) {
             phase: submission || phase(),
             routing,
             canSubmit: canSubmit(),
+            canConfirm: canConfirm(),
+            sendPreview,
+            selectedTarget,
+            retrySend: !!pendingSend,
+            confirmedTarget,
             author: displayName(user),
             authorId: String(user.id),
             title: s.title,
@@ -417,7 +481,7 @@ export function createRecordingViewController(options) {
         stop: () => machine.stop(), rewind: () => machine.rewind(), play: () => machine.play(),
         beginning: machine.beginning, end: machine.end,
         send: () => machine.send(), cancel: () => machine.cancel(),
-        selectFile, sendFile, cancelFile, submit, sendRecording, checkRouting,
+        selectFile, sendFile, cancelFile, prepareSubmit, selectTarget, cancelSubmit, submit, sendRecording, checkRouting,
         openCreated, toWorklist, another, dispose,
     };
 }
@@ -432,7 +496,9 @@ export const RECORDING_TEMPLATE = `
   <h1 id="crv-title" class="sr-only">{{ c.text.title }}</h1>
   <div style="width: 100%; max-width: 28rem; text-align: center">
     <p v-show="m.message" role="status" aria-live="polite" data-testid="status" style="margin: 0 0 var(--ui-space-3)"
-       :style="m.phase === 'submitted' ? { fontSize: '1.25rem', fontWeight: 650 } : null">{{ m.message }}</p>
+       :style="m.phase === 'submitted' ? { fontSize: '1.25rem', fontWeight: 650 } : null">{{ m.message }}
+      <span v-if="m.confirmedTarget" data-testid="send-receipt" style="display: block; font-size: 1rem; font-weight: normal; overflow-wrap: anywhere">Ziel: {{ m.confirmedTarget }}</span>
+    </p>
     <template v-if="!m.routing">
       <template v-if="m.mode === 'record'">
         <div v-if="m.phase === 'title' || m.phase === 'ready'" style="display: grid; justify-items: center; gap: var(--ui-space-2)">
@@ -457,18 +523,17 @@ export const RECORDING_TEMPLATE = `
             <button type="button" class="button accent" style="${TOUCH}" data-testid="rec-stop" :aria-keyshortcuts="shortcuts.stop" @click="c.stop()">Stopp</button>
           </div>
         </div>
-        <div v-else-if="m.phase === 'review' || m.phase === 'failed' || (m.created && m.canSubmit)"
+        <div v-else-if="m.phase === 'review' || m.phase === 'failed'"
              style="display: grid; justify-items: center; gap: var(--ui-space-3)">
-          <audio v-if="!m.created && previewUrl" :ref="bindReview" controls preload="metadata" :src="previewUrl" aria-label="Aufnahme anhören"
+          <audio v-if="previewUrl" :ref="bindReview" controls preload="metadata" :src="previewUrl" aria-label="Aufnahme anhören"
                  @loadedmetadata="loadReview" @durationchange="c.machine.syncPlayback()" @seeked="finishDurationProbe"
                  @play="c.machine.syncPlayback()" @pause="c.machine.syncPlayback()" @ended="c.machine.syncPlayback()"
                  @error="c.machine.playbackFailed()" style="width: 100%; min-height: 3rem"></audio>
           <button type="button" class="button primary" style="${TOUCH}; width: 100%; font-size: 1rem" data-testid="rec-send" @click="c.sendRecording()">
-            {{ m.phase === 'review' ? 'Senden' : 'Erneut senden' }}
+            {{ m.phase === 'review' ? 'Entwurf sichern' : c.text.retrySave }}
           </button>
-          <button v-if="!m.created" type="button" class="button quiet" style="${TOUCH}; font-size: .875rem"
+          <button type="button" class="button quiet" style="${TOUCH}; font-size: .875rem"
                   data-testid="rec-cancel" @click="discard">Neu aufnehmen</button>
-          <a v-else href="#/diktat" style="${LINK}" @click.prevent="c.openCreated()">Diktat öffnen</a>
         </div>
       </template>
       <div v-else-if="!m.created" style="display: grid; gap: var(--ui-space-3); text-align: left">
@@ -481,15 +546,38 @@ export const RECORDING_TEMPLATE = `
                   :disabled="!m.canSwitchMode" @click="backToRecorder">Zurück zur Aufnahme</button>
         </div>
       </div>
-      <div v-if="m.created && (m.phase === 'submitted' || m.phase === 'notDraft' || (m.mode === 'file' && m.phase !== 'submitting'))"
-           data-testid="created">
+      <div v-if="m.created" data-testid="created">
         <span class="sr-only" data-testid="created-id">{{ m.created.dictationId }}</span>
+        <div v-if="m.sendPreview" data-testid="send-preview" style="display: grid; gap: var(--ui-space-3); margin-bottom: var(--ui-space-3)">
+          <h2 ref="previewHeading" tabindex="-1" style="margin: 0">Diktat einreichen</h2>
+          <p v-if="m.sendPreview.default_label" style="margin: 0; overflow-wrap: anywhere">
+            Vorgabe <strong data-testid="send-default">{{ m.sendPreview.default_label }}</strong>
+          </p>
+          <p v-else style="margin: 0">{{ c.text.targetUnavailable }}</p>
+          <template v-if="m.sendPreview.options.length">
+            <label for="crv-send-target" style="text-align: left">{{ m.sendPreview.default_label ? 'Anderes Ziel wählen' : 'Ziel wählen' }}</label>
+            <select id="crv-send-target" :value="m.selectedTarget" :disabled="m.retrySend || m.phase === 'submitting'"
+                    @change="c.selectTarget(Number($event.target.value))" style="${TOUCH}; min-width: 0; border-color: var(--ui-text-muted)">
+              <option :value="-1" :disabled="!m.sendPreview.default_label">{{ m.sendPreview.default_label ? 'Vorgabe verwenden' : 'Bitte wählen' }}</option>
+              <option v-for="(target, index) in m.sendPreview.options" :key="index" :value="index">{{ target.label }}</option>
+            </select>
+          </template>
+          <div class="actions" style="justify-content: center">
+            <button v-if="m.sendPreview.default_label || m.sendPreview.options.length" type="button" class="button primary"
+                    style="${TOUCH}" :disabled="!m.canConfirm" @click="c.submit()">{{ m.retrySend && m.phase !== 'submitting' ? 'Erneut einreichen' : 'Jetzt einreichen' }}</button>
+            <button v-if="!m.retrySend" type="button" class="button quiet" style="${TOUCH}"
+                    :disabled="m.phase === 'submitting'" @click="c.cancelSubmit()">{{ c.text.cancel }}</button>
+          </div>
+        </div>
         <div class="actions" style="justify-content: center">
-          <button v-if="m.mode === 'file' && m.canSubmit" type="button" class="button primary" style="${TOUCH}"
-                  data-testid="submit-draft" @click="c.submit()">{{ c.text.submit }}</button>
-          <a href="#/diktat" data-testid="open-created" style="${LINK}" @click.prevent="c.openCreated()">{{ m.mode === 'file' ? c.text.open : 'Diktat öffnen' }}</a>
-          <button v-if="m.mode === 'file'" type="button" class="button" style="${TOUCH}" data-testid="to-worklist" @click="c.toWorklist()">{{ c.text.toWorklist }}</button>
-          <button type="button" class="button" style="${TOUCH}" data-testid="another" @click="c.another()">{{ c.text.title }}</button>
+          <button v-if="!m.sendPreview && (m.canSubmit || m.phase === 'checkingTarget')" ref="submitOpener"
+                  type="button" class="button primary" style="${TOUCH}" data-testid="submit-draft" :disabled="!m.canSubmit"
+                  @click="c.prepareSubmit()">{{ c.text.submit }}</button>
+          <a href="#/diktat" data-testid="open-created" style="${LINK}" @click.prevent="c.openCreated()">{{ c.text.open }}</a>
+          <template v-if="!m.sendPreview && m.phase !== 'checkingTarget'">
+            <button v-if="m.mode === 'file'" type="button" class="button" style="${TOUCH}" data-testid="to-worklist" @click="c.toWorklist()">{{ c.text.toWorklist }}</button>
+            <button type="button" class="button" style="${TOUCH}" data-testid="another" @click="c.another()">{{ c.text.title }}</button>
+          </template>
         </div>
       </div>
     </template>
@@ -529,6 +617,11 @@ export const RecordingView = {
         const off = c.subscribe(() => { tick.value += 1; });
         const m = V.computed(() => (tick.value, c.model()));
         const root = V.ref(null);
+        const previewHeading = V.ref(null);
+        const submitOpener = V.ref(null);
+        V.watch?.(() => !!m.value.sendPreview, (open) => {
+            (open ? previewHeading.value : submitOpener.value)?.focus();
+        }, { flush: 'post' });
         const reviewSource = () => props.player ? null : props.recorder.reviewSource?.();
         let probingDuration = false;
         function bindReview(media) {
@@ -622,6 +715,7 @@ export const RecordingView = {
             c,
             m,
             root,
+            previewHeading, submitOpener,
             reviewSource,
             bindReview,
             loadReview,
