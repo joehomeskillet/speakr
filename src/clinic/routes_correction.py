@@ -34,7 +34,7 @@ from wtforms.validators import ValidationError
 
 from src.clinic import alignment_tokens as at
 from src.clinic import correction as corr
-from src.clinic import caution_words, lease, live_session, revisions
+from src.clinic import caution_words, lease, live_session, revisions, vocabulary
 from src.clinic.alignment import ClinicAlignmentRevision
 from src.clinic.audio_invalidation import get_compatible_links
 from src.clinic.audio_revisions import current_audio_revision
@@ -43,6 +43,7 @@ from src.clinic.correction_recognition_marks import current_marks
 from src.clinic.correction_transaction import CorrectionOriginalError, save_correction_transaction
 from src.clinic.models import ClinicDictation, ClinicTranscriptRevision
 from src.clinic.parity_dispatch import JSON, CommandProblem, RunOnce
+from src.clinic.routes_vocabulary import ApiError, canonical_selection
 from src.clinic.unicode_anchor_map import OffsetError, to_codepoint_offset, to_utf16_offset
 from src.database import db
 from src.models import User
@@ -387,6 +388,60 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
             return dict(id=str(marker_id), text_revision_id=head.id, confirmed=True)
 
         return write(dictation_id, 'review_marker_confirm', f'{pool_id}:{marker_id}', data, apply)
+
+    @bp.post(f'{PATH}/vocabulary-proposal')
+    def propose_vocabulary(dictation_id: UUID) -> Response:
+        """PAR-COR-009: mark the saved selection as one pending vocabulary proposal.
+
+        The phrase is taken from the confirmed transcript revision, not from a
+        free-standing body, and only an editor who may correct this dictation
+        can submit it. A repeated mark of the same phrase returns the existing
+        PENDING item. The call never writes a user or pool vocabulary entry.
+        """
+        data = _body({'expected_text_revision_id', 'selection_start', 'selection_end', 'lease_generation'},
+                     {'expected_text_revision_id', 'selection_start', 'selection_end', 'lease_generation'})
+        generation = _int(data['lease_generation'], 1)
+        start, end = _int(data['selection_start']), _int(data['selection_end'])
+        if start >= end:
+            abort(400)
+        try:
+            expected = _uuid(data['expected_text_revision_id'])
+        except (ValueError, TypeError, AttributeError):
+            abort(400)
+
+        def apply(dictation: ClinicDictation, actor: int) -> JSON:
+            lease.assert_current(dictation.id, actor, generation, datetime.now(timezone.utc))
+            head = revisions.current_revision(dictation)
+            if head is None or head.id != expected:
+                raise corr.CorrectionConflict('text changed since it was read')
+            try:
+                start_cp = to_codepoint_offset(head.body, start)
+                end_cp = to_codepoint_offset(head.body, end)
+            except OffsetError:
+                raise corr.CorrectionError('selection is outside the confirmed revision')
+            if start_cp >= end_cp:
+                raise corr.CorrectionError('selection is empty')
+            try:
+                phrase = canonical_selection(head.body[start_cp:end_cp])
+            except ApiError:
+                raise corr.CorrectionError('selection is not a phrase')
+            pending = vocabulary.list_review_items(
+                user_id=actor, status=vocabulary.REVIEW_STATUS_PENDING)
+            item = next((
+                row for row in pending
+                if row.dictation_id == dictation.id and row.written_form == phrase
+                and row.operation == vocabulary.REVIEW_OP_ADD
+                and row.origin == vocabulary.ORIGIN_CORRECTION and row.pool_id is None
+            ), None)
+            if item is None:
+                item = vocabulary.submit_review_item(
+                    user_id=actor, written_form=phrase, operation=vocabulary.REVIEW_OP_ADD,
+                    origin=vocabulary.ORIGIN_CORRECTION, dictation_id=dictation.id,
+                    information=f'text_revision_id={head.id}')
+            return dict(id=item.id, status=item.status, written=item.written_form,
+                        text_revision_id=head.id, published=False)
+
+        return write(dictation_id, 'vocabulary_proposal', expected, data, apply)
 
     @bp.post(f'{PATH}/markers')
     def add_marker(dictation_id: UUID) -> Response:
