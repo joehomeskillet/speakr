@@ -436,7 +436,7 @@ def _receipt_text(key: str, digest: str, size: int, origin: str, origin_ref: str
     }, sort_keys=True, separators=(',', ':'))
 
 
-def _lock_import(storage_key: str) -> None:
+def lock_original_key(storage_key: str) -> None:
     """Serialize the final receipt lookup and job insert for concurrent deliveries."""
     connection = db.session.connection()
     if connection.dialect.name == 'postgresql':
@@ -491,7 +491,7 @@ def _insert_row(author_user_id, storage_key, digest, size, origin, origin_ref, k
     )
     try:
         if import_path is not None:
-            _lock_import(storage_key)
+            lock_original_key(storage_key)
             existing = _existing(storage_key)
             if existing is not None:
                 receipt = _reuse(existing, digest, size, author_user_id)

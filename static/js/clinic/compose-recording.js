@@ -54,6 +54,9 @@ export const TEXT = Object.freeze({
     routingMissing: 'Ihr Konto ist noch keinem Autorenpool zugeordnet. Bitte wenden Sie sich an die Verwaltung.',
     routingError: 'Die Berechtigung konnte nicht geprüft werden. Bitte laden Sie die Seite neu.',
     recordFailed: 'Senden fehlgeschlagen. Der Entwurf wurde nicht gesendet. Die Aufnahme wird nicht lokal gespeichert.',
+    takeNotConfirmed: 'Senden fehlgeschlagen. Die Aufnahme ist weiterhin in diesem Browser verfügbar.',
+    takeSendFailed: 'Aufnahme gespeichert. Senden hat nicht geklappt.',
+    retryPending: 'Sie müssen nichts tun – es wird automatisch erneut gesendet.',
     fileFailed: 'Hochladen fehlgeschlagen. Der Entwurf wurde nicht gesendet. Die Audiodatei wird nicht lokal gespeichert.',
     sent: 'Gespeichert. Noch nicht an den Schreibdienst gesendet.',
     submit: 'Einreichen',
@@ -157,11 +160,16 @@ export function createRecordingViewController(options) {
     let submission = null;
     let submitError = '';
     let pendingSend = null;
+    let retryTimer = null;
+    let retriedAutomatically = false;
     let plannedServices = [];
+    let plannedDirectDestination = '';
     let confirmedServices = [];
+    let confirmedDirectDestination = '';
     const serviceNames = (names) => Array.isArray(names)
         ? names.filter((name) => typeof name === 'string' && name.trim()) : [];
     const singleService = (name) => /\bSchreibdienst\b/i.test(name) ? name : 'Schreibdienst ' + name;
+    const directDestination = (data) => typeof data?.direct_destination === 'string' ? data.direct_destination : '';
     // A host that calls checkRouting() right after mounting (RecordingView) starts without the pending state.
     let routing = opts.oneButton && !opts.preflightOnMount ? 'routingPending' : null;
 
@@ -176,7 +184,8 @@ export function createRecordingViewController(options) {
         notify();
         let preflight;
         try {
-            const response = await (opts.fetchPreflight || globalThis.fetch)('/api/config?recording_preflight=1', { cache: 'no-store' });
+            const path = opts.preflightPath || '/api/config?recording_preflight=1';
+            const response = await (opts.fetchPreflight || globalThis.fetch)(path, { cache: 'no-store' });
             if (response.ok) preflight = await response.json();
         } catch {
             // A failed preflight must never enable capture.
@@ -184,6 +193,7 @@ export function createRecordingViewController(options) {
         if (state.disposed) return;
         const available = preflight?.routable;
         plannedServices = available === true ? serviceNames(preflight.staff_service_names) : [];
+        plannedDirectDestination = available === true ? directDestination(preflight) : '';
         routing = available === true ? null : available === false ? 'routingMissing' : 'routingError';
         notify();
     }
@@ -260,27 +270,42 @@ export function createRecordingViewController(options) {
             && allowed() && !state.disposed && !submission;
     }
 
+    function scheduleRetry() {
+        if (retriedAutomatically || state.disposed || !allowed() || globalThis.navigator?.onLine === false) return;
+        retriedAutomatically = true;
+        retryTimer = setTimeout(() => {
+            retryTimer = null;
+            if (state.disposed || !allowed()) return notify();
+            void sendRecording();
+        }, 750);
+    }
+
     async function submit() {
         if (!canSubmit()) return denied('invalid_phase');
         const id = receipt().dictation_id;
         const path = '/dictations/' + encodeURIComponent(id);
+        const takeId = opts.oneButton && state.mode === 'record' ? receipt().take_id : null;
+        const deadline = takeId ? { timeoutMs: 20_000 } : {};
         submission = 'submitting';
         submitError = '';
         notify();
         try {
             if (!pendingSend) {
-                const detail = await client.request(path + '/detail');
+                const detail = await (takeId ? client.request(path + '/detail', deadline) : client.request(path + '/detail'));
                 if (detail.outcome !== 'ok' || detail.data?.dictation_id !== id || !detail.data.etag) {
                     submitError = detail.message || 'Der aktuelle Diktatstand konnte nicht geladen werden.';
                     return denied('detail_unavailable');
                 }
-                pendingSend = { idempotencyKey: globalThis.crypto.randomUUID(), ifMatch: detail.data.etag };
+                pendingSend = { idempotencyKey: takeId || globalThis.crypto.randomUUID(), ifMatch: detail.data.etag };
             }
             if (state.disposed || !allowed()) return denied('cancelled');
-            const res = await client.request(path + '/send', { method: 'POST', body: {}, ...pendingSend });
+            const res = await client.request(path + '/send', {
+                method: 'POST', body: takeId ? { take_id: takeId } : {}, ...pendingSend, ...deadline,
+            });
             if (state.disposed) return denied('cancelled');
             if (res.outcome === 'ok' && res.data?.dictation_id === id && res.data.status) {
                 confirmedServices = serviceNames(res.data.staff_service_names);
+                confirmedDirectDestination = directDestination(res.data);
                 submission = 'submitted';
                 return { ok: true };
             }
@@ -289,8 +314,10 @@ export function createRecordingViewController(options) {
                 submitError = SEND_REFUSALS[res.code] || res.message;
                 if (res.code === 'NOT_DRAFT') submission = 'notDraft';
             }
+            if (takeId && ['network', 'UNKNOWN'].includes(res.outcome)) scheduleRetry();
             return denied(res.code || 'unconfirmed');
         } catch {
+            if (takeId && pendingSend) scheduleRetry();
             return denied('unconfirmed');
         } finally {
             if (submission === 'submitting') {
@@ -302,7 +329,7 @@ export function createRecordingViewController(options) {
     }
 
     async function sendRecording() {
-        if (state.mode !== 'record' || routing || state.disposed) return denied('invalid_phase');
+        if (state.mode !== 'record' || routing || retryTimer !== null || state.disposed || !allowed()) return denied('invalid_phase');
         if (!receipt()) {
             const uploaded = await machine.send();
             if (!uploaded.ok) return uploaded;
@@ -330,7 +357,9 @@ export function createRecordingViewController(options) {
         submission = null;
         submitError = '';
         pendingSend = null;
+        retriedAutomatically = false;
         confirmedServices = [];
+        confirmedDirectDestination = '';
         Object.assign(state, { file: null, filePhase: 'idle', fileError: null, fileReceipt: null });
         if (machine.getState().phase === 'sent') machine.reset();
         if (client && typeof client.switchContext === 'function') client.switchContext({});
@@ -346,6 +375,8 @@ export function createRecordingViewController(options) {
     function message() {
         if (!allowed()) return TEXT.denied;
         if (routing) return TEXT[routing];
+        if (retryTimer !== null) return TEXT.retryPending;
+        if (opts.oneButton && state.mode === 'record' && submitError && !submission) return TEXT.takeSendFailed;
         if (submitError) return submitError;
         if (submission) return TEXT[submission];
         const s = machine.getState();
@@ -355,7 +386,10 @@ export function createRecordingViewController(options) {
             if (state.filePhase === 'failed') return TEXT.fileFailed;
             return state.fileError === 'invalid_file' ? TEXT.fileInvalid : '';
         }
-        if (s.phase === 'failed') return opts.oneButton || s.title.trim() ? TEXT.recordFailed : LABELS.titleHint;
+        if (s.phase === 'failed') {
+            if (opts.oneButton) return TEXT.takeNotConfirmed;
+            return s.title.trim() ? TEXT.recordFailed : LABELS.titleHint;
+        }
         if (s.error === 'microphone_denied') return TEXT.microphoneDenied;
         if (s.error === 'start_failed') return TEXT.startFailed;
         if (s.error === 'discard_failed') return TEXT.discardFailed;
@@ -378,24 +412,26 @@ export function createRecordingViewController(options) {
         const fileBusy = state.filePhase === 'sending' || state.filePhase === 'sent';
         const oneButtonRecording = opts.oneButton && state.mode === 'record' && allowed();
         const saved = oneButtonRecording && created() ? s.receipt : null;
+        const retry = s.phase === 'failed' || (s.phase === 'sent' && canSubmit());
+        const destination = plannedDirectDestination || (plannedServices.length === 1 ? singleService(plannedServices[0])
+            : plannedServices.length ? 'Schreibdienste ' + plannedServices.join(', ') : '');
         return {
             mode: state.mode,
-            phase: submission || phase(),
+            phase: retryTimer !== null ? 'retryPending' : submission || phase(),
             routing,
             canSubmit: canSubmit(),
             author: displayName(user),
             authorId: String(user.id),
             title: s.title,
-            plannedDestination: opts.oneButton && allowed() && s.phase === 'review' && plannedServices.length
-                ? 'Wird gesendet an: ' + (plannedServices.length === 1
-                    ? singleService(plannedServices[0]) : 'Schreibdienste ' + plannedServices.join(', ')) : '',
+            plannedDestination: oneButtonRecording && (s.phase === 'review' || retry) && destination
+                ? (retry || plannedDirectDestination ? 'Vorgesehen: ' : 'Wird gesendet an: ') + destination : '',
             localVisibility: oneButtonRecording && !state.disposed && s.phase === 'review' ? TEXT.localVisibility : '',
             submittedVisibility: !state.disposed && submission === 'submitted' && saved ? TEXT.submittedVisibility : '',
             recordingReceipt: saved ? {
                 title: typeof saved.title === 'string' && /^Diktat \d{2}\.\d{2}\.\d{4} \d{2}:\d{2}$/.test(saved.title) ? saved.title : '',
                 duration: formatRecordingDuration(saved.audio_duration),
-                arrived: confirmedServices.length === 1 ? 'Beim ' + singleService(confirmedServices[0]) + ' angekommen'
-                    : confirmedServices.length ? 'Bei den Schreibdiensten ' + confirmedServices.join(', ') + ' angekommen' : '',
+                arrived: confirmedDirectDestination || (confirmedServices.length === 1 ? 'Beim ' + singleService(confirmedServices[0]) + ' angekommen'
+                    : confirmedServices.length ? 'Bei den Schreibdiensten ' + confirmedServices.join(', ') + ' angekommen' : ''),
             } : null,
             titleLocked: !isTitleEditable(s.phase),
             controls: machine.controls(),
@@ -415,6 +451,8 @@ export function createRecordingViewController(options) {
     async function dispose() {
         if (state.disposed) return;
         state.disposed = true;
+        clearTimeout(retryTimer);
+        retryTimer = null;
         fileGeneration += 1;
         listeners.clear();
         const p = machine.getState().phase;
@@ -458,7 +496,7 @@ export const RECORDING_TEMPLATE = `
     <p v-show="m.message" role="status" aria-live="polite" data-testid="status" style="margin: 0 0 var(--ui-space-3)"
        :style="m.phase === 'submitted' ? { fontSize: '1.25rem', fontWeight: 650 } : null">{{ m.message }}</p>
     <div v-if="m.recordingReceipt" role="status" style="margin-bottom: var(--ui-space-4); overflow-wrap: anywhere">
-      <p data-testid="receipt-saved" style="margin: 0; font-weight: 650">Aufnahme gespeichert</p>
+      <p v-if="m.message !== c.text.takeSendFailed" data-testid="receipt-saved" style="margin: 0; font-weight: 650">Aufnahme gespeichert</p>
       <p v-if="m.recordingReceipt.title || m.recordingReceipt.duration" style="margin: var(--ui-space-2) 0 0">
         <span v-if="m.recordingReceipt.title" data-testid="receipt-title">{{ m.recordingReceipt.title }}</span><template v-if="m.recordingReceipt.title && m.recordingReceipt.duration"> · </template><span v-if="m.recordingReceipt.duration" data-testid="receipt-duration" :aria-label="'Aufnahmedauer ' + m.recordingReceipt.duration">{{ m.recordingReceipt.duration }}</span>
       </p>
@@ -488,7 +526,7 @@ export const RECORDING_TEMPLATE = `
             <button type="button" class="button accent" style="${TOUCH}" data-testid="rec-stop" :aria-keyshortcuts="shortcuts.stop" @click="c.stop()">Stopp</button>
           </div>
         </div>
-        <div v-else-if="m.phase === 'review' || m.phase === 'failed' || (m.created && m.canSubmit)"
+        <div v-else-if="m.phase === 'review' || m.phase === 'failed' || (m.phase === 'sent' && m.canSubmit)"
              style="display: grid; justify-items: center; gap: var(--ui-space-3)">
           <audio v-if="!m.created && previewUrl" :ref="bindReview" controls preload="metadata" :src="previewUrl" aria-label="Aufnahme anhören"
                  @loadedmetadata="loadReview" @durationchange="c.machine.syncPlayback()" @seeked="finishDurationProbe"
@@ -499,9 +537,8 @@ export const RECORDING_TEMPLATE = `
           <button type="button" class="button primary" style="${TOUCH}; width: 100%; font-size: 1rem" data-testid="rec-send" @click="c.sendRecording()">
             {{ m.phase === 'review' ? 'Senden' : 'Erneut senden' }}
           </button>
-          <button v-if="!m.created" type="button" class="button quiet" style="${TOUCH}; font-size: .875rem"
+          <button v-if="m.phase === 'review'" type="button" class="button quiet" style="${TOUCH}; font-size: .875rem"
                   data-testid="rec-cancel" @click="discard">Neu aufnehmen</button>
-          <a v-else href="#/diktat" style="${LINK}" @click.prevent="c.openCreated()">Diktat öffnen</a>
         </div>
       </template>
       <div v-else-if="!m.created" style="display: grid; gap: var(--ui-space-3); text-align: left">
@@ -551,15 +588,17 @@ export const RecordingView = {
         const V = props.vue || (typeof window !== 'undefined' ? window.Vue : null);
         if (!V) throw new Error('Vue is required to mount the recording view');
         const emit = (name, payload) => { if (ctx && typeof ctx.emit === 'function') ctx.emit(name, payload); };
+        const accountId = props.currentUser.id;
         const c = createRecordingViewController({
             client: props.client,
             currentUser: props.currentUser,
             recorder: props.recorder,
             uploadFile: props.uploadFile,
             player: props.player,
-            authorized: props.authorized || undefined,
+            authorized: () => props.currentUser?.id === accountId && props.authorized?.() !== false,
             oneButton: true,
             preflightOnMount: true,
+            preflightPath: '/api/clinic/v1/recording-takes/preflight',
             onOpen: (payload) => emit('open', payload),
             onWorklist: () => emit('worklist'),
         });

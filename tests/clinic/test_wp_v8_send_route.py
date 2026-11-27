@@ -1,14 +1,16 @@
 """Author sends through real clinic startup, session policy and durable receipts."""
+import io
 import os
 import subprocess
 import sys
+import wave
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Barrier
 from unittest.mock import patch
 from uuid import uuid4
 
-from src.clinic import pools, revisions, workflow
+from src.clinic import pools, recipient_defaults, revisions, web_ingest, workflow
 from src.clinic.models import ClinicAudioRevision, ClinicDictation, ClinicOriginal
 from src.database import db
 from src.models import AuditEvent, ProcessingJob, Recording
@@ -40,6 +42,89 @@ def _draft(author, pool, *, audio=True, recognition=None):
         db.session.add(ProcessingJob(user_id=author, recording_id=recording,
                                      job_type='transcribe', status='processing'))
     return target
+
+
+def _exercise_mic_replay(app, author, other):
+    def audio(sample):
+        buf = io.BytesIO()
+        with wave.open(buf, 'wb') as wav:
+            wav.setparams((1, 2, 8000, 0, 'NONE', 'not compressed'))
+            wav.writeframes(sample.to_bytes(2, 'little') * 8000)
+        buf.seek(0)
+        return buf
+
+    clients = [_client(app, author), _client(app, author)]
+    outsider, _ = _client(app, other)
+    preflight = clients[0][0].get('/api/clinic/v1/recording-takes/preflight')
+    assert preflight.json == {'routable': True, 'staff_service_names': ['Schreibdienst']}
+    take_id = str(uuid4())
+    lookup = f'/api/clinic/v1/recording-takes/{take_id}'
+    label = 'Diktat 27.11.2026 09:03'
+
+    def upload(actor, sample=1):
+        browser, csrf = actor
+        return browser.post('/upload', headers=csrf, data={'file': (audio(sample), 'aufnahme.wav'),
+                            'from_recorder': 'true', 'clinic_take_id': take_id, 'title': label})
+
+    with patch.object(web_ingest, 'queue_take', side_effect=RuntimeError('queue insert interrupted')):
+        assert upload(clients[0]).status_code == 500
+    assert clients[0][0].get(lookup).status_code == 404
+
+    barrier = Barrier(2)
+
+    def concurrent_upload(actor):
+        barrier.wait(timeout=10)
+        return upload(actor)
+
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        results = list(workers.map(concurrent_upload, clients))
+    assert sorted(res.status_code for res in results) == [200, 202], [res.json for res in results]
+    receipt = results[0].json
+    assert results[1].json == receipt
+    assert receipt['take_id'] == take_id and receipt['title'] == label and 1 <= receipt['audio_duration'] < 2
+    browser, csrf = clients[0]
+    assert browser.get(lookup).json == receipt
+    assert browser.get(lookup).headers['Cache-Control'] == 'no-store'
+    assert outsider.get(lookup).status_code == 404
+    assert app.test_client().get(lookup).status_code == 401
+    assert upload(clients[0], sample=2).status_code == 409
+
+    target = receipt['dictation_id']
+    url = f'/api/clinic/v1/dictations/{target}'
+    etag = browser.get(url + '/detail').json['etag']
+    headers = {**csrf, 'Idempotency-Key': take_id, 'If-Match': etag}
+    assert browser.post(url + '/send', headers=headers, json={'take_id': str(uuid4())}).status_code == 400
+    def send(actor):
+        session, token = actor
+        return session.post(url + '/send', headers={**headers, **token}, json={'take_id': take_id})
+
+    def concurrent_send(actor):
+        barrier.wait(timeout=10)
+        return send(actor)
+
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        sent, replay = workers.map(concurrent_send, clients)
+    assert sent.status_code == replay.status_code == 200, (sent.json, replay.json)
+    assert sent.json == replay.json
+    assert sent.json['status'] == workflow.PREP_ONLINE
+    assert sent.json['staff_service_names'] == ['Schreibdienst']
+
+    with app.app_context():
+        job = ProcessingJob.query.filter_by(recording_id=receipt['id'], job_type='transcribe').one()
+        job.status = 'completed'
+        db.session.commit()
+    assert upload(clients[1]).json == receipt
+    assert send(clients[1]).json == sent.json
+    with app.app_context():
+        assert Recording.query.filter_by(user_id=author, original_filename='aufnahme.wav').count() == 1
+        assert ClinicDictation.query.filter_by(author_user_id=author).count() == 1
+        dictation = db.session.get(ClinicDictation, target)
+        assert dictation.version_counter == 1
+        assert ClinicOriginal.query.filter_by(dictation_id=target).count() == 1
+        assert ProcessingJob.query.filter_by(recording_id=receipt['id']).count() == 1
+        assert AuditEvent.query.filter_by(recording_id=dictation.recording_id, event='recording.edited').count() == 1
+        [assignment] = workflow.ClinicWorkflowDictation.query.filter_by(id=target).all()
+        assert workflow.read_routing_target(assignment).mode == 'staff_pool'
 
 
 def _exercise():
@@ -135,6 +220,12 @@ def _exercise():
     assert {row['dictation_id']: row['status'] for row in worklist.json['items']} == {
         idle: workflow.TO_WRITE, asr: workflow.TO_CORRECT, running: workflow.PREP_ONLINE, silent: workflow.DRAFT,
     }
+    with app.app_context():
+        mic_author = _user('mic-author')
+        pools.add_author_member(pool, mic_author, actor_id=other)
+        recipient_defaults.set_default(mic_author, 'staff_pool', actor_id=mic_author,
+                                       expected_version=0, target_ids=[staff_id])
+    _exercise_mic_replay(app, mic_author, other)
     with app.app_context():
         labelled = _draft(author, pool)
         db.session.commit()

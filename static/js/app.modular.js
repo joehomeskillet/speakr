@@ -3115,15 +3115,24 @@ document.addEventListener('DOMContentLoaded', async () => {
             ];
             const clinicMenuToolbarVisible = computed(() => clinicMenuActions.some((entry) => entry.view === currentView.value));
             // Recorded takes and selected files share the same upload and server receipt.
-            const clinicUploadFile = async (file, recordingTitle) => {
+            const clinicUploadFile = async (file, recordingTitle, take) => {
+                const signal = take ? AbortSignal.timeout(120_000) : undefined;
+                if (take?.retry) {
+                    const saved = await fetch('/api/clinic/v1/recording-takes/' + encodeURIComponent(take.id), {
+                        cache: 'no-store', signal,
+                    });
+                    if (saved.ok) return saved.json();
+                    if (saved.status !== 404) throw new Error('take_lookup_failed');
+                }
                 const body = new FormData();
                 body.append('file', file);
                 if (recordingTitle !== undefined) {
                     body.append('title', recordingTitle);
                     body.append('from_recorder', 'true');
                 }
+                if (take) body.append('clinic_take_id', take.id);
                 const token = clinicMenu ? await clinicMenu.getUploadCsrfToken() : null;
-                const response = await fetch('/upload', { method: 'POST', headers: token ? { 'X-CSRFToken': token } : {}, body });
+                const response = await fetch('/upload', { method: 'POST', headers: token ? { 'X-CSRFToken': token } : {}, body, signal });
                 if (!response.ok) throw new Error('upload_failed');
                 return response.json();
             };

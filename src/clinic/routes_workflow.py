@@ -45,8 +45,8 @@ from werkzeug.exceptions import HTTPException
 from wtforms.validators import ValidationError
 
 from src.clinic import acceptance_rules, archive_policy, lease, live_session, policy
-from src.clinic import pools, recognition_state, revisions, workflow, workflow_actions, workflow_finalize
-from src.clinic import workflow_metadata
+from src.clinic import pools, recipient_defaults, recognition_state, revisions, workflow, workflow_actions, workflow_finalize
+from src.clinic import web_ingest, workflow_metadata
 from src.clinic.acceptance_policy import SCOPE_DICTATION, AcceptanceLedger, AcceptancePolicyVersion, PolicyError
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.routes_categories import CategoryError, check_submission, selection_notes
@@ -59,7 +59,7 @@ from src.clinic.parity_dispatch import JSON, CommandProblem, ParityDispatch, Run
 from src.clinic.pool_policy import author_pool_ids
 from src.clinic.release import _heads as release_heads, current_audio_id
 from src.database import db
-from src.models import Recording
+from src.models import Recording, User
 from src.services import audit
 
 PATH = '/api/clinic/v1/dictations/<uuid:dictation_id>'
@@ -501,14 +501,50 @@ def create_blueprint(
 
         return command(dictation_id, 'release', workflow_finalize.PERMISSION, body, apply, created=201)
 
+    def take_destination(target, staff_pools):
+        if target.mode == 'self_correction':
+            return {'direct_destination': 'Eigene Korrektur'}
+        if target.mode == 'person':
+            recipient = db.session.get(User, target.recipient_user_ids[0])
+            return {'direct_destination': f'Schreibdienst ({recipient.username})' if recipient else 'Schreibdienst'}
+        if target.mode == 'staff_pool':
+            staff_pools = [pool for pool in staff_pools if pool.id in target.target_ids]
+        return {'staff_service_names': pools.staff_service_names(staff_pools)}
+
+    @bp.get('/api/clinic/v1/recording-takes/preflight')
+    def recording_take_preflight():
+        author_id = current_user.id
+        pool_id = web_ingest.author_pool_for(author_id)
+        staff_pools = pools.routable_staff_pools(pool_id) if pool_id else []
+        if not staff_pools:
+            return jsonify(routable=False)
+        try:
+            target = recipient_defaults.submit(author_id, pool_id, actor_id=author_id)
+        except recipient_defaults.RecipientDefaultError:
+            return jsonify(routable=True)
+        return jsonify(routable=True, **take_destination(target, staff_pools))
+
+    @bp.get('/api/clinic/v1/recording-takes/<uuid:take_id>')
+    def recording_take(take_id: UUID):
+        original = web_ingest.find_take(current_user.id, str(take_id))
+        if original is None:
+            abort(404)
+        return jsonify(web_ingest.take_receipt(original, str(take_id)))
+
     @bp.post(f'{PATH}/send')
     def send(dictation_id: UUID):
         body = request.get_json(silent=True)
-        if not isinstance(body, dict) or set(body) - {'categories'}:
+        if not isinstance(body, dict) or set(body) - {'categories', 'take_id'}:
             abort(400)
         selections = body.get('categories', [])
 
-        def apply(row, expected, _key, now):
+        def apply(row, expected, key, now):
+            if 'take_id' in body:
+                if body['take_id'] != key:
+                    abort(400)
+                original = web_ingest.find_take(current_user.id, key)
+                if original is None or original.dictation_id != row.id:
+                    abort(403)
             if row.version_counter != expected:
                 raise workflow.WorkflowError('stale_version')
             item = db.session.get(workflow.ClinicWorkflowDictation, row.id, with_for_update=True)
@@ -531,7 +567,7 @@ def create_blueprint(
                 fields.append('notes')
 
             workflow.transition(db.session(), row.id, 'send_online')
-            workflow.store_routing_target(db.session(), row.id, actor_id=current_user.id)
+            destination = workflow.store_routing_target(db.session(), row.id, actor_id=current_user.id)
             settled = recognition_state.settle(db.session(), row.id)
             row.version_counter += 1
             if audit.record_in_tx('recording.edited', recording_id=row.recording_id,
@@ -539,9 +575,10 @@ def create_blueprint(
                                   actor_user_id=current_user.id, force=True,
                                   details={'fields': fields}) is None:
                 raise workflow.WorkflowError('audit_unavailable')
+            names = (take_destination(destination, staff_pools) if 'take_id' in body
+                     else {'staff_service_names': pools.staff_service_names(staff_pools)})
             return {'dictation_id': row.id, 'status': settled.status,
-                    'version': row.version_counter, 'etag': _etag(row),
-                    'staff_service_names': pools.staff_service_names(staff_pools)}
+                    'version': row.version_counter, 'etag': _etag(row), **names}
 
         return command(dictation_id, 'send', 'clinic.dictate', body, apply, author_only=True)
 

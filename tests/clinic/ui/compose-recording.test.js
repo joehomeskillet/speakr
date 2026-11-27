@@ -43,9 +43,62 @@ const source = () => readFileSync(new URL('../../../static/js/clinic/compose-rec
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/^\s*\/\/.*$/gm, '');
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+});
 
 describe('recording view controller', () => {
+    it('retries only an explicitly sent take, once automatically, then offers one manual retry', async () => {
+        vi.useFakeTimers();
+        const takeId = '05d0e36d-64bb-41ec-bfd3-52c278e75ca5';
+        const rec = recorder(async () => ({ dictation_id: 'd-7', take_id: takeId }));
+        const client = { request: vi.fn()
+            .mockResolvedValueOnce({ outcome: 'ok', data: { dictation_id: 'd-7', etag: 'draft' } })
+            .mockResolvedValueOnce({ outcome: 'network' })
+            .mockResolvedValueOnce({ outcome: 'UNKNOWN' })
+            .mockResolvedValueOnce({ outcome: 'ok', data: { dictation_id: 'd-7', status: 'zu_schreiben' } }) };
+        const fetchPreflight = async () => ({ ok: true, json: async () => ({
+            routable: true, staff_service_names: ['Süd'],
+        }) });
+        const { c } = make({ recorder: rec, options: { client, fetchPreflight, oneButton: true } });
+        await c.checkRouting();
+        await toReview(c);
+        await vi.runAllTimersAsync();
+        expect(client.request).not.toHaveBeenCalled();
+        expect(rec.uploadRecordedAudio).not.toHaveBeenCalled();
+
+        await c.sendRecording();
+        expect(c.model().message).toBe('Sie müssen nichts tun – es wird automatisch erneut gesendet.');
+        expect((await c.sendRecording()).ok).toBe(false);
+        await vi.runAllTimersAsync();
+        expect(c.model()).toMatchObject({ phase: 'sent', canSubmit: true,
+            message: 'Aufnahme gespeichert. Senden hat nicht geklappt.', plannedDestination: 'Vorgesehen: Schreibdienst Süd' });
+        expect(await c.sendRecording()).toEqual({ ok: true });
+        expect(rec.uploadRecordedAudio).toHaveBeenCalledOnce();
+        expect(client.request.mock.calls.slice(1)).toEqual(Array(3).fill([
+            '/dictations/d-7/send',
+            { method: 'POST', body: { take_id: takeId }, idempotencyKey: takeId, ifMatch: 'draft', timeoutMs: 20_000 },
+        ]));
+    });
+
+    it('cancels a pending automatic retry when the view is left', async () => {
+        vi.useFakeTimers();
+        const rec = recorder(async () => ({ dictation_id: 'd-7', take_id: 'test-take' }));
+        const client = { request: vi.fn()
+            .mockResolvedValueOnce({ outcome: 'ok', data: { dictation_id: 'd-7', etag: 'draft' } })
+            .mockResolvedValueOnce({ outcome: 'network' }) };
+        const fetchPreflight = async () => ({ ok: true, json: async () => ({ routable: true }) });
+        const { c } = make({ recorder: rec, options: { client, fetchPreflight, oneButton: true } });
+        await c.checkRouting();
+        await toReview(c);
+        await c.sendRecording();
+        expect(c.model().phase).toBe('retryPending');
+        await c.dispose();
+        await vi.runAllTimersAsync();
+        expect(client.request).toHaveBeenCalledTimes(2);
+    });
+
     it('reports the saved recording separately from the confirmed destination and visibility', async () => {
         const saved = { dictation_id: 'd-7', title: 'Diktat 27.11.2026 09:05', audio_duration: 65.8 };
         const rec = recorder(async () => saved);

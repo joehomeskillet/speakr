@@ -738,14 +738,15 @@ class StoredRecording(NamedTuple):
 def store_recording(*, owner, storage, filepath, now, recorded_in_app, original_filename,
                     user_title, final_file_size, meeting_date, mime_type, audio_duration_seconds,
                     notes, selected_folder, selected_tags, processing_source, file_hash,
-                    prompt_variables, effective_audio_only, prepare):
+                    prompt_variables, effective_audio_only, prepare, finalize=None):
     """Create the recording, store the staged file and commit both.
 
     Unless the upload was recorded in this browser, the owner's quota is
     reserved first; a refusal rolls back, removes the staging copy and is
     returned in error_response. The recording is flushed, then prepare runs,
     then the file moves to storage (the staging copy is gone after that) and
-    the tags and folder are added before the one commit. An
+    the tags and folder are added before the one commit. The optional
+    finalize hook runs in that transaction after the file has moved. An
     IntegrityError from the commit propagates to the caller's handler
     (:func:`handle_unique_conflict`).
     """
@@ -818,6 +819,8 @@ def store_recording(*, owner, storage, filepath, now, recorded_in_app, original_
             )
             db.session.add(new_association)
 
+        if finalize is not None:
+            finalize(recording)
         db.session.commit()
     except Exception:
         # The caller rolls the recording back, so the stored file would
@@ -976,6 +979,8 @@ def ingest(
     from src.api.recordings import (
         USE_ASR_ENDPOINT, _ingest_join_part, chunking_service, get_storage_service,
     )
+    from src.clinic import web_ingest
+    from src.clinic.config import clinic_mode_enabled
 
     filepath = None
     try:
@@ -1033,6 +1038,9 @@ def ingest(
         from src.utils.token_auth import current_api_token
         recorded_in_app = (str(form.get('from_recorder', '')).lower() == 'true'
                            and current_api_token() is None)
+        take_id = None
+        if not join and recorded_in_app and processing_source == 'upload' and clinic_mode_enabled():
+            take_id = web_ingest.take_id_from(form)
         if not recorded_in_app:
             try:
                 check_room(owner, original_file_size)
@@ -1374,6 +1382,25 @@ def ingest(
                 duplicate_warning=duplicate_warning, success_status=success_status,
             )
 
+        if take_id:
+            if not file_hash:
+                raise web_ingest.TakeUploadError('clinic_ingest_failed', 500)
+            web_ingest.lock_take(owner.id, take_id)
+            existing = web_ingest.find_take(owner.id, take_id)
+            if existing is not None:
+                _discard_staging(filepath)
+                return jsonify(web_ingest.take_receipt(existing, take_id, file_hash=file_hash)), 200
+
+        recognize_take = take_id is not None and web_ingest.speech_recognition_requested(form)
+
+        def finalize_take(recording):
+            web_ingest.register_upload(owner=owner, recording=recording, storage=storage, form=form,
+                                       now=now, meeting_date=meeting_date, processing_source=processing_source,
+                                       take_id=take_id)
+            if recognize_take:
+                web_ingest.queue_take(recording, resolved_params, conversion_deferred=conversion_deferred,
+                                      extracted_audio_limit_mb=extracted_audio_limit_mb)
+
         stored = store_recording(
             owner=owner,
             storage=storage,
@@ -1394,10 +1421,18 @@ def ingest(
             prompt_variables=prompt_variables,
             effective_audio_only=effective_audio_only,
             prepare=prepare,
+            finalize=finalize_take if take_id else None,
         )
         if stored.error_response is not None:
             return stored.error_response
         recording = stored.recording
+
+        if take_id:
+            from src.services.webhook_dispatch import emit_recording_created
+            if recognize_take:
+                job_queue.start()
+            emit_recording_created(recording)
+            return jsonify(web_ingest.take_receipt(web_ingest.find_take(owner.id, take_id), take_id)), success_status
 
         # A cancel that arrived while the file was converted and stored: the
         # recording goes before a job is queued or a webhook is sent.
@@ -1406,11 +1441,9 @@ def ingest(
             discard_unannounced_recording(recording, storage)
             return jsonify(api_error('upload_canceled')), 409
 
-        from src.clinic.config import clinic_mode_enabled
         dictation_id = None
         use_speech_recognition = None
         if clinic_mode_enabled():
-            from src.clinic import web_ingest
             dictation_id = web_ingest.register_upload(
                 owner=owner, recording=recording, storage=storage, form=form, now=now,
                 meeting_date=meeting_date, processing_source=processing_source)
@@ -1438,6 +1471,10 @@ def ingest(
             use_speech_recognition=use_speech_recognition,
         )
 
+    except web_ingest.TakeUploadError as error:
+        db.session.rollback()
+        _discard_staging(filepath)
+        return jsonify({'error': error.message, 'code': error.code}), error.status
     except RequestEntityTooLarge:
         _discard_staging(filepath)
         # Report the effective limit that fired (regular vs audio-only)
