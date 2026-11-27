@@ -22,6 +22,7 @@
  */
 
 import { createPanels } from './compose-resources.js';
+import { asrCapabilityLabel } from './asr-profiles-ui.js';
 import { createVoiceConsentController } from './voice-consent-ui.js';
 import { surfaceFor } from './tokens.js';
 
@@ -31,7 +32,7 @@ export const KINDS = Object.freeze(['language_model', 'acoustic']);
 export const TEXT = Object.freeze({
     eyebrow: 'Verwaltung',
     title: 'Sprachprofile',
-    subline: 'Profilkonfiguration, nachgewiesene Anpassung und der Zeitplan bleiben getrennt. Eine Wortliste ist nur ein Hinweis und keine Anpassung.',
+    subline: 'Wählen Sie das Sprachprofil für Diktate mit Headset oder Aufnahmegerät.',
     denied: 'Kein Zugriff. Bitte anmelden.',
     voiceTitle: 'Eigenes Stimmprofil (freiwillig)',
     voiceHint: 'Das Stimmprofil wird nur mit Ihrer Einwilligung erstellt und kann jederzeit widerrufen werden.',
@@ -92,11 +93,6 @@ const ERROR_MESSAGES = Object.freeze({
 
 function userIdOf(user) {
     return user && user.id != null && String(user.id) !== '' ? String(user.id) : null;
-}
-
-function style(kind) {
-    const s = surfaceFor(kind);
-    return { background: s.background, color: s.color, borderColor: s.border };
 }
 
 // A permission outcome is its own state, never a generic failure.
@@ -347,19 +343,19 @@ const CONSENT_TEMPLATE = `
   <h2>{{ view.title }}</h2>
   <p class="hint">{{ hint }}</p>
   <p v-if="view.loading" class="text-status" role="status">Einwilligung wird geladen …</p>
-  <p v-if="view.notice" role="status" aria-live="polite" class="note">{{ view.notice }}</p>
-  <p v-if="view.error" role="alert" class="note burgundy" :style="errorStyle">{{ view.error.message }}
+  <p v-if="view.notice" role="status" aria-live="polite">{{ view.notice }}</p>
+  <p v-if="view.error" role="alert" class="asr-feedback-error">{{ view.error.message }}
     <button type="button" class="small" :disabled="view.loading || view.busy" @click="controller.load()">{{ view.labels.reload }}</button></p>
-  <p class="tag" :style="surfaceStyle(view.statusSurface)" data-testid="voice-status">{{ view.status.label }}</p>
+  <div><span class="tag" :style="surfaceStyle(view.statusSurface)" data-testid="voice-status">{{ view.status.label }}</span></div>
   <h3>{{ view.statement.label }}</h3>
   <p class="hint">{{ view.statement.text }}</p>
   <div class="actions">
-    <button type="button" class="primary" :disabled="!view.canGrant" @click="controller.grant()">Einwilligen</button>
+    <button type="button" class="button" :disabled="!view.canGrant" @click="controller.grant()">Einwilligen</button>
     <button type="button" class="button" ref="revokeButton" v-if="!view.confirmingRevoke" :disabled="!view.canRevoke"
       @click="controller.requestRevoke(); $nextTick(() => $refs.cancelButton?.focus())">Einwilligung widerrufen</button>
     <span v-else class="actions" role="alertdialog" aria-label="Widerruf bestätigen"
       @keydown.esc.prevent="if (!view.busy) { controller.cancel(); $nextTick(() => $refs.revokeButton?.focus()); }">
-      <button type="button" class="primary" :disabled="view.busy" @click="controller.confirmRevoke()">Widerruf bestätigen</button>
+      <button type="button" class="button" :disabled="view.busy" @click="controller.confirmRevoke()">Widerruf bestätigen</button>
       <button type="button" class="button" ref="cancelButton" :disabled="view.busy"
         @click="controller.cancel(); $nextTick(() => $refs.revokeButton?.focus())">Abbrechen</button>
     </span>
@@ -370,7 +366,7 @@ const TRAINING_TEMPLATE = `
 <section class="panel" role="region" :aria-label="text.trainingTitle" data-testid="training">
   <h2>{{ text.trainingTitle }}</h2>
   <p class="hint" data-testid="word-list-hint">{{ text.wordListHint }}</p>
-  <p v-if="view.denied" role="alert" class="note burgundy" :style="errorStyle" data-testid="training-denied">{{ view.deniedMessage }}</p>
+  <p v-if="view.denied" role="alert" class="asr-feedback-error" data-testid="training-denied">{{ view.deniedMessage }}</p>
   <template v-else>
     <h3>{{ text.capabilityHeading }}</h3>
     <div class="table-wrap" style="overflow-x:auto">
@@ -384,10 +380,10 @@ const TRAINING_TEMPLATE = `
     </table>
     </div>
     <h3>{{ text.scheduleHeading }}</h3>
-    <p v-if="view.loading" role="status" aria-live="polite" class="note">{{ text.loading }}</p>
-    <p v-if="view.error" role="alert" class="note burgundy" :style="errorStyle">{{ view.error.message }}
+    <p v-if="view.loading" role="status" aria-live="polite">{{ text.loading }}</p>
+    <p v-if="view.error" role="alert" class="asr-feedback-error">{{ view.error.message }}
       <button type="button" class="small" v-if="view.error.retryable" @click="controller.load()">{{ text.retry }}</button></p>
-    <p v-if="view.notice" role="status" aria-live="polite" class="note warning" data-testid="training-notice">{{ view.notice }}</p>
+    <p v-if="view.notice" role="status" aria-live="polite" class="asr-feedback-warning" data-testid="training-notice">{{ view.notice }}</p>
     <div class="chiprow" role="radiogroup" :aria-label="text.kind">
       <button v-for="k in view.kinds" :key="k.value" type="button" role="radio" class="filter-pill" :class="{ active: k.selected }"
         :aria-checked="k.selected ? 'true' : 'false'" :tabindex="k.selected ? 0 : -1"
@@ -395,7 +391,7 @@ const TRAINING_TEMPLATE = `
     </div>
     <div class="actions">
       <button type="button" class="button" :disabled="view.busy" @click="controller.prepare()">{{ text.prepare }}</button>
-      <button type="button" class="primary" :disabled="!view.canStart" @click="controller.start()">{{ text.start }}</button>
+      <button type="button" class="button" :disabled="!view.canStart" @click="controller.start()">{{ text.start }}</button>
     </div>
     <p v-if="view.manifest" class="result-count" data-testid="manifest">{{ text.manifestItems }}: {{ view.manifest.items }}, {{ text.manifestExcluded }}: {{ view.manifest.excluded }}</p>
     <p v-if="view.empty" class="hint" data-testid="training-empty">{{ text.noRuns }}</p>
@@ -416,14 +412,20 @@ const TRAINING_TEMPLATE = `
 </section>`;
 
 const CAPABILITY_TEMPLATE = `
-<section class="panel" role="region" :aria-label="text.capabilityTitle" data-testid="capabilities">
+<section class="panel" :class="{ 'asr-evidence': profile }" role="region" :aria-label="text.capabilityTitle" data-testid="capabilities">
   <h2>{{ text.capabilityTitle }}</h2>
   <div class="table-wrap" style="overflow-x:auto">
   <table :aria-label="text.capabilityTitle">
-    <thead><tr><th scope="col">{{ text.capabilityColumns.name }}</th><th scope="col">{{ text.capabilityColumns.status }}</th></tr></thead>
-    <tbody><tr><td>{{ text.pronunciation }}</td><td><span class="tag" :class="row.tag" :style="[surfaceStyle(row.surface), { whiteSpace: 'normal' }]">{{ row.label === text.unavailable ? 'Nicht verfügbar' : row.label }}</span></td></tr></tbody>
+    <thead><tr><th scope="col">{{ text.capabilityColumns.name }}</th><th scope="col">{{ profile ? 'Nachweis / Grenze' : text.capabilityColumns.status }}</th></tr></thead>
+    <tbody>
+      <tr v-for="c in profile?.ready && !profile.error ? profile.capabilities : []" :key="c.name">
+        <td>{{ asrCapabilityLabel(c.name) }}</td><td><span class="tag" :class="c.proven ? '' : 'wait'">{{ c.label }}</span></td>
+      </tr>
+      <tr><td>{{ text.pronunciation }}</td><td><span class="tag" :class="row.tag" :style="surfaceStyle(row.surface)">{{ row.label }}</span></td></tr>
+    </tbody>
   </table>
   </div>
+  <p v-if="profile?.ready && !profile.error && !profile.capabilities.length" class="hint">Für dieses Sprachprofil fehlen Nachweise zur Spracherkennung.</p>
 </section>`;
 
 export function createSections(Vue) {
@@ -434,7 +436,7 @@ export function createSections(Vue) {
         const off = controller.subscribe(() => { view.value = controller.view(); });
         Vue.onMounted(() => controller.load());
         Vue.onBeforeUnmount(() => { off(); if (controller.dispose) controller.dispose(); });
-        return { view, controller, errorStyle: style('error'), surfaceStyle, text: TEXT, ...extra };
+        return { view, controller, surfaceStyle, text: TEXT, ...extra };
     }
 
     const consent = {
@@ -461,7 +463,7 @@ export function createSections(Vue) {
     // Aussprachetraining is reported on its own and never as success without proof.
     const capabilities = {
         name: 'ClinicCapabilityPanel',
-        props: { client: { type: Object, required: true } },
+        props: { client: { type: Object, required: true }, profile: { type: Object, default: null } },
         template: CAPABILITY_TEMPLATE,
         setup(props) {
             const row = Vue.shallowRef({ label: TEXT.capabilityUnknown, tag: 'neutral', surface: surfaceFor('normal') });
@@ -475,7 +477,7 @@ export function createSections(Vue) {
                         ? { label: TEXT.unavailable, tag: 'wait', surface: surfaceFor('warning') }
                         : { label: TEXT.capabilityUnknown, tag: 'neutral', surface: surfaceFor('normal') });
             });
-            return { row, text: TEXT, surfaceStyle };
+            return { row, text: TEXT, surfaceStyle, asrCapabilityLabel };
         },
     };
 
@@ -483,20 +485,25 @@ export function createSections(Vue) {
 }
 
 export const ASR_PROFILES_TEMPLATE = `
-<div class="v8-page clinic-asr-profiles-view">
+<div class="v8-page clinic-asr-profiles-view" :class="{ 'asr-admin-layout': adminClient }">
   <div class="pagehead">
     <div>
       <div class="eyebrow">${TEXT.eyebrow}</div>
       <h1>${TEXT.title}</h1>
       <p class="subline">${TEXT.subline}</p>
+      <p v-if="adminClient" class="subline">Ihr Gerät sendet Aufnahmen an Speakr. Die Erkennung ist lokal vorgesehen.</p>
     </div>
     <div class="head-actions"></div>
   </div>
   <p v-if="state.denied" role="alert" class="note burgundy" data-testid="denied">${TEXT.denied}</p>
   <template v-else>
     <div class="asr-panels">
-      <div class="panel asr-profile"><component :is="parts.Profile" :key="'p' + state.epoch" :client="client"></component></div>
-      <component :is="parts.Capabilities" :key="'c' + state.epoch" :client="client"></component>
+      <component :is="parts.Profile" :key="'p' + state.epoch" :client="client" :admin-layout="!!adminClient">
+        <template #capabilities="{ profile }">
+          <component :is="parts.Capabilities" :client="client" :profile="profile"></component>
+        </template>
+      </component>
+      <component v-if="!adminClient" :is="parts.Capabilities" :key="'c' + state.epoch" :client="client"></component>
       <component :is="parts.Consent" :key="'v' + state.epoch" :client="client"></component>
       <component v-if="adminClient" :is="parts.Training" :key="'t' + state.epoch" :client="adminClient" :profile-client="client"></component>
     </div>
