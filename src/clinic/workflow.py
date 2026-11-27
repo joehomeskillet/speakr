@@ -199,6 +199,7 @@ class ClinicWorkflowDictation(db.Model):
     author_user_id = db.Column(db.Integer, nullable=False, index=True)
     pool_id = db.Column(db.String(36), nullable=False, index=True)
     assignee_user_id = db.Column(db.Integer, nullable=True, index=True)
+    assigned_at = db.Column(_UtcDateTime(), nullable=True)
     status = db.Column(db.String(32), nullable=False)
     # Queue state to restore when the open dictation is closed.
     resume_status = db.Column(db.String(32), nullable=True)
@@ -235,12 +236,15 @@ WORKFLOW_TABLES = (ClinicWorkflowDictation,)
 
 
 def create_tables(bind=None) -> None:
-    """Create this module's tables if they are missing."""
+    """Create missing tables and upgrade legacy assignment timestamps."""
     db.metadata.create_all(
         bind=bind or db.engine,
         tables=[model.__table__ for model in WORKFLOW_TABLES],
         checkfirst=True,
     )
+    from . import migration_assignment_stamp
+
+    migration_assignment_stamp.upgrade(bind or db.engine)
 
 
 def normalize_priority(raw) -> tuple[int, bool]:

@@ -42,12 +42,13 @@ export const LABELS = Object.freeze({
     roleAuthor: 'Diktierend',
     roleAlsoTypist: 'Diktierend und Schreibkraft',
     noStaffPool: 'Kein Pool zugewiesen',
-    multiMembership: 'Mehrere Autorenpools. Die Regel erlaubt einen Autorenpool je Benutzer; die Mitgliedschaften sind hier ehrlich aufgeführt, eine Auswahl gibt es nicht.',
+    multiMembership: 'Mehrere Autorenpools. Die Ressourcen und Sichtregeln aller dieser Pools gelten zusammen.',
     statuses: Object.freeze({ active: 'Aktiv', disabled: 'Deaktiviert', pending_activation: 'Aktivierung ausstehend' }),
     pools: 'Autorenpools und Schreibkräfte-Pools',
     poolsHelp: 'Autorenpools teilen Ressourcen und Sichtregeln. Schreibkräfte-Pools sind Zuständigkeitsgruppen. Beide Listen sind getrennt.',
     rules: 'Hinweise',
     ruleOnePool: 'Ein Benutzer gehört höchstens einem Autorenpool an. Gleichnamige Pools werden nicht zusammengeschlossen.',
+    ruleMultiPool: 'Ein Benutzer kann mehreren Autorenpools angehören. Ressourcen und Sichtregeln gelten dann zusammen. Für Empfänger-Vorgaben zählt der erste Pool nach Name. Gleichnamige Pools werden nicht zusammengeschlossen.',
     ruleNoPerson: 'Diktierende sind bestehende Benutzer. Es gibt keine eigene Personenverwaltung.',
     eyebrow: 'Verwaltung',
     subline: 'Diktierende Personen eindeutig ausweisen und ihre Autorenressourcen organisieren.',
@@ -65,6 +66,21 @@ export const LABELS = Object.freeze({
     statDisabled: 'Deaktivierte Konten',
     statDisabledNote: 'Nicht anmeldefähig',
     cardMembers: 'Mitglieder',
+    createTitle: 'Autorenpool anlegen',
+    createHelp: 'Der Name muss eindeutig sein. Die Mitglieder werden danach in der Karte des Pools zugeordnet; ein Benutzer kann in mehreren Pools stehen.',
+    createName: 'Name des neuen Autorenpools',
+    createAction: 'Anlegen',
+    nameRequired: 'Bitte einen Namen eingeben.',
+    created: 'Autorenpool angelegt:',
+    nameTaken: 'Konflikt (Server): Dieser Name ist bereits vergeben. Bitte einen anderen Namen wählen.',
+    stale: 'Der Stand ist veraltet. Die Ansicht wurde neu geladen; bitte die Änderung wiederholen.',
+    createFailed: 'Der Autorenpool konnte nicht angelegt werden.',
+    assignFailed: 'Die Zuordnung konnte nicht gespeichert werden.',
+    assignUser: 'Benutzer zuordnen',
+    assignPick: 'Benutzer wählen',
+    assignAction: 'Zuordnen',
+    assigned: 'Zugeordnet.',
+    noCandidates: 'Alle Benutzer sind bereits Mitglied.',
 });
 
 const STATUS_SURFACE = Object.freeze({ active: 'success', disabled: 'error', pending_activation: 'warning' });
@@ -109,6 +125,7 @@ export function poolCardsOf(accounts, pools) {
     return ((pools && pools.author) || []).map((pool) => ({
         id: pool.id,
         name: pool.name,
+        memberIds: pool.memberUserIds.slice(),
         members: pool.memberUserIds.map(nameOf).filter(Boolean),
         staffPools: staffPools.filter((s) => s.memberUserIds.some((id) => pool.memberUserIds.includes(id))).map((s) => s.name),
     }));
@@ -122,19 +139,29 @@ export function createAuthorsController(deps) {
     const client = deps.client;
     const reactive = deps.reactive || ((x) => x);
     const accounts = createAccountsAdmin({ client, reactive });
-    const state = reactive({ status: 'idle', rows: [], poolCards: [], epoch: 0, message: '', query: '', pool: '' });
+    const state = reactive({
+        status: 'idle', rows: [], poolCards: [], accountOptions: [], epoch: 0, message: '', query: '', pool: '',
+        createName: '', createBusy: false, createMessage: '', createFailed: false,
+        assign: {}, assignBusy: '', assignMessage: '', assignFailed: false,
+    });
     let seq = 0;
+    let store = createPoolsStore(client);
 
-    async function load() {
+    // silent keeps the ready view mounted (a write reloads without flashing the loading state).
+    async function load(options) {
         const run = ++seq;
-        state.status = 'loading';
+        if (!(options && options.silent === true)) state.status = 'loading';
         state.message = '';
-        const store = createPoolsStore(client);
+        store = createPoolsStore(client);
         const [okAccounts, poolRes] = await Promise.all([accounts.load(), store.load()]);
         if (run !== seq) return false; // a newer load owns the state
         if (okAccounts && poolRes && poolRes.outcome === 'ok') {
             state.rows = deriveAuthors(accounts.state.accounts, store.state.pools);
             state.poolCards = poolCardsOf(accounts.state.accounts, store.state.pools);
+            state.accountOptions = accounts.state.accounts
+                .filter((a) => a.status === 'active')
+                .map((a) => ({ id: a.id, name: a.username }))
+                .sort((x, y) => String(x.name).localeCompare(String(y.name), 'de'));
             state.status = 'ready';
             state.epoch += 1; // remounts the pools child with the current server state
             return true;
@@ -177,7 +204,64 @@ export function createAuthorsController(deps) {
         };
     }
 
-    return { state, load, retry: load, visible, poolOptions, resetFilter, stats };
+    /** Users that can still be added to the pool card. */
+    function candidates(card) {
+        return state.accountOptions.filter((a) => !card.memberIds.includes(a.id));
+    }
+
+    /** Create an author pool through the pool admin API; a duplicate name shows the server conflict. */
+    async function createPool() {
+        const name = String(state.createName || '').trim();
+        if (state.createBusy) return false;
+        state.createFailed = true;
+        if (!name) {
+            state.createMessage = LABELS.nameRequired;
+            return false;
+        }
+        state.createBusy = true;
+        state.createMessage = '';
+        try {
+            const res = await client.request('/pool-admin/pools', { method: 'POST', body: { kind: 'author', name } });
+            if (res.outcome !== 'ok') {
+                if (res.code === 'name_taken') state.createMessage = LABELS.nameTaken;
+                else state.createMessage = res.outcome === 'permission' ? LABELS.denied : LABELS.createFailed;
+                return false;
+            }
+            state.createName = '';
+            state.createFailed = false;
+            state.createMessage = LABELS.created + ' ' + name;
+            await load({ silent: true });
+            return true;
+        } finally {
+            state.createBusy = false;
+        }
+    }
+
+    /** Add the chosen user to an author pool with the persisted revision; a stale revision reloads. */
+    async function assign(card) {
+        const userId = Number(state.assign[card.id]);
+        if (state.assignBusy || !Number.isInteger(userId) || userId < 1) return false;
+        state.assignBusy = card.id;
+        state.assignFailed = true;
+        state.assignMessage = '';
+        try {
+            const res = await store.addMember('author', card.id, userId);
+            if (!res || res.outcome !== 'ok') {
+                state.assignMessage = res && res.outcome === 'conflict' ? LABELS.stale : LABELS.assignFailed;
+                if (res && res.outcome === 'conflict') await load({ silent: true });
+                return false;
+            }
+            state.assign[card.id] = '';
+            state.assignFailed = false;
+            state.assignMessage = LABELS.assigned + ' ' + card.name;
+            await load({ silent: true });
+            return true;
+        } finally {
+            state.assignBusy = '';
+        }
+    }
+
+    return { state, load, retry: load, visible, poolOptions, resetFilter, stats, candidates, createPool, assign };
 }
 
 export function statusStyle(kind) {
@@ -208,6 +292,18 @@ export const AUTHORS_TEMPLATE = `
   <p v-if="state.status === 'error'" role="alert" class="note burgundy">{{ state.message }}
     <button type="button" class="small" @click="controller.retry()">{{ labels.retry }}</button></p>
   <template v-if="state.status === 'ready'">
+    <section class="panel" data-testid="author-pool-create" :aria-label="labels.createTitle" style="margin-bottom: 20px">
+      <h2>{{ labels.createTitle }}</h2>
+      <p class="hint">{{ labels.createHelp }}</p>
+      <form class="filterbar" @submit.prevent="controller.createPool()">
+        <div class="field search">
+          <label for="authors-create-name">{{ labels.createName }}</label>
+          <input id="authors-create-name" type="text" autocomplete="off" v-model="state.createName" :aria-invalid="state.createFailed && !!state.createMessage ? 'true' : 'false'" aria-describedby="authors-create-message">
+        </div>
+        <button type="submit" :disabled="state.createBusy">{{ labels.createAction }}</button>
+      </form>
+      <p id="authors-create-message" data-testid="author-pool-create-message" :role="state.createFailed ? 'alert' : 'status'" aria-live="polite" :class="state.createFailed ? 'note burgundy' : 'hint'" v-if="state.createMessage">{{ state.createMessage }}</p>
+    </section>
     <section class="panel" :aria-label="labels.list">
       <h2>{{ labels.list }}</h2>
       <p v-if="!state.rows.length" role="status" aria-live="polite" class="empty">{{ labels.empty }}</p>
@@ -239,11 +335,11 @@ export const AUTHORS_TEMPLATE = `
               <tr v-for="r in controller.visible()" :key="r.id" :data-user-id="r.id">
                 <th scope="row"><strong>{{ r.name }}</strong><small>{{ labels.columns.id }}: {{ r.id }}</small></th>
                 <td class="wrap">
-                  <span v-for="p in r.authorPools" :key="p.id">{{ p.name }} </span>
-                  <span v-if="r.multiAuthorPool" role="note" class="hint">{{ labels.multiMembership }}</span>
+                  <div v-for="p in r.authorPools" :key="p.id">{{ p.name }}</div>
+                  <div v-if="r.multiAuthorPool" role="note" class="hint" style="margin-top: 6px">{{ labels.multiMembership }}</div>
                 </td>
                 <td class="wrap">
-                  <span v-for="p in r.staffPools" :key="p.id">{{ p.name }} </span>
+                  <div v-for="p in r.staffPools" :key="p.id">{{ p.name }}</div>
                   <span v-if="r.noStaffPool" class="muted">{{ labels.noStaffPool }}</span>
                 </td>
                 <td>{{ r.roleLabel }}</td>
@@ -267,8 +363,19 @@ export const AUTHORS_TEMPLATE = `
           <div><dt>{{ labels.cardMembers }}</dt><dd>{{ p.members.length ? p.members.join(', ') : '–' }}</dd></div>
           <div><dt>{{ labels.columns.staffPools }}</dt><dd>{{ p.staffPools.length ? p.staffPools.join(', ') : labels.noStaffPool }}</dd></div>
         </dl>
+        <form class="filterbar" :data-testid="'assign-' + p.id" @submit.prevent="controller.assign(p)">
+          <div class="field">
+            <label :for="'authors-assign-' + p.id">{{ labels.assignUser }}</label>
+            <select :id="'authors-assign-' + p.id" v-model="state.assign[p.id]" :disabled="!controller.candidates(p).length">
+              <option value="">{{ controller.candidates(p).length ? labels.assignPick : labels.noCandidates }}</option>
+              <option v-for="a in controller.candidates(p)" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
+            </select>
+          </div>
+          <button type="submit" :disabled="!state.assign[p.id] || !!state.assignBusy">{{ labels.assignAction }}</button>
+        </form>
       </section>
     </div>
+    <p v-if="state.assignMessage" data-testid="author-pool-assign-message" :role="state.assignFailed ? 'alert' : 'status'" aria-live="polite" :class="state.assignFailed ? 'note burgundy' : 'hint'">{{ state.assignMessage }}</p>
     <details class="panel" style="margin-top: 20px" aria-labelledby="authors-pools">
       <summary id="authors-pools" style="cursor: pointer; font-weight: 700">{{ labels.pools }}</summary>
       <p class="hint" style="margin-top: 12px">{{ labels.poolsHelp }}</p>
@@ -276,7 +383,7 @@ export const AUTHORS_TEMPLATE = `
     </details>
     <div class="note" aria-labelledby="authors-rules" role="group">
       <strong id="authors-rules">{{ labels.rules }}</strong>
-      <p class="hint">{{ labels.ruleOnePool }}</p>
+      <p class="hint">{{ labels.ruleMultiPool }}</p>
       <p class="hint">{{ labels.ruleNoPerson }}</p>
     </div>
   </template>

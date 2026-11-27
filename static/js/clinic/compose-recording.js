@@ -27,7 +27,7 @@
  * dictation_id); it is supplied by the mount package together with the recorder.
  */
 
-import { createRecorderPhases, LABELS, receiptDictationId } from './recorder-phases-ui.js';
+import { createRecorderPhases, isTitleEditable, LABELS, receiptDictationId } from './recorder-phases-ui.js';
 import { surfaceFor } from './tokens.js';
 
 export { receiptDictationId };
@@ -317,7 +317,7 @@ export function createRecordingViewController(options) {
             if (state.filePhase === 'failed') return TEXT.fileFailed;
             return state.fileError === 'invalid_file' ? TEXT.fileInvalid : '';
         }
-        if (s.phase === 'failed') return TEXT.recordFailed;
+        if (s.phase === 'failed') return s.title.trim() ? TEXT.recordFailed : LABELS.titleHint;
         if (s.error === 'start_failed') return TEXT.startFailed;
         if (s.error === 'discard_failed') return TEXT.discardFailed;
         if (s.phase === 'sent') return TEXT.sent;
@@ -343,7 +343,7 @@ export function createRecordingViewController(options) {
             author: displayName(user),
             authorId: String(user.id),
             title: s.title,
-            titleLocked: s.phase !== 'title' && s.phase !== 'ready',
+            titleLocked: !isTitleEditable(s.phase),
             controls: machine.controls(),
             file: state.file ? { name: String(state.file.name || ''), size: Number(state.file.size) || 0 } : null,
             canSelectFile: allowed() && !fileBusy,
@@ -420,7 +420,7 @@ export const RECORDING_TEMPLATE = `
         <template v-if="!m.created">
           <div v-if="m.mode === 'record'" class="full" style="${FIELD}">
             <label style="${LABEL}" for="crv-title-input">{{ c.text.dictationTitle }}</label>
-            <input style="${INPUT}" id="crv-title-input" type="text" required aria-required="true" :aria-invalid="m.phase === 'title' ? 'true' : 'false'"
+            <input style="${INPUT}" id="crv-title-input" type="text" required aria-required="true" :aria-invalid="!m.title.trim() ? 'true' : 'false'"
                    :disabled="m.titleLocked" :value="m.title" @input="c.setTitle($event.target.value)" />
             <small style="${HELP}">{{ c.text.titleHint }}</small>
           </div>

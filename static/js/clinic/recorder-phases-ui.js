@@ -13,6 +13,13 @@ import { surfaceFor } from './tokens.js';
 
 export const PHASES = Object.freeze(['title', 'ready', 'recording', 'paused', 'review', 'sending', 'sent', 'failed']);
 
+const EDITABLE_TITLE_PHASES = Object.freeze(['title', 'ready', 'review', 'failed']);
+
+/** Whether the dictation title may be edited in the given recorder phase. */
+export function isTitleEditable(phase) {
+    return EDITABLE_TITLE_PHASES.includes(phase);
+}
+
 export const LABELS = Object.freeze({
     title: 'Titel',
     titleHint: 'Ein Titel ist erforderlich.',
@@ -109,8 +116,11 @@ export function createRecorderPhases(options) {
 
     function setTitle(value) {
         const title = typeof value === 'string' ? value : '';
-        if (state.phase !== 'title' && state.phase !== 'ready') return denied('invalid_phase');
-        set({ title: title, phase: title.trim() ? 'ready' : 'title' });
+        if (!isTitleEditable(state.phase)) return denied('invalid_phase');
+        const nextPhase = (state.phase === 'title' || state.phase === 'ready')
+            ? (title.trim() ? 'ready' : 'title')
+            : state.phase;
+        set({ title: title, phase: nextPhase });
         return { ok: true };
     }
 
@@ -169,6 +179,7 @@ export function createRecorderPhases(options) {
     async function send() {
         const blocked = guard(['review', 'failed']);
         if (blocked) return blocked;
+        if (!state.title.trim()) return denied('missing_title');
         const mine = ++generation;
         set({ phase: 'sending', error: null });
         let receipt = null;
@@ -213,6 +224,7 @@ export function createRecorderPhases(options) {
     function controls() {
         const p = state.phase;
         const on = authorized();
+        const hasTitle = Boolean(state.title.trim());
         const row = (id, label, enabled) => ({ id: id, label: label, disabled: !on || !enabled });
         return [
             row('start', LABELS.start, p === 'ready'),
@@ -221,7 +233,7 @@ export function createRecorderPhases(options) {
             row('stop', LABELS.stop, p === 'recording' || p === 'paused'),
             row('rewind', LABELS.rewind, p === 'review'),
             row('play', LABELS.play, p === 'review'),
-            row('send', p === 'failed' ? LABELS.retry : LABELS.send, p === 'review' || p === 'failed'),
+            row('send', p === 'failed' ? LABELS.retry : LABELS.send, (p === 'review' || p === 'failed') && hasTitle),
             row('cancel', LABELS.cancel, p !== 'sending' && p !== 'sent'),
         ];
     }
@@ -230,9 +242,9 @@ export function createRecorderPhases(options) {
         const p = state.phase;
         if (!authorized()) return LABELS.unauthorized;
         if (p === 'sent') return LABELS.sent;
-        if (p === 'failed') return LABELS.failed;
         if (p === 'sending') return LABELS.sending;
-        if (p === 'title') return LABELS.titleHint;
+        if (!state.title.trim() && isTitleEditable(p)) return LABELS.titleHint;
+        if (p === 'failed') return LABELS.failed;
         return '';
     }
 
@@ -281,7 +293,7 @@ export function createRecorderPhasesComponent(vue) {
             return () => {
                 const s = view.state.value;
                 const surface = view.machine.surface();
-                const titleLocked = s.phase !== 'title' && s.phase !== 'ready';
+                const titleLocked = !isTitleEditable(s.phase);
                 // V8 look: a panel with the shared form, button and status classes; the phase colour only tints the status line.
                 return h('section', {
                     class: 'v8-page panel',
@@ -294,7 +306,7 @@ export function createRecorderPhasesComponent(vue) {
                         type: 'text',
                         required: true,
                         'aria-required': 'true',
-                        'aria-invalid': s.phase === 'title' ? 'true' : 'false',
+                        'aria-invalid': !s.title.trim() ? 'true' : 'false',
                         disabled: titleLocked,
                         value: s.title,
                         onInput: (e) => view.machine.setTitle(e.target.value),

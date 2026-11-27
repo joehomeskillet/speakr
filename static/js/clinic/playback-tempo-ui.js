@@ -244,7 +244,18 @@ export const PlaybackTempo = {
             sync();
             if (props.onSync) props.onSync({ reason: 'seeked', positionMs: Math.round(media.currentTime * 1000), rate: tempo.rate.value });
         };
+        // Right click and Delete/Backspace on the speed select return to normal speed, in the audio and the visible selection.
+        const resetRate = (event) => {
+            tempo.setRate(TEMPO_DEFAULT);
+            if (event && event.target) event.target.value = String(TEMPO_DEFAULT);
+        };
+        const resetKey = (event) => {
+            if (event.key !== 'Delete' && event.key !== 'Backspace') return;
+            event.preventDefault();
+            resetRate(event);
+        };
         return {
+            resetRate, resetKey,
             tempo, state: tempo.state, rate: tempo.rate, labels: LABELS, clockLabels: CLOCK_LABELS, speeds: SPEEDS, styleOf,
             position, duration, playing, toggle, scrub, detach, clock,
         };
@@ -278,7 +289,9 @@ export const PlaybackTempo = {
             <input type="range" min="0" :max="duration || 0" step="0.01" :value="position" :disabled="!audio || !duration"
                 :aria-label="clockLabels.position" :aria-valuetext="clock(position) + ' von ' + clock(duration)" @input="scrub">
             <span class="time" data-player-time>{{ clock(position) }} / {{ clock(duration) }}</span>
-            <select style="font-size: 11px" :disabled="!audio" :value="rate" :aria-label="labels.speed" :title="labels.speed" @change="tempo.setRate(Number($event.target.value))">
+            <select style="font-size: 11px" :disabled="!audio" :value="rate" :aria-label="labels.speed" :title="labels.speed + ' (Rechtsklick oder Entf: ' + labels.reset + ')'"
+                aria-keyshortcuts="Delete Backspace" data-testid="tempo-select"
+                @change="tempo.setRate(Number($event.target.value))" @contextmenu.prevent="resetRate($event)" @keydown="resetKey($event)">
                 <option v-for="s in speeds" :key="s" :value="s">{{ s.toFixed(1) }}×</option>
             </select>
             <p role="status" aria-live="polite" class="sr-only" :style="styleOf(state.surface)">{{ state.message }}</p>

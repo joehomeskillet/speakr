@@ -96,8 +96,10 @@ describe('role columns (V8 P02)', () => {
         expect(items[0].label).toBe('Diktiert von: Dr. Muster');
     });
 
-    it('filters by ID: dictated_by (author), staff pool and lease holder', () => {
-        expect(FIELDS).toEqual(expect.arrayContaining(['author', 'staff_pool', 'lease_holder']));
+    it('filters by ID: dictated_by (author); staff pool and lease holder are not supported filter fields (PAR-WF-003)', () => {
+        expect(FIELDS).toEqual(expect.arrayContaining(['author']));
+        expect(FIELDS).not.toContain('staff_pool');
+        expect(FIELDS).not.toContain('lease_holder');
         expect(LABELS.fields.author).toBe('Diktiert von (ID)');
         expect(LABELS.fields.staff_pool).toBe('Schreibkräfte-Pool (ID)');
         expect(LABELS.fields.lease_holder).toBe('Übernommen von (ID)');

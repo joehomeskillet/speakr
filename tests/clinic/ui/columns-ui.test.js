@@ -178,3 +178,61 @@ describe('columns ui', () => {
         expect(source).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
     });
 });
+
+describe('columns ui create and display format', () => {
+    const draft = { name: 'Klinik', label: 'Klinik', displayType: 'string', xmlPath: 'patient/klinik', displayFormat: 'HH:mm' };
+
+    it('creates a field with PUT and no expected_version', async () => {
+        const { client, editor } = await loaded();
+        const result = await editor.create(draft);
+        expect(result.ok).toBe(true);
+        const [path, opts] = client.put.mock.calls[0];
+        expect(path).toBe('/metadata-fields/Klinik');
+        expect(opts.method).toBe('PUT');
+        expect(opts.body).toEqual({ label: 'Klinik', field_type: 'string', xml_path: 'patient/klinik', display_format: 'HH:mm' });
+        expect(editor.state.fields.at(-1)).toMatchObject({ name: 'Klinik', displayFormat: 'HH:mm', version: 'v3' });
+    });
+
+    it('rejects invalid keys, paths, formats and duplicates in German without a request', async () => {
+        const { client, editor } = await loaded();
+        for (const name of ['', '1abc', 'a b', '__proto__', 'constructor']) {
+            const r = await editor.create(Object.assign({}, draft, { name: name }));
+            expect(r.code).toBe('bad_key');
+            expect(r.message).toBe('Der Spaltenname ist ungültig.');
+        }
+        expect((await editor.create(Object.assign({}, draft, { xmlPath: '../etc' }))).code).toBe('bad_xml_path');
+        expect((await editor.create(Object.assign({}, draft, { displayFormat: 'x'.repeat(65) }))).code).toBe('bad_display_format');
+        expect((await editor.create(Object.assign({}, draft, { label: ' ' }))).code).toBe('bad_label');
+        expect((await editor.create(Object.assign({}, draft, { displayType: 'blob' }))).code).toBe('bad_display_type');
+        expect((await editor.create(Object.assign({}, draft, { name: 'station' }))).code).toBe('exists');
+        expect(client.put).not.toHaveBeenCalled();
+    });
+
+    it('maps server refusals on create', async () => {
+        const conflict = await loaded({ put: vi.fn(async () => ({ outcome: 'conflict', status: 409, message: 'x' })) });
+        expect((await conflict.editor.create(draft)).code).toBe('exists');
+        const denied = await loaded({ put: vi.fn(async () => ({ outcome: 'permission', status: 403, message: 'x' })) });
+        expect((await denied.editor.create(draft)).code).toBe('permission');
+        expect(denied.editor.state.fields).toHaveLength(5);
+    });
+
+    it('edits, saves and reverts display_format', async () => {
+        const { client, editor } = await loaded();
+        expect(editor.setDisplayFormat('station', 'x'.repeat(65)).code).toBe('bad_display_format');
+        expect(editor.setDisplayFormat('station', 'Nachname, Vorname').ok).toBe(true);
+        await editor.save('station');
+        expect(client.put.mock.calls[0][1].body.display_format).toBe('Nachname, Vorname');
+        editor.setDisplayFormat('station', '');
+        await editor.save('station');
+        expect(client.put.mock.calls[1][1].body.display_format).toBeNull();
+        editor.setDisplayFormat('station', 'abc');
+        editor.revert('station');
+        expect(editor.state.fields[0].displayFormat).toBe('');
+    });
+
+    it('renders the create form in the component', () => {
+        const comp = columnsComponent({ reactive: (v) => v }, { client: fakeClient() });
+        expect(comp.template).toContain('Neue Spalte anlegen');
+        expect(comp.template).toContain('Anzeigeformat');
+    });
+});

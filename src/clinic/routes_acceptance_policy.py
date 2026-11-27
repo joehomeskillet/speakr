@@ -5,7 +5,12 @@ semantics) and the central per-object ``authorize`` callback. The actor is
 always the logged-in session user. A save needs CSRF and an ``If-Match``
 policy version; a stale version gets 409 with the authoritative ``{version}``.
 A body equal to the current policy is a retry and changes nothing, so it
-creates no second version and no second audit row.
+creates no second version and no second audit row. ``approver_pool_ids`` and
+``deny_user_ids`` are optional. Omitted, they keep the stored lists, so an
+older client that sends only approver user ids does not clear them. Sent,
+they replace the stored lists, must name an active author pool or an
+acceptance member, and publish a new version. Empty lists are left out of
+the response so the previous user-list shape stays unchanged.
 
 The app wiring injects the callbacks. A published version, the workflow flag and the audit row
 are committed together. A refused write is audited as a denied ``recording.edited`` (field names
@@ -51,8 +56,28 @@ def _problem(status: int, code: str | None = None, **extra: Any) -> Response:
     return response
 
 
-def _view(version: int, required: bool, approvers: Sequence[int]) -> dict[str, Any]:
-    return {'version': version, 'acceptance_required': required, 'approver_ids': sorted(approvers)}
+_FIELDS = frozenset({'acceptance_required', 'approver_ids', 'approver_pool_ids', 'deny_user_ids'})
+
+
+def _view(version: int, required: bool, approvers: Sequence[int],
+          pools: Sequence[str] = (), deny: Sequence[int] = ()) -> dict[str, Any]:
+    body = {'version': version, 'acceptance_required': required, 'approver_ids': sorted(approvers)}
+    # Empty scopes stay off the wire: existing readers compare the three user-list keys.
+    if pools:
+        body['approver_pool_ids'] = sorted(pools)
+    if deny:
+        body['deny_user_ids'] = sorted(deny)
+    return body
+
+
+def _active_author_pool(pool_id: str) -> bool:
+    """True for an author pool that can still be granted.
+
+    ``active is None`` means active. A deactivated pool stays in history and is not a new grant.
+    """
+    from src.clinic.pools import ClinicAuthorPool
+    row = db.session.get(ClinicAuthorPool, pool_id)
+    return row is not None and row.active is not False
 
 
 def create_blueprint(
@@ -114,7 +139,8 @@ def create_blueprint(
         stored = current(row)
         if stored is None:
             return jsonify(_view(0, initial_required(row), ()))
-        return jsonify(_view(stored.version, stored.required, stored.approver_user_ids))
+        return jsonify(_view(stored.version, stored.required, stored.approver_user_ids,
+                             stored.approver_pool_ids, stored.deny_user_ids))
 
     @bp.put(PATH)
     def save(dictation_id: UUID):
@@ -133,13 +159,25 @@ def create_blueprint(
             abort(400)
         expected = int(match.strip('"'))
         body = request.get_json(silent=True)
-        if (not isinstance(body, dict) or body.keys() != {'acceptance_required', 'approver_ids'}
+        if (not isinstance(body, dict) or not {'acceptance_required', 'approver_ids'} <= body.keys() <= _FIELDS
                 or type(body['acceptance_required']) is not bool
-                or not isinstance(body['approver_ids'], list)):
+                or not isinstance(body['approver_ids'], list)
+                or ('approver_pool_ids' in body and not isinstance(body['approver_pool_ids'], list))
+                or ('deny_user_ids' in body and not isinstance(body['deny_user_ids'], list))):
             abort(400)
         ids = body['approver_ids']
         if any(type(item) is not int for item in ids) or not all(is_acceptance_member(i) for i in ids):
             return _problem(422, 'INVALID_APPROVER')
+        sent_pools = 'approver_pool_ids' in body
+        sent_deny = 'deny_user_ids' in body
+        raw_pools = body['approver_pool_ids'] if sent_pools else ()
+        raw_deny = body['deny_user_ids'] if sent_deny else ()
+        if sent_pools and (any(type(item) is not str or item == '' for item in raw_pools)
+                           or not all(_active_author_pool(item) for item in raw_pools)):
+            return _problem(422, 'INVALID_POOL')
+        if sent_deny and (any(type(item) is not int for item in raw_deny)
+                          or not all(is_acceptance_member(item) for item in raw_deny)):
+            return _problem(422, 'INVALID_DENY')
         required, approvers = body['acceptance_required'], frozenset(ids)
         # Serialize with finalization. SQLite needs an outer transaction before the ledger's savepoint.
         connection = db.session.connection()
@@ -148,8 +186,11 @@ def create_blueprint(
         db.session.refresh(row, with_for_update=True)
         stored = current(row)
         version = stored.version if stored else 0
-        if stored and stored.required is required and stored.approver_user_ids == approvers:
-            return jsonify(_view(version, required, approvers))
+        pools = frozenset(raw_pools) if sent_pools else (stored.approver_pool_ids if stored else frozenset())
+        deny = frozenset(raw_deny) if sent_deny else (stored.deny_user_ids if stored else frozenset())
+        if (stored and stored.required is required and stored.approver_user_ids == approvers
+                and stored.approver_pool_ids == pools and stored.deny_user_ids == deny):
+            return jsonify(_view(version, required, approvers, pools, deny))
         if expected != version:
             return _problem(409, 'STALE_VERSION', version=version)
         now = datetime.now(timezone.utc)
@@ -157,19 +198,20 @@ def create_blueprint(
             record_audit([{'actor_id': current_user.id, 'dictation_id': row.id,
                            'field': 'acceptance_policy',
                            'old': _view(version, stored.required if stored else initial_required(row),
-                                        stored.approver_user_ids if stored else ()),
-                           'new': _view(version + 1, required, approvers), 'at': now}])
+                                        stored.approver_user_ids if stored else (),
+                                        stored.approver_pool_ids if stored else (),
+                                        stored.deny_user_ids if stored else ()),
+                           'new': _view(version + 1, required, approvers, pools, deny), 'at': now}])
         except Exception:
             db.session.rollback()
             return _problem(503, 'AUDIT_UNAVAILABLE')
         created = ledger.publish(
             SCOPE_DICTATION, row.id, required=required, approver_user_ids=approvers,
-            approver_pool_ids=stored.approver_pool_ids if stored else (),
-            deny_user_ids=stored.deny_user_ids if stored else (),
-            now=now, expected_version=version)
+            approver_pool_ids=pools, deny_user_ids=deny, now=now, expected_version=version)
         if db.session.get(workflow.ClinicWorkflowDictation, row.id) is not None:
             workflow.set_acceptance(db.session(), row.id, created.required)
         db.session.commit()
-        return jsonify(_view(created.version, created.required, created.approver_user_ids))
+        return jsonify(_view(created.version, created.required, created.approver_user_ids,
+                             created.approver_pool_ids, created.deny_user_ids))
 
     return bp
