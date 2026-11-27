@@ -1,4 +1,4 @@
-"""Web routing for existing locally approved sources. No device or filesystem commands."""
+"""Web configuration of locally approved import sources."""
 import hashlib
 import json
 from uuid import UUID
@@ -6,6 +6,7 @@ from uuid import UUID
 from flask import jsonify, request
 from flask_login import current_user
 from flask_wtf.csrf import validate_csrf
+from sqlalchemy.exc import IntegrityError
 from wtforms.validators import ValidationError
 
 from src.clinic import import_source_config as sources
@@ -14,16 +15,25 @@ from src.clinic.identity import ClinicAccountPolicy
 from src.clinic.parity_dispatch import CommandProblem, _problem
 from src.clinic.parity_receipts import ClinicParityReceipt, run_once, scope_key
 from src.clinic.pools import ClinicAuthorPool, ClinicAuthorPoolMember
+from src.clinic.workflow import PRIORITY_CODES
 from src.database import db
 from src.models import User
 from src.services import audit
 
 
+_FOLDER_FIELDS = {"approved_root", "file_pattern", "priority", "language_id", "asr_profile_id"}
+_TARGET_FIELDS = {"target_author_user_id", "target_pool_id"}
+_FLAGS = {"autosend_enabled", "eol_filter_enabled"}
+
+
 def _visible(config):
-    return {key: config[key] for key in (
+    result = {key: config[key] for key in (
         "id", "source_kind", "source_ref", "target_author_user_id", "target_pool_id", "policy_version",
         "autosend_enabled", "eol_filter_enabled",
     )}
+    if config["source_kind"] == "folder":
+        result.update((key, config[key]) for key in _FOLDER_FIELDS)
+    return result
 
 
 def _targets():
@@ -62,68 +72,160 @@ def list_sources():
     return jsonify(items=items, authors=authors, pools=pools)
 
 
+def _check_csrf():
+    try:
+        validate_csrf(request.headers.get("X-CSRF-Token"))
+    except ValidationError:
+        raise CommandProblem("FORBIDDEN") from None
+
+
+def _owned_source(actor, config_id):
+    if not isinstance(config_id, str) or not 1 <= len(config_id) <= 36 or "\x00" in config_id:
+        raise CommandProblem("INVALID_PAYLOAD")
+    config = sources.get_source_config(actor_user_id=actor, config_id=config_id)
+    sources._clean_root(config["approved_root"])
+    return config
+
+
+def _validate_options(body):
+    for name, limit in (("approved_root", 1024), ("file_pattern", 255)):
+        if name in body and (not isinstance(body[name], str) or not 1 <= len(body[name]) <= limit):
+            raise CommandProblem("INVALID_PAYLOAD")
+    if "priority" in body and (type(body["priority"]) is not int or body["priority"] not in PRIORITY_CODES):
+        raise CommandProblem("INVALID_PAYLOAD")
+    if "language_id" in body and body["language_id"] is None:
+        raise CommandProblem("INVALID_PAYLOAD")
+    profile = body.get("asr_profile_id")
+    if profile is not None and (not isinstance(profile, str) or not 1 <= len(profile) <= 36):
+        raise CommandProblem("INVALID_PAYLOAD")
+    if any(type(body[name]) is not bool for name in _FLAGS & body.keys()):
+        raise CommandProblem("INVALID_PAYLOAD")
+
+
+def _validate_target(actor, author, pool):
+    if (type(author) is not int or not 1 <= author < 2**31 or
+            (pool is not None and (not isinstance(pool, str) or not 1 <= len(pool) <= 36 or "\x00" in pool))):
+        raise CommandProblem("INVALID_PAYLOAD")
+    if author != actor and not current_user.is_admin:
+        raise CommandProblem("FORBIDDEN")
+    active = db.session.get(ClinicAccountPolicy, author)
+    if active is None or active.status != "active":
+        raise CommandProblem("INVALID_PAYLOAD")
+    if pool is not None and not ClinicAuthorPoolMember.query.filter_by(pool_id=pool, user_id=author).first():
+        raise CommandProblem("INVALID_PAYLOAD")
+
+
+def _audit_change(actor, config_id, author, action="routing"):
+    event = audit.record_in_tx("admin.setting.changed", actor_user_id=actor, target_user_id=author, force=True,
+                               details={"key": f"clinic_import_{action}:{config_id}"})
+    if event is None:
+        raise CommandProblem("DEPENDENCY_UNAVAILABLE")
+
+
+def create_source():
+    actor = current_user.id
+    try:
+        sources._may_manage(actor)
+        _check_csrf()
+        body = request.get_json(silent=True)
+        allowed = _FOLDER_FIELDS | _TARGET_FIELDS | _FLAGS | {"source_kind", "source_ref"}
+        if (not isinstance(body, dict) or body.keys() - allowed
+                or {"source_ref", "approved_root"} - body.keys() or body.get("source_kind", "folder") != "folder"):
+            return _problem("INVALID_PAYLOAD")
+        body.setdefault("source_kind", "folder")
+        body.setdefault("target_author_user_id", actor)
+        _validate_options(body)
+        _validate_target(actor, body["target_author_user_id"], body.get("target_pool_id"))
+        try:
+            config = sources.create_source_config(
+                actor_user_id=actor, commit=False, may_assign_author=lambda *_: current_user.is_admin, **body,
+            )
+        except IntegrityError:
+            if sources.ClinicImportSourceConfig.query.filter_by(
+                source_kind="folder", source_ref=body["source_ref"],
+            ).first():
+                return _problem("REVISION_CONFLICT")
+            raise
+        _audit_change(actor, config["id"], config["target_author_user_id"], "create")
+        db.session.commit()
+        return jsonify(_visible(config)), 201
+    except CommandProblem as error:
+        db.session.rollback()
+        return _problem(str(error))
+    except AgentChannelError as error:
+        return _source_error(error)
+
+
+def delete_source(config_id=None):
+    actor = current_user.id
+    try:
+        sources._may_manage(actor)
+        _check_csrf()
+        if config_id is None:
+            body = request.get_json(silent=True)
+            if not isinstance(body, dict) or body.keys() != {"config_id"}:
+                return _problem("INVALID_PAYLOAD")
+            config_id = body["config_id"]
+        config = _owned_source(actor, config_id)
+        if config["source_kind"] != "folder":
+            return _problem("INVALID_PAYLOAD")
+        sources.delete_source_config(
+            actor_user_id=actor, config_id=config_id, expected_version=config["policy_version"], commit=False,
+        )
+        _audit_change(actor, config_id, config["target_author_user_id"], "delete")
+        db.session.commit()
+        return "", 204
+    except CommandProblem as error:
+        db.session.rollback()
+        return _problem(str(error))
+    except AgentChannelError as error:
+        return _source_error(error)
+
+
 def update_source(config_id):
     actor = current_user.id
     try:
         sources._may_manage(actor)
-        config = sources.get_source_config(actor_user_id=actor, config_id=config_id)
-        sources._clean_root(config["approved_root"])
+        config = _owned_source(actor, config_id)
+        _check_csrf()
     except AgentChannelError as error:
         return _source_error(error)
-    try:
-        validate_csrf(request.headers.get("X-CSRF-Token"))
-    except ValidationError:
-        return _problem("FORBIDDEN")
+    except CommandProblem as error:
+        return _problem(str(error))
     key = request.headers.get("Idempotency-Key", "")
     try:
         UUID(key)
     except ValueError:
         return _problem("INVALID_PAYLOAD")
     body = request.get_json(silent=True)
-    allowed = {"expected_version", "target_author_user_id", "target_pool_id",
-               "autosend_enabled", "eol_filter_enabled"}
+    allowed = {"expected_version"} | _TARGET_FIELDS | _FLAGS
+    if config["source_kind"] == "folder":
+        allowed |= _FOLDER_FIELDS
     if not isinstance(body, dict) or not set(body) <= allowed or "expected_version" not in body:
         return _problem("INVALID_PAYLOAD")
-    routing = "target_author_user_id" in body or "target_pool_id" in body
-    if routing and {"target_author_user_id", "target_pool_id"} - set(body):
-        return _problem("INVALID_PAYLOAD")
-    flags = [name for name in ("autosend_enabled", "eol_filter_enabled") if name in body]
-    if not routing and not flags:
+    target_fields = _TARGET_FIELDS & body.keys()
+    changes = {name: value for name, value in body.items() if name != "expected_version"}
+    if not changes or (target_fields and target_fields != _TARGET_FIELDS):
         return _problem("INVALID_PAYLOAD")
     version = body["expected_version"]
-    if type(version) is not int or version < 1 or any(type(body[name]) is not bool for name in flags):
+    if type(version) is not int or not 1 <= version < 2**31 - 1:
         return _problem("INVALID_PAYLOAD")
-    author = pool = None
-    if routing:
-        author, pool = body["target_author_user_id"], body["target_pool_id"]
-        if (type(author) is not int or author < 1 or
-                (pool is not None and (not isinstance(pool, str) or not 1 <= len(pool) <= 36))):
-            return _problem("INVALID_PAYLOAD")
-        if author != actor and not current_user.is_admin:
-            return _problem("FORBIDDEN")
-        active = db.session.get(ClinicAccountPolicy, author)
-        if active is None or active.status != "active":
-            return _problem("INVALID_PAYLOAD")
-        if pool is not None and not ClinicAuthorPoolMember.query.filter_by(pool_id=pool, user_id=author).first():
-            return _problem("INVALID_PAYLOAD")
+    try:
+        _validate_options(changes)
+        if target_fields:
+            _validate_target(actor, changes["target_author_user_id"], changes["target_pool_id"])
+    except CommandProblem as error:
+        return _problem(str(error))
+    if "asr_profile_id" in changes and changes["asr_profile_id"] is None:
+        changes["asr_profile_id"] = ""
     scope = (actor, "route_import_source", config_id, key)
     digest = hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
 
     def write():
-        changes = {}
-        if routing:
-            changes["target_author_user_id"] = author
-            changes["target_pool_id"] = pool
-        for name in flags:
-            changes[name] = body[name]
         updated = sources.update_source_config(
             actor_user_id=actor, config_id=config_id, expected_version=version, commit=False,
             may_assign_author=lambda *_: current_user.is_admin, **changes)
-        audited = author if routing else config["target_author_user_id"]
-        event = audit.record_in_tx("admin.setting.changed", actor_user_id=actor, target_user_id=audited, force=True,
-                                   details={"key": "clinic_import_routing:" + config_id})
-        if event is None:
-            raise CommandProblem("DEPENDENCY_UNAVAILABLE")
+        _audit_change(actor, config_id, updated["target_author_user_id"])
         return _visible(updated)
 
     try:
@@ -134,6 +236,8 @@ def update_source(config_id):
             if error.code != "conflict" or db.session.get(ClinicParityReceipt, scope_key(scope)) is None:
                 raise
             result = run_once(scope, digest, write)
+        if "approved_root" in result:
+            sources._clean_root(result["approved_root"])
         return jsonify(result)
     except CommandProblem as error:
         return _problem(str(error))
