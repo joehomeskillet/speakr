@@ -29,6 +29,7 @@ AUTH: tuple[str, ...] = (
     # acts on the caller's own profile only.
     'clinic_asr_profiles.show',
     'clinic_asr_profiles.select',
+    'clinic_workflow.skip_asr',
     # Audio, dictation-property, bundle, live, correction and TTS handlers, mounted by
     # register_clinic_audio in src/app.py only in clinic mode (start/stop live session are
     # commands on clinic_parity.execute). Their URLs carry a clinic dictation id, so each
