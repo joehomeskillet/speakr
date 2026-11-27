@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import socket
 import uuid
+from datetime import datetime, timezone
 
 import pytest
 
@@ -16,9 +17,11 @@ from src.app import app, db
 from src.clinic import routes_training
 from src.clinic.asr_profiles import set_profile
 from src.clinic.identity import ClinicAccountPolicy, create_tables as _create_identity_tables
+from src.clinic.models import ClinicDictation
 from src.clinic.route_policy import ADMIN, ROUTE_POLICY, RouteRule
 from src.clinic.training_schedule import JOB_TYPE
-from src.models import ProcessingJob, User
+from src.clinic.voice_consent import grant_consent
+from src.models import ProcessingJob, Recording, User
 from src.services.job_queue import job_queue
 from test_wp_training_manifest import _approved, clinic_db  # noqa: F401
 
@@ -177,3 +180,114 @@ def test_module_makes_no_network_import():
     source = open(routes_training.__file__, encoding="utf-8").read()
     for name in ("requests", "httpx", "urllib", "socket", "aiohttp"):
         assert "import " + name not in source and "from " + name not in source
+
+
+# 2026-11-18 12:00 UTC is 13:00 in Europe/Zurich, a Wednesday (weekday 2).
+_NOON = datetime(2026, 11, 18, 12, 0, tzinfo=timezone.utc)
+
+
+def _freeze_noon(monkeypatch):
+    monkeypatch.setattr(routes_training, "_now", lambda: _NOON)
+
+
+def _transcribe_on_same_recording(admin):
+    dictation = ClinicDictation.query.filter_by(author_user_id=admin.id).one()
+    job = ProcessingJob(
+        user_id=admin.id, recording_id=dictation.recording_id,
+        job_type="transcribe", status="queued", params='{"keep":1}',
+    )
+    db.session.add(job)
+    db.session.commit()
+    return job.id
+
+
+def _transcribe_unchanged(job_id):
+    kept = db.session.get(ProcessingJob, job_id)
+    db.session.refresh(kept)
+    assert (kept.job_type, kept.status, kept.params) == ("transcribe", "queued", '{"keep":1}')
+    return kept
+
+
+def test_start_outside_the_sent_window_names_the_next_start_and_queues_nothing(monkeypatch):
+    admin = _scene()
+    transcribe_id = _transcribe_on_same_recording(admin)
+    _freeze_noon(monkeypatch)
+    # 08:00-09:00 already ended at 13:00; weekday 2 keeps the next opening on a Wednesday.
+    response = _start(
+        login(admin.id),
+        window={"start": "08:00", "end": "09:00"},
+        weekdays=[2],
+    )
+    body = response.get_json()
+    assert response.status_code == 200
+    assert body["state"] == "deferred"
+    assert body["reason"] == "outside_window"
+    assert body["next_window_start"] == "2026-11-25T08:00:00+01:00"
+    assert ProcessingJob.query.filter_by(job_type=JOB_TYPE).count() == 0
+    assert login(admin.id).get(P + "/schedule").get_json()["runs"] == []
+    _transcribe_unchanged(transcribe_id)
+
+
+def test_in_window_start_leaves_the_transcribe_job(monkeypatch):
+    admin = _scene()
+    transcribe_id = _transcribe_on_same_recording(admin)
+    _freeze_noon(monkeypatch)
+    response = _start(
+        login(admin.id),
+        window={"start": "08:00", "end": "18:00"},
+        weekdays=[2],
+    )
+    assert (response.status_code, response.get_json()["state"]) == (201, "scheduled")
+    assert ProcessingJob.query.filter_by(user_id=admin.id, job_type=JOB_TYPE).count() == 1
+    _transcribe_unchanged(transcribe_id)
+
+
+def test_too_few_utterances_queues_nothing():
+    admin = _scene()
+    response = _start(login(admin.id), min_utterances=2)
+    body = response.get_json()
+    assert response.status_code == 200
+    assert body["state"] == "insufficient_data"
+    assert body["utterances"] == 1
+    assert ProcessingJob.query.filter_by(job_type=JOB_TYPE).count() == 0
+
+
+def test_too_little_acoustic_audio_queues_nothing():
+    admin = _scene()
+    dictation = ClinicDictation.query.filter_by(author_user_id=admin.id).one()
+    db.session.get(Recording, dictation.recording_id).audio_duration_seconds = 12.5
+    db.session.commit()
+    grant_consent(
+        actor_user_id=admin.id, user_id=admin.id,
+        statement_text="Ich erlaube die lokale Anpassung aus meinen Korrekturen.",
+    )
+    client = login(admin.id)
+    short = _start(client, kind="acoustic", min_audio_seconds=30)
+    body = short.get_json()
+    assert short.status_code == 200
+    assert body["state"] == "insufficient_data"
+    assert body["audio_seconds"] == 12.5
+    assert body["utterances"] == 1
+    assert ProcessingJob.query.filter_by(job_type=JOB_TYPE).count() == 0
+    opened = _start(client, kind="acoustic", min_audio_seconds=12)
+    assert (opened.status_code, opened.get_json()["state"]) == (201, "scheduled")
+    assert ProcessingJob.query.filter_by(job_type=JOB_TYPE).count() == 1
+
+
+def test_audio_floor_does_not_block_text_training():
+    admin = _scene()
+    response = _start(login(admin.id), min_audio_seconds=999)
+    assert (response.status_code, response.get_json()["state"]) == (201, "scheduled")
+
+
+def test_bad_window_and_floors_are_refused():
+    admin = _scene()
+    client = login(admin.id)
+    bad_window = _start(client, window={"start": "25:00", "end": "26:00"})
+    assert (bad_window.status_code, bad_window.get_json()["code"]) == (400, "window_invalid")
+    assert _start(client, window={"start": "22:00", "end": "06:00"}, weekdays=[7]).get_json()["code"] == "window_invalid"
+    assert _start(client, weekdays=[1]).status_code == 400
+    assert _start(client, min_utterances=True).status_code == 400
+    assert _start(client, min_audio_seconds=-1).status_code == 400
+    assert _start(client, window={"start": "22:00", "end": "06:00", "extra": 1}).status_code == 400
+    assert ProcessingJob.query.filter_by(job_type=JOB_TYPE).count() == 0

@@ -117,6 +117,41 @@ def test_empty_input_is_healthy() -> None:
     assert degraded(summary) == ()
 
 
+@pytest.mark.parametrize(("code", "label"), [
+    ("storage_unavailable", "Ablage nicht verfügbar"),
+    ("engine_unavailable", "Erkennungsengine nicht verfügbar"),
+    ("missing_author_pool", "Autor oder Autorenpool fehlt"),
+    ("corrupt_audio", "Audiodatei beschädigt"),
+])
+@pytest.mark.parametrize("suffix", ["", ": Befund Mustername 'vertraulich' a@b.ch 123456789"])
+def test_known_failure_codes_use_only_safe_labels(code, label, suffix) -> None:
+    row = _row(1, "failed", error_message=code + suffix)
+    (failure,) = summarise([row], _NOW).recent_failures
+    assert failure.error_class == code
+    assert failure.message == label
+
+
+@pytest.mark.parametrize("error", [
+    "unknown_code: Befund Mustername",
+    "storage_unavailable_extra: Befund Mustername",
+    "Befund storage_unavailable",
+    "storage_unavailable Befund Mustername",
+    "'storage_unavailable': Befund Mustername",
+    "ValueError: engine_unavailable: Befund Mustername",
+])
+def test_failure_codes_are_not_inferred_from_free_text(error) -> None:
+    (failure,) = summarise([_row(1, "failed", error_message=error)], _NOW).recent_failures
+    assert failure.message == "Fehlerdetails ausgeblendet."
+    assert failure.error_class == ("ValueError" if error.startswith("ValueError:") else "Error")
+
+
+def test_training_unavailable_keeps_its_existing_label() -> None:
+    row = _row(1, "failed", job_type="asr_training", error_message="CAPABILITY_UNAVAILABLE")
+    (failure,) = summarise([row], _NOW).recent_failures
+    assert failure.error_class == "CAPABILITY_UNAVAILABLE"
+    assert failure.message == "Training nicht verfügbar"
+
+
 def test_naive_clock_and_missing_id_are_rejected() -> None:
     with pytest.raises(HealthError) as error:
         summarise([], _NOW.replace(tzinfo=None))

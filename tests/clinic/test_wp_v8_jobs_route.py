@@ -131,6 +131,27 @@ def test_health_is_capped_at_ten_failures(world):
     assert len(c.get(f"{PREFIX}/health").json["recent_failures"]) == 10
 
 
+@pytest.mark.parametrize(("code", "label"), [
+    ("storage_unavailable", "Ablage nicht verfügbar"),
+    ("engine_unavailable", "Erkennungsengine nicht verfügbar"),
+    ("missing_author_pool", "Autor oder Autorenpool fehlt"),
+    ("corrupt_audio", "Audiodatei beschädigt"),
+])
+@pytest.mark.parametrize("with_details", [False, True])
+def test_health_exposes_safe_cause_labels_without_details(world, code, label, with_details):
+    details = f": {SECRET_TEXT}, '/private/audio.wav', person@example.invalid 123456789"
+    _job(world.alice, world.rec_a, error_message=code + (details if with_details else ""),
+         completed_at=datetime.utcnow())
+    c, _ = world.client(world.admin)
+    response = c.get(f"{PREFIX}/health")
+    assert response.status_code == 200
+    (failure,) = response.json["recent_failures"]
+    assert failure["error_class"] == code
+    assert failure["message"] == label
+    for private in (SECRET_TEXT, "/private/audio.wav", "person@example.invalid", "123456789"):
+        assert private not in response.get_data(as_text=True)
+
+
 def test_ordinary_user_sees_only_allowed_jobs(world):
     mine = _job(world.alice, world.rec_a, error_message="ValueError: a", completed_at=datetime.utcnow())
     plain = _job(world.alice, world.rec_plain, error_message="ValueError: p", completed_at=datetime.utcnow())

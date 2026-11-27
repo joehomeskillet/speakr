@@ -4,7 +4,9 @@ Detects the container by magic bytes, then decodes to 16 kHz mono PCM WAV
 inside a caller-supplied directory. The original file is only read, never
 modified; its sha256 is reported so callers can prove that.
 
-* WAV, MP3, WebM/Matroska, Ogg and MP4/M4A are decoded with ``ffmpeg``.
+* WAV, MP3, WebM/Matroska, Ogg, MP4/M4A, AMR-NB and AMR-WB are decoded
+  with ``ffmpeg``. AMR-NB is the ``#!AMR\\n`` signature and AMR-WB is
+  ``#!AMR-WB\\n``. The file name is not consulted.
 * DSS and DS2 are decoded with an external ``dss-codec`` binary whose path
   comes from ``CLINIC_DSS_CODEC_BIN`` (pinned upstream commit
   ``c38d3192239005b0570c5987cbde62e69dd7dbbe``). Without it the status is
@@ -65,6 +67,11 @@ def detect_container(head: bytes) -> Optional[str]:
         return 'dss'
     if head[:4] == b'\x03ds2':
         return 'ds2'
+    # WB before NB: both signatures share the ``#!AMR`` prefix.
+    if head.startswith(b'#!AMR-WB\n'):
+        return 'amr-wb'
+    if head.startswith(b'#!AMR\n'):
+        return 'amr-nb'
     if head[:3] == b'ID3' or (len(head) >= 2 and head[0] == 0xFF and head[1] & 0xE0 == 0xE0):
         return 'mp3'
     for container in ('webm', 'ogg', 'mp4'):
