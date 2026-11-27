@@ -192,7 +192,7 @@ const ASR_TEMPLATE = `
     <p class="note">Eine Wortliste ersetzt kein Akustiktraining. Korrekturtexte benötigen eine bewusste Freigabe und einen geprüften Audioabgleich.</p>
   </template>
   <div class="actions">
-    <button class="primary" style="background:var(--ink);border-color:var(--ink);color:var(--surface);font-size:13px;padding:9px 13px" type="button" :disabled="!view.canSave" @click="controller.save()">{{ view.labels.save }}</button>
+    <button class="primary" style="font-size:13px;padding:9px 13px" type="button" :disabled="!view.canSave" @click="controller.save()">{{ view.labels.save }}</button>
     <button type="button" :disabled="!view.dirty || view.busy" @click="controller.cancel()">{{ view.labels.cancel }}</button>
   </div>
 </section>`;
