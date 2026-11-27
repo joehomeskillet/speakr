@@ -214,6 +214,30 @@ describe('recording view controller', () => {
         expect(TEXT.open).toBe('Öffnen');
     });
 
+    it('exposes the clinic ID after saving a take without submitting it', async () => {
+        const request = vi.fn();
+        const rec = recorder(async () => ({ id: 7, dictation_id: 'draft-7' }));
+        const { c } = make({ recorder: rec, options: { client: { request } } });
+        await toReview(c);
+        expect(c.model().editableDraftId).toBeNull();
+        expect((await c.saveRecording()).ok).toBe(true);
+        expect(c.model()).toMatchObject({ editableDraftId: 'draft-7', canSubmit: true, message: TEXT.sent });
+        expect(request).not.toHaveBeenCalled();
+        request.mockResolvedValueOnce({ outcome: 'ok', data: { dictation_id: 'draft-7', etag: 'version' } })
+            .mockResolvedValueOnce({ outcome: 'ok', data: { dictation_id: 'draft-7', status: 'vorbereitung_online' } });
+        expect((await c.submit()).ok).toBe(true);
+        expect(c.model().editableDraftId).toBeNull();
+        expect(rec.uploadRecordedAudio).toHaveBeenCalledOnce();
+    });
+
+    it('does not open the audio editor with a legacy recording-only receipt', async () => {
+        const { c } = make({ options: { client: { request: vi.fn() } } });
+        await toReview(c);
+        expect((await c.saveRecording()).ok).toBe(true);
+        expect(c.model().created).toEqual({ dictationId: 'rec-1' });
+        expect(c.model().editableDraftId).toBeNull();
+    });
+
     it('starts the next dictation clean after success', async () => {
         const { c, client } = make();
         expect(c.another().code).toBe('invalid_phase');
