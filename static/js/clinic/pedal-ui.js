@@ -1,9 +1,9 @@
 /**
- * Foot pedal support in keyboard mode for recording and correction (PAR-OPS-001, UI-P06-06).
+ * Foot pedal support for recording and correction (PAR-OPS-001, UI-P06-06).
  *
  * Many USB foot pedals present themselves as a keyboard and send a configurable key (F-key,
- * media key). This module maps such key events to the active view's commands. It does not talk to HID
- * devices (WebHID is an open item) and sends no device reports.
+ * media key). This module maps those keys and direct pedal presses to the active view's commands.
+ * Only the WebHID adapter talks to compatible devices, and it only reads input reports.
  *
  * Contract
  *   - Commands are injected by the host: the same functions the on-screen controls use, so
@@ -21,6 +21,8 @@
  * loadSettings(storage), saveSettings(settings, storage), createPedalController(options),
  * createKeyCapture(options), PedalKeyCapture (Vue options component).
  */
+
+import { getPedalWebHid } from './pedal-webhid.js';
 
 export const STORAGE_KEY = 'clinic.pedal.keyboard.v1';
 
@@ -110,7 +112,8 @@ export function saveSettings(settings, storage) {
  *   onFocusLost?: () => void      release media started by a latched command,
  *   mutating?: string[]            command ids that change data (none of the four playback actions do),
  *   canMutate?: () => boolean      lease / permission check for mutating commands,
- *   settings?: object, storage?: Storage|null, target?: EventTarget (default document), vue?: {ref}
+ *   settings?: object, storage?: Storage|null, target?: EventTarget (default document), vue?: {ref},
+ *   webHid?: direct input adapter (defaults to the tab's shared connection)
  * }
  * Returns { attach, detach, setSettings, settings, status, active, handleKeyDown, handleKeyUp, releaseAll }.
  */
@@ -126,6 +129,7 @@ export function createPedalController(options) {
     let settings = normalizeSettings(opts.settings !== undefined ? opts.settings : loadSettings(opts.storage));
     const held = new Map();
     let attached = false;
+    let unsubscribeHid;
     const status = mkRef('');
     const active = mkRef(false);
 
@@ -152,27 +156,36 @@ export function createPedalController(options) {
         return true;
     }
 
-    function handleKeyDown(event) {
-        if (!attached || !event || event.ctrlKey || event.altKey || event.metaKey) return false;
-        const action = settings.mapping[event.code];
-        if (!actions.includes(action) || !hasFocus()) return false;
-        if (typeof event.preventDefault === 'function') event.preventDefault();
-        if (event.repeat) return true; // a held pedal repeats keydown; one press is one command
+    function press(source, action) {
         if (action === 'rewind') run('rewind', settings.rewindSeconds);
         else if (action === 'skip') run('skip', settings.skipSeconds);
         else if (action !== 'hold') run(action);
-        else if (!held.has(event.code)) {
+        else if (!held.has(source)) {
             if (recording) {
                 const end = run('hold');
-                if (typeof end === 'function') held.set(event.code, end);
+                if (typeof end === 'function') held.set(source, end);
             } else {
-                held.set(event.code, () => {
+                held.set(source, () => {
                     run('pause');
                     if (settings.autoRewindSeconds > 0) run('rewind', settings.autoRewindSeconds);
                 });
                 run('play');
             }
         }
+    }
+
+    function handleDirectPedal(action, pressed) {
+        const source = 'webhid:' + action;
+        if (!pressed) release(source);
+        else if (attached && actions.includes(action) && hasFocus()) press(source, action);
+    }
+
+    function handleKeyDown(event) {
+        if (!attached || !event || event.ctrlKey || event.altKey || event.metaKey) return false;
+        const action = settings.mapping[event.code];
+        if (!actions.includes(action) || !hasFocus()) return false;
+        if (typeof event.preventDefault === 'function') event.preventDefault();
+        if (!event.repeat) press(event.code, action); // a held pedal repeats keydown; one press is one command
         return true;
     }
 
@@ -206,6 +219,7 @@ export function createPedalController(options) {
         if (attached) return;
         attached = true;
         for (const [node, name, fn, capture] of events) if (node && node.addEventListener) node.addEventListener(name, fn, capture);
+        unsubscribeHid = (opts.webHid || getPedalWebHid()).subscribe({ onButton: handleDirectPedal });
         refreshStatus();
     }
 
@@ -213,6 +227,7 @@ export function createPedalController(options) {
         if (!attached) return;
         focusLost();
         attached = false;
+        unsubscribeHid();
         for (const [node, name, fn, capture] of events) if (node && node.removeEventListener) node.removeEventListener(name, fn, capture);
         refreshStatus();
     }
@@ -220,7 +235,7 @@ export function createPedalController(options) {
     function setSettings(next) {
         settings = normalizeSettings(next);
         saveSettings(settings, opts.storage);
-        for (const code of [...held.keys()]) if (settings.mapping[code] !== 'hold') release(code);
+        for (const code of [...held.keys()]) if (isMappableKey(code) && settings.mapping[code] !== 'hold') release(code);
         refreshStatus();
         return settings;
     }
