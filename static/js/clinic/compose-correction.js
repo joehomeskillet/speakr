@@ -1146,7 +1146,7 @@ export const CorrectionBody = {
     </section>
     <section class="panel">
       <CorrectionWaveform :key="'w' + loadGeneration + audio.revisionId" :editor="c.editor" :alignment="c.alignment" :client="c.client"
-                          :dictation-id="dictationId" :recording-id="c.peaksKey()" :fetch-fn="c.peaksFetch" :vue="c.vue" />
+                          :dictation-id="dictationId" :recording-id="c.peaksKey()" :fetch-fn="c.peaksFetch" :seek="c.seek" :vue="c.vue" />
     </section>
 
   </div>

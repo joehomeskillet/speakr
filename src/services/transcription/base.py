@@ -123,6 +123,8 @@ class TranscriptionSegment:
     end_time: Optional[float] = None
     confidence: Optional[float] = None
     words: Optional[List[Dict[str, Any]]] = None
+    avg_logprob: Optional[float] = None
+    no_speech_prob: Optional[float] = None
 
 
 @dataclass

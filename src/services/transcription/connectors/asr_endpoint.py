@@ -27,6 +27,7 @@ from ..base import (
     ConnectorSpecifications,
 )
 from ..exceptions import TranscriptionError, ConfigurationError, ProviderError
+from src.clinic.config import clinic_mode_enabled
 from src.config.app_config import ASR_ENABLE_CHUNKING, ASR_MAX_DURATION_SECONDS
 from src.utils.error_body import summarize_error_body
 from src.utils.log_filters import loggable_params
@@ -672,6 +673,7 @@ class ASREndpointConnector(BaseTranscriptionConnector):
         if 'segments' in data and isinstance(data['segments'], list):
             logger.info(f"Number of segments: {len(data['segments'])}")
 
+            include_words = clinic_mode_enabled()
             for seg in data['segments']:
                 speaker = seg.get('speaker')
 
@@ -688,11 +690,15 @@ class ASREndpointConnector(BaseTranscriptionConnector):
                 speakers.add(speaker)
                 full_text_parts.append(f"[{speaker}]: {text}")
 
+                words = seg.get('words') if include_words else None
                 segments.append(TranscriptionSegment(
                     text=text,
                     speaker=speaker,
                     start_time=seg.get('start'),
-                    end_time=seg.get('end')
+                    end_time=seg.get('end'),
+                    words=words if isinstance(words, list) else None,
+                    avg_logprob=seg.get('avg_logprob'),
+                    no_speech_prob=seg.get('no_speech_prob'),
                 ))
 
         # Get the full text

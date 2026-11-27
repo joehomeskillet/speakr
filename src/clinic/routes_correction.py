@@ -39,6 +39,7 @@ from src.clinic.alignment import ClinicAlignmentRevision
 from src.clinic.audio_invalidation import get_compatible_links
 from src.clinic.audio_revisions import current_audio_revision
 from src.clinic.config import clinic_mode_enabled
+from src.clinic.correction_recognition_marks import current_marks
 from src.clinic.correction_transaction import CorrectionOriginalError, save_correction_transaction
 from src.clinic.models import ClinicDictation, ClinicTranscriptRevision
 from src.clinic.parity_dispatch import JSON, CommandProblem, RunOnce
@@ -268,6 +269,12 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
             audio_revision_id=audio.id if audio else None,
             links=[_link_json(row, body) for row in links],
             markers=[_marker_json(m) for m in corr.list_markers(dictation)])
+        if clinic_mode_enabled():
+            evidence = current_marks(dictation.id, audio.id, head.id) if head and audio else []
+            out['recognition_spans'] = [
+                dict(id=row.id, kind=row.kind, start_ms=row.start_ms, end_ms=row.end_ms)
+                for row in evidence if row.kind in ('uncertain', 'unrecognized')
+            ]
         if 'offset' in request.args:
             try:
                 cp = to_codepoint_offset(body, int(request.args['offset']))
