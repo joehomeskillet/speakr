@@ -12,7 +12,10 @@ dictation to the logged-in author and the author's pool, and adds the work-list 
   sent no id. The same key and bytes return the existing dictation.
 * Time: the recording time (form, file name, file date, embedded metadata) when the upload
   pipeline found one; otherwise the upload time. Which one was used is written into the
-  receipt (``origin_ref``: ``time=recording`` ``time=recording``, ``time=file`` (file system date, marked) or ``time=upload``).
+  receipt (``origin_ref``: ``time=recording``, ``time=file`` (file system date, marked) or ``time=upload``).
+* Speech recognition: on unless the form opts out (``use_speech_recognition`` false).
+  The opt-out is marked ``:asr=off`` in ``origin_ref``, before the time label. A missing
+  or unknown value stays on, so an old upload request still queues a transcript job.
 * Handover (not reached by the single hook): multi-file join uploads, server-side recorder
   sessions (``/upload/session/<sid>/finalize``) and share_target create no dictation; a cancel
   after the request finished (``upload_cancel.cancel_upload``) leaves the bound dictation.
@@ -120,6 +123,47 @@ def _sha256(path: str) -> str:
     return digest.hexdigest()
 
 
+# Only an explicit opt-out turns recognition off. Unknown text stays on.
+_ASR_OFF = frozenset({'0', 'false', 'no', 'nein', 'off'})
+_ASR_MARK = ':asr=off:'
+
+
+def speech_recognition_requested(form) -> bool:
+    """Whether this upload wants a transcript job. Default is on."""
+    raw = None if form is None else form.get('use_speech_recognition')
+    if isinstance(raw, bool):
+        return raw
+    if raw is None:
+        return True
+    text = str(raw).strip().lower()
+    if not text:
+        return True
+    return text not in _ASR_OFF
+
+
+def recognition_disabled(recording_id: int, *, session=None) -> bool:
+    """True when the stored upload receipt for this recording opted out of ASR."""
+    session = db.session if session is None else session
+    dictation = dictation_for_recording(recording_id, session=session)
+    if dictation is None:
+        return False
+    ref = session.query(ClinicOriginal.origin_ref).filter_by(dictation_id=dictation.id).scalar()
+    return isinstance(ref, str) and _ASR_MARK in ref
+
+
+def skip_transcript_job(form, recording_id: int | None = None) -> bool:
+    """True when job creation must not queue a transcript for this clinic upload.
+
+    An explicit form value wins. A retry that omits the field keeps a stored opt-out.
+    """
+    raw = None if form is None else form.get('use_speech_recognition')
+    if raw is not None and str(raw).strip() != '':
+        return not speech_recognition_requested(form)
+    if recording_id is None:
+        return False
+    return recognition_disabled(recording_id)
+
+
 def _time_source(form, now: datetime, meeting_date: datetime | None) -> str:
     """Label the time: recording (form, recorder, embedded), file (file mtime) or upload."""
     if meeting_date is None or meeting_date is now:
@@ -159,6 +203,9 @@ def register_upload(*, owner, recording, storage, form, now: datetime,
     time_source = _time_source(form, now, meeting_date)
     moment = _utc(now if time_source == 'upload' else meeting_date)
     origin = 'web-recorder' if str(form.get('from_recorder', '')).lower() == 'true' else 'web-upload'
+    # Keep the default ref unchanged. The mark sits before ``time=`` so existing
+    # parsers that split off the recording id still match.
+    asr_mark = ':asr=off' if not speech_recognition_requested(form) else ''
     try:
         with storage.materialize(recording.audio_path) as stored:
             path = stored.local_path
@@ -169,7 +216,7 @@ def register_upload(*, owner, recording, storage, form, now: datetime,
             with open(path, 'rb') as stream:
                 receipt = service.store_original(
                     stream, declared_sha256=digest, declared_size=size, origin=origin,
-                    origin_ref=f'upload:recording:{recording.id}:time={time_source}',
+                    origin_ref=f'upload:recording:{recording.id}{asr_mark}:time={time_source}',
                     author_user_id=owner.id, idempotency_key=key, now=moment, commit=False)
         dictation = db.session.get(ClinicDictation, receipt.dictation_id)
         if dictation.pool_id is None:
