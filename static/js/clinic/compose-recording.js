@@ -29,6 +29,11 @@
 import { createRecorderPhases, isTitleEditable, LABELS, receiptDictationId } from './recorder-phases-ui.js';
 import { surfaceFor } from './tokens.js';
 
+function microphoneChoices(microphone) {
+    return (microphone?.inputs || []).filter(({ deviceId }) => deviceId && deviceId !== 'default')
+        .map(({ deviceId, label }, index) => ({ deviceId, label: label || `Mikrofon ${index + 1}` }));
+}
+
 export { receiptDictationId };
 export const COMPOSE_RECORDING_VERSION = 1;
 
@@ -155,6 +160,8 @@ export function createRecordingViewController(options) {
     let submission = null;
     let submitError = '';
     let pendingSend = null;
+    let knownMicrophone = null;
+    let attemptedMicrophone = '';
     // A host that calls checkRouting() right after mounting (RecordingView) starts without the pending state.
     let routing = opts.oneButton && !opts.preflightOnMount ? 'routingPending' : null;
 
@@ -332,6 +339,26 @@ export function createRecordingViewController(options) {
         return state.mode === 'file' ? state.filePhase : machine.getState().phase;
     }
 
+    function microphoneOptions() {
+        const deviceId = opts.microphone?.deviceId;
+        const choices = microphoneChoices(opts.microphone);
+        const selected = choices.find((device) => device.deviceId === deviceId);
+        if (selected) knownMicrophone = selected;
+        if (deviceId && deviceId !== 'default' && !selected) {
+            choices.push({ deviceId, label: knownMicrophone?.deviceId === deviceId ? knownMicrophone.label : 'Gewähltes Mikrofon' });
+        }
+        return choices;
+    }
+
+    function start() {
+        if (routing || state.mode !== 'record' || state.disposed) return denied('invalid_phase');
+        if (opts.microphone && machine.controls().some(({ id, disabled }) => id === 'start' && !disabled)) {
+            const deviceId = opts.microphone.deviceId;
+            attemptedMicrophone = microphoneOptions().find((device) => device.deviceId === deviceId)?.label || 'Standardmikrofon';
+        }
+        return machine.start();
+    }
+
     function message() {
         if (!allowed()) return TEXT.denied;
         if (routing) return TEXT[routing];
@@ -345,8 +372,11 @@ export function createRecordingViewController(options) {
             return state.fileError === 'invalid_file' ? TEXT.fileInvalid : '';
         }
         if (s.phase === 'failed') return opts.oneButton || s.title.trim() ? TEXT.recordFailed : LABELS.titleHint;
+        if (s.error === 'microphone_unavailable' && attemptedMicrophone) {
+            return `„${attemptedMicrophone}“ ist nicht verfügbar. Schliessen Sie es erneut an oder wählen Sie ein anderes Mikrofon.`;
+        }
         if (s.error === 'microphone_denied') return TEXT.microphoneDenied;
-        if (s.error === 'start_failed') return TEXT.startFailed;
+        if (s.error === 'start_failed' || s.error === 'microphone_unavailable') return TEXT.startFailed;
         if (s.error === 'discard_failed') return TEXT.discardFailed;
         if (s.phase === 'sent') return opts.oneButton ? '' : TEXT.sent;
         if (opts.oneButton && s.phase === 'sending') return TEXT.submitting;
@@ -374,6 +404,7 @@ export function createRecordingViewController(options) {
             authorId: String(user.id),
             title: s.title,
             titleLocked: !isTitleEditable(s.phase),
+            microphoneOptions: microphoneOptions(),
             controls: machine.controls(),
             file: state.file ? { name: String(state.file.name || ''), size: Number(state.file.size) || 0 } : null,
             canSelectFile: allowed() && !fileBusy,
@@ -412,7 +443,7 @@ export function createRecordingViewController(options) {
             return () => listeners.delete(listener);
         },
         setMode, setTitle: (value) => machine.setTitle(value),
-        start: () => routing || state.mode !== 'record' || state.disposed ? denied('invalid_phase') : machine.start(),
+        start,
         pause: () => machine.pause(), resume: () => machine.resume(),
         stop: () => machine.stop(), rewind: () => machine.rewind(), play: () => machine.play(),
         beginning: machine.beginning, end: machine.end,
@@ -441,6 +472,18 @@ export const RECORDING_TEMPLATE = `
             <svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor" aria-hidden="true"><path :d="icons.start"></path></svg>
             Aufnahme starten
           </button>
+          <div v-if="microphone" style="display: grid; gap: var(--ui-space-2); width: 100%; max-width: 20rem; text-align: left">
+            <label for="crv-microphone">Mikrofon</label>
+            <select id="crv-microphone" :value="microphone.deviceId === 'default' ? '' : microphone.deviceId"
+                    :disabled="!enabled('start')" @change="microphone.select($event.target.value)" style="${TOUCH}">
+              <option value="">Standardmikrofon</option>
+              <option v-for="device in m.microphoneOptions" :key="device.deviceId" :value="device.deviceId">{{ device.label }}</option>
+            </select>
+            <button v-if="!microphone.inputs.some(device => device.deviceId && device.deviceId !== 'default' && device.label)"
+                    type="button" class="button quiet" :disabled="!enabled('start')" @click="microphone.requestAccess()" style="${TOUCH}">
+              Mikrofonzugriff erlauben
+            </button>
+          </div>
           <a href="#/neu" data-testid="mode-file" @click.prevent="c.setMode('file')" style="${LINK}; font-size: .875rem">oder Datei hochladen</a>
         </div>
         <div v-else-if="m.phase === 'recording' || m.phase === 'paused'" style="display: grid; justify-items: center; gap: var(--ui-space-4)">
@@ -508,6 +551,7 @@ export const RecordingView = {
         player: { type: Object, default: null },
         authorized: { type: Function, default: null },
         vue: { type: Object, default: null },
+        microphone: { type: Object, default: null },
     },
     setup(props, ctx) {
         const V = props.vue || (typeof window !== 'undefined' ? window.Vue : null);
@@ -519,6 +563,7 @@ export const RecordingView = {
             recorder: props.recorder,
             uploadFile: props.uploadFile,
             player: props.player,
+            microphone: props.microphone,
             authorized: props.authorized || undefined,
             oneButton: true,
             preflightOnMount: true,
