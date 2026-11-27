@@ -1413,6 +1413,7 @@ def register_clinic_audio(flask_app):
                             routes_dictation_properties, routes_live, routes_output, routes_tts, startup)
     from src.clinic.admin_dictation_access import can_open_content
     from src.clinic.ingest import IngestService
+    from src.clinic.live_asr_adapter import LiveAsrAdapter, get_live_asr_config
     from src.clinic.models import ClinicDictation, ClinicTranscriptRevision
 
     dispatch = flask_app.extensions['clinic_parity_dispatch']
@@ -1482,8 +1483,10 @@ def register_clinic_audio(flask_app):
             subject=policy.build_subject(actor),
             recording=policy.build_facts(dictation.recording_id, dictation.author_user_id))
 
-    routes_live.register_live_commands(
-        dispatch, lambda actor, dictation_id: may(actor, 'edit', db.session.get(ClinicDictation, dictation_id)))
+    def may_dictate(actor, dictation_id):
+        return may(actor, 'edit', db.session.get(ClinicDictation, dictation_id))
+
+    routes_live.register_live_commands(dispatch, may_dictate, stream_enabled=True)
     flask_app.register_blueprint(routes_audio.create_blueprint(
         authorize=authorize, run_once=run_once, load_sources=load_sources))
     flask_app.register_blueprint(routes_dictation_properties.DictationPropertyRoutes(protection_store).blueprint())
@@ -1491,8 +1494,8 @@ def register_clinic_audio(flask_app):
         bundle_load, lambda actor, dictation_id, action: may(actor, action, db.session.get(ClinicDictation, dictation_id)),
         bundle_persist, run_once, managed_client))
     flask_app.register_blueprint(routes_live.create_blueprint(
-        lambda actor, dictation_id: may(actor, 'edit', db.session.get(ClinicDictation, dictation_id)),
-        IngestService(startup.originals_root(flask_app))))
+        may_dictate, IngestService(startup.originals_root(flask_app)),
+        stream_adapter=lambda: LiveAsrAdapter(get_live_asr_config())))
     flask_app.register_blueprint(routes_correction.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation),
         run_once=run_once, require_if_match=True))
