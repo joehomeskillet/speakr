@@ -39,6 +39,7 @@ from src.services.transcription.exceptions import TranscriptionError, Configurat
 from src.services.transcription.local_only import is_local_base_url
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.asr_profiles import effective_hotwords as get_hotwords_for_user
+from src.clinic.live_asr_transport import iter_speaches_events
 
 logger = logging.getLogger(__name__)
 
@@ -285,6 +286,13 @@ class LiveAsrAdapter(BaseTranscriptionConnector):
             last_end_ms = start_ms
 
             for event in events:
+                if event.get('event') == 'partial' and on_partial:
+                    on_partial(TranscriptionResponse(
+                        text=event.get('text', ''),
+                        language=language,
+                        provider=self.PROVIDER_NAME,
+                        model=self._model,
+                    ))
                 if event.get('event') == 'final':
                     text = event.get('text', '')
                     end_ms = event.get('end_ms', 0)
@@ -328,55 +336,23 @@ class LiveAsrAdapter(BaseTranscriptionConnector):
         language: str,
         hotwords: List[str],
         timeout: float,
-    ) -> List[LiveTranscriptionEvent]:
-        """Fetch events from the realtime endpoint."""
-        url = f"{self._base_url}/streaming/transcribe"
+    ):
+        """Stream local Speaches /v1/realtime. Partials yield before the socket closes.
 
-        headers = {
-            'Authorization': f'Bearer {self._api_key}' if self._api_key else '',
-            'Content-Type': 'application/json',
-        }
-
-        payload = {
-            'language': language,
-            'model': self._model,
-            'hotwords': hotwords,
-            'initial_prompt': request.prompt or '',
-        }
-
-        events: List[LiveTranscriptionEvent] = []
-        last_seq = 0
-
-        try:
-            with httpx.Client(timeout=timeout) as client:
-                with client.stream('POST', url, json=payload, headers=headers) as response:
-                    for line in response.iter_lines():
-                        if not line or not line.startswith('data: '):
-                            continue
-                        try:
-                            data = json.loads(line[6:])
-                            event_data: LiveTranscriptionEvent = {
-                                'event': data.get('event', 'final'),
-                                'seq': data.get('seq', 0),
-                                'text': data.get('text', ''),
-                                'start_ms': data.get('start_ms', 0),
-                                'end_ms': data.get('end_ms', 0),
-                                'language': data.get('language', language),
-                                'timestamp': time.time(),
-                            }
-                            if 'words' in data:
-                                event_data['words'] = data['words']
-                            if event_data['seq'] > last_seq:
-                                events.append(event_data)
-                                last_seq = event_data['seq']
-                        except json.JSONDecodeError:
-                            continue
-        except httpx.TimeoutException:
-            raise TranscriptionError("Live ASR streaming timed out")
-        except httpx.ConnectError:
-            raise TranscriptionError("Live ASR endpoint unreachable")
-
-        return events
+        A placeholder or English API-default model is refused before any audio
+        is read. Batch HTTP is not a fallback for this path.
+        """
+        model = (getattr(request, 'model', None) or self._model or '').strip()
+        return iter_speaches_events(
+            base_url=self._base_url,
+            api_key=self._api_key,
+            model=model,
+            language=language or 'de',
+            audio=request.audio_file,
+            timeout=timeout,
+            hotwords=hotwords,
+            should_cancel=getattr(request, 'should_cancel', None),
+        )
 
     def _request_recognition(
         self,

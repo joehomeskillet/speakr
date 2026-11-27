@@ -4,16 +4,20 @@ Thin layer over ``metadata_changes`` (plan, validation, audit rows),
 ``workflow`` (priority codes, deadline resolution), ``pool_policy`` and
 ``recipient_defaults`` (eligibility) and ``lease`` (current edit holder).
 
-Fields: title, category, recipient (the assignee), priority (0/1/128 or the
-three German labels), deadline date plus optional time (default 23:59:59
-Europe/Zurich), author and pool. The caller passes the actions central
-policy already granted (``rename``, ``priority``, ``reassign``). Patient
-context is never read from or inferred out of these fields.
+Fields: title, notes, category, recipient (the assignee), priority (0/1/128
+or the three German labels), deadline date plus optional time (default
+23:59:59 Europe/Zurich), author and pool. Title and notes share the
+``rename`` right. The caller passes the actions central policy already
+granted (``rename``, ``priority``, ``reassign``). Patient context is never
+read from or inferred out of these fields.
 
 Persistence owned here: ``ClinicDictation.version_counter`` (the expected
-version), the recording title and the workflow row. Category has no column
-yet, so it is validated and returned in ``Applied.deferred`` for the
-consumer that owns that storage. Audit rows are returned, not stored.
+version), the recording title, ``Recording.notes`` and the workflow row.
+Notes live only on that column. Their audit row names the field and does
+not copy the text. Category has no column yet, so it is validated and
+returned in ``Applied.deferred`` for the consumer that owns that storage.
+Audit rows are returned, not stored. A notes write does not append a
+transcript revision.
 """
 
 from __future__ import annotations
@@ -84,6 +88,7 @@ def apply_metadata(
         asked["priority"] = _priority(asked["priority"])
     current = {
         "title": recording.title,
+        "notes": recording.notes,
         "priority": row.priority,
         "deadline_date": row.deadline_date,
         "deadline_time": row.deadline_time,
@@ -175,6 +180,8 @@ def _write(plan, after, deadline, dictation, row, recording) -> None:
     fields = {change.field for change in plan.changes}
     if "title" in fields:
         recording.title = after["title"]
+    if "notes" in fields:
+        recording.notes = after["notes"]
     if "priority" in fields:
         row.priority, row.priority_unrecognized = after["priority"], False
     if deadline != "keep":

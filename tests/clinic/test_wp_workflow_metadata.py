@@ -11,7 +11,7 @@ import pytest
 from src.clinic import lease, pools, recipient_defaults, workflow
 from src.clinic import workflow_metadata as wm
 from src.clinic.metadata_changes import ChangeError
-from src.clinic.models import ClinicDictation, ClinicReviewLease
+from src.clinic.models import ClinicDictation, ClinicReviewLease, ClinicTranscriptRevision
 from src.database import db
 from src.models import Recording
 
@@ -176,6 +176,68 @@ def test_reassign_ineligible_is_rejected_atomically():
     assert raised.value.code == "ineligible_author"
     assert db.session.get(Recording, dictation.recording_id).title == "d"
     assert db.session.get(ClinicDictation, dictation.id).version_counter == 0
+
+
+def test_notes_follow_rename_with_lock_version_and_content_free_audit():
+    world = _world()
+    _a, _o, _t, _p, dictation, row, _held = world
+    recording = db.session.get(Recording, dictation.recording_id)
+    recording.notes = "alt"
+    recording.transcription = "Text bleibt"
+    db.session.commit()
+    ClinicTranscriptRevision.__table__.create(bind=db.engine, checkfirst=True)
+    before = db.session.query(ClinicTranscriptRevision).count()
+    result = _apply(world, {"notes": "  Neue Anmerkung  ", "title": "Bericht"})
+    saved = db.session.get(Recording, dictation.recording_id)
+    assert saved.notes == "Neue Anmerkung"
+    assert saved.title == "Bericht"
+    assert saved.transcription == "Text bleibt"
+    assert result.version == 1
+    assert db.session.get(ClinicDictation, dictation.id).version_counter == 1
+    note_audit = next(item for item in result.audit_rows if item["field"] == "notes")
+    assert set(note_audit) == {"actor_id", "dictation_id", "field", "at"}
+    assert "Neue Anmerkung" not in repr(note_audit) and "alt" not in repr(note_audit)
+    assert not hasattr(dictation, "notes") and not hasattr(row, "notes")
+    assert db.session.query(ClinicTranscriptRevision).count() == before
+    cleared = _apply(world, {"notes": " \n\t "}, version=1)
+    assert cleared.version == 2
+    assert db.session.get(Recording, dictation.recording_id).notes == ""
+    assert db.session.query(ClinicTranscriptRevision).count() == before
+
+
+def test_notes_stay_when_the_lock_or_version_is_wrong():
+    world = _world()
+    author, _o, _t, _p, dictation, _row, held = world
+    recording = db.session.get(Recording, dictation.recording_id)
+    recording.notes = "bleibt"
+    db.session.commit()
+    lease.release(held, held.generation, NOW, user_id=author.id)
+    db.session.commit()
+    with pytest.raises(ChangeError) as raised:
+        _apply(world, {"notes": "neu"})
+    assert raised.value.code == "lease_expired"
+    assert db.session.get(Recording, dictation.recording_id).notes == "bleibt"
+    assert db.session.get(ClinicDictation, dictation.id).version_counter == 0
+    again = lease.acquire(dictation.id, author.id, NOW)
+    db.session.commit()
+    saved = _apply(world, {"notes": "eins"}, generation=again.generation)
+    assert saved.version == 1
+    with pytest.raises(ChangeError) as raised:
+        _apply(world, {"notes": "zwei"}, version=0, generation=again.generation)
+    assert raised.value.code == "stale_version"
+    assert db.session.get(Recording, dictation.recording_id).notes == "eins"
+    with pytest.raises(ChangeError) as raised:
+        _apply(
+            world, {"notes": "drei"}, version=1, generation=again.generation, actions={"priority"}
+        )
+    assert raised.value.code == "forbidden"
+    assert db.session.get(Recording, dictation.recording_id).notes == "eins"
+    assert db.session.get(ClinicDictation, dictation.id).version_counter == 1
+    with pytest.raises(ChangeError) as raised:
+        _apply(world, {"notes": "bad\x00"}, version=1, generation=again.generation)
+    assert raised.value.code == "invalid_notes"
+    assert db.session.get(Recording, dictation.recording_id).notes == "eins"
+    assert db.session.get(ClinicDictation, dictation.id).version_counter == 1
 
 
 def test_metadata_is_not_parsed_for_patient_context():
