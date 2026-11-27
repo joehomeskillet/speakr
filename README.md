@@ -24,7 +24,7 @@ Das Projekt richtet sich an Kliniken und Entwicklungsteams, die einen Diktat- un
 
 ![Schreibplatz von Speakr mit Korrektureditor und Audiowiedergabe für ein synthetisches Testdiktat](docs/images/clinic/editor.png)
 
-Der Schreibplatz zeigt den Diktattext und die Steuerung für die Wiedergabe.
+*Schreibplatz mit Korrektureditor und Wiedergabe. Alle gezeigten Daten sind synthetisch.*
 
 <table>
   <tr>
@@ -113,6 +113,8 @@ Die Klinikfunktionen sind nur aktiv, wenn `CLINIC_MODE=1` gesetzt ist. Unabhäng
 
 Der [Projektauftrag](clinic-spec/CLAUDE.md) umfasst 101 Pflichtfunktionen. Das ursprüngliche Register ordnet 56 dem Webclient zu und nennt bei 32 eine zu prüfende Abhängigkeit. Bei 13 weiteren stehen Teilanforderungen im Konflikt mit der Webarchitektur. Alle bleiben im Umfang. Im Originalregister ist bisher für keine der 101 Funktionen ein direkter Vergleich mit dns.comfort protokolliert. Die folgenden Ergebnisse stammen aus Tests des Forks mit synthetischen Diktaten.
 
+Hinzu kommen weitere Klinik-, Identitäts- und Grenzanforderungen. Keine Pflichtfunktion ist gestrichen; die 13 widersprüchlichen Teilklauseln bleiben offen. Eine 1:1-Gleichwertigkeit mit dns.comfort wird nicht behauptet, solange Webgrenzen und vollständige Referenzvergleiche offen sind. Die zugehörigen Register sind unter [Nachweise und Register](#nachweise-und-register) verlinkt.
+
 ### Belegt
 
 Im Testbetrieb mit synthetischen Benutzerabläufen:
@@ -158,7 +160,9 @@ Verhaltenslücken:
 
 ## Nachweise und Register
 
-Die öffentlichen Projektregister beschreiben Anforderungen, ihre Zuordnung und die vorgesehenen Tests. Sie sind keine Testprotokolle und deutschsprachig.
+Die öffentlichen Projektregister beschreiben Anforderungen, ihre Zuordnung und die vorgesehenen Tests. Sie sind keine Testprotokolle und deutschsprachig. Ihre Statusfelder (`not_started`, `not_run`) stammen aus der Spezifikation vom 17.11.2026; sie sind kein aktueller Testnachweis. Den hier beschriebenen Stand fasst [Stand der Ablösung](#stand-der-ablösung) zusammen.
+
+Der Fork hat eigene [GitHub-CI-Prüfungen](.github/workflows/test.yml), darunter Python-Tests auf SQLite und PostgreSQL sowie Browserprüfungen. Die vorhandene [Forgejo-Konfiguration](.forgejo/workflows/test.yml) ist davon getrennt. Workflow-Dateien beschreiben Prüfungen, belegen aber keinen erfolgreichen Lauf. Auch bestandene synthetische Tests ersetzen weder physische Geräteabnahmen noch den vollständigen Vergleich mit dns.comfort.
 
 - [Alle 101 Pflichtfunktionen](clinic-spec/docs/20_Alle_101_Pflichtfunktionen.md): Sollverhalten jeder Pflichtfunktion (PAR)
 - [PAR-Paritätsmatrix](clinic-spec/planning/parity-matrix.csv) (auch als [JSON](clinic-spec/planning/parity-matrix.json)): Zuordnung jeder Pflichtfunktion zu Modulen, Wiederverwendung und Tests
@@ -186,7 +190,7 @@ docker build --platform linux/amd64 -t speakr-clinic .
 
 Das [`Dockerfile`](Dockerfile) installiert die Abhängigkeiten aus den Lock-Dateien mit Hash-Prüfung und baut den DSS/DS2-Decoder sowie das CSS. Mit `--build-arg LIGHTWEIGHT=1` entsteht ein Image ohne die Embedding-Abhängigkeiten.
 
-Die [Installationsanleitung](https://joehomeskillet.github.io/speakr/de/getting-started/installation/) führt durch lokale Modellauswahl, Netzwerk, Start und das erste Administratorkonto. Legen Sie die Umgebungsdatei ausserhalb des Build-Verzeichnisses ab. PostgreSQL ist die führende Datenbank der Klinikarchitektur. Testen Sie die neue Installation mit einer kurzen synthetischen Aufnahme.
+Die [Installationsanleitung](https://joehomeskillet.github.io/speakr/de/getting-started/installation/) führt durch lokale Modellauswahl, Netzwerk, Start und das erste Administratorkonto. Legen Sie die Umgebungsdatei ausserhalb des Build-Verzeichnisses ab. PostgreSQL ist die führende Datenbank der Klinikarchitektur. Weitere Optionen der Spracherkennung stehen in [`config/env.transcription.example`](config/env.transcription.example). Testen Sie die neue Installation mit einer kurzen synthetischen Aufnahme.
 
 ## Mitwirken
 
@@ -208,6 +212,7 @@ npm test
 - `scripts/build_css.sh` lädt die gepinnte Tailwind-CLI, prüft ihren Hash und erzeugt `static/css/tailwind.css`.
 - `scripts/clinic_pg_run.sh` führt `tests/clinic` gegen einen temporären PostgreSQL-Container aus (Docker erforderlich).
 - Der Windows-Importagent wird unter Windows mit dem .NET-10-SDK getestet: `dotnet test apps/windows-import/Speakr.Clinic.ImportAgent.sln`.
+- Bekanntes Problem: `tests/test_audit_log_coverage.py::test_no_marker_reaches_a_row_or_a_fallback_line` kann im parallelen Lauf reihenfolgeabhängig fehlschlagen und besteht einzeln.
 
 ### Regeln
 
