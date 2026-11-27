@@ -54,6 +54,7 @@ MODEL_MODULES = (
     "statistics_grants",
     "notification_preferences",
     "draft_store",
+    "bundle_store",
 )
 
 
