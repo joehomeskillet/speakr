@@ -27,6 +27,7 @@ const VIEW = Object.freeze({
 const MESSAGES = Object.freeze({
     idle: 'Keine Live-Sitzung.',
     live: 'Live-Transkription läuft.',
+    paused: 'Live-Diktat pausiert.',
     holderLost: 'Sie sind nicht mehr der aktive Sprecher. Neue Sätze werden nicht gespeichert.',
     retry: 'Verbindung unterbrochen. Speichern wird wiederholt.',
     mismatch: 'Die Bestätigung passt nicht zu diesem Satz.',
@@ -77,6 +78,8 @@ export function createLiveSessionController(options) {
             sessionId,
             generation,
             checkpoint: durableSequence,
+            // stop_live_session compares expected_revision with ack_seq + 1.
+            revision: sessionId === null ? 0 : durableSequence + 1,
             partial: partial ? partial.text : null,
             phrases: phrases.map((p) => ({ ...p, view: phraseView(p) })),
             writable: status === 'live' && canWrite(),
@@ -141,7 +144,23 @@ export function createLiveSessionController(options) {
             sessionId = position.session_id;
             generation = position.generation || 1;
             durableSequence = position.sequence || 0;
-            setStatus('live');
+            setStatus(position.state === 'PAUSED' ? 'paused' : 'live');
+            emit();
+            return snapshot();
+        },
+
+        /**
+         * Apply a pause, continue or resume position.
+         * RECORDING is the only state that may accept new phrases.
+         */
+        applyServerState(data) {
+            if (data && typeof data === 'object') {
+                if (typeof data.session_id === 'string') sessionId = data.session_id;
+                if (Number.isInteger(data.generation)) generation = data.generation;
+                if (Number.isInteger(data.sequence)) durableSequence = Math.max(durableSequence, data.sequence);
+                if (data.state === 'PAUSED') setStatus('paused', MESSAGES.paused);
+                else if (data.state === 'RECORDING') setStatus('live');
+            }
             emit();
             return snapshot();
         },
@@ -219,7 +238,9 @@ export function createLiveSessionController(options) {
             if (res.outcome === 'ok' && res.data && typeof res.data.session_id === 'string'
                     && Number.isInteger(res.data.generation) && Number.isInteger(res.data.sequence)) {
                 adopt(res.data);
-                setStatus('live', MESSAGES.resumed);
+                // recover() always leaves the session PAUSED. Recording waits for continue.
+                if (res.data.state === 'PAUSED') setStatus('paused', MESSAGES.paused);
+                else setStatus('live', MESSAGES.resumed);
             } else if (res.outcome === 'conflict' || res.outcome === 'permission') {
                 markStale(res.outcome === 'permission' ? MESSAGES.denied : MESSAGES.holderLost);
             } else {

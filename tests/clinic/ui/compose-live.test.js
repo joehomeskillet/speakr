@@ -17,7 +17,7 @@ const source = readFileSync(join(__dirname, '../../../static/js/clinic/compose-l
 
 const ok = (data) => ({ outcome: 'ok', status: 200, data });
 const fail = (outcome, status = 0) => ({ outcome, status, code: null, message: 'Fehler' });
-const position = (extra = {}) => ({ session_id: 's1', dictation_id: 'd1', state: 'open', generation: 1, sequence: 0, audio_offset_ms: 0, events: [], ...extra });
+const position = (extra = {}) => ({ session_id: 's1', dictation_id: 'd1', state: 'PAUSED', generation: 1, sequence: 0, audio_offset_ms: 0, events: [], ...extra });
 const committed = () => ok({ status: 'committed', revision: 1 });
 
 let keyN = 0;
@@ -52,7 +52,7 @@ function fakeClient(routes = {}) {
 const baseRoutes = (extra = {}) => ({
     'POST /dictations/d1/resume': ok(position()),
     'POST /sessions/s1/pause': ok(position()),
-    'POST /sessions/s1/continue': ok(position()),
+    'POST /sessions/s1/continue': ok(position({ state: 'RECORDING' })),
     'POST /sessions/s1/phrases': (path, options) => ok({
         status: 'server_saved', phrase_id: 'p' + options.body.sequence, session_id: 's1',
         generation: options.body.generation, sequence: options.body.sequence, event_id: options.body.event_id,
@@ -66,6 +66,7 @@ const wire = { audio_start_ms: 0, audio_end_ms: 500, audio_b64: 'AAAA', audio_re
 async function live(client, extra) {
     const c = make(client, extra);
     await c.start();
+    if (c.getState().phase === 'paused') await c.continueRecording();
     return c;
 }
 
@@ -105,7 +106,7 @@ describe('compose-live contract', () => {
 });
 
 describe('start', () => {
-    it('sends start_live_session, adopts the session and goes live', async () => {
+    it('sends start_live_session and stays paused until continue reports recording', async () => {
         const client = fakeClient(baseRoutes());
         const c = make(client);
         expect(c.getState().phase).toBe('idle');
@@ -113,9 +114,14 @@ describe('start', () => {
         const cmd = client.calls.find((x) => x.kind === 'command');
         expect(cmd.body).toMatchObject({ command: 'start_live_session', payload: { dictation_id: 'd1' } });
         expect(cmd.options.idempotencyKey).toMatch(/^key-/);
-        expect(state.phase).toBe('live');
+        expect(state.phase).toBe('paused');
+        expect(state.session.status).toBe('paused');
+        expect(state.session.writable).toBe(false);
         expect(state.session.sessionId).toBe('s1');
-        expect(state.actions.map((a) => a.id)).toEqual(['pause', 'stop']);
+        expect(state.session.revision).toBe(1);
+        expect(state.actions.map((a) => a.id)).toEqual(['continueRecording', 'stop']);
+        expect(client.calls.some((x) => x.path && x.path.endsWith('/continue'))).toBe(false);
+        expect((await c.continueRecording()).phase).toBe('live');
     });
 
     it('goes through starting and does not start twice', async () => {
@@ -129,9 +135,11 @@ describe('start', () => {
         expect(client.calls.filter((x) => x.kind === 'command')).toHaveLength(1);
     });
 
-    it('adopts an already open session after a conflict', async () => {
-        const c = await live(fakeClient(baseRoutes({ 'CMD start_live_session': fail('conflict', 409) })));
-        expect(c.getState().phase).toBe('live');
+    it('adopts an already open session after a conflict without recording', async () => {
+        const c = make(fakeClient(baseRoutes({ 'CMD start_live_session': fail('conflict', 409) })));
+        const state = await c.start();
+        expect(state.phase).toBe('paused');
+        expect(state.session.sessionId).toBe('s1');
     });
 
     it('ends in error with a German note when the start is denied', async () => {
@@ -169,11 +177,46 @@ describe('pause and continue', () => {
         expect(c.getState().note).toBe('Keine Berechtigung für diese Live-Sitzung.');
     });
 
+    it('does not present recording before continue succeeds', async () => {
+        let release;
+        const gate = new Promise((resolve) => { release = resolve; });
+        const client = fakeClient(baseRoutes({ 'POST /sessions/s1/continue': () => gate }));
+        const c = make(client);
+        await c.start();
+        const pending = c.continueRecording();
+        expect(c.getState().phase).toBe('paused');
+        expect(c.getState().session.status).toBe('paused');
+        release(ok(position({ state: 'RECORDING' })));
+        const state = await pending;
+        expect(state.phase).toBe('live');
+        expect(state.session.status).toBe('live');
+    });
+
+    it('stays paused when continue returns the paused recovery state', async () => {
+        const c = make(fakeClient(baseRoutes({
+            'POST /sessions/s1/continue': ok(position({ state: 'PAUSED' })),
+        })));
+        await c.start();
+        const state = await c.continueRecording();
+        expect(state.phase).toBe('paused');
+        expect(state.session.writable).toBe(false);
+        expect(await c.finalizePhrase('nicht erlaubt', wire)).toBeNull();
+    });
+
+    it('stays live when the server is still recording after pause', async () => {
+        const c = await live(fakeClient(baseRoutes({
+            'POST /sessions/s1/pause': ok(position({ state: 'RECORDING' })),
+        })));
+        expect((await c.pause()).phase).toBe('live');
+        expect(c.getState().session.status).toBe('live');
+    });
+
     it('ignores continue while live', async () => {
         const client = fakeClient(baseRoutes());
         const c = await live(client);
+        const before = client.calls.filter((x) => x.path && x.path.endsWith('/continue')).length;
         await c.continueRecording();
-        expect(client.calls.some((x) => x.path && x.path.endsWith('/continue'))).toBe(false);
+        expect(client.calls.filter((x) => x.path && x.path.endsWith('/continue'))).toHaveLength(before);
     });
 });
 
@@ -213,8 +256,10 @@ describe('reconnect', () => {
         const state = await c.reconnect();
         const resumes = client.calls.filter((x) => x.path && x.path.endsWith('/dictations/d1/resume'));
         expect(resumes.at(-1).options.body).toEqual({ after_sequence: 0 });
-        expect(state.phase).toBe('live');
+        expect(state.phase).toBe('paused');
+        expect(state.session.status).toBe('paused');
         expect(state.session.phrases[0].state).toBe('server_saved');
+        expect(state.session.phrases[0].text).toBe('Guten Tag');
     });
 
     it('markDisconnected moves live and paused to reconnecting and offers the reconnect button', async () => {
@@ -250,16 +295,23 @@ describe('stop', () => {
         const state = await c.stop();
         const cmd = client.calls.filter((x) => x.kind === 'command').at(-1);
         expect(cmd.body).toMatchObject({
-            command: 'stop_live_session', payload: { session_id: 's1', generation: 1, last_sequence: 1 },
+            command: 'stop_live_session', expected_revision: 2,
+            payload: { session_id: 's1', generation: 1, last_sequence: 1 },
         });
+        expect(cmd.body.expected_revision).toBeGreaterThan(0);
         expect(state.phase).toBe('stopped');
         expect(state.actions.map((a) => a.id)).toEqual(['start']);
     });
 
-    it('stops from the paused state', async () => {
-        const c = await live(fakeClient(baseRoutes()));
+    it('stops from the paused state with the current positive revision', async () => {
+        const client = fakeClient(baseRoutes());
+        const c = await live(client);
         await c.pause();
-        expect((await c.stop()).phase).toBe('stopped');
+        const state = await c.stop();
+        expect(state.phase).toBe('stopped');
+        const cmd = client.calls.filter((x) => x.kind === 'command').at(-1);
+        expect(cmd.body.expected_revision).toBe(1);
+        expect(cmd.body.payload).toMatchObject({ session_id: 's1', generation: 1, last_sequence: 0 });
     });
 
     it('refuses to stop while a phrase cannot be saved', async () => {
@@ -272,11 +324,24 @@ describe('stop', () => {
         expect(state.note).toBe('Beenden nicht möglich: Es gibt nicht gespeicherte Sätze.');
     });
 
-    it('returns to the previous phase when the stop conflicts', async () => {
+    it('returns to the previous phase when the stop conflicts and keeps the text', async () => {
         const c = await live(fakeClient(baseRoutes({ 'CMD stop_live_session': fail('conflict', 409) })));
+        await c.finalizePhrase('Guten Tag', wire);
         const state = await c.stop();
         expect(state.phase).toBe('live');
         expect(state.note).toBe('Beenden fehlgeschlagen. Bitte erneut versuchen.');
+        expect(state.session.phrases.map((p) => p.text)).toEqual(['Guten Tag']);
+        expect(state.session.phrases[0].state).toBe('server_saved');
+    });
+
+    it('keeps unsaved text when a conflict blocks the stop', async () => {
+        const client = fakeClient(baseRoutes({ 'POST /sessions/s1/phrases': fail('conflict', 409) }));
+        const c = await live(client);
+        await c.finalizePhrase('Nicht verlieren', wire);
+        const state = await c.stop();
+        expect(client.calls.some((x) => x.kind === 'command' && x.body.command === 'stop_live_session')).toBe(false);
+        expect(state.phase).toBe('stale');
+        expect(state.session.phrases.map((p) => p.text)).toEqual(['Nicht verlieren']);
     });
 });
 
@@ -288,20 +353,21 @@ describe('live region', () => {
         let last = c.getState().announcement;
         c.subscribe((s) => { if (s.announcement !== last) { last = s.announcement; announced.push(s.announcement); } });
         await c.start();
+        await c.continueRecording();
         c.partial('Das');
         c.partial('Das ist');
         c.partial('Das ist ein');
         await c.finalizePhrase('Das ist ein Satz', wire);
         await c.finalizePhrase('Noch ein Satz', wire);
-        expect(announced).toEqual([ANNOUNCEMENTS.starting, ANNOUNCEMENTS.live]);
+        expect(announced).toEqual([ANNOUNCEMENTS.starting, ANNOUNCEMENTS.paused, ANNOUNCEMENTS.live]);
         await c.pause();
         await c.continueRecording();
         c.markDisconnected();
         await c.reconnect();
         await c.stop();
         expect(announced).toEqual([
-            ANNOUNCEMENTS.starting, ANNOUNCEMENTS.live, ANNOUNCEMENTS.paused, ANNOUNCEMENTS.live,
-            ANNOUNCEMENTS.reconnecting, ANNOUNCEMENTS.live, ANNOUNCEMENTS.stopping, ANNOUNCEMENTS.stopped,
+            ANNOUNCEMENTS.starting, ANNOUNCEMENTS.paused, ANNOUNCEMENTS.live, ANNOUNCEMENTS.paused, ANNOUNCEMENTS.live,
+            ANNOUNCEMENTS.reconnecting, ANNOUNCEMENTS.paused, ANNOUNCEMENTS.stopping, ANNOUNCEMENTS.stopped,
         ]);
         for (const text of announced) expect(text).not.toMatch(/Satz|Das ist/);
     });
