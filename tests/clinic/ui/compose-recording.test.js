@@ -494,6 +494,39 @@ describe('view registration and setup', () => {
         expect(disabled('play')).toBe(true);
     });
 
+    it('plays the review take on the chosen output device where setSinkId exists', async () => {
+        const devices = [
+            { kind: 'audiooutput', deviceId: 'default', label: 'Default' },
+            { kind: 'audiooutput', deviceId: 'spk-2', label: 'Lautsprecher 2' },
+            { kind: 'audioinput', deviceId: 'mic', label: 'Mikrofon' },
+        ];
+        vi.stubGlobal('navigator', { mediaDevices: { enumerateDevices: vi.fn(async () => devices) } });
+        const view = RecordingView.setup({ currentUser: { id: 2 }, recorder: recorder(), uploadFile: vi.fn(), vue: fakeVue() }, {});
+        const media = { setSinkId: vi.fn(async () => {}) };
+        view.bindReview(media);
+        expect(view.outputSupported.value).toBe(true);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(view.outputs.value.map((d) => d.deviceId)).toEqual(['spk-2']);
+        await view.chooseOutput('spk-2');
+        expect(media.setSinkId).toHaveBeenLastCalledWith('spk-2');
+        media.setSinkId.mockRejectedValueOnce(new Error('gone'));
+        await view.chooseOutput('spk-3');
+        expect(view.outputId.value).toBe('');
+        expect(RECORDING_TEMPLATE).toContain('data-testid="rec-output"');
+    });
+
+    it('disables the output control and says so where setSinkId is missing, without touching pedal chords', () => {
+        const view = RecordingView.setup({ currentUser: { id: 2 }, recorder: recorder(), uploadFile: vi.fn(), vue: fakeVue() }, {});
+        const shortcuts = { ...view.shortcuts };
+        view.bindReview({});
+        expect(view.outputSupported.value).toBe(false);
+        expect(RECORDING_TEMPLATE).toContain(':disabled="!outputSupported"');
+        expect(RECORDING_TEMPLATE).toContain('Systemausgang');
+        view.bindReview(null);
+        expect(view.shortcuts).toEqual(shortcuts);
+    });
+
     it('dispatches only the enabled recorder chords in the mounted view', async () => {
         const rec = recorder();
         const vue = fakeVue();

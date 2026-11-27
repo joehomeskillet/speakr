@@ -463,6 +463,17 @@ export const RECORDING_TEMPLATE = `
                  @loadedmetadata="loadReview" @durationchange="c.machine.syncPlayback()" @seeked="finishDurationProbe"
                  @play="c.machine.syncPlayback()" @pause="c.machine.syncPlayback()" @ended="c.machine.syncPlayback()"
                  @error="c.machine.playbackFailed()" style="width: 100%; min-height: 3rem"></audio>
+          <div v-if="!m.created && previewUrl" style="display: grid; gap: var(--ui-space-1); width: 100%; text-align: left; font-size: .875rem">
+            <span id="crv-output-label">Wiedergabegerät</span>
+            <div role="radiogroup" aria-labelledby="crv-output-label" data-testid="rec-output" style="display: grid; gap: var(--ui-space-1)">
+              <button type="button" role="radio" class="button" :class="outputId === '' ? 'accent' : 'quiet'" :aria-checked="outputId === ''"
+                      :disabled="!outputSupported" data-testid="rec-output-default" @click="chooseOutput('')" style="${TOUCH}; justify-content: flex-start">Systemstandard</button>
+              <button v-for="(d, i) in outputs" :key="d.deviceId" type="button" role="radio" class="button" :class="outputId === d.deviceId ? 'accent' : 'quiet'"
+                      :aria-checked="outputId === d.deviceId" :disabled="!outputSupported" data-testid="rec-output-device" @click="chooseOutput(d.deviceId)"
+                      style="${TOUCH}; justify-content: flex-start">{{ d.label || ('Ausgabegerät ' + (i + 1)) }}</button>
+            </div>
+            <p v-if="!outputSupported" data-testid="rec-output-note" style="margin: 0; color: var(--ui-text-muted, var(--ui-text))">Dieser Browser verwendet für die Wiedergabe immer den Systemausgang.</p>
+          </div>
           <button type="button" class="button primary" style="${TOUCH}; width: 100%; font-size: 1rem" data-testid="rec-send" @click="c.sendRecording()">
             {{ m.phase === 'review' ? 'Senden' : 'Erneut senden' }}
           </button>
@@ -531,8 +542,39 @@ export const RecordingView = {
         const root = V.ref(null);
         const reviewSource = () => props.player ? null : props.recorder.reviewSource?.();
         let probingDuration = false;
+        const outputSupported = V.ref(false);
+        const outputs = V.ref([]);
+        const outputId = V.ref('');
+        let reviewMedia = null;
+        async function applyOutput() {
+            if (!reviewMedia || typeof reviewMedia.setSinkId !== 'function') return;
+            try {
+                await reviewMedia.setSinkId(outputId.value);
+            } catch (e) {
+                outputId.value = '';
+            }
+        }
+        async function listOutputs() {
+            try {
+                const all = await globalThis.navigator?.mediaDevices?.enumerateDevices?.();
+                outputs.value = (all || []).filter((d) => d.kind === 'audiooutput' && d.deviceId !== 'default');
+            } catch (e) {
+                outputs.value = [];
+            }
+        }
+        function chooseOutput(deviceId) {
+            outputId.value = deviceId;
+            return applyOutput();
+        }
         function bindReview(media) {
-            if (!media) {
+            reviewMedia = media || null;
+            outputSupported.value = !!media && typeof media.setSinkId === 'function';
+            if (media) {
+                if (outputSupported.value) {
+                    void listOutputs();
+                    void applyOutput();
+                }
+            } else {
                 probingDuration = false;
                 c.machine.setPlayer(null);
             }
@@ -624,6 +666,7 @@ export const RecordingView = {
             root,
             reviewSource,
             bindReview,
+            outputSupported, outputs, outputId, chooseOutput,
             loadReview,
             finishDurationProbe,
             shortcuts,
