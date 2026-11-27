@@ -8,6 +8,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from src.app import app
+from src.clinic.identity import ClinicAccountPolicy
 from src.clinic.models import ClinicDictation
 from src.clinic.statistics import StatisticsQuery, summarize
 from src.clinic.statistics_access import grant_aggregate, revoke_aggregate
@@ -60,6 +61,7 @@ def _dictation(session, author, seconds):
 @pytest.fixture
 def world(stats_db):
     stats = _user(stats_db, "stats")
+    stats_db.add(ClinicAccountPolicy(user_id=stats.id, status="active"))
     a = _user(stats_db, "authora")
     b = _user(stats_db, "authorb")
     _dictation(stats_db, a, 10)

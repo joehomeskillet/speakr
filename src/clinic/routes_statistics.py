@@ -23,7 +23,7 @@ Rules:
 
 from __future__ import annotations
 
-from flask import Blueprint, abort, jsonify, request, session
+from flask import Blueprint, Response, abort, jsonify, request, session
 from flask_login import current_user
 from flask_wtf.csrf import CSRFError, validate_csrf
 from wtforms.validators import ValidationError
@@ -37,12 +37,13 @@ from src.clinic.statistics import StatisticsError, StatisticsQuery
 from src.clinic.statistics_access import (
     StatisticsAccessError, grant_aggregate, read_aggregates, revoke_aggregate, version_of,
 )
-from src.clinic.statistics_export import StatisticsExportError, _parse_bound
+from src.clinic.statistics_export import StatisticsExportError, parse_query, render_csv
 from src.clinic.statistics_grants import grants_for
 from src.database import db
 from src.models import User
 
 PATH = "/api/clinic/v1/statistics/aggregates"
+EXPORT_PATH = "/api/clinic/v1/statistics/export.csv"
 GRANTS_PATH = "/api/clinic/v1/statistics/users/<int:user_id>/grants"
 ROLE = "statistics"
 _ARGS = frozenset({"time_basis", "from", "to", "grain", "group_by", "expected_version"})
@@ -85,18 +86,19 @@ def _query(args) -> tuple[StatisticsQuery, int | None]:
             expected = int(expected, 10)
         except ValueError:
             raise StatisticsError("version") from None
-    query = StatisticsQuery(
+        if expected < 0:
+            raise StatisticsError("version")
+    query = parse_query(
         time_basis=args.get("time_basis", "created"),
-        start=_parse_bound(args.get("from"), "start"),
-        end=_parse_bound(args.get("to"), "end"),
-        grain=args.get("grain") or None,
-        group_by=tuple(name for name in args.get("group_by", "").split(",") if name),
+        start=args.get("from"),
+        end=args.get("to"),
+        grain=args.get("grain"),
+        group_by=args.get("group_by", ""),
     )
     return query, expected
 
 
-@blueprint.get(PATH)
-def aggregates():
+def _aggregate_response(build_response):
     if not _browser_session():
         return _fail("UNAUTHORIZED")
     account = db.session.get(ClinicAccountPolicy, current_user.id)
@@ -115,10 +117,25 @@ def aggregates():
         if error.code == "stale_version":
             return _fail("REVISION_CONFLICT")
         return _fail("FORBIDDEN" if error.code in _REFUSED else "INVALID_PAYLOAD")
+    response = build_response(result)
     # Avoid pairing an aggregate computed under an old scope with a newer version.
     if version_of(current_user.id, session=db_session) != expected:
         return _fail("REVISION_CONFLICT")
-    return _versioned(jsonify(result.as_dict()), expected)
+    return _versioned(response, expected)
+
+
+@blueprint.get(PATH)
+def aggregates():
+    return _aggregate_response(lambda result: jsonify(result.as_dict()))
+
+
+@blueprint.get(EXPORT_PATH)
+def export_csv():
+    def download(result):
+        return Response(render_csv(result), content_type="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": 'attachment; filename="statistics.csv"'})
+
+    return _aggregate_response(download)
 
 
 def _grant_admin_refusal():

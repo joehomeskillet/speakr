@@ -26,6 +26,7 @@ EXPECTED = {
     "clinic_jobs.health": ("GET", "/api/clinic/v1/jobs/health"),
     "clinic_jobs.retry": ("POST", "/api/clinic/v1/jobs/1/retry"),
     "clinic_statistics.aggregates": ("GET", "/api/clinic/v1/statistics/aggregates"),
+    "clinic_statistics.export_csv": ("GET", "/api/clinic/v1/statistics/export.csv"),
     "clinic_training.manifest": ("GET", "/api/admin/clinic/training/manifest"),
     "clinic_training.schedule": ("GET", "/api/admin/clinic/training/schedule"),
     "clinic_training.start": ("POST", "/api/admin/clinic/training/runs"),
