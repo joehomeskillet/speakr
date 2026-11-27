@@ -31,7 +31,6 @@ from src.clinic.last_selection import (
     SelectionStore,
     restore,
 )
-from src.database import db
 from src.clinic.workstation_preferences import (
     PreferenceError,
     StaleVersion,
@@ -143,9 +142,7 @@ class PreferenceRoutes:
             if not ids or ids[0] not in {str(uid) for uid in rd.eligible_user_ids(pool_id)}:
                 raise rd.RecipientDefaultError("recipient_not_eligible")
         else:
-            linked = {row[0] for row in db.session.query(pools.ClinicPoolRoute.staff_pool_id)
-                      .filter_by(author_pool_id=pool_id)}
-            if not ids or ids[0] not in linked:
+            if not ids or ids[0] not in pools.routable_staff_pool_ids(pool_id):
                 raise rd.RecipientDefaultError("recipient_not_eligible")
 
     def _recipient_default(self):
@@ -165,9 +162,12 @@ class PreferenceRoutes:
         body = _body()
         if "choice" in body and body["choice"] is None:
             raise rd.RecipientDefaultError("invalid_choice")
-        mode, ids = body.get("mode"), body.get("target_ids") or []
-        if isinstance(ids, list):
-            self._checked_default_targets(actor, mode, ids)
+        mode, ids = body.get("mode"), body.get("target_ids")
+        if ids is None:
+            ids = []
+        elif not isinstance(ids, list):
+            raise rd.RecipientDefaultError("invalid_target")
+        self._checked_default_targets(actor, mode, ids)
         row = rd.set_default(
             actor, mode, actor_id=actor, expected_version=body.get("expected_version"),
             target_ids=ids, choice=body.get("choice"),

@@ -13,10 +13,11 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import CheckConstraint, UniqueConstraint
+from sqlalchemy import CheckConstraint, UniqueConstraint, or_
 from sqlalchemy.exc import IntegrityError
 
 from src.clinic import pools
+from src.clinic.identity import ClinicAccountPolicy
 from src.database import db
 from src.models import GroupMembership, User
 
@@ -188,7 +189,7 @@ def _linked_staff_ids(author_pool_id: str) -> list[str]:
     for (staff_id,) in rows:
         staff = db.session.get(pools.ClinicStaffPool, staff_id)
         # Inactive or out-of-validity staff pools are never a default or an eligible target.
-        if staff is None or pools.is_routable(staff, now):
+        if staff is not None and pools.is_routable(staff, now):
             ids.append(staff_id)
     return ids
 
@@ -199,7 +200,13 @@ def _member_ids(staff_pool_id: str) -> list[int]:
         return []
     rows = (
         db.session.query(GroupMembership.user_id)
-        .filter_by(group_id=pool.group_id)
+        .join(User, User.id == GroupMembership.user_id)
+        .outerjoin(ClinicAccountPolicy, ClinicAccountPolicy.user_id == User.id)
+        .filter(
+            GroupMembership.group_id == pool.group_id,
+            # Preserve existing pool members without a clinic account policy.
+            or_(ClinicAccountPolicy.user_id.is_(None), ClinicAccountPolicy.status == "active"),
+        )
         .order_by(GroupMembership.user_id)
         .all()
     )
@@ -207,7 +214,7 @@ def _member_ids(staff_pool_id: str) -> list[int]:
 
 
 def eligible_user_ids(author_pool_id: str) -> tuple[int, ...]:
-    """Current staff members of staff pools linked to this author pool."""
+    """Active staff members of routable pools linked to this author pool."""
     if db.session.get(pools.ClinicAuthorPool, author_pool_id) is None:
         raise RecipientDefaultError("not_author_pool")
     seen: set[int] = set()
@@ -236,8 +243,8 @@ def effective_choice(row: ClinicRecipientDefault | None, grant: str | None) -> s
 
 
 def _check_default_mode(mode: str, grant: str | None) -> None:
-    if mode == "person" and grant == CHOICE_STAFF_POOLS:
-        raise RecipientDefaultError("person_not_allowed")
+    if grant == CHOICE_STAFF_POOLS and mode != "staff_pool":
+        raise RecipientDefaultError("person_not_allowed" if mode == "person" else "choice_disabled")
 
 
 def set_default(
@@ -313,9 +320,9 @@ def _resolve(
         return (author_user_id,)
     if author_pool_id is None:
         raise RecipientDefaultError("not_author_pool")
-    eligible = set(eligible_user_ids(author_pool_id))
+    eligible = eligible_user_ids(author_pool_id)
     if mode == "all_eligible":
-        return tuple(uid for uid in eligible_user_ids(author_pool_id))
+        return eligible
     if mode == "person":
         uid = int(target_ids[0])
         if uid not in eligible:
@@ -324,7 +331,7 @@ def _resolve(
     staff_id = target_ids[0]
     if staff_id not in _linked_staff_ids(author_pool_id):
         raise RecipientDefaultError("recipient_not_eligible")
-    return tuple(uid for uid in _member_ids(staff_id) if uid in eligible)
+    return tuple(_member_ids(staff_id))
 
 
 def submit(
@@ -357,11 +364,11 @@ def submit(
             raise RecipientDefaultError("person_not_allowed")
         if over_mode == "self_correction" and choice != CHOICE_OPEN:
             raise RecipientDefaultError("choice_disabled")
-        if over_mode == "all_eligible" and grant == CHOICE_STAFF_POOLS:
-            raise RecipientDefaultError("choice_disabled")
+        _check_default_mode(over_mode, grant)
         over_ids = _target_ids(override.get("target_ids"), over_mode, author_user_id)
         mode, target_ids = over_mode, over_ids
-    _check_default_mode(mode, grant)
+    elif row is not None:
+        _check_default_mode(mode, grant)
     recipients = _resolve(mode, target_ids, author_user_id, author_pool_id)
     return Assignment(
         author_user_id=author_user_id,
