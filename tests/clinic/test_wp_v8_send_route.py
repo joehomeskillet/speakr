@@ -60,6 +60,10 @@ def _exercise():
         db.session.commit()
 
     browser, outsider = _client(app, author), _client(app, other)
+    preflight = '/api/config?recording_preflight=1'
+    assert app.test_client().get(preflight).status_code == 401
+    assert outsider[0].get(preflight).json == {'routable': False}
+    assert browser[0].get(preflight).json == {'routable': False}
 
     def post(target, *, actor=browser, key=None, version=0, omit=None, body=None):
         client, csrf = actor
@@ -86,10 +90,14 @@ def _exercise():
         staff.active = False
         db.session.commit()
     assert post(idle, key=key).json['code'] == 'NO_STAFF_POOL'
+    assert browser[0].get(preflight).json == {'routable': False}
     with app.app_context():
         db.session.get(pools.ClinicStaffPool, staff_id).active = True
         db.session.commit()
 
+    available = browser[0].get(preflight)
+    assert available.status_code == 200 and available.json == {'routable': True}
+    assert available.headers['Cache-Control'] == 'no-store'
     assert post(silent).json['code'] == 'AUDIO_REQUIRED'
     with patch.object(audit, 'record_in_tx', return_value=None):
         assert post(idle, key=key).status_code == 503

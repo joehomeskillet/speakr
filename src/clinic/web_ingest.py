@@ -27,6 +27,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import re
 from datetime import datetime, timezone
 
 from flask import current_app, jsonify
@@ -47,6 +48,12 @@ MSG_NO_POOL = ('Ihr Benutzerkonto ist keinem Autorenpool zugeordnet. '
 MSG_FAILED = ('Die Aufnahme konnte nicht als Diktat angelegt werden. '
               'Bitte den Vorgang wiederholen.')
 _CHUNK = 1024 * 1024
+_RECORDER_TITLE = re.compile(r'Diktat [0-9]{2}\.[0-9]{2}\.[0-9]{4} [0-9]{2}:[0-9]{2}')
+
+
+def generated_recorder_title(value: str | None) -> str | None:
+    """Only the fixed microphone timestamp format may be shown in the recordings list."""
+    return value if value and _RECORDER_TITLE.fullmatch(value) else None
 
 
 def dictation_for_recording(recording_id: int, *, session=None) -> ClinicDictation | None:
@@ -175,6 +182,10 @@ def register_upload(*, owner, recording, storage, form, now: datetime,
         if dictation.pool_id is None:
             dictation.pool_id = pool_id
         if db.session.get(ClinicWorkflowDictation, dictation.id) is None:
+            if origin == 'web-recorder' and (title := generated_recorder_title(recording.title)):
+                anchor = db.session.get(Recording, dictation.recording_id)
+                anchor.title = title
+                anchor.title_source = recording.title_source
             db.session.add(ClinicWorkflowDictation(
                 id=dictation.id, author_user_id=owner.id, pool_id=dictation.pool_id,
                 status=DRAFT, created_at=moment, audio_seconds=int(recording.audio_duration_seconds or 0)))

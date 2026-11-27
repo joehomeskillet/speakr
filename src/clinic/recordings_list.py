@@ -4,7 +4,7 @@ Visibility reuses the worklist: the injected loader narrows the candidates
 (W12 admin full access incl. audit of foreign reads, W13 pool leads) and the
 worklist's own row policy (``query_worklist``) decides every row. There is no
 second policy here. The payload carries identifiers, workflow state and staff
-names only: no patient name, no title, no patient reference.
+names, plus a fixed timestamp label for browser microphone takes.
 
 Sort time: the recording time (``Recording.meeting_date``, set at import from
 the client or file metadata) is the best real time and gives
@@ -23,7 +23,7 @@ from datetime import date, datetime, timezone
 from sys import maxsize
 from zoneinfo import ZoneInfo
 
-from src.clinic import recognition_state, policy, routes_worklist, workflow, worklist_entries
+from src.clinic import recognition_state, policy, routes_worklist, web_ingest, workflow, worklist_entries
 from src.clinic.archive_policy import ClinicArchiveEntry
 from src.clinic.dictation_roles import project_roles
 from src.clinic.models import ClinicDictation
@@ -178,5 +178,8 @@ def list_recordings(
             "duration_ms": None if seconds is None else round(seconds * 1000),
             "case_display": contexts.get(dictation_id),
         })
+        if (entry.row.get("source_label") == routes_worklist.ORIGIN_LABELS["web-recorder"]
+                and (label := web_ingest.generated_recorder_title(recording.title))):
+            items[-1]["capture_label"] = label
     last = page[-1][0] if more else None
     return {"items": items, "next_cursor": None if last is None else encode_cursor(*last)}

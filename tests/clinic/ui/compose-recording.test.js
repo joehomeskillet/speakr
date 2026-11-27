@@ -439,10 +439,12 @@ describe('view registration and setup', () => {
         const Vue = fakeVue();
         const emit = vi.fn();
         const rec = recorder();
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{"routable":true}')));
         const view = RecordingView.setup({
             client: { switchContext: vi.fn() }, currentUser: { id: 2 }, recorder: rec, uploadFile: vi.fn(), vue: Vue,
         }, { emit });
         view.c.setTitle('x');
+        await view.c.checkRouting();
         await view.c.start();
         await view.c.stop();
         await view.c.send();
