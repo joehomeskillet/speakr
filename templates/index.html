@@ -270,7 +270,8 @@
                                          @open="openClinicMenuDictation" @back="goClinicView('clinic-recordings')"></clinic-archive-view>
                     <clinic-import-view v-else-if="currentView === 'clinic-import'" :client="clinicClient" :current-user="clinicUser"></clinic-import-view>
                     <clinic-settings-view v-else-if="currentView === 'clinic-settings'" :client="clinicClient" :current-user="clinicUser"></clinic-settings-view>
-                    <clinic-offline-view v-else-if="currentView === 'clinic-offline'" :client="clinicClient" :who="clinicUser"></clinic-offline-view>
+                    <clinic-offline-view v-else-if="currentView === 'clinic-offline'" :key="Boolean(clinicOffline)"
+                                         :client="clinicClient" :who="clinicUser" :managed="clinicOffline"></clinic-offline-view>
                 </div>
                 <!-- end V8 menu views (v8-71) -->
                 <!-- V8 Verwaltung views (v8-114): the administration pages inside the clinic shell. Hash routes #/verwaltung/<page>;

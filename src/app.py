@@ -1565,6 +1565,7 @@ if _clinic_mode_enabled():
     register_clinic_voice_consent(app)  # v8-75
     # --- v8-152: managed offline capability ---
     from src.clinic import routes_offline
+    app.extensions[routes_offline.GRANT_PROVIDER] = routes_offline.staging_grant
     app.register_blueprint(routes_offline.blueprint)
     # --- end v8-152 ---
 
