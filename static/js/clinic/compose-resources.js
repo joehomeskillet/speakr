@@ -177,7 +177,7 @@ const ASR_TEMPLATE = `
       <div v-if="view.profile"><dt>Version</dt><dd>{{ view.profile.version }}</dd></div>
       <div><dt>{{ view.labels.engine }}</dt><dd>{{ view.engine.label }} · Lokal</dd></div>
       <div><dt>{{ view.labels.prompts }}</dt><dd>{{ view.prompts.label }}</dd></div>
-      <div v-if="view.output"><dt>{{ view.labels.format }}</dt><dd>{{ view.output.container }} · {{ view.output.codec }} · {{ view.output.sampleRate }} Hz</dd></div>
+      <div v-if="view.output"><dt>{{ view.labels.format }}</dt><dd>{{ view.output.container }}, {{ view.output.codec }}, {{ view.output.sampleRate }} Hz</dd></div>
       <div><dt>Cloudumleitung</dt><dd>Nicht vorgesehen</dd></div>
     </dl>
     <p v-if="view.engine.fallback" class="note warning" role="status">{{ view.engine.fallbackLabel }}</p>
@@ -192,7 +192,7 @@ const ASR_TEMPLATE = `
     <p class="note">Eine Wortliste ersetzt kein Akustiktraining. Korrekturtexte benötigen eine bewusste Freigabe und einen geprüften Audioabgleich.</p>
   </template>
   <div class="actions">
-    <button class="primary" style="background:var(--ink);border-color:var(--ink);color:var(--surface);font-size:13px;padding:9px 13px" type="button" :disabled="!view.canSave" @click="controller.save()">{{ view.labels.save }}</button>
+    <button class="primary" style="background:var(--ink);border-color:var(--ink);color:var(--v8-on-ink,var(--surface));font-size:13px;padding:9px 13px" type="button" :disabled="!view.canSave" @click="controller.save()">{{ view.labels.save }}</button>
     <button type="button" :disabled="!view.dirty || view.busy" @click="controller.cancel()">{{ view.labels.cancel }}</button>
   </div>
 </section>`;
