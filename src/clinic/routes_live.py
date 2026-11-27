@@ -27,11 +27,12 @@ from flask_login import current_user
 from flask_wtf.csrf import validate_csrf
 from wtforms.validators import ValidationError
 
-from src.clinic import live_phrases, live_session
+from src.clinic import live_phrases, live_session, vocabulary
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.draft_registry import DraftError
 from src.clinic.ingest import IngestService
 from src.clinic.live_drafts import LiveDrafts
+from src.clinic.models import ClinicDictation, ClinicTranscriptRevision
 from src.clinic.parity_dispatch import MAX_BODY_BYTES, CommandProblem, ParityDispatch, _problem
 from src.database import db
 
@@ -94,6 +95,26 @@ def _events(session_id: str, after: int) -> list[dict]:
              "status": "server_saved"} for r in rows]
 
 
+def _capture_session_review(row: live_session.ClinicLiveSession, ended_at: datetime) -> None:
+    phrases = (live_phrases.ClinicLivePhrase.query.filter_by(session_id=row.id)
+               .order_by(live_phrases.ClinicLivePhrase.sequence).all())
+    before_text = after_text = ""
+    if phrases:
+        first = db.session.get(ClinicTranscriptRevision, phrases[0].transcript_revision_id)
+        last = db.session.get(ClinicTranscriptRevision, phrases[-1].transcript_revision_id)
+        baseline = (db.session.get(ClinicTranscriptRevision, first.parent_revision_id)
+                    if first is not None and first.parent_revision_id else None)
+        before_text = baseline.body if baseline is not None else ""
+        after_text = last.body if last is not None else ""
+    dictation = db.session.get(ClinicDictation, row.dictation_id)
+    vocabulary.capture_session_changes(
+        user_id=row.author_user_id, dictation_id=row.dictation_id,
+        started_at=row.started_at, ended_at=ended_at,
+        pool_id=dictation.pool_id if dictation is not None else None,
+        before_text=before_text, after_text=after_text,
+    )
+
+
 def register_live_commands(
     dispatch: ParityDispatch, authorize_dictation: Authorize, now: Clock = _utcnow
 ) -> None:
@@ -137,7 +158,9 @@ def register_live_commands(
                 position["sequence"] and payload["generation"] != position["generation"]):
             raise CommandProblem("REVISION_CONFLICT")
         try:
-            live_session.end(row.id, actor, now())
+            ended_at = now()
+            ended = live_session.end(row.id, actor, ended_at)
+            _capture_session_review(row, ended.ended_at or ended_at)
         except live_session.LiveSessionError as error:
             raise CommandProblem(_code(error)) from error
         return result(envelope, row.ack_seq + 1)
