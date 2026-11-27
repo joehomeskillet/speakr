@@ -43,8 +43,13 @@ _QUEUE_DB_MODULES = (
 
 
 @pytest.fixture(autouse=True)
-def _dispose_test_app_engines(monkeypatch):
-    """Close pools of per-test Flask apps without depending on garbage collection."""
+def _dispose_test_app_engines():
+    """Close pools of per-test Flask apps without depending on garbage collection.
+
+    Patches ``db.init_app`` by hand instead of through ``monkeypatch``: an autouse fixture that
+    requests ``monkeypatch`` makes its undo run after every other fixture's teardown, so a test that
+    monkeypatches ``db.session.commit`` would still see its patch while ``clinic_db`` cleans up.
+    """
     test_apps = []
     init_app = db.init_app
 
@@ -52,8 +57,11 @@ def _dispose_test_app_engines(monkeypatch):
         init_app(test_app)
         test_apps.append(test_app)
 
-    monkeypatch.setattr(db, "init_app", track_app)
-    yield
+    db.init_app = track_app
+    try:
+        yield
+    finally:
+        db.init_app = init_app
     for test_app in reversed(test_apps):
         with test_app.app_context():
             db.session.remove()
