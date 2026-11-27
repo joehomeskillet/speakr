@@ -35,6 +35,7 @@ MODEL_MODULES = (
     "recipient_defaults",
     "live_phrases",
     "import_source_config",
+    "author_aliases",
     "context_grants",
     "audio_invalidation",
     "parity_receipts",
