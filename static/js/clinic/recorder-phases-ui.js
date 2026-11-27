@@ -9,6 +9,8 @@
  * nothing is written to browser storage. Colours come from tokens.js.
  */
 
+import { fetchFreshCsrfToken, getUploadCsrfToken, isCsrfRejection } from '../modules/csrf.js';
+import { computeUploadTimeout } from '../modules/utils/upload-timeout.js';
 import { surfaceFor } from './tokens.js';
 
 export const PHASES = Object.freeze(['title', 'ready', 'recording', 'paused', 'review', 'sending', 'sent', 'failed']);
@@ -61,6 +63,46 @@ export function formatRecordingDuration(seconds) {
     return [Math.floor(whole / 60), whole % 60].map((part) => String(part).padStart(2, '0')).join(':');
 }
 
+/** Recorded takes and selected files share the same upload and server receipt. */
+export async function uploadClinicFile(file, recordingTitle, take, onUploadProgress) {
+    if (take?.retry) {
+        const saved = await fetch('/api/clinic/v1/recording-takes/' + encodeURIComponent(take.id), {
+            cache: 'no-store', signal: AbortSignal.timeout(120_000),
+        });
+        if (saved.ok) return saved.json();
+        if (saved.status !== 404) throw new Error('take_lookup_failed');
+    }
+    const body = new FormData();
+    body.append('file', file);
+    if (recordingTitle !== undefined) {
+        body.append('title', recordingTitle);
+        body.append('from_recorder', 'true');
+    }
+    if (take) body.append('clinic_take_id', take.id);
+
+    const post = (token) => new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        if (onUploadProgress) {
+            xhr.upload.onloadstart = xhr.upload.onprogress = xhr.upload.onload = onUploadProgress;
+        }
+        xhr.open('POST', '/upload');
+        xhr.timeout = computeUploadTimeout(file.size);
+        if (token) xhr.setRequestHeader('X-CSRFToken', token);
+        xhr.onload = () => resolve(xhr);
+        xhr.onerror = xhr.onabort = xhr.ontimeout = () => reject(new Error('upload_failed'));
+        xhr.send(body);
+    });
+    let response = await post(await getUploadCsrfToken());
+    if (isCsrfRejection(response.status, response.responseText)) {
+        response = await post(await fetchFreshCsrfToken());
+    }
+    globalThis.window?.sessionHint?.inspect('/upload', {
+        status: response.status, redirected: Boolean(response.responseURL), url: response.responseURL,
+    });
+    if (response.status < 200 || response.status >= 300) throw new Error('upload_failed');
+    return JSON.parse(response.responseText);
+}
+
 /** Use the stock capture controls and send the finished microphone take through the clinic file upload. */
 export function createClinicRecorder(audio, state, uploadFile) {
     let samples;
@@ -96,7 +138,7 @@ export function createClinicRecorder(audio, state, uploadFile) {
             await stopRecording();
             await audio.clearRecording();
         },
-        async uploadRecordedAudio({ title }) {
+        async uploadRecordedAudio({ title, onUploadProgress }) {
             const chunks = state.audioChunks.value;
             if (!state.audioBlobURL.value || !chunks.length) throw new Error('no_recorded_audio');
             const previous = takes.get(chunks);
@@ -104,7 +146,7 @@ export function createClinicRecorder(audio, state, uploadFile) {
             takes.set(chunks, take);
             const type = state.mediaRecorder.value.mimeType.split(';')[0];
             const file = new File(chunks, 'aufnahme.webm', { type });
-            const receipt = await uploadFile(file, take.title, { id: take.id, retry: Boolean(previous) });
+            const receipt = await uploadFile(file, take.title, { id: take.id, retry: Boolean(previous) }, onUploadProgress);
             if (receiptDictationId(receipt) === null) throw new Error('no_receipt');
             // A new take gets its own chunk array as soon as capture starts.
             if (state.audioChunks.value === chunks) await audio.clearRecording();
@@ -268,7 +310,7 @@ export function createRecorderPhases(options) {
         return { ok: true };
     }
 
-    async function send() {
+    async function send(onUploadProgress) {
         const blocked = guard(['review', 'failed']);
         if (blocked) return blocked;
         if (!automaticTitle && !state.title.trim()) return denied('missing_title');
@@ -277,7 +319,9 @@ export function createRecorderPhases(options) {
         set({ phase: 'sending', error: null });
         let receipt = null;
         try {
-            receipt = await recorder.uploadRecordedAudio({ title: state.title.trim() || localDictationTitle() });
+            const upload = { title: state.title.trim() || localDictationTitle() };
+            if (onUploadProgress) upload.onUploadProgress = onUploadProgress;
+            receipt = await recorder.uploadRecordedAudio(upload);
         } catch (e) {
             receipt = null;
         }

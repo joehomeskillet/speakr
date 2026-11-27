@@ -431,6 +431,41 @@ describe('file upload path', () => {
         expect(uploadFile).toHaveBeenCalledOnce();
     });
 
+    it('counts only new bytes, restarts on retry and drops progress after leaving', async () => {
+        vi.useFakeTimers();
+        const attempts = [];
+        const uploadFile = (_file, _title, _take, report) => new Promise((_resolve, reject) => {
+            attempts.push({ emit: (event) => report?.(event), reject });
+        });
+        const { c } = make({ uploadFile });
+        c.setMode('file');
+        c.selectFile(audio());
+        const first = c.sendFile();
+        attempts[0].emit({ type: 'loadstart' });
+        attempts[0].emit({ type: 'progress', loaded: 10, lengthComputable: false });
+        expect(c.model()).toMatchObject({ message: 'Wird gesendet …', uploadPercent: null, slowUpload: '' });
+        vi.advanceTimersByTime(9_999);
+        attempts[0].emit({ type: 'progress', loaded: 10, lengthComputable: false });
+        expect(c.model().slowUpload).toBe('');
+        vi.advanceTimersByTime(1);
+        expect(c.model().slowUpload).toContain('Die Verbindung ist langsam.');
+
+        attempts[0].reject(new Error('abort'));
+        expect((await first).code).toBe('no_receipt');
+        expect(c.model().slowUpload).toBe('');
+        const retry = c.sendFile();
+        attempts[1].emit({ type: 'loadstart' });
+        attempts[0].emit({ type: 'progress', loaded: 99, total: 100, lengthComputable: true });
+        expect(c.model()).toMatchObject({ uploadPercent: null, slowUpload: '' });
+        await c.dispose();
+        attempts[1].emit({ type: 'progress', loaded: 75, total: 100, lengthComputable: true });
+        vi.advanceTimersByTime(10_000);
+        expect(c.model()).toMatchObject({ uploadPercent: null, slowUpload: '' });
+        expect(vi.getTimerCount()).toBe(0);
+        attempts[1].reject(new Error('timeout'));
+        expect((await retry).code).toBe('stale');
+    });
+
     it('says the audio is not stored locally when the upload fails, and allows a retry', async () => {
         let calls = 0;
         const uploadFile = vi.fn(async () => { calls += 1; if (calls === 1) throw new Error('boom'); return { id: 'd-2' }; });

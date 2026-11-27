@@ -34,6 +34,7 @@ export const COMPOSE_RECORDING_VERSION = 1;
 
 const TOUCH = 'min-height: 2.75rem; min-block-size: max(2.75rem, 48px)';
 const LINK = `${TOUCH}; display: inline-flex; align-items: center; text-decoration: underline`;
+const UPLOAD_STALL_MS = 10_000;
 
 export const TEXT = Object.freeze({
     title: 'Neue Aufnahme',
@@ -47,6 +48,9 @@ export const TEXT = Object.freeze({
     fileInvalid: 'Bitte eine nicht leere Audiodatei wählen.',
     upload: LABELS.send,
     uploading: LABELS.sending,
+    sendingBytes: 'Wird gesendet …',
+    awaitingReceipt: 'Empfang wird bestätigt …',
+    slowUpload: 'Die Verbindung ist langsam. Es geht weiter – Sie müssen nichts tun.',
     recordingControls: 'Aufnahmesteuerung',
     startFailed: 'Prüfen Sie Ihr Mikrofon oder wählen Sie „oder Datei hochladen“.',
     microphoneDenied: 'Erlauben Sie den Mikrofonzugriff in den Website-Einstellungen Ihres Browsers und starten Sie die Aufnahme erneut.',
@@ -157,6 +161,7 @@ export function createRecordingViewController(options) {
     const listeners = new Set();
     const state = { mode: 'record', file: null, filePhase: 'idle', fileError: null, fileReceipt: null, disposed: false };
     let fileGeneration = 0;
+    let uploadProgress = null;
     let submission = null;
     let submitError = '';
     let pendingSend = null;
@@ -178,6 +183,45 @@ export function createRecordingViewController(options) {
 
     const denied = (code) => ({ ok: false, code: code });
     const recorderBusy = () => !['title', 'ready'].includes(machine.getState().phase);
+
+    async function trackUpload(send) {
+        const attempt = {};
+        let settled = false;
+        try {
+            return await send((event) => {
+                if (settled || state.disposed) return;
+                if (event.type === 'loadstart') {
+                    Object.assign(attempt, { loaded: 0, percent: null, awaitingReceipt: false });
+                    uploadProgress = attempt;
+                } else if (uploadProgress !== attempt || attempt.awaitingReceipt) {
+                    return;
+                } else if (event.type === 'load') {
+                    attempt.awaitingReceipt = true;
+                    attempt.percent = null;
+                } else if (event.loaded > attempt.loaded) {
+                    attempt.loaded = event.loaded;
+                    attempt.percent = event.lengthComputable && event.total > 0
+                        ? Math.min(100, Math.floor(100 * event.loaded / event.total)) : null;
+                } else {
+                    return;
+                }
+                clearTimeout(attempt.timer);
+                attempt.slow = false;
+                if (!attempt.awaitingReceipt) attempt.timer = setTimeout(() => {
+                    attempt.slow = true;
+                    notify();
+                }, UPLOAD_STALL_MS);
+                notify();
+            });
+        } finally {
+            settled = true;
+            clearTimeout(attempt.timer);
+            if (uploadProgress === attempt) {
+                uploadProgress = null;
+                notify();
+            }
+        }
+    }
 
     async function checkRouting() {
         routing = 'routingPending';
@@ -230,7 +274,7 @@ export function createRecordingViewController(options) {
         notify();
         let receipt = null;
         try {
-            receipt = await opts.uploadFile(state.file);
+            receipt = await trackUpload((progress) => opts.uploadFile(state.file, undefined, undefined, progress));
         } catch (e) {
             receipt = null;
         }
@@ -331,7 +375,7 @@ export function createRecordingViewController(options) {
     async function sendRecording() {
         if (state.mode !== 'record' || routing || retryTimer !== null || state.disposed || !allowed()) return denied('invalid_phase');
         if (!receipt()) {
-            const uploaded = await machine.send();
+            const uploaded = await trackUpload(machine.send);
             if (!uploaded.ok) return uploaded;
         }
         return submit();
@@ -372,13 +416,14 @@ export function createRecordingViewController(options) {
         return state.mode === 'file' ? state.filePhase : machine.getState().phase;
     }
 
-    function message() {
+    function message(transfer) {
         if (!allowed()) return TEXT.denied;
         if (routing) return TEXT[routing];
         if (retryTimer !== null) return TEXT.retryPending;
         if (opts.oneButton && state.mode === 'record' && submitError && !submission) return TEXT.takeSendFailed;
         if (submitError) return submitError;
         if (submission) return TEXT[submission];
+        if (transfer) return transfer.awaitingReceipt ? TEXT.awaitingReceipt : TEXT.sendingBytes;
         const s = machine.getState();
         if (state.mode === 'file') {
             if (state.filePhase === 'sending') return TEXT.uploading;
@@ -409,6 +454,7 @@ export function createRecordingViewController(options) {
     /** Plain snapshot for rendering. */
     function model() {
         const s = machine.getState();
+        const transfer = phase() === 'sending' && allowed() ? uploadProgress : null;
         const fileBusy = state.filePhase === 'sending' || state.filePhase === 'sent';
         const oneButtonRecording = opts.oneButton && state.mode === 'record' && allowed();
         const saved = oneButtonRecording && created() ? s.receipt : null;
@@ -442,7 +488,9 @@ export function createRecordingViewController(options) {
             canCancelFile: allowed() && (state.filePhase === 'selected' || state.filePhase === 'failed'),
             canSwitchMode: allowed() && !recorderBusy() && !fileBusy,
             created: created(),
-            message: message(),
+            message: message(transfer),
+            uploadPercent: transfer?.percent ?? null,
+            slowUpload: transfer?.slow ? TEXT.slowUpload : '',
             surface: surface(),
         };
     }
@@ -451,6 +499,8 @@ export function createRecordingViewController(options) {
     async function dispose() {
         if (state.disposed) return;
         state.disposed = true;
+        clearTimeout(uploadProgress?.timer);
+        uploadProgress = null;
         clearTimeout(retryTimer);
         retryTimer = null;
         fileGeneration += 1;
@@ -494,7 +544,9 @@ export const RECORDING_TEMPLATE = `
   <h1 id="crv-title" class="sr-only">{{ c.text.title }}</h1>
   <div style="width: 100%; max-width: 28rem; text-align: center">
     <p v-show="m.message" role="status" aria-live="polite" data-testid="status" style="margin: 0 0 var(--ui-space-3)"
-       :style="m.phase === 'submitted' ? { fontSize: '1.25rem', fontWeight: 650 } : null">{{ m.message }}</p>
+       :style="m.phase === 'submitted' ? { fontSize: '1.25rem', fontWeight: 650 } : null">{{ m.message }}<span v-if="m.uploadPercent !== null" aria-hidden="true">{{ ' ' + m.uploadPercent }} %</span>
+      <span v-if="m.slowUpload" style="display: block; margin-top: var(--ui-space-2)">{{ m.slowUpload }}</span>
+    </p>
     <div v-if="m.recordingReceipt" role="status" style="margin-bottom: var(--ui-space-4); overflow-wrap: anywhere">
       <p v-if="m.message !== c.text.takeSendFailed" data-testid="receipt-saved" style="margin: 0; font-weight: 650">Aufnahme gespeichert</p>
       <p v-if="m.recordingReceipt.title || m.recordingReceipt.duration" style="margin: var(--ui-space-2) 0 0">

@@ -324,7 +324,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const [{ registerRecordingView }, { registerLiveView }, { registerArchiveView }, { registerImportView },
                 { registerSettingsView }, { registerOfflineView }, { createTooltip }, { getUploadCsrfToken },
                 { registerAdminPoolsView }, { registerAuthorsView }, { registerUsersView }, { registerVocabularyView },
-                { registerCommandsTemplatesView }, { registerAsrProfilesView }, { createClinicRecorder }] = await Promise.all([
+                { registerCommandsTemplatesView }, { registerAsrProfilesView }, { createClinicRecorder, uploadClinicFile }] = await Promise.all([
                 import('./clinic/compose-recording.js'),
                 import('./clinic/compose-live.js'),
                 import('./clinic/compose-archive.js'),
@@ -348,6 +348,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 createTooltip,
                 getUploadCsrfToken,
                 createClinicRecorder,
+                uploadClinicFile,
             };
         } catch (error) {
             console.error('[Clinic] Menu views could not be loaded:', error);
@@ -3114,28 +3115,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 { view: 'clinic-archive', testid: 'menu-archive', label: 'Archiv' },
             ];
             const clinicMenuToolbarVisible = computed(() => clinicMenuActions.some((entry) => entry.view === currentView.value));
-            // Recorded takes and selected files share the same upload and server receipt.
-            const clinicUploadFile = async (file, recordingTitle, take) => {
-                const signal = take ? AbortSignal.timeout(120_000) : undefined;
-                if (take?.retry) {
-                    const saved = await fetch('/api/clinic/v1/recording-takes/' + encodeURIComponent(take.id), {
-                        cache: 'no-store', signal,
-                    });
-                    if (saved.ok) return saved.json();
-                    if (saved.status !== 404) throw new Error('take_lookup_failed');
-                }
-                const body = new FormData();
-                body.append('file', file);
-                if (recordingTitle !== undefined) {
-                    body.append('title', recordingTitle);
-                    body.append('from_recorder', 'true');
-                }
-                if (take) body.append('clinic_take_id', take.id);
-                const token = clinicMenu ? await clinicMenu.getUploadCsrfToken() : null;
-                const response = await fetch('/upload', { method: 'POST', headers: token ? { 'X-CSRFToken': token } : {}, body, signal });
-                if (!response.ok) throw new Error('upload_failed');
-                return response.json();
-            };
+            const clinicUploadFile = clinicMenu?.uploadClinicFile;
             const clinicRecorder = clinicMenu?.createClinicRecorder(audioComposable, state, clinicUploadFile);
             // Live-Diktat runs on an existing dictation: ?dictation=<id> or the id typed into the picker.
             const clinicLiveChoices = clinicWorklist ? clinicWorklist.createDictationChoices({ client: clinicWorklist.client, makeState: reactive, authorId: clinicWorklist.user.id }) : null;

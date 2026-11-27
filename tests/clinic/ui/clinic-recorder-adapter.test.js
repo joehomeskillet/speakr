@@ -1,5 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
-import { createClinicRecorder } from '../../../static/js/clinic/recorder-phases-ui.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createClinicRecorder, uploadClinicFile } from '../../../static/js/clinic/recorder-phases-ui.js';
+
+afterEach(() => vi.unstubAllGlobals());
 
 function stoppedTake() {
     const state = {
@@ -48,5 +50,31 @@ describe('clinic recorder upload', () => {
         state.audioChunks.value = [];
         expect(await pending).toEqual({ id: 1 });
         expect(stock.clearRecording).not.toHaveBeenCalled();
+    });
+});
+
+describe('clinic upload transport', () => {
+    it.each(['error', 'abort', 'timeout'])('rejects %s instead of waiting for a receipt', async (event) => {
+        const refreshToken = vi.fn(async () => 'synthetic-csrf');
+        vi.stubGlobal('window', { csrfManager: { refreshToken } });
+        vi.stubGlobal('XMLHttpRequest', class {
+            open() {}
+            setRequestHeader() {}
+            send() { this['on' + event](); }
+        });
+        await expect(uploadClinicFile(new File(['test'], 'diktat.wav'))).rejects.toThrow('upload_failed');
+        expect(refreshToken).toHaveBeenCalledOnce();
+    });
+
+    it('rejects a successful HTTP response with malformed receipt JSON', async () => {
+        vi.stubGlobal('window', { csrfManager: { refreshToken: async () => 'synthetic-csrf' } });
+        vi.stubGlobal('XMLHttpRequest', class {
+            status = 202;
+            responseText = '<html>nicht bestätigt</html>';
+            open() {}
+            setRequestHeader() {}
+            send() { this.onload(); }
+        });
+        await expect(uploadClinicFile(new File(['test'], 'diktat.wav'))).rejects.toThrow(SyntaxError);
     });
 });
