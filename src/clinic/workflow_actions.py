@@ -7,15 +7,17 @@ from typing import cast
 
 from sqlalchemy.engine import CursorResult
 
-from src.clinic import acceptance_rules, release, revisions, workflow
+from src.clinic import acceptance_rules, lease, release, revisions, workflow
 from src.clinic.acceptance_policy import AcceptancePolicyVersion
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.lease import assert_current
+from src.clinic.archive_policy import ClinicArchiveEntry
 from src.clinic.live_session import assert_edit_allowed
 from src.clinic.models import ClinicDictation
 from src.clinic.pool_policy import author_pool_ids
 from src.clinic.richtext import ClinicRichTextSnapshot
 from src.database import db
+from src.models import Recording
 from src.services.audit import record_in_tx
 
 _COMMANDS = {
@@ -35,9 +37,13 @@ class ActionResult:
     acceptance: acceptance_rules.AcceptanceDecision | None = None
 
 
+def archived_reopen_available(dictation: ClinicDictation, archived_at: datetime | None) -> bool:
+    return archived_at is not None and release.active_release(dictation) is not None
+
+
 def apply_action(
     dictation_id: str, action: str, *, actor_user_id: int, expected_version: int,
-    lease_generation: int, now: datetime,
+    lease_generation: int | None, now: datetime,
     authorize: Callable[[int, str, ClinicDictation], bool],
     text_revision_id: str | None = None, reason: str | None = None,
     acceptance_policy: Callable[[ClinicDictation], AcceptancePolicyVersion] | None = None,
@@ -55,7 +61,8 @@ def apply_action(
     if (not isinstance(dictation_id, str) or not dictation_id
             or not isinstance(action, str) or action not in _COMMANDS
             or type(actor_user_id) is not int or actor_user_id < 1
-            or type(lease_generation) is not int or lease_generation < 1
+            or (lease_generation is not None and (type(lease_generation) is not int or lease_generation < 1))
+            or (lease_generation is None and action != 'reopen')
             or not isinstance(now, datetime) or now.utcoffset() is None):
         raise workflow.WorkflowError("invalid_action_input")
     if type(expected_version) is not int or expected_version < 0:
@@ -79,14 +86,37 @@ def apply_action(
             raise workflow.WorkflowError("forbidden")
         if dictation.version_counter != expected_version:
             raise workflow.WorkflowError("stale_version")
-        assert_current(dictation_id, actor_user_id, lease_generation, now)
-        assert_edit_allowed(dictation_id, actor_user_id, now)
         item = session.get(workflow.ClinicWorkflowDictation, dictation_id,
                            with_for_update=True, populate_existing=True)
         if item is None or item.author_user_id != dictation.author_user_id:
             raise workflow.WorkflowError("not_found")
+        assert_edit_allowed(dictation_id, actor_user_id, now)
+        archived = action == 'reopen' and item.status == workflow.TO_ARCHIVE
+        temporary_lease = None
+        if archived:
+            if authorize(actor_user_id, 'history', dictation) is not True:
+                raise workflow.WorkflowError('forbidden')
+            entry = session.get(ClinicArchiveEntry, dictation_id)
+            recording = session.get(Recording, dictation.recording_id)
+            archived_at = (entry.archived_at if entry else None) or (recording.retention_archived_at if recording else None)
+            if not archived_reopen_available(dictation, archived_at):
+                raise workflow.WorkflowError('illegal_transition')
+            if lease_generation is None:
+                current = lease.current(dictation_id)
+                if current is not None and current.expires_at > now:
+                    lease_generation = current.generation
+                else:
+                    lease.audit_lapse(dictation, now)
+                    temporary_lease = lease.acquire(dictation_id, actor_user_id, now)
+                    lease.audit_operation('acquire', temporary_lease, actor_user_id, dictation)
+                    lease_generation = temporary_lease.generation
+        if lease_generation is None:
+            raise lease.LeaseConflict(lease.NOT_FOUND)
+        assert_current(dictation_id, actor_user_id, lease_generation, now)
 
         head = revisions.current_revision(dictation)
+        if archived and head is None:
+            raise workflow.WorkflowError('stale_revision')
         rejection = acceptance = None
         if action != "reopen" and (head is None or head.id != text_revision_id):
             raise workflow.WorkflowError("stale_revision")
@@ -120,7 +150,10 @@ def apply_action(
         ).values(version_counter=ClinicDictation.version_counter + 1)
         if cast(CursorResult, session.execute(advance)).rowcount != 1:
             raise workflow.WorkflowError("stale_version")
-        item = workflow.transition(session, dictation_id, trigger)
+        if archived:
+            item.status, item.resume_status = workflow.TO_CORRECT, None
+        else:
+            item = workflow.transition(session, dictation_id, trigger)
         if action == "submit" and item.status != workflow.TO_ACCEPT:
             raise workflow.WorkflowError("submission_requires_acceptance")
         if action == "reopen":
@@ -140,6 +173,10 @@ def apply_action(
                     session.add(ClinicRichTextSnapshot(
                         revision_id=head.id, version=1, payload=snapshot.payload,
                     ))
+
+        if temporary_lease is not None:
+            lease.release(temporary_lease, temporary_lease.generation, now, user_id=actor_user_id)
+            lease.audit_operation('release', temporary_lease, actor_user_id, dictation)
 
         if record_in_tx(
             "recording.edited", actor_user_id=actor_user_id, recording_id=dictation.recording_id,
