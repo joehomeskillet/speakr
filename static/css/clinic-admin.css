@@ -708,6 +708,24 @@
     white-space: nowrap;
     border: 0;
 }
+.v8-ui .voc-entry-dialog {
+    width: min(560px, calc(100% - var(--sp-4) * 2));
+    background: var(--surface);
+}
+.v8-ui .voc-entry-dialog button, .v8-ui .voc-entry-table button { min-height: 48px; }
+.v8-ui .voc-entry-dialog input { height: 48px; --v8-input-line: var(--ui-text-muted); }
+.v8-ui .voc-entry-dialog button:disabled {
+    background: var(--v8-s2);
+    color: var(--v8-text-2);
+    border-color: var(--line);
+    cursor: default;
+}
+.v8-ui .voc-entry-table { white-space: normal; }
+.v8-ui .voc-entry-table .wrap { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+    .v8-ui .voc-entry-table :is(th, td) { padding: var(--sp-2); }
+    .v8-ui .voc-entry-table .actions { gap: var(--sp-1); }
+}
 .v8-ui .voc-editor {
     border: 1px solid var(--line);
     border-radius: var(--radius);

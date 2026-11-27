@@ -80,6 +80,13 @@ def _version(entry: vocabulary.ClinicVocabularyEntry) -> str:
     return entry.updated_at.isoformat()
 
 
+def _raise_duplicate_entry(error: IntegrityError) -> None:
+    cause = error.orig
+    if (getattr(cause, "pgcode", None) == "23505"
+            or getattr(cause, "sqlite_errorcode", None) == SQLITE_CONSTRAINT_UNIQUE):
+        raise ApiError("duplicate_entry") from error
+
+
 def _entry_json(entry: vocabulary.ClinicVocabularyEntry) -> dict[str, Any]:
     return {"id": entry.id, "scope": entry.scope, "pool_id": entry.pool_id, "written": entry.written_form,
             "spoken": entry.spoken_form, "status": entry.status, "origin": entry.origin,
@@ -225,13 +232,22 @@ class VocabularyApi:
 
     def _add(self):
         body = _body()
-        if body.keys() - {"scope", "pool_id", "written", "spoken"}:
+        create_only = body.get("create_only", False)
+        if body.keys() - {"scope", "pool_id", "written", "spoken", "create_only"} or not isinstance(create_only, bool):
             raise ApiError("invalid_payload")
         kwargs = self._scope(body.get("scope"), body.get("pool_id"), write=True)
         written = canonical_selection(body.get("written"))
         spoken = canonical_selection(body["spoken"]) if body.get("spoken") else None
-        entry = vocabulary.add_vocabulary_entry(written_form=written, spoken_form=spoken, **kwargs)
-        db.session.commit()
+        if create_only:
+            entry = vocabulary.ClinicVocabularyEntry(written_form=written, spoken_form=spoken, **kwargs)
+            db.session.add(entry)
+        else:
+            entry = vocabulary.add_vocabulary_entry(written_form=written, spoken_form=spoken, **kwargs)
+        try:
+            db.session.commit()
+        except IntegrityError as error:
+            _raise_duplicate_entry(error)
+            raise
         return jsonify(entry=_entry_json(entry)), 201
 
     def _edit(self, entry_id: str):
@@ -254,10 +270,7 @@ class VocabularyApi:
         try:
             changed = db.session.scalars(update, execution_options={"populate_existing": True}).one_or_none()
         except IntegrityError as error:
-            cause = error.orig
-            if (getattr(cause, "pgcode", None) == "23505"
-                    or getattr(cause, "sqlite_errorcode", None) == SQLITE_CONSTRAINT_UNIQUE):
-                raise ApiError("duplicate_entry") from error
+            _raise_duplicate_entry(error)
             raise
         if changed is None:
             current = db.session.get(model, entry_id, populate_existing=True)

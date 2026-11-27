@@ -177,7 +177,7 @@ export function createVocabularyStore(client, onChange) {
     async function send(write) {
         const scope = state.scope;
         if (!(await permitted()) || scope !== state.scope) return null;
-        const res = await client.request(write.path, { method: 'POST', body: write.body, idempotencyKey: write.key });
+        const res = await client.request(write.path, { method: write.method || 'POST', body: write.body, idempotencyKey: write.key });
         if (scope !== state.scope) return null;
         if (res.outcome === 'ok') {
             if (write.keepResult) state.importResult = res.data;
@@ -188,7 +188,7 @@ export function createVocabularyStore(client, onChange) {
             }
             return res;
         }
-        if (!write.body.dry_run) state.failedWrite = res.outcome === 'network' || res.outcome === 'UNKNOWN' ? write : null;
+        if (!write.body.dry_run) state.failedWrite = !write.isEntry && (res.outcome === 'network' || res.outcome === 'UNKNOWN') ? write : null;
         if (res.code === 'duplicate_entry') {
             emit();
             return { ...res, message: 'Doppelter Eintrag. Keine Änderungen übernommen.' };
@@ -199,7 +199,7 @@ export function createVocabularyStore(client, onChange) {
         }
         fail(res);
         if (res.outcome === 'conflict') await search();
-        if (res.outcome === 'conflict') { state.status = 'stale'; emit(); }
+        if (scope === state.scope && res.outcome === 'conflict') { state.status = 'stale'; emit(); }
         return res;
     }
 
@@ -230,6 +230,21 @@ export function createVocabularyStore(client, onChange) {
         setScope,
         suppress: (id) => toggle(id, 'suppress'),
         reactivate: (id) => toggle(id, 'reactivate'),
+        saveEntry(draft) {
+            const written = canonicalSelection(draft.written);
+            const spoken = draft.spoken.trim() ? canonicalSelection(draft.spoken) : null;
+            if (!written || (draft.spoken.trim() && !spoken)) {
+                return Promise.resolve({ outcome: 'validation', message: 'Bitte Schreibweise und Sprechform prüfen.' });
+            }
+            const entry = draft.entry;
+            return send({
+                key: newId(), isEntry: true,
+                method: entry ? 'PUT' : 'POST',
+                path: entry ? PATH + '/entries/' + encodeURIComponent(entry.id) : PATH + '/additions',
+                body: entry ? { expected_version: entry.version, written, spoken }
+                    : { ...scopeBody(), create_only: true, written, spoken },
+            });
+        },
         /** Explicit action only: the caller passes the user's current text selection. */
         addSelection(text) {
             const written = canonicalSelection(text);
@@ -313,7 +328,7 @@ export const VOCABULARY_TEMPLATE = `
       <label for="voc-filter">{{ label('clinic.vocabulary.filter') }}</label>
       <select class="select" :style="controlStyle" id="voc-filter" v-model="state.query.filter"><option v-for="filter in filters" :key="filter" :value="filter">{{ enumLabel(filter) }}</option></select>
     </div>
-    <button type="submit" class="primary">{{ label('clinic.vocabulary.search') }}</button>
+    <button type="submit">{{ label('clinic.vocabulary.search') }}</button>
     <div v-if="poolStatus === 'empty' || poolStatus === 'error'" class="voc-pool-feedback">
       <span v-if="poolStatus === 'empty'" role="status">Keine zugeordneten Autorenpools.</span>
       <template v-else>
@@ -333,9 +348,13 @@ export const VOCABULARY_TEMPLATE = `
     <span v-else-if="state.status === 'error' || state.status === 'denied'">Wortschatz konnte nicht geladen werden.</span>
     <span v-else-if="state.status === 'ready'">{{ state.entries.length }} Einträge geladen.</span>
   </p>
+  <div class="actions">
+    <button ref="addWordButton" type="button" class="primary" style="min-height:48px" @click="openEntry()">Wort hinzufügen</button>
+    <span role="status">{{ entryNotice }}</span>
+  </div>
   <p v-if="state.status === 'ready'" class="voc-result-count">{{ state.entries.length }} Einträge</p>
   <div class="table-wrap" v-if="state.entries.length">
-    <table :aria-label="label('clinic.vocabulary.title')">
+    <table class="voc-entry-table" :aria-label="label('clinic.vocabulary.title')">
       <thead><tr>
         <th scope="col">{{ label('clinic.vocabulary.written') }}</th>
         <th scope="col">{{ label('clinic.vocabulary.spoken') }}</th>
@@ -346,8 +365,11 @@ export const VOCABULARY_TEMPLATE = `
         <td class="wrap"><strong>{{ e.written }}</strong></td><td class="wrap">{{ e.spoken || '–' }}</td>
         <td><span class="tag" :class="{ error: e.status === 'suppressed' }">{{ enumLabel(e.status) }}</span></td>
         <td>
-          <button type="button" class="small" v-if="e.status === 'active'" @click="store.suppress(e.id)">{{ label('clinic.vocabulary.suppress') }}</button>
-          <button type="button" class="small" v-else @click="store.reactivate(e.id)">{{ label('clinic.vocabulary.reactivate') }}</button>
+          <div class="actions">
+            <button type="button" class="small" :aria-label="'Bearbeiten: ' + e.written" @click="openEntry(e)">Bearbeiten</button>
+            <button type="button" class="small" v-if="e.status === 'active'" @click="store.suppress(e.id)">{{ label('clinic.vocabulary.suppress') }}</button>
+            <button type="button" class="small" v-else @click="store.reactivate(e.id)">{{ label('clinic.vocabulary.reactivate') }}</button>
+          </div>
         </td>
       </tr></tbody>
     </table>
@@ -355,6 +377,27 @@ export const VOCABULARY_TEMPLATE = `
   <p v-else-if="state.status === 'ready'" class="empty" role="status">
     <slot name="empty" :scope="state.scope" :query="state.query">{{ label('clinic.vocabulary.empty') }} für diese Auswahl. Suche oder Status anpassen.</slot>
   </p>
+  <dialog ref="entryDialog" class="voc-entry-dialog" aria-labelledby="voc-entry-title" @cancel.prevent="closeEntry()">
+    <form v-if="entryDraft" class="stack" @submit.prevent="saveEntry">
+      <div class="dialoghead"><h2 id="voc-entry-title">{{ entryDraft.entry ? 'Wort bearbeiten' : 'Wort hinzufügen' }}</h2></div>
+      <p style="overflow-wrap:anywhere">Wortliste: <strong>{{ state.scope.kind === 'pool' ? selectedPoolName : label('clinic.vocabulary.ownList') }}</strong></p>
+      <div>
+        <label for="voc-entry-written">{{ label('clinic.vocabulary.written') }}</label>
+        <input id="voc-entry-written" ref="entryWritten" class="w-full" autocomplete="off" required
+          :maxlength="maxWordLength" v-model="entryDraft.written" :readonly="entryBusy" autofocus>
+      </div>
+      <div>
+        <label for="voc-entry-spoken">Sprechform (optional)</label>
+        <input id="voc-entry-spoken" class="w-full" autocomplete="off"
+          :maxlength="maxWordLength" v-model="entryDraft.spoken" :readonly="entryBusy">
+      </div>
+      <p v-if="entryError" role="alert" class="note" :style="importErrorStyle">{{ entryError }}</p>
+      <div class="actions">
+        <button type="button" :disabled="entryBusy" @click="closeEntry()">Abbrechen</button>
+        <button type="submit" class="primary" :disabled="entryBusy || entryBlocked">{{ entryBusy ? 'Wird gespeichert …' : 'Speichern' }}</button>
+      </div>
+    </form>
+  </dialog>
   <section class="voc-editor" aria-labelledby="voc-editor-title">
     <header class="voc-editor-head">
       <h3 id="voc-editor-title">Wortliste bearbeiten</h3>
@@ -455,8 +498,55 @@ export function createVocabularyComponent(Vue, client, currentUserId = () => nul
                 poolStatus.value = pools.value.length ? 'ready' : 'empty';
             }
             function selectList(id) {
+                entryNotice.value = '';
                 importError.value = '';
                 return id ? store.setScope('pool', id) : store.setScope('user');
+            }
+            const entryDialog = Vue.ref(null);
+            const entryWritten = Vue.ref(null);
+            const addWordButton = Vue.ref(null);
+            const entryDraft = Vue.ref(null);
+            const entryBusy = Vue.ref(false);
+            const entryBlocked = Vue.ref(false);
+            const entryError = Vue.ref('');
+            const entryNotice = Vue.ref('');
+            async function openEntry(entry) {
+                if (entryDraft.value) return;
+                entryNotice.value = '';
+                entryError.value = '';
+                entryBlocked.value = false;
+                entryDraft.value = { entry, written: entry?.written || '', spoken: entry?.spoken || '' };
+                await Vue.nextTick();
+                entryDialog.value?.showModal();
+                entryWritten.value?.focus();
+            }
+            function closeEntry(saved = false) {
+                if (entryBusy.value) return;
+                entryDialog.value?.close();
+                entryDraft.value = null;
+                entryNotice.value = saved ? 'Wort gespeichert.' : 'Änderungen verworfen.';
+                if (document.activeElement === document.body) addWordButton.value?.focus();
+            }
+            async function saveEntry() {
+                if (!entryDraft.value || entryBusy.value || entryBlocked.value) return;
+                entryBusy.value = true;
+                entryError.value = '';
+                let res;
+                try {
+                    res = await store.saveEntry(entryDraft.value);
+                } finally {
+                    entryBusy.value = false;
+                }
+                if (res?.outcome === 'ok') return closeEntry(true);
+                if (res?.code === 'duplicate_entry') {
+                    entryError.value = 'Diese Schreibweise gibt es in dieser Wortliste bereits.';
+                    entryWritten.value?.focus();
+                } else if (res?.outcome === 'conflict') {
+                    entryError.value = 'Das Wort wurde inzwischen geändert. Bitte abbrechen und neu öffnen.';
+                    entryBlocked.value = true;
+                } else {
+                    entryError.value = res?.message || state.message || 'Das Wort konnte nicht gespeichert werden.';
+                }
             }
             const importDraft = Vue.ref('');
             const importFile = Vue.shallowRef(null);
@@ -527,6 +617,8 @@ export function createVocabularyComponent(Vue, client, currentUserId = () => nul
                 state, store, label, enumLabel: vocabularyEnumLabel, surfaceStyle, controlStyle, pools, poolStatus, selectedPoolName, selectList, loadPools, addSelected,
                 importDraft, importFile, fileInput, encoding, duplicateRule, importBusy, importError, importErrorStyle, exportBusy, canImport, importReport,
                 pickFile, runImport, doImport, downloadList,
+                entryDialog, entryWritten, addWordButton, entryDraft, entryBusy, entryBlocked, entryError, entryNotice,
+                openEntry, closeEntry, saveEntry, maxWordLength: MAX_SELECTION,
                 encodings: ENCODINGS, duplicateRules: DUPLICATE_RULES, modes: SEARCH_MODES, filters: STATUS_FILTERS, onKey: (e) => handleKey(store, e),
             };
         },

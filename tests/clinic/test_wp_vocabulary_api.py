@@ -83,6 +83,16 @@ def test_add_search_export_and_import(world):
     assert not [e for e in c.get(PREFIX + "/search?scope=user&q=Gamma").json["entries"]]  # rolled back
 
 
+def test_create_only_rejects_duplicate_without_changing_existing_entry(world):
+    c, h = world["client"](world["author"])
+    body = {"scope": "user", "written": "Kunstwort", "spoken": "kunst wort", "create_only": True}
+    created = _add(c, h, **body)
+    assert created.status_code == 201
+    duplicate = _add(c, h, **{**body, "spoken": "anders"})
+    assert (duplicate.status_code, duplicate.json["code"]) == (409, "duplicate_entry")
+    assert c.get(PREFIX + "/search?scope=user").json["entries"] == [created.json["entry"]]
+
+
 def _b64(text, encoding):
     import base64
     return base64.b64encode(text.encode(encoding)).decode()
