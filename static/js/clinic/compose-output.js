@@ -7,11 +7,12 @@
  * The view only offers file exports and clipboard copy.
  *
  * Contract (package v8-14, src/clinic/routes_output.py):
- *   GET  /dictations/{id}/output-targets?file_formats=all  -> { released_revision_id, targets: [{ id, channel, available, reason, status?, job_id? }] }
+ *   GET  /dictations/{id}/output-targets?file_formats=all  -> { released_revision_id, targets }
+ *        An available clipboard target includes revision_id, binding and an optional working-copy label.
  *   POST /dictations/{id}/exports         body { revision_id, format }, Idempotency-Key -> job { id, status, format, revision_id, filename? }
  *   GET  /dictations/{id}/exports/{job}   -> job
  *   GET  /dictations/{id}/exports/{job}/download  -> file attachment
- * Only the released revision is offered for export. One Idempotency-Key is kept
+ * Only the released revision is offered for file export. One Idempotency-Key is kept
  * per (revision, format) until a known failure, so a retry after an unknown result
  * replays the same request and never starts a second export. A disabled KIS
  * adapter (target unavailable, or 503) is shown as "nicht verfügbar", never as
@@ -44,7 +45,7 @@ export const TEXT = Object.freeze({
     loadFailed: 'Die Ausgabeziele konnten nicht geladen werden.',
     reload: 'Erneut laden',
     revision: 'Ausgegebene Version',
-    notReleased: 'Keine freigegebene Version. Eine Ausgabe ist erst nach der Freigabe möglich.',
+    notReleased: 'Keine freigegebene Version. Dateiausgaben sind erst nach der Freigabe möglich.',
     targets: 'Ausgabeziele',
     empty: 'Keine Ausgabeziele verfügbar.',
     export: 'Ausgabe starten',
@@ -127,6 +128,7 @@ export function createOutputViewController(options) {
 
     const phase = ref('loading'); // loading | ready | failed
     const releasedRevisionId = ref(null);
+    const clipboardTarget = ref(null);
     const targets = ref([]);
     const results = ref({}); // format -> { phase, label, surface, job }
     const keys = new Map(); // revision|format -> Idempotency-Key
@@ -140,6 +142,7 @@ export function createOutputViewController(options) {
 
     async function load() {
         phase.value = 'loading';
+        clipboardTarget.value = null;
         const query = opts.includeAllFileFormats ? '?file_formats=all' : '';
         const res = await client.request(base + '/output-targets' + query);
         if (res.outcome !== 'ok' || !res.data) {
@@ -148,7 +151,12 @@ export function createOutputViewController(options) {
         }
         releasedRevisionId.value = res.data.released_revision_id || null;
         const offered = res.data.targets || [];
-        targets.value = offered.map((t) => targetView(t, releasedRevisionId.value));
+        const copy = offered.find((t) => t.id === 'clipboard' && t.available === true);
+        const copyRevision = copy?.revision_id || releasedRevisionId.value;
+        if (copy && copyRevision) {
+            clipboardTarget.value = { revisionId: copyRevision, binding: copy.binding, label: copy.label };
+        }
+        targets.value = offered.map((t) => targetView(t, t.channel === 'clipboard' ? copyRevision : releasedRevisionId.value));
         results.value = {};
         for (const target of offered) {
             if (target.channel === 'file' && target.available && target.status && target.job_id) {
@@ -229,23 +237,18 @@ export function createOutputViewController(options) {
         return results.value[format];
     }
 
-    /** Clipboard controller of the existing module, bound to the released revision. */
+    /** Clipboard controller of the existing module, bound to the offered revision. */
     function clipboardCopy() {
-        if (!releasedRevisionId.value) return null;
-        if (!clipboard || clipboard.revisionId !== releasedRevisionId.value) {
-            clipboard = {
-                revisionId: releasedRevisionId.value,
-                copier: createClipboardCopy({
-                    client, dictationId, revisionId: releasedRevisionId.value, ref,
-                    clipboard: opts.clipboard, ClipboardItem: opts.ClipboardItem,
-                }),
-            };
-        }
-        return clipboard.copier;
+        if (!clipboardTarget.value) return null;
+        clipboard ||= createClipboardCopy({
+            client, dictationId, ...clipboardTarget.value, ref,
+            clipboard: opts.clipboard, ClipboardItem: opts.ClipboardItem,
+        });
+        return clipboard;
     }
 
     return {
-        dictationId, phase, releasedRevisionId, targets, results, load, canExport, exportTo,
+        dictationId, phase, releasedRevisionId, clipboardTarget, targets, results, load, canExport, exportTo,
         downloadUrl, markDownloadStarted, refreshStatus, clipboardCopy, text: TEXT,
     };
 }
@@ -316,10 +319,12 @@ export const OutputView = {
         <p v-else-if="c.releasedRevisionId.value" class="empty">{{ TEXT.empty }}</p>
         <p v-if="c.targets.value.some((t) => c.downloadUrl(t.id))" class="hint" style="margin-top: 14px">{{ TEXT.downloadHint }}</p>
       </section>
-      <section v-if="c.releasedRevisionId.value" class="panel" aria-labelledby="out-clip">
+      <section v-if="c.clipboardTarget.value" class="panel" aria-labelledby="out-clip">
         <h2 id="out-clip">{{ TEXT.clipboard }}</h2>
+        <p v-if="c.clipboardTarget.value.label" class="note warning">{{ c.clipboardTarget.value.label }} · Ohne Freigabe</p>
         <p class="hint">{{ TEXT.clipboardHint }}</p>
-        <ClipboardCopy class="actions" :client="client" :dictation-id="dictationId" :revision-id="c.releasedRevisionId.value" />
+        <ClipboardCopy class="actions" :client="client" :dictation-id="dictationId"
+                       :revision-id="c.clipboardTarget.value.revisionId" :binding="c.clipboardTarget.value.binding" />
       </section>
     </div>
   </template>

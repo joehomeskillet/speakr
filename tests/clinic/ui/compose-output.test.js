@@ -226,6 +226,28 @@ describe('compose-output', () => {
         expect(c.clipboardCopy()).toBeNull();
     });
 
+    it('labels a P16 working copy and keeps it separate from file output', async () => {
+        const data = TARGETS(null);
+        Object.assign(data.targets.find((target) => target.id === 'clipboard'), {
+            revision_id: 'draft', binding: 'working_copy', label: 'Arbeitskopie',
+        });
+        const client = fakeClient();
+        client.request.mockImplementation(async (path) => {
+            if (path.endsWith('/output-targets')) return ok(data);
+            if (path.endsWith('/outcome')) return ok({ status: 'succeeded' });
+            return ok({ 'text/plain': 'Korrektur' });
+        });
+        const writeText = vi.fn(async () => {});
+        const c = await loaded(client, { clipboard: { writeText } });
+        expect(c.clipboardTarget.value).toMatchObject({ revisionId: 'draft', label: 'Arbeitskopie' });
+        expect(c.canExport('docx')).toBe(false);
+        expect(OutputView.template).toContain('c.clipboardTarget.value.label');
+        expect((await c.clipboardCopy().copy('plain')).phase).toBe('copied');
+        expect(writeText).toHaveBeenCalledWith('Korrektur');
+        expect(client.request.mock.calls.map(([path]) => path)).toContain(
+            '/dictations/d1/clipboard/draft?format=plain&binding=working_copy');
+    });
+
     it('fails closed when the targets cannot be loaded', async () => {
         const c = await loaded(fakeClient({ targets: fail('permission', 403) }));
         expect(c.phase.value).toBe('failed');

@@ -19,7 +19,7 @@ import json
 from datetime import datetime
 from typing import Callable, Optional
 
-from sqlalchemy import ForeignKeyConstraint, UniqueConstraint
+from sqlalchemy import ForeignKeyConstraint, UniqueConstraint, func
 from sqlalchemy.exc import IntegrityError
 
 from src.database import db
@@ -38,6 +38,9 @@ from .models import (
 
 class ReleaseError(Exception):
     """A release or transfer request was refused."""
+
+
+CLIPBOARD_DOCUMENT_VERSION = "clipboard_document_version"
 
 
 class ClinicReleaseSupersession(db.Model):
@@ -118,10 +121,9 @@ def _is_head(model, dictation_id: str, revision_id: str) -> bool:
     return _heads(model, dictation_id) == {revision_id}
 
 
-def _check_authorization(decision) -> str:
+def _check_authorization(decision) -> None:
     if not isinstance(decision, dict) or decision.get("allowed") is not True:
         raise ReleaseError("authorisation decision missing or denied")
-    return json.dumps(decision, sort_keys=True, ensure_ascii=False)
 
 
 def _existing(dictation_id, audio_id, transcript_id, context_id, text_hash,
@@ -177,7 +179,7 @@ def create_release(
             raise ReleaseError(name + " revision belongs to another dictation")
     if transcript_revision.normalised_text_hash != text_hash:
         raise ReleaseError("text hash does not match the bound transcript revision")
-    decision_json = _check_authorization(authorization_decision)
+    _check_authorization(authorization_decision)
 
     found = _existing(
         dictation.id, audio_revision.id, transcript_revision.id, context_revision.id,
@@ -192,6 +194,12 @@ def create_release(
         if not _is_head(_REVISION_MODELS[name], dictation.id, revision.id):
             raise ReleaseError(name + " revision is not the current head")
 
+    from .richtext import ClinicRichTextSnapshot
+
+    version = db.session.query(func.max(ClinicRichTextSnapshot.version)).filter_by(
+        revision_id=transcript_revision.id).scalar()
+    # The immutable release records which formatting was available at acceptance.
+    evidence = {**authorization_decision, CLIPBOARD_DOCUMENT_VERSION: version or 0}
     release = ClinicRelease(
         dictation_id=dictation.id,
         audio_revision_id=audio_revision.id,
@@ -201,7 +209,7 @@ def create_release(
         actor_user_id=actor_user_id,
         document_type=document_type,
         release_type=release_type,
-        authorization_decision=decision_json,
+        authorization_decision=json.dumps(evidence, sort_keys=True, ensure_ascii=False),
         created_at=now,
     )
     try:
