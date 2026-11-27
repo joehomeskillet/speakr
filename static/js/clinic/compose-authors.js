@@ -81,6 +81,15 @@ export const LABELS = Object.freeze({
     assignAction: 'Zuordnen',
     assigned: 'Zugeordnet.',
     noCandidates: 'Alle Benutzer sind bereits Mitglied.',
+    cardRouted: 'Verbundene Schreibpools',
+    linkStaff: 'Schreibpool verbinden',
+    linkPick: 'Schreibpool wählen',
+    linkAction: 'Verbinden',
+    linkNoCandidates: 'Alle Schreibpools sind bereits verbunden.',
+    linked: 'Verbunden.',
+    linkTaken: 'Dieser Schreibpool ist bereits mit dem Autorenpool verbunden.',
+    linkInactive: 'Der Schreibpool ist deaktiviert und kann nicht verbunden werden.',
+    linkFailed: 'Die Verbindung konnte nicht gespeichert werden.',
 });
 
 const STATUS_SURFACE = Object.freeze({ active: 'success', disabled: 'error', pending_activation: 'warning' });
@@ -115,8 +124,11 @@ export function deriveAuthors(accounts, pools) {
     return rows.sort((a, b) => String(a.name).localeCompare(String(b.name), 'de'));
 }
 
-/** One card per author pool: member names and the staff pools those members belong to (names only, no ids). */
-export function poolCardsOf(accounts, pools) {
+/**
+ * One card per author pool: member names and the staff pools it is routed to (ClinicPoolRoute links,
+ * `routes` maps author pool id to staff pool ids; overlapping user memberships do not count).
+ */
+export function poolCardsOf(accounts, pools, routes) {
     const nameOf = (id) => {
         const account = (accounts || []).find((a) => a.id === id);
         return account ? account.username : '';
@@ -127,7 +139,8 @@ export function poolCardsOf(accounts, pools) {
         name: pool.name,
         memberIds: pool.memberUserIds.slice(),
         members: pool.memberUserIds.map(nameOf).filter(Boolean),
-        staffPools: staffPools.filter((s) => s.memberUserIds.some((id) => pool.memberUserIds.includes(id))).map((s) => s.name),
+        staffPoolIds: ((routes && routes[pool.id]) || []).map(String),
+        staffPools: staffPools.filter((s) => ((routes && routes[pool.id]) || []).map(String).includes(s.id)).map((s) => s.name),
     }));
 }
 
@@ -143,6 +156,7 @@ export function createAuthorsController(deps) {
         status: 'idle', rows: [], poolCards: [], accountOptions: [], epoch: 0, message: '', query: '', pool: '',
         createName: '', createBusy: false, createMessage: '', createFailed: false,
         assign: {}, assignBusy: '', assignMessage: '', assignFailed: false,
+        staffOptions: [], link: {}, linkBusy: '', linkMessage: '', linkFailed: false,
     });
     let seq = 0;
     let store = createPoolsStore(client);
@@ -156,8 +170,12 @@ export function createAuthorsController(deps) {
         const [okAccounts, poolRes] = await Promise.all([accounts.load(), store.load()]);
         if (run !== seq) return false; // a newer load owns the state
         if (okAccounts && poolRes && poolRes.outcome === 'ok') {
+            // Saved author pool to staff pool links (ClinicPoolRoute); GET /pools lists them for managers.
+            const routes = {};
+            for (const p of (poolRes.data && poolRes.data.author_pools) || []) routes[String(p.id)] = p.staff_pool_ids || [];
             state.rows = deriveAuthors(accounts.state.accounts, store.state.pools);
-            state.poolCards = poolCardsOf(accounts.state.accounts, store.state.pools);
+            state.poolCards = poolCardsOf(accounts.state.accounts, store.state.pools, routes);
+            state.staffOptions = store.state.pools.staff.map((p) => ({ id: p.id, name: p.name }));
             state.accountOptions = accounts.state.accounts
                 .filter((a) => a.status === 'active')
                 .map((a) => ({ id: a.id, name: a.username }))
@@ -207,6 +225,38 @@ export function createAuthorsController(deps) {
     /** Users that can still be added to the pool card. */
     function candidates(card) {
         return state.accountOptions.filter((a) => !card.memberIds.includes(a.id));
+    }
+
+    /** Staff pools the author pool card is not yet routed to. */
+    function linkCandidates(card) {
+        return state.staffOptions.filter((s) => !card.staffPoolIds.includes(s.id));
+    }
+
+    /** Connect an author pool to a staff pool through the pool admin link API (a ClinicPoolRoute). */
+    async function linkStaff(card) {
+        const staffId = String(state.link[card.id] || '');
+        if (state.linkBusy || !staffId) return false;
+        state.linkBusy = card.id;
+        state.linkFailed = true;
+        state.linkMessage = '';
+        try {
+            const res = await client.request('/pool-admin/pools/author/' + encodeURIComponent(card.id) + '/links', {
+                method: 'POST', body: { staff_pool_id: staffId },
+            });
+            if (!res || res.outcome !== 'ok') {
+                if (res && res.code === 'already_linked') state.linkMessage = LABELS.linkTaken;
+                else if (res && res.code === 'pool_inactive') state.linkMessage = LABELS.linkInactive;
+                else state.linkMessage = res && res.outcome === 'permission' ? LABELS.denied : LABELS.linkFailed;
+                return false;
+            }
+            state.link[card.id] = '';
+            state.linkFailed = false;
+            state.linkMessage = LABELS.linked + ' ' + card.name;
+            await load({ silent: true });
+            return true;
+        } finally {
+            state.linkBusy = '';
+        }
     }
 
     /** Create an author pool through the pool admin API; a duplicate name shows the server conflict. */
@@ -261,7 +311,7 @@ export function createAuthorsController(deps) {
         }
     }
 
-    return { state, load, retry: load, visible, poolOptions, resetFilter, stats, candidates, createPool, assign };
+    return { state, load, retry: load, visible, poolOptions, resetFilter, stats, candidates, createPool, assign, linkCandidates, linkStaff };
 }
 
 export function statusStyle(kind) {
@@ -361,7 +411,7 @@ export const AUTHORS_TEMPLATE = `
         <h2>{{ p.name }}</h2>
         <dl class="keyvalues">
           <div><dt>{{ labels.cardMembers }}</dt><dd>{{ p.members.length ? p.members.join(', ') : '–' }}</dd></div>
-          <div><dt>{{ labels.columns.staffPools }}</dt><dd>{{ p.staffPools.length ? p.staffPools.join(', ') : labels.noStaffPool }}</dd></div>
+          <div><dt>{{ labels.cardRouted }}</dt><dd data-testid="author-pool-routes">{{ p.staffPools.length ? p.staffPools.join(', ') : labels.noStaffPool }}</dd></div>
         </dl>
         <form class="filterbar" :data-testid="'assign-' + p.id" @submit.prevent="controller.assign(p)">
           <div class="field">
@@ -373,9 +423,20 @@ export const AUTHORS_TEMPLATE = `
           </div>
           <button type="submit" :disabled="!state.assign[p.id] || !!state.assignBusy">{{ labels.assignAction }}</button>
         </form>
+        <form class="filterbar" :data-testid="'link-' + p.id" @submit.prevent="controller.linkStaff(p)">
+          <div class="field">
+            <label :for="'authors-link-' + p.id">{{ labels.linkStaff }}</label>
+            <select :id="'authors-link-' + p.id" v-model="state.link[p.id]" :disabled="!controller.linkCandidates(p).length">
+              <option value="">{{ controller.linkCandidates(p).length ? labels.linkPick : labels.linkNoCandidates }}</option>
+              <option v-for="s in controller.linkCandidates(p)" :key="s.id" :value="s.id">{{ s.name }}</option>
+            </select>
+          </div>
+          <button type="submit" :disabled="!state.link[p.id] || !!state.linkBusy">{{ labels.linkAction }}</button>
+        </form>
       </section>
     </div>
     <p v-if="state.assignMessage" data-testid="author-pool-assign-message" :role="state.assignFailed ? 'alert' : 'status'" aria-live="polite" :class="state.assignFailed ? 'note burgundy' : 'hint'">{{ state.assignMessage }}</p>
+    <p v-if="state.linkMessage" data-testid="author-pool-link-message" :role="state.linkFailed ? 'alert' : 'status'" aria-live="polite" :class="state.linkFailed ? 'note burgundy' : 'hint'">{{ state.linkMessage }}</p>
     <details class="panel" style="margin-top: 20px" aria-labelledby="authors-pools">
       <summary id="authors-pools" style="cursor: pointer; font-weight: 700">{{ labels.pools }}</summary>
       <p class="hint" style="margin-top: 12px">{{ labels.poolsHelp }}</p>
