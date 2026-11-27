@@ -997,3 +997,31 @@
 .v8-ui .clinic-dictation-protection .tag{white-space:normal;justify-self:start}
 .v8-ui :is(.clinic-jobs-panel,.clinic-dictation-protection) [role=status]:empty{padding:0;border:0;margin:0}
 .v8-ui .clinic-jobs-panel .table-wrap:focus-visible{outline:2px solid var(--border-focus);outline-offset:2px}
+
+.v8-ui .clinic-admin-pools-view .cap-phone-label{display:none}
+.v8-ui .clinic-admin-pools-view .cap-list :is(td, .tag){white-space:normal;overflow-wrap:anywhere}
+.v8-ui .clinic-admin-pools-view .cap-list .tag.wait{background:var(--bg-warn-light);color:var(--text-warn-strong)}
+.v8-ui .clinic-admin-pools-view .cap-list .tag.dot::before{flex:none}
+.v8-ui .clinic-admin-pools-view .cap-list .is-selected{background:var(--v8-s2)}
+.v8-ui .clinic-admin-pools-view .field input{min-width:0;border-color:var(--v8-muted)}
+.v8-ui .clinic-admin-pools-view .field-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.v8-ui .clinic-admin-pools-view button.danger{color:var(--text-danger-strong)}
+.v8-ui .clinic-admin-pools-view :is(button, a, input, #cap-detail-title):focus-visible{outline:2px solid var(--border-focus);outline-offset:2px}
+
+@media(max-width:767px){
+  .v8-ui .clinic-admin-pools-view .cap-list{overflow:visible}
+  .v8-ui .clinic-admin-pools-view .cap-list :is(table, tbody, td){display:block;min-width:0;max-width:none}
+  .v8-ui .clinic-admin-pools-view .cap-list thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+  .v8-ui .clinic-admin-pools-view .cap-list tbody tr{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:var(--sp-2);padding:var(--sp-3);font-size:14px}
+  .v8-ui .clinic-admin-pools-view .cap-list tbody tr + tr{border-top:1px solid var(--v8-line-2)}
+  .v8-ui .clinic-admin-pools-view .cap-list td{padding:0;border:0}
+  .v8-ui .clinic-admin-pools-view .cap-list :is(.cap-identity,.cap-members){grid-column:1/-1}
+  .v8-ui .clinic-admin-pools-view .cap-list .cap-action{justify-self:end}
+  .v8-ui .clinic-admin-pools-view .cap-list .cap-phone-label{display:inline}
+  .v8-ui .clinic-admin-pools-view .cap-list .cap-members .cap-phone-label{color:var(--v8-text-2)}
+  .v8-ui .clinic-admin-pools-view .cap-list .cap-open{width:auto;height:auto;padding-inline:var(--sp-2);gap:var(--sp-1);background:var(--v8-s1);border-color:var(--line);color:var(--v8-text)}
+  .v8-ui .clinic-admin-pools-view :is(button, .button){min-width:48px;min-height:48px}
+  .v8-ui .clinic-admin-pools-view .filterbar input{min-height:48px!important}
+  .v8-ui .clinic-admin-pools-view .field-grid{grid-template-columns:minmax(0,1fr)}
+  .v8-ui .clinic-admin-pools-view #cap-detail-title{overflow-wrap:anywhere}
+}
