@@ -80,6 +80,42 @@ def test_add_search_export_and_import(world):
     assert not [e for e in c.get(PREFIX + "/search?scope=user&q=Gamma").json["entries"]]  # rolled back
 
 
+def _b64(text, encoding):
+    import base64
+    return base64.b64encode(text.encode(encoding)).decode()
+
+
+def _names(c, q):
+    return [e["written"] for e in c.get(PREFIX + "/search?scope=user&q=" + q).json["entries"]]
+
+
+@pytest.mark.parametrize("encoding", ["utf-8", "cp1252", "latin-1"])
+def test_import_encodings_keep_umlauts_and_dry_run_changes_nothing(world, encoding):
+    c, h = world["client"](world["author"])
+    text = "Ärztin\tÄrztin\n#c\nÜberweisung\nÄrztin\n" + "x" * 300
+    post = lambda **extra: c.post(PREFIX + "/import", headers=h, json={
+        "scope": "user", "content_base64": _b64(text, encoding), "encoding": encoding, **extra})
+    dry = post(dry_run=True)
+    assert (dry.status_code, dry.json["dry_run"], dry.json["added"], dry.json["updated"]) == (200, True, 2, 1)
+    assert dry.json["errors"] == [{"line": 5, "reason": "form_too_long"}]
+    assert _names(c, "rzt") == [] and _names(c, "berw") == []
+    real = post(duplicate_rule="skip")
+    assert (real.json["added"], real.json["skipped"], real.json["dry_run"]) == (2, 1, False)
+    assert _names(c, "rztin") == ["Ärztin"] and _names(c, "berweisung") == ["Überweisung"]
+
+
+def test_import_invalid_bytes_and_payloads_are_deterministic(world):
+    import base64
+    c, h = world["client"](world["author"])
+    raw = base64.b64encode("Alpha\n".encode() + "Bär".encode("latin-1") + b"\nGamma").decode()
+    r = c.post(PREFIX + "/import", headers=h, json={"scope": "user", "content_base64": raw, "dry_run": True})
+    assert (r.json["added"], r.json["errors"]) == (2, [{"line": 2, "reason": "invalid_encoding"}])
+    for bad in ({"content_base64": "!!"}, {"content_base64": raw, "encoding": "utf-16"},
+                {"content": "A", "content_base64": raw}, {"content": "A", "encoding": "utf-8"},
+                {"content": "A", "dry_run": "yes"}):
+        assert c.post(PREFIX + "/import", headers=h, json={"scope": "user", **bad}).status_code == 400
+
+
 def test_effective_export_user_overrides_pool(world):
     c, h = world["client"](world["author"])
     pid = world["pool"].id

@@ -20,7 +20,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
+from src.clinic import (
+    route_policy_admin,
+    route_policy_editor,
+    route_policy_imports,
+    route_policy_output,
+)
 from src.clinic.config import clinic_mode_enabled
+
+_CLINIC_CATALOGS = (
+    route_policy_output,
+    route_policy_editor,
+    route_policy_imports,
+    route_policy_admin,
+)
 
 PUBLIC = 'public'
 AUTH = 'auth'
@@ -105,78 +118,6 @@ _AUTH = _split("""
     templates.update_transcript_template
 """)
 
-# Registered by src/app.py only in clinic mode (register_clinic_resources), so they
-# are classified only then; the table never lists a route the app does not have.
-# Each handler acts on the caller's own or pool-scoped data; a body or query that
-# names a recording is decided by the guard like a view before the handler runs.
-_CLINIC_RESOURCES = _split("""
-    clinic_parity.execute
-    clinic_vocabulary.search clinic_vocabulary.export clinic_vocabulary.import_text
-    clinic_vocabulary.additions clinic_vocabulary.suppress clinic_vocabulary.reactivate
-    clinic_vocabulary_review.list_resource_vocabulary_reviews
-    clinic_vocabulary_review.undo_resource_vocabulary_review
-    clinic_commands.list_commands clinic_commands.list_pronunciations
-    clinic_commands.save_pronunciation_hint_endpoint
-    clinic_commands.get_pronunciation_capabilities clinic_commands.execute_command_endpoint
-""")
-
-# These clinic-only endpoints authenticate the session and check CSRF on writes.
-# Handlers enforce object access. W13 assignment checks site admin or routed pool
-# lead status and pool grants directly, including explicit reassign denies.
-_CLINIC_WORKLIST = _split("""
-    clinic_worklist.rows clinic_worklist.own_filters clinic_worklist.own_filter
-    clinic_worklist.create_filter clinic_worklist.update_filter clinic_worklist.delete_filter
-    clinic_worklist.own_layout clinic_columns.own_layout
-    clinic_workflow.metadata clinic_workflow.release clinic_workflow.archive
-    clinic_workflow.send
-    clinic_history.get_history clinic_history.review_lease clinic_dictation_detail.get_detail
-    clinic_dictation_detail.get_review clinic_dictation_detail.summary
-    clinic_context.get_context clinic_context.post_context clinic_case_view
-    clinic_templates.list_templates clinic_templates.get_template
-    clinic_templates.get_template_content clinic_templates.save_template
-    clinic_templates.assign_template_route clinic_templates.delete_template
-    clinic_categories.list_categories clinic_categories.check_categories
-    clinic_regex.preview clinic_regex.apply
-    clinic_assignment.assign clinic_assignment.candidates
-""")
-
-# ASR profile handlers (w104s), mounted by register_clinic_resources in clinic mode only.
-# The blueprint guard authenticates the session and checks CSRF on writes; each handler
-# acts on the caller's own profile only.
-_CLINIC_ASR = _split("""
-    clinic_asr_profiles.show clinic_asr_profiles.select
-""")
-
-# Identity, directory, pool, grant and preference handlers, mounted by
-# register_clinic_identity in src/app.py only in clinic mode. The provider sign-in
-# endpoints run before a session exists, so they are PUBLIC (disabled providers answer
-# an inert 422; the handlers check CSRF, state and browser binding themselves). Pool
-# writes are AUTH: the handler admits an active site admin or a manage_pools holder,
-# who need not be a stock admin. The pool-admin handlers (v8-29) are AUTH too: each admits a
-# site admin or manage_pools holder, and the usage preview also a pool lead (not a site admin). Directory and grant changes need an active site admin.
-_CLINIC_IDENTITY_PUBLIC = _split("""
-    clinic_identity_providers.discovery clinic_identity_providers.entra_login
-    clinic_identity_providers.entra_callback clinic_identity_providers.iwa_login
-""")
-
-_CLINIC_IDENTITY = _split("""
-    clinic_identity_providers.entra_link_start clinic_identity_providers.link_request
-    clinic_identity_providers.unlink
-    clinic_pools.list_pools clinic_pools.put_pool
-    clinic_pool_admin.list_pools clinic_pool_admin.create_pool clinic_pool_admin.rename
-    clinic_pool_admin.set_active clinic_pool_admin.set_validity clinic_pool_admin.link
-    clinic_pool_admin.usage clinic_pool_admin.set_member_role
-    clinic_grants.read
-    clinic_preferences.recipient_default clinic_preferences.recipient_resolve
-    clinic_preferences.last_selection clinic_preferences.workstation_issue
-    clinic_preferences.workstation clinic_preferences.correction_mode
-""")
-
-_CLINIC_IDENTITY_ADMIN = _split("""
-    clinic_directory.capability clinic_directory.preview clinic_directory.apply
-    clinic_grants.change clinic_task_models.settings
-""")
-
 _ADMIN = _split("""
     admin.admin admin.admin_add_user admin.admin_audit_log admin.admin_audit_log_export
     admin.admin_get_auto_process_status admin.admin_get_daily_token_stats
@@ -191,84 +132,6 @@ _ADMIN = _split("""
     admin.admin_voice_embedding_status admin.get_auto_deletion_stats admin.run_auto_deletion
     admin.admin_clinic_dictations
 """)
-
-# Admin dictation transcript and audio (w308): own blueprint, mounted by
-# register_clinic_identity in clinic mode only.
-_CLINIC_ADMIN_DICTATIONS = _split("""
-    clinic_admin_dictations.transcript clinic_admin_dictations.audio
-""")
-
-# Metadata field definitions (x28), mounted by register_clinic_identity in clinic mode only.
-# Reading is for any signed-in user; the handler lists inactive fields to admins only.
-_CLINIC_METADATA_FIELDS_AUTH = _split("""
-    clinic_metadata_fields.list_fields
-""")
-_CLINIC_METADATA_FIELDS_ADMIN = _split("""
-    clinic_metadata_fields.save_field
-""")
-
-# Audio, dictation-property, bundle, live, correction and TTS handlers, mounted by
-# register_clinic_audio in src/app.py only in clinic mode (start/stop live session are
-# commands on clinic_parity.execute). Their URLs carry a clinic dictation id, so each
-# handler authenticates the session, checks CSRF on writes and decides the object through
-# the central policy (pool_policy.decide) before it reads or changes anything.
-_CLINIC_AUDIO = _split("""
-    clinic_audio.get_current clinic_audio.edit clinic_audio.derived clinic_audio.peaks clinic_audio.upload_segment
-    clinic_dictation_properties.validate clinic_dictation_properties.protection_state
-    clinic_dictation_properties.set_protection clinic_dictation_properties.unlock
-    clinic_bundle.export clinic_bundle.import_session
-    clinic_live.pause clinic_live.resume_recording clinic_live.append_phrase
-    clinic_live.resume clinic_live.switch_draft
-    clinic_correction.get_correction clinic_correction.save clinic_correction.add_marker
-    clinic_correction.change_marker
-    clinic_alignment.get_document clinic_alignment.get_alignment clinic_alignment.post_alignment
-    clinic_alignment.get_operation
-    clinic_tts.capability clinic_tts.speak
-    clinic_clipboard.prepare clinic_clipboard.outcome
-    clinic_output.targets clinic_output.request_export clinic_output.export_status
-""")
-
-# Recordings list, processing overview, statistics, ASR training and import-agent handlers,
-# mounted by register_clinic_operations in src/app.py only in clinic mode. Recordings, jobs
-# and statistics are AUTH: each handler authenticates the browser session itself and decides
-# every row or role through the central policy (jobs retry and statistics scope refuse with 403
-# inside the handler). Training is ADMIN (the handler additionally needs an active site admin).
-_CLINIC_OPERATIONS = _split("""
-    clinic_recordings.list_recordings
-    clinic_offline.capability
-    clinic_jobs.health clinic_jobs.retry
-    clinic_statistics.aggregates
-    clinic_imports_web.intents clinic_imports_web.inventory clinic_imports_web.unassigned
-    clinic_imports_web.list_sources clinic_imports_web.update_source
-""")
-_CLINIC_OPERATIONS_ADMIN = _split("""
-    clinic_training.manifest clinic_training.schedule clinic_training.start
-    clinic_training.status clinic_training.cancel
-""")
-# The import agent is a machine principal: no browser session exists, so the guard must let the
-# request through. Every agent route authenticates itself (proxy secret plus certificate
-# fingerprint, 401 otherwise) and the blueprint is CSRF-exempt in the app.
-_CLINIC_AGENT_MACHINE = _split("""
-    clinic_agent.inventory clinic_agent.intents clinic_agent.begin clinic_agent.chunk
-    clinic_agent.finalize clinic_agent.receipt clinic_agent.abort clinic_agent.outcomes
-""")
-
-# v8-74: acceptance policy read/publish and the acceptance-state read (P07), mounted by
-# register_clinic_worklist in clinic mode only. All three are AUTH: the handlers authenticate the session,
-# check CSRF on writes and decide the object themselves (policy action 'view'; publishing needs an active
-# site admin and a refusal is audited), so the table does not stand in for them.
-_CLINIC_ACCEPTANCE = _split("""
-    clinic_acceptance_policy.read clinic_acceptance_policy.save clinic_workflow.read_acceptance_state
-""")
-# --- v8-75: own-user voice consent and voice enrollment (mounted by register_clinic_voice_consent) ---
-# Each handler authenticates the browser session itself (active user, session id match, CSRF for
-# writes) and acts only on current_user: no body or URL names a subject.
-_CLINIC_VOICE_CONSENT_V8_75 = _split("""
-    clinic_voice_consent.get_consent clinic_voice_consent.grant clinic_voice_consent.revoke
-    voice_enrollment.get_own_voice_enrollment voice_enrollment.enroll_own_voice_sample
-    voice_enrollment.grant_own_voice_consent voice_enrollment.revoke_own_voice_consent
-""")
-# --- end v8-75 ---
 
 _DISABLED = {
     'internal_sharing': """
@@ -390,20 +253,20 @@ def _build() -> dict[str, RouteRule]:
         table[endpoint] = rule
 
     clinic = clinic_mode_enabled()
-    for endpoint in _PUBLIC + ((_CLINIC_IDENTITY_PUBLIC + _CLINIC_AGENT_MACHINE) if clinic else ()):
+    for endpoint in _PUBLIC:
         add(endpoint, RouteRule(PUBLIC))
-    for endpoint in _AUTH + ((_CLINIC_RESOURCES + _CLINIC_ASR + _CLINIC_WORKLIST + _CLINIC_IDENTITY
-                                       + _CLINIC_METADATA_FIELDS_AUTH + _CLINIC_AUDIO
-                                       + _CLINIC_OPERATIONS) if clinic else ()):
+    for endpoint in _AUTH:
         add(endpoint, RouteRule(AUTH))
-    for endpoint in (_CLINIC_ACCEPTANCE if clinic else ()):  # v8-74
-        add(endpoint, RouteRule(AUTH))
-    # v8-75
-    for endpoint in (_CLINIC_VOICE_CONSENT_V8_75 if clinic else ()):
-        add(endpoint, RouteRule(AUTH))
-    for endpoint in _ADMIN + ((_CLINIC_IDENTITY_ADMIN + _CLINIC_ADMIN_DICTATIONS
-                                    + _CLINIC_METADATA_FIELDS_ADMIN + _CLINIC_OPERATIONS_ADMIN) if clinic else ()):
+    for endpoint in _ADMIN:
         add(endpoint, RouteRule(ADMIN))
+    if clinic:
+        for catalog in _CLINIC_CATALOGS:
+            for endpoint in catalog.PUBLIC:
+                add(endpoint, RouteRule(PUBLIC))
+            for endpoint in catalog.AUTH:
+                add(endpoint, RouteRule(AUTH))
+            for endpoint in catalog.ADMIN:
+                add(endpoint, RouteRule(ADMIN))
     for feature, endpoints in _DISABLED.items():
         for endpoint in _split(endpoints):
             add(endpoint, RouteRule(DISABLED, action=_FEATURE_ACTIONS.get(feature, 'edit'),

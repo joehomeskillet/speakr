@@ -10,6 +10,9 @@ Each entry also carries the additive role fields `dictated_by`, `staff_pools` an
 * typist-pool leads (W13): additionally the sent, unassigned dictations (Klärliste)
   of the author pools routed to a staff pool they lead, i.e. the group
   membership role ``admin`` of that pool's group;
+* additional reviewers: a case in ``Abzunehmen`` when the current acceptance
+  rule allows the actor and the actor has both view and release. A deny on
+  the rule or on either action hides the row. This does not widen W13;
 * active site administrators (W12): every dictation. Foreign recordings read
   this way are audit-logged like ``admin_dictation_access`` content opens.
   A revoked administrator gets no extra access.
@@ -62,6 +65,59 @@ def _led_author_pools(actor: int) -> list[str]:
     return [pool_id for (pool_id,) in rows]
 
 
+def _acceptance_ids(actor: int) -> list[str]:
+    """Waiting cases this actor may decide: the current rule, plus view and release.
+
+    Deny on the rule or on either action leaves the row out. W13 stays a separate clause.
+    """
+    from sqlalchemy import func
+
+    from src.clinic.acceptance_policy import SCOPE_DICTATION, ClinicAcceptancePolicyVersion
+    from src.clinic.acceptance_rules import AcceptanceRule, can_decide
+    from src.clinic.pool_policy import author_pool_ids
+    from src.clinic.pools import grants_for
+
+    item = workflow.ClinicWorkflowDictation
+    waiting = [row_id for (row_id,) in db.session.query(item.id).filter(item.status == workflow.TO_ACCEPT)]
+    if not waiting:
+        return []
+    version = ClinicAcceptancePolicyVersion
+    latest = (
+        db.session.query(version.subject_id, func.max(version.version).label("version"))
+        .filter(version.scope == SCOPE_DICTATION, version.subject_id.in_(waiting))
+        .group_by(version.subject_id)
+        .subquery()
+    )
+    current = (
+        db.session.query(version)
+        .join(latest, and_(version.subject_id == latest.c.subject_id, version.version == latest.c.version))
+        .all()
+    )
+    actor_pools = author_pool_ids(actor)
+    matched = []
+    for row in current:
+        rule = AcceptanceRule(
+            required=bool(row.required),
+            acceptor_user_ids=frozenset(json.loads(row.approver_user_ids)),
+            acceptor_pool_ids=frozenset(json.loads(row.approver_pool_ids)),
+            deny_user_ids=frozenset(json.loads(row.deny_user_ids)),
+        )
+        if can_decide(rule, actor, actor_pools):
+            matched.append(row.subject_id)
+    if not matched:
+        return []
+    rows = {d.id: d for d in db.session.query(ClinicDictation).filter(ClinicDictation.id.in_(matched))}
+    visible = []
+    for dictation_id in matched:
+        dictation = rows.get(dictation_id)
+        if dictation is None:
+            continue
+        allowed = grants_for(actor, dictation)["allowed"]
+        if "view" in allowed and "release" in allowed:
+            visible.append(dictation_id)
+    return visible
+
+
 def _open_mode(actor: int, dictation: ClinicDictation, status: str) -> str:
     """Per-actor open mode: author opens the case, others the player (to-write) or correction."""
     if actor == dictation.author_user_id:
@@ -111,6 +167,9 @@ def load_entries(actor: int) -> list[routes_worklist.WorklistEntry]:
         if led:
             conditions.append(and_(item.assignee_user_id.is_(None), item.status != workflow.DRAFT,
                                    ClinicDictation.pool_id.in_(led)))
+        review = _acceptance_ids(actor)
+        if review:
+            conditions.append(ClinicDictation.id.in_(review))
         query = query.filter(or_(*conditions))
     from src.clinic.dictation_roles import project_roles  # lazy: dictation_roles imports stamp from here
 

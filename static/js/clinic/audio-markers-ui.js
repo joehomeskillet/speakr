@@ -42,6 +42,8 @@ export const LABELS = Object.freeze({
     list: 'Liste der Marken',
     section: 'Abschnittsmarke setzen',
     index: 'Indexmarke setzen',
+    indexName: 'Name des Index',
+    indexNamePlaceholder: 'z. B. Befund',
     markPhrase: 'Ausgewählte Textstelle markieren',
     goTo: 'Zur Marke springen',
     earlier: 'Eine Sekunde früher',
@@ -201,7 +203,7 @@ export function useAudioMarkers(options) {
         const digest = path + JSON.stringify(body);
         if (!pending || pending.digest !== digest) pending = { digest, key: newKey() };
         busy.value = true;
-        const res = await client.request(base + path, { method: 'POST', idempotencyKey: pending.key, body });
+        const res = await client.request(base + '/correction' + path, { method: 'POST', idempotencyKey: pending.key, body });
         busy.value = false;
         if (disposed || res.outcome === 'cancelled') return { ok: false, code: 'cancelled', message: '' };
         if (res.outcome === 'ok' && res.data && typeof res.data.id === 'string') {
@@ -318,16 +320,25 @@ export const AudioMarkers = {
         });
         if (V && typeof V.onMounted === 'function') V.onMounted(() => { api.refresh(); });
         if (V && typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(api.dispose);
+        const inputStyle = { flex: '1 1 8rem', minWidth: '0', padding: '5px 8px', fontSize: '12px', border: '1px solid var(--line)', borderRadius: '7px', background: 'var(--surface)', color: 'var(--v8-text)' };
         const surfaces = { problem: surfaceFor('error'), historical: surfaceFor('warning'), current: surfaceFor('processing') };
         const focusStyle = { '--focus-outline': FOCUS_INDICATOR.outline, '--focus-offset': FOCUS_INDICATOR.outlineOffset };
         function styleFor(marker) {
             const s = marker.historical ? surfaces.historical : surfaces.current;
             return { background: s.background, color: s.color, border: '1px solid ' + s.border };
         }
+        // Free-text index name; kept in memory only, cleared after a successful create.
+        const indexName = V && typeof V.ref === 'function' ? V.ref('') : { value: '' };
+        async function createIndex() {
+            const name = String(indexName.value || '').trim();
+            const result = await api.create({ type: 'INDEX', label: name });
+            if (result && result.ok) indexName.value = '';
+            return result;
+        }
         function nudge(marker, delta) { return api.move(marker.id, Math.max(0, marker.positionMs + delta)); }
         function toPlayhead(marker) { return api.move(marker.id, props.getPositionMs ? props.getPositionMs() : Math.round(((props.audioElement && props.audioElement.currentTime) || 0) * 1000)); }
         const { writable } = api;
-        return { ...api, LABELS, STEP_MS, surfaces, focusStyle, styleFor, nudge, toPlayhead, writable };
+        return { ...api, LABELS, STEP_MS, surfaces, focusStyle, inputStyle, styleFor, nudge, toPlayhead, writable, indexName, createIndex };
     },
     template: `
 <section class="clinic-audio-markers v8-page" :aria-label="LABELS.title" :aria-busy="status === 'loading' || busy" :data-status="status">
@@ -339,7 +350,12 @@ export const AudioMarkers = {
   </div>
   <div class="clinic-audio-markers-actions actions" role="group" aria-label="Audiomarken verwalten">
     <button type="button" :style="focusStyle" :disabled="busy || !writable" @click="create({ type: 'SECTION' })">{{ LABELS.section }}</button>
-    <button type="button" :style="focusStyle" :disabled="busy || !writable" @click="create({ type: 'INDEX' })">{{ LABELS.index }}</button>
+    <label class="clinic-marker-name" style="display:flex;align-items:center;gap:6px;font-size:12px;flex:1 1 220px;min-width:0">
+      <span>{{ LABELS.indexName }}</span>
+      <input type="text" v-model="indexName" maxlength="200" autocomplete="off" :style="[focusStyle, inputStyle]"
+        :placeholder="LABELS.indexNamePlaceholder" :disabled="busy || !writable" @keydown.enter.prevent="createIndex()" />
+    </label>
+    <button type="button" :style="focusStyle" :disabled="busy || !writable" @click="createIndex()">{{ LABELS.index }}</button>
     <button type="button" :style="focusStyle" :disabled="busy || !writable" @click="markPhrase()">{{ LABELS.markPhrase }}</button>
     <button type="button" :style="focusStyle" @click="refresh()">{{ LABELS.refresh }}</button>
   </div>

@@ -121,6 +121,8 @@ def create_blueprint(
     """Mount with trusted channel and current object policy (`history`/`review`).
 
     `review` requires explicit review authority in addition to edit scope.
+    An acceptor on the current rule may acquire the same lease only while the
+    case is Abzunehmen, and may release it after a decision. A deny still cannot.
     Lease takeover is decided by `takeover_allowed` (default: admin or pool lead)
     and answers 403 without it (404 when the object policy hides the dictation); it also needs an explicit `{"confirm": true}`.
     `run_once` uses the parity dispatcher transaction/receipt protocol and must
@@ -133,6 +135,40 @@ def create_blueprint(
         dictation = db.session.get(ClinicDictation, str(dictation_id),
                                    populate_existing=lock, with_for_update=lock)
         if dictation is None or not authorize(current_user, action, dictation):
+            abort(404)
+        return dictation
+
+    def on_acceptance_rule(dictation: ClinicDictation) -> bool:
+        """True when this actor may decide the current rule and holds release."""
+        if not authorize(current_user, 'clinic.accept', dictation):
+            return False
+        from src.clinic.acceptance_policy import SCOPE_DICTATION, AcceptanceLedger, PolicyError
+        from src.clinic.acceptance_rules import can_decide
+        from src.clinic.pool_policy import author_pool_ids
+
+        try:
+            rule = AcceptanceLedger().current(SCOPE_DICTATION, dictation.id).as_rule()
+        except PolicyError:
+            return False
+        return can_decide(rule, current_user.id, author_pool_ids(current_user.id))
+
+    def may_hold(dictation: ClinicDictation, operation: str) -> bool:
+        """Edit holds the lease. An acceptor may acquire it only while the case is Abzunehmen."""
+        if authorize(current_user, 'review', dictation):
+            return True
+        if not on_acceptance_rule(dictation):
+            return False
+        if operation in ('release', 'renew'):
+            return True
+        if operation != 'acquire':
+            return False
+        flow = db.session.get(workflow.ClinicWorkflowDictation, dictation.id)
+        return flow is not None and flow.status == workflow.TO_ACCEPT
+
+    def lease_target(dictation_id: UUID, operation: str, *, lock: bool = False) -> ClinicDictation:
+        dictation = db.session.get(ClinicDictation, str(dictation_id),
+                                   populate_existing=lock, with_for_update=lock)
+        if dictation is None or not may_hold(dictation, operation):
             abort(404)
         return dictation
 
@@ -202,10 +238,10 @@ def create_blueprint(
             dictation = object_for(dictation_id, 'history')
             now = datetime.now(timezone.utc)
             return jsonify(dictation_id=dictation.id, may_take_over=takeover_allowed(current_user, dictation),
-                           may_acquire=authorize(current_user, 'review', dictation),
+                           may_acquire=may_hold(dictation, 'acquire'),
                            may_listen=authorize(current_user, 'listen', dictation),
                            **holder_fields(lease.current(dictation.id), now))
-        dictation = takeover_target(dictation_id) if operation == 'takeover' else object_for(dictation_id, 'review')
+        dictation = takeover_target(dictation_id) if operation == 'takeover' else lease_target(dictation_id, operation)
         actor, target = current_user.id, dictation.id
         request.max_content_length = min(4096, request.max_content_length or 4096)
         try:
@@ -236,7 +272,7 @@ def create_blueprint(
                     abort(404)
                 require_takeover(locked)
             else:
-                locked = object_for(dictation_id, 'review', lock=True)
+                locked = lease_target(dictation_id, operation, lock=True)
             now = datetime.now(timezone.utc)
             if operation != 'release':
                 live_session.assert_edit_allowed(target, actor, now)

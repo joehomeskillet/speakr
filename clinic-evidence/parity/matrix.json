@@ -566,9 +566,13 @@
    "src/clinic/revisions.py:79",
    "tests/clinic/test_revisions.py::test_append_does_not_change_an_existing_revision",
    "src/clinic/correction.py",
-   "tests/clinic/test_correction.py"
+   "tests/clinic/test_correction.py",
+   "tests/clinic/test_correction.py::test_state_saves_position_and_guards_stale_writes",
+   "tests/clinic/test_wp_correction_commit_primitives.py::test_caller_rolls_back_and_retries_both_writes",
+   "tests/clinic/test_wp_correction_commit_primitives.py::test_stale_position_rejects_a_composite_save",
+   "tests/clinic/test_wp_correction_commit_primitives.py::test_unknown_actor_is_rejected_by_both_primitives"
   ],
-  "note": "Korrekturstand mit optimistischer Version und Übergabe (hand_over) getestet; Lease-Kopplung und atomares Speichern fehlen (Wiring)."
+  "note": "Korrekturstand mit optimistischer Version und Übergabe (hand_over) getestet; Lease-Kopplung und atomares Speichern fehlen (Wiring). P-001: Die ergänzten benannten Testknoten bestanden im gezielten Softwarelauf (19 passed in 3.14s; Worktree par-p-001, .wp/REPORT.md). Kein BT-/Referenzvergleich und kein neuer Hardware- oder Engine-Nachweis. Präzisierung des historischen Wiring-Hinweises: Positionsspeicherung und gemeinsamer Commit/Rollback von Revision und Position sind auf Service-/DB-Ebene belegt; Lease-/API-Code ist vorhanden, hier nicht neu ausgeführt. BT-COR-006 mit Schliessen/Wiederöffnen und Prozessabbruch bleibt not_run."
  },
  {
   "id": "PAR-COR-007",
@@ -902,9 +906,14 @@
    "tests/clinic/test_clinic_models.py::test_original_cannot_be_updated_in_place",
    "tests/clinic/test_clinic_models.py::test_original_cannot_be_deleted",
    "tests/clinic/test_ingest.py::test_stored_bytes_match_the_stream_and_are_not_replaced",
-   "tests/clinic/test_decoder.py::test_good_wav_decodes_and_original_untouched"
+   "tests/clinic/test_decoder.py::test_good_wav_decodes_and_original_untouched",
+   "tests/clinic/test_par_ops_009_original_copy.py::test_par_ops_009_database_rejects_direct_original_writes",
+   "tests/clinic/test_par_ops_009_original_copy.py::test_par_ops_009_corrupt_decode_preserves_stored_original",
+   "tests/clinic/test_par_ops_009_original_copy.py::test_par_ops_009_repeated_decode_creates_separate_identical_copies",
+   "tests/clinic/test_par_ops_009_original_copy.py::test_par_ops_009_ingest_receipt_survives_conflicting_replay",
+   "tests/clinic/test_par_ops_009_original_copy.py::test_par_ops_009_revision_does_not_change_any_original_column"
   ],
-  "note": "Unveränderliches Original, getrennte Arbeitskopie/Decoder getestet. Kein Nachweis für Philips-Echtgeräte."
+  "note": "Unveränderliches Original, getrennte Arbeitskopie/Decoder getestet. Kein Nachweis für Philips-Echtgeräte. P-001: Die ergänzten benannten Testknoten bestanden im gezielten Softwarelauf (19 passed in 3.14s; Worktree par-p-001, .wp/REPORT.md). Kein BT-/Referenzvergleich und kein neuer Hardware- oder Engine-Nachweis. Die ergänzten Tests prüfen Bulk-/SQL-Schutz, beschädigtes und wiederholtes Decodieren, Replay-Konflikte und getrennte Revisionen mit synthetischen Daten. BT-OPS-009 bleibt not_run; kein SecureDS-Nachweis."
  },
  {
   "id": "PAR-OPS-010",
@@ -919,9 +928,10 @@
   "status": "partial",
   "evidence": [
    "src/clinic/voice_consent.py",
-   "tests/clinic/test_voice_consent.py"
+   "tests/clinic/test_voice_consent.py",
+   "tests/clinic/test_voice_consent.py::test_revoke_deletes_embeddings_in_all_spaces"
   ],
-  "note": "Opt-in append-only, Widerruf löscht Enrolment-Embeddings; Upstream-Sprecherdaten-Purge und UI sind Wiring-Pflicht (nie Patientenprofile)."
+  "note": "Opt-in append-only, Widerruf löscht Enrolment-Embeddings; Upstream-Sprecherdaten-Purge und UI sind Wiring-Pflicht (nie Patientenprofile). P-001: Die ergänzten benannten Testknoten bestanden im gezielten Softwarelauf (19 passed in 3.14s; Worktree par-p-001, .wp/REPORT.md). Kein BT-/Referenzvergleich und kein neuer Hardware- oder Engine-Nachweis."
  },
  {
   "id": "OWN-SPK-002",
@@ -929,9 +939,10 @@
   "status": "partial",
   "evidence": [
    "src/clinic/author_suggestion.py",
-   "tests/clinic/test_author_suggestion.py"
+   "tests/clinic/test_author_suggestion.py",
+   "tests/clinic/test_author_suggestion.py::test_to_dict_is_json_serialisable_and_requires_confirmation"
   ],
-  "note": "Bänder 0.75/0.10/0.60, Kurzdiktat-Sperre; nur Vorschlag, Mensch bestätigt; synthetisch kalibriert. Klärlisten-UI fehlt."
+  "note": "Bänder 0.75/0.10/0.60, Kurzdiktat-Sperre; nur Vorschlag, Mensch bestätigt; synthetisch kalibriert. Klärlisten-UI fehlt. P-001: Die ergänzten benannten Testknoten bestanden im gezielten Softwarelauf (19 passed in 3.14s; Worktree par-p-001, .wp/REPORT.md). Kein BT-/Referenzvergleich und kein neuer Hardware- oder Engine-Nachweis."
  },
  {
   "id": "OWN-SPK-003",
@@ -941,9 +952,11 @@
    "deployment/speaker-service/",
    "src/clinic/speaker_client.py",
    "tests/clinic/test_speaker_service_contract.py",
-   "tests/clinic/test_speaker_client.py"
+   "tests/clinic/test_speaker_client.py",
+   "tests/clinic/test_speaker_service_contract.py::test_healthz_reports_models_versions_and_hashes",
+   "tests/clinic/test_speaker_client.py::test_space_created_once_per_model_and_reused"
   ],
-  "note": "sherpa-onnx-Container (Modelle hash-gepinnt) + HTTP-Client mit Space-pro-Modell; Contract-Tests; echter GPU/CPU-Smoke und Pipeline-Wiring offen."
+  "note": "sherpa-onnx-Container (Modelle hash-gepinnt) + HTTP-Client mit Space-pro-Modell; Contract-Tests; echter GPU/CPU-Smoke und Pipeline-Wiring offen. P-001: Die ergänzten benannten Testknoten bestanden im gezielten Softwarelauf (19 passed in 3.14s; Worktree par-p-001, .wp/REPORT.md). Kein BT-/Referenzvergleich und kein neuer Hardware- oder Engine-Nachweis."
  },
  {
   "id": "OWN-ASR-001",
@@ -953,8 +966,10 @@
    "deployment/gpu-asr-service/",
    "src/clinic/asr_fallback.py",
    "tests/clinic/test_gpu_asr_service_contract.py",
-   "tests/clinic/test_asr_fallback.py"
+   "tests/clinic/test_asr_fallback.py",
+   "tests/clinic/test_gpu_asr_service_contract.py::test_prompts_are_ignored_by_default",
+   "tests/clinic/test_asr_fallback.py::test_gpu_5xx_falls_back_once_with_log"
   ],
-  "note": "OpenVINO turbo-Dienst (Prompts default aus, Cap 55 Wörter) + CLINIC_MODE-Fallback; Deploy/Smoke/Default-Umschaltung offen; klinische Genauigkeit unbelegt (offener Qualitätspunkt)."
+  "note": "OpenVINO turbo-Dienst (Prompts default aus, Cap 55 Wörter) + CLINIC_MODE-Fallback; Deploy/Smoke/Default-Umschaltung offen; klinische Genauigkeit unbelegt (offener Qualitätspunkt). P-001: Die ergänzten benannten Testknoten bestanden im gezielten Softwarelauf (19 passed in 3.14s; Worktree par-p-001, .wp/REPORT.md). Kein BT-/Referenzvergleich und kein neuer Hardware- oder Engine-Nachweis."
  }
 ]

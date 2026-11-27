@@ -1579,8 +1579,7 @@ _ensure_guard_first(app)
 if _clinic_mode_enabled():
     from src.clinic import case_handoff
 
-    app.add_url_rule('/fall', 'clinic_case_view', app.view_functions['recordings.index'],
-                     defaults={'case_view': True})
+    app.register_blueprint(case_handoff.create_blueprint(app.view_functions['recordings.index']))
     # The guard and idle-session checks occupy the first two positions.
     app.before_request_funcs[None].insert(2, case_handoff.capture)
     for _access_logger in ('werkzeug', 'gunicorn.access'):

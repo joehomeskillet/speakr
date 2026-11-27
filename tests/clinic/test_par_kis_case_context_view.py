@@ -17,7 +17,6 @@ MARKER = 'data-clinic-case-view'
 HANDOFF = '/?fall_id=' + FALL
 ROWS = '/api/clinic/v1/worklist/rows'
 SIGNING_KEY = 'local-synthetic-case-view-test-key'
-ARTIFACTS = mount.ROOT / '.wp/artifacts'
 SIZES = ((1440, 900), (1280, 720), (390, 844))
 
 SEED = r'''
@@ -236,9 +235,8 @@ def test_disabled_adapter_refuses_case_input(profile, monkeypatch):
         assert _verified_case([FALL], []) == (None, None)
 
 
-def test_case_worklist_visual_matrix(case_scene):
+def test_case_worklist_visual_matrix(case_scene, tmp_path):
     base, _, _ = case_scene
-    ARTIFACTS.mkdir(exist_ok=True)
     with sync_playwright() as playwright:
         browser = mount._launch(playwright)
         try:
@@ -261,7 +259,7 @@ def test_case_worklist_visual_matrix(case_scene):
                         page.locator('.app-loading-overlay').first.wait_for(state='detached')
                         assert page.evaluate("document.documentElement.classList.contains('dark')") == (theme == 'dark')
                         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1')
-                        page.screenshot(path=ARTIFACTS / f'kis-login-{width}x{height}-{theme}.png',
+                        page.screenshot(path=tmp_path / f'kis-login-{width}x{height}-{theme}.png',
                                         animations='disabled')
                         _submitted(page, email)
                     page.locator('.app-loading-overlay').first.wait_for(state='detached')
@@ -285,7 +283,7 @@ def test_case_worklist_visual_matrix(case_scene):
                     assert page.evaluate("document.documentElement.classList.contains('dark')") == (theme == 'dark')
                     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1')
                     assert not js_errors, js_errors
-                    page.screenshot(path=ARTIFACTS / f'kis-case-{state}-{width}x{height}-{theme}.png',
+                    page.screenshot(path=tmp_path / f'kis-case-{state}-{width}x{height}-{theme}.png',
                                     animations='disabled')
                 finally:
                     page.context.close()

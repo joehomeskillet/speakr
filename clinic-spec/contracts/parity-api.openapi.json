@@ -16,6 +16,47 @@
     }
   ],
   "paths": {
+    "/dictations/{dictation_id}/correction": {
+      "parameters": [{"name": "dictation_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
+      "get": {
+        "operationId": "getCorrectionSnapshot",
+        "description": "Existing correction resource; document, document_version and recognition_marks are additive planned fields. Their absence preserves the legacy plain-text snapshot. Requires current correction_read permission.",
+        "responses": {
+          "200": {
+            "description": "Revision-bound correction snapshot. Recognition marks are server-derived evidence, not user-authored audio markers or fabricated confidence.",
+            "headers": {"ETag": {"description": "Strong text-revision and lease-generation validator.", "schema": {"type": "string"}}},
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CorrectionSnapshot"}}}
+          },
+          "401": {"description": "Login required"},
+          "403": {"description": "Correction read denied"},
+          "404": {"description": "Dictation unavailable"}
+        }
+      }
+    },
+    "/dictations/{dictation_id}/correction/save": {
+      "parameters": [{"name": "dictation_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
+      "post": {
+        "operationId": "saveCorrectionSnapshot",
+        "description": "Existing atomic correction save; rich document and move_map support is planned. Requires correction_edit permission and the current edit lease. Legacy requests may omit all rich fields. With document, expected_document_version is required and compares the snapshot on expected_text_revision_id (0 means none). An exact replay returns its original result; changed content with a stale version fails without writes. Text must equal the normalized document projection. Missing document must not erase a stored rich snapshot silently.",
+        "parameters": [
+          {"name": "If-Match", "in": "header", "required": true, "schema": {"type": "string", "minLength": 1}},
+          {"name": "X-CSRF-Token", "in": "header", "required": true, "schema": {"type": "string", "minLength": 1}},
+          {"name": "Idempotency-Key", "in": "header", "required": true, "schema": {"type": "string", "format": "uuid"}}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CorrectionSave"}}}},
+        "responses": {
+          "200": {"description": "Text, document, transformed anchors and correction position committed atomically; document_version, when returned, belongs to the new text_revision_id.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CorrectionSaveResult"}}}},
+          "400": {"description": "Invalid payload, document projection, move map or mark data; no writes"},
+          "401": {"description": "Login required"},
+          "403": {"description": "Correction edit or CSRF denied"},
+          "404": {"description": "Dictation unavailable"},
+          "409": {"description": "REVISION_CONFLICT: stale If-Match, expected_text_revision_id, expected_state_version or expected_document_version; LEASE_STALE: stale lease_generation; IDEMPOTENCY_CONFLICT: changed retry body. No writes; reload and reconcile, never overwrite blindly."},
+          "423": {"description": "Foreign or expired edit lease"},
+          "428": {"description": "If-Match required"},
+          "503": {"description": "Dependency unavailable; transaction rolled back"}
+        }
+      }
+    },
     "/parity/commands": {
       "post": {
         "operationId": "executeParityCommand",
@@ -145,6 +186,97 @@
       }
     },
     "schemas": {
+      "CorrectionDocument": {
+        "type": "object", "additionalProperties": false, "required": ["schema_version", "nodes"],
+        "description": "CanonicalDocument v1 from src.clinic.richtext. Stable node/run IDs are globally unique within the document. At most 8192 runs and 1000000 projected code points overall. No raw markup, surrogate code points, links or active content. Paragraphs project with newline separators; normalized projection equals text. New or rewritten text has no invented audio anchor; unchanged moved/formatted runs retain validated provenance.",
+        "properties": {
+          "schema_version": {"type": "integer", "const": 1},
+          "nodes": {"type": "array", "maxItems": 2048, "items": {
+            "type": "object", "additionalProperties": false, "required": ["id", "kind", "runs"],
+            "properties": {
+              "id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"},
+              "kind": {"type": "string", "enum": ["paragraph", "heading", "list_item"]},
+              "level": {"type": "integer", "minimum": 0, "maximum": 3, "default": 0},
+              "runs": {"type": "array", "minItems": 1, "maxItems": 8192, "items": {
+                "type": "object", "additionalProperties": false, "required": ["id", "text"],
+                "properties": {
+                  "id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"},
+                  "text": {"type": "string", "maxLength": 1000000},
+                  "bold": {"type": "boolean", "default": false},
+                  "italic": {"type": "boolean", "default": false},
+                  "underline": {"type": "boolean", "default": false},
+                  "audio_anchor_id": {"type": ["string", "null"], "pattern": "^[A-Za-z0-9_-]{1,64}$", "default": null}
+                }
+              }}
+            },
+            "if": {"properties": {"kind": {"const": "heading"}}},
+            "then": {"required": ["level"], "properties": {"level": {"minimum": 1}}},
+            "else": {"properties": {"level": {"const": 0}}}
+          }}
+        }
+      },
+      "CorrectionMove": {
+        "type": "object", "additionalProperties": false,
+        "required": ["segment_id", "old_start", "old_end", "new_start", "new_end"],
+        "description": "One unchanged stable run moved from expected_text_revision_id to the submitted document. Half-open Unicode code-point offsets in raw document projections, never UTF-16 units. Each range must be nonempty, in bounds, equal in length and text, and match segment_id in both documents. Entries must have unique segment IDs and nonoverlapping old/new spans. Validate against stored provenance; never manufacture an audio anchor from client offsets.",
+        "properties": {
+          "segment_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"},
+          "old_start": {"type": "integer", "minimum": 0},
+          "old_end": {"type": "integer", "minimum": 1},
+          "new_start": {"type": "integer", "minimum": 0},
+          "new_end": {"type": "integer", "minimum": 1}
+        }
+      },
+      "CorrectionRecognitionMark": {
+        "type": "object", "additionalProperties": false,
+        "required": ["type", "text_revision_id", "audio_revision_id", "text_start", "text_end"],
+        "description": "Read-only local recognition evidence for the exact snapshot text/audio revisions. Half-open Unicode code-point range in snapshot text, nonempty and in bounds. low_confidence means the recognizer reported uncertainty; unrecognized means it explicitly reported a recognition gap. Missing/null confidence means unavailable, never zero or an inferred score. Marks become stale when either revision changes and must not be reused as current evidence.",
+        "properties": {
+          "type": {"type": "string", "enum": ["low_confidence", "unrecognized"]},
+          "text_revision_id": {"type": "string", "format": "uuid"},
+          "audio_revision_id": {"type": "string", "format": "uuid"},
+          "text_start": {"type": "integer", "minimum": 0},
+          "text_end": {"type": "integer", "minimum": 1},
+          "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1}
+        }
+      },
+      "CorrectionSnapshot": {
+        "type": "object", "required": ["dictation_id", "text_revision_id", "text"],
+        "properties": {
+          "dictation_id": {"type": "string", "format": "uuid"},
+          "text_revision_id": {"type": ["string", "null"], "format": "uuid"},
+          "text": {"type": "string", "maxLength": 1000000},
+          "document": {"$ref": "#/components/schemas/CorrectionDocument"},
+          "document_version": {"type": "integer", "minimum": 0, "description": "Snapshot version scoped to text_revision_id; 0 means no persisted rich snapshot, positive values identify immutable snapshots."},
+          "recognition_marks": {"type": "array", "readOnly": true, "maxItems": 8192, "items": {"$ref": "#/components/schemas/CorrectionRecognitionMark"}}
+        },
+        "dependentRequired": {"document": ["document_version"]}
+      },
+      "CorrectionSave": {
+        "type": "object", "additionalProperties": false,
+        "required": ["text", "audio_position_ms", "lease_generation", "expected_text_revision_id"],
+        "properties": {
+          "text": {"type": "string", "maxLength": 1000000},
+          "audio_position_ms": {"type": "integer", "minimum": 0, "maximum": 2147483647},
+          "lease_generation": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+          "expected_state_version": {"type": ["integer", "null"], "minimum": 0, "maximum": 2147483647},
+          "expected_text_revision_id": {"type": ["string", "null"], "format": "uuid"},
+          "document": {"$ref": "#/components/schemas/CorrectionDocument"},
+          "expected_document_version": {"type": "integer", "minimum": 0},
+          "move_map": {"type": "array", "maxItems": 8192, "items": {"$ref": "#/components/schemas/CorrectionMove"}}
+        },
+        "dependentRequired": {"document": ["expected_document_version"], "expected_document_version": ["document"], "move_map": ["document", "expected_document_version"]}
+      },
+      "CorrectionSaveResult": {
+        "type": "object", "required": ["text_revision_id", "etag", "state_version", "audio_position_ms"],
+        "properties": {
+          "text_revision_id": {"type": "string", "format": "uuid"},
+          "etag": {"type": "string"},
+          "state_version": {"type": "integer", "minimum": 1},
+          "audio_position_ms": {"type": "integer", "minimum": 0},
+          "document_version": {"type": "integer", "minimum": 1}
+        }
+      },
       "SaveAuthorPool": {
         "type": "object",
         "additionalProperties": false,

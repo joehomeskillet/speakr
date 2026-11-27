@@ -7,7 +7,7 @@ from secrets import token_urlsafe
 from time import time
 from urllib.parse import unquote_plus
 
-from flask import after_this_request, current_app, make_response, redirect, request, session, url_for
+from flask import Blueprint, after_this_request, current_app, make_response, redirect, request, session, url_for
 from flask_login import current_user
 from itsdangerous import BadData, URLSafeTimedSerializer
 from sqlalchemy import delete, update
@@ -35,6 +35,12 @@ class ClinicCaseSession(db.Model):
     case_ref = db.Column(db.String(12), nullable=True)
     signature_digest = db.Column(db.String(64), unique=True, nullable=True)
     expires_at = db.Column(db.BigInteger, nullable=False, index=True)
+
+
+def create_blueprint(case_view) -> Blueprint:
+    blueprint = Blueprint('clinic_case', __name__)
+    blueprint.add_url_rule('/fall', 'view', case_view, defaults={'case_view': True})
+    return blueprint
 
 
 def _digest(value):
@@ -89,7 +95,7 @@ def capture():
     if not is_handoff_request():
         return None
     if request.method == 'HEAD':
-        return private_response(redirect(url_for('clinic_case_view'), 303))
+        return private_response(redirect(url_for('clinic_case.view'), 303))
 
     actor = current_user.id if (current_user.is_authenticated and current_user.is_active
                                 and session.get('_user_id') == current_user.get_id()) else None
@@ -122,7 +128,7 @@ def capture():
         current_app.logger.error('KIS case handoff transaction failed (%s)', type(error).__name__)
         return private_response(make_response('', 503))
 
-    target = url_for('clinic_case_view')
+    target = url_for('clinic_case.view')
     if actor is not None:
         session[SESSION_KEY] = handle
         response = redirect(target, 303)
@@ -148,7 +154,7 @@ def view_marker():
 
         @after_this_request
         def clear_pending(response):
-            response.delete_cookie(PENDING_COOKIE, path=url_for('clinic_case_view'))
+            response.delete_cookie(PENDING_COOKIE, path=url_for('clinic_case.view'))
             return response
 
     handle = session.get(SESSION_KEY)
