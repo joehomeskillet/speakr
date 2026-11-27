@@ -14,6 +14,7 @@ Entry versions are the entry's ``updated_at``; a write with a different
 
 from __future__ import annotations
 
+import base64
 import re
 import unicodedata
 from collections.abc import Callable
@@ -43,6 +44,8 @@ _STATUS = {
 }
 _TITLES = {400: "Ungültige Anfrage", 401: "Anmeldung erforderlich", 403: "Zugriff verweigert",
            404: "Nicht gefunden", 409: "Versionskonflikt"}
+
+_ENCODINGS = {"utf-8": "utf-8", "cp1252": "cp1252", "latin-1": "latin-1"}
 
 CanWritePool = Callable[[int, str], bool]
 
@@ -78,6 +81,26 @@ def _entry_json(entry: vocabulary.ClinicVocabularyEntry) -> dict[str, Any]:
     return {"id": entry.id, "scope": entry.scope, "pool_id": entry.pool_id, "written": entry.written_form,
             "spoken": entry.spoken_form, "status": entry.status, "origin": entry.origin,
             "version": _version(entry)}
+
+
+def _decode_base64_lines(data: Any, encoding: Any, errors: list[dict[str, Any]]) -> str:
+    """Decode base64 bytes line by line; undecodable lines are blanked and reported, line numbers stay stable."""
+    if encoding not in _ENCODINGS or not isinstance(data, str):
+        raise ApiError("invalid_payload")
+    try:
+        raw = base64.b64decode(data, validate=True)
+    except ValueError:
+        raise ApiError("invalid_payload")
+    if len(raw) > MAX_BODY_BYTES:
+        raise ApiError("invalid_payload")
+    lines = []
+    for line_no, line in enumerate(raw.splitlines(), start=1):
+        try:
+            lines.append(line.decode(_ENCODINGS[encoding]))
+        except UnicodeDecodeError:
+            errors.append({"line": line_no, "reason": "invalid_encoding"})
+            lines.append("")
+    return "\n".join(lines)
 
 
 def _body() -> dict[str, Any]:
@@ -168,12 +191,32 @@ class VocabularyApi:
 
     def _import(self):
         body = _body()
-        if body.keys() - {"scope", "pool_id", "content", "duplicate_rule"} or not isinstance(body.get("content"), str):
+        allowed = {"scope", "pool_id", "content", "content_base64", "encoding", "dry_run", "duplicate_rule"}
+        dry_run = body.get("dry_run", False)
+        if body.keys() - allowed or not isinstance(dry_run, bool) or ("content" in body) == ("content_base64" in body):
             raise ApiError("invalid_payload")
+        decode_errors: list[dict[str, Any]] = []
+        if "content" in body:
+            if "encoding" in body or not isinstance(body["content"], str):
+                raise ApiError("invalid_payload")
+            content = body["content"]
+        else:
+            content = _decode_base64_lines(body["content_base64"], body.get("encoding", "utf-8"), decode_errors)
         kwargs = self._scope(body.get("scope"), body.get("pool_id"), write=True)
-        result = vocabulary.import_vocabulary_text(
-            body["content"], duplicate_rule=body.get("duplicate_rule", "replace"), **kwargs)
-        db.session.commit()
+        duplicate_rule = body.get("duplicate_rule", "replace")
+        if dry_run:
+            # Run the real import inside a savepoint and discard it: counters and errors stay exact.
+            savepoint = db.session.begin_nested()
+            try:
+                result = vocabulary.import_vocabulary_text(content, duplicate_rule=duplicate_rule, **kwargs)
+            finally:
+                savepoint.rollback()
+            db.session.rollback()
+        else:
+            result = vocabulary.import_vocabulary_text(content, duplicate_rule=duplicate_rule, **kwargs)
+            db.session.commit()
+        result["errors"] = sorted(decode_errors + result["errors"], key=lambda e: e["line"])
+        result["dry_run"] = dry_run
         return jsonify(result)
 
     def _add(self):

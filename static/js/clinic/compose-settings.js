@@ -27,7 +27,7 @@ import { surfaceFor } from './tokens.js';
 import {
     ACTIONS, TEXT as PEDAL_TEXT, createKeyCapture, loadSettings, normalizeSettings, saveSettings,
 } from './pedal-ui.js';
-import { createVoiceConsentController } from './voice-consent-ui.js';
+import { createSampleRecorder, createVoiceConsentController } from './voice-consent-ui.js';
 
 const WORKSTATION_PATH = /^\/preferences\/workstations\/[^/]+$/;
 
@@ -236,8 +236,24 @@ export function createConsentComponent(Vue, client, props = {}) {
             const unsubscribe = controller.subscribe(() => { view.value = controller.view(); });
             Vue.onMounted(async () => { await controller.load(); view.value = controller.view(); });
             Vue.onBeforeUnmount(() => unsubscribe());
+            const recording = Vue.ref(false);
+            const recorder = props.recorder !== undefined ? props.recorder : createSampleRecorder();
+            const toggleRecord = async () => {
+                if (!recorder) return;
+                if (recording.value) {
+                    recording.value = false;
+                    await controller.enroll(await recorder.stop());
+                } else {
+                    try { await recorder.start(); recording.value = true; } catch (e) { recording.value = false; }
+                }
+            };
+            const upload = async (event) => {
+                const file = event.target.files && event.target.files[0];
+                event.target.value = '';
+                if (file) await controller.enroll(file);
+            };
             return {
-                controller, view, labels: CONSENT_LABELS, history: historyRows, pill: (s) => PILL[s] || PILL.none, tagClass: (s) => TAG[s] || TAG.none,
+                controller, view, labels: CONSENT_LABELS, recording, canRecord: !!recorder, toggleRecord, upload, history: historyRows, pill: (s) => PILL[s] || PILL.none, tagClass: (s) => TAG[s] || TAG.none,
                 onKeydown: (event) => controller.onKeydown(event),
             };
         },
@@ -340,7 +356,18 @@ const CONSENT_TEMPLATE = `
               @click="controller.cancel()">{{ view.labels.cancel }}</button>
     </div>
   </div>
-  <div v-else class="actions mt-4">
+  <div v-if="view.canEnroll && !view.confirmingRevoke" class="mt-4" data-testid="clinic-settings-consent-enroll">
+    <p class="hint mb-2">{{ view.labels.enrollHint }}</p>
+    <div class="actions">
+      <button v-if="canRecord" type="button" :disabled="view.busy" :aria-pressed="String(recording)"
+              data-testid="clinic-settings-consent-record" @click="toggleRecord()">{{ recording ? view.labels.stopRecord : view.labels.record }}</button>
+      <label class="btn cursor-pointer" for="clinic-settings-consent-upload">{{ view.labels.upload }}</label>
+      <input id="clinic-settings-consent-upload" type="file" accept="audio/wav,audio/x-wav,.wav" class="sr-only"
+             :disabled="view.busy" data-testid="clinic-settings-consent-upload" @change="upload($event)">
+    </div>
+    <p v-if="!canRecord" class="hint mt-2">{{ view.labels.unsupported }}</p>
+  </div>
+  <div v-if="!view.confirmingRevoke" class="actions mt-4">
     <button type="button" class="${PRIMARY}" :disabled="!view.canGrant" data-testid="clinic-settings-consent-grant"
             @click="controller.grant()">{{ view.labels.grant }}</button>
     <button type="button" class="${DANGER}" :disabled="!view.canRevoke" data-testid="clinic-settings-consent-revoke"

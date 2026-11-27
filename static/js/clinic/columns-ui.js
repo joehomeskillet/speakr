@@ -26,12 +26,13 @@ export const SERVER_CONTRACT = Object.freeze({
     implemented: true,
     provider: 'x28',
     list: Object.freeze({ method: 'GET', path: '/api/clinic/v1' + FIELDS, item: Object.freeze(['name', 'label', 'field_type', 'xml_path', 'version']) }),
-    save: Object.freeze({ method: 'PUT', path: '/api/clinic/v1' + FIELDS + '/<name>', payload: Object.freeze(['label', 'field_type', 'xml_path']), expected: 'expected_version' }),
+    save: Object.freeze({ method: 'PUT', path: '/api/clinic/v1' + FIELDS + '/<name>', payload: Object.freeze(['label', 'field_type', 'xml_path', 'display_format']), expected: 'expected_version' }),
 });
 
 export const DISPLAY_TYPES = Object.freeze(['string', 'integer', 'decimal', 'boolean', 'date', 'datetime']);
 export const MAX_XML_PATH = 256;
 export const MAX_FIELDS = 30;
+export const MAX_FORMAT = 64;
 
 const FIELD_NAME = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
 const XML_PATH = /^[A-Za-z_][A-Za-z0-9_.-]*(\/[A-Za-z_][A-Za-z0-9_.-]*){0,7}$/;
@@ -43,6 +44,10 @@ export const LABELS = Object.freeze({
     label: 'Bezeichnung',
     displayType: 'Anzeigetyp',
     xmlPath: 'XML-Pfad',
+    displayFormat: 'Anzeigeformat',
+    name: 'Spaltenname',
+    create: 'Neue Spalte anlegen',
+    add: 'Anlegen',
     save: 'Speichern',
     preview: 'Vorschau Spalten',
     empty: 'Kein Wert',
@@ -62,6 +67,8 @@ const REASONS = Object.freeze({
     bad_display_type: 'Dieser Anzeigetyp wird nicht unterstützt.',
     bad_xml_path: 'Der XML-Pfad ist ungültig oder zu lang.',
     bad_key: 'Der Spaltenname ist ungültig.',
+    bad_display_format: 'Das Anzeigeformat ist ungültig oder zu lang.',
+    exists: 'Eine Spalte mit diesem Namen existiert bereits.',
     bad_label: 'Die Bezeichnung darf nicht leer sein.',
     too_many: 'Es sind höchstens 30 Spalten möglich.',
     unavailable: 'Die Spalte ist nicht verfügbar.',
@@ -94,7 +101,7 @@ export function createColumnsEditor(options) {
     const wrap = (options && options.reactive) || ((value) => value);
     const state = wrap({
         loaded: false,
-        fields: [], // { name, label, displayType, xmlPath, version, available, readable, active, stale, saved }
+        fields: [], // { name, label, displayType, xmlPath, displayFormat, version, available, readable, active, stale, saved }
         status: 'normal',
     });
 
@@ -126,13 +133,14 @@ export function createColumnsEditor(options) {
                 label: String(item.label || ''),
                 displayType: item.field_type,
                 xmlPath: item.xml_path || '',
+                displayFormat: item.display_format || '',
                 version: item.version,
                 available: item.available !== false,
                 readable: item.readable !== false,
                 active: item.is_active !== false,
                 stale: false,
             };
-            draft.saved = { label: draft.label, displayType: draft.displayType, xmlPath: draft.xmlPath };
+            draft.saved = { label: draft.label, displayType: draft.displayType, xmlPath: draft.xmlPath, displayFormat: draft.displayFormat };
             return draft;
         });
         state.loaded = true;
@@ -167,6 +175,76 @@ export function createColumnsEditor(options) {
         if (clean.length > MAX_XML_PATH || !XML_PATH.test(clean)) return refuse('bad_xml_path');
         row.xmlPath = clean;
         return { ok: true };
+    }
+
+    function cleanFormat(format) {
+        const clean = typeof format === 'string' ? format.trim() : '';
+        // eslint-disable-next-line no-control-regex
+        if (clean.length > MAX_FORMAT || /[\u0000-\u001f\u007f]/.test(clean)) return null;
+        return clean;
+    }
+
+    function setDisplayFormat(name, format) {
+        const [row, refusal] = editable(name);
+        if (refusal) return refusal;
+        const clean = cleanFormat(format);
+        if (clean === null) return refuse('bad_display_format');
+        row.displayFormat = clean;
+        return { ok: true };
+    }
+
+    /**
+     * Create a new column definition with PUT /metadata-fields/<name> and no
+     * expected_version (the server creates it only if the name is unused).
+     * draft: { name, label, displayType, xmlPath, displayFormat }.
+     */
+    async function create(draft) {
+        const input = draft || {};
+        const name = typeof input.name === 'string' ? input.name.trim() : '';
+        if (!FIELD_NAME.test(name) || RESERVED.includes(name)) return refuse('bad_key');
+        if (find(name)) return refuse('exists');
+        if (state.fields.length >= MAX_FIELDS) return refuse('too_many');
+        const label = typeof input.label === 'string' ? input.label.trim() : '';
+        if (!label || label.length > 128) return refuse('bad_label');
+        const type = input.displayType || 'string';
+        if (!DISPLAY_TYPES.includes(type)) return refuse('bad_display_type');
+        const path = typeof input.xmlPath === 'string' ? input.xmlPath.trim() : '';
+        if (path !== '' && (path.length > MAX_XML_PATH || !XML_PATH.test(path))) return refuse('bad_xml_path');
+        const format = cleanFormat(input.displayFormat);
+        if (format === null) return refuse('bad_display_format');
+        setStatus('processing');
+        const body = { label: label, field_type: type, xml_path: path || null };
+        if (format) body.display_format = format;
+        const result = await client.request(FIELDS + '/' + name, { method: 'PUT', body: body });
+        if (result.outcome === 'ok') {
+            const data = result.data || {};
+            const row = {
+                name: name,
+                label: label,
+                displayType: type,
+                xmlPath: path,
+                displayFormat: format,
+                version: typeof data.version === 'string' ? data.version : undefined,
+                available: true,
+                readable: true,
+                active: true,
+                stale: false,
+            };
+            row.saved = { label: label, displayType: type, xmlPath: path, displayFormat: format };
+            state.fields.push(row);
+            setStatus('success');
+            return { ok: true };
+        }
+        if (result.outcome === 'conflict') {
+            setStatus('warning');
+            return refuse('exists');
+        }
+        if (result.outcome === 'validation') {
+            setStatus('error');
+            return refuse('validation');
+        }
+        setStatus(result.outcome === 'permission' ? 'warning' : 'error');
+        return refuse(result.outcome === 'permission' ? 'permission' : 'failure');
     }
 
     function setLabel(name, label) {
@@ -212,19 +290,18 @@ export function createColumnsEditor(options) {
         if (refusal) return refusal;
         if (row.stale) return refuse('stale_version');
         setStatus('processing');
-        const result = await client.request(FIELDS + '/' + row.name, {
-            method: 'PUT',
-            body: {
-                label: row.label,
-                field_type: row.displayType,
-                xml_path: row.xmlPath || null,
-                expected_version: row.version,
-            },
-        });
+        const body = {
+            label: row.label,
+            field_type: row.displayType,
+            xml_path: row.xmlPath || null,
+            expected_version: row.version,
+        };
+        if (row.displayFormat || row.saved.displayFormat) body.display_format = row.displayFormat || null;
+        const result = await client.request(FIELDS + '/' + row.name, { method: 'PUT', body: body });
         if (result.outcome === 'ok') {
             const data = result.data || {};
             if (typeof data.version === 'string') row.version = data.version;
-            row.saved = { label: row.label, displayType: row.displayType, xmlPath: row.xmlPath };
+            row.saved = { label: row.label, displayType: row.displayType, xmlPath: row.xmlPath, displayFormat: row.displayFormat };
             setStatus('success');
             return { ok: true };
         }
@@ -247,6 +324,7 @@ export function createColumnsEditor(options) {
         row.label = row.saved.label;
         row.displayType = row.saved.displayType;
         row.xmlPath = row.saved.xmlPath;
+        row.displayFormat = row.saved.displayFormat;
         return { ok: true };
     }
 
@@ -265,7 +343,7 @@ export function createColumnsEditor(options) {
         client.switchContext({ accountId: null, dictationId: null });
     }
 
-    return { state, load, setDisplayType, setXmlPath, setLabel, preview, save, revert, onKey, reset };
+    return { state, load, create, setDisplayType, setXmlPath, setDisplayFormat, setLabel, preview, save, revert, onKey, reset };
 }
 
 /**
@@ -287,7 +365,15 @@ export function columnsComponent(vue, options) {
         setup() {
             const editor = useColumnsEditor(vue, options);
             editor.load();
-            return { editor };
+            const draft = vue.reactive({ name: '', label: '', displayType: 'string', xmlPath: '', displayFormat: '' });
+            const feedback = vue.reactive({ message: '', ok: false });
+            async function submit() {
+                const result = await editor.create(draft);
+                feedback.ok = !!result.ok;
+                feedback.message = result.ok ? 'Die Spalte wurde angelegt.' : result.message;
+                if (result.ok) Object.assign(draft, { name: '', label: '', displayType: 'string', xmlPath: '', displayFormat: '' });
+            }
+            return { editor, draft, feedback, submit };
         },
         template: `
 <section role="region" aria-labelledby="clinic-col-title" :aria-busy="editor.state.status === 'processing'" class="v8-page v8-admin-page">
@@ -302,10 +388,36 @@ export function columnsComponent(vue, options) {
     <h2 id="clinic-col-list-title">Spaltenübersicht</h2>
     <p v-if="editor.state.status === 'processing'" role="status" class="text-sm text-[var(--text-muted)]">Spalten werden geladen.</p>
     <p v-else-if="editor.state.loaded && !editor.state.fields.length" role="status" class="empty">Keine Spalten vorhanden.</p>
+    <form class="mb-4 flex flex-wrap items-end gap-3 [&>label]:min-w-[11rem] [&>label]:flex-1 max-sm:[&>button]:w-full" aria-label="${LABELS.create}" @submit.prevent="submit">
+      <label>
+        <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">${LABELS.name}</span>
+        <input type="text" class="field font-mono" v-model="draft.name" maxlength="64" required>
+      </label>
+      <label>
+        <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">${LABELS.label}</span>
+        <input type="text" class="field" v-model="draft.label" maxlength="128" required>
+      </label>
+      <label>
+        <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">${LABELS.displayType}</span>
+        <select class="field" v-model="draft.displayType">
+          <option v-for="type in editor.displayTypes" :key="type" :value="type">{{ editor.typeLabels[type] }}</option>
+        </select>
+      </label>
+      <label>
+        <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">${LABELS.xmlPath}</span>
+        <input type="text" class="field font-mono" v-model="draft.xmlPath" maxlength="${MAX_XML_PATH}">
+      </label>
+      <label>
+        <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">${LABELS.displayFormat}</span>
+        <input type="text" class="field font-mono" v-model="draft.displayFormat" maxlength="${MAX_FORMAT}">
+      </label>
+      <button type="submit" class="btn btn--primary" :disabled="editor.state.status === 'processing'">${LABELS.add}</button>
+      <p v-if="feedback.message" role="status" class="basis-full text-sm" :class="feedback.ok ? 'text-[var(--text-muted)]' : 'text-[var(--danger)]'">{{ feedback.message }}</p>
+    </form>
     <ul v-if="editor.state.fields.length" role="list" aria-label="${LABELS.list}" class="grid gap-3">
       <li v-for="row in editor.state.fields" :key="row.name" class="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4" @keydown.enter.prevent="editor.save(row.name)" @keydown.esc="editor.revert(row.name)">
         <p class="mb-3 font-mono text-xs text-[var(--text-muted)]">{{ row.name }}</p>
-        <div class="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_auto]">
+        <div class="flex flex-wrap items-end gap-3 [&>label]:min-w-[11rem] [&>label]:flex-1 max-sm:[&>button]:w-full">
           <label>
             <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">${LABELS.label}</span>
             <input type="text" class="field" :value="row.label" :disabled="!row.available || !row.readable || !row.active" @change="editor.setLabel(row.name, $event.target.value)">
@@ -319,6 +431,10 @@ export function columnsComponent(vue, options) {
           <label>
             <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">${LABELS.xmlPath}</span>
             <input type="text" class="field font-mono" :value="row.xmlPath" maxlength="${MAX_XML_PATH}" :disabled="!row.available || !row.readable || !row.active" @change="editor.setXmlPath(row.name, $event.target.value)">
+          </label>
+          <label>
+            <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">${LABELS.displayFormat}</span>
+            <input type="text" class="field font-mono" :value="row.displayFormat" maxlength="${MAX_FORMAT}" :disabled="!row.available || !row.readable || !row.active" @change="editor.setDisplayFormat(row.name, $event.target.value)">
           </label>
           <button type="button" class="btn btn--primary" :disabled="!row.available || !row.readable || !row.active || row.stale" @click="editor.save(row.name)">${LABELS.save}</button>
         </div>
