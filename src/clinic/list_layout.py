@@ -53,7 +53,7 @@ def sort_rows(rows: Sequence[Mapping], keys: Sequence[tuple[str, str]]) -> list[
         present = []
         missing = []
         for row in result:
-            value = _row_value(row, key)
+            value = _row_value(row, key, for_sort=True)
             if value is None:
                 missing.append(row)
             else:
@@ -157,10 +157,23 @@ def _group_keys(group_by: Sequence[str]) -> list[str]:
     return [_name(key, "bad_key") for key in fields]
 
 
-def _row_value(row: Mapping, key: str) -> Any:
+def _row_value(row: Mapping, key: str, *, for_sort: bool = False) -> Any:
     value = row.get(key)
     if value is None:
         return None
+    # Role DTOs group by stable identity and sort by the displayed staff names.
+    if key in ("dictated_by", "lease_holder") and isinstance(value, Mapping):
+        identity = _name(str(value.get("id", "")), "bad_value")
+        value = (value.get("display_name") or identity) if for_sort else identity
+    if key == "staff_pools" and isinstance(value, list):
+        if any(not isinstance(pool, Mapping) for pool in value):
+            raise LayoutError("bad_value")
+        identities = [_name(str(pool.get("id", "")), "bad_value") for pool in value]
+        if not for_sort:
+            return tuple(sorted(identities))
+        if not value:
+            return ""
+        value = ", ".join(sorted(pool.get("name") or identity for pool, identity in zip(value, identities)))
     if key == "priority" and (type(value) is not int or value not in PRIORITY_RANK):
         raise LayoutError("bad_priority")
     if isinstance(value, str):

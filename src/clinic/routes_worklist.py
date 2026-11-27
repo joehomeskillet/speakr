@@ -36,6 +36,7 @@ _DEFAULT_LAYOUT = {'version': 1, 'sort': [], 'group_by': [],
                    'columns': [{'key': key, 'width': 140, 'visible': True} for key in COLUMNS]}
 # Additive row fields (v8-119): the role fields the Aufnahmen API returns, set by the loader.
 ROLE_COLUMNS = ('dictated_by', 'staff_pools', 'lease_holder', 'source_label', 'asr_state')
+LAYOUT_COLUMNS = COLUMNS + ('dictated_by', 'staff_pools', 'lease_holder')
 # WorklistRow.source_kind describes the medium.
 # ClinicOriginal receipt origin -> German source label; unknown origins get no label.
 ORIGIN_LABELS = {'web-recorder': 'Mikrofon', 'web-upload': 'Upload', 'agent': 'Import',
@@ -118,7 +119,7 @@ def get_worklist(
     base = sorted(({key: row[key] for key in COLUMNS + ROLE_COLUMNS if key in row}
                    for row in scoped.items), key=lambda row: row['dictation_id'])
     layout, ordered, groups = layouts.refresh(subject.user_id, subject.user_id, base,
-                                              _DEFAULT_LAYOUT, COLUMNS)
+                                              _DEFAULT_LAYOUT, LAYOUT_COLUMNS)
     ordered = _with_names(ordered)
     buckets: dict[str, list[Mapping]] = {}
     for row in ordered:
@@ -308,7 +309,7 @@ def create_blueprint(
     @blueprint.get('/layout')
     def own_layout():
         actor = current_user.id
-        stored = layouts.load(actor, actor, _DEFAULT_LAYOUT, COLUMNS)
+        stored = layouts.load(actor, actor, _DEFAULT_LAYOUT, LAYOUT_COLUMNS)
         return jsonify(version=stored.version, layout=stored.layout)
 
     return blueprint
