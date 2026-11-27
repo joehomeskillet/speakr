@@ -60,6 +60,8 @@ export const TEXT = Object.freeze({
     retrySave: 'Erneut sichern',
     submitting: 'Diktat wird eingereicht …',
     submitted: 'Eingereicht.',
+    localVisibility: 'Noch nicht gesendet. Die Aufnahme ist nur in diesem Browser auf diesem Gerät.',
+    submittedVisibility: 'Die Standortverwaltung kann die Aufnahme anhören und den Text lesen, sobald er vorliegt. Für alle anderen gelten getrennte Zugriffsrechte für Aufnahme und Text.',
     submitUnknown: 'Einreichung nicht bestätigt. Bitte erneut versuchen.',
     created: 'Erstelltes Diktat',
     toWorklist: 'Zur Arbeitsliste',
@@ -374,7 +376,8 @@ export function createRecordingViewController(options) {
     function model() {
         const s = machine.getState();
         const fileBusy = state.filePhase === 'sending' || state.filePhase === 'sent';
-        const saved = opts.oneButton && state.mode === 'record' && allowed() && created() ? s.receipt : null;
+        const oneButtonRecording = opts.oneButton && state.mode === 'record' && allowed();
+        const saved = oneButtonRecording && created() ? s.receipt : null;
         return {
             mode: state.mode,
             phase: submission || phase(),
@@ -386,6 +389,8 @@ export function createRecordingViewController(options) {
             plannedDestination: opts.oneButton && allowed() && s.phase === 'review' && plannedServices.length
                 ? 'Wird gesendet an: ' + (plannedServices.length === 1
                     ? singleService(plannedServices[0]) : 'Schreibdienste ' + plannedServices.join(', ')) : '',
+            localVisibility: oneButtonRecording && !state.disposed && s.phase === 'review' ? TEXT.localVisibility : '',
+            submittedVisibility: !state.disposed && submission === 'submitted' && saved ? TEXT.submittedVisibility : '',
             recordingReceipt: saved ? {
                 title: typeof saved.title === 'string' && /^Diktat \d{2}\.\d{2}\.\d{4} \d{2}:\d{2}$/.test(saved.title) ? saved.title : '',
                 duration: formatRecordingDuration(saved.audio_duration),
@@ -490,6 +495,7 @@ export const RECORDING_TEMPLATE = `
                  @play="c.machine.syncPlayback()" @pause="c.machine.syncPlayback()" @ended="c.machine.syncPlayback()"
                  @error="c.machine.playbackFailed()" style="width: 100%; min-height: 3rem"></audio>
           <p v-if="m.plannedDestination" data-testid="send-destination" style="margin: 0; overflow-wrap: anywhere">{{ m.plannedDestination }}</p>
+          <p v-if="m.localVisibility" data-testid="local-visibility" style="margin: 0">{{ m.localVisibility }}</p>
           <button type="button" class="button primary" style="${TOUCH}; width: 100%; font-size: 1rem" data-testid="rec-send" @click="c.sendRecording()">
             {{ m.phase === 'review' ? 'Senden' : 'Erneut senden' }}
           </button>
@@ -513,6 +519,7 @@ export const RECORDING_TEMPLATE = `
         <span class="sr-only" data-testid="created-id">{{ m.created.dictationId }}</span>
         <div v-if="m.mode === 'record' && m.phase === 'submitted'" style="display: grid; justify-items: center; gap: var(--ui-space-2)">
           <button type="button" class="button primary" data-testid="open-created" style="${TOUCH}; width: 100%; font-size: 1rem" @click="c.openCreated()">Diktat öffnen</button>
+          <p v-if="m.submittedVisibility" role="status" data-testid="submitted-visibility" style="margin: var(--ui-space-2) 0 0">{{ m.submittedVisibility }}</p>
           <a href="#/neu" data-testid="another" style="${LINK}" @click.prevent="c.another()">{{ c.text.title }}</a>
         </div>
         <div v-else class="actions" style="justify-content: center">
