@@ -49,6 +49,7 @@ from src.clinic import pools, recognition_state, revisions, workflow, workflow_a
 from src.clinic import workflow_metadata
 from src.clinic.acceptance_policy import SCOPE_DICTATION, AcceptanceLedger, AcceptancePolicyVersion, PolicyError
 from src.clinic.config import clinic_mode_enabled
+from src.clinic.routes_categories import CategoryError, check_submission, selection_notes
 from src.clinic.metadata_changes import ChangeError
 from src.clinic.notify_enqueue import record_notice
 from src.clinic.models import (
@@ -75,6 +76,10 @@ _SEND_CONFLICTS = {
 }
 _STATUS = {'forbidden': 403, 'unauthorized': 403, 'not_found': 404, 'clinic_disabled': 404,
            'audit_unavailable': 503}
+_CATEGORY_STATUS = {
+    'invalid_payload': 400, 'unauthorized': 403, 'unknown_category_set': 404,
+    'stale_version': 409, 'missing_category': 422, 'invalid_category': 422,
+}
 _TITLES = {400: 'Ungültige Anfrage', 401: 'Anmeldung erforderlich', 403: 'Zugriff verweigert',
            404: 'Diktat nicht gefunden', 409: 'Versionskonflikt', 422: 'Aktion nicht zulässig',
            423: 'Diktat ist gesperrt', 428: 'Version erforderlich', 503: 'Dienst nicht verfügbar'}
@@ -404,6 +409,8 @@ def create_blueprint(
                 return _problem(409, code.upper(), state=_state(target),
                                 **_acceptance_extra(target, code))
             return _problem(_STATUS.get(code, 422), code.upper(), **_acceptance_extra(target, code))
+        except CategoryError as error:
+            return _problem(_CATEGORY_STATUS.get(error.code, 400), error.code, **error.extra)
         except (lease.LeaseConflict, live_session.LiveSessionError):
             return _problem(409, 'LEASE_CONFLICT', state=_state(target))
         response = jsonify(result)
@@ -497,8 +504,9 @@ def create_blueprint(
     @bp.post(f'{PATH}/send')
     def send(dictation_id: UUID):
         body = request.get_json(silent=True)
-        if body != {}:
+        if not isinstance(body, dict) or set(body) - {'categories'}:
             abort(400)
+        selections = body.get('categories', [])
 
         def apply(row, expected, _key, now):
             if row.version_counter != expected:
@@ -510,6 +518,16 @@ def create_blueprint(
                 raise workflow.WorkflowError('audio_required')
             if not pools.routable_staff_pool_ids(row.pool_id, now):
                 raise workflow.WorkflowError('no_staff_pool')
+            check_submission(current_user.id, selections)
+            note = selection_notes(current_user.id, selections)
+            fields = ['workflow_status', 'workflow_send']
+            if note:
+                recording = db.session.get(Recording, row.recording_id)
+                if recording is None:
+                    raise workflow.WorkflowError('not_found')
+                previous = (recording.notes or '').rstrip()
+                recording.notes = f'{previous}\n{note}' if previous else note
+                fields.append('notes')
 
             workflow.transition(db.session(), row.id, 'send_online')
             settled = recognition_state.settle(db.session(), row.id)
@@ -517,7 +535,7 @@ def create_blueprint(
             if audit.record_in_tx('recording.edited', recording_id=row.recording_id,
                                   recording_owner_id=row.author_user_id, actor_kind='session',
                                   actor_user_id=current_user.id, force=True,
-                                  details={'fields': ['workflow_status', 'workflow_send']}) is None:
+                                  details={'fields': fields}) is None:
                 raise workflow.WorkflowError('audit_unavailable')
             return {'dictation_id': row.id, 'status': settled.status,
                     'version': row.version_counter, 'etag': _etag(row)}
