@@ -21,6 +21,7 @@ from flask_wtf.csrf import CSRFError, validate_csrf
 from wtforms.validators import ValidationError
 
 from src.clinic import policy, vocabulary, voice_command_runtime
+from src.clinic.app_wiring import choose_author_pool
 from src.clinic.asr_capabilities import (
     AsrCapability,
     AsrCapabilityRegistry,
@@ -81,6 +82,13 @@ def _resolve_actor_pools(actor_id: int, requested_pools: list[str] | None = None
     return [p for p in requested_pools if p in member_pools] if requested_pools else sorted(member_pools)
 
 
+def _active_command_pools(actor_id: int, requested_pools: list[str] | None) -> list[str]:
+    pool_id = choose_author_pool(actor_id)
+    if pool_id is None or (requested_pools and pool_id not in requested_pools):
+        return []
+    return [pool_id]
+
+
 @commands_blueprint.route("/resources/commands", methods=["GET"])
 @commands_blueprint.route("/api/clinic/v1/resources/commands", methods=["GET"])
 def list_commands():
@@ -88,10 +96,10 @@ def list_commands():
     if actor_id is None:
         return _problem("UNAUTHORIZED")
 
-    pool_ids = _resolve_actor_pools(actor_id, request.args.getlist("pool_id"))
+    pool_ids = _active_command_pools(actor_id, request.args.getlist("pool_id"))
     etag = catalog_version(actor_id, pool_ids)
     if request.headers.get("If-None-Match") == etag:
-        return "", 304
+        return "", 304, {"Cache-Control": "no-store"}
 
     commands = vocabulary.get_effective_voice_commands(actor_id, pool_ids)
     limit = min(max(int(request.args.get("limit", 50)), 1), 100)
@@ -101,6 +109,7 @@ def list_commands():
     ]
     resp = jsonify({"revision": 1, "next_cursor": None, "items": items})
     resp.headers["ETag"] = etag
+    resp.headers["Cache-Control"] = "no-store"
     return resp
 
 
@@ -199,7 +208,12 @@ def execute_command_endpoint():
     if not phrase or not isinstance(recording_id, int) or recording_id <= 0 or not expected_version:
         return _problem("INVALID_PAYLOAD")
 
-    pool_ids = _resolve_actor_pools(actor_id, data.get("pool_ids"))
+    requested_pools = data.get("pool_ids")
+    if requested_pools is not None and (
+        not isinstance(requested_pools, list) or not all(isinstance(pid, str) for pid in requested_pools)
+    ):
+        return _problem("INVALID_PAYLOAD")
+    pool_ids = _active_command_pools(actor_id, requested_pools)
     subject = policy.build_subject(actor_id)
     recording = policy.build_facts(recording_id, data.get("owner_id", actor_id))
 

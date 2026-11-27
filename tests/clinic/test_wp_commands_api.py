@@ -14,7 +14,7 @@ from flask import Flask, jsonify
 from flask_login import LoginManager, UserMixin, login_user
 from flask_wtf.csrf import CSRFProtect, generate_csrf
 
-from src.clinic import policy, vocabulary
+from src.clinic import policy, pools, presets, vocabulary
 from src.clinic.asr_capabilities import (
     AsrCapability,
     AsrCapabilityRegistry,
@@ -68,6 +68,8 @@ def app(tmp_path, monkeypatch):
     CSRFProtect(flask_app)
 
     with flask_app.app_context():
+        pools.create_tables()
+        presets.create_tables()
         vocabulary.create_tables()
 
     @flask_app.get("/test-login")
