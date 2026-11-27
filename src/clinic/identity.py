@@ -16,6 +16,7 @@ Call ``create_tables`` (or import this module before ``db.create_all()``).
 
 import contextlib
 import hashlib
+import json
 import logging
 import os
 import re
@@ -473,6 +474,15 @@ _PROFILE_FIELDS = frozenset({'name', 'storage_quota_mb', 'monthly_token_budget',
                              'monthly_transcription_budget'})
 
 
+def account_notes(user_ids):
+    """Read only user-scoped account notes, never inherited dictation defaults."""
+    from src.clinic.presets import ClinicPreset
+
+    rows = ClinicPreset.query.filter_by(scope='user', key='account_note').filter(
+        ClinicPreset.scope_id.in_([str(uid) for uid in user_ids])).all()
+    return {int(row.scope_id): json.loads(row.value_json) for row in rows}
+
+
 def update_local_account(user_id, *, actor_id, expected_version, changes, actor_security_version=None):
     """Apply one validated edit, including role changes and verified Entra conversion."""
     if type(expected_version) is not int:
@@ -483,7 +493,7 @@ def update_local_account(user_id, *, actor_id, expected_version, changes, actor_
             _authorize_admin(actor_id, actor_security_version)
         _check_version(policy, expected_version)
         _save_account(user, policy, actor_id=actor_id, now=_utcnow(), **changes)
-    except IdentityError:
+    except (IdentityError, ValueError):
         db.session.rollback()
         raise
     except IntegrityError:
@@ -494,6 +504,10 @@ def update_local_account(user_id, *, actor_id, expected_version, changes, actor_
 
 def _save_account(user, policy, *, actor_id, now, status=None, is_admin=None, is_identity_admin=None,
                   login_policy=None, profile=None, unlock_login=False, create_groups_granted=None):
+    if profile and 'account_note' in profile:
+        note = profile['account_note']
+        if not isinstance(note, str) or len(note) > 4000 or '\x00' in note:
+            raise ValueError('invalid_account_note')
     changed = []
     revoke = False
     if status == 'disabled' or is_identity_admin is False or is_admin is False \
@@ -537,6 +551,11 @@ def _save_account(user, policy, *, actor_id, now, status=None, is_admin=None, is
             if field in _PROFILE_FIELDS | {'username', 'email'} and value != getattr(user, field):
                 setattr(user, field, value)
                 changed.append(field)
+        if 'account_note' in profile and profile['account_note'] != account_notes([user.id]).get(user.id, ''):
+            from src.clinic.presets import set_preset
+
+            set_preset('account_note', profile['account_note'], scope='user', scope_id=user.id)
+            changed.append('account_note')
     if create_groups_granted is not None:
         from src.auth.permissions import CREATE_GROUPS, set_user_grant, user_has_grant
 

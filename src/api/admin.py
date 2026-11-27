@@ -367,12 +367,20 @@ def admin_get_users():
     if clinic_mode_enabled() and current_user.is_admin and page_ids:
         policies = {p.user_id: p for p in identity.ClinicAccountPolicy.query
                     .filter(identity.ClinicAccountPolicy.user_id.in_(page_ids)).all()}
+        try:
+            _clinic_admin_actor()
+        except identity.IdentityDenied:
+            notes = None
+        else:
+            notes = identity.account_notes(page_ids)
         group_grants_available = not feature_locked('internal_sharing')
         for user, row in zip(users, user_data):
             row['name'] = user.name
             row['group_grants_available'] = group_grants_available
             if policy := policies.get(row['id']):
                 row.update(_clinic_account_fields(policy))
+                if notes is not None:
+                    row['account_note'] = notes.get(row['id'], '')
 
     has_next = page < total_pages
     has_prev = page > 1
@@ -439,7 +447,7 @@ def _clinic_admin_actor():
 
 
 def _clinic_profile(data):
-    profile = {key: data[key] for key in ('username', 'email', 'name') if key in data}
+    profile = {key: data[key] for key in ('username', 'email', 'name', 'account_note') if key in data}
     if 'name' in profile and profile['name'] is not None and (
             not isinstance(profile['name'], str) or len(profile['name']) > 100 or '\x00' in profile['name']):
         raise ValueError('invalid_name')
@@ -474,6 +482,8 @@ def _clinic_user_command(user_id=None, *, toggle=False):
         return _clinic_identity_error('explicit_grant_required', 'Fachrechte müssen separat erteilt werden.', 403)
     if data.get('password'):
         return _clinic_identity_error('use_recovery_code', 'Bitte einen lokalen Einmalcode ausstellen.', 400)
+    if 'account_note' in data and (user_id is None or toggle or data.get('issue_recovery') is True):
+        return _clinic_identity_error('invalid_request', 'Anmerkungen über die Kontobearbeitung speichern.', 400)
     try:
         profile = _clinic_profile(data)
         from src.api.auth import clinic_recent_auth
@@ -530,6 +540,7 @@ def _clinic_user_command(user_id=None, *, toggle=False):
     except ValueError:
         return _clinic_identity_error('invalid_profile', 'Bitte die angegebenen Profilwerte prüfen.', 400)
     return jsonify(id=user.id, username=user.username, email=user.email, name=user.name,
+                   account_note=identity.account_notes([user.id]).get(user.id, ''),
                    is_admin=user.is_admin, **_clinic_account_fields(policy)), 201 if user_id is None else 200
 
 
