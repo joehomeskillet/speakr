@@ -43,6 +43,45 @@ import { PlaybackGain, usePlaybackGain } from './playback-gain-ui.js';
 
 export const COMPOSE_CORRECTION_VERSION = 1;
 
+const CLINIC_OPEN_MODES = Object.freeze(['author_case', 'player', 'correction']);
+
+/**
+ * Where a list open event lands.
+ * An own author case opened from the worklist goes to the case details.
+ * The Aufnahmen row control keeps the editor: that click is not the worklist double-click.
+ * A permitted typist reaches the player for audio still to write, and the correction editor
+ * for a recognised case or a document. A denied row stays closed (null).
+ */
+export function resolveClinicOpenTarget(payload, context) {
+    const ctx = context || {};
+    if (!payload || typeof payload !== 'object') return null;
+    if (payload.denied === true || payload.permitted === false) return null;
+    const mode = payload.mode;
+    if (!CLINIC_OPEN_MODES.includes(mode)) return null;
+    if (payload.dictationId === undefined || payload.dictationId === null || payload.dictationId === '') return null;
+    const id = String(payload.dictationId);
+    const user = ctx.user || {};
+    const role = String(user.role || ctx.role || '').toLowerCase();
+    const authorId = payload.author_user_id != null ? payload.author_user_id : payload.authorUserId;
+    const hasAuthor = authorId != null && user.id != null && String(user.id) !== '';
+    const isAuthor = hasAuthor && String(authorId) === String(user.id);
+    if (mode === 'author_case' && !isAuthor && (hasAuthor || role === 'typist' || role === 'staff')) return null;
+    if (mode === 'author_case' && ctx.view !== 'clinic-recordings') {
+        return { surface: 'details', dictationId: id, openMode: null };
+    }
+    return { surface: 'correction', dictationId: id, openMode: typistOpenMode(payload, mode) };
+}
+
+function typistOpenMode(payload, mode) {
+    if (mode === 'author_case') return 'correction';
+    const status = String(payload.status || '').toLowerCase();
+    const kind = String(payload.source_kind || payload.sourceKind || '').toLowerCase();
+    if (kind === 'document') return 'correction';
+    if (kind === 'recognized' || status === 'zu_korrigieren') return 'correction';
+    if (kind === 'audio' || status === 'zu_schreiben' || mode === 'player') return 'player';
+    return 'correction';
+}
+
 /** The upstream player (modules/composables/audioPlayer.js) defines no skip step, so the view uses 3 s. */
 export const STEP_SECONDS = 3;
 
@@ -54,6 +93,8 @@ const CLOSE_EXTRA_SAVES = 2;
 export const TEXT = Object.freeze({
     title: 'Korrektur',
     page: 'Schreibplatz',
+    playerPage: 'Wiedergabe',
+    playerSubline: 'Aufnahme anhören. Der Text bleibt sichtbar und wird hier nicht umgeschrieben.',
     subline: 'Diktat prüfen, Text korrigieren und mit der Aufnahme abgleichen.',
     eyebrow: 'Arbeitsliste',
     toWorklist: 'Zur Arbeitsliste',
@@ -698,6 +739,7 @@ const LOCAL_CSS = `
   .v8-ui .editor-page .find-row>input{min-width:0;width:100%}
   .v8-ui .editor-page .find-count{grid-column:2 / -1;min-width:0}
 }
+.v8-ui .editor-page[data-open-mode="player"] .compact-player{border:1px solid var(--line);background:var(--v8-s2);border-radius:8px;padding:8px 10px}
 `;
 const LOCAL_CSS_ID = 'clinic-v8-schreibplatz-local';
 
@@ -716,6 +758,7 @@ const BODY_PROPS = {
     createAudioContext: { type: Function, default: null },
     dictator: { type: String, default: null },
     pool: { type: String, default: null },
+    openMode: { type: String, default: '' },
 };
 
 /** Inner body: one instance per dictation. The outer view re-keys it, which disposes everything. */
@@ -886,13 +929,13 @@ export const CorrectionBody = {
         };
     },
     template: `
-<section class="clinic-correction-view editor-page v8-page" data-testid="clinic-correction-view" aria-labelledby="ccv-title" :aria-busy="loading ? 'true' : 'false'"
+<section class="clinic-correction-view editor-page v8-page" data-testid="clinic-correction-view" :data-open-mode="openMode === 'player' ? 'player' : 'correction'" aria-labelledby="ccv-title" :aria-busy="loading ? 'true' : 'false'"
          @keydown="c.onShortcut($event)">
   <div class="pagehead">
     <div>
       <div class="eyebrow">{{ TEXT.eyebrow }}</div>
-      <h1 id="ccv-title" style="font-weight: 700; letter-spacing: -.8px; color: var(--v8-text)">{{ TEXT.page }}</h1>
-      <p class="subline">{{ TEXT.subline }}</p>
+      <h1 id="ccv-title" style="font-weight: 700; letter-spacing: -.8px; color: var(--v8-text)">{{ openMode === 'player' ? TEXT.playerPage : TEXT.page }}</h1>
+      <p class="subline">{{ openMode === 'player' ? TEXT.playerSubline : TEXT.subline }}</p>
     </div>
     <div class="head-actions">
       <slot name="back-action" :close="c.close">
@@ -972,8 +1015,8 @@ export const CorrectionBody = {
         </span>
       </div>
       <p class="word-sync-info" role="status" aria-live="polite">
-        <template v-if="audio.status !== 'ready' && audio.status !== 'idle' && audio.status !== 'loading'">{{ audio.message }} </template>
-        <template v-if="alignmentNotice"><span data-testid="alignment-notice">{{ alignmentNotice }}</span> </template>
+        <template v-if="audio.status !== 'ready' && audio.status !== 'idle' && audio.status !== 'loading'">{{ audio.message + ' ' }}</template>
+        <span v-if="alignmentNotice" data-testid="alignment-notice">{{ alignmentNotice + ' ' }}</span>
         <span v-if="pedalStatus" data-testid="pedal-status">{{ pedalStatus }}</span>
       </p>
 
@@ -1209,7 +1252,7 @@ export const CorrectionView = {
     emits: ['close'],
     template: `<CorrectionBody :key="dictationId" :client="client" :dictation-id="dictationId" :current-user="currentUser"
                               :vue="vue" :recording-id="recordingId" :create-audio-context="createAudioContext"
-        :dictator="dictator" :pool="pool" @close="$emit('close')">
+        :dictator="dictator" :pool="pool" :open-mode="openMode" @close="$emit('close')">
           <template v-if="$slots['back-action']" #back-action="scope"><slot name="back-action" v-bind="scope"></slot></template>
         </CorrectionBody>`,
 };

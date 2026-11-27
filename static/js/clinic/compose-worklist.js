@@ -382,6 +382,7 @@ export function createWorklistViewController(options) {
     const panels = reactive({ protection: false, acceptance: false, history: false });
     const selectedId = ref(null);
     const leaseState = shallowRef(null);
+    let firstClickRowId = null;
     let started = false;
     let disposed = false;
     let detailId = null;
@@ -600,9 +601,29 @@ export function createWorklistViewController(options) {
         const target = worklist.selectedRow.value;
         if (!rowKey(target) || leaseBlocksOpen()) return false;
         if (typeof options.onOpen === 'function') {
-            options.onOpen({ dictationId: rowKey(target), mode: listenOnly.value ? 'player' : getOpenMode(target, user.role) });
+            let mode = getOpenMode(target, user.role);
+            if (mode === 'player' && target.source_kind === 'document') mode = 'correction';
+            const payload = { dictationId: rowKey(target), mode: listenOnly.value ? 'player' : mode };
+            if (payload.mode === 'author_case' && target.open_mode === 'author_case') {
+                payload.author_user_id = target.author_user_id;
+            }
+            options.onOpen(payload);
         }
         return true;
+    }
+
+    function rememberFirstClick(event) {
+        if (event.detail === 1) firstClickRowId = event.target.closest('[data-row]')?.dataset.id;
+    }
+
+    function keepDoubleClickOnRow(event) {
+        const id = firstClickRowId;
+        firstClickRowId = null;
+        if (!id || id === event.target.closest('[data-row]')?.dataset.id) return;
+        // Opening the preview on the first click can move the rows under the pointer.
+        event.stopPropagation();
+        const row = worklist.rows.value.find((item) => rowKey(item) === id);
+        if (row) open(row);
     }
 
     function onRowKey(event, row) {
@@ -740,7 +761,8 @@ export function createWorklistViewController(options) {
         worklist, refresh, filters, layout, workflow, detailClient, displayed, columns, headerAttrs,
         detailRequest: (id) => id === detailId ? pendingDetail : null,
         refreshIfChanged: () => loadedRevision !== client.dictationChanges ? reload() : null,
-        start, dispose, reload, assignmentDone, select, open, canOpen, listenOnly, onRowKey, goto, pages, hasNext, applyFilter,
+        start, dispose, reload, assignmentDone, select, open, canOpen, listenOnly, onRowKey,
+        rememberFirstClick, keepDoubleClickOnRow, goto, pages, hasNext, applyFilter,
         key: rowKey, cell: cellText, badge: statusBadge, dictationLabel, entryCount, text: TEXT,
         searchMetadata: (row) => searchMetadata(row, view.search),
         searchMarkStyle: surfaceStyle('warning', () => ({})),
@@ -908,7 +930,8 @@ export const WorklistView = {
               <div class="empty-icon" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div>
               <h2>{{ c.view.filterId || c.view.search || c.worklist.rows.value.length ? c.text.noMatch : c.text.empty }}</h2>
             </div>
-            <table v-else class="worktable" data-layout="cl-table" role="grid" aria-label="Arbeitsliste" aria-describedby="cwv-keys">
+            <table v-else class="worktable" data-layout="cl-table" role="grid" aria-label="Arbeitsliste" aria-describedby="cwv-keys"
+                   @click.capture="c.rememberFirstClick($event)" @dblclick.capture="c.keepDoubleClickOnRow($event)">
               <thead>
                 <tr>
                   <th class="check"><input type="checkbox" :checked="c.allChecked()" :aria-label="c.text.selectAll" @change="c.toggleAll()"></th>

@@ -94,12 +94,32 @@ describe('worklist open event', () => {
         c.dispose();
     });
 
+    it('opens the first row clicked if the preview shifts rows under the pointer', async () => {
+        const { c, onOpen } = await started([row('1'), row('2')], 'typist');
+        const target = (id) => ({ closest: () => ({ dataset: { id } }) });
+        c.rememberFirstClick({ detail: 1, target: target('1') });
+        c.rememberFirstClick({ detail: 2, target: target('2') });
+        const stopPropagation = vi.fn();
+        c.keepDoubleClickOnRow({ target: target('2'), stopPropagation });
+        expect(stopPropagation).toHaveBeenCalledOnce();
+        expect(onOpen).toHaveBeenCalledOnce();
+        expect(onOpen).toHaveBeenCalledWith({ dictationId: '1', mode: 'player' });
+        c.dispose();
+    });
+
     it('the Öffnen button opens the selected row', async () => {
         const { c, onOpen } = await started([row('1'), row('2')], 'typist');
         c.select(c.worklist.rows.value[0]);
         expect(c.canOpen.value).toBe(true);
         c.open();
         expect(onOpen).toHaveBeenCalledWith({ dictationId: '1', mode: 'player' });
+        c.dispose();
+    });
+
+    it('opens a document in the correction editor even when queued for typing', async () => {
+        const { c, onOpen } = await started([row('1', { open_mode: 'player', source_kind: 'document' })], 'typist');
+        c.open(c.worklist.rows.value[0]);
+        expect(onOpen).toHaveBeenCalledWith({ dictationId: '1', mode: 'correction' });
         c.dispose();
     });
 
@@ -116,6 +136,13 @@ describe('worklist open event', () => {
         typist.c.open(typist.c.worklist.rows.value[0]);
         expect(typist.onOpen).toHaveBeenCalledWith({ dictationId: '3', mode: 'custom_mode' });
         typist.c.dispose();
+    });
+
+    it('emits the owner when the server identifies an own case in a typist worklist', async () => {
+        const { c, onOpen } = await started([row('1', { open_mode: 'author_case' })], 'typist');
+        c.open(c.worklist.rows.value[0]);
+        expect(onOpen).toHaveBeenCalledWith({ dictationId: '1', mode: 'author_case', author_user_id: 7 });
+        c.dispose();
     });
 
     it('single selection, arrow keys, space and Escape never emit open', async () => {

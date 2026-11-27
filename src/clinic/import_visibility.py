@@ -12,12 +12,15 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
-from src.clinic import agent_channel, import_centre
+from src.clinic import agent_channel, import_centre, pools, workflow
 from src.clinic.agent_channel import AgentChannelError
 from src.clinic.author_suggestion import suggest_author
 from src.clinic.config import clinic_mode_enabled
+from src.clinic.identity import ClinicAccountPolicy
+from src.clinic.models import ClinicOriginal
 from src.clinic.voice_consent import has_active_consent
 from src.database import db
+from src.models import User
 from src.services import audit
 
 
@@ -115,6 +118,84 @@ def author_suggestions(
     return suggest_author(embedding, allowed, speech_seconds=seconds).to_dict()
 
 
+def _targets():
+    member, pool = pools.ClinicAuthorPoolMember, pools.ClinicAuthorPool
+    return (db.session.query(User.id, User.name, User.username, pool).select_from(member)
+            .join(User, User.id == member.user_id).join(pool, pool.id == member.pool_id)
+            .join(ClinicAccountPolicy, ClinicAccountPolicy.user_id == User.id)
+            .filter(ClinicAccountPolicy.status == "active"))
+
+
+def assignment_candidates(policy: ClarificationPolicy, *, actor_user_id: int, delivery_id: str) -> list[dict]:
+    _require_clinic()
+    delivery, _ = _require_delivery(policy, actor_user_id, "assign_unassigned", delivery_id)
+    if delivery.status != "UNASSIGNED":
+        raise AgentChannelError("not_found", "delivery")
+    now = agent_channel.utcnow()
+    return [dict(target_author_user_id=uid, target_pool_id=pool.id, author_name=name or login, pool_name=pool.name)
+            for uid, name, login, pool in _targets().order_by(User.username, pools.ClinicAuthorPool.name)
+            if pools.is_routable(pool, now)]
+
+
+def _audit_assignment(actor: int, delivery_id: str, intent: import_centre.ClinicImportIntent) -> None:
+    event = audit.record_in_tx(
+        "recording.edited", actor_user_id=actor, target_user_id=intent.target_author_user_id, force=True,
+        details={"fields": {"import_delivery_id": delivery_id, "import_intent_id": intent.id}},
+    )
+    if event is None:
+        raise AgentChannelError("unavailable", "assignment audit unavailable")
+
+
+@agent_channel.transactional
+def assign_target(
+    policy: ClarificationPolicy, *, actor_user_id: int, delivery_id: str, expected_snapshot_version: str,
+    target_author_user_id: int | None = None, target_pool_id: str | None = None, intent_id: str | None = None,
+) -> str:
+    """Resolve a durable delivery and publish its worklist row in the same transaction."""
+    _require_clinic()
+    delivery, scope = _require_delivery(policy, actor_user_id, "assign_unassigned", delivery_id, lock=True)
+    if scope.snapshot_version != expected_snapshot_version or delivery.status != "UNASSIGNED":
+        raise AgentChannelError("conflict", "delivery changed")
+    original = db.session.get(import_centre.ClinicImportOriginal, delivery_id)
+    if original is None:
+        raise AgentChannelError("conflict", "delivery original is pending")
+
+    now = agent_channel.utcnow()
+    if intent_id is not None:
+        intent = db.session.get(import_centre.ClinicImportIntent, intent_id, populate_existing=True, with_for_update=True)
+        if intent is None or intent.created_by_user_id != actor_user_id:
+            raise AgentChannelError("not_found", "import intent")
+        if not import_centre._fits(intent, delivery.root_id, delivery.source_id, delivery.relative_path):
+            raise AgentChannelError("forbidden", "intent does not match delivery")
+        target_author_user_id, target_pool_id = intent.target_author_user_id, intent.target_pool_id
+    pool = pools.ClinicAuthorPool
+    target_pool = _targets().with_entities(pool).filter(User.id == target_author_user_id, pool.id == target_pool_id).first()
+    if target_pool is None or not pools.is_routable(target_pool, now):
+        raise AgentChannelError("forbidden", "assignment target is ineligible")
+
+    if intent_id is None:
+        intent = import_centre.ClinicImportIntent(
+            created_by_user_id=actor_user_id, source_kind="folder", source_ref=delivery.source_id,
+            target_author_user_id=target_author_user_id, target_pool_id=target_pool_id,
+            language_id=delivery.language_id, created_at=now, expires_at=now + import_centre.INTENT_TTL,
+        )
+        db.session.add(intent)
+        db.session.flush()
+    _audit_assignment(actor_user_id, delivery_id, intent)
+    import_centre._claim_unassigned(actor_user_id=actor_user_id, delivery_id=delivery_id, intent_id=intent.id,
+                                    now=now, commit=False)
+    if intent_id is None:
+        intent.status = "FULFILLED"
+    dictation_id = ClinicOriginal.query.filter_by(storage_key=original.storage_key).one().dictation_id
+    if db.session.get(workflow.ClinicWorkflowDictation, dictation_id) is None:
+        db.session.add(workflow.ClinicWorkflowDictation(
+            id=dictation_id, author_user_id=target_author_user_id, pool_id=target_pool_id,
+            created_at=agent_channel.aware(original.created_at), status=workflow.PREP_OFFLINE,
+        ))
+    db.session.commit()
+    return dictation_id
+
+
 @agent_channel.transactional
 def assign_unassigned(
     policy: ClarificationPolicy, *, actor_user_id: int, delivery_id: str, intent_id: str,
@@ -132,12 +213,7 @@ def assign_unassigned(
         raise AgentChannelError("conflict", "stale snapshot version")
 
     # The import service commits the claim, original hand-over and this audit row together.
-    event = audit.record_in_tx(
-        "recording.edited", actor_user_id=actor_user_id, target_user_id=author, force=True,
-        details={"fields": {"import_delivery_id": delivery.id, "import_intent_id": intent.id}},
-    )
-    if event is None:
-        raise AgentChannelError("unavailable", "assignment audit unavailable")
+    _audit_assignment(actor_user_id, delivery.id, intent)
     return import_centre.assign_unassigned(
         actor_user_id=actor_user_id, delivery_id=delivery.id, intent_id=intent.id, now=now,
     )

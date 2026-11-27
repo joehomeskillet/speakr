@@ -1,6 +1,6 @@
-"""Session-authenticated reads for the clinic import centre."""
+"""Session-authenticated import centre and clarification routes."""
 
-from flask import Blueprint, abort, jsonify, session
+from flask import Blueprint, abort, jsonify, request, session
 from flask_login import current_user
 
 from src.clinic import routes_import_sources_web as source_routing
@@ -8,6 +8,7 @@ from src.clinic import agent_channel, import_centre, import_source_config, impor
 from src.clinic.admin_dictation_access import _is_active_site_admin
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.identity import ClinicAccountPolicy
+from src.clinic.ingest import IngestError
 from src.clinic.parity_dispatch import _problem
 from src.database import db
 
@@ -106,21 +107,20 @@ def inventory():
     for agent_id in roots_by_agent:
         body = import_visibility.list_inventory(visibility, channel_policy, actor_user_id=actor, agent_id=agent_id)
         items.extend(body["items"])
-    return jsonify(items=items, count=len(items))
+    return jsonify(items=items, count=len(items), can_clarify=bool(admin or led_pools))
 
 
-@blueprint.get("/unassigned")
-def unassigned():
+def _clarification_policy():
     actor = current_user.id
     admin = _is_active_site_admin(db.session, current_user)
     led_pools = () if admin else worklist_entries._led_author_pools(actor)
     if not (admin or led_pools):
-        return _problem("FORBIDDEN")
+        return None
 
     owners = {} if admin else agent_channel.unique_root_owners(agent_channel.registered_agent_roots())
 
-    def may_read(uid, action, scope):
-        if uid != actor or action != "list_unassigned":
+    def may_access(uid, action, scope):
+        if uid != actor or action not in ("list_unassigned", "assign_unassigned"):
             return False
         if admin:
             return True
@@ -128,6 +128,62 @@ def unassigned():
         config = _source_config(scope, delivery.relative_path, owners) if delivery else None
         return config is not None and config["target_pool_id"] in led_pools
 
-    visibility = import_visibility.ClarificationPolicy(may_access=may_read)
+    return import_visibility.ClarificationPolicy(may_access=may_access)
+
+
+@blueprint.get("/unassigned")
+def unassigned():
+    visibility = _clarification_policy()
+    if visibility is None:
+        return _problem("FORBIDDEN")
+    actor = current_user.id
     items = import_centre.list_unassigned(actor_user_id=actor, policy=visibility)
     return jsonify(items=items, count=len(items))
+
+
+def _assignment_error(error):
+    if error.code == "not_found":
+        response = jsonify(type="about:blank", title="Nicht gefunden", status=404, code="NOT_FOUND")
+        response.mimetype = "application/problem+json"
+        return response, 404
+    return _problem({"invalid": "INVALID_PAYLOAD", "forbidden": "FORBIDDEN", "conflict": "REVISION_CONFLICT"}
+                    .get(error.code, "DEPENDENCY_UNAVAILABLE"))
+
+
+@blueprint.get("/unassigned/<uuid:delivery_id>/candidates")
+def assignment_candidates(delivery_id):
+    visibility = _clarification_policy()
+    if visibility is None:
+        return _problem("FORBIDDEN")
+    try:
+        items = import_visibility.assignment_candidates(visibility, actor_user_id=current_user.id,
+                                                        delivery_id=str(delivery_id))
+    except agent_channel.AgentChannelError as error:
+        return _assignment_error(error)
+    return jsonify(items=items, count=len(items))
+
+
+@blueprint.post("/unassigned/<uuid:delivery_id>/assign")
+def assign(delivery_id):
+    visibility = _clarification_policy()
+    if visibility is None:
+        return _problem("FORBIDDEN")
+    delivery_id = str(delivery_id)
+    body = request.get_json(silent=True, cache=False)
+    if not isinstance(body, dict):
+        return _problem("INVALID_PAYLOAD")
+    try:
+        version = agent_channel.clean_id(body.pop("expected_snapshot_version", None), "expected_snapshot_version")
+        if body.keys() == {"intent_id"}:
+            agent_channel.clean_id(body["intent_id"], "intent_id")
+        elif (body.keys() != {"target_author_user_id", "target_pool_id"}
+                or type(body["target_author_user_id"]) is not int
+                or not 1 <= body["target_author_user_id"] < 2**31
+                or len(agent_channel.clean_id(body["target_pool_id"], "target_pool_id")) > 36):
+            return _problem("INVALID_PAYLOAD")
+        dictation_id = import_visibility.assign_target(
+            visibility, actor_user_id=current_user.id, delivery_id=delivery_id, expected_snapshot_version=version, **body,
+        )
+    except (agent_channel.AgentChannelError, IngestError) as error:
+        return _assignment_error(error)
+    return jsonify(delivery_id=delivery_id, dictation_id=dictation_id)

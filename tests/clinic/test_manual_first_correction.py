@@ -8,7 +8,7 @@ import time
 
 import pytest
 
-from test_wp_mount_correction import PASSWORD, _env, _launch, _login, _open_from_worklist
+from test_wp_mount_correction import PASSWORD, _env, _launch, _login
 
 ROOT = Path(__file__).resolve().parents[2]
 OWNER = "manual-first@local.test"
@@ -258,6 +258,15 @@ server.serve_forever()
         finally:
             proc.terminate()
             proc.wait(timeout=20)
+
+
+def _open_from_worklist(page, base):
+    page.goto(base + "/")
+    page.get_by_test_id("nav-clinic-worklist").click()
+    page.get_by_test_id("clinic-worklist-view").locator("[data-row]").first.dblclick()
+    details = page.get_by_test_id("clinic-detail-view")
+    details.get_by_role("button", name="Im Schreibplatz öffnen", exact=True).click()
+    page.get_by_test_id("clinic-correction-view").wait_for(state="visible", timeout=30000)
 
 
 def test_signed_in_owner_types_saves_and_reopens(manual_server):
