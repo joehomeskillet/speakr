@@ -33,8 +33,7 @@ def grants_app(clinic_on):
         return jsonify(csrf=generate_csrf())
 
     app.register_blueprint(GrantsApi().blueprint)
-    yield app
-    statistics_access.clear_grants()
+    return app
 
 
 def _account(user, *, status='active', identity_admin=False):
