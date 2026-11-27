@@ -145,22 +145,38 @@ def create_blueprint(
         return response
 
     @bp.get(PATH)
-    def get_detail(dictation_id: UUID) -> Response:
+    @bp.get(f'{PATH}/metadata', defaults={'metadata': True})
+    def get_detail(dictation_id: UUID, metadata: bool = False) -> Response:
         dictation = db.session.get(ClinicDictation, str(dictation_id))
         if dictation is None or not authorize(current_user, 'history', dictation):
             abort(404)
         snap = dictation_snapshot(dictation)
         flow = db.session.get(workflow.ClinicWorkflowDictation, dictation.id)
         recording = db.session.get(Recording, dictation.recording_id)
+        may_rename = flow is not None and recording is not None and authorize(current_user, 'rename', dictation) is True
+        may_prioritize = flow is not None and recording is not None and authorize(current_user, 'priority', dictation) is True
+        can_edit_metadata = may_rename or may_prioritize
+        if metadata and not can_edit_metadata:
+            abort(404)
+        audit.record('recording.content.read', recording_id=dictation.recording_id,
+                     actor_kind='session', actor_user_id=current_user.id, details={'part': 'detail'})
+        if metadata:
+            fields = {}
+            if may_rename:
+                fields.update(title=recording.title or '', notes=recording.notes or '')
+            if may_prioritize:
+                fields.update(priority=flow.priority,
+                              deadline_date=flow.deadline_date.isoformat() if flow.deadline_date else None,
+                              deadline_time=flow.deadline_time.isoformat() if flow.deadline_time else None)
+            return jsonify(dictation_id=dictation.id, etag=snap['etag'], fields=fields)
         recorded = None if recording is None else recording.meeting_date
         fallback = recorded is None
         at = stamp(recorded if recorded is not None else (recording.created_at if recording else dictation.created_at))
         pool = None if dictation.pool_id is None else db.session.get(ClinicAuthorPool, dictation.pool_id)
-        audit.record('recording.content.read', recording_id=dictation.recording_id,
-                     actor_kind='session', actor_user_id=current_user.id, details={'part': 'detail'})
         return jsonify(
             dictation_id=dictation.id,
             etag=snap['etag'],
+            can_edit_metadata=can_edit_metadata,
             revision=dictation.version_counter,
             author=_person(dictation.author_user_id),
             author_pool=None if pool is None else dict(id=pool.id, name=pool.name),

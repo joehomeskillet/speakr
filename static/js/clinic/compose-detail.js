@@ -30,6 +30,8 @@ import { createDetailClient, ensureHostedStyles, statusTone } from './compose-wo
 import { WORKFLOW_ACTIONS_TEMPLATE, createWorkflowActions } from './workflow-actions-ui.js';
 import { DictationSummary } from './dictation-summary-ui.js';
 import { DetailPlayback } from './detail-playback-ui.js';
+import { MetadataEdit } from './metadata-edit-ui.js';
+import { AssignmentPanel } from './assign-ui.js';
 import { readAudioRevision } from './correction-editor-ui.js';
 import { createHistoryComponent } from './history-ui.js';
 import { createLeaseController, createLeaseStatusComponent } from './lease-ui.js';
@@ -364,6 +366,7 @@ export function createDetailViewController(options) {
     return {
         vue: V, status, message, data, leaseState, confirmedAt, leaseRun, workflow, detailClient,
         header, offline, leaseBlocksOpen, canOpenEditor, contextBinding, audio, mediaFailed,
+        hasMetadataLease: ctrl.canWrite,
         start, load, openEditor, back, dispose,
         text: TEXT,
     };
@@ -374,6 +377,8 @@ function buildParts(V) {
         Lease: createLeaseStatusComponent(V),
         Workflow: { name: 'ClinicWorkflowPanel', props: { wf: { type: Object, required: true } }, template: WORKFLOW_ACTIONS_TEMPLATE },
         History: createHistoryComponent(V),
+        Metadata: MetadataEdit,
+        Assignment: AssignmentPanel,
         ContextBinding: { props: { binding: { type: Object, required: true } }, template: CONTEXT_BIND_TEMPLATE },
     };
 }
@@ -412,6 +417,11 @@ const DetailBody = {
         // The shell mount supplies its own "Zurück" control; then the package's link would be a second one.
         const root = V.ref(null);
         const shellBack = V.ref(false);
+        const assignmentVersion = V.ref(0);
+        function metadataDone() {
+            assignmentVersion.value += 1;
+            return c.load();
+        }
         if (typeof V.onMounted === 'function') {
             V.onMounted(() => {
                 const host = root.value && typeof root.value.closest === 'function' ? root.value.closest('[data-clinic-shell-view]') : null;
@@ -428,7 +438,8 @@ const DetailBody = {
         // Header pill: the workflow status axis in the colour of the V8 status pills.
         const tone = (axes) => statusTone(workflowAxis(axes).value);
         const axisText = (axes) => workflowAxis(axes).text || TEXT.notAvailable;
-        return { c, parts, TEXT, box, tone, axisText, root, shellBack, status: c.status, message: c.message, leaseState: c.leaseState };
+        return { c, parts, TEXT, box, tone, axisText, root, shellBack, assignmentVersion, metadataDone,
+            status: c.status, message: c.message, leaseState: c.leaseState };
     },
     template: `
 <section ref="root" class="v8-page clinic-detail-view" data-testid="clinic-detail-view" aria-labelledby="cdv-title" :aria-busy="status === 'loading' ? 'true' : 'false'">
@@ -485,6 +496,9 @@ const DetailBody = {
           <p v-if="c.leaseBlocksOpen()" role="note" class="hint" style="margin: 0">{{ TEXT.openBlocked }}</p>
           <component :is="parts.Lease" v-if="leaseState" :state="leaseState" :run="c.leaseRun" />
           <component :is="parts.Workflow" v-if="!c.offline()" :wf="c.workflow" />
+          <component :is="parts.Assignment" v-if="!c.offline()" :key="assignmentVersion" :action-only="true"
+            :client="client" :vue="c.vue" :dictation-id="dictationId" :current-user="currentUser"
+            :label="TEXT.title" :author="c.header().author" :assignee="c.data.value?.takeover?.display_name" @assigned="c.load()" />
           <button v-if="c.workflow.state.stale && !c.offline()" type="button" class="secondary"
                   :disabled="status === 'loading'" @click="c.load()">{{ TEXT.reload }}</button>
         </section>
@@ -514,6 +528,8 @@ const DetailBody = {
           <div class="metadata-pair"><dt>{{ TEXT.deadline }}</dt><dd>{{ c.header().deadline }}</dd></div>
           <div v-if="c.header().caseId" class="metadata-pair"><dt>{{ TEXT.caseId }}</dt><dd data-testid="case-id">{{ c.header().caseId }}</dd></div>
         </dl>
+        <component :is="parts.Metadata" :client="client" :vue="c.vue" :dictation-id="dictationId"
+          :allowed="!c.offline() && c.data.value?.can_edit_metadata" :has-lease="c.hasMetadataLease" @saved="metadataDone" />
         <component :is="parts.ContextBinding" :binding="c.contextBinding" />
       </section>
     </div>

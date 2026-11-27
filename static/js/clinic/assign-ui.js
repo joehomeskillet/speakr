@@ -60,7 +60,7 @@ export function createAssignment({ client, dictationId, currentUser = {}, reacti
 }
 
 export const AssignmentPanel = {
-    props: ['client', 'dictationId', 'currentUser', 'author', 'label', 'assignee', 'vue'],
+    props: ['client', 'dictationId', 'currentUser', 'author', 'label', 'assignee', 'vue', 'actionOnly'],
     emits: ['assigned'],
     setup(props, { emit }) {
         const V = props.vue;
@@ -79,7 +79,7 @@ export const AssignmentPanel = {
         return { c, dialog, open, submit, keepFocus };
     },
     template: `
-<section aria-label="Zuweisung">
+<section v-if="!actionOnly || c.state.allowed || c.state.error" class="clinic-assignment" aria-label="Zuweisung">
   <p v-if="c.state.target" data-testid="routing-target">Versandziel: {{ c.state.target }}</p>
   <p role="status" aria-live="polite">{{ c.state.message || (assignee ? 'Zugewiesen an: ' + assignee : 'Klärliste') }}</p>
   <button v-if="c.state.allowed" type="button" class="secondary" @click="open">Zuweisen</button>

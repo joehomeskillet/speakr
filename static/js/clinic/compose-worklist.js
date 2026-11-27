@@ -30,6 +30,7 @@ import { acceptancePolicyComponent } from './acceptance-policy-ui.js';
 import { createHistoryComponent } from './history-ui.js';
 import { createLeaseController, createLeaseStatusComponent } from './lease-ui.js';
 import { AssignmentPanel } from './assign-ui.js';
+import { MetadataEdit } from './metadata-edit-ui.js';
 
 export const COMPOSE_WORKLIST_VERSION = 1;
 
@@ -63,6 +64,17 @@ export const HOSTED_CSS = [
     '.v8-ui .v8-empty p{color:var(--v8-muted)}',
     '.v8-ui .worktable .titletext .cl-search-metadata{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6}',
     '.v8-ui .cl-search-metadata mark{border-radius:2px;padding:0;font:inherit}',
+    '.v8-ui .clinic-metadata-dialog{background:var(--surface)}',
+    '.v8-ui .clinic-metadata-dialog .field{min-width:0}',
+    '.v8-ui .clinic-metadata-edit button,.v8-ui .clinic-metadata-dialog .field :is(input,select,textarea){min-height:48px;font-size:1rem}',
+    '.v8-ui .clinic-metadata-dialog .field :is(input,select,textarea){border-color:var(--v8-text-2)}',
+    '.v8-ui .clinic-metadata-dialog .secondary{width:auto}',
+    '.v8-ui .clinic-metadata-edit :focus-visible{outline:2px solid var(--border-focus,var(--v8-text));outline-offset:2px}',
+    '.v8-ui .clinic-metadata-edit dd{white-space:pre-wrap;overflow-wrap:anywhere;min-width:0}',
+    '.v8-ui .clinic-metadata-edit p:not(:empty){margin-top:8px}',
+    '.v8-ui .clinic-assignment-followup{display:inline-flex;align-items:center;min-height:48px}',
+    '.v8-ui .clinic-assignment button,.v8-ui .clinic-assignment .pool-dialog :is(input,select){min-height:48px}',
+    '.v8-ui .clinic-assignment .pool-dialog :is(input,select){border-color:var(--v8-text-2)}',
 ].join('\n');
 
 /** Adds the stylesheet above once per document. */
@@ -377,11 +389,13 @@ export function createWorklistViewController(options) {
     const reactive = (V && V.reactive) || ((o) => o);
     const computed = (V && V.computed) || ((fn) => ({ get value() { return fn(); } }));
 
-    const view = reactive({ page: 1, filterId: null, search: '', total: null, chip: 'all', assignmentNotice: '' });
+    const view = reactive({ page: 1, filterId: null, search: '', total: null, chip: 'all', assignmentNotice: '', assignmentTarget: '', metadataNotice: '' });
     const checked = reactive({}); // dictation id -> true; only the bulk-selection checkboxes, no clinical data
     const panels = reactive({ protection: false, acceptance: false, history: false });
     const selectedId = ref(null);
     const leaseState = shallowRef(null);
+    const metadataAllowed = ref(false);
+    const assignmentVersion = ref(0);
     let firstClickRowId = null;
     let started = false;
     let disposed = false;
@@ -577,11 +591,18 @@ export function createWorklistViewController(options) {
     // --- selection and detail ----------------------------------------------
     function assignmentDone(data) {
         view.assignmentNotice = 'Zugewiesen an: ' + data.display_name;
+        view.assignmentTarget = data.dictation_id ? '/?open=clinic-dictation&dictation=' + encodeURIComponent(data.dictation_id) : '';
         return reload();
     }
 
+    async function metadataDone(notice) {
+        assignmentVersion.value += 1;
+        await reload();
+        if (!selectedId.value) view.metadataNotice = notice;
+    }
+
     function select(row) {
-        if (row) view.assignmentNotice = '';
+        if (row) view.assignmentNotice = view.assignmentTarget = view.metadataNotice = '';
         worklist.selectRow(row || null);
         syncDetail();
     }
@@ -669,6 +690,7 @@ export function createWorklistViewController(options) {
         pendingDetail = detailClient.request('/api/clinic/v1/dictations/' + encodeURIComponent(id) + '/detail');
         const result = await pendingDetail;
         if (disposed || detailId !== id || detailKey !== key) return;
+        metadataAllowed.value = result?.outcome === 'ok' && result.data?.can_edit_metadata === true;
         if (result?.outcome === 'ok' && Array.isArray(result.data?.allowed_actions)) {
             loadWorkflow({ ...result.data, dictation_id: id,
                 asr_status: result.data.status_axes?.processing, status: result.data.status_axes?.workflow });
@@ -707,6 +729,7 @@ export function createWorklistViewController(options) {
             workflow.cancel();
             detailId = id;
             selectedId.value = id;
+            metadataAllowed.value = false;
             detailKey = key;
             if (row) { loadWorkflow(row); openLease(id); loadWorkflowDetail(id, key); } else workflow.load(null);
         } else if (row && key !== detailKey) {
@@ -744,6 +767,8 @@ export function createWorklistViewController(options) {
         workflow.cancel();
         refresh.logout();
         view.assignmentNotice = '';
+        view.assignmentTarget = '';
+        view.metadataNotice = '';
         clearChecked();
         selectedId.value = null;
         detailId = null;
@@ -758,6 +783,7 @@ export function createWorklistViewController(options) {
 
     return {
         vue: V, view, panels, selectedId, selectedRow: worklist.selectedRow, leaseState, leaseRun, paused,
+        metadataAllowed, assignmentVersion, metadataDone, hasMetadataLease: () => lease?.ctrl.canWrite() === true,
         worklist, refresh, filters, layout, workflow, detailClient, displayed, columns, headerAttrs,
         detailRequest: (id) => id === detailId ? pendingDetail : null,
         refreshIfChanged: () => loadedRevision !== client.dictationChanges ? reload() : null,
@@ -795,6 +821,7 @@ export function createWorklistViewController(options) {
 function buildParts(V, detailClient) {
     return {
         Assignment: AssignmentPanel,
+        Metadata: MetadataEdit,
         Layout: WorklistLayoutControls(V),
         Lease: createLeaseStatusComponent(V),
         Workflow: { name: 'ClinicWorkflowPanel', props: { wf: { type: Object, required: true } }, template: WORKFLOW_ACTIONS_TEMPLATE },
@@ -887,7 +914,11 @@ export const WorklistView = {
     {{ c.worklist.errorMessage.value || c.text.denied }}
   </div>
   <template v-else>
-    <p v-if="c.view.assignmentNotice && !c.selectedId.value" role="status" aria-live="polite">{{ c.view.assignmentNotice }}</p>
+    <div v-if="c.view.assignmentNotice && !c.selectedId.value">
+      <p role="status">{{ c.view.assignmentNotice }}</p>
+      <a v-if="c.view.assignmentTarget" class="secondary clinic-assignment-followup" :href="c.view.assignmentTarget">Diktatdetails öffnen</a>
+    </div>
+    <p v-if="c.view.metadataNotice && !c.selectedId.value" role="status">{{ c.view.metadataNotice }}</p>
     <section class="metrics" :aria-label="c.text.summary" data-testid="status-totals">
       <div class="metric"><div><div class="metric-label">{{ c.text.kpiAll }}</div><div class="metric-number" data-kpi="all">{{ c.counts.value.all }}</div></div>
         <div class="metric-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16M4 12h16M4 19h16"/></svg></div></div>
@@ -1023,7 +1054,9 @@ export const WorklistView = {
                   </div>
                   <component :is="parts.Lease" v-if="c.leaseState.value" :state="c.leaseState.value" :run="c.leaseRun" />
                   <component :is="parts.Workflow" :wf="c.workflow" />
-                  <component :is="parts.Assignment" :client="c.detailClient" :vue="c.vue" :current-user="currentUser"
+                  <component :is="parts.Metadata" :client="c.detailClient" :vue="c.vue" :dictation-id="c.selectedId.value"
+                    :allowed="c.metadataAllowed.value" :has-lease="c.hasMetadataLease" @saved="c.metadataDone" />
+                  <component :is="parts.Assignment" :key="c.assignmentVersion.value" :client="c.detailClient" :vue="c.vue" :current-user="currentUser"
                     :dictation-id="c.selectedId.value" :label="c.dictationLabel(c.selectedRow.value)"
                     :author="c.cell(c.selectedRow.value, 'dictated_by')" :assignee="c.selectedRow.value.assignee?.display_name"
                     @assigned="c.assignmentDone" />
