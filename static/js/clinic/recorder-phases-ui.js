@@ -55,6 +55,12 @@ export function receiptDictationId(value) {
     return Number.isInteger(id) && id >= 0 ? String(id) : null;
 }
 
+export function formatRecordingDuration(seconds) {
+    if (!Number.isFinite(seconds) || seconds < 0) return '';
+    const whole = Math.floor(seconds);
+    return [Math.floor(whole / 60), whole % 60].map((part) => String(part).padStart(2, '0')).join(':');
+}
+
 /** Use the stock capture controls and send the finished microphone take through the clinic file upload. */
 export function createClinicRecorder(audio, state, uploadFile) {
     let samples;

@@ -46,6 +46,42 @@ const source = () => readFileSync(new URL('../../../static/js/clinic/compose-rec
 afterEach(() => vi.unstubAllGlobals());
 
 describe('recording view controller', () => {
+    it('reports the saved recording separately from the confirmed destination', async () => {
+        const saved = { dictation_id: 'd-7', title: 'Diktat 27.11.2026 09:05', audio_duration: 65.8 };
+        const rec = recorder(async () => saved);
+        rec.uploadRecordedAudio.mockRejectedValueOnce(new Error('offline'));
+        const client = { request: vi.fn()
+            .mockResolvedValueOnce({ outcome: 'ok', data: { dictation_id: 'd-7', etag: 'draft' } })
+            .mockResolvedValueOnce({ outcome: 'conflict', code: 'NO_STAFF_POOL' })
+            .mockResolvedValueOnce({ outcome: 'ok', data: { dictation_id: 'd-7', etag: 'draft' } })
+            .mockResolvedValueOnce({ outcome: 'ok', data: {
+                dictation_id: 'd-7', status: 'zu_schreiben', staff_service_names: ['Nord'],
+            } }) };
+        const fetchPreflight = async () => ({ ok: true, json: async () => ({
+            routable: true, staff_service_names: ['Süd'],
+        }) });
+        const { c } = make({ recorder: rec, options: { client, fetchPreflight, oneButton: true } });
+        await c.checkRouting();
+        await toReview(c);
+        expect(c.model().plannedDestination).toBe('Wird gesendet an: Schreibdienst Süd');
+        expect(c.model().recordingReceipt).toBeNull();
+
+        expect(await c.sendRecording()).toEqual({ ok: false, code: 'no_receipt' });
+        expect(c.model().recordingReceipt).toBeNull();
+        expect(client.request).not.toHaveBeenCalled();
+
+        expect(await c.sendRecording()).toEqual({ ok: false, code: 'NO_STAFF_POOL' });
+        expect(c.model().recordingReceipt).toEqual({ title: saved.title, duration: '01:05', arrived: '' });
+
+        expect(await c.sendRecording()).toEqual({ ok: true });
+        expect(c.model().recordingReceipt).toEqual({
+            title: saved.title, duration: '01:05', arrived: 'Beim Schreibdienst Nord angekommen',
+        });
+        expect(rec.uploadRecordedAudio).toHaveBeenCalledTimes(2);
+        c.another();
+        expect(c.model().recordingReceipt).toBeNull();
+    });
+
     it('requires a user id, a recorder and an upload function', () => {
         expect(() => createRecordingViewController({ currentUser: {}, recorder: recorder(), uploadFile() {} })).toThrow('currentUser.id');
         expect(() => createRecordingViewController({ currentUser: { id: 1 }, uploadFile() {} })).toThrow('recorder');
