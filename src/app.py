@@ -1158,11 +1158,11 @@ def register_clinic_worklist(flask_app):
     Stores are process-local; release stays fail-closed until a trusted-context source and
     the review-flag count (W11) exist, and the acceptance ledger starts as "not required, no approver".
     """
-    from datetime import datetime, timezone
+    from datetime import date, datetime, timezone
 
     from sqlalchemy import or_
 
-    from src.clinic import (policy, pool_policy, routes_categories, routes_columns, routes_dictation_detail,
+    from src.clinic import (lease, policy, pool_policy, routes_categories, routes_columns, routes_dictation_detail,
                             routes_history, routes_regex, routes_templates, routes_workflow, routes_worklist,
                             workflow, workflow_metadata, worklist_entries)
     from src.clinic.acceptance_policy import SCOPE_DICTATION, AcceptanceLedger, PolicyError
@@ -1227,15 +1227,32 @@ def register_clinic_worklist(flask_app):
         return worklist_entries.load_entries(actor)
 
     def assign_regex(actor, dictation_id, fields):
-        dictation = db.session.query(ClinicDictation).filter_by(id=dictation_id).with_for_update().first()
+        targets = {
+            'title': 'title', 'dictation_name': 'title',
+            'notes': 'notes', 'remarks': 'notes',
+            'priority': 'priority', 'urgency': 'priority',
+            'deadline': 'deadline_date', 'due_date': 'deadline_date',
+        }
+        requested = {targets[key]: value for key, value in fields.items()}
+        if 'deadline_date' in requested:
+            try:
+                requested['deadline_date'] = date.fromisoformat(requested['deadline_date'])
+            except ValueError as error:
+                raise CommandProblem('INVALID_PAYLOAD') from error
         try:
+            dictation = db.session.query(ClinicDictation).filter_by(id=dictation_id).with_for_update().first()
+            if dictation is None:
+                raise CommandProblem('POLICY_DENIED')
             applied = workflow_metadata.apply_metadata(
                 dictation_id=dictation.id, workflow_id=dictation.id, actor_user_id=actor,
                 expected_version=dictation.version_counter,
-                lease_generation=routes_workflow._generation(dictation.id), requested=fields,
+                lease_generation=routes_workflow._generation(dictation.id), requested=requested,
                 allowed_actions=allowed_actions(actor, dictation), now=datetime.now(timezone.utc))
             record_audit(applied.audit_rows)
             db.session.commit()
+        except lease.LeaseConflict as error:
+            db.session.rollback()
+            raise CommandProblem('REVISION_CONFLICT') from error
         except ChangeError as error:
             db.session.rollback()
             code = str(error)
