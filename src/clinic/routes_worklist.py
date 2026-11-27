@@ -102,21 +102,28 @@ def _with_names(rows: list[Mapping]) -> list[dict]:
 def get_worklist(
     entries: Iterable[WorklistEntry], subject: policy.Subject, layouts: LayoutStore, *,
     spec: Mapping | None = None, search: str = '', page: int = 1, page_size: int = 20,
-    load_case_displays: Callable[[list[str]], Mapping] | None = None,
+    load_case_displays: Callable[..., Mapping] | None = None, case_ref: str | None = None,
 ) -> WorklistSnapshot:
     """Apply current object policy, search and layout before counting or paging."""
     if not (type(page) is int and 1 <= page <= 100_000
             and type(page_size) is int and 1 <= page_size <= 100):
         raise FilterError('bad_value', 'invalid page')
     # The filter service must return all matches so layout ordering precedes paging.
-    active = (_query_row(entry) for entry in entries if entry.row['status'] != workflow.TO_ARCHIVE)
-    scoped = query_worklist(active, subject, spec=spec,
+    candidates = (_query_row(entry) for entry in entries
+                  if case_ref is not None or entry.row['status'] != workflow.TO_ARCHIVE)
+    scoped = query_worklist(candidates, subject, spec=spec,
                             query=search, keys=('title', 'meta.notes', 'meta.recipient'),
                             page_size=maxsize)
     # The layout sort is stable, so a unique base key makes ties independent of load order.
-    stamps = {row['dictation_id']: row['recording_version'] for row in scoped.items}
+    matches = scoped.items
+    displays = {}
+    if case_ref is not None:
+        displays = (load_case_displays([row['dictation_id'] for row in matches], trusted_case=case_ref)
+                    if case_ref and load_case_displays else {})
+        matches = tuple(row for row in matches if row['dictation_id'] in displays)
+    stamps = {row['dictation_id']: row['recording_version'] for row in matches}
     base = sorted(({key: row[key] for key in COLUMNS + ROLE_COLUMNS if key in row}
-                   for row in scoped.items), key=lambda row: row['dictation_id'])
+                   for row in matches), key=lambda row: row['dictation_id'])
     layout, ordered, groups = layouts.refresh(subject.user_id, subject.user_id, base,
                                               _DEFAULT_LAYOUT, COLUMNS)
     ordered = _with_names(ordered)
@@ -131,13 +138,13 @@ def get_worklist(
     )
     start = (page - 1) * page_size
     page_rows = ordered[start:start + page_size]
-    if load_case_displays and page_rows:
+    if case_ref is None and load_case_displays and page_rows:
         displays = load_case_displays([row['dictation_id'] for row in page_rows])
-        for row in page_rows:
-            display = displays.get(row['dictation_id'])
-            if display:
-                row['case_display'] = display
-    result = WorklistPage(tuple(page_rows), scoped.total, page, page_size)
+    for row in page_rows:
+        display = displays.get(row['dictation_id'])
+        if display:
+            row['case_display'] = display
+    result = WorklistPage(tuple(page_rows), len(matches), page, page_size)
     # Include workflow-only changes as well as the existing recording change stamp.
     versions = [{'id': row['dictation_id'],
                  'version': json.dumps([stamps[row['dictation_id']], row], sort_keys=True)}
@@ -150,7 +157,7 @@ def get_worklist(
 def create_blueprint(
     load_entries: Callable[[int], Iterable[WorklistEntry]],
     filters: WorklistFilterStore, layouts: LayoutStore, *,
-    load_case_displays: Callable[[list[str]], Mapping] | None = None,
+    load_case_displays: Callable[..., Mapping] | None = None,
 ) -> Blueprint:
     """Mount with a trusted loader that narrows writer assignments and clarification scope.
 
@@ -186,6 +193,8 @@ def create_blueprint(
 
     @blueprint.get('/rows')
     def rows():
+        from .case_handoff import VIEW_HEADER, case_reference
+
         actor = current_user.id
         try:
             page = int(request.args.get('page', '1'))
@@ -195,10 +204,12 @@ def create_blueprint(
         try:
             filter_id = request.args.get('filter_id')
             spec = filters.get(actor, filter_id).spec if filter_id is not None else None
+            marker = request.headers.get(VIEW_HEADER)
+            case_ref = case_reference(marker) if marker is not None else None
             snapshot = get_worklist(
-                load_entries(actor), policy.build_subject(actor), layouts, spec=spec,
+                load_entries(actor) if case_ref != '' else (), policy.build_subject(actor), layouts, spec=spec,
                 search=request.args.get('search', ''), page=page, page_size=page_size,
-                load_case_displays=load_case_displays,
+                load_case_displays=load_case_displays, case_ref=case_ref,
             )
         except FilterError as error:
             abort(404 if error.code == 'not_found' else 400)

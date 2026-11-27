@@ -131,7 +131,7 @@ _CLINIC_WORKLIST = _split("""
     clinic_workflow.send
     clinic_history.get_history clinic_history.review_lease clinic_dictation_detail.get_detail
     clinic_dictation_detail.get_review clinic_dictation_detail.summary
-    clinic_context.get_context clinic_context.post_context
+    clinic_context.get_context clinic_context.post_context clinic_case_view
     clinic_templates.list_templates clinic_templates.get_template
     clinic_templates.get_template_content clinic_templates.save_template
     clinic_templates.assign_template_route clinic_templates.delete_template
