@@ -166,6 +166,46 @@ describe('lease ui', () => {
         expect(controller.getState().status).toBe('idle');
     });
 
+    it.each(['ok', 'network', 'reject'])('blocks reacquisition until a deferred release settles: %s', async (outcome) => {
+        const { client, controller, timers } = setup();
+        client.request.mockResolvedValueOnce(ok());
+        await controller.acquire();
+        controller.setUnsaved('Entwurf');
+        const states = [];
+        controller.subscribe((state) => states.push(state));
+        let settle;
+        client.request.mockImplementationOnce(() => new Promise((resolve, reject) => {
+            settle = () => outcome === 'reject'
+                ? reject(new Error('release failed'))
+                : resolve({ outcome, status: outcome === 'ok' ? 200 : null });
+        }));
+        const release = controller.release();
+        const completed = outcome === 'reject'
+            ? expect(release).rejects.toThrow('release failed') : release;
+        expect(controller.getState()).toMatchObject({ status: 'releasing', writable: false, generation: null, hasUnsaved: true });
+        expect(leaseActions(controller.getState())).toContainEqual({ id: 'acquire', label: 'Bearbeiten', disabled: true });
+        expect(leaseActions(controller.getState()).find((action) => action.id === 'reapply').disabled).toBe(true);
+        expect(controller.setUnsaved('weiter')).toBe(false);
+        await controller.acquire();
+        expect(await controller.resolveConflict('reapply')).toBeNull();
+        await controller.release();
+        await timers.at(-1)();
+        expect(client.request.mock.calls.map(([path]) => path)).toEqual([BASE, `${BASE}/release`]);
+        expect(client.request).toHaveBeenLastCalledWith(`${BASE}/release`, {
+            method: 'POST', idempotencyKey: 'key-2', body: { lease_id: LEASE, generation: 1 },
+        });
+        settle();
+        await completed;
+        expect(states.map((state) => state.status)).toEqual(['releasing', 'idle']);
+        expect(controller.getState()).toMatchObject({ status: 'idle', writable: false, hasUnsaved: true });
+        expect(leaseActions(controller.getState())).toContainEqual({ id: 'acquire', label: 'Bearbeiten', disabled: false });
+        client.request.mockResolvedValueOnce(ok(2));
+        expect(await controller.resolveConflict('reapply')).toBe('Entwurf');
+        expect(controller.getState()).toMatchObject({ status: 'held', writable: true, generation: 2 });
+        expect(client.request.mock.calls.map(([path]) => path)).toEqual([BASE, `${BASE}/release`, BASE]);
+        controller.dispose();
+    });
+
     it('rejects a malformed grant', async () => {
         const { client, controller } = setup();
         client.request.mockResolvedValue({ outcome: 'ok', status: 200, data: { generation: 'x' } });
