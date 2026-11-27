@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createClinicRecorder } from '../../../static/js/clinic/recorder-phases-ui.js';
 import {
     RECORDING_TEMPLATE, RecordingView, TEXT, createRecordingViewController, isAudioFile, receiptDictationId,
     registerRecordingView,
@@ -381,6 +382,86 @@ describe('dispose', () => {
         expect(rec.discardRecording).not.toHaveBeenCalled();
         release({ id: 1 });
         await pending;
+    });
+});
+
+describe('managed take files', () => {
+    it('explicitly downloads, reopens and plays offline, then retries through the workflow once', async () => {
+        const take = new File(['synthetic take'], 'aufnahme.webm', { type: 'audio/webm' });
+        const link = { click: vi.fn() };
+        const player = { paused: true, currentTime: 0, duration: 2, play: vi.fn(), pause: vi.fn() };
+        let grant = true;
+        const rec = {
+            ...recorder(), canUseLocalFiles: () => grant, recordedFile: () => take,
+            reviewSource: () => 'blob:synthetic', openRecordedFile: vi.fn(),
+        };
+        rec.uploadRecordedAudio.mockRejectedValueOnce(new TypeError('offline')).mockResolvedValueOnce({ dictation_id: 'd-9' });
+        const request = vi.fn(async path => ({
+            outcome: 'ok', data: { dictation_id: 'd-9', ...(path.endsWith('/detail') ? { etag: 'v1' } : { status: 'submitted' }) },
+        }));
+        vi.stubGlobal('document', { createElement: vi.fn(() => link) });
+        vi.stubGlobal('crypto', { randomUUID: () => 'send-key' });
+        const { c } = make({ recorder: rec, options: { player, client: { request } } });
+        await toReview(c);
+        expect(c.model().canSaveLocal).toBe(true);
+        expect(c.saveLocal().ok).toBe(true);
+        expect(link).toMatchObject({ href: 'blob:synthetic', download: 'aufnahme.webm' });
+        expect(link.click).toHaveBeenCalledOnce();
+        expect(c.model().message).toBe(TEXT.localSaveStarted);
+        await c.cancel();
+        expect(c.openLocal(new File([], 'empty.webm')).code).toBe('invalid_file');
+        expect(c.openLocal(take).ok).toBe(true);
+        expect(rec.openRecordedFile.mock.calls).toEqual([[take]]);
+        expect(c.model()).toMatchObject({ phase: 'review', message: TEXT.localOpened, created: null });
+        expect((await c.play()).ok).toBe(true);
+        expect(player.play).toHaveBeenCalledOnce();
+        expect((await c.sendRecording()).ok).toBe(false);
+        expect(c.model()).toMatchObject({ phase: 'failed', message: TEXT.recordRetry, created: null });
+        expect(request).not.toHaveBeenCalled();
+        grant = false;
+        expect(c.openLocal(take).code).toBe('local_denied');
+        expect(c.saveLocal().code).toBe('local_denied');
+        const retry = c.sendRecording();
+        expect((await c.sendRecording()).ok).toBe(false);
+        expect((await retry).ok).toBe(true);
+        expect(rec.uploadRecordedAudio).toHaveBeenCalledTimes(2);
+        expect(request.mock.calls.map(([path]) => path)).toEqual(['/dictations/d-9/detail', '/dictations/d-9/send']);
+        expect(c.model().phase).toBe('submitted');
+    });
+
+    it('does not access a take or start a download without explicit approval', async () => {
+        const rec = { ...recorder(), canUseLocalFiles: () => 'managed', recordedFile: vi.fn(), openRecordedFile: vi.fn() };
+        const createElement = vi.fn();
+        vi.stubGlobal('document', { createElement });
+        const { c } = make({ recorder: rec });
+        await toReview(c);
+        expect(c.model()).toMatchObject({ canOpenLocal: false, canSaveLocal: false });
+        expect(RECORDING_TEMPLATE).toContain('controlslist="nodownload"');
+        expect(RECORDING_TEMPLATE).toContain('@contextmenu.prevent');
+        expect(c.saveLocal().code).toBe('local_denied');
+        expect(c.openLocal(audio()).code).toBe('local_denied');
+        expect(createElement).not.toHaveBeenCalled();
+        expect(rec.recordedFile).not.toHaveBeenCalled();
+        expect(rec.openRecordedFile).not.toHaveBeenCalled();
+    });
+
+    it('replaces only the in-memory preview and retries the actual reopened bytes', async () => {
+        const state = { audioBlobURL: { value: 'blob:original' }, audioChunks: { value: [] } };
+        const createObjectURL = vi.fn(() => 'blob:reopened');
+        const revokeObjectURL = vi.fn();
+        vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
+        vi.stubGlobal('navigator', { onLine: true });
+        const take = new File(['chosen bytes'], 'chosen.wav', { type: 'audio/wav' });
+        const upload = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ dictation_id: 'd-9' });
+        const rec = createClinicRecorder({ clearRecording: vi.fn() }, state, upload, () => ({ canUseLocalFiles: true }));
+        rec.openRecordedFile(take);
+        expect(createObjectURL.mock.calls).toEqual([[take]]);
+        expect(revokeObjectURL.mock.calls).toEqual([['blob:original']]);
+        expect(rec.previewUrl).toBe('blob:reopened');
+        await expect(rec.uploadRecordedAudio({ title: 'Test' })).rejects.toThrow('offline');
+        expect(rec.recordedFile()).toBe(take);
+        await expect(rec.uploadRecordedAudio({ title: 'Test' })).resolves.toEqual({ dictation_id: 'd-9' });
+        expect(upload.mock.calls).toEqual([[take, 'Test'], [take, 'Test']]);
     });
 });
 
