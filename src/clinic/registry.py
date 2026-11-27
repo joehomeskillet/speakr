@@ -33,6 +33,7 @@ MODEL_MODULES = (
     "richtext",
     "entra_link_intent",
     "recipient_defaults",
+    "recipient_assignment",
     "live_phrases",
     "import_source_config",
     "context_grants",
