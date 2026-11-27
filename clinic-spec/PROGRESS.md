@@ -1,7 +1,10 @@
 # Fortschritt V4
-## Tatsächlich erledigt in dieser Lieferung
+## P-144: Browser-Aufnahmepegel (PAR-REC-005)
+Die Aufnahmeansicht `#/neu` zeigt den Pegel des vom Browser erfassten Mikrofons an. Synthetische Chromium-Eingabe belegt Ausschlag bei Testton, Null bei digitaler Stille und beim Pausieren sowie keine Pegelübertragung. Die Prüfung mit zwei physischen Audiogeräten und der Referenzvergleich `BT-REC-005` bleiben `not_run`.
+
+## Tatsächlich erledigt in der V4-Spezifikationslieferung
 Spezifikationen konsolidiert, 101 Funktionen und Original-BT übernommen, Web-only-Grenze und 13 offene Teilkonflikte dokumentiert; Originalartefakte inventarisiert. Paketprüfungen separat unter evidence/package-checks.json.
-## Nicht erledigt
+## In der V4-Spezifikationslieferung nicht erledigt
 Keine Anwendung implementiert; kein Speakr-Build oder Windows-/Browser-/Geräte-/KIS-/ASR-Test ausgeführt. Alle 252 Produkttests stehen auf not_run. Keine Produktivfreigabe und keine Scopeausnahme.
 ## Nächste Codearbeit
 S00 Baseline prüfen; P00 Quell-/Paritätsvorrang; P03 Browserfähigkeit/Agentgrenze; lokales Identity-/ACL-Slice. Unabhängig P10 tatsächliche ASR-/Lexikon-/Trainingscapabilities prüfen.

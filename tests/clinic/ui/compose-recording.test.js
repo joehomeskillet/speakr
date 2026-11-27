@@ -5,6 +5,7 @@ import {
     registerRecordingView,
 } from '../../../static/js/clinic/compose-recording.js';
 import { acquireMicrophoneStream } from '../../../static/js/modules/composables/audio.js';
+import { RECORD_LEVEL_TEMPLATE } from '../../../static/js/clinic/record-level-ui.js';
 
 function recorder(upload) {
     return {
@@ -462,6 +463,64 @@ describe('view registration and setup', () => {
         expect(RECORDING_TEMPLATE).toContain('min-height: 2.75rem');
         expect(RECORDING_TEMPLATE).toContain('c.text.toWorklist');
         expect(RECORDING_TEMPLATE).toContain('c.text.open');
+    });
+
+    it('expands the shared record level meter with its browser-only caption', () => {
+        expect(RECORDING_TEMPLATE).toContain(RECORD_LEVEL_TEMPLATE);
+        expect(RECORDING_TEMPLATE).toContain('role="meter"');
+        expect(RECORDING_TEMPLATE).toContain('Browser-Aufnahmepegel · nicht der Windows-Mixer');
+        expect(RECORDING_TEMPLATE).toContain('Standardmikrofon');
+    });
+
+    it('samples the injected recorder level only while recording and stops on unmount', async () => {
+        const vue = fakeVue();
+        const readLevel = vi.fn(() => 0.4);
+        const rec = { ...recorder(), readLevel };
+        const fetchSpy = vi.fn();
+        let frameCallback;
+        const requestFrame = vi.fn((callback) => { frameCallback = callback; return 23; });
+        const cancelFrame = vi.fn();
+        vi.stubGlobal('fetch', fetchSpy);
+        vi.stubGlobal('requestAnimationFrame', requestFrame);
+        vi.stubGlobal('cancelAnimationFrame', cancelFrame);
+        const view = RecordingView.setup({ currentUser: { id: 2 }, recorder: rec, uploadFile: vi.fn(), vue }, {});
+
+        view.c.setTitle('Bericht');
+        await view.c.start();
+        expect(view.m.value.phase).toBe('recording');
+        expect(readLevel).toHaveBeenCalled();
+        expect(view.level.value).toBe(0.4);
+        expect(requestFrame).toHaveBeenCalled();
+
+        readLevel.mockReturnValue(0.7);
+        frameCallback();
+        expect(view.level.value).toBe(0.7);
+        view.c.pause();
+        expect(view.m.value.phase).toBe('paused');
+        expect(view.level.value).toBe(0);
+        expect(cancelFrame).toHaveBeenCalledWith(23);
+
+        const pausedSamples = readLevel.mock.calls.length;
+        view.c.resume();
+        expect(view.m.value.phase).toBe('recording');
+        expect(readLevel.mock.calls.length).toBeGreaterThan(pausedSamples);
+        const pauses = cancelFrame.mock.calls.length;
+        await vue.hooks.unmount[0]();
+        expect(cancelFrame.mock.calls.length).toBeGreaterThan(pauses);
+        expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('keeps recorders without readLevel safe when Node has no RAF', async () => {
+        const vue = fakeVue();
+        vi.stubGlobal('requestAnimationFrame', undefined);
+        vi.stubGlobal('cancelAnimationFrame', undefined);
+        const view = RecordingView.setup({ currentUser: { id: 2 }, recorder: recorder(), uploadFile: vi.fn(), vue }, {});
+        view.c.setTitle('Bericht');
+        await view.c.start();
+        expect(view.m.value.phase).toBe('recording');
+        expect(view.level.value).toBe(0);
+        view.c.pause();
+        await vue.hooks.unmount[0]();
     });
 
     it('emits open and worklist and disposes on unmount', async () => {

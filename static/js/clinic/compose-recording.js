@@ -27,6 +27,7 @@
  */
 
 import { createRecorderPhases, isTitleEditable, LABELS, receiptDictationId } from './recorder-phases-ui.js';
+import { createRecordLevelController, RECORD_LEVEL_TEMPLATE } from './record-level-ui.js';
 import { surfaceFor } from './tokens.js';
 
 function microphoneChoices(microphone) {
@@ -489,11 +490,7 @@ export const RECORDING_TEMPLATE = `
         <div v-else-if="m.phase === 'recording' || m.phase === 'paused'" style="display: grid; justify-items: center; gap: var(--ui-space-4)">
           <p v-if="m.phase === 'paused'" style="margin: 0">Pausiert</p>
           <output aria-label="Aufnahmedauer" aria-live="off" data-testid="elapsed" style="font-size: 2.75rem; font-variant-numeric: tabular-nums">{{ elapsed }}</output>
-          <div role="meter" :aria-valuenow="Math.round(level * 100)" aria-valuemin="0" aria-valuemax="100" aria-label="Mikrofonpegel"
-               style="width: min(100%, 18rem); height: .5rem; border-radius: var(--ui-radius-sm); background: var(--ui-border); overflow: hidden">
-            <span style="display: block; height: 100%; background: var(--brand-accent); transform-origin: left"
-                  :style="{ transform: 'scaleX(' + level + ')' }"></span>
-          </div>
+          ${RECORD_LEVEL_TEMPLATE}
           <div class="actions" style="justify-content: center">
             <button v-if="m.phase === 'recording'" type="button" class="button" style="${TOUCH}" data-testid="rec-pause" :aria-keyshortcuts="shortcuts.pause" @click="c.pause()">Pause</button>
             <button v-else type="button" class="button" style="${TOUCH}" data-testid="rec-resume" :aria-keyshortcuts="shortcuts.resume" @click="c.resume()">Fortsetzen</button>
@@ -570,8 +567,16 @@ export const RecordingView = {
             onOpen: (payload) => emit('open', payload),
             onWorklist: () => emit('worklist'),
         });
+        const level = V.ref(0);
+        const recordLevel = createRecordLevelController({
+            level,
+            readLevel: () => props.recorder.readLevel?.() ?? 0,
+        });
         const tick = V.ref(0);
-        const off = c.subscribe(() => { tick.value += 1; });
+        const off = c.subscribe(() => {
+            tick.value += 1;
+            recordLevel.sync(c.machine.getState().phase);
+        });
         const m = V.computed(() => (tick.value, c.model()));
         const root = V.ref(null);
         const reviewSource = () => props.player ? null : props.recorder.reviewSource?.();
@@ -620,25 +625,11 @@ export const RecordingView = {
             if (!event.repeat) return action();
         }
         const enabled = (id) => m.value.controls.some((control) => control.id === id && !control.disabled);
-        const level = V.ref(0);
         const elapsed = V.computed(() => {
             const seconds = props.recorder.elapsedSeconds || 0;
             return [Math.floor(seconds / 60), seconds % 60].map((part) => String(part).padStart(2, '0')).join(':');
         });
         const previewUrl = V.computed(() => props.recorder.previewUrl);
-        V.watchEffect?.((cleanup) => {
-            if (m.value.phase !== 'recording') {
-                level.value = 0;
-                return;
-            }
-            let frame;
-            const sample = () => {
-                level.value = props.recorder.readLevel?.() || 0;
-                frame = requestAnimationFrame(sample);
-            };
-            sample();
-            cleanup(() => cancelAnimationFrame(frame));
-        });
         const space = (event) => {
             if (event.code !== 'Space' || event.repeat || event.defaultPrevented
                 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey
@@ -658,9 +649,10 @@ export const RecordingView = {
         });
         V.onMounted?.(() => { void c.checkRouting(); });
         V.onBeforeUnmount?.(() => {
+            off();
+            recordLevel.stop();
             doc?.removeEventListener('keydown', onKeydown);
             globalThis.window?.removeEventListener('keydown', space);
-            off();
             return c.dispose();
         });
         return {
