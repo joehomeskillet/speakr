@@ -10,8 +10,9 @@ from flask import Flask, jsonify
 from flask_login import LoginManager, login_user
 from flask_wtf.csrf import CSRFProtect, generate_csrf
 
-from src.app import app as real_app
-from src.clinic import pools, recipient_defaults as rd
+from src.app import app as real_app, register_clinic_identity
+from src.clinic import config, guard, pools, presets, recipient_defaults as rd, route_policy
+from src.clinic.identity import ClinicAccountPolicy
 from src.clinic.last_selection import Allowed, PreferenceUnavailable, SelectionStore
 from src.clinic.routes_preferences import PREFIX, PreferenceRoutes
 from src.clinic.workstation_preferences import WorkstationPreferences
@@ -41,6 +42,28 @@ class FlakyPreferences:
         self.rows[user_id] = payload
 
 
+def _app():
+    flask = Flask(__name__)
+    flask.config.update(TESTING=True, SECRET_KEY="synthetic", SQLALCHEMY_DATABASE_URI=real_app.config[
+        "SQLALCHEMY_DATABASE_URI"])
+    db.init_app(flask)
+    login = LoginManager(flask)
+    CSRFProtect(flask)
+    login.user_loader(lambda uid: db.session.get(User, int(uid)))
+
+    @flask.get("/login/<int:uid>", endpoint="auth.login")
+    def _login(uid):
+        login_user(db.session.get(User, uid))
+        return jsonify(csrf=generate_csrf())
+
+    return flask
+
+
+def _client(flask, uid):
+    client = flask.test_client()
+    return client, {"X-CSRF-Token": client.get(f"/login/{uid}").json["csrf"]}
+
+
 @pytest.fixture
 def world(monkeypatch):
     monkeypatch.setenv("CLINIC_MODE", "1")
@@ -62,29 +85,15 @@ def world(monkeypatch):
         selections=SelectionStore(prefs),
         workstations=WorkstationPreferences(),
     )
-    flask = Flask(__name__)
-    flask.config.update(TESTING=True, SECRET_KEY="synthetic", SQLALCHEMY_DATABASE_URI=real_app.config[
-        "SQLALCHEMY_DATABASE_URI"])
-    db.init_app(flask)
-    login = LoginManager(flask)
-    CSRFProtect(flask)
-    login.user_loader(lambda uid: db.session.get(User, int(uid)))
-
-    @flask.get("/login/<int:uid>")
-    def _login(uid):
-        login_user(db.session.get(User, uid))
-        return jsonify(csrf=generate_csrf())
-
+    flask = _app()
     flask.register_blueprint(routes.blueprint)
 
     def client(user):
-        c = flask.test_client()
-        return c, {"X-CSRF-Token": c.get(f"/login/{user.id}").json["csrf"]}
+        return _client(flask, user.id)
 
-    with flask.app_context():
-        yield dict(client=client, author=author, first=first, second=second, other=other,
-                   staff=staff, foreign=foreign, authors=authors, state=state, prefs=prefs,
-                   flask=flask)
+    yield dict(client=client, author=author, first=first, second=second, other=other,
+               staff=staff, foreign=foreign, authors=authors, state=state, prefs=prefs,
+               flask=flask, admin=actor)
 
 
 def test_recipient_default_positive_and_use_time_revalidation(world):
@@ -179,3 +188,94 @@ def test_workstation_issue_apply_stale_and_foreign(world):
     c2, h2 = world["client"](world["other"])
     assert c2.get(url).status_code == 403
     assert c2.put(url, headers=h2, json={"expected_version": 1, "changes": {"theme_dark_mode": True}}).status_code == 403
+
+
+@pytest.mark.parametrize(("path", "body"), [
+    ("/presets/language", {"value": "fr-CH", "is_locked": True}),
+    ("/workstation-locks/ui_theme", {"value": "desk"}),
+])
+def test_only_active_site_admin_can_change_central_preferences(world, path, body):
+    admin_id = world["admin"].id
+    db.session.add_all([
+        ClinicAccountPolicy(user_id=admin_id, status="active"),
+        ClinicAccountPolicy(user_id=world["first"].id, status="active", is_identity_admin=True),
+    ])
+    db.session.commit()
+    url = PREFIX + path
+    admin, headers = world["client"](world["admin"])
+    assert admin.put(url, json=body).status_code == 403
+    assert admin.delete(url, headers={"X-CSRF-Token": "invalid"}).status_code == 403
+    assert admin.put(url, headers=headers, json=dict(body, scope="user")).status_code == 400
+    assert admin.put(url, headers=headers, json=dict(body, value=[])).status_code == 400
+    assert admin.put(url, headers=headers, json=body).status_code == 204
+
+    for user in (world["author"], world["first"]):
+        other, other_headers = world["client"](user)
+        assert other.put(url, headers=other_headers, json=body).status_code == 403
+        assert other.delete(url, headers=other_headers).status_code == 403
+
+    account = db.session.get(ClinicAccountPolicy, admin_id)
+    account.status = "disabled"
+    db.session.commit()
+    denied = admin.put(url, headers=headers, json=body)
+    assert (denied.status_code, denied.json["code"]) == (403, "unauthorized")
+    assert admin.delete(url, headers=headers).status_code == 403
+
+
+def test_mounted_preferences_reapply_policy_on_fresh_app(world, monkeypatch):
+    admin_id, author_id = world["admin"].id, world["author"].id
+    db.session.add(ClinicAccountPolicy(user_id=admin_id, status="active"))
+    presets.set_preset("language", "it-CH", scope="pool", scope_id=world["authors"].id)
+    presets.set_preset("with_approval", True, scope="user", scope_id=admin_id)
+    db.session.commit()
+    monkeypatch.setattr(guard, "ROUTE_POLICY", route_policy._build())
+
+    def mounted_app():
+        flask = _app()
+        flask.extensions["clinic_parity_dispatch"] = object()
+        register_clinic_identity(flask)
+        guard.ensure_guard_first(flask)
+        return flask
+
+    first = mounted_app()
+    admin, admin_csrf = _client(first, admin_id)
+    user, user_csrf = _client(first, author_id)
+    lock = PREFIX + "/workstation-locks/ui_theme"
+    preset = PREFIX + "/presets/language"
+    assert admin.put(lock, headers=admin_csrf, json={"value": "desk"}).status_code == 204
+    assert admin.put(preset, headers=admin_csrf, json={"value": "fr-CH", "is_locked": True}).status_code == 204
+    issued = user.post(PREFIX + "/workstations", headers=user_csrf)
+    assert issued.status_code == 201
+    workstation = PREFIX + "/workstations/" + issued.json["workstation_id"]
+    saved = user.put(workstation, headers=user_csrf, json={"expected_version": 0, "changes": {
+        "ui_theme": "cards", "theme_dark_mode": True,
+    }})
+    assert (saved.status_code, saved.json) == (200, {"version": 1})
+
+    second = mounted_app()
+    user, _ = _client(second, author_id)
+    admin, admin_csrf = _client(second, admin_id)
+    reloaded = user.get(workstation)
+    assert (reloaded.status_code, reloaded.json) == (200, {
+        "values": {"ui_theme": "desk", "theme_dark_mode": True},
+        "origins": {"ui_theme": "central", "theme_dark_mode": "workstation"},
+        "version": 1,
+    })
+    resolved = user.get(PREFIX + "/presets").json
+    assert (resolved["values"]["language"], resolved["origins"]["language"], resolved["locked"]) == (
+        "fr-CH", "system", ["language"],
+    )
+    with monkeypatch.context() as policy:
+        policy.setitem(config.SETTING_CEILINGS, "ui_theme", ("public_sharing", "focus"))
+        effective = user.get(workstation).json
+        assert (effective["values"]["ui_theme"], effective["origins"]["ui_theme"]) == ("focus", "ceiling")
+
+    assert admin.delete(lock, headers=admin_csrf).status_code == 204
+    assert admin.delete(preset, headers=admin_csrf).status_code == 204
+    assert user.get(workstation).json["values"]["ui_theme"] == "cards"
+    # A caller cannot select a different pool or user for preset resolution.
+    resolved = user.get(PREFIX + f"/presets?pool_id=foreign&user_id={admin_id}").json
+    assert (resolved["values"]["language"], resolved["origins"]["language"], resolved["locked"]) == (
+        "it-CH", "pool", [],
+    )
+    assert resolved["values"]["with_approval"] is False

@@ -1340,7 +1340,8 @@ def register_clinic_identity(flask_app):
     to be present (one dispatcher, mounted once). Identity providers stay disabled (default
     EntraConfig, IWA off): their routes answer the inert 422 and the exchange never runs.
     The directory has no provider, so it answers its capability-unavailable problem.
-    Preference stores are process-local; a durable store is a later package.
+    Workstation preferences, central locks and workflow presets use the shared clinic
+    database. Last selection still uses its process-local store.
     """
     from src.clinic import (app_wiring, entra, pool_policy, routes_admin_dictations, routes_directory, routes_grants,
                             routes_identity_providers, routes_pool_admin, routes_pools, routes_preferences)

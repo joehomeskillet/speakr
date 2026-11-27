@@ -153,7 +153,7 @@ def _check_changes(changes: Mapping[str, Any]) -> dict[str, Any]:
             if code is None:
                 raise PreferenceError("bad_value")
             clean[key] = code
-        elif value not in _ENUMS[key]:
+        elif not isinstance(value, str) or value not in _ENUMS[key]:
             raise PreferenceError("bad_value")
         else:
             clean[key] = value
