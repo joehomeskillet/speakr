@@ -89,6 +89,10 @@ def _validate_locals(locals_: Sequence) -> None:
                 "invalid_value",
                 f"locals[{i}].display_name must be a non-empty string",
             )
+        if local.email is not None and not isinstance(local.email, str):
+            raise DirectoryReconcileError(
+                "invalid_type", f"locals[{i}].email must be a string or None"
+            )
         if not isinstance(local.active, bool):
             raise DirectoryReconcileError(
                 "invalid_type", f"locals[{i}].active must be a bool"
@@ -108,6 +112,11 @@ def _normalise_display_name(name: str) -> str:
     """Unicode NFC, then collapse whitespace (spaces, tabs, newlines) to single space."""
     normalised = unicodedata.normalize("NFC", name)
     return " ".join(normalised.split())
+
+
+def normalise_directory_email(email: str | None) -> str:
+    """Use the storage trim/lower policy; a missing address has no target."""
+    return (email or "").strip().lower()
 
 
 @dataclass(frozen=True)
@@ -130,6 +139,7 @@ class LocalUser:
     external_id: str | None
     display_name: str
     active: bool
+    email: str | None = None  # None means the local email is unknown.
 
 
 @dataclass(frozen=True)
@@ -148,7 +158,7 @@ class Diff:
 class Action:
     """A confirmed action to be performed after diff review."""
 
-    kind: str  # "create_pending_user" | "update_display_name" | "deactivate"
+    kind: str  # "create_pending_user" | "update_display_name" | "update_email" | "deactivate"
     object_id: str
     local_user_id: int | None
     detail: str
@@ -241,6 +251,9 @@ def _compute_field_diffs(local: LocalUser, entry: DirectoryEntry) -> set[str]:
     entry_norm = _normalise_display_name(entry.display_name)
     if local_norm != entry_norm:
         diffs.add("display_name")
+    target_email = normalise_directory_email(entry.email)
+    if local.email is not None and target_email and normalise_directory_email(local.email) != target_email:
+        diffs.add("email")
     # enabled vs active
     if entry.enabled != local.active:
         diffs.add("enabled")
@@ -250,8 +263,8 @@ def _compute_field_diffs(local: LocalUser, entry: DirectoryEntry) -> set[str]:
 def confirmed_actions(diff: Diff, confirmed_object_ids: Collection[str]) -> list[Action]:
     """Return actions for confirmed object IDs only.
 
-    Action kinds: "create_pending_user" for new, "update_display_name" for
-    display-name changes, "deactivate" for disabled_in_directory.
+    Action kinds: "create_pending_user" for new, "update_display_name" and
+    "update_email" for profile changes, "deactivate" for disabled_in_directory.
     No delete action, no action for missing_in_directory, ambiguous, unmatchable.
     """
     if not isinstance(confirmed_object_ids, Collection) or isinstance(
@@ -274,15 +287,27 @@ def confirmed_actions(diff: Diff, confirmed_object_ids: Collection[str]) -> list
                 )
             )
 
-    # update_display_name for changed (only display_name changes)
     for local, entry, fields in diff.changed:
-        if entry.object_id in confirmed_set and "display_name" in fields:
+        if entry.object_id not in confirmed_set:
+            continue
+        if "display_name" in fields:
             actions.append(
                 Action(
                     kind="update_display_name",
                     object_id=entry.object_id,
                     local_user_id=local.id,
                     detail=f"Update display name from {local.display_name!r} to {entry.display_name!r}",
+                )
+            )
+
+        if "email" in fields:
+            target_email = normalise_directory_email(entry.email)
+            actions.append(
+                Action(
+                    kind="update_email",
+                    object_id=entry.object_id,
+                    local_user_id=local.id,
+                    detail=f"Update email from {local.email!r} to {target_email!r}",
                 )
             )
 
@@ -294,8 +319,8 @@ def confirmed_actions(diff: Diff, confirmed_object_ids: Collection[str]) -> list
                 break
         else:
             # Look in changed entries
-            for l, e, _ in diff.changed:
-                if l.id == local.id:
+            for changed_user, _, _ in diff.changed:
+                if changed_user.id == local.id:
                     break
             else:
                 continue

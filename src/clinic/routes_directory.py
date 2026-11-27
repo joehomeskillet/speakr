@@ -10,18 +10,17 @@ services. Local account management never depends on the provider: without one,
 the routes answer ``ldap_capability_unavailable``. Reading local Windows accounts
 stays open (WG-ADM-009).
 
-Mounting ``blueprint``, a provider and the creation of linked accounts for
-``create_pending_user`` (explicit linking) are left to the consumers
-(w167, w196).
+The application selects its provider at startup. The separate ``link-new``
+confirmation creates one pending account for a selected new entry.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any, Callable
+from typing import Any
 
-from flask import Blueprint, abort, jsonify, request
+from flask import Blueprint, abort, current_app, jsonify, request
 from flask_login import current_user
 from flask_wtf.csrf import CSRFError, validate_csrf
 from wtforms.validators import ValidationError
@@ -29,6 +28,7 @@ from wtforms.validators import ValidationError
 from src.clinic import directory_diff as dd
 from src.clinic import identity, ldap_profile, pools
 from src.clinic.config import clinic_mode_enabled
+from src.clinic.directory_provider import PROVIDER_EXTENSION, SnapshotProvider
 from src.clinic.directory_reconcile import Action, DirectoryReconcileError, LocalUser
 from src.clinic.entra import ClinicExternalIdentity
 from src.database import db
@@ -48,35 +48,37 @@ _TITLES = {400: "Ungültige Anfrage", 401: "Anmeldung erforderlich", 403: "Zugri
            409: "Versionskonflikt", 422: "Verknüpfung erforderlich",
            503: "Verzeichnis nicht verfügbar"}
 
-_provider: Callable[[], dd.DirectorySnapshot | None] | None = None
+_provider: SnapshotProvider | None = None
 
 
-def set_provider(provider: Callable[[], dd.DirectorySnapshot | None] | None) -> None:
-    """Register the configured directory read; ``None`` removes it."""
+def set_provider(provider: SnapshotProvider | None) -> None:
+    """Set the fallback for standalone blueprint consumers without app wiring."""
     global _provider
     _provider = provider
 
 
-def _snapshot() -> dd.DirectorySnapshot:
-    snapshot = None
-    if _provider is not None:
-        try:
-            snapshot = _provider()
-        except ldap_profile.LdapCapabilityError:
-            snapshot = None
-    if snapshot is None:
-        raise dd.DirectoryDiffError("ldap_capability_unavailable", "Directory unavailable")
-    return snapshot
+def _read_snapshot() -> dd.DirectorySnapshot | None:
+    provider = current_app.extensions.get(PROVIDER_EXTENSION, _provider)
+    try:
+        return provider() if provider is not None else None
+    except ldap_profile.LdapCapabilityError:
+        return None
 
 
-def _local_state() -> tuple[list[LocalUser], list[dd.LocalMembership]]:
-    links = {row.user_id: row.object_id for row in ClinicExternalIdentity.query.filter_by(status="active")}
+def _local_state(source: str) -> tuple[list[LocalUser], list[dd.LocalMembership]]:
+    links = {}
+    for row in ClinicExternalIdentity.query.filter_by(status="active"):
+        if row.issuer == identity.DIRECTORY_ISSUER:
+            if row.tenant_id == source == identity.DIRECTORY_SOURCE:
+                links[row.user_id] = row.subject
+        else:
+            links[row.user_id] = row.object_id
     users = []
     for user, policy in (db.session.query(User, identity.ClinicAccountPolicy)
                          .join(identity.ClinicAccountPolicy, identity.ClinicAccountPolicy.user_id == User.id)
                          .order_by(User.id)):
         users.append(LocalUser(user.id, user.username, links.get(user.id),
-                               user.name or user.username, policy.status == "active"))
+                               user.name or user.username, policy.status == "active", email=user.email))
     members = [dd.LocalMembership(r.user_id, "author", r.pool_id)
                for r in pools.ClinicAuthorPoolMember.query.all()]
     members += [dd.LocalMembership(r.user_id, "staff", sp.id)
@@ -107,8 +109,10 @@ def preview_hash(preview: dd.DirectoryPreview) -> str:
     canonical = json.dumps({
         "source": preview.snapshot.source, "version": preview.source_version,
         "actions": [_action_json(a) for a in preview.actions],
+        "new_entries": [[e.object_id, e.account, e.display_name, e.email, e.enabled]
+                        for e in preview.differences.new],
         "changes": [_change_json(c) for c in preview.membership_changes],
-        "users": [[u.id, u.username, u.external_id, u.display_name, u.active] for u in preview.local_users],
+        "users": [[u.id, u.username, u.external_id, u.display_name, u.active, u.email] for u in preview.local_users],
         "members": sorted([m.user_id, m.pool_kind, m.pool_id] for m in preview.local_memberships),
         "managed": sorted(preview.managed_pools),
     }, sort_keys=True, ensure_ascii=True)
@@ -128,10 +132,23 @@ def _preview_json(preview: dd.DirectoryPreview) -> dict[str, Any]:
 
 
 def _build(body: dict) -> tuple[dd.DirectorySnapshot, list, list, dd.DirectoryPreview]:
-    snapshot = _snapshot()
-    users, members = _local_state()
+    snapshot = _read_snapshot()
+    if snapshot is None:
+        raise dd.DirectoryDiffError("ldap_capability_unavailable", "Directory unavailable")
+    users, members = _local_state(snapshot.source)
     preview = dd.build_preview(snapshot, users, members, _managed(body), enabled=True)
     return snapshot, users, members, preview
+
+
+def _confirmed_preview(body: dict) -> tuple[dd.DirectorySnapshot, list, list, dd.DirectoryPreview]:
+    if not isinstance(body.get("version"), str) or not isinstance(body.get("hash"), str):
+        raise dd.DirectoryDiffError("invalid_payload", "version and hash are required")
+    snapshot, users, members, built = _build(body)
+    if snapshot.version != body["version"]:
+        raise dd.DirectoryDiffError("stale_version", "Directory version changed")
+    if preview_hash(built) != body["hash"]:
+        raise dd.DirectoryDiffError("stale_state", "Preview no longer matches current state")
+    return snapshot, users, members, built
 
 
 def _actor() -> identity.ClinicAccountPolicy:
@@ -148,7 +165,7 @@ def _actor() -> identity.ClinicAccountPolicy:
 def _authorize(actor_id: int, change: Action | dd.MembershipChange) -> bool:
     """Per-object policy: administrators never deactivate or re-pool their own account."""
     if isinstance(change, Action):
-        return change.kind == "update_display_name" or (
+        return change.kind in {"update_display_name", "update_email"} or (
             change.kind == "deactivate" and change.local_user_id != actor_id)
     return change.user_id != actor_id
 
@@ -166,17 +183,23 @@ def _select(rows: Any, keys: tuple[str, ...], universe: tuple) -> list:
     return picked
 
 
-def _persist(applied: dd.AppliedDirectoryDiff, actor: identity.ClinicAccountPolicy, entries: dict) -> None:
+def _persist(applied: dd.AppliedDirectoryDiff, actor: identity.ClinicAccountPolicy) -> None:
+    users = {user.id: user for user in applied.local_users}
+    profiles: dict[int, dict[str, str | None]] = {}
     for action in applied.actions:
-        policy = db.session.get(identity.ClinicAccountPolicy, action.local_user_id, populate_existing=True)
         if action.kind == "update_display_name":
-            identity.update_local_account(
-                action.local_user_id, actor_id=actor.user_id, expected_version=policy.version,
-                changes={"profile": {"name": entries[action.object_id].display_name}},
-                actor_security_version=actor.security_version)
+            profiles.setdefault(action.local_user_id, {})["name"] = users[action.local_user_id].display_name
+        elif action.kind == "update_email":
+            profiles.setdefault(action.local_user_id, {})["email"] = users[action.local_user_id].email
         elif action.kind == "deactivate":
+            policy = db.session.get(identity.ClinicAccountPolicy, action.local_user_id, populate_existing=True)
             identity.set_status(action.local_user_id, "disabled", actor_id=actor.user_id,
                                 expected_version=policy.version)
+    for user_id, profile in profiles.items():
+        policy = db.session.get(identity.ClinicAccountPolicy, user_id, populate_existing=True)
+        identity.update_local_account(
+            user_id, actor_id=actor.user_id, expected_version=policy.version, changes={"profile": profile},
+            actor_security_version=actor.security_version)
     for change in applied.membership_changes:
         add, remove = ((pools.add_author_member, pools.remove_author_member) if change.pool_kind == "author"
                        else (pools.add_staff_member, pools.remove_staff_member))
@@ -225,7 +248,7 @@ def _body() -> dict:
 
 @blueprint.get(PREFIX + "/capability")
 def capability():
-    return jsonify(directory_available=_provider is not None, local_accounts=True,
+    return jsonify(directory_available=_read_snapshot() is not None, local_accounts=True,
                    local_windows_accounts="unavailable", gap="WG-ADM-009")
 
 
@@ -237,13 +260,7 @@ def preview():
 @blueprint.post(PREFIX + "/apply")
 def apply():
     body = _body()
-    if not isinstance(body.get("version"), str) or not isinstance(body.get("hash"), str):
-        raise dd.DirectoryDiffError("invalid_payload", "version and hash are required")
-    snapshot, users, members, built = _build(body)
-    if snapshot.version != body["version"]:
-        raise dd.DirectoryDiffError("stale_version", "Directory version changed")
-    if built.source_version != body["version"] or preview_hash(built) != body["hash"]:
-        raise dd.DirectoryDiffError("stale_state", "Preview no longer matches current state")
+    snapshot, users, members, built = _confirmed_preview(body)
     actions = _select(body.get("actions", []), ("kind", "object_id"), built.actions)
     changes = _select(body.get("memberships", []), ("kind", "subject_id", "pool_kind", "pool_id"),
                       built.membership_changes)
@@ -254,8 +271,32 @@ def apply():
                                selected_memberships=changes, actor_id=actor.user_id,
                                authorize=_authorize, enabled=True)
     try:
-        _persist(applied, actor, {e.object_id: e for e in snapshot.entries})
+        _persist(applied, actor)
     except (identity.IdentityError, pools.PoolError) as exc:
         db.session.rollback()
         raise dd.DirectoryDiffError("apply_failed", str(exc)) from exc
     return jsonify(ok=True, applied_actions=len(applied.actions), applied_memberships=len(applied.membership_changes))
+
+
+@blueprint.post(PREFIX + "/link-new")
+def link_new():
+    body = _body()
+    subject = body.get("object_id")
+    if body.keys() - {"version", "hash", "object_id", "managed_pools"} or not isinstance(subject, str):
+        raise dd.DirectoryDiffError("invalid_payload", "A single preview object_id is required")
+    snapshot, _, _, built = _confirmed_preview(body)
+    if snapshot.source != identity.DIRECTORY_SOURCE:
+        raise dd.DirectoryDiffError("ldap_capability_unavailable", "Directory linking unavailable")
+    entry = next((entry for entry in built.differences.new if entry.object_id == subject), None)
+    if entry is None:
+        raise dd.DirectoryDiffError("invalid_selection", "Selected new entry is absent from preview")
+
+    actor = _actor()
+    try:
+        user = identity.create_directory_user(subject, entry.display_name, actor_id=actor.user_id,
+                                              actor_security_version=actor.security_version)
+    except identity.IdentityError as exc:
+        db.session.rollback()
+        code = "unauthorized" if isinstance(exc, identity.IdentityDenied) else "apply_failed"
+        raise dd.DirectoryDiffError(code, str(exc)) from exc
+    return jsonify(ok=True, user_id=user.id), 201
