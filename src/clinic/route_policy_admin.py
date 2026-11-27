@@ -58,6 +58,11 @@ AUTH: tuple[str, ...] = (
     'voice_enrollment.enroll_own_voice_sample',
     'voice_enrollment.grant_own_voice_consent',
     'voice_enrollment.revoke_own_voice_consent',
+    # Caution-word lists (PAR-VOC-004, Q-19), mounted with the vocabulary blueprint. Reads, the
+    # preview and pool publishing are decided in the handler: pool members read, pool writers publish.
+    'clinic_vocabulary.caution_list',
+    'clinic_vocabulary.caution_publish_pool',
+    'clinic_vocabulary.caution_preview',
 )
 
 ADMIN: tuple[str, ...] = (
@@ -79,4 +84,6 @@ ADMIN: tuple[str, ...] = (
     'clinic_training.start',
     'clinic_training.status',
     'clinic_training.cancel',
+    # Global caution-word baseline (PAR-VOC-004, Q-19); the handler also requires an active site admin.
+    'clinic_vocabulary.caution_publish_global',
 )
