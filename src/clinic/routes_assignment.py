@@ -171,6 +171,7 @@ def create_blueprint(run_once: RunOnce) -> Blueprint:
                     raise CommandProblem('STALE_VERSION')
                 _end_previous_assignment(item, dictation, actor)
                 item.assignee_user_id = recipient
+                item.assigned_at = None if recipient is None else datetime.now(timezone.utc)
                 recording = db.session.get(Recording, dictation.recording_id)
                 if audit.record_in_tx('recording.edited', recording=recording, actor_kind='session',
                                       actor_user_id=actor, target_user_id=recipient,
