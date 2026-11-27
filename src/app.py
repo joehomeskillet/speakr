@@ -1386,9 +1386,9 @@ def register_clinic_audio(flask_app):
     ParityDispatch (start/stop live session are registered on it). Object decisions go through
     pool_policy.decide; an active site admin may open audio of any user (W12, audited by the
     audio handler). Capabilities that do not exist yet answer "unavailable" and are never faked:
-    no bundle persistence (503), no local TTS engine or declared capability
-    (CAPABILITY_UNAVAILABLE), no live-draft coordinator (CAPABILITY_UNAVAILABLE). The derived
-    rendering reads the stored originals (app_wiring.make_source_loader); the protection store is
+    no bundle persistence (503), no verified local TTS or no live-draft coordinator
+    (CAPABILITY_UNAVAILABLE). Derived rendering reads the stored originals
+    (app_wiring.make_source_loader); the protection store is
     durable (clinic_dictation_protection). The mounted sdict export uses that same current
     revision. A source that cannot be read stays empty and is never replaced by synthetic audio.
     """
@@ -1486,7 +1486,8 @@ def register_clinic_audio(flask_app):
     flask_app.register_blueprint(routes_alignment.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation), run_once=run_once))
     register_clinic_handler('clinic_alignment', alignment_job.handle)
-    flask_app.register_blueprint(routes_tts.TtsApi(tts_load, lambda: None, None).blueprint)
+    flask_app.register_blueprint(routes_tts.TtsApi.for_local_speaches(
+        tts_load, os.environ.get('CLINIC_TTS_ENDPOINT', '')).blueprint)
     flask_app.register_blueprint(routes_clipboard.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation),
         source_for=routes_output.output_source, ledger={}))
