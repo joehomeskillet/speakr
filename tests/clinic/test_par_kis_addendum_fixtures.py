@@ -127,7 +127,7 @@ def test_only_a_verified_single_use_grant_enables_staging_context(scene):
     assert grants.ClinicContextGrantUse.query.count() == 1
 
 
-def test_ack_and_unknown_receipts_do_not_double_deliver(scene):
+def test_ack_and_unknown_receipts_do_not_double_deliver(scene, legacy_kis_delivery):
     bound = scene.bind(NOW + timedelta(seconds=30))
     db.session.commit()
     done = scene.finalize(bound.id, scene.adapter)
