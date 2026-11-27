@@ -26,6 +26,7 @@
  * dictation_id); it is supplied by the mount package together with the recorder.
  */
 
+import { createHandmicView } from './handmic-webhid.js';
 import { createRecorderPhases, isTitleEditable, LABELS, receiptDictationId } from './recorder-phases-ui.js';
 import { surfaceFor } from './tokens.js';
 
@@ -48,6 +49,7 @@ export const TEXT = Object.freeze({
     upload: LABELS.send,
     uploading: LABELS.sending,
     recordingControls: 'Aufnahmesteuerung',
+    pairHandmic: 'Handmikrofon koppeln',
     startFailed: 'Prüfen Sie Ihr Mikrofon oder wählen Sie „oder Datei hochladen“.',
     microphoneDenied: 'Erlauben Sie den Mikrofonzugriff in den Website-Einstellungen Ihres Browsers und starten Sie die Aufnahme erneut.',
     routingPending: 'Berechtigung wird geprüft …',
@@ -133,7 +135,7 @@ function displayName(user) {
 /**
  * Framework-free controller. Subscribers are called after every state change.
  * @param {{client?: object, currentUser: {id: *}, recorder: object, uploadFile: Function,
- *   player?: object, authorized?: () => boolean, onOpen?: Function, onWorklist?: Function}} options
+ *   player?: object, hid?: object, authorized?: () => boolean, onOpen?: Function, onWorklist?: Function}} options
  */
 export function createRecordingViewController(options) {
     const opts = options || {};
@@ -158,8 +160,13 @@ export function createRecordingViewController(options) {
     // A host that calls checkRouting() right after mounting (RecordingView) starts without the pending state.
     let routing = opts.oneButton && !opts.preflightOnMount ? 'routingPending' : null;
 
-    const notify = () => { for (const listener of listeners) listener(); };
-    machine.subscribe(notify);
+    const notifyUi = () => { for (const listener of listeners) listener(); };
+    const handmic = createHandmicView(opts.hid, { feedback: handmicFeedback, onCommand: onHandmicCommand, onChange: notifyUi });
+    const notify = () => {
+        handmic.sync();
+        notifyUi();
+    };
+    const unsubscribeMachine = machine.subscribe(notify);
 
     const denied = (code) => ({ ok: false, code: code });
     const recorderBusy = () => !['title', 'ready'].includes(machine.getState().phase);
@@ -291,8 +298,14 @@ export function createRecordingViewController(options) {
         }
     }
 
+    function canSendRecording() {
+        if (!canUseRecorder()) return false;
+        return phase() === 'sent' ? canSubmit() : enabled('send');
+    }
+
     async function sendRecording() {
-        if (state.mode !== 'record' || routing || state.disposed) return denied('invalid_phase');
+        if (!allowed()) return denied('unauthorized');
+        if (!canSendRecording()) return denied('invalid_phase');
         if (!receipt()) {
             const uploaded = await machine.send();
             if (!uploaded.ok) return uploaded;
@@ -330,6 +343,42 @@ export function createRecordingViewController(options) {
 
     function phase() {
         return state.mode === 'file' ? state.filePhase : machine.getState().phase;
+    }
+
+    const canUseRecorder = () => !state.disposed && state.mode === 'record' && !routing && allowed();
+    const enabled = (id) => machine.controls().some((control) => control.id === id && !control.disabled);
+    const start = () => routing || state.mode !== 'record' || state.disposed ? denied('invalid_phase') : machine.start();
+    const { pause, resume, stop, play, skip, stopPlayback } = machine;
+
+    function handmicFeedback() {
+        if (!canUseRecorder()) return { message: 'Handmikrofon inaktiv.', led: 'off' };
+        const p = phase();
+        if (p === 'recording') return { message: 'Aufnahme läuft.', led: 'recording' };
+        if (p === 'paused') return { message: 'Aufnahme pausiert.', led: 'standby' };
+        if (enabled('start')) return { message: 'Bereit zur Aufnahme.', led: 'standby' };
+        if (p === 'review' || p === 'failed') return { message: 'Aufnahme beendet.', led: 'off' };
+        return { message: 'Handmikrofon inaktiv.', led: 'off' };
+    }
+
+    function onHandmicCommand(command, fromSlide) {
+        if (!canUseRecorder()) return;
+        const p = phase();
+        switch (command) {
+            case 'record':
+                if (enabled('start')) return start();
+                if (!fromSlide && enabled('stop')) return stop();
+                return fromSlide && p === 'paused' ? resume() : undefined;
+            case 'play':
+                if (p === 'recording') return pause();
+                if (p === 'paused') return resume();
+                return enabled('play') ? play() : undefined;
+            case 'stop':
+                if (enabled('stop')) return stop();
+                return enabled('play') ? stopPlayback() : undefined;
+            case 'eol': return canSendRecording() ? sendRecording() : undefined;
+            case 'rewind': return enabled('rewind') ? skip(-REVIEW_SKIP_SECONDS) : undefined;
+            case 'forward': return enabled('play') ? skip(REVIEW_SKIP_SECONDS) : undefined;
+        }
     }
 
     function message() {
@@ -370,6 +419,9 @@ export function createRecordingViewController(options) {
             phase: submission || phase(),
             routing,
             canSubmit: canSubmit(),
+            canSendRecording: canSendRecording(),
+            handmic: handmic.model(),
+            authorized: allowed(),
             author: displayName(user),
             authorId: String(user.id),
             title: s.title,
@@ -392,29 +444,27 @@ export function createRecordingViewController(options) {
         if (state.disposed) return;
         state.disposed = true;
         fileGeneration += 1;
+        unsubscribeMachine();
         listeners.clear();
+        const releasingHandmic = handmic.dispose();
         const p = machine.getState().phase;
-        if (p !== 'sending' && p !== 'sent') {
-            try {
-                await machine.cancel();
-            } catch (e) {
-                // Nothing is persisted locally, so a failed discard leaves nothing behind.
-            }
-        }
+        const discard = p !== 'sending' && p !== 'sent' ? machine.cancel().catch(() => {
+            // Nothing is persisted locally, so a failed discard leaves nothing behind.
+        }) : undefined;
+        await Promise.all([releasingHandmic, discard]);
     }
 
     return {
         text: TEXT,
         machine,
+        handmic,
         model,
         subscribe(listener) {
             listeners.add(listener);
             return () => listeners.delete(listener);
         },
         setMode, setTitle: (value) => machine.setTitle(value),
-        start: () => routing || state.mode !== 'record' || state.disposed ? denied('invalid_phase') : machine.start(),
-        pause: () => machine.pause(), resume: () => machine.resume(),
-        stop: () => machine.stop(), rewind: () => machine.rewind(), play: () => machine.play(),
+        start, pause, resume, stop, rewind: machine.rewind, play,
         beginning: machine.beginning, end: machine.end,
         send: () => machine.send(), cancel: () => machine.cancel(),
         selectFile, sendFile, cancelFile, submit, sendRecording, checkRouting,
@@ -463,7 +513,7 @@ export const RECORDING_TEMPLATE = `
                  @loadedmetadata="loadReview" @durationchange="c.machine.syncPlayback()" @seeked="finishDurationProbe"
                  @play="c.machine.syncPlayback()" @pause="c.machine.syncPlayback()" @ended="c.machine.syncPlayback()"
                  @error="c.machine.playbackFailed()" style="width: 100%; min-height: 3rem"></audio>
-          <button type="button" class="button primary" style="${TOUCH}; width: 100%; font-size: 1rem" data-testid="rec-send" @click="c.sendRecording()">
+          <button type="button" class="button primary" style="${TOUCH}; width: 100%; font-size: 1rem" data-testid="rec-send" :disabled="!m.canSendRecording" @click="c.sendRecording()">
             {{ m.phase === 'review' ? 'Senden' : 'Erneut senden' }}
           </button>
           <button v-if="!m.created" type="button" class="button quiet" style="${TOUCH}; font-size: .875rem"
@@ -493,6 +543,11 @@ export const RECORDING_TEMPLATE = `
         </div>
       </div>
     </template>
+    <div v-if="m.mode === 'record'" style="margin-block-start: var(--ui-space-3); font-size: .875rem">
+      <button v-if="m.handmic.available" type="button" class="button quiet" style="${TOUCH}" data-testid="handmic-pair"
+              :disabled="!m.authorized || !m.handmic.canPair" @click="c.handmic.pair()">{{ c.text.pairHandmic }}</button>
+      <p role="status" aria-live="polite" data-testid="handmic-status" style="margin: 0">{{ m.handmic.message }}</p>
+    </div>
   </div>
 </section>`;
 
@@ -519,7 +574,8 @@ export const RecordingView = {
             recorder: props.recorder,
             uploadFile: props.uploadFile,
             player: props.player,
-            authorized: props.authorized || undefined,
+            authorized: () => props.authorized?.() !== false,
+            hid: globalThis.navigator?.hid,
             oneButton: true,
             preflightOnMount: true,
             onOpen: (payload) => emit('open', payload),
@@ -528,6 +584,7 @@ export const RecordingView = {
         const tick = V.ref(0);
         const off = c.subscribe(() => { tick.value += 1; });
         const m = V.computed(() => (tick.value, c.model()));
+        V.watch?.(() => props.authorized?.() !== false, () => c.handmic.sync());
         const root = V.ref(null);
         const reviewSource = () => props.player ? null : props.recorder.reviewSource?.();
         let probingDuration = false;

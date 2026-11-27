@@ -121,7 +121,8 @@ describe('compose-correction contract', () => {
         expect(source).toContain("from './api-client.js'");
         const imports = [...source.matchAll(/from '(\.\/[^']+)'/g)].map((m) => m[1]);
         expect(imports).toHaveLength(new Set(imports).size);
-        expect(imports).toHaveLength(11);
+        expect(imports).toContain('./handmic-webhid.js');
+        expect(imports).toHaveLength(12);
     });
 
     it('uses German labels, tokens only, keyboard-operable native controls and no browser storage', () => {

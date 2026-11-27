@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import { createCorrectionViewController } from '../../../static/js/clinic/compose-correction.js';
+import { createRecordingViewController } from '../../../static/js/clinic/compose-recording.js';
 import { createHandmicController } from '../../../static/js/clinic/handmic-webhid.js';
 
 function fixture({ model = 3710, productId = 0x0c1c, usagePage = 0xffa0, outputSize = 9 } = {}) {
@@ -122,5 +124,171 @@ describe('handmic WebHID (synthetic reports)', () => {
         await controller.dispose();
         await pairing;
         expect(device.open).not.toHaveBeenCalled();
+    });
+});
+
+function recordingFixture(hid) {
+    const recorder = {
+        startRecording: vi.fn(async () => {}), pauseRecording: vi.fn(), resumeRecording: vi.fn(),
+        stopRecording: vi.fn(async () => {}), discardRecording: vi.fn(async () => {}),
+        uploadRecordedAudio: vi.fn(async () => ({ id: 'rec-1' })),
+    };
+    const c = createRecordingViewController({ hid, recorder, currentUser: { id: 7 }, uploadFile: vi.fn() });
+    return { c, recorder };
+}
+
+const ledReport = (red) => Uint8Array.of(2, 0, 0, 0, 0, 0, red, 0, 0);
+
+describe('P-257 compose controllers (synthetic HID reports)', () => {
+    it('honors recorder phases and requires a fresh press for capture and EOL actions', async () => {
+        const { device, hid, report } = fixture({ model: 3700 });
+        const { c, recorder } = recordingFixture(hid);
+        const input = (word) => report(0x80, word);
+        const press = (word) => { input(0); input(word); };
+        recorder.uploadRecordedAudio.mockResolvedValueOnce(null);
+        try {
+            await c.handmic.pair();
+            input(0x0100); // No title.
+            expect(recorder.startRecording).not.toHaveBeenCalled();
+            c.setTitle('Bericht');
+            input(0x0100); // Still held across the phase change.
+            expect(recorder.startRecording).not.toHaveBeenCalled();
+            press(0x0400);
+            press(0x0200);
+            press(0x2000);
+            expect(c.model().phase).toBe('ready');
+            expect(recorder.resumeRecording).not.toHaveBeenCalled();
+            expect(recorder.stopRecording).not.toHaveBeenCalled();
+            expect(recorder.uploadRecordedAudio).not.toHaveBeenCalled();
+
+            press(0x0100);
+            await vi.waitFor(() => expect(c.model().phase).toBe('recording'));
+            expect(recorder.startRecording).toHaveBeenCalledOnce();
+            expect(device.sendReport).toHaveBeenLastCalledWith(0, ledReport(12));
+            input(0x0100);
+            expect(recorder.pauseRecording).not.toHaveBeenCalled();
+            press(0x2000);
+            expect(recorder.uploadRecordedAudio).not.toHaveBeenCalled();
+
+            press(0x0400);
+            expect(c.model().phase).toBe('paused');
+            expect(device.sendReport).toHaveBeenLastCalledWith(0, ledReport(4));
+            input(0x0400);
+            expect(recorder.pauseRecording).toHaveBeenCalledOnce();
+            expect(recorder.resumeRecording).not.toHaveBeenCalled();
+            press(0x0400);
+            expect(c.model().phase).toBe('recording');
+            expect(recorder.resumeRecording).toHaveBeenCalledOnce();
+
+            press(0x0200);
+            await vi.waitFor(() => expect(c.model().phase).toBe('review'));
+            expect(recorder.stopRecording).toHaveBeenCalledOnce();
+            expect(device.sendReport).toHaveBeenLastCalledWith(0, ledReport(0));
+            press(0x2000);
+            expect(recorder.uploadRecordedAudio).toHaveBeenCalledWith({ title: 'Bericht' });
+            await vi.waitFor(() => expect(c.model().phase).toBe('failed'));
+            input(0x2000);
+            expect(recorder.uploadRecordedAudio).toHaveBeenCalledOnce();
+            press(0x2000);
+            await vi.waitFor(() => expect(c.model().phase).toBe('sent'));
+            expect(recorder.uploadRecordedAudio).toHaveBeenCalledTimes(2);
+        } finally {
+            await c.dispose();
+        }
+    });
+
+    it('locks correction input and turns the LED off synchronously on generation loss', async () => {
+        const { device, hid, report } = fixture({ model: 3700 });
+        const ok = (data) => ({ outcome: 'ok', status: 200, data });
+        const save = vi.fn(() => ok({ text_revision_id: 'r2', state_version: 2 }));
+        const routes = {
+            'GET /dictations/d1/correction': () => ok({
+                dictation_id: 'd1', text_revision_id: 'r1', text: 'Hallo Welt',
+                state: { version: 1, audio_position_ms: 0 }, links: [], markers: [],
+            }),
+            'GET /dictations/d1/audio-revisions/current': () => ok({ revision_id: 'a1', segments: [] }),
+            'POST /dictations/d1/leases': () => ok({
+                lease_id: 'lease-1', generation: 1, expires_at: new Date(Date.now() + 600000).toISOString(),
+            }),
+            'POST /dictations/d1/correction/save': save,
+        };
+        const client = {
+            switchContext: vi.fn(),
+            request: vi.fn(async (path, options) => routes[`${options?.method || 'GET'} ${path}`]?.(options) ?? ok({})),
+        };
+        const c = createCorrectionViewController({
+            client, hid, contract: 'v8', pedal: false, autosaveMs: 0, dictationId: 'd1', currentUser: { id: 7 },
+        });
+        const audio = Object.assign(new EventTarget(), {
+            currentTime: 0, duration: 60, playbackRate: 1, paused: true,
+            play: vi.fn(async () => { audio.paused = false; }),
+            pause: vi.fn(() => { audio.paused = true; }),
+        });
+        const press = (word) => { report(0x80, 0); report(0x80, word); };
+        try {
+            await c.start();
+            await c.handmic.pair();
+            c.bindAudio(audio);
+            press(0x0400);
+            expect(audio.play).not.toHaveBeenCalled();
+            await c.editor.acquire();
+            expect(c.handmicModel.value.message).toBe('Handmikrofon bereit.');
+            expect(device.sendReport).toHaveBeenLastCalledWith(0, ledReport(4));
+
+            c.togglePlayback();
+            expect(audio.paused).toBe(false);
+            press(0x0400);
+            expect(audio.paused).toBe(true);
+            report(0x80, 0x0400);
+            expect(audio.paused).toBe(true);
+            press(0x0400);
+            expect(audio.paused).toBe(false);
+            press(0x2000);
+            expect(save).not.toHaveBeenCalled();
+            expect(c.setText('Korrigiert')).toBe(true);
+            press(0x2000);
+            await vi.waitFor(() => expect(c.editor.dirty.value).toBe(false));
+            expect(save).toHaveBeenCalledOnce();
+            expect(c.setText('Noch nicht gespeichert')).toBe(true);
+
+            c.editor.leaseController.notifyGeneration(2);
+            expect(device.sendReport).toHaveBeenLastCalledWith(0, ledReport(0));
+            expect(c.handmicModel.value.message).toBe('Handmikrofon gesperrt. Bearbeitung nicht möglich.');
+            expect(c.editor.canEdit.value).toBe(false);
+            press(0x0400);
+            press(0x2000);
+            expect(audio.paused).toBe(false);
+            expect(save).toHaveBeenCalledOnce();
+        } finally {
+            await c.dispose();
+        }
+    });
+
+    it('turns off an actively recording handmic before closing and removes both listeners', async () => {
+        const { device, hid, report } = fixture({ model: 3700 });
+        const addDisconnect = vi.spyOn(hid, 'addEventListener');
+        const removeDisconnect = vi.spyOn(hid, 'removeEventListener');
+        const addInput = vi.spyOn(device, 'addEventListener');
+        const removeInput = vi.spyOn(device, 'removeEventListener');
+        const { c, recorder } = recordingFixture(hid);
+        try {
+            await c.handmic.pair();
+            c.setTitle('Bericht');
+            report(0x80, 0x0100);
+            await vi.waitFor(() => expect(c.model().phase).toBe('recording'));
+            expect(device.sendReport).toHaveBeenLastCalledWith(0, ledReport(12));
+
+            await c.dispose();
+            expect(device.sendReport).toHaveBeenLastCalledWith(0, ledReport(0));
+            expect(device.sendReport.mock.invocationCallOrder.at(-1)).toBeLessThan(device.close.mock.invocationCallOrder[0]);
+            expect(device.close).toHaveBeenCalledOnce();
+            expect(device.opened).toBe(false);
+            expect(removeDisconnect).toHaveBeenCalledWith('disconnect', addDisconnect.mock.calls[0][1]);
+            expect(removeInput).toHaveBeenCalledWith('inputreport', addInput.mock.calls.at(-1)[1]);
+            report(0x80, 0x0100);
+            expect(recorder.startRecording).toHaveBeenCalledOnce();
+        } finally {
+            await c.dispose();
+        }
     });
 });

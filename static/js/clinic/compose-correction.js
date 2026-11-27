@@ -40,6 +40,7 @@ import { MODES, useCorrectionModes } from './correction-modes-ui.js';
 import { useCorrectionSave } from './correction-save-ui.js';
 import { AudioMarkers } from './audio-markers-ui.js';
 import { PlaybackGain, usePlaybackGain } from './playback-gain-ui.js';
+import { createHandmicView } from './handmic-webhid.js';
 
 export const COMPOSE_CORRECTION_VERSION = 1;
 
@@ -303,6 +304,7 @@ export function createCorrectionViewController(options) {
 
     // contract 'v8': shared lease controller, reconcile before a new key, +-5 s step. Without it the pre-V8 behaviour stays.
     const v8 = opts.contract === 'v8';
+    const stepSeconds = v8 ? STEP_SECONDS_V8 : STEP_SECONDS;
     const editor = useCorrectionEditor({
         client, dictationId, currentUser: user, vue: V || undefined, exposeLeaseController: v8,
     });
@@ -324,18 +326,53 @@ export function createCorrectionViewController(options) {
         position,
         isPlaying() { const el = audioEl.value; return Boolean(el) && el.paused === false; },
     };
+    const togglePlayback = () => (modeAudio.isPlaying() ? modeAudio.pause() : modeAudio.play());
     const modes = useCorrectionModes({
         alignment, audio: modeAudio, client, vue: V || undefined,
         ...(opts.modesOptions || {}),
     });
 
+    const lease = createLeaseAdapter(editor, V);
     const saver = useCorrectionSave({
         editor, client, dictationId, getPositionMs, vue: V || undefined,
-        lease: createLeaseAdapter(editor, V),
+        lease,
         ...(opts.autosaveMs !== undefined ? { autosaveMs: opts.autosaveMs } : {}),
         ...(v8 ? { reconcileFirst: true } : {}),
         ...(opts.saveOptions || {}),
     });
+
+    const handmicWritable = () => !disposed && opts.openMode !== 'player'
+        && editor.canEdit.value && lease.getState().writable;
+    const handmicVersion = ref(0);
+    const handmic = opts.openMode === 'player' ? null : createHandmicView(opts.hid, {
+        feedback() {
+            return handmicWritable()
+                ? { message: 'Handmikrofon bereit.', led: 'standby' }
+                : { message: 'Handmikrofon gesperrt. Bearbeitung nicht möglich.', led: 'off' };
+        },
+        onCommand(command) {
+            if (!handmicWritable()) {
+                handmic.sync();
+                return;
+            }
+            switch (command) {
+            case 'play': return togglePlayback();
+            case 'stop': return modeAudio.pause();
+            case 'rewind': return tempo?.rewind(stepSeconds);
+            case 'forward': return tempo?.skip(stepSeconds);
+            case 'eol': return editor.dirty.value ? save() : undefined;
+            }
+        },
+        onChange() { handmicVersion.value += 1; },
+    });
+    const handmicModel = api.computed(() => {
+        handmicVersion.value;
+        return handmic?.model() ?? null;
+    });
+    if (handmic) {
+        if (editor.leaseController) stops.push(lease.subscribe(() => handmic.sync()));
+        if (api.watch) stops.push(api.watch(handmicWritable, () => handmic.sync(), { flush: 'sync' }));
+    }
 
     const repeat = createRepeatTranscription({ editor, ref });
     const resumeLabel = (api.computed)(() => {
@@ -557,7 +594,7 @@ export function createCorrectionViewController(options) {
                 commands: {
                     play: () => modeAudio.play(),
                     pause: () => modeAudio.pause(),
-                    playPause: () => (modeAudio.isPlaying() ? modeAudio.pause() : modeAudio.play()),
+                    playPause: togglePlayback,
                     rewind: (s) => { if (tempo) tempo.rewind(s); },
                     skip: (s) => { if (tempo) tempo.skip(s); },
                 },
@@ -617,6 +654,7 @@ export function createCorrectionViewController(options) {
         disposed = true;
         repeat.dispose();
         for (const stop of stops.splice(0)) if (typeof stop === 'function') stop();
+        const handmicClosed = handmic?.dispose().catch((error) => console.warn('WebHID close failed', error));
         if (pedal) { pedal.detach(); pedal = null; }
         pedalStatus.value = '';
         unbindAudio();
@@ -629,6 +667,7 @@ export function createCorrectionViewController(options) {
         ready.value = false;
         editor.text.value = '';
         Promise.resolve(released).catch(() => {});
+        return handmicClosed;
     }
 
     return {
@@ -636,8 +675,8 @@ export function createCorrectionViewController(options) {
         ready, loadGeneration, revisionGeneration, audioEl, gainState, closeMessage, resumeLabel,
         recordingId: () => opts.recordingId || editor.audio.value.recordingId || null,
         peaksKey, peaksFetch,
-        stepSeconds: v8 ? STEP_SECONDS_V8 : STEP_SECONDS,
-        leaseRun, leaseButtons,
+        stepSeconds, togglePlayback,
+        leaseRun, leaseButtons, handmic, handmicModel,
         pedalStatus, pedalReady: () => pedalReady, pedal: () => pedal, setPedalSettings,
         start, load, save, setText, reloadLatest, keepMine, takeServer, compare: () => saver.compare(), close, dispose, syncRevision,
         client: scoped, adoptAudioRevision, bindAudio, bindAlignmentRoot, alignmentRootEl: () => alignmentRoot, alignmentNotice, onSync, onShortcut, onKeydown, onInput, onSelect, onTemplate, seekToResume, getPositionMs, seek,
@@ -778,6 +817,8 @@ export const CorrectionBody = {
             vue: props.vue || undefined,
             contract: 'v8', // the mounted view runs the V8 save contract: lease controller, reconcile first, +-5 s step
             recordingId: props.recordingId || undefined,
+            get openMode() { return props.openMode; },
+            hid: props.openMode === 'player' ? undefined : globalThis.navigator?.hid,
             createAudioContext: props.createAudioContext || undefined,
             onClose: () => { if (ctx && typeof ctx.emit === 'function') ctx.emit('close'); },
         });
@@ -925,7 +966,7 @@ export const CorrectionBody = {
             mode: m.mode, modeStatus: m.status, modeError: m.error, modeAnnouncement: m.announcement,
             ready: c.ready, loadGeneration: c.loadGeneration, revisionGeneration: c.revisionGeneration,
             audioEl: c.audioEl, gainState: c.gainState, closeMessage: c.closeMessage, resumeLabel: c.resumeLabel,
-            pedalStatus: c.pedalStatus, alignmentNotice: c.alignmentNotice,
+            pedalStatus: c.pedalStatus, alignmentNotice: c.alignmentNotice, handmicModel: c.handmicModel,
         };
     },
     template: `
@@ -995,14 +1036,19 @@ export const CorrectionBody = {
     <div class="live-inline-status" role="group" :aria-label="TEXT.lease" data-testid="lease-bar"
          style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
       <span role="status" aria-live="polite" :style="{ color: lease.surface.color }">{{ lease.message }}</span>
-      <button v-for="b in c.leaseButtons()" :key="b.id" type="button" :class="['button', 'small', b.id === 'acquire' ? 'primary' : '']" :style="FOCUS" :disabled="b.disabled"
+      <button v-for="b in c.leaseButtons()" :key="b.id" type="button" :class="['button', 'small', b.id === 'acquire' ? 'primary' : '']" :style="FOCUS" style="min-height: 48px" :disabled="b.disabled"
               :data-action="b.id" @click="c.leaseRun[b.id]()">{{ b.label }}</button>
+      <button v-if="openMode !== 'player' && handmicModel?.available" type="button" class="button" :style="FOCUS"
+              style="min-height: 48px" :disabled="!handmicModel.canPair" data-testid="handmic-pair"
+              @click="c.handmic.pair()">Handmikrofon koppeln</button>
     </div>
+    <p v-if="openMode !== 'player' && handmicModel" role="status" aria-live="polite" data-testid="handmic-status"
+       style="margin: 0 0 var(--ui-space-2); color: var(--v8-text)">{{ handmicModel.message }}</p>
 
     <template v-if="ready">
       <div class="player compact-player" data-testid="player-bar">
         <audio preload="metadata" hidden :ref="c.bindAudio" :src="audio.status === 'ready' ? audio.src : null" :aria-label="TEXT.audio"></audio>
-        <PlaybackTempo v-if="audioEl" :audio="audioEl" :step-seconds="c.stepSeconds" :on-sync="c.onSync" />
+        <PlaybackTempo v-if="audioEl" :audio="audioEl" :step-seconds="c.stepSeconds" :on-sync="c.onSync" :on-toggle="c.togglePlayback" />
         <span class="word-sync-controls">
           <span class="tool-wrap" v-tip="{ label: highlightOn ? TEXT.highlightOn : TEXT.highlightOff }">
             <button type="button" class="icon-button" :style="FOCUS" :aria-pressed="String(highlightOn)" :aria-label="highlightOn ? TEXT.highlightOn : TEXT.highlightOff"

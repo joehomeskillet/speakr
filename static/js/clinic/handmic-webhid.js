@@ -171,3 +171,86 @@ export function createHandmicController(hid, { onState = () => {}, onInput = () 
         },
     };
 }
+
+const CONNECTION_MESSAGES = {
+    disconnected: 'Kein Handmikrofon verbunden. Die Tastatur bleibt verfügbar.',
+    pairing: 'Handmikrofon wird verbunden …',
+    unsupported: 'Dieses Handmikrofon wird nicht unterstützt. Verwenden Sie die Tastatur.',
+    error: 'Verbindung fehlgeschlagen. Versuchen Sie es erneut oder verwenden Sie die Tastatur.',
+};
+
+export function createHandmicView(hid, { feedback, onCommand, onChange }) {
+    let connection = { status: 'disconnected', ledAvailable: false };
+    let buttons = [];
+    let slide = null;
+    let led;
+    let message;
+    let disposed = false;
+    const controller = createHandmicController(hid, {
+        onState(next) {
+            connection = next;
+            if (!next.ledAvailable) led = undefined;
+            sync();
+        },
+        onInput(input) {
+            const pressed = input.buttons.filter((button) => !buttons.includes(button));
+            const moved = slide && input.slide && slide !== input.slide ? input.slide : null;
+            if (moved) pressed.push(moved);
+            buttons = input.buttons;
+            slide = input.slide;
+            if (disposed || connection.status !== 'connected') return;
+            const command = ['stop', 'record', 'play', 'rewind', 'forward', 'priority'].find((key) => pressed.includes(key));
+            if (command) {
+                void run(command, command === moved);
+            }
+        },
+    });
+
+    async function run(command, fromSlide) {
+        try {
+            await onCommand(command === 'priority' ? 'eol' : command, fromSlide);
+        } catch (error) {
+            console.warn('Handmic action failed', error);
+        }
+    }
+
+    function model() {
+        const state = feedback();
+        const status = connection.status;
+        const detail = status === 'connected'
+            ? (connection.ledAvailable ? '' : ' Keine Rückmeldung am Gerät möglich.')
+            : hid ? CONNECTION_MESSAGES[status] : 'Handmikrofon hier nicht verfügbar. Verwenden Sie die Tastatur.';
+        return {
+            available: Boolean(hid),
+            canPair: status !== 'connected' && status !== 'pairing',
+            message: [state.message, detail.trim()].filter(Boolean).join(' '),
+        };
+    }
+
+    function sync() {
+        if (disposed) return;
+        const next = model().message;
+        const target = feedback().led;
+        if (connection.ledAvailable && target !== led) {
+            led = target;
+            void controller.syncLed(target);
+        }
+        if (next !== message) {
+            message = next;
+            onChange();
+        }
+    }
+
+    return {
+        pair: controller.pair, model, sync,
+        async dispose() {
+            if (disposed) return;
+            disposed = true;
+            try {
+                if (led && led !== 'off') await controller.syncLed('off');
+            } finally {
+                await controller.dispose();
+            }
+        },
+    };
+}
