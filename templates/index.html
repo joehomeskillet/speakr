@@ -103,6 +103,7 @@
          data-current-user-name="{{ current_user.name or current_user.username }}"
          data-use-asr-endpoint="{{ use_asr_endpoint }}"
          data-clinic-mode="{{ 'True' if clinic_mode else 'False' }}"
+         {% if clinic_case_marker %}data-clinic-case-view="{{ clinic_case_marker }}"{% endif %}
          {% if clinic_mode %}data-clinic-role="{{ clinic_role or 'author' }}" data-clinic-admin="{{ 'True' if current_user.is_admin else 'False' }}"{% endif %}
          data-connector-supports-diarization="{{ connector_supports_diarization }}"
          data-connector-supports-speaker-count="{{ connector_supports_speaker_count }}"
@@ -184,7 +185,7 @@
                     <!-- end V8 menu views (v8-71) -->
                     <keep-alive>
                         <clinic-recordings-view v-if="currentView === 'clinic-recordings'" :client="clinicClient" :current-user="clinicUser" ref="clinicListMount" @open="openClinicDictation"></clinic-recordings-view>
-                        <clinic-worklist-view v-else-if="currentView === 'clinic-worklist'" :client="clinicClient" :current-user="clinicUser" ref="clinicListMount" @open="openClinicDictation"></clinic-worklist-view>
+                        <clinic-worklist-view v-else-if="currentView === 'clinic-worklist'" :client="clinicClient" :current-user="clinicUser" ref="clinicListMount" @open="openClinicDictation"{% if clinic_case_marker %} case-view="{{ clinic_case_marker }}" worklist-url="{{ url_for('recordings.index', _anchor='/arbeitsliste') }}"{% endif %}></clinic-worklist-view>
                         <clinic-resources-view v-else-if="currentView === 'clinic-resources'" :client="clinicClient" :current-user="clinicUser"></clinic-resources-view>
                     </keep-alive>
                 </div>
