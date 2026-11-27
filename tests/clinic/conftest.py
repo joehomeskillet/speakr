@@ -42,6 +42,25 @@ _QUEUE_DB_MODULES = (
 )
 
 
+@pytest.fixture(autouse=True)
+def _dispose_test_app_engines(monkeypatch):
+    """Close pools of per-test Flask apps without depending on garbage collection."""
+    test_apps = []
+    init_app = db.init_app
+
+    def track_app(test_app):
+        init_app(test_app)
+        test_apps.append(test_app)
+
+    monkeypatch.setattr(db, "init_app", track_app)
+    yield
+    for test_app in reversed(test_apps):
+        with test_app.app_context():
+            db.session.remove()
+            for engine in db.engines.values():
+                engine.dispose()
+
+
 def _retire_foreign_jobs():
     with app.app_context():
         ProcessingJob.query.filter(
