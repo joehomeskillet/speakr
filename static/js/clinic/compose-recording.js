@@ -22,7 +22,7 @@
  *   registerRecordingView(app)  app.component('clinic-recording-view', ...).
  *   createRecordingViewController(options)  the controller behind the view.
  *
- * Injected `uploadFile(file)` resolves with the server receipt (id or
+ * Injected `uploadFile(file, title, options)` resolves with the server receipt (id or
  * dictation_id); it is supplied by the mount package together with the recorder.
  */
 
@@ -61,6 +61,9 @@ export const TEXT = Object.freeze({
     submitting: 'Diktat wird eingereicht …',
     submitted: 'Eingereicht.',
     submitUnknown: 'Einreichung nicht bestätigt. Bitte erneut versuchen.',
+    recognition: 'Spracherkennung',
+    recognitionOn: 'ein',
+    recognitionOff: 'aus',
     created: 'Erstelltes Diktat',
     toWorklist: 'Zur Arbeitsliste',
     open: 'Öffnen',
@@ -152,6 +155,8 @@ export function createRecordingViewController(options) {
     const listeners = new Set();
     const state = { mode: 'record', file: null, filePhase: 'idle', fileError: null, fileReceipt: null, disposed: false };
     let fileGeneration = 0;
+    let useSpeechRecognition = true;
+    let clientUploadId = null;
     let submission = null;
     let submitError = '';
     let pendingSend = null;
@@ -163,6 +168,29 @@ export function createRecordingViewController(options) {
 
     const denied = (code) => ({ ok: false, code: code });
     const recorderBusy = () => !['title', 'ready'].includes(machine.getState().phase);
+
+    function canChangeSpeechRecognition() {
+        return allowed() && !state.disposed && !routing
+            && ['title', 'ready', 'review', 'idle', 'selected'].includes(phase());
+    }
+
+    function toggleSpeechRecognition() {
+        if (!canChangeSpeechRecognition()) return denied('invalid_phase');
+        useSpeechRecognition = !useSpeechRecognition;
+        notify();
+        return { ok: true };
+    }
+
+    function uploadOptions() {
+        // The same draft keeps its identity on retry, even if another draft uses identical audio.
+        clientUploadId ||= globalThis.crypto.randomUUID();
+        return { useSpeechRecognition, clientUploadId };
+    }
+
+    function resetUploadChoice() {
+        useSpeechRecognition = true;
+        clientUploadId = null;
+    }
 
     async function checkRouting() {
         routing = 'routingPending';
@@ -193,6 +221,7 @@ export function createRecordingViewController(options) {
     function selectFile(file) {
         if (!allowed()) return denied('unauthorized');
         if (state.mode !== 'file' || !['idle', 'selected', 'failed'].includes(state.filePhase)) return denied('invalid_phase');
+        if (state.filePhase === 'failed') resetUploadChoice();
         if (!isAudioFile(file)) {
             Object.assign(state, { file: null, filePhase: 'idle', fileError: 'invalid_file' });
             notify();
@@ -211,7 +240,7 @@ export function createRecordingViewController(options) {
         notify();
         let receipt = null;
         try {
-            receipt = await opts.uploadFile(state.file);
+            receipt = await opts.uploadFile(state.file, undefined, uploadOptions());
         } catch (e) {
             receipt = null;
         }
@@ -230,6 +259,7 @@ export function createRecordingViewController(options) {
         if (!allowed()) return denied('unauthorized');
         if (state.mode !== 'file' || state.filePhase === 'sending' || state.filePhase === 'sent') return denied('invalid_phase');
         fileGeneration += 1;
+        resetUploadChoice();
         Object.assign(state, { file: null, filePhase: 'idle', fileError: null });
         notify();
         return { ok: true };
@@ -291,13 +321,26 @@ export function createRecordingViewController(options) {
         }
     }
 
+    function send() {
+        return machine.send(opts.oneButton || !useSpeechRecognition ? uploadOptions() : undefined);
+    }
+
     async function sendRecording() {
         if (state.mode !== 'record' || routing || state.disposed) return denied('invalid_phase');
         if (!receipt()) {
-            const uploaded = await machine.send();
+            const uploaded = await send();
             if (!uploaded.ok) return uploaded;
         }
         return submit();
+    }
+
+    async function cancelRecording() {
+        const result = await machine.cancel();
+        if (result.ok) {
+            resetUploadChoice();
+            notify();
+        }
+        return result;
     }
 
     /** Opens the created dictation in the page; false when none was created. */
@@ -320,6 +363,7 @@ export function createRecordingViewController(options) {
         submission = null;
         submitError = '';
         pendingSend = null;
+        resetUploadChoice();
         Object.assign(state, { file: null, filePhase: 'idle', fileError: null, fileReceipt: null });
         if (machine.getState().phase === 'sent') machine.reset();
         if (client && typeof client.switchContext === 'function') client.switchContext({});
@@ -370,6 +414,8 @@ export function createRecordingViewController(options) {
             phase: submission || phase(),
             routing,
             canSubmit: canSubmit(),
+            canChangeSpeechRecognition: canChangeSpeechRecognition(),
+            useSpeechRecognition: receipt()?.use_speech_recognition ?? useSpeechRecognition,
             author: displayName(user),
             authorId: String(user.id),
             title: s.title,
@@ -416,7 +462,7 @@ export function createRecordingViewController(options) {
         pause: () => machine.pause(), resume: () => machine.resume(),
         stop: () => machine.stop(), rewind: () => machine.rewind(), play: () => machine.play(),
         beginning: machine.beginning, end: machine.end,
-        send: () => machine.send(), cancel: () => machine.cancel(),
+        send, cancel: cancelRecording, toggleSpeechRecognition,
         selectFile, sendFile, cancelFile, submit, sendRecording, checkRouting,
         openCreated, toWorklist, another, dispose,
     };
@@ -434,10 +480,20 @@ export const RECORDING_TEMPLATE = `
     <p v-show="m.message" role="status" aria-live="polite" data-testid="status" style="margin: 0 0 var(--ui-space-3)"
        :style="m.phase === 'submitted' ? { fontSize: '1.25rem', fontWeight: 650 } : null">{{ m.message }}</p>
     <template v-if="!m.routing">
+      <button v-if="m.canChangeSpeechRecognition" type="button" role="switch" data-testid="recognition-switch"
+              class="button quiet focus-visible:outline focus-visible:outline-2 focus-visible:outline-ui-text"
+              :aria-checked="m.useSpeechRecognition" @click="c.toggleSpeechRecognition()"
+              style="${TOUCH}; border-color: var(--ui-border); margin-bottom: var(--ui-space-3)">
+        {{ c.text.recognition }} <span aria-hidden="true">{{ m.useSpeechRecognition ? c.text.recognitionOn : c.text.recognitionOff }}</span>
+      </button>
+      <p v-else-if="m.created || m.phase === 'sending' || m.phase === 'failed'" data-testid="recognition-status"
+         style="margin: 0 0 var(--ui-space-3)">
+        {{ c.text.recognition }} {{ m.useSpeechRecognition ? c.text.recognitionOn : c.text.recognitionOff }}
+      </p>
       <template v-if="m.mode === 'record'">
         <div v-if="m.phase === 'title' || m.phase === 'ready'" style="display: grid; justify-items: center; gap: var(--ui-space-2)">
           <button type="button" class="button accent" data-testid="rec-start" :aria-keyshortcuts="shortcuts.start" :disabled="!enabled('start')" @click="c.start()"
-                  style="width: 10rem; height: 10rem; border-radius: 50%; flex-direction: column; gap: var(--ui-space-2); font-size: 1rem">
+                  style="width: 10rem; height: 10rem; border-radius: 50%; flex-direction: column; gap: var(--ui-space-2); padding-inline: var(--ui-space-2); font-size: 1rem; white-space: nowrap">
             <svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor" aria-hidden="true"><path :d="icons.start"></path></svg>
             Aufnahme starten
           </button>
