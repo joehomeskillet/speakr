@@ -378,7 +378,7 @@ export function useCorrectionSave(options) {
     }
 
     async function save() {
-        if (disposed) return { ok: false, state: state.value, message: '' };
+        if (disposed || opts.canSave?.() === false) return { ok: false, state: state.value, message: '' };
         if (inflight) {
             resave = true;
             return { ok: false, state: 'saving', message: LABELS.saving };

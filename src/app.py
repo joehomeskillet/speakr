@@ -1427,9 +1427,10 @@ def register_clinic_audio(flask_app):
         lambda user_id, dictation_id: may(user_id, 'edit', db.session.get(ClinicDictation, dictation_id)),
         lambda dictation_id: db.session.get(ClinicDictation, dictation_id) is not None)
 
-    def bundle_load(_actor, dictation_id):
+    def bundle_load(_actor, dictation_id, include_audio):
         dictation = db.session.get(ClinicDictation, dictation_id)
-        return None if dictation is None else bundle_store.load(dictation, originals_root, load_sources)
+        return None if dictation is None else bundle_store.load(
+            dictation, originals_root, load_sources, include_audio=include_audio)
 
     def bundle_persist(actor, dictation_id, doc, audio, expected):
         return bundle_store.persist(db.session.get(ClinicDictation, dictation_id), actor, doc, audio,

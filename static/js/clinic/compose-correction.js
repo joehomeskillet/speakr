@@ -44,6 +44,20 @@ import { PlaybackGain, usePlaybackGain } from './playback-gain-ui.js';
 export const COMPOSE_CORRECTION_VERSION = 1;
 
 const CLINIC_OPEN_MODES = Object.freeze(['author_case', 'player', 'correction']);
+const SESSION_FORMATS = Object.freeze([
+    { id: 'sdict', label: 'Diktatdatei (.sdict)', mime: 'application/zip' },
+    { id: 'rtf', label: 'Formatierter Text (.rtf)', mime: 'application/rtf' },
+    { id: 'txt', label: 'Reiner Text (.txt)', mime: 'text/plain' },
+]);
+
+function downloadSession(blob, format) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'diktat.' + format;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 /**
  * Where a list open event lands.
@@ -289,6 +303,9 @@ export function createCorrectionViewController(options) {
     const audioEl = shallowRef(null);
     const gainState = shallowRef(null);
     const closeMessage = ref('');
+    const fileAction = ref('');
+    const fileMessage = ref('');
+    const fileError = ref(false);
     let gain = null;
     let gainContext = null;
     let highlighter = null;
@@ -333,6 +350,7 @@ export function createCorrectionViewController(options) {
     const saver = useCorrectionSave({
         editor, client, dictationId, getPositionMs, vue: V || undefined,
         lease: createLeaseAdapter(editor, V),
+        canSave: () => fileAction.value !== 'open',
         ...(opts.autosaveMs !== undefined ? { autosaveMs: opts.autosaveMs } : {}),
         ...(v8 ? { reconcileFirst: true } : {}),
         ...(opts.saveOptions || {}),
@@ -464,6 +482,98 @@ export function createCorrectionViewController(options) {
         return res;
     }
 
+    const bundlePath = '/bundles/' + encodeURIComponent(dictationId);
+
+    async function sessionVersion() {
+        const res = await client.request('/dictations/' + encodeURIComponent(dictationId) + '/correction');
+        if (res.outcome !== 'ok' || !Number.isSafeInteger(res.data?.bundle_version)) {
+            throw new Error('Der aktuelle Stand konnte nicht geprüft werden.');
+        }
+        if (res.data.text_revision_id !== editor.textRevisionId.value
+            || (res.data.audio_revision_id ?? null) !== editor.audio.value.revisionId) {
+            throw new Error('Das Diktat wurde in der Zwischenzeit geändert. Laden Sie es zuerst neu.');
+        }
+        return res.data.bundle_version;
+    }
+
+    async function withFileAction(action, work) {
+        if (disposed || !ready.value || fileAction.value || editor.loading.value || saver.state.value === 'saving') return false;
+        fileAction.value = action;
+        fileError.value = false;
+        fileMessage.value = action === 'open' ? 'Datei wird geöffnet …' : 'Datei wird vorbereitet …';
+        try {
+            const message = await work();
+            if (disposed) return false;
+            fileMessage.value = message;
+            return true;
+        } catch (error) {
+            if (disposed) return false;
+            fileError.value = true;
+            fileMessage.value = error instanceof Error ? error.message : 'Die Datei konnte nicht verarbeitet werden.';
+            return false;
+        } finally {
+            fileAction.value = '';
+            if (!disposed && editor.dirty.value) saver.touch();
+        }
+    }
+
+    function saveSession(format) {
+        const kind = SESSION_FORMATS.find((row) => row.id === format);
+        if (!kind) return false;
+        return withFileAction('save', async () => {
+            if (editor.dirty.value) {
+                const res = await save();
+                if (!res.ok || editor.dirty.value) throw new Error('Speichern Sie zuerst Ihre Änderungen am Diktat.');
+            }
+            if (disposed) return '';
+            const version = await sessionVersion();
+            if (disposed) return '';
+            const res = await client.request(bundlePath + '/export?format=' + format + '&version=' + version,
+                { responseType: 'blob' });
+            if (disposed) return '';
+            if (res.outcome !== 'ok' || res.data?.type?.split(';')[0] !== kind.mime) {
+                const reason = res.status === 404 ? 'Keine Berechtigung zum Speichern dieser Datei.' : res.message;
+                throw new Error('Die Datei konnte nicht gespeichert werden. ' + (reason || ''));
+            }
+            (opts.downloadSession || downloadSession)(res.data, format);
+            return 'Download gestartet: diktat.' + format + ' Prüfen Sie die Datei in den Downloads Ihres Browsers.';
+        });
+    }
+
+    function openSession(file) {
+        if (!file || !editor.canEdit.value) return false;
+        const format = /\.(sdict|rtf|txt)$/i.exec(file.name)?.[1].toLowerCase();
+        return withFileAction('open', async () => {
+            if (!format) throw new Error('Wählen Sie eine Datei mit der Endung .sdict, .rtf oder .txt.');
+            const replacement = format === 'sdict' ? 'Text und Ton' : 'den Text (der bisherige Ton bleibt)';
+            const warning = editor.dirty.value ? ' Nicht gespeicherte Änderungen gehen verloren.' : '';
+            if (!(opts.confirm || globalThis.confirm)('Diese Datei ersetzt ' + replacement + ' im offenen Diktat.' + warning + ' Datei öffnen?')) {
+                return 'Öffnen abgebrochen.';
+            }
+            const version = await sessionVersion();
+            if (disposed) return '';
+            if (!editor.canEdit.value) throw new Error('Das Diktat kann gerade nicht bearbeitet werden.');
+            const res = await client.request(bundlePath + '/import?format=' + format, {
+                method: 'POST', rawBody: file, ifMatch: '"' + version + '"', idempotencyKey: globalThis.crypto.randomUUID(),
+            });
+            if (disposed) return '';
+            if (res.outcome !== 'ok' || res.data?.status !== 'committed') {
+                if (res.status === 404) throw new Error('Die Datei wurde nicht geöffnet. Keine Berechtigung für dieses Diktat.');
+                if (res.status === 413) throw new Error('Die Datei wurde nicht geöffnet. Sie ist zu gross.');
+                if (res.outcome === 'network' || res.outcome === 'UNKNOWN' || res.outcome === 'ok') {
+                    throw new Error('Ob die Datei übernommen wurde, ist unklar. Prüfen Sie den Stand, bevor Sie es erneut versuchen.');
+                }
+                throw new Error('Die Datei wurde nicht geöffnet. ' + (res.message || ''));
+            }
+            const loaded = await reloadLatest();
+            if (!loaded.ok || editor.audio.value.status !== 'ready') {
+                throw new Error('Die Datei wurde übernommen, aber das Diktat konnte nicht vollständig geladen werden. Laden Sie es neu.');
+            }
+            return res.data.audio_synced === true ? 'Diktatdatei mit Text und Ton geöffnet.'
+                : 'Text geöffnet. Die Datei enthielt keinen Ton. Der bisherige Ton bleibt. Beim Abspielen folgt die Markierung dem neuen Text nicht.';
+        });
+    }
+
     function adoptAudioRevision(id) {
         if (disposed || !id || editor.audio.value.revisionId === id) return;
         editor.audio.value = { status: 'ready', revisionId: id, etag: '"' + id + '"', src: editor.audioSource(id), message: '' };
@@ -487,6 +597,7 @@ export function createCorrectionViewController(options) {
     }
 
     function setText(next) {
+        if (fileAction.value) return false;
         const accepted = editor.setText(next);
         if (accepted) saver.touch();
         return accepted;
@@ -509,7 +620,7 @@ export function createCorrectionViewController(options) {
     function onShortcut(event) {
         if (!event || !(event.ctrlKey || event.metaKey) || String(event.key).toLowerCase() !== 's') return false;
         if (typeof event.preventDefault === 'function') event.preventDefault();
-        save();
+        if (!fileAction.value) save();
         return true;
     }
 
@@ -589,7 +700,7 @@ export function createCorrectionViewController(options) {
 
     /** Unsaved edits are saved before the page is told to close; a failed save keeps the view open. */
     async function close() {
-        if (disposed) return false;
+        if (disposed || fileAction.value) return false;
         // A save can settle an older pending operation and leave newer text dirty (reconcile first),
         // or the text can change while the save is awaited: save again, bounded, until nothing is dirty.
         // A save already in flight (autosave follow-up) is awaited, not counted as a failure or a pass.
@@ -641,6 +752,7 @@ export function createCorrectionViewController(options) {
         leaseRun, leaseButtons,
         pedalStatus, pedalReady: () => pedalReady, pedal: () => pedal, setPedalSettings,
         start, load, save, setText, reloadLatest, keepMine, takeServer, compare: () => saver.compare(), close, dispose, syncRevision,
+        fileAction, fileMessage, fileError, saveSession, openSession,
         client: scoped, adoptAudioRevision, bindAudio, bindAlignmentRoot, alignmentRootEl: () => alignmentRoot, alignmentNotice, onSync, onShortcut, onKeydown, onInput, onSelect, onTemplate, seekToResume, getPositionMs, seek,
         text: TEXT,
     };
@@ -706,6 +818,15 @@ const LOCAL_CSS = `
 .v8-ui .editor-page :is(.context-tools,.toolbar-group:last-child,.find-row,.word-sync-controls,.dialoghead,.popover-heading) .tooltip{left:auto;right:0;transform:none}
 .v8-ui .editor-page .alignment-text{max-height:8lh;overflow:auto;overflow-wrap:anywhere;white-space:pre-wrap;line-height:1.8;margin:0}
 .v8-ui .editor-page .editor-status{flex-wrap:wrap}
+.v8-ui .editor-page .session-files{padding-inline:16px;margin-bottom:8px}
+.v8-ui .editor-page .session-files summary{display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600}
+.v8-ui .editor-page .session-files summary::before{content:'▸'}
+.v8-ui .editor-page .session-files[open] summary::before{content:'▾'}
+.v8-ui .editor-page .session-file-actions{display:flex;flex-wrap:wrap;gap:8px;margin-block:8px}
+.v8-ui .editor-page .session-files :is(summary,button){min-height:48px}
+.v8-ui .editor-page .session-files button{max-width:100%;padding:8px 12px;white-space:normal;text-align:start}
+.v8-ui .editor-page .session-files .template-meta{margin:0 0 8px}
+.v8-ui .editor-page .session-files :is(summary,button):focus-visible{outline:var(--focus-outline);outline-offset:var(--focus-offset)}
 .v8-ui .editor-page .editor-status>[role=status]{flex:1 1 220px;min-width:0}
 .v8-ui .editor-page .editor-status-right{flex-wrap:wrap;white-space:normal;min-width:0}
 .v8-ui .editor-page .editor-workspace[data-dirty=true] .editor-status>[role=status]{color:var(--v8-text);font-weight:650}
@@ -837,7 +958,7 @@ export const CorrectionBody = {
         };
         const tb = createCorrectionToolbar({
             editor: editorPort,
-            canEdit: () => Boolean(e.canEdit.value),
+            canEdit: () => Boolean(e.canEdit.value && !c.fileAction.value),
             onFontSize: (px) => { fontPx.value = px; },
             onFocusMode: (on) => {
                 focusMode.value = on;
@@ -855,7 +976,7 @@ export const CorrectionBody = {
         }
         if (typeof V.watch === 'function') {
             V.watch(c.loadGeneration, () => { tb.reset(); });
-            V.watch(e.canEdit, () => { tb.refresh(); });
+            V.watch([e.canEdit, c.fileAction], () => { tb.refresh(); });
             V.watch([followOn, a.currentWord], ([follow, word]) => {
                 if (!follow || !word || drawer.value) return;
                 const root = c.alignmentRootEl();
@@ -912,13 +1033,21 @@ export const CorrectionBody = {
         const unsavedSuffix = () => Boolean(e.dirty.value) && !/nicht gespeicherte/i.test(String(s.message.value || ''));
         const pickTemplate = (id) => { templatesOpen.value = false; if (id) e.applyTemplate(id); };
         const toolStatus = () => tbState.value.readOnlyReason || tbState.value.message || '';
+        const fileInput = V.shallowRef(null);
+        const onSessionFile = (event) => {
+            const file = event.currentTarget.files[0];
+            event.currentTarget.value = '';
+            c.openSession(file);
+        };
+        const canEdit = V.computed(() => e.canEdit.value && !c.fileAction.value);
         return {
             formatDictationReference,
             c, FOCUS, MODES, box, styleFor, TEXT, showDiff,
+            SESSION_FORMATS, fileInput, onSessionFile, fileAction: c.fileAction, fileMessage: c.fileMessage, fileError: c.fileError,
             tb, tbState, textEl, setTextEl, fontPx, focusMode, shortcutsOpen, highlightOn, inlineWord, editorScroll, followOn, onTextInput, onTextKeydown, onFindKeydown,
             onQuery, onReplacement, onCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, drawerClose, closeDrawer, toggleDrawer, unsavedSuffix,
             repeatState: c.repeat.state, REPEAT_TEXT,
-            text: e.text, canEdit: e.canEdit, dirty: e.dirty, textRevisionId: e.textRevisionId, loading: e.loading, error: e.error, manual: e.manual,
+            text: e.text, canEdit, editAllowed: e.canEdit, dirty: e.dirty, textRevisionId: e.textRevisionId, loading: e.loading, error: e.error, manual: e.manual,
             lease: e.lease, audio: e.audio, audioSynced: e.audioSynced,
             template: e.template, templates: e.templates, templatesError: e.templatesError,
             editorAnnouncement: e.announcement,
@@ -982,7 +1111,7 @@ export const CorrectionBody = {
                   aria-haspopup="dialog" aria-controls="ccv-drawer" data-context-toggle="options" @click="toggleDrawer('options', $event.currentTarget)"><UiIcon name="settings" /></button>
         </span>
         <span class="tool-wrap" v-tip="{ label: TEXT.reload }">
-          <button type="button" class="icon-button" :style="FOCUS" :disabled="loading || dirty" :aria-label="TEXT.reload"
+          <button type="button" class="icon-button" :style="FOCUS" :disabled="loading || dirty || Boolean(fileAction)" :aria-label="TEXT.reload"
                   data-testid="reload" @click="c.load()"><UiIcon name="refresh" /></button>
         </span>
       </div>
@@ -997,11 +1126,26 @@ export const CorrectionBody = {
     <div class="live-inline-status" role="group" :aria-label="TEXT.lease" data-testid="lease-bar"
          style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
       <span role="status" aria-live="polite" :style="{ color: lease.surface.color }">{{ lease.message }}</span>
-      <button v-for="b in c.leaseButtons()" :key="b.id" type="button" :class="['button', 'small', b.id === 'acquire' ? 'primary' : '']" :style="FOCUS" :disabled="b.disabled"
+      <button v-for="b in c.leaseButtons()" :key="b.id" type="button" :class="['button', 'small', b.id === 'acquire' ? 'primary' : '']" :style="FOCUS" :disabled="b.disabled || Boolean(fileAction)"
               :data-action="b.id" @click="c.leaseRun[b.id]()">{{ b.label }}</button>
     </div>
 
     <template v-if="ready">
+      <details class="session-files" data-testid="session-files">
+        <summary :style="FOCUS">Diktatdateien</summary>
+        <div class="session-file-actions" role="group" aria-label="Diktatdateien speichern oder öffnen">
+          <button v-for="format in SESSION_FORMATS" :key="format.id" type="button" class="button" :style="FOCUS"
+                  :disabled="loading || Boolean(fileAction) || saveState === 'saving'" :data-session-format="format.id"
+                  :aria-describedby="format.id === 'txt' ? 'ccv-session-hint' : null"
+                  @click="c.saveSession(format.id)">{{ format.label }} speichern</button>
+          <button type="button" class="button" :style="FOCUS" :disabled="!canEdit || saveState === 'saving'"
+                  @click="fileInput.click()">Datei ins Diktat laden …</button>
+          <input ref="fileInput" type="file" accept=".sdict,.rtf,.txt" hidden data-testid="session-file-input" @change="onSessionFile">
+        </div>
+        <p id="ccv-session-hint" class="template-meta">Diktatdatei: Text und Ton, hier wieder zu öffnen. TXT: nur Text, ohne Ton und Wortmarkierung beim Abspielen.</p>
+        <p v-if="!canEdit && !fileAction" class="template-meta">Wählen Sie zuerst «Bearbeiten», um eine Datei zu laden.</p>
+      </details>
+      <p role="status" :class="{ note: fileMessage }" :style="fileError ? box('error') : {}" data-testid="session-file-status">{{ fileMessage }}</p>
       <div class="player compact-player" data-testid="player-bar">
         <audio preload="metadata" hidden :ref="c.bindAudio" :src="audio.status === 'ready' ? audio.src : null" :aria-label="TEXT.audio"></audio>
         <PlaybackTempo v-if="audioEl" :audio="audioEl" :step-seconds="c.stepSeconds" :on-sync="c.onSync" />
@@ -1060,7 +1204,7 @@ export const CorrectionBody = {
                     :aria-expanded="String(shortcutsOpen)" data-tool="shortcuts" @click="shortcutsOpen = !shortcutsOpen; templatesOpen = false"><UiIcon name="keyboard" /></button></span>
             <span class="tool-wrap" v-tip="{ label: TEXT.save, keys: 'Strg/Cmd+S' }"><button type="button" class="icon-button save-button" :class="{ 'has-changes': dirty }" :style="FOCUS"
                     :aria-label="dirty ? TEXT.saveDirty : TEXT.save"
-                    :disabled="saveState === 'saving' || saveState === 'saved'" data-testid="save" @click="c.save()"><UiIcon name="save" /></button></span>
+                    :disabled="saveState === 'saving' || saveState === 'saved' || Boolean(fileAction)" data-testid="save" @click="c.save()"><UiIcon name="save" /></button></span>
           </div>
         </div>
 
@@ -1122,7 +1266,7 @@ export const CorrectionBody = {
                     @scroll.passive="editorScroll = $event.target.scrollTop" @input="onTextInput($event)" @keydown="onTextKeydown($event)" @select="followOn = false; c.onSelect($event)"
                     @keyup="c.onSelect($event)" @mouseup="c.onSelect($event)"></textarea>
         </div>
-        <p v-if="!canEdit && !loading" id="ccv-readonly" class="template-meta" style="margin: 0">{{ lease.mayAcquire === false ? TEXT.readOnlyAccess : TEXT.readOnly }}</p>
+                  <p v-if="!canEdit && !loading" id="ccv-readonly" class="template-meta" style="margin: 0">{{ editAllowed ? fileMessage : (lease.mayAcquire === false ? TEXT.readOnlyAccess : TEXT.readOnly) }}</p>
         <section class="panel" :aria-label="TEXT.alignment" :data-status="alignStatus" data-testid="alignment">
           <div class="panel-header">
             <h2>{{ TEXT.alignment }}</h2>

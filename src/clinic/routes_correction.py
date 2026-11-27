@@ -255,7 +255,7 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
     @bp.get(PATH)
     def get_correction(dictation_id: UUID) -> Response:
         dictation = object_for(dictation_id, 'correction_read')
-        head = revisions.current_revision(dictation)
+        head, bundle_version = revisions.current_revision_with_count(dictation)
         state = corr.get_state(dictation, current_user.id)
         body = head.body if head else ''
         held = lease.current(dictation.id)
@@ -272,6 +272,7 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
         if clinic_mode_enabled():
             from src.clinic.bundle_store import ClinicBundleDocument, audio_synced
 
+            out['bundle_version'] = bundle_version
             saved = db.session.get(ClinicBundleDocument, head.id) if head else None
             if saved is not None:
                 out['audio_synced'] = audio_synced(saved, audio)

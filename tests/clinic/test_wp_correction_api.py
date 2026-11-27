@@ -89,6 +89,19 @@ def save_payload(ids, text, **extra):
                 expected_text_revision_id=ids['asr'], **extra)
 
 
+def test_correction_get_reports_numeric_bundle_version(api):
+    client, headers, ids, *_ = api
+    url = BASE.format(ids['dictation'])
+    before = client.get(url).json
+    assert before['text_revision_id'] == ids['asr']
+    assert before['bundle_version'] == 1
+    saved = post(client, headers, ids, '/save', save_payload(ids, BODY + ' Neu'))
+    assert saved.status_code == 200
+    after = client.get(url).json
+    assert after['text_revision_id'] == saved.json['text_revision_id']
+    assert after['bundle_version'] == 2
+
+
 def test_save_derives_links_and_reports_unaligned(api):
     client, headers, ids, *_ = api
     text = BODY.replace('drei', 'zwei') + ' Neu'

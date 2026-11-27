@@ -103,6 +103,81 @@ async function openForEdit(client, extra = {}) {
     return c;
 }
 
+describe('dictation files', () => {
+    const snapshot = (extra = {}) => ok(correction({ bundle_version: 3, audio_revision_id: 'a1', ...extra }));
+
+    it.each([['sdict', 'application/zip'], ['rtf', 'application/rtf'], ['txt', 'text/plain;charset=utf-8']])(
+        'downloads %s from the versioned export route', async (format, type) => {
+            const path = `/bundles/d1/export?format=${format}&version=3`;
+            const blob = new Blob(['test'], { type });
+            const client = fakeClient(base({ 'GET /dictations/d1/correction': snapshot(), ['GET ' + path]: ok(blob) }));
+            const downloadSession = vi.fn();
+            const c = controllerFor(client, { downloadSession });
+            await c.start();
+            try {
+                expect(await c.saveSession(format)).toBe(true);
+                expect(client.request).toHaveBeenCalledWith(path, { responseType: 'blob' });
+                expect(downloadSession).toHaveBeenCalledWith(blob, format);
+                expect(c.fileMessage.value).toContain(`diktat.${format}`);
+            } finally { c.dispose(); }
+        },
+    );
+
+    it.each(['sdict', 'rtf', 'txt'])('reloads only after a committed %s import', async (format) => {
+        const synced = format === 'sdict';
+        const revision = synced ? 'a2' : 'a1';
+        const confirm = vi.fn(() => true);
+        const file = Object.assign(new Blob(['test']), { name: `test.${format}` });
+        let committed = false;
+        const path = `/bundles/d1/import?format=${format}`;
+        const client = fakeClient(base({
+            'GET /dictations/d1/correction': () => committed ? snapshot({ text: 'Geöffnet', text_revision_id: 'r2',
+                bundle_version: 4, audio_revision_id: revision, audio_synced: synced }) : snapshot(),
+            'GET /dictations/d1/audio-revisions/current': () => ok({ revision_id: committed ? revision : 'a1', segments: [] }),
+            ['POST ' + path]: () => { committed = true; return ok({ status: 'committed', audio_synced: synced }); },
+        }));
+        const c = await openForEdit(client, { contract: 'v8', confirm });
+        try {
+            c.setText('Nicht gespeicherte Änderung');
+            expect(await c.openSession(file)).toBe(true);
+            expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Nicht gespeicherte Änderungen gehen verloren'));
+            expect(client.request).toHaveBeenCalledWith(path, { method: 'POST', rawBody: file, ifMatch: '"3"', idempotencyKey: expect.any(String) });
+            expect(c.editor.text.value).toBe('Geöffnet');
+            expect(c.editor.dirty.value).toBe(false);
+            expect(c.editor.audio.value.revisionId).toBe(revision);
+            expect(c.editor.audioSynced.value).toBe(synced);
+            expect(c.fileMessage.value).toContain(synced ? 'mit Text und Ton' : 'Die Datei enthielt keinen Ton');
+        } finally { c.dispose(); }
+    });
+
+    it('preserves local edits and the playing audio on cancellation and refusal', async () => {
+        const confirm = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true);
+        const path = '/bundles/d1/import?format=sdict';
+        const client = fakeClient(base({ 'GET /dictations/d1/correction': snapshot(), ['POST ' + path]: fail('validation', 400, '') }));
+        const c = await openForEdit(client, { confirm });
+        const file = { name: 'test.sdict' };
+        try {
+            c.setText('Meine Änderungen');
+            const audio = new FakeAudio();
+            c.bindAudio(audio);
+            audio.currentTime = 3;
+            await audio.play();
+            const previous = c.editor.audio.value;
+            await c.openSession(file);
+            expect(count(client, 'POST', path)).toBe(0);
+            expect(await c.openSession(file)).toBe(false);
+            expect(count(client, 'POST', path)).toBe(1);
+            expect(c.editor.text.value).toBe('Meine Änderungen');
+            expect(c.editor.dirty.value).toBe(true);
+            expect(c.editor.audio.value).toBe(previous);
+            expect(audio.currentTime).toBe(3);
+            expect(audio.paused).toBe(false);
+            expect(c.fileError.value).toBe(true);
+            expect(c.fileMessage.value).toContain('nicht geöffnet');
+        } finally { c.dispose(); }
+    });
+});
+
 describe('compose-correction contract', () => {
     it('exports the view and registers it as clinic-correction-view', () => {
         const app = { component: vi.fn() };

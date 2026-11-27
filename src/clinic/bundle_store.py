@@ -52,12 +52,9 @@ def _render(dictation, audio, load_sources):
     return audio_render.render_audio(edl, load_sources(dictation, edl)).wav
 
 
-def load(dictation, root, load_sources):
-    version = text_version(dictation)
-    head = revisions.current_revision(dictation)
+def load(dictation, root, load_sources, *, include_audio=True):
+    head, version = revisions.current_revision_with_count(dictation)
     audio = audio_revisions.current_audio_revision(dictation)
-    if version != text_version(dictation):
-        raise StaleVersion()
     if head is None and audio is None:
         return None
     saved = db.session.get(ClinicBundleDocument, head.id) if head else None
@@ -67,6 +64,8 @@ def load(dictation, root, load_sources):
     if saved and saved.audio_revision_id and not synced:
         document = CanonicalDocument(tuple(replace(node, runs=tuple(
             replace(run, audio_anchor_id=None) for run in node.runs)) for node in document.nodes))
+    if not include_audio:
+        return BundleSession(document, b'', version)
     wav = b''
     try:
         if synced:
