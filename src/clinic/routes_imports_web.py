@@ -12,11 +12,12 @@ from werkzeug.exceptions import BadRequest, RequestEntityTooLarge
 from wtforms.validators import ValidationError
 
 from src.clinic import (
-    agent_channel, import_centre, import_source_config, import_visibility, pools, recipient_defaults, worklist_entries,
+    agent_channel, agent_channel_ingest, import_centre, import_source_config, import_visibility, pools,
+    recipient_defaults, worklist_entries,
 )
 from src.clinic import routes_import_sources_web as source_routing
 from src.clinic.admin_dictation_access import _is_active_site_admin
-from src.clinic.config import clinic_mode_enabled
+from src.clinic.config import clinic_mode_enabled, dev_defaults, feature_locked
 from src.clinic.identity import ClinicAccountPolicy
 from src.clinic.ingest import IngestError
 from src.clinic.migration_import_intent_metadata import interpret
@@ -96,25 +97,42 @@ def intents():
     return jsonify(items=items, count=len(items))
 
 
+def _import_payload():
+    try:
+        validate_csrf(request.headers.get("X-CSRF-Token") or request.headers.get("X-CSRFToken"))
+    except ValidationError:
+        raise CommandProblem("FORBIDDEN") from None
+    request.max_content_length = min(MAX_BODY_BYTES, request.max_content_length or MAX_BODY_BYTES)
+    try:
+        body = json.loads(request.get_data().decode("utf-8"), object_pairs_hook=_unique_object) if request.is_json else None
+    except (BadRequest, RequestEntityTooLarge, ValueError, RecursionError):
+        raise CommandProblem("INVALID_PAYLOAD") from None
+    if not isinstance(body, dict):
+        raise CommandProblem("INVALID_PAYLOAD")
+    return body
+
+
+def _import_key():
+    key = request.headers.get("Idempotency-Key", "")
+    if not 8 <= len(key) <= 128 or any(not 33 <= ord(char) <= 126 for char in key):
+        raise CommandProblem("INVALID_PAYLOAD")
+    return key
+
+
+def _payload_digest(body):
+    return sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
 def _import_write(target, operation):
     actor = current_user.id
     if not _can_import(actor):
         return _problem("FORBIDDEN")
     try:
-        validate_csrf(request.headers.get("X-CSRF-Token") or request.headers.get("X-CSRFToken"))
-    except ValidationError:
-        return _problem("FORBIDDEN")
-    key = request.headers.get("Idempotency-Key", "")
-    if not 8 <= len(key) <= 128 or any(not 33 <= ord(char) <= 126 for char in key):
-        return _problem("INVALID_PAYLOAD")
-    request.max_content_length = min(MAX_BODY_BYTES, request.max_content_length or MAX_BODY_BYTES)
-    try:
-        body = json.loads(request.get_data().decode("utf-8"), object_pairs_hook=_unique_object) if request.is_json else None
-    except (BadRequest, RequestEntityTooLarge, ValueError, RecursionError):
-        return _problem("INVALID_PAYLOAD")
-    if not isinstance(body, dict):
-        return _problem("INVALID_PAYLOAD")
-    digest = sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        body = _import_payload()
+        key = _import_key()
+    except CommandProblem as error:
+        return _problem(str(error))
+    digest = _payload_digest(body)
     scope = (actor, request.endpoint, target, key)
 
     connection = db.session.connection()
@@ -253,6 +271,82 @@ def device_send() -> Response | tuple[Response, int]:
 @blueprint.post("/intents")
 def create_intents() -> Response | tuple[Response, int]:
     return _import_write("batch", lambda actor, body: _queue(actor, body, device_only=False))
+
+
+def _cleanup_refusal(item, receipt_id, config, expected_revision):
+    if expected_revision is not None and expected_revision != config["policy_version"]:
+        return "POLICY_CHANGED"
+    if feature_locked("device_delete_runtime_enabled") or not config["allow_source_delete"]:
+        return "SOURCE_DELETE_DISABLED"
+    try:
+        root = import_source_config._clean_backup_root(config["backup_root"], config["approved_root"])
+        days = import_source_config._clean_retention(config["backup_retention_days"])
+    except agent_channel.AgentChannelError:
+        return "BACKUP_RETENTION_NOT_READY"
+    if not (config["backup_enabled"] and root and days
+            and dev_defaults().get("privacy", {}).get("retention_policy_approved") is True):
+        return "BACKUP_RETENTION_NOT_READY"
+    return agent_channel_ingest.source_cleanup_refusal(item, receipt_id)
+
+
+def _source_cleanup(*, preview):
+    fields = ("agent_id", "source_snapshot_id", "receipt_id")
+    try:
+        body = _import_payload()
+        required = set(fields) if preview else set(fields) | {"expected_revision", "confirmation"}
+        if not required <= body.keys() or body.keys() - required - {"expected_revision"}:
+            raise CommandProblem("INVALID_PAYLOAD")
+        revision = body.get("expected_revision")
+        if ("expected_revision" in body and (type(revision) is not int or revision < 0)
+                or (not preview and body["confirmation"] is not True)):
+            raise CommandProblem("INVALID_PAYLOAD")
+        key = None if preview else _import_key()
+        agent_id, snapshot_id, receipt_id = (str(UUID(body[field])) for field in fields)
+    except (TypeError, ValueError, AttributeError):
+        return _problem("INVALID_PAYLOAD")
+    except CommandProblem as error:
+        return _problem(str(error))
+
+    actor = current_user.id
+    item = agent_channel.ClinicAgentInventory.query.filter_by(id=snapshot_id, agent_id=agent_id).first()
+    if item is None:
+        return _assignment_error(agent_channel.AgentChannelError("not_found", "snapshot"))
+    owners = agent_channel.unique_root_owners(agent_channel.registered_agent_roots())
+    scope = import_visibility.ImportScope(agent_id, item.root_id, item.source_id, item.snapshot_version)
+    config = _source_config(scope, item.relative_path, owners)
+    if config is None:
+        return _assignment_error(agent_channel.AgentChannelError("not_found", "snapshot"))
+    if not source_routing.may_manage_source_deletion(actor, config):
+        return _problem("FORBIDDEN")
+
+    def decision():
+        code = _cleanup_refusal(item, receipt_id, config, revision)
+        return dict(
+            agent_id=agent_id, source_snapshot_id=snapshot_id, snapshot_version=item.snapshot_version,
+            receipt_id=receipt_id, policy_version=config["policy_version"], requested_by_user_id=actor,
+            action="none" if code else "delete", code=code,
+            status="DENIED" if code else ("ELIGIBLE" if preview else "ACCEPTED"),
+        )
+
+    if preview:
+        return jsonify(decision())
+    try:
+        result = run_once((actor, request.endpoint, snapshot_id, key), _payload_digest(body),
+                          lambda: decision() | {"id": str(uuid4())})
+    except CommandProblem as error:
+        return _problem(str(error))
+    return jsonify(result), 409 if result["status"] == "DENIED" else 200
+
+
+@blueprint.post("/source-cleanup/preview")
+def source_cleanup_preview():
+    return _source_cleanup(preview=True)
+
+
+@blueprint.post("/source-cleanup")
+def request_source_cleanup():
+    """Record the operator's decision. This route never schedules an agent operation."""
+    return _source_cleanup(preview=False)
 
 
 @blueprint.post("/intents/<uuid:intent_id>/retry")

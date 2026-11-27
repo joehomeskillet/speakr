@@ -1,6 +1,7 @@
 """Web routing for existing locally approved sources. No device or filesystem commands."""
 import hashlib
 import json
+from dataclasses import replace
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -10,8 +11,11 @@ from flask_wtf.csrf import validate_csrf
 from wtforms.validators import ValidationError
 
 from src.clinic import import_source_config as sources
+from src.clinic import policy
+from src.clinic.admin_dictation_access import _is_active_site_admin
 from src.clinic.agent_channel import AgentChannelError
 from src.clinic.backup_retention_plan import BackupEntry, plan_cleanup
+from src.clinic.config import feature_locked
 from src.clinic.identity import ClinicAccountPolicy
 from src.clinic.parity_dispatch import CommandProblem, _problem
 from src.clinic.parity_receipts import ClinicParityReceipt, run_once, scope_key
@@ -32,7 +36,7 @@ _BACKUP_FIELDS = {
 def _visible(config):
     visible = {key: config[key] for key in (
         "id", "source_kind", "source_ref", "target_author_user_id", "target_pool_id", "policy_version",
-        "autosend_enabled", "eol_filter_enabled",
+        "autosend_enabled", "eol_filter_enabled", "allow_source_delete",
     )}
     visible.update({field: config[key] for field, key in _BACKUP_FIELDS.items()})
     return visible
@@ -88,6 +92,17 @@ def get_source(config_id):
         return _source_error(error)
 
 
+def may_manage_source_deletion(actor, config):
+    if _is_active_site_admin(db.session, current_user):
+        return True
+    subject = policy.build_subject(actor)
+    grants = tuple(replace(grant, actions=frozenset({"release"})) for grant in subject.grants
+                   if "clinic.import.cleanup" in grant.actions)
+    pool_id = config["target_pool_id"]
+    facts = policy.RecordingFacts(0, config["target_author_user_id"], frozenset({pool_id}) if pool_id else frozenset())
+    return bool(grants) and policy.decide(replace(subject, grants=grants), "release", facts).allowed
+
+
 def update_source(config_id):
     actor = current_user.id
     try:
@@ -105,13 +120,13 @@ def update_source(config_id):
         return _problem("INVALID_PAYLOAD")
     body = request.get_json(silent=True)
     allowed = {"expected_version", "target_author_user_id", "target_pool_id",
-               "autosend_enabled", "eol_filter_enabled", *_BACKUP_FIELDS}
+               "autosend_enabled", "eol_filter_enabled", "allow_source_delete", *_BACKUP_FIELDS}
     if not isinstance(body, dict) or not set(body) <= allowed or "expected_version" not in body:
         return _problem("INVALID_PAYLOAD")
     routing = "target_author_user_id" in body or "target_pool_id" in body
     if routing and {"target_author_user_id", "target_pool_id"} - set(body):
         return _problem("INVALID_PAYLOAD")
-    flags = [name for name in ("autosend_enabled", "eol_filter_enabled") if name in body]
+    flags = [name for name in ("autosend_enabled", "eol_filter_enabled", "allow_source_delete") if name in body]
     backup = {key: body[field] for field, key in _BACKUP_FIELDS.items() if field in body}
     if not routing and not flags and not backup:
         return _problem("INVALID_PAYLOAD")
@@ -135,6 +150,12 @@ def update_source(config_id):
             return _problem("INVALID_PAYLOAD")
         if pool is not None and not ClinicAuthorPoolMember.query.filter_by(pool_id=pool, user_id=author).first():
             return _problem("INVALID_PAYLOAD")
+    scope_config = config | {"target_author_user_id": author, "target_pool_id": pool} if routing else config
+    if "allow_source_delete" in body and (
+        not may_manage_source_deletion(actor, scope_config)
+        or (body["allow_source_delete"] and feature_locked("device_delete_runtime_enabled"))
+    ):
+        return _problem("FORBIDDEN")
     scope = (actor, "route_import_source", config_id, key)
     digest = hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
 
@@ -147,7 +168,9 @@ def update_source(config_id):
             changes[name] = body[name]
         updated = sources.update_source_config(
             actor_user_id=actor, config_id=config_id, expected_version=version, commit=False,
-            may_assign_author=lambda *_: current_user.is_admin, **changes)
+            may_assign_author=lambda *_: current_user.is_admin,
+            may_manage_deletion=lambda uid: not feature_locked("device_delete_runtime_enabled")
+            and may_manage_source_deletion(uid, scope_config), **changes)
         audited = author if routing else config["target_author_user_id"]
         event = audit.record_in_tx("admin.setting.changed", actor_user_id=actor, target_user_id=audited, force=True,
                                    details={"key": "clinic_import_routing:" + config_id})
