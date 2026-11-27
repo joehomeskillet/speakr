@@ -20,6 +20,7 @@ import hashlib
 from dataclasses import dataclass
 from datetime import datetime
 from io import BytesIO
+from zipfile import ZipFile
 
 from src.clinic.models import (
     ClinicAudioRevision,
@@ -354,7 +355,15 @@ def _docx_bytes(title: str, header_lines: list[str], paragraphs: list[str]) -> b
         doc.add_paragraph(paragraph)
     buffer = BytesIO()
     doc.save(buffer)
-    return buffer.getvalue()
+    # The download verifies the original byte hash after rendering the same release again.
+    # python-docx stamps each ZIP entry with the current time.
+    stable = BytesIO()
+    with ZipFile(buffer) as source, ZipFile(stable, 'w') as archive:
+        for entry in source.infolist():
+            content = source.read(entry)
+            entry.date_time = (1980, 1, 1, 0, 0, 0)
+            archive.writestr(entry, content)
+    return stable.getvalue()
 
 
 def _outcome(rendered: RenderedExport, action: str, local_save_proven: bool) -> ExportOutcome:
