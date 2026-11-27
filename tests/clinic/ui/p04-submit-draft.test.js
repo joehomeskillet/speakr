@@ -105,3 +105,131 @@ describe('P04 draft submission', () => {
         expect(request).toHaveBeenCalledTimes(3);
     });
 });
+
+describe('P04 draft metadata confirmation', () => {
+    const initialFields = { title: 'Synthetischer Entwurf', notes: 'Erste Notiz', priority: 128, deadline_date: '2026-12-01' };
+    const confirmedEtag = '"' + id + ':4"';
+    const lease = { outcome: 'ok', data: { dictation_id: id, lease_id: 'lease-1', etag } };
+    const confirmed = { outcome: 'ok', data: { dictation_id: id, etag: confirmedEtag } };
+    const uuid = expect.stringMatching(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i);
+    const draftDetail = (processing) => ({
+        outcome: 'ok', data: { ...detail.data, draft_metadata: initialFields, status_axes: { processing } },
+    });
+    const policy = (required) => ({ outcome: 'ok', data: { acceptance_required: required } });
+
+    function setup() {
+        const upload = vi.fn().mockResolvedValue({ dictation_id: id });
+        const request = vi.fn();
+        const controller = createRecordingViewController({
+            draftMetadata: true, currentUser: { id: 1 }, client: { request }, uploadFile: upload,
+            recorder: { startRecording: vi.fn(), stopRecording: vi.fn(), uploadRecordedAudio: upload },
+        });
+        return { controller, upload, request };
+    }
+
+    function selectFile(controller) {
+        controller.setMode('file');
+        controller.selectFile({ name: 'test.wav', size: 20 });
+    }
+
+    it('loads file draft and policy in parallel, then submits only with the metadata-confirmed ETag', async () => {
+        const { controller, upload, request } = setup();
+        let resolveDetail;
+        let resolveMetadata;
+        const pendingDetail = new Promise(resolve => { resolveDetail = resolve; });
+        const pendingMetadata = new Promise(resolve => { resolveMetadata = resolve; });
+        request.mockImplementation((url) => ({
+            [path + '/detail']: pendingDetail,
+            [path + '/acceptance-policy']: policy(true),
+            [path + '/leases']: lease,
+            [path + '/metadata']: pendingMetadata,
+            [path + '/send']: sent,
+        }[url]));
+        selectFile(controller);
+        const loading = controller.sendFile();
+        await vi.waitFor(() => {
+            expect(request).toHaveBeenCalledWith(path + '/detail');
+            expect(request).toHaveBeenCalledWith(path + '/acceptance-policy');
+        });
+        resolveDetail(draftDetail('pending'));
+        await loading;
+        expect(controller.model()).toMatchObject({
+            created: { dictationId: id }, canSubmit: false,
+            draft: { fields: initialFields, acceptanceRequired: true, saving: false, saved: false },
+        });
+        expect((await controller.submit()).ok).toBe(false);
+        expect(request).toHaveBeenCalledTimes(2);
+
+        const fields = { title: 'Neuer Titel', notes: 'Neue Notiz', priority: 0, deadline_date: '2026-12-02' };
+        for (const [field, value] of Object.entries(fields)) controller.setDraftField(field, value);
+        expect(controller.model().draft.fields).toEqual(fields);
+        const saving = controller.saveDraft();
+        await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(4));
+        expect(controller.model()).toMatchObject({ canSubmit: false, draft: { saving: true, saved: false } });
+        expect((await controller.submit()).ok).toBe(false);
+        resolveMetadata(confirmed);
+        expect((await saving).ok).toBe(true);
+        expect(controller.model()).toMatchObject({ canSubmit: true, draft: { saving: false, saved: true } });
+        expect((await controller.submit()).ok).toBe(true);
+        expect(request.mock.calls.slice(2)).toEqual([
+            [path + '/leases', expect.objectContaining({ method: 'POST', body: {} })],
+            [path + '/metadata', expect.objectContaining({
+                method: 'POST', body: { fields: { ...fields, deadline_time: null } }, ifMatch: etag, idempotencyKey: uuid,
+            })],
+            [path + '/send', expect.objectContaining({ method: 'POST', body: {}, ifMatch: confirmedEtag, idempotencyKey: uuid })],
+        ]);
+        expect(upload).toHaveBeenCalledOnce();
+    });
+
+    it('loads policy after recording upload and relocks submission synchronously on a new edit', async () => {
+        const { controller, request } = setup();
+        request.mockImplementation((url) => ({
+            [path + '/detail']: draftDetail('succeeded'),
+            [path + '/acceptance-policy']: policy(false),
+            [path + '/leases']: lease,
+            [path + '/metadata']: confirmed,
+        }[url]));
+        controller.setTitle(initialFields.title);
+        await controller.start();
+        await controller.stop();
+        await controller.sendRecording();
+        expect(request).toHaveBeenCalledTimes(2);
+        expect(request).toHaveBeenCalledWith(path + '/detail');
+        expect(request).toHaveBeenCalledWith(path + '/acceptance-policy');
+        expect(controller.model()).toMatchObject({ canSubmit: false, draft: { acceptanceRequired: false } });
+        controller.setDraftField('deadline_date', '');
+        expect((await controller.saveDraft()).ok).toBe(true);
+        expect(request).toHaveBeenLastCalledWith(path + '/metadata', expect.objectContaining({
+            body: { fields: { ...initialFields, deadline_date: null, deadline_time: null } },
+        }));
+        expect(controller.model().canSubmit).toBe(true);
+        controller.setDraftField('notes', 'Nachträgliche Änderung');
+        expect(controller.model()).toMatchObject({
+            canSubmit: false, draft: { saved: false, fields: { notes: 'Nachträgliche Änderung' } },
+        });
+        expect((await controller.submit()).ok).toBe(false);
+        expect(request).toHaveBeenCalledTimes(4);
+    });
+
+    it.each(['LEASE_STALE_GENERATION', 'STALE_VERSION'])('keeps the draft and blocks submit on %s', async (code) => {
+        const { controller, upload, request } = setup();
+        request.mockImplementation((url) => ({
+            [path + '/detail']: draftDetail('succeeded'),
+            [path + '/acceptance-policy']: policy(true),
+            [path + '/leases']: lease,
+            [path + '/metadata']: { outcome: 'conflict', code },
+        }[url]));
+        selectFile(controller);
+        await controller.sendFile();
+        const fields = { ...initialFields, notes: 'Ungesicherte Notiz' };
+        controller.setDraftField('notes', fields.notes);
+        expect((await controller.saveDraft()).ok).toBe(false);
+        expect(controller.model()).toMatchObject({
+            created: { dictationId: id }, canSubmit: false,
+            draft: { fields, acceptanceRequired: true, saving: false, saved: false },
+        });
+        expect((await controller.submit()).ok).toBe(false);
+        expect(request.mock.calls.slice(2).map(([url]) => url)).toEqual([path + '/leases', path + '/metadata']);
+        expect(upload).toHaveBeenCalledOnce();
+    });
+});

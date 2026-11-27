@@ -27,6 +27,7 @@
  */
 
 import { createRecorderPhases, isTitleEditable, LABELS, receiptDictationId } from './recorder-phases-ui.js';
+import { PRIORITY_OPTIONS } from './dictation-properties-ui.js';
 import { surfaceFor } from './tokens.js';
 
 export { receiptDictationId };
@@ -155,6 +156,9 @@ export function createRecordingViewController(options) {
     let submission = null;
     let submitError = '';
     let pendingSend = null;
+    let draft = null;
+    let resumedDraftId = opts.draftId || null;
+    let pendingMetadata = null;
     // A host that calls checkRouting() right after mounting (RecordingView) starts without the pending state.
     let routing = opts.oneButton && !opts.preflightOnMount ? 'routingPending' : null;
 
@@ -222,6 +226,7 @@ export function createRecordingViewController(options) {
             return denied('no_receipt');
         }
         Object.assign(state, { filePhase: 'sent', fileReceipt: receipt });
+        if (opts.draftMetadata) await loadDraft();
         notify();
         return { ok: true, receipt: receipt };
     }
@@ -236,7 +241,8 @@ export function createRecordingViewController(options) {
     }
 
     function receipt() {
-        return state.mode === 'file' ? state.fileReceipt : machine.getState().receipt;
+        return resumedDraftId ? { dictation_id: resumedDraftId }
+            : state.mode === 'file' ? state.fileReceipt : machine.getState().receipt;
     }
 
     function created() {
@@ -244,11 +250,109 @@ export function createRecordingViewController(options) {
         return id === null ? null : { dictationId: id };
     }
 
+    async function loadDraft() {
+        const id = receipt()?.dictation_id;
+        if (typeof id !== 'string' || !client?.request || !allowed() || state.disposed || draft?.loading) return;
+        const path = '/dictations/' + encodeURIComponent(id);
+        draft ||= { path, fields: null, etag: null, saved: false, saving: false, acceptanceRequired: null };
+        opts.onDraft?.(id);
+        const target = draft;
+        target.loading = true;
+        submitError = '';
+        notify();
+        try {
+            const [detail, policy] = await Promise.allSettled([
+                client.request(path + '/detail'), client.request(path + '/acceptance-policy'),
+            ]);
+            if (state.disposed || target !== draft) return;
+            const current = detail.value?.data;
+            if (detail.value?.outcome === 'ok' && current?.dictation_id === id && current.etag) {
+                if (current.status_axes?.workflow && current.status_axes.workflow !== 'neu_angelegt') {
+                    submission = 'notDraft';
+                    submitError = SEND_REFUSALS.NOT_DRAFT;
+                    return;
+                }
+                if (resumedDraftId && !current.draft_metadata) {
+                    submitError = 'Die gespeicherten Versanddaten sind nicht verfügbar.';
+                    return;
+                }
+                target.etag = current.etag;
+                if (current.draft_metadata) {
+                    const { title, ...fields } = current.draft_metadata;
+                    target.fields = { ...fields, title: title || receipt().title || machine.getState().title || state.file?.name || '' };
+                }
+                target.saved = false;
+                target.stale = false;
+            } else {
+                submitError = 'Der aktuelle Entwurf konnte nicht geladen werden.';
+            }
+            const required = policy.value?.data?.acceptance_required;
+            if (policy.value?.outcome === 'ok' && typeof required === 'boolean') target.acceptanceRequired = required;
+        } finally {
+            target.loading = false;
+            if (!state.disposed && target === draft) notify();
+        }
+    }
+
+    function setDraftField(field, value) {
+        if (!editableDraft() || !Object.hasOwn(draft.fields, field) || draft.fields[field] === value) return;
+        draft.fields[field] = value;
+        draft.saved = false;
+        pendingMetadata = null;
+        submitError = '';
+        notify();
+    }
+
+    function editableDraft() {
+        return draft?.fields && !draft.saving && !draft.loading && !draft.stale && !submission && !pendingSend && !state.disposed && allowed();
+    }
+
+    async function saveDraft() {
+        if (!editableDraft() || !draft.fields.title.trim()) return denied('invalid_phase');
+        const target = draft;
+        const id = receipt().dictation_id;
+        target.saving = true;
+        target.saved = false;
+        submitError = '';
+        notify();
+        const saveFailed = 'Entwurfsdaten wurden nicht bestätigt. Bitte erneut speichern.';
+        try {
+            const command = (body) => ({ method: 'POST', body, idempotencyKey: globalThis.crypto.randomUUID() });
+            const held = await client.request(target.path + '/leases', command({}));
+            if (state.disposed || !allowed()) return denied('cancelled');
+            if (held.outcome !== 'ok' || held.data?.dictation_id !== id || !held.data.lease_id) {
+                submitError = 'Bearbeitung nicht verfügbar. Der Entwurf bleibt geöffnet.';
+                return denied(held.code || 'lease_unavailable');
+            }
+            const fields = { ...target.fields, deadline_date: target.fields.deadline_date || null, deadline_time: null };
+            pendingMetadata ||= { ...command({ fields }), ifMatch: target.etag };
+            const res = await client.request(target.path + '/metadata', pendingMetadata);
+            if (state.disposed || !allowed()) return denied('cancelled');
+            if (res.outcome !== 'ok' || res.data?.dictation_id !== id || !res.data.etag) {
+                if (['conflict', 'permission', 'validation'].includes(res.outcome)) pendingMetadata = null;
+                target.stale = res.code === 'STALE_VERSION';
+                submitError = SEND_REFUSALS[res.code] || (res.code?.startsWith('LEASE_')
+                    ? 'Bearbeitung nicht mehr gültig. Der Entwurf bleibt geöffnet.' : (res.message || saveFailed));
+                return denied(res.code || 'unconfirmed');
+            }
+            target.etag = res.data.etag;
+            target.saved = true;
+            pendingMetadata = null;
+            return { ok: true };
+        } catch {
+            submitError = saveFailed;
+            return denied('unconfirmed');
+        } finally {
+            target.saving = false;
+            if (!state.disposed) notify();
+        }
+    }
+
     // The numeric recording id on older upload receipts is not a workflow target.
     function canSubmit() {
         const id = receipt()?.dictation_id;
         return typeof id === 'string' && !!id.trim() && typeof client?.request === 'function'
-            && allowed() && !state.disposed && !submission;
+            && allowed() && !state.disposed && !submission && (!opts.draftMetadata || draft?.saved === true);
     }
 
     async function submit() {
@@ -260,7 +364,8 @@ export function createRecordingViewController(options) {
         notify();
         try {
             if (!pendingSend) {
-                const detail = await client.request(path + '/detail');
+                const detail = draft ? { outcome: 'ok', data: { dictation_id: id, etag: draft.etag } }
+                    : await client.request(path + '/detail');
                 if (detail.outcome !== 'ok' || detail.data?.dictation_id !== id || !detail.data.etag) {
                     submitError = detail.message || 'Der aktuelle Diktatstand konnte nicht geladen werden.';
                     return denied('detail_unavailable');
@@ -278,6 +383,10 @@ export function createRecordingViewController(options) {
                 pendingSend = null;
                 submitError = SEND_REFUSALS[res.code] || res.message;
                 if (res.code === 'NOT_DRAFT') submission = 'notDraft';
+                if (draft && res.code === 'STALE_VERSION') {
+                    draft.saved = false;
+                    draft.stale = true;
+                }
             }
             return denied(res.code || 'unconfirmed');
         } catch {
@@ -296,6 +405,10 @@ export function createRecordingViewController(options) {
         if (!receipt()) {
             const uploaded = await machine.send();
             if (!uploaded.ok) return uploaded;
+        }
+        if (opts.draftMetadata) {
+            await loadDraft();
+            return { ok: true };
         }
         return submit();
     }
@@ -316,10 +429,14 @@ export function createRecordingViewController(options) {
 
     /** Starts the next dictation from a clean state after a successful send. */
     function another() {
-        if (!created() || submission === 'submitting') return denied('invalid_phase');
+        if (!created() || draft?.saving || draft?.loading || submission === 'submitting') return denied('invalid_phase');
         submission = null;
         submitError = '';
         pendingSend = null;
+        pendingMetadata = null;
+        draft = null;
+        resumedDraftId = null;
+        opts.onDraft?.(null);
         Object.assign(state, { file: null, filePhase: 'idle', fileError: null, fileReceipt: null });
         if (machine.getState().phase === 'sent') machine.reset();
         if (client && typeof client.switchContext === 'function') client.switchContext({});
@@ -334,8 +451,8 @@ export function createRecordingViewController(options) {
 
     function message() {
         if (!allowed()) return TEXT.denied;
-        if (routing) return TEXT[routing];
         if (submitError) return submitError;
+        if (routing && !draft) return TEXT[routing];
         if (submission) return TEXT[submission];
         const s = machine.getState();
         if (state.mode === 'file') {
@@ -348,7 +465,7 @@ export function createRecordingViewController(options) {
         if (s.error === 'microphone_denied') return TEXT.microphoneDenied;
         if (s.error === 'start_failed') return TEXT.startFailed;
         if (s.error === 'discard_failed') return TEXT.discardFailed;
-        if (s.phase === 'sent') return opts.oneButton ? '' : TEXT.sent;
+        if (s.phase === 'sent') return opts.oneButton && !opts.draftMetadata ? '' : TEXT.sent;
         if (opts.oneButton && s.phase === 'sending') return TEXT.submitting;
         return machine.announcement();
     }
@@ -370,6 +487,8 @@ export function createRecordingViewController(options) {
             phase: submission || phase(),
             routing,
             canSubmit: canSubmit(),
+            draft: draft && { ...draft, fields: draft.fields && { ...draft.fields } },
+            canEditDraft: Boolean(editableDraft()),
             author: displayName(user),
             authorId: String(user.id),
             title: s.title,
@@ -418,7 +537,7 @@ export function createRecordingViewController(options) {
         beginning: machine.beginning, end: machine.end,
         send: () => machine.send(), cancel: () => machine.cancel(),
         selectFile, sendFile, cancelFile, submit, sendRecording, checkRouting,
-        openCreated, toWorklist, another, dispose,
+        loadDraft, setDraftField, saveDraft, openCreated, toWorklist, another, dispose,
     };
 }
 
@@ -433,8 +552,8 @@ export const RECORDING_TEMPLATE = `
   <div style="width: 100%; max-width: 28rem; text-align: center">
     <p v-show="m.message" role="status" aria-live="polite" data-testid="status" style="margin: 0 0 var(--ui-space-3)"
        :style="m.phase === 'submitted' ? { fontSize: '1.25rem', fontWeight: 650 } : null">{{ m.message }}</p>
-    <template v-if="!m.routing">
-      <template v-if="m.mode === 'record'">
+    <template v-if="!m.routing || m.created">
+      <template v-if="!m.created && m.mode === 'record'">
         <div v-if="m.phase === 'title' || m.phase === 'ready'" style="display: grid; justify-items: center; gap: var(--ui-space-2)">
           <button type="button" class="button accent" data-testid="rec-start" :aria-keyshortcuts="shortcuts.start" :disabled="!enabled('start')" @click="c.start()"
                   style="width: 10rem; height: 10rem; border-radius: 50%; flex-direction: column; gap: var(--ui-space-2); font-size: 1rem">
@@ -457,18 +576,17 @@ export const RECORDING_TEMPLATE = `
             <button type="button" class="button accent" style="${TOUCH}" data-testid="rec-stop" :aria-keyshortcuts="shortcuts.stop" @click="c.stop()">Stopp</button>
           </div>
         </div>
-        <div v-else-if="m.phase === 'review' || m.phase === 'failed' || (m.created && m.canSubmit)"
+        <div v-else-if="m.phase === 'review' || m.phase === 'failed'"
              style="display: grid; justify-items: center; gap: var(--ui-space-3)">
           <audio v-if="!m.created && previewUrl" :ref="bindReview" controls preload="metadata" :src="previewUrl" aria-label="Aufnahme anhören"
                  @loadedmetadata="loadReview" @durationchange="c.machine.syncPlayback()" @seeked="finishDurationProbe"
                  @play="c.machine.syncPlayback()" @pause="c.machine.syncPlayback()" @ended="c.machine.syncPlayback()"
                  @error="c.machine.playbackFailed()" style="width: 100%; min-height: 3rem"></audio>
           <button type="button" class="button primary" style="${TOUCH}; width: 100%; font-size: 1rem" data-testid="rec-send" @click="c.sendRecording()">
-            {{ m.phase === 'review' ? 'Senden' : 'Erneut senden' }}
+            {{ m.phase === 'review' ? 'Entwurf sichern' : c.text.retrySave }}
           </button>
-          <button v-if="!m.created" type="button" class="button quiet" style="${TOUCH}; font-size: .875rem"
+          <button type="button" class="button quiet" style="${TOUCH}; font-size: .875rem"
                   data-testid="rec-cancel" @click="discard">Neu aufnehmen</button>
-          <a v-else href="#/diktat" style="${LINK}" @click.prevent="c.openCreated()">Diktat öffnen</a>
         </div>
       </template>
       <div v-else-if="!m.created" style="display: grid; gap: var(--ui-space-3); text-align: left">
@@ -481,15 +599,46 @@ export const RECORDING_TEMPLATE = `
                   :disabled="!m.canSwitchMode" @click="backToRecorder">Zurück zur Aufnahme</button>
         </div>
       </div>
-      <div v-if="m.created && (m.phase === 'submitted' || m.phase === 'notDraft' || (m.mode === 'file' && m.phase !== 'submitting'))"
-           data-testid="created">
+      <div v-if="m.created" data-testid="created">
+        <template v-if="m.draft && !['submitted', 'notDraft'].includes(m.phase)">
+          <h2 style="margin: 0 0 var(--ui-space-3); font-size: 1.25rem">Versanddaten</h2>
+          <p role="status" v-if="m.draft.loading">Entwurfsdaten werden geladen …</p>
+          <button v-else-if="!m.draft.fields" type="button" class="button" style="${TOUCH}" @click="c.loadDraft()">Erneut laden</button>
+          <form v-else data-testid="draft-metadata" style="text-align: left" @submit.prevent="c.saveDraft()">
+            <fieldset :disabled="!m.canEditDraft" style="min-width: 0">
+              <legend class="sr-only">Versanddaten bearbeiten</legend>
+              <label class="field"><span>Titel</span>
+                <input required maxlength="200" :value="m.draft.fields.title" @input="c.setDraftField('title', $event.target.value)" />
+              </label>
+              <label class="field"><span>Anmerkung</span>
+                <textarea maxlength="4000" rows="2" :value="m.draft.fields.notes" @input="c.setDraftField('notes', $event.target.value)"></textarea>
+              </label>
+              <div class="field-grid">
+                <label class="field"><span>Priorität</span>
+                  <select :value="m.draft.fields.priority" @change="c.setDraftField('priority', Number($event.target.value))">
+                    <option v-for="p in priorities" :key="p.value" :value="p.value">{{ p.label }}</option>
+                  </select>
+                </label>
+                <label class="field"><span>Frist</span>
+                  <input type="date" :value="m.draft.fields.deadline_date" @input="c.setDraftField('deadline_date', $event.target.value)" />
+                  <small>Tagesende (Europe/Zurich)</small>
+                </label>
+              </div>
+              <button type="submit" class="button" style="${TOUCH}" :disabled="!m.draft.fields.title.trim()" data-testid="save-draft">Versanddaten speichern</button>
+            </fieldset>
+            <p role="status" style="margin: var(--ui-space-2) 0">{{ m.draft.saving ? 'Versanddaten werden gespeichert …' : m.draft.saved ? 'Versanddaten gespeichert.' : '' }}</p>
+            <p data-testid="draft-acceptance" style="margin: var(--ui-space-2) 0 var(--ui-space-3)">Abnahme: {{ m.draft.acceptanceRequired === null ? 'Nicht verfügbar' : m.draft.acceptanceRequired ? 'Erforderlich' : 'Nicht erforderlich' }}</p>
+          </form>
+          <button v-if="m.draft.stale && !m.draft.loading" type="button" class="button" style="${TOUCH}"
+                  @click="reloadDraft">Gespeicherten Stand laden</button>
+        </template>
         <span class="sr-only" data-testid="created-id">{{ m.created.dictationId }}</span>
         <div class="actions" style="justify-content: center">
-          <button v-if="m.mode === 'file' && m.canSubmit" type="button" class="button primary" style="${TOUCH}"
-                  data-testid="submit-draft" @click="c.submit()">{{ c.text.submit }}</button>
+          <button v-if="!['submitted', 'notDraft'].includes(m.phase)" type="button" class="button primary" style="${TOUCH}"
+                  :disabled="!m.canSubmit" data-testid="submit-draft" @click="c.submit()">{{ c.text.submit }}</button>
           <a href="#/diktat" data-testid="open-created" style="${LINK}" @click.prevent="c.openCreated()">{{ m.mode === 'file' ? c.text.open : 'Diktat öffnen' }}</a>
           <button v-if="m.mode === 'file'" type="button" class="button" style="${TOUCH}" data-testid="to-worklist" @click="c.toWorklist()">{{ c.text.toWorklist }}</button>
-          <button type="button" class="button" style="${TOUCH}" data-testid="another" @click="c.another()">{{ c.text.title }}</button>
+          <button type="button" class="button" style="${TOUCH}" data-testid="another" :disabled="m.draft?.saving || m.draft?.loading || m.phase === 'submitting'" @click="c.another()">{{ c.text.title }}</button>
         </div>
       </div>
     </template>
@@ -513,6 +662,7 @@ export const RecordingView = {
         const V = props.vue || (typeof window !== 'undefined' ? window.Vue : null);
         if (!V) throw new Error('Vue is required to mount the recording view');
         const emit = (name, payload) => { if (ctx && typeof ctx.emit === 'function') ctx.emit(name, payload); };
+        const history = globalThis.window?.history;
         const c = createRecordingViewController({
             client: props.client,
             currentUser: props.currentUser,
@@ -521,6 +671,9 @@ export const RecordingView = {
             player: props.player,
             authorized: props.authorized || undefined,
             oneButton: true,
+            draftMetadata: true,
+            draftId: history?.state?.recordingDraftId,
+            onDraft: (id) => history?.replaceState({ ...history.state, recordingDraftId: id }, ''),
             preflightOnMount: true,
             onOpen: (payload) => emit('open', payload),
             onWorklist: () => emit('worklist'),
@@ -611,7 +764,10 @@ export const RecordingView = {
             doc?.addEventListener('keydown', onKeydown);
             globalThis.window?.addEventListener('keydown', space);
         });
-        V.onMounted?.(() => { void c.checkRouting(); });
+        V.onMounted?.(() => {
+            void c.checkRouting();
+            if (m.value.created) void c.loadDraft();
+        });
         V.onBeforeUnmount?.(() => {
             doc?.removeEventListener('keydown', onKeydown);
             globalThis.window?.removeEventListener('keydown', space);
@@ -628,6 +784,10 @@ export const RecordingView = {
             finishDurationProbe,
             shortcuts,
             icons: ICON_PATHS,
+            priorities: PRIORITY_OPTIONS,
+            reloadDraft: () => {
+                if (window.confirm('Ungespeicherte Änderungen verwerfen und den gespeicherten Stand laden?')) void c.loadDraft();
+            },
             enabled, level, elapsed, previewUrl,
             act: (id) => { if (RECORDER_ACTIONS.includes(id)) c[id](); },
             discard: () => {
