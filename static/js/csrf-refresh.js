@@ -30,6 +30,7 @@ class CSRFManager {
             const response = await originalFetch('/api/csrf-token', {
                 method: 'GET',
                 credentials: 'same-origin',
+                signal: AbortSignal.timeout(10_000),
                 headers: {
                     'Accept': 'application/json'
                 }

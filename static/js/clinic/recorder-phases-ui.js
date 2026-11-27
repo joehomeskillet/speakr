@@ -55,9 +55,16 @@ export function receiptDictationId(value) {
     return Number.isInteger(id) && id >= 0 ? String(id) : null;
 }
 
+export function formatRecordingDuration(seconds) {
+    if (!Number.isFinite(seconds) || seconds < 0) return '';
+    const whole = Math.floor(seconds);
+    return [Math.floor(whole / 60), whole % 60].map((part) => String(part).padStart(2, '0')).join(':');
+}
+
 /** Use the stock capture controls and send the finished microphone take through the clinic file upload. */
 export function createClinicRecorder(audio, state, uploadFile) {
     let samples;
+    const takes = new WeakMap();
 
     async function stopRecording() {
         const recorder = state.mediaRecorder.value;
@@ -92,9 +99,12 @@ export function createClinicRecorder(audio, state, uploadFile) {
         async uploadRecordedAudio({ title }) {
             const chunks = state.audioChunks.value;
             if (!state.audioBlobURL.value || !chunks.length) throw new Error('no_recorded_audio');
+            const previous = takes.get(chunks);
+            const take = previous || { id: globalThis.crypto.randomUUID(), title };
+            takes.set(chunks, take);
             const type = state.mediaRecorder.value.mimeType.split(';')[0];
             const file = new File(chunks, 'aufnahme.webm', { type });
-            const receipt = await uploadFile(file, title);
+            const receipt = await uploadFile(file, take.title, { id: take.id, retry: Boolean(previous) });
             if (receiptDictationId(receipt) === null) throw new Error('no_receipt');
             // A new take gets its own chunk array as soon as capture starts.
             if (state.audioChunks.value === chunks) await audio.clearRecording();
