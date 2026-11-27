@@ -59,7 +59,8 @@ _REQUIRED_TARGET = {'submit': workflow.TO_ACCEPT, 'release': workflow.DONE}
 
 
 def _capabilities(user: User, dictation: ClinicDictation, flow, snap: dict,
-                  authorize: Callable[[User, str, ClinicDictation], bool], acceptance_policy=None) -> dict:
+                  authorize: Callable[[User, str, ClinicDictation], bool], acceptance_policy=None,
+                  *, include_delete_request: bool = False) -> dict:
     """Allowed workflow actions, their target status and the revision binding for the caller."""
     if flow is None:
         return dict(allowed_actions=[], transitions={}, binding={})
@@ -75,6 +76,8 @@ def _capabilities(user: User, dictation: ClinicDictation, flow, snap: dict,
         if authorize(user, permission, dictation) is True:
             allowed.append(name)
             transitions[name] = target[0]
+    if include_delete_request and flow.status != workflow.TO_DELETE and authorize(user, 'clinic.delete', dictation) is True:
+        allowed.append('request_delete')
     head = revisions.current_revision(dictation)
     binding = dict(textRevisionId=None if head is None else head.id,
                    contextRevisionId=snap['current_context_revision_id'])
@@ -117,6 +120,7 @@ def create_blueprint(
     *, authorize: Callable[[User, str, ClinicDictation], bool],
     dictation_snapshot: Callable[[ClinicDictation], dict],
     acceptance_policy=None,
+    include_delete_request: bool = False,
 ) -> Blueprint:
     """Mount with the trusted session channel and the current object policy.
 
@@ -156,6 +160,19 @@ def create_blueprint(
         fallback = recorded is None
         at = stamp(recorded if recorded is not None else (recording.created_at if recording else dictation.created_at))
         pool = None if dictation.pool_id is None else db.session.get(ClinicAuthorPool, dictation.pool_id)
+        deletion_extra = {}
+        if include_delete_request:
+            from src.clinic.archive_policy import ClinicDeletionRequest
+
+            deletion_req = (
+                ClinicDeletionRequest.query.filter_by(dictation_id=dictation.id)
+                .order_by(ClinicDeletionRequest.created_at.desc())
+                .first()
+            )
+            deletion_extra = dict(
+                deletion_requested=deletion_req is not None,
+                deletion_requested_at=None if deletion_req is None else stamp(deletion_req.created_at),
+            )
         audit.record('recording.content.read', recording_id=dictation.recording_id,
                      actor_kind='session', actor_user_id=current_user.id, details={'part': 'detail'})
         return jsonify(
@@ -178,7 +195,9 @@ def create_blueprint(
                 acceptance=snap['review_state'],
                 output='RELEASED' if snap['active_release_id'] else 'NOT_RELEASED',
             ),
-            **_capabilities(current_user, dictation, flow, snap, authorize, acceptance_policy),
+            **deletion_extra,
+            **_capabilities(current_user, dictation, flow, snap, authorize, acceptance_policy,
+                            include_delete_request=include_delete_request),
         )
 
     @bp.get('/api/clinic/v1/dictations/<uuid:dictation_id>/review')
@@ -191,7 +210,8 @@ def create_blueprint(
         if flow is None or flow.status in (workflow.DRAFT, workflow.TO_ARCHIVE) or head is None:
             abort(404)
         snap = dictation_snapshot(dictation)
-        capabilities = _capabilities(current_user, dictation, flow, snap, authorize, acceptance_policy)
+        capabilities = _capabilities(current_user, dictation, flow, snap, authorize, acceptance_policy,
+                                     include_delete_request=include_delete_request)
         binding = capabilities.pop('binding')
         audit.record('recording.content.read', recording_id=dictation.recording_id,
                      actor_kind='session', actor_user_id=current_user.id, details={'part': 'review'})

@@ -653,6 +653,8 @@ export function createWorklistViewController(options) {
 
     function loadWorkflow(row) {
         // Only what the API supplies is shown; a row without capabilities offers no action.
+        const timeText = row.recording_time?.at ? formatDateTime(row.recording_time.at) : (row.created_at ? formatDateTime(row.created_at) : null);
+        const labelParts = [row.case_display ? 'Fall-ID ' + row.case_display : null, timeText ? 'Erstellt ' + timeText : null].filter(Boolean);
         workflow.load({
             dictationId: rowKey(row),
             etag: row.etag || null,
@@ -662,6 +664,9 @@ export function createWorklistViewController(options) {
             asrStatus: row.asr_status || null,
             workState: row.status || null,
             binding: row.binding || {},
+            deletionRequested: Boolean(row.deletion_requested),
+            deletionRequestedAt: row.deletion_requested_at || null,
+            dictationLabel: labelParts.join(' · ') || null,
         });
     }
 

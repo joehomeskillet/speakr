@@ -362,6 +362,19 @@ def create_blueprint(
         row = db.session.get(ClinicDictation, target, populate_existing=True)
         return {'acceptance': acceptance_state(acceptance_ledger, row)} if row else {}
 
+    def _command_headers(target: str) -> tuple[str, int]:
+        try:
+            key = str(UUID(request.headers.get('Idempotency-Key', '')))
+        except ValueError:
+            abort(400)
+        match = request.headers.get('If-Match')
+        if match is None:
+            abort(428)
+        prefix, _, number = match.strip('"').rpartition(':')
+        if prefix != target or not number.isdigit():
+            abort(400)
+        return key, int(number)
+
     def command(dictation_id: UUID, name: str, permission: str, body: Any,
                 apply: Callable[[ClinicDictation, int, str, datetime], JSON], *, created: int = 200,
                 author_only: bool = False):
@@ -376,17 +389,7 @@ def create_blueprint(
             abort(403)
         if row is None or authorize(actor, permission, row) is not True:
             abort(403 if author_only else 404)
-        try:
-            key = str(UUID(request.headers.get('Idempotency-Key', '')))
-        except ValueError:
-            abort(400)
-        match = request.headers.get('If-Match')
-        if match is None:
-            abort(428)
-        prefix, _, number = match.strip('"').rpartition(':')
-        if prefix != target or not number.isdigit():
-            abort(400)
-        expected = int(number)
+        key, expected = _command_headers(target)
         digest = sha256(json.dumps([name, expected, body], sort_keys=True, default=str).encode()).hexdigest()
 
         def operation() -> JSON:
@@ -553,8 +556,97 @@ def create_blueprint(
                 or type(body['confirm']) is not bool):
             abort(400)
 
+        if body['action'] == archive_policy.DELETE and body['confirm'] is False:
+            target, actor = str(dictation_id), current_user.id
+            row = db.session.get(ClinicDictation, target)
+            if row is None or authorize(actor, 'clinic.delete', row) is not True:
+                abort(404)
+            key, expected = _command_headers(target)
+            digest = sha256(json.dumps(['archive', expected, body], sort_keys=True, default=str).encode()).hexdigest()
+            from src.clinic.parity_receipts import ClinicParityReceipt, scope_key
+
+            existing = db.session.get(ClinicParityReceipt, scope_key((actor, 'archive', target, key)))
+            if existing is not None:
+                if existing.digest != digest:
+                    return _problem(409, 'IDEMPOTENCY_CONFLICT')
+                return jsonify(existing.result)
+            if row.version_counter != expected:
+                return _problem(409, 'STALE_VERSION', state=_state(target))
+            recording = db.session.get(Recording, row.recording_id)
+            if recording is None:
+                abort(404)
+            decision = archive_policy.authorize(
+                policy.build_subject(actor),
+                policy.build_facts(recording.id, recording.user_id),
+                archive_policy.DELETE,
+            )
+            if not decision.allowed:
+                return _problem(403, 'UNAUTHORIZED')
+            item = db.session.get(workflow.ClinicWorkflowDictation, row.id)
+            if item is None:
+                abort(404)
+            return jsonify({
+                'dictation_id': row.id,
+                'requested': archive_policy.DELETE,
+                'disposition': None,
+                'status': item.status,
+                'version': row.version_counter,
+                'applied': False,
+                'retention_changed': False,
+                'physically_deleted': False,
+                'dry_run': {
+                    'eligible': False,
+                    'reason': 'not_applicable',
+                    'legal_hold': bool(recording.deletion_exempt),
+                    'would_delete': False,
+                },
+                'etag': _etag(row),
+            })
+
         def apply(row, expected, key, now):
             recording = db.session.get(Recording, row.recording_id)
+            if recording is None:
+                raise workflow.WorkflowError('not_found')
+            if body['action'] == archive_policy.DELETE:
+                if row.version_counter != expected:
+                    raise workflow.WorkflowError('stale_version')
+                done = archive_policy.request_deletion(
+                    db.session(), row, actor_user_id=current_user.id,
+                    subject=policy.build_subject(current_user.id),
+                    facts=policy.build_facts(recording.id, recording.user_id),
+                    request_id=key, now=now,
+                )
+                if not done.replayed:
+                    if audit.record_in_tx(
+                        'recording.edited',
+                        recording_id=row.recording_id,
+                        recording_owner_id=row.author_user_id,
+                        actor_kind='session',
+                        actor_user_id=current_user.id,
+                        force=True,
+                        created_at=now.astimezone(timezone.utc).replace(tzinfo=None),
+                        details={'fields': [archive_policy.DELETION_REQUESTED]},
+                    ) is None:
+                        raise workflow.WorkflowError('audit_unavailable')
+                    row.version_counter += 1
+                return {
+                    'dictation_id': row.id,
+                    'requested': archive_policy.DELETE,
+                    'disposition': done.disposition,
+                    'deletion_request_id': done.deletion_request_id,
+                    'status': done.status,
+                    'version': row.version_counter,
+                    'applied': True,
+                    'retention_changed': False,
+                    'physically_deleted': False,
+                    'dry_run': {
+                        'eligible': False,
+                        'reason': 'deletion_request_only',
+                        'legal_hold': bool(recording.deletion_exempt),
+                        'would_delete': False,
+                    },
+                    'etag': _etag(row),
+                }
             try:
                 done = book.apply(
                     db.session(), row.id, action=body['action'],

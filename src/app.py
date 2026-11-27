@@ -1300,7 +1300,8 @@ def register_clinic_worklist(flask_app):
     flask_app.register_blueprint(routes_dictation_detail.create_blueprint(
         authorize=lambda user, action, dictation: may(user.id, action, dictation),
         dictation_snapshot=worklist_entries.dictation_snapshot,
-        acceptance_policy=lambda row: ledger.current(SCOPE_DICTATION, row.id)))
+        acceptance_policy=lambda row: ledger.current(SCOPE_DICTATION, row.id),
+        include_delete_request=True))
     flask_app.register_blueprint(routes_templates.blueprint)
     flask_app.register_blueprint(routes_categories.blueprint)
     flask_app.register_blueprint(routes_regex.RegexApi(

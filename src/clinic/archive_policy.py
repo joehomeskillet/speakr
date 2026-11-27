@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from flask import has_app_context
@@ -37,6 +38,7 @@ from src.services import retention
 _ZONE = ZoneInfo(workflow.CLINIC_ZONE)
 ARCHIVE = "archive"
 DELETE = "delete"
+DELETION_REQUESTED = "deletion_requested"
 
 
 class ArchivePolicyError(Exception):
@@ -196,6 +198,21 @@ class ClinicArchiveResult(db.Model):  # type: ignore[name-defined]
     payload = db.Column(db.Text, nullable=False)
 
 
+class ClinicDeletionRequest(db.Model):  # type: ignore[name-defined]
+    """Append-only non-destructive deletion-request disposition. Nothing is deleted."""
+
+    __tablename__ = "clinic_deletion_request"
+
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    dictation_id = db.Column(db.String(36), nullable=False, index=True)
+    recording_id = db.Column(db.Integer, nullable=False, index=True)
+    actor_user_id = db.Column(db.Integer, nullable=False)
+    request_id = db.Column(db.String(128), nullable=False, unique=True)
+    workflow_status = db.Column(db.String(32), nullable=False)
+    disposition = db.Column(db.String(32), nullable=False, default=DELETION_REQUESTED)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False)
+
+
 def _no_delete(_mapper, _connection, _row) -> None:
     raise ArchivePolicyError("append_only")
 
@@ -207,6 +224,89 @@ def _no_update(_mapper, _connection, _row) -> None:
 event.listen(ClinicArchiveEntry, "before_delete", _no_delete)
 event.listen(ClinicArchiveResult, "before_delete", _no_delete)
 event.listen(ClinicArchiveResult, "before_update", _no_update)
+event.listen(ClinicDeletionRequest, "before_delete", _no_delete)
+event.listen(ClinicDeletionRequest, "before_update", _no_update)
+
+
+@dataclass(frozen=True)
+class DeletionRequestResult:
+    """One confirmed non-destructive deletion-request disposition."""
+
+    dictation_id: str
+    request_id: str
+    deletion_request_id: str
+    disposition: str
+    status: str
+    replayed: bool = False
+
+
+def request_deletion(
+    session,
+    dictation: ClinicDictation,
+    *,
+    actor_user_id: int,
+    subject: policy.Subject,
+    facts: policy.RecordingFacts,
+    request_id: str,
+    now: datetime,
+) -> DeletionRequestResult:
+    """Record a non-destructive deletion request without changing clinical or archive state."""
+    if not isinstance(request_id, str) or not request_id:
+        raise ArchivePolicyError("request_id")
+    moment = _aware(now)
+    decision = authorize(subject, facts, DELETE)
+    if not decision.allowed:
+        raise ArchivePolicyError("unauthorized", decision.reason)
+    item = session.get(workflow.ClinicWorkflowDictation, dictation.id)
+    if item is None:
+        raise ArchivePolicyError("not_found")
+    if item.status == workflow.TO_DELETE:
+        raise ArchivePolicyError("transition_failed")
+    existing = session.query(ClinicDeletionRequest).filter_by(request_id=request_id).one_or_none()
+    if existing is not None:
+        if existing.dictation_id != dictation.id:
+            raise ArchivePolicyError("request_id")
+        return DeletionRequestResult(
+            dictation_id=dictation.id,
+            request_id=request_id,
+            deletion_request_id=existing.id,
+            disposition=existing.disposition,
+            status=existing.workflow_status,
+            replayed=True,
+        )
+    row = ClinicDeletionRequest(
+        id=str(uuid4()),
+        dictation_id=dictation.id,
+        recording_id=dictation.recording_id,
+        actor_user_id=actor_user_id,
+        request_id=request_id,
+        workflow_status=item.status,
+        disposition=DELETION_REQUESTED,
+        created_at=moment,
+    )
+    try:
+        with session.begin_nested():
+            session.add(row)
+    except IntegrityError:
+        winner = session.query(ClinicDeletionRequest).filter_by(request_id=request_id).one_or_none()
+        if winner is None or winner.dictation_id != dictation.id:
+            raise ArchivePolicyError("request_id")
+        return DeletionRequestResult(
+            dictation_id=dictation.id,
+            request_id=request_id,
+            deletion_request_id=winner.id,
+            disposition=winner.disposition,
+            status=winner.workflow_status,
+            replayed=True,
+        )
+    return DeletionRequestResult(
+        dictation_id=dictation.id,
+        request_id=request_id,
+        deletion_request_id=row.id,
+        disposition=row.disposition,
+        status=item.status,
+        replayed=False,
+    )
 
 
 def _utc(value: datetime | None) -> datetime | None:

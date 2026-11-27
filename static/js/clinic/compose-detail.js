@@ -221,6 +221,8 @@ export function createDetailViewController(options) {
     // --- loading ------------------------------------------------------------
     function applyWorkflow(next) {
         // Only what the API supplies is shown; a header without capabilities offers no action.
+        const timeText = next?.recording_time?.at ? formatRecordingTime(next.recording_time).text : null;
+        const labelParts = [next?.case_display ? 'Fall-ID ' + next.case_display : null, timeText ? 'Aufnahmezeit ' + timeText : null].filter(Boolean);
         workflow.load(next ? {
             dictationId,
             etag: next.etag || null,
@@ -228,6 +230,9 @@ export function createDetailViewController(options) {
             allowedActions: Array.isArray(next.allowed_actions) ? next.allowed_actions : [],
             transitions: next.transitions || {},
             binding: next.binding || {},
+            deletionRequested: Boolean(next.deletion_requested),
+            deletionRequestedAt: next.deletion_requested_at || null,
+            dictationLabel: labelParts.join(' · ') || null,
         } : null);
     }
 
