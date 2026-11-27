@@ -39,6 +39,7 @@ from src.services.transcription.exceptions import TranscriptionError, Configurat
 from src.services.transcription.local_only import is_local_base_url
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.asr_profiles import effective_hotwords as get_hotwords_for_user
+from src.clinic.live_asr_transport import iter_speaches_events
 
 logger = logging.getLogger(__name__)
 
@@ -335,15 +336,22 @@ class LiveAsrAdapter(BaseTranscriptionConnector):
         language: str,
         hotwords: List[str],
         timeout: float,
-    ) -> List[LiveTranscriptionEvent]:
-        """Fail closed until the local Speaches WebSocket transport is verified.
+    ):
+        """Stream local Speaches /v1/realtime. Partials yield before the socket closes.
 
-        Speaches uses /v1/realtime with intent=transcription. The former
-        /streaming/transcribe JSON request neither sent audio nor implemented
-        that protocol. A reachable batch endpoint is not realtime capability.
+        A placeholder or English API-default model is refused before any audio
+        is read. Batch HTTP is not a fallback for this path.
         """
-        raise TranscriptionError(
-            "CAPABILITY_UNAVAILABLE: verified local realtime ASR transport is unavailable"
+        model = (getattr(request, 'model', None) or self._model or '').strip()
+        return iter_speaches_events(
+            base_url=self._base_url,
+            api_key=self._api_key,
+            model=model,
+            language=language or 'de',
+            audio=request.audio_file,
+            timeout=timeout,
+            hotwords=hotwords,
+            should_cancel=getattr(request, 'should_cancel', None),
         )
 
     def _request_recognition(
