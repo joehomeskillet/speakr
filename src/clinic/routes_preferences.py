@@ -37,6 +37,7 @@ from src.clinic.workstation_preferences import (
     StaleVersion,
     WorkstationPreferences,
 )
+from src.models import Group, User
 
 PREFIX = "/api/clinic/v1/preferences"
 # Identity and authority come from the session, never from the request.
@@ -148,19 +149,55 @@ class PreferenceRoutes:
             if not ids or ids[0] not in linked:
                 raise rd.RecipientDefaultError("recipient_not_eligible")
 
+    def _default_targets(
+        self, pool_id: str | None, grant: str, row: rd.ClinicRecipientDefault | None,
+    ) -> dict[str, list[dict[str, str]]]:
+        """Named personal-default targets under the administrative grant, not send overrides."""
+        targets: dict[str, list[dict[str, str]]] = {"persons": [], "staff_pools": []}
+        if not pool_id:
+            return targets
+
+        saved_only = grant == rd.CHOICE_DEFAULT_ONLY
+        mode = row.mode if row is not None else None
+        saved_ids = set(row.target_ids) if saved_only and row is not None else set()
+        if grant == rd.CHOICE_OPEN or (saved_only and mode == "person"):
+            ids = [uid for uid in rd.eligible_user_ids(pool_id) if not saved_only or str(uid) in saved_ids]
+            if ids:
+                users = db.session.query(User.id, User.name, User.username).filter(User.id.in_(ids))
+                targets["persons"] = [
+                    {"id": str(uid), "name": name or username}
+                    for uid, name, username in users.order_by(User.id)
+                ]
+        if grant in (rd.CHOICE_OPEN, rd.CHOICE_STAFF_POOLS) or (saved_only and mode == "staff_pool"):
+            pool_ids = [
+                pid for pid in pools.routable_staff_pool_ids(pool_id) if not saved_only or pid in saved_ids
+            ]
+            if pool_ids:
+                staff = pools.ClinicStaffPool
+                teams = (db.session.query(staff.id, Group.name).join(staff.group)
+                         .filter(staff.id.in_(pool_ids)).order_by(Group.name, staff.id))
+                targets["staff_pools"] = [{"id": pid, "name": name} for pid, name in teams]
+        return targets
+
     def _recipient_default(self):
         actor = current_user.id
         if request.method == "GET":
             row = rd.get_default(actor)
-            choice = rd.effective_choice(row, rd.get_choice_grant(actor))
+            grant = rd.get_choice_grant(actor)
+            choice = rd.effective_choice(row, grant)
             pool_id = self._author_pool_for(actor)
             overrides = rd.selectable_overrides(actor, pool_id) if pool_id else None
+            metadata = {} if grant is None else {
+                "recipient_choice_grant": grant,
+                "default_targets": self._default_targets(pool_id, grant, row),
+            }
             return jsonify(
                 version=0 if row is None else row.version,
                 mode=None if row is None else row.mode,
                 target_ids=[] if row is None else row.target_ids,
                 choice=choice,
                 overrides=overrides,
+                **metadata,
             )
         body = _body()
         if "choice" in body and body["choice"] is None:
