@@ -6,6 +6,7 @@ pair. Helpers flush only; the caller owns the transaction and authorization.
 """
 
 import math
+from collections.abc import Mapping
 
 from sqlalchemy import CheckConstraint, ForeignKeyConstraint, Index, event, inspect
 
@@ -15,7 +16,7 @@ from src.clinic.models import (
     ClinicAudioRevision, ClinicDictation, ClinicTranscriptRevision,
     _created_at, _in_check, _uuid,
 )
-from src.clinic.recognition_marks import recognition_marks
+from src.clinic.recognition_marks import _span, recognition_marks
 from src.database import db
 
 MARK_KINDS = ("recognition", "command", "uncertain", "unrecognized")
@@ -144,10 +145,11 @@ def current_marks(dictation_id, audio_revision_id, transcript_revision_id):
 
 
 def store_asr_marks(dictation, audio, revision, *, run_id, model_ref, segments, duration_ms):
-    """Write measured spans and select the accepted run, even when it has no marks."""
+    """Write measured or explicitly sourced spans and select the accepted run."""
     current = db.session.get(ClinicCurrentRecognitionRun, (dictation.id, audio.id, revision.id))
     if current is not None and current.run_id == run_id:
         return
+    segments = tuple(segments or ())
     report = recognition_marks(segments)
     for mark in report.marks:
         if mark.end_ms > duration_ms:
@@ -159,6 +161,20 @@ def store_asr_marks(dictation, audio, revision, *, run_id, model_ref, segments, 
             confidence = None
         add_mark(dictation, audio, revision, run_id=run_id, start_ms=mark.start_ms, end_ms=mark.end_ms,
                  kind="uncertain", source=f"{model_ref}/{mark.source}/{metric}", confidence=confidence)
+    for segment in segments:
+        if not isinstance(segment, Mapping):
+            continue
+        kind, source = segment.get("kind"), segment.get("source")
+        span = _span(segment)
+        if kind not in MARK_KINDS or not isinstance(source, str) or not source.strip():
+            continue
+        if span is None or span[1] > duration_ms:
+            continue
+        try:
+            add_mark(dictation, audio, revision, run_id=run_id, start_ms=span[0], end_ms=span[1],
+                     kind=kind, source=source, confidence=segment.get("confidence"))
+        except RecognitionMarkError:
+            continue
     if current is None:
         db.session.add(ClinicCurrentRecognitionRun(
             dictation_id=dictation.id, audio_revision_id=audio.id,
@@ -177,6 +193,5 @@ def store_result(dictation, original, revision, *, run_id, model_ref, segments, 
         dictation_id=dictation.id, audio_revision_id=audio.id, original_id=original.id).one_or_none()
     if snapshot is None:
         return
-    measurements = (segment if isinstance(segment, dict) else vars(segment) for segment in segments or ())
     store_asr_marks(dictation, audio, revision, run_id=run_id, model_ref=model_ref,
-                    segments=measurements, duration_ms=snapshot.total_duration_ms)
+                    segments=segments, duration_ms=snapshot.total_duration_ms)

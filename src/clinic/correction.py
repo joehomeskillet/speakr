@@ -22,6 +22,7 @@ Routes, review lease and UI come in a later work package.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 
 from sqlalchemy import CheckConstraint, ForeignKeyConstraint, UniqueConstraint
 
@@ -450,8 +451,12 @@ def ingest_asr_result(
     if recognition_run_id and revision.kind == KIND_ASR:
         from src.clinic.correction_recognition_marks import store_result
 
+        measurements = None if recognition_segments is None else tuple(
+            dict(segment) if isinstance(segment, Mapping) else vars(segment)
+            for segment in recognition_segments
+        )
         store_result(dictation, original, revision, run_id=recognition_run_id, model_ref=model_ref,
-                     segments=recognition_segments, verified_repeat_audio=verified_repeat_audio)
+                     segments=measurements, verified_repeat_audio=verified_repeat_audio)
     # Word timings are a side product: a failure here never drops the revision or the links.
     try:
         with db.session.begin_nested():
