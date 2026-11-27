@@ -4800,6 +4800,36 @@ Summarization Instructions:
     <!-- Clinic administration panels (CLINIC_MODE only): a separate small Vue app, one shared api client.
          No interpolation braces here: Jinja would evaluate them, so the template uses v-text. -->
     <style>
+        .clinic-regex-host .clinic-regex { min-width: 0; overflow-wrap: anywhere; }
+        .clinic-regex-host .clinic-regex > * + * { margin-block-start: var(--sp-3); }
+        .clinic-regex-host .clinic-regex :is(fieldset, .field, label) { min-width: 0; }
+        .clinic-regex-host .clinic-regex legend { padding-inline: var(--sp-2); font-weight: 600; }
+        .clinic-regex-host .regex-rule-fields { grid-template-columns: minmax(0, 1fr); gap: var(--sp-3); }
+        .clinic-regex-host .regex-rule-fields + div { margin-block-start: var(--sp-3); }
+        .clinic-regex-host .clinic-regex label { display: block; }
+        .clinic-regex-host .clinic-regex label > span:first-child { display: block; margin-block-end: var(--sp-1); }
+        .clinic-regex-host .clinic-regex .field { margin-block-end: 0; }
+        .clinic-regex-host .regex-test > * + * { margin-block-start: var(--sp-3); }
+        @media (min-width: 48rem) {
+            .clinic-regex-host .regex-rule-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+        .clinic-regex-host .clinic-regex :is(.btn, select, textarea, input:not([type="checkbox"]):not([type="radio"])) {
+            min-height: 3rem; max-width: 100%; transition: none;
+        }
+        .cadm .clinic-regex-host .clinic-regex :is(input.field, select, textarea) { border-color: var(--v8-text-2); }
+        .cadm .clinic-regex-host .clinic-regex .btn--primary:not(:disabled) {
+            background: var(--ink); color: var(--v8-on-ink, var(--text-button)); border-color: var(--ink);
+        }
+        .clinic-regex-host .clinic-regex .btn { min-width: 3rem; white-space: normal; }
+        .clinic-regex-host .clinic-regex :is(.btn, select):disabled {
+            background: var(--v8-s2); color: var(--v8-text-2); cursor: not-allowed; opacity: 1;
+        }
+        .clinic-regex-host .clinic-regex :is(button, input, select, textarea):focus-visible {
+            outline: 2px solid var(--border-focus); outline-offset: 2px;
+        }
+        .clinic-regex-host .regex-dictation-picker { min-width: 0; }
+        .clinic-regex-host .regex-dictation-error { color: var(--text-danger); }
+
         /* Abnahme page of the clinic admin panel set: layout only, colours come from the theme variables. */
         .acc-host { max-width: 44rem; display: flex; flex-direction: column; gap: var(--sp-3); }
         .acc-lead { margin: 0; }
@@ -4924,6 +4954,8 @@ Summarization Instructions:
         import { categoriesComponent } from "{{ url_for('static', filename='js/clinic/categories-ui.js', v=app_version) }}";
         import { columnsComponent } from "{{ url_for('static', filename='js/clinic/columns-ui.js', v=app_version) }}";
         import { createRegexRulesComponent } from "{{ url_for('static', filename='js/clinic/regex-ui.js', v=app_version) }}";
+        import { buildPath, formatDay, formatTime } from "{{ url_for('static', filename='js/clinic/recordings-ui.js', v=app_version) }}";
+        import { formatDictationReference } from "{{ url_for('static', filename='js/clinic/worklist-ui.js', v=app_version) }}";
         import { createPreferencesComponent } from "{{ url_for('static', filename='js/clinic/preferences-ui.js', v=app_version) }}";
         import { registerAdminPoolsView } from "{{ url_for('static', filename='js/clinic/compose-admin-pools.js', v=app_version) }}";
         import { registerAuthorsView } from "{{ url_for('static', filename='js/clinic/compose-authors.js', v=app_version) }}";
@@ -4989,7 +5021,6 @@ Summarization Instructions:
             switchContext: () => { client.switchContext(); adminClient.switchContext(); },
         };
 
-        // Regex rules act on one dictation: the panel needs its id. The API authorises preview and apply.
         const DirectoryHost = {
             emits: ['open-accounts'],
             setup() {
@@ -5022,38 +5053,72 @@ Summarization Instructions:
 
         const RegexHost = {
             name: 'ClinicRegexHost',
+            components: { ClinicRegexRules: createRegexRulesComponent(window.Vue) },
             setup() {
-                const draft = ref('');
-                const panel = ref(null);
                 const dictationId = ref('');
-                const regexComponent = markRaw(createRegexRulesComponent(window.Vue));
-                function open() {
-                    const id = draft.value.trim();
-                    dictationId.value = id;
-                    panel.value = id ? regexComponent : null;
+                const choices = ref([]);
+                const nextCursor = ref(null);
+                const loading = ref(false);
+                const error = ref('');
+                const emptyFields = {};
+                const currentFields = computed(() =>
+                    choices.value.find((choice) => choice.id === dictationId.value)?.fields || emptyFields);
+                async function loadChoices() {
+                    if (loading.value) return;
+                    loading.value = true;
+                    const result = await client.request(buildPath({}, nextCursor.value));
+                    if (result.outcome !== 'ok' || !Array.isArray(result.data?.items)) {
+                        error.value = result.outcome === 'permission'
+                            ? 'Sie haben keinen Zugriff auf die Diktatliste.'
+                            : 'Die Diktate konnten nicht geladen werden.';
+                    } else {
+                        error.value = '';
+                        const seen = new Set(choices.value.map((choice) => choice.id));
+                        for (const row of result.data.items) {
+                            if (!row?.dictation_id || seen.has(row.dictation_id)) continue;
+                            seen.add(row.dictation_id);
+                            const title = typeof row.own_title === 'string' ? row.own_title : '';
+                            const label = [title.trim() || row.capture_label || 'Diktat',
+                                row.dictated_by?.display_name || 'Name nicht verfügbar', formatDay(row.day),
+                                formatTime(row.sort_time || row.recorded_at), formatDictationReference(row.dictation_id)].join(' · ');
+                            choices.value.push({ id: row.dictation_id, label, fields: title ? { title } : emptyFields });
+                        }
+                        nextCursor.value = result.data.next_cursor || null;
+                    }
+                    loading.value = false;
                 }
-                return { draft, panel, dictationId, open, client };
+                onMounted(loadChoices);
+                return { client, dictationId, currentFields, choices, nextCursor, loading, error, loadChoices };
             },
             template: `
-<section class="v8-page v8-admin-page" aria-labelledby="cadm-rules-title">
+<section class="v8-page v8-admin-page clinic-regex-host" aria-labelledby="cadm-rules-title">
   <header class="pagehead">
     <div>
       <div class="eyebrow">Verwaltung</div>
       <h1 id="cadm-rules-title">Regeln</h1>
-      <p class="subline">Metadatenregeln für ein Diktat laden und prüfen.</p>
+      <p class="subline">Regeln für Titel und andere Diktatangaben verwalten und mit einem Beispieltext prüfen.</p>
     </div>
   </header>
-  <section class="panel" aria-labelledby="cadm-rules-select">
-    <h2 id="cadm-rules-select">Diktat auswählen</h2>
-    <form class="cadm-inline" @submit.prevent="open">
-      <div class="cadm-field">
-        <label for="clinic-regex-dictation">Diktat-ID</label>
-        <input id="clinic-regex-dictation" class="field" type="text" autocomplete="off" v-model="draft">
+  <clinic-regex-rules :client="client" :dictation-id="dictationId" :current-fields="currentFields" manage-rules>
+    <template #dictation>
+      <div class="regex-dictation-picker space-y-2">
+        <div class="field">
+          <label for="clinic-regex-dictation">Diktat auswählen</label>
+          <select id="clinic-regex-dictation" v-model="dictationId" :disabled="!choices.length">
+            <option value="">Kein Diktat ausgewählt</option>
+            <option v-for="choice in choices" :key="choice.id" :value="choice.id" v-text="choice.label"></option>
+          </select>
+        </div>
+        <div role="status">
+          <p v-if="loading">Diktate werden geladen …</p>
+          <p v-else-if="!error && !choices.length && !nextCursor">Keine Diktate verfügbar.</p>
+        </div>
+        <p v-if="error && !loading" class="regex-dictation-error" role="alert" v-text="error"></p>
+        <button v-if="error || nextCursor" type="button" class="btn btn--ghost" :disabled="loading"
+          @click="loadChoices" v-text="error ? 'Erneut laden' : 'Weitere Diktate laden'"></button>
       </div>
-      <button type="submit" class="btn btn--primary">Regeln laden</button>
-    </form>
-  </section>
-  <component :is="panel" v-if="panel" :key="dictationId" :client="client" :dictation-id="dictationId"></component>
+    </template>
+  </clinic-regex-rules>
 </section>`,
         };
 
