@@ -40,6 +40,7 @@ import { MODES, useCorrectionModes } from './correction-modes-ui.js';
 import { useCorrectionSave } from './correction-save-ui.js';
 import { AudioMarkers } from './audio-markers-ui.js';
 import { PlaybackGain, usePlaybackGain } from './playback-gain-ui.js';
+import { useCorrectionPlayerPosition } from './correction-player-position.js';
 
 export const COMPOSE_CORRECTION_VERSION = 1;
 
@@ -669,6 +670,7 @@ const ICON_PATHS = Object.freeze({
     refresh: '<path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/>',
     users: '<circle cx="9" cy="8" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 5a3 3 0 0 1 0 6m2 4a5 5 0 0 1 3 5"/>',
     settings: '<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>',
+    'move-player': '<path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3m12-6 3 3-3 3"/>',
     target: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3"/>'
 });
 
@@ -740,6 +742,17 @@ const LOCAL_CSS = `
   .v8-ui .editor-page .find-count{grid-column:2 / -1;min-width:0}
 }
 .v8-ui .editor-page[data-open-mode="player"] .compact-player{border:1px solid var(--line);background:var(--v8-s2);border-radius:8px;padding:8px 10px}
+.v8-ui .editor-page .player-dock .compact-player{box-sizing:border-box;flex-wrap:wrap}
+.v8-ui .editor-page .player-dock[data-player-moved] .compact-player{position:relative;z-index:30;width:min(100%, 640px);transform:translate(var(--player-x, 0px),var(--player-y, 0px));border:1px solid var(--line);border-radius:var(--ui-radius-sm);box-shadow:var(--shadow)}
+.v8-ui .editor-page .player-dock:not([data-player-moved]) .player-reset{display:none}
+.v8-ui .editor-page .player-dock .tempo-controls>input[type=range]{flex:1;min-width:100px}
+.v8-ui .editor-page .player-placement{display:flex;gap:2px;align-items:center;flex:none}
+.v8-ui .editor-page .player-move{cursor:grab;touch-action:none;user-select:none}
+.v8-ui .editor-page .player-move:active{cursor:grabbing}
+@media(max-width:700px){
+  .v8-ui .editor-page .player-dock .tempo-controls>input[type=range]{flex-basis:100%;min-width:0}
+  .v8-ui .editor-page .player-placement .icon-button{width:44px;height:44px;min-height:44px}
+}
 `;
 const LOCAL_CSS_ID = 'clinic-v8-schreibplatz-local';
 
@@ -912,6 +925,7 @@ export const CorrectionBody = {
         const pickTemplate = (id) => { templatesOpen.value = false; if (id) e.applyTemplate(id); };
         const toolStatus = () => tbState.value.readOnlyReason || tbState.value.message || '';
         return {
+            ...useCorrectionPlayerPosition(V),
             formatDictationReference,
             c, FOCUS, MODES, box, styleFor, TEXT, showDiff,
             tb, tbState, textEl, setTextEl, fontPx, focusMode, shortcutsOpen, highlightOn, inlineWord, editorScroll, followOn, onTextInput, onTextKeydown, onFindKeydown,
@@ -1000,7 +1014,20 @@ export const CorrectionBody = {
     </div>
 
     <template v-if="ready">
+      <div class="player-dock" ref="playerDock">
       <div class="player compact-player" data-testid="player-bar">
+        <span class="player-placement">
+          <span class="tool-wrap" v-tip="{ label: 'Player verschieben', keys: 'Pfeiltasten · Pos1 zurücksetzen' }">
+            <button type="button" class="icon-button player-move" :style="FOCUS" data-testid="player-move"
+                    aria-label="Player verschieben" aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Home Escape"
+                    @pointerdown="startMove" @pointermove="movePlayer" @pointerup="endMove"
+                    @pointercancel="endMove" @lostpointercapture="endMove" @keydown="playerPositionKey"><UiIcon name="move-player" /></button>
+          </span>
+          <span class="tool-wrap player-reset" v-tip="{ label: 'Playerposition zurücksetzen' }">
+            <button type="button" class="icon-button" :style="FOCUS" data-testid="player-reset"
+                    aria-label="Playerposition zurücksetzen" @click="resetPlayer(); $event.currentTarget.closest('.player-placement').querySelector('.player-move').focus({ preventScroll: true })"><UiIcon name="refresh" /></button>
+          </span>
+        </span>
         <audio preload="metadata" hidden :ref="c.bindAudio" :src="audio.status === 'ready' ? audio.src : null" :aria-label="TEXT.audio"></audio>
         <PlaybackTempo v-if="audioEl" :audio="audioEl" :step-seconds="c.stepSeconds" :on-sync="c.onSync" />
         <span class="word-sync-controls">
@@ -1013,6 +1040,7 @@ export const CorrectionBody = {
                     data-testid="follow-toggle" @click="followOn = !followOn"><UiIcon name="follow-word" /></button>
           </span>
         </span>
+      </div>
       </div>
       <p class="word-sync-info" role="status" aria-live="polite">
         <template v-if="audio.status !== 'ready' && audio.status !== 'idle' && audio.status !== 'loading'">{{ audio.message + ' ' }}</template>
