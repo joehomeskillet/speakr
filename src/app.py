@@ -1387,15 +1387,17 @@ def register_clinic_audio(flask_app):
     pool_policy.decide; an active site admin may open audio of any user (W12, audited by the
     audio handler). Capabilities that do not exist yet answer "unavailable" and are never faked:
     no bundle persistence (503), no local TTS engine or declared capability
-    (CAPABILITY_UNAVAILABLE), no live-draft coordinator (CAPABILITY_UNAVAILABLE). The derived
-    rendering reads the stored originals (app_wiring.make_source_loader); the protection store is
-    durable (clinic_dictation_protection). The mounted sdict export uses that same current
+    (CAPABILITY_UNAVAILABLE). Derived rendering reads the stored originals
+    (app_wiring.make_source_loader); the protection store is durable
+    (clinic_dictation_protection). The mounted sdict export uses that same current
     revision. A source that cannot be read stays empty and is never replaced by synthetic audio.
     """
     from src.clinic import (app_wiring, audio_render, audio_revisions, config, local_tts, policy, pool_policy,
                             revisions, routes_audio, routes_bundle, routes_clipboard, routes_correction,
-                            routes_dictation_properties, routes_live, routes_output, routes_tts, startup)
+                            routes_dictation_properties, routes_live, routes_live_drafts, routes_output,
+                            routes_tts, startup)
     from src.clinic.admin_dictation_access import can_open_content
+    from src.clinic.draft_store import DraftStore
     from src.clinic.ingest import IngestService
     from src.clinic.models import ClinicDictation, ClinicTranscriptRevision
 
@@ -1466,8 +1468,11 @@ def register_clinic_audio(flask_app):
             subject=policy.build_subject(actor),
             recording=policy.build_facts(dictation.recording_id, dictation.author_user_id))
 
-    routes_live.register_live_commands(
-        dispatch, lambda actor, dictation_id: may(actor, 'edit', db.session.get(ClinicDictation, dictation_id)))
+    def edit_live(actor, dictation_id):
+        return may(actor, 'edit', db.session.get(ClinicDictation, dictation_id))
+
+    drafts = DraftStore()
+    routes_live.register_live_commands(dispatch, edit_live)
     flask_app.register_blueprint(routes_audio.create_blueprint(
         authorize=authorize, run_once=run_once, load_sources=load_sources))
     flask_app.register_blueprint(routes_dictation_properties.DictationPropertyRoutes(protection_store).blueprint())
@@ -1475,8 +1480,8 @@ def register_clinic_audio(flask_app):
         bundle_load, lambda actor, dictation_id, action: may(actor, action, db.session.get(ClinicDictation, dictation_id)),
         bundle_persist, run_once, managed_client))
     flask_app.register_blueprint(routes_live.create_blueprint(
-        lambda actor, dictation_id: may(actor, 'edit', db.session.get(ClinicDictation, dictation_id)),
-        IngestService(startup.originals_root(flask_app))))
+        edit_live, IngestService(startup.originals_root(flask_app)), drafts=drafts))
+    flask_app.register_blueprint(routes_live_drafts.create_blueprint(drafts, edit_live))
     flask_app.register_blueprint(routes_correction.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation),
         run_once=run_once, require_if_match=True))

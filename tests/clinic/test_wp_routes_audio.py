@@ -27,6 +27,8 @@ EXPECTED = {
     "clinic_bundle.export", "clinic_bundle.import_session",
     "clinic_live.pause", "clinic_live.resume_recording", "clinic_live.append_phrase",
     "clinic_live.resume", "clinic_live.switch_draft",
+    "clinic_live_drafts.list_drafts", "clinic_live_drafts.create_draft", "clinic_live_drafts.get_draft",
+    "clinic_live_drafts.save_draft", "clinic_live_drafts.discard_draft",
     "clinic_correction.get_correction", "clinic_correction.save", "clinic_correction.add_marker",
     "clinic_correction.change_marker",
     "clinic_tts.capability", "clinic_tts.speak",
@@ -321,7 +323,7 @@ def test_live_commands_use_the_shared_dispatcher_and_session_actor(on):
     assert on["live_cmd"] == [200, 403]
     assert on["live_no_csrf"] in (400, 403)
     assert on["live_resume"] == [200, 403]
-    assert on["live_draft"] == "CAPABILITY_UNAVAILABLE"
+    assert on["live_draft"] == "POLICY_DENIED"  # This dictation has no registered draft.
 
 
 def test_tts_answers_unavailable_without_engine_and_checks_csrf(on):

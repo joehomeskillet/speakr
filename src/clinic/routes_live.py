@@ -22,7 +22,7 @@ from collections.abc import Callable, Set
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from flask import Blueprint, abort, jsonify, request, session
+from flask import Blueprint, abort, current_app, jsonify, request, session
 from flask_login import current_user
 from flask_wtf.csrf import validate_csrf
 from wtforms.validators import ValidationError
@@ -30,10 +30,10 @@ from wtforms.validators import ValidationError
 from src.clinic import live_phrases, live_session
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.draft_registry import DraftError
-from src.clinic.draft_store import DraftStore
+from src.clinic.draft_store import ClinicDraft, DraftStore
 from src.clinic.ingest import IngestService
 from src.clinic.live_drafts import HolderFence, LiveDrafts, select_draft
-from src.clinic.parity_dispatch import MAX_BODY_BYTES, CommandProblem, ParityDispatch, _problem
+from src.clinic.parity_dispatch import MAX_BODY_BYTES, CommandProblem, ParityDispatch, _problem, _unique_object
 from src.database import db
 
 PREFIX = "/api/clinic/v1/live"
@@ -61,6 +61,43 @@ _PHRASE_PROBLEMS = {
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _guard():
+    if not clinic_mode_enabled():
+        abort(404)
+    if not (current_user.is_authenticated and current_user.is_active
+            and session.get("_user_id") == current_user.get_id()):
+        return _problem("UNAUTHORIZED")
+    if request.method not in ("GET", "HEAD"):
+        try:
+            validate_csrf(request.headers.get("X-CSRF-Token"))
+        except ValidationError:
+            return _problem("FORBIDDEN")
+
+
+def _no_store(response):
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
+def _body(required: Set[str], optional: Set[str] = frozenset()) -> dict | None:
+    if not request.is_json or request.content_length is None or request.content_length > MAX_BODY_BYTES:
+        return None
+    try:
+        data = current_app.json.loads(request.get_data(), object_pairs_hook=_unique_object)
+    except (ValueError, RecursionError):
+        return None
+    if (not isinstance(data, dict) or data.keys() - required - optional
+            or required - data.keys()):
+        return None
+    return data
+
+
+def _require_undiscarded(dictation_id: str) -> None:
+    draft = db.session.get(ClinicDraft, dictation_id, populate_existing=True)
+    if draft is not None and draft.discarded_at is not None:
+        raise DraftError("discarded")
 
 
 def _code(error: Exception) -> str:
@@ -98,7 +135,7 @@ def _events(session_id: str, after: int) -> list[dict]:
 
 
 def _client_id(value: object) -> bool:
-    return isinstance(value, str) and 0 < len(value) <= 128 and value == value.strip()
+    return isinstance(value, str) and 0 < len(value) <= 128 and value == value.strip() and value.isprintable()
 
 
 def _valid_fence(data: dict) -> bool:
@@ -125,7 +162,8 @@ def register_live_commands(
     def execute_start(actor: int, target: str, envelope: dict) -> dict:
         try:
             row = live_session.start(target.split(":", 1)[1], actor, now())
-        except live_session.LiveSessionError as error:
+            _require_undiscarded(row.dictation_id)
+        except (live_session.LiveSessionError, DraftError) as error:
             raise CommandProblem(_code(error)) from error
         return result(envelope, row.ack_seq + 1)
 
@@ -176,32 +214,8 @@ def create_blueprint(
     tab id and generation on subsequent live requests.
     """
     blueprint = Blueprint("clinic_live", __name__, url_prefix=PREFIX)
-
-    @blueprint.before_request
-    def guard():
-        if not clinic_mode_enabled():
-            abort(404)
-        if not (current_user.is_authenticated and current_user.is_active
-                and session.get("_user_id") == current_user.get_id()):
-            return _problem("UNAUTHORIZED")
-        try:
-            validate_csrf(request.headers.get("X-CSRF-Token"))
-        except ValidationError:
-            return _problem("FORBIDDEN")
-
-    @blueprint.after_request
-    def no_store(response):
-        response.headers["Cache-Control"] = "private, no-store"
-        return response
-
-    def body(required: Set[str], optional: Set[str] = frozenset()) -> dict | None:
-        if request.content_length is None or request.content_length > MAX_BODY_BYTES:
-            return None
-        data = request.get_json(silent=True)
-        if (not isinstance(data, dict) or data.keys() - required - optional
-                or required - data.keys()):
-            return None
-        return data
+    blueprint.before_request(_guard)
+    blueprint.after_request(_no_store)
 
     def owned(session_id: str):
         row = db.session.get(live_session.ClinicLiveSession, session_id)
@@ -217,8 +231,8 @@ def create_blueprint(
             return _problem(_code(error))
 
     def transition(session_id: str, method):
-        data = body(set(), {"client_id", "generation", "release"} if method is live_session.pause
-                    else {"client_id", "generation"})
+        data = _body(set(), {"client_id", "generation", "release"} if method is live_session.pause
+                     else {"client_id", "generation"})
         if data is None or ("release" in data and type(data["release"]) is not bool):
             return _problem("INVALID_PAYLOAD")
         release = data.pop("release", False)
@@ -246,7 +260,7 @@ def create_blueprint(
     def append_phrase(session_id):
         required = {"generation", "sequence", "event_id", "audio_start_ms", "audio_end_ms",
                     "audio_b64", "audio_revision_id", "transcript_revision_id", "text_hash"}
-        data = body(required, {"client_id"})
+        data = _body(required, {"client_id"})
         if data is None or not isinstance(data["audio_b64"], str):
             return _problem("INVALID_PAYLOAD")
         row = owned(session_id)
@@ -269,7 +283,7 @@ def create_blueprint(
 
     @blueprint.post("/dictations/<dictation_id>/resume")
     def resume(dictation_id):
-        data = body(set(), {"client_id", "generation", "after_sequence"})
+        data = _body(set(), {"client_id", "generation", "after_sequence"})
         after = None if data is None else data.get("after_sequence", 0)
         if (data is None or type(after) is not int or after < 0
                 or (data.get("client_id") is not None and not _client_id(data["client_id"]))
@@ -282,6 +296,7 @@ def create_blueprint(
             row, _point = live_session.recover(
                 dictation_id, current_user.id, now(), client_id=data.get("client_id"),
                 generation=data.get("generation"))
+            _require_undiscarded(dictation_id)
             db.session.commit()
             return jsonify(dict(_position(row), events=_events(row.id, after), max_events=MAX_EVENTS))
         return run(act)
@@ -290,8 +305,8 @@ def create_blueprint(
     def switch_draft(draft_id):
         if drafts is None:
             return _problem("CAPABILITY_UNAVAILABLE")
-        data = body({"tab_id"}, {"acknowledged_holder"})
-        if data is None or not _client_id(data["tab_id"]):
+        data = _body({"tab_id"}, {"acknowledged_holder"})
+        if data is None or not _client_id(data["tab_id"]) or not _client_id(draft_id):
             return _problem("INVALID_PAYLOAD")
         ack = data.get("acknowledged_holder")
         if "acknowledged_holder" in data and (
