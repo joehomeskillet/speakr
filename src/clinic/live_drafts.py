@@ -47,7 +47,7 @@ class HolderFence:
 
 def select_draft(
     owner_id: int, draft_id: str, tab_id: str, now: datetime,
-    *, acknowledged: HolderFence | None = None,
+    *, acknowledged: HolderFence | None = None, draft_store: DraftStore | None = None,
 ) -> tuple[Draft, live.ClinicLiveSession]:
     """Select and claim a durable draft, without starting its microphone.
 
@@ -62,7 +62,7 @@ def select_draft(
     candidates = live.author_holders(owner_id)
     for key in sorted({draft_id, *(row.dictation_id for row in candidates)}):
         _lock_dictation(key)
-    draft = DraftStore().get(owner_id, draft_id)
+    draft = (draft_store or DraftStore()).get(owner_id, draft_id)
     if draft.discarded_at is not None:
         raise LiveDraftError("discarded")
     target = live._open(draft_id)

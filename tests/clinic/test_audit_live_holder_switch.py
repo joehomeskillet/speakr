@@ -33,6 +33,7 @@ def scene(clinic_on, world, tmp_path):
     login = LoginManager(app)
     login.user_loader(lambda uid: db.session.get(User, int(uid)))
     author = world["user_a"]
+    draft_store = DraftStore()
     with app.app_context():
         live_phrases.create_tables()
         extra = Recording(user_id=author, title="Draft B", status="PENDING")
@@ -52,7 +53,7 @@ def scene(clinic_on, world, tmp_path):
             text = revisions.add_asr_revision(row, original, "Synthetic", "local-test")
             drafts.append(dict(dictation=row.id, audio_revision=audio.id, transcript=text.id,
                                text_hash=text.normalised_text_hash))
-            DraftStore().create(author, row.id, "Draft", NOW)
+            draft_store.create(author, row.id, "Draft", NOW)
 
     @app.get("/login")
     def sign_in():
@@ -76,7 +77,8 @@ def scene(clinic_on, world, tmp_path):
     dispatch = ParityDispatch(once)
     routes_live.register_live_commands(dispatch, allowed, now=lambda: NOW)
     app.register_blueprint(dispatch.blueprint)
-    app.register_blueprint(routes_live.create_blueprint(allowed, IngestService(tmp_path), now=lambda: NOW))
+    app.register_blueprint(routes_live.create_blueprint(
+        allowed, IngestService(tmp_path), drafts=draft_store, now=lambda: NOW))
 
     def client():
         browser = app.test_client()

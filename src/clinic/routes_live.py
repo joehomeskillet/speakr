@@ -30,6 +30,7 @@ from wtforms.validators import ValidationError
 from src.clinic import live_phrases, live_session
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.draft_registry import DraftError
+from src.clinic.draft_store import DraftStore
 from src.clinic.ingest import IngestService
 from src.clinic.live_drafts import HolderFence, LiveDrafts, select_draft
 from src.clinic.parity_dispatch import MAX_BODY_BYTES, CommandProblem, ParityDispatch, _problem
@@ -164,12 +165,13 @@ def register_live_commands(
 
 def create_blueprint(
     authorize_dictation: Authorize, store: IngestService,
-    drafts: LiveDrafts | None = None, now: Clock = _utcnow,
+    drafts: LiveDrafts | DraftStore | None = None, now: Clock = _utcnow,
 ) -> Blueprint:
     """Mount pause, continue, phrase append, resume and draft switch.
 
     ``authorize_dictation(actor_id, dictation_id)`` is the caller's explicit
     per-object policy. ``store`` is the durable audio root for final phrases.
+    Pass a ``DraftStore`` to enable durable draft switching.
     Switch returns the selected session's position. The caller must use its new
     tab id and generation on subsequent live requests.
     """
@@ -286,6 +288,8 @@ def create_blueprint(
 
     @blueprint.post("/drafts/<draft_id>/switch")
     def switch_draft(draft_id):
+        if drafts is None:
+            return _problem("CAPABILITY_UNAVAILABLE")
         data = body({"tab_id"}, {"acknowledged_holder"})
         if data is None or not _client_id(data["tab_id"]):
             return _problem("INVALID_PAYLOAD")
@@ -301,9 +305,12 @@ def create_blueprint(
         def act():
             previous = HolderFence(ack["session_id"], ack["client_id"], ack["generation"]) if ack else None
             try:
-                draft, row = select_draft(current_user.id, draft_id, data["tab_id"], now(), acknowledged=previous)
+                draft, row = select_draft(
+                    current_user.id, draft_id, data["tab_id"], now(), acknowledged=previous,
+                    draft_store=drafts if isinstance(drafts, DraftStore) else None,
+                )
             except DraftError as error:
-                if drafts is None or ack is not None or error.code != "not_found":
+                if not isinstance(drafts, LiveDrafts) or ack is not None or error.code != "not_found":
                     raise
                 draft = drafts.switch(current_user.id, draft_id, data["tab_id"], now())
                 db.session.commit()
