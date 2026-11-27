@@ -31,6 +31,7 @@
 
 import { formatDictationReference } from './worklist-ui.js';
 import { createClinicApiClient } from './api-client.js';
+import { SessionTransportNotice } from './compose-settings.js';
 import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
 import { CorrectionAudioPanel, DictationSummary, createCorrectionToolbar, useCorrectionEditor, vTip, createRepeatTranscription, REPEAT_TEXT } from './correction-editor-ui.js';
 import { LABELS as ALIGN_LABELS, createPlaybackHighlighter, useCorrectionAlignment } from './correction-alignment-ui.js';
@@ -764,7 +765,7 @@ const BODY_PROPS = {
 /** Inner body: one instance per dictation. The outer view re-keys it, which disposes everything. */
 export const CorrectionBody = {
     name: 'ClinicCorrectionBody',
-    components: { DictationSummary, CorrectionAudioPanel, CorrectionWaveform, AudioMarkers, PlaybackTempo, PlaybackGain, UiIcon },
+    components: { DictationSummary, CorrectionAudioPanel, CorrectionWaveform, AudioMarkers, PlaybackTempo, PlaybackGain, UiIcon, SessionTransportNotice },
     directives: { tip: vTip },
     props: BODY_PROPS,
     emits: ['close'],
@@ -945,6 +946,7 @@ export const CorrectionBody = {
       </slot>
     </div>
   </div>
+  <SessionTransportNotice :client="c.client" :vue="vue" />
   <p v-if="closeMessage" role="alert" class="note" :style="box('error')">{{ closeMessage }}</p>
   <p class="sr-only" id="ccv-keys">{{ TEXT.keys }}</p>
 

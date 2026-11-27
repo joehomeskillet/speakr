@@ -87,3 +87,21 @@ def test_invalid_transport_policy_fails_closed(workstation, policy_file, invalid
     client, url, _ = workstation
     rejected = client.get(url)
     assert (rejected.status_code, rejected.json["code"]) == (503, "invalid_transport_policy")
+    rejected = client.get(PREFIX + "/session-transport")
+    assert (rejected.status_code, rejected.json["code"]) == (503, "invalid_transport_policy")
+
+
+@pytest.mark.parametrize("mode", ["local", "rdp", "ica"])
+def test_session_transport_does_not_require_a_workstation_id(workstation, policy_file, mode):
+    policy_file.write_text(json.dumps({"web_client": {"transport_mode": mode}}), encoding="utf-8")
+    client, _, _ = workstation
+    response = client.get(
+        PREFIX + "/session-transport",
+        query_string={"transport_mode": "remote", "device_redirection_verified": "true"},
+        headers={"X-Device-Redirection-Verified": "true"},
+    )
+    assert response.status_code == 200
+    assert response.json == {"transport_mode": mode, "device_redirection_verified": False}
+    with client.session_transaction() as session:
+        session.clear()
+    assert client.get(PREFIX + "/session-transport").status_code == 401

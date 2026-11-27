@@ -32,6 +32,36 @@ import { createSampleRecorder, createVoiceConsentController } from './voice-cons
 
 const WORKSTATION_PATH = /^\/preferences\/workstations\/[^/]+$/;
 
+export const SessionTransportNotice = {
+    props: { client: { type: Object, default: null }, vue: { type: Object, default: null } },
+    setup(props) {
+        const V = props.vue || globalThis.Vue;
+        const message = V.ref('');
+        const blocked = V.ref(false);
+        V.onMounted(async () => {
+            if (!props.client) return;
+            const response = await props.client.request('/preferences/session-transport');
+            const policy = response?.outcome === 'ok' ? response.data : null;
+            const mode = policy?.transport_mode;
+            if (mode === 'local') {
+                message.value = 'An diesem Arbeitsplatz: Angeschlossene Geräte werden hier nicht geprüft.';
+            } else if (mode === 'rdp' || mode === 'ica') {
+                const session = mode === 'rdp' ? 'Remotedesktop (RDP)' : 'Citrix (ICA)';
+                blocked.value = policy.device_redirection_verified !== true;
+                message.value = blocked.value
+                    ? `${session}: Geräteweiterleitung nicht geprüft. Die Nutzung weitergeleiteter Geräte wird nicht unterstützt.`
+                    : `${session}: Geräteweiterleitung geprüft.`;
+            } else if (response?.outcome !== 'cancelled') {
+                blocked.value = true;
+                message.value = 'Der Gerätestatus dieser Sitzung konnte nicht geprüft werden.';
+            }
+        });
+        return { message, blocked };
+    },
+    template: `<div role="status" aria-live="polite"><p v-if="message" class="note"
+        :class="{ warning: blocked }" data-testid="session-transport-status">{{ message }}</p></div>`,
+};
+
 export const ORIGIN_LABELS = Object.freeze({
     workstation: 'Persönlich (Arbeitsplatz)',
     central: 'Zentral festgelegt',
@@ -425,6 +455,7 @@ export const SETTINGS_TEMPLATE = `
   <p v-if="state.denied" class="${NOTE_WARNING}" role="alert">{{ labels.denied }}</p>
   <p v-else-if="state.forbidden" class="${NOTE_BURGUNDY}" role="alert" :style="errorStyle" data-testid="clinic-settings-forbidden">{{ labels.forbidden }}</p>
   <template v-else>
+    <SessionTransportNotice :key="state.epoch" :client="client" :vue="vue" />
     <div class="grid equal">
       <div class="space-y-5 min-w-0">
         <section class="panel clinic-settings-prefs ${CHILD_BUTTONS} ${CHOICES}"><component :is="preferences" :key="'p:' + state.epoch"></component></section>
@@ -451,6 +482,7 @@ export const SETTINGS_TEMPLATE = `
 
 export const SettingsView = {
     name: 'ClinicSettingsView',
+    components: { SessionTransportNotice },
     props: {
         client: { type: Object, required: true },
         currentUser: { type: Object, default: null },

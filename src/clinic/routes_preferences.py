@@ -36,6 +36,7 @@ from src.clinic.workstation_preferences import (
     PreferenceError,
     StaleVersion,
     WorkstationPreferences,
+    session_transport_status,
 )
 
 PREFIX = "/api/clinic/v1/preferences"
@@ -97,6 +98,7 @@ class PreferenceRoutes:
             ("/recipient-default/resolve", "recipient_resolve", self._recipient_resolve, ("POST",)),
             ("/last-selection", "last_selection", self._last_selection, ("GET", "PUT")),
             ("/workstations", "workstation_issue", self._workstation_issue, ("POST",)),
+            ("/session-transport", "session_transport", self._session_transport, ("GET",)),
             ("/workstations/<workstation_id>", "workstation", self._workstation, ("GET", "PUT")),
             ("/correction-mode", "correction_mode", self._correction_mode, ("GET", "PUT")),
         ):
@@ -200,6 +202,9 @@ class PreferenceRoutes:
         return jsonify(selection=_selection_json(selection))
 
     # -- workstation --------------------------------------------------------
+    def _session_transport(self):
+        return jsonify(session_transport_status())
+
     def _workstation_issue(self):
         return jsonify(workstation_id=self._workstations.issue(current_user)), 201
 

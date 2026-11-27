@@ -112,7 +112,7 @@ describe('compose-correction contract', () => {
         expect(CorrectionView.emits).toContain('close');
     });
 
-    it('composes exactly the eight building blocks and reuses tokens and api-client', () => {
+    it('composes the eight editor building blocks and reuses tokens, api-client and transport status', () => {
         for (const mod of [
             'correction-editor-ui', 'correction-alignment-ui', 'correction-waveform-ui', 'playback-tempo-ui',
             'correction-modes-ui', 'correction-save-ui', 'audio-markers-ui', 'playback-gain-ui',
@@ -121,7 +121,9 @@ describe('compose-correction contract', () => {
         expect(source).toContain("from './api-client.js'");
         const imports = [...source.matchAll(/from '(\.\/[^']+)'/g)].map((m) => m[1]);
         expect(imports).toHaveLength(new Set(imports).size);
-        expect(imports).toHaveLength(11);
+        expect(imports).toContain('./compose-settings.js');
+        expect(imports.filter((path) => path !== './compose-settings.js')).toHaveLength(11);
+        expect(imports).toHaveLength(12);
     });
 
     it('uses German labels, tokens only, keyboard-operable native controls and no browser storage', () => {

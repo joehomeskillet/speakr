@@ -56,6 +56,7 @@ _CLIENT_KEYS = frozenset({
     "capabilities", "transport_mode", "device_redirection_verified",
 })
 _TRANSPORT_MODES = frozenset({"local", "rdp", "ica"})
+_DEVICE_REDIRECTION_VERIFIED = False
 
 
 class PreferenceError(ValueError):
@@ -93,7 +94,7 @@ class Effective:
     @property
     def device_redirection_verified(self) -> bool:
         """Redirection requires lab evidence for the configured transport."""
-        return False
+        return _DEVICE_REDIRECTION_VERIFIED
 
 
 def _transport_mode() -> str:
@@ -105,6 +106,13 @@ def _transport_mode() -> str:
     if not isinstance(mode, str) or mode not in _TRANSPORT_MODES:
         raise PreferenceError("invalid_transport_policy")
     return mode
+
+
+def session_transport_status() -> dict[str, str | bool]:
+    return {
+        "transport_mode": _transport_mode(),
+        "device_redirection_verified": _DEVICE_REDIRECTION_VERIFIED,
+    }
 
 
 def _profile_names() -> frozenset[str]:
