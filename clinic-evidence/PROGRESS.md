@@ -1,5 +1,9 @@
 # Speakr V8: geprüfte Änderungen im Klinik-Webclient
 
+## Implementierung P-086
+
+Autoren mit Selbstkorrektur als Versandziel können ohne Schreibpool aufnehmen und einreichen. Synthetische HTTP-/DB-Tests belegen die eigene Editierlease, das Speichern von Text und den Ausschluss impliziter Pool-Sicht und Freigaberechte. Staging- und Referenznachweis für BT-ADM-007 stehen aus.
+
 ## Implementierung P-084
 
 Versionierte Importabsichten werden pro Datei in den bestehenden Klinik-Import übernommen. Synthetische HTTP-/DB-Tests prüfen Metadaten, Poolwahl, Empfänger, die drei ASR-Modi und den unveränderten nicht ausgewählten Inventareintrag. Staging- und Philips-Referenztests für BT-IMP-003 stehen noch aus.

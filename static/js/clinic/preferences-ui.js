@@ -25,13 +25,16 @@ const LABELS = Object.freeze({
     'clinic.preferences.mode': 'Standardempfänger',
     'clinic.preferences.mode.all_eligible': 'Alle berechtigten Personen',
     'clinic.preferences.mode.person': 'Bestimmte Person',
-    'clinic.preferences.mode.staff_pool': 'Personalpool',
+    'clinic.preferences.mode.staff_pool': 'Schreibteam',
     'clinic.preferences.mode.self_correction': 'Selbstkorrektur',
     'clinic.preferences.target': 'Empfänger auswählen',
     'clinic.preferences.choice': 'Abweichende Auswahl beim Diktat',
-    'clinic.preferences.choice.default_only': 'Nur der Standard',
-    'clinic.preferences.choice.staff_pools_only': 'Nur Personalpools',
-    'clinic.preferences.choice.open': 'Frei wählbar',
+    'clinic.preferences.choice.default_only': 'Nur der Standardempfänger',
+    'clinic.preferences.choice.staff_pools_only': 'Nur Schreibteams',
+    'clinic.preferences.choice.open': 'Personen und Schreibteams',
+    'clinic.preferences.default_missing': 'Noch kein Standardempfänger gespeichert.',
+    'clinic.preferences.default_unavailable': 'Der bisherige Standardempfänger ist nicht mehr verfügbar.',
+    'clinic.preferences.teams_empty': 'Es ist kein Schreibteam verfügbar.',
     'clinic.preferences.workstation': 'Arbeitsplatz-Einstellungen',
     'clinic.preferences.locked': 'Zentral festgelegt',
     'clinic.preferences.save': 'Übernehmen',
@@ -79,6 +82,9 @@ export function createPreferencesController(deps) {
         targetIds: [],
         choice: 'open',
         overrides: null,
+        recipientChoiceGrant: null,
+        defaultTargets: null,
+        hasDefault: false,
         workstation: { values: {}, origins: {}, version: 0 },
         draft: { mode: 'all_eligible', targetIds: [], choice: 'open', changes: {} },
     };
@@ -101,7 +107,7 @@ export function createPreferencesController(deps) {
     function revalidate() {
         const draft = state.draft;
         let removed = false;
-        if (draft.mode === 'person' || draft.mode === 'staff_pool') {
+        if (modeAllowed(draft.mode) && (draft.mode === 'person' || draft.mode === 'staff_pool')) {
             const offered = new Set(optionIds(draft.mode));
             const kept = draft.targetIds.filter((id) => offered.has(String(id)));
             if (!sameList(kept, draft.targetIds)) {
@@ -123,12 +129,24 @@ export function createPreferencesController(deps) {
         return removed;
     }
 
-    function optionIds(mode) {
-        const o = state.overrides;
+    function modeAllowed(mode) {
+        return state.recipientChoiceGrant !== 'default_only'
+            && !(mode === 'person' && state.recipientChoiceGrant === 'staff_pools_only');
+    }
+
+    function targetOptions(mode) {
+        const o = state.defaultTargets || state.overrides;
         if (!o || typeof o !== 'object') return [];
         const list = mode === 'person' ? (o.person || o.persons) : (o.staff_pool || o.staff_pools);
         if (!Array.isArray(list)) return [];
-        return list.map((x) => String(x && typeof x === 'object' ? x.id : x));
+        return list.map((x) => {
+            const value = String(x && typeof x === 'object' ? x.id : x);
+            return { value, name: x?.name || value };
+        });
+    }
+
+    function optionIds(mode) {
+        return targetOptions(mode).map((option) => option.value);
     }
 
     function isLocked(key) {
@@ -153,6 +171,9 @@ export function createPreferencesController(deps) {
         state.targetIds = Array.isArray(d.target_ids) ? d.target_ids.map(String) : [];
         state.choice = d.choice || 'open';
         state.overrides = d.overrides || null;
+        state.recipientChoiceGrant = CHOICES.includes(d.recipient_choice_grant) ? d.recipient_choice_grant : null;
+        state.defaultTargets = d.default_targets || null;
+        state.hasDefault = !!d.mode;
         state.draft = { mode: state.mode, targetIds: state.targetIds.slice(), choice: state.choice, changes: {} };
         if (workstationId) {
             const ws = await client.request(BASE + '/workstations/' + encodeURIComponent(workstationId));
@@ -172,23 +193,24 @@ export function createPreferencesController(deps) {
     }
 
     function setMode(mode) {
-        if (!MODES.includes(mode)) return false;
+        if (!MODES.includes(mode) || !modeAllowed(mode)) return false;
+        if (state.recipientChoiceGrant && mode !== state.draft.mode) state.draft.targetIds = [];
         state.draft.mode = mode;
         if (mode !== 'person' && mode !== 'staff_pool') state.draft.targetIds = [];
-        if (mode === 'self_correction') state.draft.choice = 'open';
+        if (mode === 'self_correction' && !state.recipientChoiceGrant) state.draft.choice = 'open';
         emit();
         return true;
     }
 
     function setTarget(id) {
-        if (!optionIds(state.draft.mode).includes(String(id))) return false;
+        if (!modeAllowed(state.draft.mode) || !optionIds(state.draft.mode).includes(String(id))) return false;
         state.draft.targetIds = [String(id)];
         emit();
         return true;
     }
 
     function setChoice(choice) {
-        if (!CHOICES.includes(choice)) return false;
+        if (state.recipientChoiceGrant || !CHOICES.includes(choice)) return false;
         state.draft.choice = choice;
         emit();
         return true;
@@ -203,6 +225,7 @@ export function createPreferencesController(deps) {
 
     async function saveDefault() {
         const d = state.draft;
+        if (!modeAllowed(d.mode)) return false;
         if ((d.mode === 'person' || d.mode === 'staff_pool') && d.targetIds.length !== 1) {
             state.error = { outcome: 'validation', code: 'INVALID_PAYLOAD', message: label('clinic.preferences.target'), retryable: false };
             emit();
@@ -213,7 +236,10 @@ export function createPreferencesController(deps) {
         emit();
         const res = await client.request(BASE + '/recipient-default', {
             method: 'PUT',
-            body: { mode: d.mode, target_ids: d.targetIds, choice: d.choice, expected_version: state.version },
+            body: {
+                mode: d.mode, target_ids: d.targetIds, expected_version: state.version,
+                ...(!state.recipientChoiceGrant ? { choice: d.choice } : {}),
+            },
         });
         state.busy = false;
         if (res.outcome !== 'ok') {
@@ -259,6 +285,9 @@ export function createPreferencesController(deps) {
         client.switchContext({ accountId: n.accountId, dictationId: n.dictationId });
         state.workstation = { values: {}, origins: {}, version: 0 };
         state.overrides = null;
+        state.recipientChoiceGrant = null;
+        state.defaultTargets = null;
+        state.hasDefault = false;
         state.draft = { mode: 'all_eligible', targetIds: [], choice: 'open', changes: {} };
         return load();
     }
@@ -280,19 +309,31 @@ export function createPreferencesController(deps) {
     function view() {
         const d = state.draft;
         const errorSurface = state.error ? surfaceFor('error') : null;
-        const dirty = d.mode !== state.mode || d.choice !== state.choice
-            || !sameList(d.targetIds, state.targetIds) || Object.keys(d.changes).length > 0;
+        const dirty = !sameDefault(d, state) || Object.keys(d.changes).length > 0;
+        const grant = state.recipientChoiceGrant;
+        const namedDefault = state.mode === 'person' || state.mode === 'staff_pool';
+        const defaultName = namedDefault
+            ? targetOptions(state.mode).find((target) => state.targetIds.includes(target.value))?.name
+            : label('clinic.preferences.mode.' + state.mode);
+        const targets = !modeAllowed(d.mode) || !['person', 'staff_pool'].includes(d.mode)
+            ? [] : targetOptions(d.mode).map((target) => ({ ...target, selected: d.targetIds.includes(target.value) }));
         return {
             title: label('clinic.preferences.title'),
             dirty,
-            modes: MODES.map((m) => ({
+            recipientChoiceGrant: grant && label('clinic.preferences.choice.' + grant),
+            defaultOnly: grant === 'default_only',
+            savedDefault: !state.hasDefault ? label('clinic.preferences.default_missing') :
+                defaultName || label('clinic.preferences.default_unavailable'),
+            targetMessage: grant && (!modeAllowed(d.mode) && grant !== 'default_only'
+                ? label('clinic.preferences.default_unavailable') :
+                (d.mode === 'staff_pool' && targets.length === 0 ? label('clinic.preferences.teams_empty') : null)),
+            modes: MODES.filter(modeAllowed).map((m) => ({
                 value: m,
                 label: label('clinic.preferences.mode.' + m),
                 selected: d.mode === m,
                 disabled: m === 'self_correction' && !!state.overrides && state.overrides.self_correction === false,
             })),
-            targets: (d.mode === 'person' || d.mode === 'staff_pool')
-                ? optionIds(d.mode).map((id) => ({ value: id, selected: d.targetIds.includes(id) })) : [],
+            targets,
             choices: CHOICES.map((c) => ({
                 value: c, label: label('clinic.preferences.choice.' + c), selected: d.choice === c,
                 disabled: d.mode === 'self_correction' && c !== 'open',
@@ -366,16 +407,20 @@ export function usePreferences(deps, VueArg) {
 const PANEL_TEMPLATE = `
 <section class="clinic-preferences" :aria-label="view.title" data-testid="clinic-preferences" @keydown="onKeydown">
   <h2 class="text-lg font-semibold text-[var(--text-primary)]">{{ view.title }}</h2>
-  <p class="mb-4 mt-1 text-sm text-[var(--text-muted)]">Standardempfänger und abweichende Auswahl für Diktate festlegen.</p>
+  <p class="mb-4 mt-1 text-sm text-[var(--text-muted)]">Hier sehen Sie, wer Ihre Diktate normalerweise erhält.</p>
   <p v-if="view.error" role="alert" aria-live="assertive" class="mb-3 p-2 border rounded" :style="errorStyle"
      data-testid="clinic-preferences-error">{{ view.error.message }}</p>
   <p v-if="view.notice" role="status" aria-live="polite" class="mb-3 p-2 border rounded" :style="noticeStyle"
      data-testid="clinic-preferences-notice">{{ view.notice }}</p>
   <p v-if="loading" role="status" aria-live="polite">{{ view.labels.loading }}</p>
   <form v-else @submit.prevent="onSave" :aria-busy="busy ? 'true' : 'false'" novalidate>
-    <fieldset class="mb-4 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4" :aria-label="view.a11y.modeGroup.label" role="radiogroup">
+    <div v-if="view.defaultOnly" class="mb-4">
+      <h3 class="text-sm font-semibold">{{ view.a11y.modeGroup.label }}</h3>
+      <p data-testid="clinic-preferences-saved-default">{{ view.savedDefault }}</p>
+    </div>
+    <fieldset v-else class="mb-4 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4" :aria-label="view.a11y.modeGroup.label" role="radiogroup">
       <legend class="px-1 text-sm font-semibold text-[var(--text-primary)]">{{ view.a11y.modeGroup.label }}</legend>
-      <label v-for="m in view.modes" :key="m.value" class="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]">
+      <label v-for="m in view.modes" :key="m.value" class="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]" :style="view.recipientChoiceGrant ? { minHeight: 'var(--sp-7)' } : null">
         <input type="radio" name="clinic-preferences-mode" :value="m.value" :checked="m.selected" :disabled="m.disabled || busy"
                :data-testid="'clinic-preferences-mode-' + m.value" @change="controller.setMode(m.value)">
         {{ m.label }}
@@ -384,12 +429,18 @@ const PANEL_TEMPLATE = `
     <div v-if="view.targets.length" class="mb-4">
       <label for="clinic-preferences-target" class="mb-1 block text-sm font-medium text-[var(--text-secondary)]">{{ view.labels.target }}</label>
       <select id="clinic-preferences-target" class="field field--sm" :disabled="busy" data-testid="clinic-preferences-target"
-              @change="controller.setTarget($event.target.value)">
-        <option value="" :selected="!view.targets.some((x) => x.selected)">–</option>
-        <option v-for="x in view.targets" :key="x.value" :value="x.value" :selected="x.selected">{{ x.value }}</option>
+              :style="view.recipientChoiceGrant ? { minHeight: 'var(--sp-7)', borderColor: 'var(--ui-text-muted)' } : null"
+              v-model="selectedTarget">
+        <option value="" disabled>Bitte wählen</option>
+        <option v-for="x in view.targets" :key="x.value" :value="x.value">{{ x.name }}</option>
       </select>
     </div>
-    <fieldset class="mb-4 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4" :aria-label="view.a11y.choiceGroup.label" role="radiogroup">
+    <p v-if="view.targetMessage" role="status" class="mb-4 text-sm">{{ view.targetMessage }}</p>
+    <div v-if="view.recipientChoiceGrant" class="mb-4">
+      <h3 class="text-sm font-semibold">Empfängerwahl beim Versand</h3>
+      <p data-testid="clinic-preferences-recipient-limit">{{ view.recipientChoiceGrant }} (von der Verwaltung festgelegt)</p>
+    </div>
+    <fieldset v-else class="mb-4 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4" :aria-label="view.a11y.choiceGroup.label" role="radiogroup">
       <legend class="px-1 text-sm font-semibold text-[var(--text-primary)]">{{ view.a11y.choiceGroup.label }}</legend>
       <label v-for="c in view.choices" :key="c.value" class="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]">
         <input type="radio" name="clinic-preferences-choice" :value="c.value" :checked="c.selected" :disabled="c.disabled || busy"
@@ -415,12 +466,12 @@ const PANEL_TEMPLATE = `
       </div>
     </fieldset>
     <div class="flex flex-wrap gap-2">
-      <button type="submit" class="btn btn--sm btn--primary" :disabled="!view.dirty || busy" data-testid="clinic-preferences-save">{{ view.labels.save }}</button>
-      <button type="button" class="btn btn--sm btn--ghost" :disabled="!view.dirty || busy" data-testid="clinic-preferences-cancel"
+      <button v-if="!view.defaultOnly || view.settings.length" type="submit" class="btn btn--sm btn--primary" :style="buttonStyle" :disabled="!view.dirty || busy" data-testid="clinic-preferences-save">{{ view.labels.save }}</button>
+      <button v-if="!view.defaultOnly || view.settings.length" type="button" class="btn btn--sm btn--ghost" :style="buttonStyle" :disabled="!view.dirty || busy" data-testid="clinic-preferences-cancel"
               @click="controller.cancel()">{{ view.labels.cancel }}</button>
-      <button type="button" class="btn btn--sm btn--ghost" :disabled="busy" data-testid="clinic-preferences-reload"
+      <button type="button" class="btn btn--sm btn--ghost" :style="buttonStyle" :disabled="busy" data-testid="clinic-preferences-reload"
               @click="controller.load()">{{ view.labels.reload }}</button>
-      <button v-if="view.error && view.error.retryable" type="button" class="btn btn--sm btn--ghost" data-testid="clinic-preferences-retry"
+      <button v-if="view.error && view.error.retryable" type="button" class="btn btn--sm btn--ghost" :style="buttonStyle" data-testid="clinic-preferences-retry"
               @click="onSave">{{ view.labels.retry }}</button>
     </div>
   </form>
@@ -443,6 +494,11 @@ export function createPreferencesComponent(Vue, client, props = {}) {
                 { client, workstationId: props.workstationId || null, t: props.t },
                 Vue,
             );
+            const selectedTarget = Vue.computed({
+                get: () => view.value.targets.find((target) => target.selected)?.value || '',
+                set: (id) => controller.setTarget(id),
+            });
+            const buttonStyle = Vue.computed(() => view.value.recipientChoiceGrant ? 'min-height: var(--sp-7) !important' : '');
             const loading = Vue.ref(true);
             const busy = Vue.ref(false);
             const syncFlags = () => { loading.value = controller.state.loading; busy.value = controller.state.busy; };
@@ -470,7 +526,7 @@ export function createPreferencesComponent(Vue, client, props = {}) {
             }
             Vue.onMounted(async () => { await controller.load(); syncFlags(); });
             Vue.onBeforeUnmount(() => { if (unsubscribe) unsubscribe(); });
-            return { controller, view, loading, busy, errorStyle, noticeStyle, onSave, onKeydown };
+            return { controller, view, selectedTarget, buttonStyle, loading, busy, errorStyle, noticeStyle, onSave, onKeydown };
         },
     };
 }

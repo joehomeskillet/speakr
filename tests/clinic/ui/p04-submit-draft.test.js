@@ -4,8 +4,10 @@ import { createRecordingViewController } from '../../../static/js/clinic/compose
 const id = '636677e5-622e-4fa1-ba8e-18858971edc6';
 const path = '/dictations/' + id;
 const etag = '"' + id + ':3"';
-const detail = { outcome: 'ok', data: { dictation_id: id, etag } };
-const sent = { outcome: 'ok', data: { dictation_id: id, status: 'vorbereitung_online' } };
+const preview = { outcome: 'ok', data: { dictation_id: id, etag, default_version: 3,
+    default_label: 'Mira Schreib', options: [] } };
+const sent = { outcome: 'ok', data: { dictation_id: id, status: 'vorbereitung_online',
+    routing_target: { label: 'Noah Schreib' } } };
 
 function recording(receipt = { dictation_id: id }) {
     const upload = vi.fn().mockResolvedValue(receipt);
@@ -30,16 +32,23 @@ describe('P04 draft submission', () => {
         expect(controller.model().message).toContain('Gespeichert');
         expect(request).not.toHaveBeenCalled();
 
-        request.mockResolvedValueOnce(detail).mockResolvedValueOnce(sent);
+        let confirmSend;
+        request.mockResolvedValueOnce(preview)
+            .mockImplementationOnce(() => new Promise(resolve => { confirmSend = resolve; }));
+        expect((await controller.prepareSubmit()).ok).toBe(true);
+        expect(controller.model().sendPreview.default_label).toBe('Mira Schreib');
+        expect(request).toHaveBeenCalledTimes(1);
         const pending = controller.submit();
         expect(controller.model().phase).toBe('submitting');
         expect((await controller.submit()).ok).toBe(false);
         expect(controller.another().ok).toBe(false);
+        confirmSend(sent);
         expect((await pending).ok).toBe(true);
-        expect(request.mock.calls).toEqual([[path + '/detail'], [path + '/send', {
-            method: 'POST', body: {}, ifMatch: etag, idempotencyKey: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        expect(request.mock.calls).toEqual([[path + '/send-preview'], [path + '/send', {
+            method: 'POST', body: { expected_version: 3 }, ifMatch: etag, idempotencyKey: expect.stringMatching(/^[0-9a-f-]{36}$/),
         }]]);
         expect(controller.model().message).toBe('Eingereicht.');
+        expect(controller.model().confirmedTarget).toBe('Noah Schreib');
         expect((await controller.submit()).ok).toBe(false);
         expect(controller.another().ok).toBe(true);
         expect(controller.model().canSubmit).toBe(false);
@@ -50,9 +59,10 @@ describe('P04 draft submission', () => {
         controller.setMode('file');
         controller.selectFile({ name: 'test.wav', size: 20 });
         await controller.sendFile();
-        request.mockResolvedValueOnce(detail).mockRejectedValueOnce(new Error('offline'))
+        request.mockResolvedValueOnce(preview).mockRejectedValueOnce(new Error('offline'))
             .mockResolvedValueOnce({ outcome: 'ok', data: { ...sent.data, dictation_id: 'other' } })
             .mockResolvedValueOnce(sent);
+        expect((await controller.prepareSubmit()).ok).toBe(true);
         expect((await controller.submit()).ok).toBe(false);
         expect(controller.model().message).toContain('nicht bestätigt');
         expect((await controller.submit()).ok).toBe(false);
@@ -67,7 +77,8 @@ describe('P04 draft submission', () => {
         controller.setMode('file');
         controller.selectFile({ name: 'test.wav', size: 20 });
         await controller.sendFile();
-        request.mockResolvedValueOnce(detail).mockResolvedValueOnce({ outcome: 'conflict', code: 'NOT_DRAFT' });
+        request.mockResolvedValueOnce(preview).mockResolvedValueOnce({ outcome: 'conflict', code: 'NOT_DRAFT' });
+        expect((await controller.prepareSubmit()).ok).toBe(true);
         expect((await controller.submit()).ok).toBe(false);
         expect(controller.model()).toMatchObject({ canSubmit: false, message: expect.stringContaining('kein neuer Entwurf') });
         expect((await controller.submit()).ok).toBe(false);
@@ -92,16 +103,35 @@ describe('P04 draft submission', () => {
         controller.setMode('file');
         controller.selectFile({ name: 'test.wav', size: 20 });
         await controller.sendFile();
-        request.mockResolvedValueOnce(detail)
+        request.mockResolvedValueOnce(preview)
             .mockResolvedValueOnce({ outcome: 'conflict', code: 'NO_STAFF_POOL' });
+        expect((await controller.prepareSubmit()).ok).toBe(true);
         expect((await controller.submit()).ok).toBe(false);
         expect(controller.model()).toMatchObject({
-            canSubmit: true, message: 'Kein Schreibkräfte-Pool zugeordnet.', created: { dictationId: id },
+            canSubmit: true, message: 'Für dieses Diktat ist kein Schreibteam erreichbar.', created: { dictationId: id },
         });
-        request.mockResolvedValueOnce(detail);
-        const retry = controller.submit();
+        request.mockResolvedValueOnce(preview);
+        const retry = controller.prepareSubmit();
         await controller.dispose();
         expect((await retry).ok).toBe(false);
         expect(request).toHaveBeenCalledTimes(3);
+    });
+
+    it('requires a fresh preview and a new confirmation when the saved default changes', async () => {
+        const { controller, request } = recording();
+        controller.setMode('file');
+        controller.selectFile({ name: 'test.wav', size: 20 });
+        await controller.sendFile();
+        request.mockResolvedValueOnce(preview).mockResolvedValueOnce({ outcome: 'conflict', code: 'STALE_VERSION' })
+            .mockResolvedValueOnce({ ...preview, data: { ...preview.data, default_version: 4 } })
+            .mockResolvedValueOnce(sent);
+        await controller.prepareSubmit();
+        expect((await controller.submit()).ok).toBe(false);
+        expect(controller.model().sendPreview).toBeNull();
+        expect((await controller.submit()).ok).toBe(false);
+        await controller.prepareSubmit();
+        expect((await controller.submit()).ok).toBe(true);
+        expect(request.mock.calls[3][1].body).toEqual({ expected_version: 4 });
+        expect(request.mock.calls[3][1].idempotencyKey).not.toBe(request.mock.calls[1][1].idempotencyKey);
     });
 });

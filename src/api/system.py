@@ -269,10 +269,18 @@ def get_config():
 
         if clinic_mode_enabled():
             from flask_login import current_user as actor
-            from src.clinic import pools, web_ingest
+            from src.clinic import pools, recipient_defaults, web_ingest
 
             pool_id = web_ingest.author_pool_for(actor.id)
-            response = jsonify(routable=bool(pool_id and pools.routable_staff_pool_ids(pool_id)))
+            routable = bool(pool_id and pools.routable_staff_pool_ids(pool_id))
+            if pool_id and not routable:
+                try:
+                    target = recipient_defaults.submit(actor.id, pool_id, actor_id=actor.id)
+                except recipient_defaults.RecipientDefaultError:
+                    routable = False
+                else:
+                    routable = target.mode == 'self_correction'
+            response = jsonify(routable=routable)
             response.headers['Cache-Control'] = 'no-store'
             return response
 

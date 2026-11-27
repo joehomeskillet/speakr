@@ -65,6 +65,9 @@ def _exercise():
     assert outsider[0].get(preflight).json == {'routable': False}
     assert browser[0].get(preflight).json == {'routable': False}
 
+    def preview(target, *, actor=browser):
+        return actor[0].get(f'/api/clinic/v1/dictations/{target}/send-preview')
+
     def post(target, *, actor=browser, key=None, version=0, omit=None, body=None):
         client, csrf = actor
         headers = {**csrf, 'Idempotency-Key': key or str(uuid4()), 'If-Match': f'"{target}:{version}"'}
@@ -74,6 +77,9 @@ def _exercise():
 
     assert post(idle, actor=(app.test_client(), {})).status_code == 401
     assert post(idle, actor=outsider).status_code == 403
+    assert preview(idle, actor=(app.test_client(), {})).status_code == 401
+    assert preview(idle, actor=outsider).status_code == 403
+    assert preview(silent).json['code'] == 'AUDIO_REQUIRED'
     assert post(idle, omit='X-CSRFToken').status_code == 400
     assert post(idle, omit='Idempotency-Key').status_code == 400
     assert post(idle, omit='If-Match').status_code == 428
@@ -98,6 +104,10 @@ def _exercise():
     available = browser[0].get(preflight)
     assert available.status_code == 200 and available.json == {'routable': True}
     assert available.headers['Cache-Control'] == 'no-store'
+    result = preview(idle)
+    assert result.headers['Cache-Control'] == 'no-store'
+    assert result.json['default_label'] == 'Alle berechtigten Schreibkräfte'
+    assert result.json['etag'] == f'"{idle}:0"' and result.json['default_version'] == 0
     assert post(silent).json['code'] == 'AUDIO_REQUIRED'
     with patch.object(audit, 'record_in_tx', return_value=None):
         assert post(idle, key=key).status_code == 503
@@ -116,6 +126,7 @@ def _exercise():
                                          'version': 1, 'etag': f'"{idle}:1"'}
     repeated = post(idle, version=1)
     assert repeated.status_code == 409 and repeated.json['state']['status'] == workflow.TO_WRITE
+    assert preview(idle).json['code'] == 'NOT_DRAFT'
     assert post(idle, key=key, version=1).json['code'] == 'IDEMPOTENCY_CONFLICT'
     for target, status in ((asr, workflow.TO_CORRECT), (running, workflow.PREP_ONLINE)):
         detail = browser[0].get(f'/api/clinic/v1/dictations/{target}/detail')

@@ -175,19 +175,27 @@ def load_entries(actor: int) -> list[routes_worklist.WorklistEntry]:
         .join(Recording, Recording.id == ClinicDictation.recording_id)
     )
     admin = _is_active_site_admin(db.session, db.session.get(User, actor))
+    review: set[str] = set()
     if not admin:
         conditions = [ClinicDictation.author_user_id == actor, item.assignee_user_id == actor]
         led = _led_author_pools(actor)
         if led:
             conditions.append(and_(item.assignee_user_id.is_(None), item.status != workflow.DRAFT,
                                    ClinicDictation.pool_id.in_(led)))
-        review = _acceptance_ids(actor)
+        review = set(_acceptance_ids(actor))
         if review:
             conditions.append(ClinicDictation.id.in_(review))
         query = query.filter(or_(*conditions))
     from src.clinic.dictation_roles import project_roles  # lazy: dictation_roles imports stamp from here
 
-    found = list(query)
+    found = []
+    for dictation, row, recording in query:
+        if (not admin and actor not in (dictation.author_user_id, row.assignee_user_id)
+                and dictation.id not in review):
+            target = workflow.read_routing_target(row)
+            if target is not None and target.mode == 'self_correction':
+                continue
+        found.append((dictation, row, recording))
     roles = project_roles(dictation for dictation, _row, _rec in found)
     sources = _sources([dictation.id for dictation, _row, _rec in found])
     outcomes = recognition_state.asr_outcomes(d for d, _, _ in found)

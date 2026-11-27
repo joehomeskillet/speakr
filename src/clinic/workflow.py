@@ -24,12 +24,16 @@ import json
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, time, timezone
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import CheckConstraint, or_
 from sqlalchemy.orm import Session
 
 from src.database import db
+
+if TYPE_CHECKING:
+    from src.clinic.recipient_defaults import Assignment
 
 CLINIC_ZONE = "Europe/Zurich"
 _ZONE = ZoneInfo(CLINIC_ZONE)
@@ -578,7 +582,24 @@ def read_routing_target(row: ClinicWorkflowDictation) -> RoutingTarget | None:
     return RoutingTarget(mode, tuple(ids), tuple(recipients), version)
 
 
-def routing_public(row: ClinicWorkflowDictation | None) -> dict | None:
+def routing_target_label(target: RoutingTarget | Assignment) -> str:
+    """Name the recipients of a resolved target for its author."""
+    from src.clinic.dictation_roles import display_name
+    from src.clinic.pools import ClinicStaffPool
+    from src.models import User
+
+    if target.mode == "staff_pool":
+        team = db.session.get(ClinicStaffPool, target.target_ids[0]) if target.target_ids else None
+        return (team.name if team else None) or "Schreibteam nicht mehr verfügbar"
+    users = User.query.filter(User.id.in_(target.recipient_user_ids)).all()
+    names = sorted(filter(None, map(display_name, users)), key=str.casefold)
+    if target.mode == "person":
+        return names[0] if names else "Person nicht mehr verfügbar"
+    label = "Selbst korrigieren" if target.mode == "self_correction" else "Alle berechtigten Schreibkräfte"
+    return f"{label} ({', '.join(names)})" if names else label
+
+
+def routing_public(row: ClinicWorkflowDictation | None, *, named: bool = False) -> dict | None:
     target = None if row is None else read_routing_target(row)
     if target is None:
         return None
@@ -588,5 +609,5 @@ def routing_public(row: ClinicWorkflowDictation | None) -> dict | None:
     return {
         "mode": target.mode, "target_ids": list(target.target_ids),
         "recipient_user_ids": list(target.recipient_user_ids), "default_version": target.default_version,
-        "label": f"{name} (Default v{target.default_version})",
+        "label": routing_target_label(target) if named else f"{name} (Default v{target.default_version})",
     }

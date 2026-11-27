@@ -45,10 +45,12 @@ from werkzeug.exceptions import HTTPException
 from wtforms.validators import ValidationError
 
 from src.clinic import acceptance_rules, archive_policy, lease, live_session, policy
-from src.clinic import pools, recognition_state, revisions, workflow, workflow_actions, workflow_finalize
+from src.clinic import pools, recipient_defaults as rd, recognition_state, revisions, workflow
+from src.clinic import workflow_actions, workflow_finalize
 from src.clinic import workflow_metadata
 from src.clinic.acceptance_policy import SCOPE_DICTATION, AcceptanceLedger, AcceptancePolicyVersion, PolicyError
 from src.clinic.config import clinic_mode_enabled
+from src.clinic.dictation_roles import display_name
 from src.clinic.routes_categories import CategoryError, check_submission, selection_notes
 from src.clinic.metadata_changes import ChangeError
 from src.clinic.notify_enqueue import record_notice
@@ -59,7 +61,7 @@ from src.clinic.parity_dispatch import JSON, CommandProblem, ParityDispatch, Run
 from src.clinic.pool_policy import author_pool_ids
 from src.clinic.release import _heads as release_heads, current_audio_id
 from src.database import db
-from src.models import Recording
+from src.models import Group, Recording, User
 from src.services import audit
 
 PATH = '/api/clinic/v1/dictations/<uuid:dictation_id>'
@@ -75,7 +77,8 @@ _SEND_CONFLICTS = {
     'no_staff_pool': 'Kein Schreibkräfte-Pool zugeordnet.',
 }
 _STATUS = {'forbidden': 403, 'unauthorized': 403, 'not_found': 404, 'clinic_disabled': 404,
-           'audit_unavailable': 503}
+           'audit_unavailable': 503, 'recipient_not_eligible': 403, 'choice_disabled': 403,
+           'person_not_allowed': 403}
 _CATEGORY_STATUS = {
     'invalid_payload': 400, 'unauthorized': 403, 'unknown_category_set': 404,
     'stale_version': 409, 'missing_category': 422, 'invalid_category': 422,
@@ -501,12 +504,83 @@ def create_blueprint(
 
         return command(dictation_id, 'release', workflow_finalize.PERMISSION, body, apply, created=201)
 
+    @bp.get(f'{PATH}/send-preview')
+    def send_preview(dictation_id: UUID):
+        actor = current_user.id
+        row = db.session.get(ClinicDictation, str(dictation_id))
+        if (row is None or row.author_user_id != actor or authorize(actor, 'clinic.dictate', row) is not True
+                or row.pool_id not in author_pool_ids(actor)):
+            abort(403)
+        item = db.session.get(workflow.ClinicWorkflowDictation, row.id)
+        if item is None or item.status != workflow.DRAFT:
+            return _problem(409, 'NOT_DRAFT')
+        if item.pool_id != row.pool_id:
+            abort(403)
+        if db.session.query(ClinicAudioRevision.id).filter_by(dictation_id=row.id).first() is None:
+            return _problem(409, 'AUDIO_REQUIRED')
+
+        default = rd.get_default(actor)
+        version = 0 if default is None else default.version
+        choice = rd.effective_choice(default, rd.get_choice_grant(actor))
+        default_target = None
+        try:
+            resolved = rd.submit(actor, row.pool_id, actor_id=actor, expected_version=version)
+            if resolved.mode == 'self_correction' or pools.routable_staff_pool_ids(row.pool_id):
+                default_target = workflow.routing_target_label(resolved)
+        except rd.VersionConflict:
+            return _problem(409, 'STALE_VERSION')
+        except rd.RecipientDefaultError as error:
+            if error.code not in ('recipient_not_eligible', 'person_not_allowed', 'choice_disabled'):
+                raise
+
+        options = []
+        if choice != rd.CHOICE_DEFAULT_ONLY:
+            available = rd.selectable_overrides(actor, row.pool_id)
+            people = User.query.filter(User.id.in_([int(uid) for uid in available['persons']])).all()
+            teams = (db.session.query(pools.ClinicStaffPool.id, Group.name)
+                     .join(pools.ClinicStaffPool.group)
+                     .filter(pools.ClinicStaffPool.id.in_(available['staff_pools'])).all())
+            options.extend({'mode': 'person', 'target_ids': [str(person.id)], 'label': display_name(person)}
+                           for person in people)
+            options.extend({'mode': 'staff_pool', 'target_ids': [team_id], 'label': name}
+                           for team_id, name in teams)
+            if choice == rd.CHOICE_OPEN:
+                if teams:
+                    everyone = workflow.RoutingTarget('all_eligible', (), tuple(p.id for p in people), version)
+                    options.append({'mode': everyone.mode, 'target_ids': [], 'label': workflow.routing_target_label(everyone)})
+                own = workflow.RoutingTarget('self_correction', (), (actor,), version)
+                options.append({'mode': own.mode, 'target_ids': [], 'label': workflow.routing_target_label(own)})
+            options = sorted((option for option in options if option['label']), key=lambda option: option['label'].casefold())
+            if default_target is not None:
+                options = [option for option in options
+                           if (option['mode'], tuple(option['target_ids'])) != (resolved.mode, resolved.target_ids)]
+        return jsonify(dictation_id=row.id, etag=_etag(row), default_version=version,
+                       default_label=default_target, options=options)
+
     @bp.post(f'{PATH}/send')
     def send(dictation_id: UUID):
         body = request.get_json(silent=True)
-        if not isinstance(body, dict) or set(body) - {'categories'}:
+        if body is None and not request.get_data():
+            body = {}
+        if not isinstance(body, dict) or body.keys() - {'categories', 'override', 'expected_version'}:
             abort(400)
         selections = body.get('categories', [])
+        default_version = body.get('expected_version')
+        if 'expected_version' in body and (type(default_version) is not int or default_version < 0):
+            abort(400)
+        override = body.get('override')
+        if 'override' in body:
+            if (not isinstance(override, dict) or not isinstance(override.get('mode'), str)
+                    or override.keys() - {'mode', 'target_ids'}):
+                abort(400)
+            targets = override.get('target_ids', [])
+            if not isinstance(targets, list):
+                abort(400)
+            if override['mode'] == 'person' and len(targets) == 1:
+                person = targets[0]
+                if (not isinstance(person, str) or len(person) > 19 or not person.isascii()
+                        or not person.isdecimal() or not 0 < int(person) <= 2**63 - 1):
+                    abort(400)
 
         def apply(row, expected, _key, now):
             if row.version_counter != expected:
@@ -516,7 +590,13 @@ def create_blueprint(
                 raise workflow.WorkflowError('not_draft')
             if db.session.query(ClinicAudioRevision.id).filter_by(dictation_id=row.id).first() is None:
                 raise workflow.WorkflowError('audio_required')
-            if not pools.routable_staff_pool_ids(row.pool_id, now):
+            if item.pool_id != row.pool_id or row.pool_id not in author_pool_ids(current_user.id):
+                raise workflow.WorkflowError('forbidden')
+            target = workflow.store_routing_target(
+                db.session(), row.id, actor_id=current_user.id,
+                override=override, expected_version=default_version,
+            )
+            if target.mode != 'self_correction' and not pools.routable_staff_pool_ids(row.pool_id, now):
                 raise workflow.WorkflowError('no_staff_pool')
             check_submission(current_user.id, selections)
             note = selection_notes(current_user.id, selections)
@@ -530,7 +610,6 @@ def create_blueprint(
                 fields.append('notes')
 
             workflow.transition(db.session(), row.id, 'send_online')
-            workflow.store_routing_target(db.session(), row.id, actor_id=current_user.id)
             settled = recognition_state.settle(db.session(), row.id)
             row.version_counter += 1
             if audit.record_in_tx('recording.edited', recording_id=row.recording_id,
@@ -538,8 +617,11 @@ def create_blueprint(
                                   actor_user_id=current_user.id, force=True,
                                   details={'fields': fields}) is None:
                 raise workflow.WorkflowError('audit_unavailable')
-            return {'dictation_id': row.id, 'status': settled.status,
-                    'version': row.version_counter, 'etag': _etag(row)}
+            result = {'dictation_id': row.id, 'status': settled.status,
+                      'version': row.version_counter, 'etag': _etag(row)}
+            if default_version is not None:
+                result['routing_target'] = workflow.routing_public(item, named=True)
+            return result
 
         return command(dictation_id, 'send', 'clinic.dictate', body, apply, author_only=True)
 
