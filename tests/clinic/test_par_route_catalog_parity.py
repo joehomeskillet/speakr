@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
 import pytest
@@ -137,7 +138,7 @@ def test_catalog_endpoints_match_built_clinic_table(monkeypatch):
             for endpoint in getattr(module, attr):
                 catalog_entries[endpoint] = kind
 
-    assert len(catalog_entries) == 153
+    assert len(catalog_entries) == 154
     assert not (set(catalog_entries) & set(off_table))
     assert set(on_table) - set(off_table) == set(catalog_entries)
     for endpoint, kind in catalog_entries.items():
@@ -187,7 +188,15 @@ def test_inventory_missing_stale_and_recording_scope(clinic, clinic_off_snapshot
 @pytest.mark.parametrize("clinic", [False, True])
 def test_complete_table_matches_before_partition(clinic, clinic_off_snapshot, clinic_on_snapshot):
     snapshot = clinic_on_snapshot if clinic else clinic_off_snapshot
-    serialized = json.dumps(snapshot["table"], sort_keys=True).encode()
+    table = dict(snapshot["table"])
+    endpoint = "clinic_live.stream_audio"
+    if clinic:
+        assert table.pop(endpoint) == json.loads(json.dumps(asdict(route_policy.RouteRule(route_policy.AUTH))))
+        assert {tuple(rule["arguments"]) for rule in snapshot["rules"]
+                if rule["endpoint"] == endpoint} == {("session_id",)}
+    else:
+        assert endpoint not in table
+    serialized = json.dumps(table, sort_keys=True).encode()
     assert hashlib.sha256(serialized).hexdigest() == BASELINE_TABLE_SHA256[clinic]
 
 
