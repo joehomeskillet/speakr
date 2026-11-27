@@ -433,16 +433,16 @@ export function createCorrectionViewController(options) {
     }
 
     // --- load and revision follow-up (W10) -----------------------------------
-    async function load(loadOptions) {
+    async function load({ discard, readOnlyAlignment = false } = {}) {
         if (disposed) return { ok: false, code: 'cancelled', message: '' };
         closeMessage.value = '';
-        const res = await editor.load(loadOptions);
+        const res = await editor.load({ discard });
         if (disposed || (res && res.code === 'cancelled')) return res;
         if (res && res.ok) {
             knownRevision = editor.textRevisionId.value;
             ready.value = true;
             loadGeneration.value += 1;
-            await Promise.all([alignment.refresh(), saver.loadResume(), modes.load()]);
+            await Promise.all([alignment.refresh({ readOnly: readOnlyAlignment }), saver.loadResume(), modes.load()]);
         }
         return res;
     }
@@ -586,7 +586,8 @@ export function createCorrectionViewController(options) {
             const res = await client.request('/dictations/' + encodeURIComponent(dictationId) + '/leases');
             if (!disposed && res.outcome === 'ok' && res.data?.may_acquire === true) await editor.acquire();
         }
-        const res = await load();
+        // Opening can acquire a lease, but must only read alignment, even for a writer.
+        const res = await load({ readOnlyAlignment: true });
         if (!disposed && !res?.ok && opts.openMode === 'correction'
             && editor.lease.value.status === 'held') await editor.release();
         return res;
@@ -805,7 +806,7 @@ export const CorrectionBody = {
             dictationId: props.dictationId,
             currentUser: props.currentUser,
             vue: props.vue || undefined,
-                         contract: 'v8', // the mounted view runs the V8 save contract: lease controller, reconcile first, +-5 s step
+            contract: 'v8', // the mounted view runs the V8 save contract: lease controller, reconcile first, +-5 s step
             openMode: props.openMode,
             recordingId: props.recordingId || undefined,
             createAudioContext: props.createAudioContext || undefined,
