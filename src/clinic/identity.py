@@ -545,9 +545,12 @@ def _save_account(user, policy, *, actor_id, now, status=None, is_admin=None, is
         changed.append('is_identity_admin')
         revoke = True
     if profile:
-        username = profile.get('username', user.username)
-        email = _checked_email(username, profile.get('email', user.email), user_id=user.id)
-        for field, value in (profile | {'username': username, 'email': email}).items():
+        if 'username' in profile or 'email' in profile:
+            email = _checked_email(profile.get('username', user.username), profile.get('email', user.email),
+                                   user_id=user.id)
+            if 'email' in profile:
+                profile = profile | {'email': email}
+        for field, value in profile.items():
             if field in _PROFILE_FIELDS | {'username', 'email'} and value != getattr(user, field):
                 setattr(user, field, value)
                 changed.append(field)

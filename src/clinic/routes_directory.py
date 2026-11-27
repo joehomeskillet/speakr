@@ -72,7 +72,7 @@ def _local_state() -> tuple[list[LocalUser], list[dd.LocalMembership]]:
                          .join(identity.ClinicAccountPolicy, identity.ClinicAccountPolicy.user_id == User.id)
                          .order_by(User.id)):
         users.append(LocalUser(user.id, user.username, links.get(user.id),
-                               user.name or user.username, policy.status == "active"))
+                               user.name or user.username, policy.status == "active", email=user.email))
     members = [dd.LocalMembership(r.user_id, "author", r.pool_id)
                for r in pools.ClinicAuthorPoolMember.query.all()]
     members += [dd.LocalMembership(r.user_id, "staff", sp.id)
@@ -104,7 +104,7 @@ def preview_hash(preview: dd.DirectoryPreview) -> str:
         "source": preview.snapshot.source, "version": preview.source_version,
         "actions": [_action_json(a) for a in preview.actions],
         "changes": [_change_json(c) for c in preview.membership_changes],
-        "users": [[u.id, u.username, u.external_id, u.display_name, u.active] for u in preview.local_users],
+        "users": [[u.id, u.username, u.external_id, u.display_name, u.active, u.email] for u in preview.local_users],
         "members": sorted([m.user_id, m.pool_kind, m.pool_id] for m in preview.local_memberships),
         "managed": sorted(preview.managed_pools),
     }, sort_keys=True, ensure_ascii=True)
@@ -146,7 +146,7 @@ def _actor() -> identity.ClinicAccountPolicy:
 def _authorize(actor_id: int, change: Action | dd.MembershipChange) -> bool:
     """Per-object policy: administrators never deactivate or re-pool their own account."""
     if isinstance(change, Action):
-        return change.kind == "update_display_name" or (
+        return change.kind in {"update_display_name", "update_email"} or (
             change.kind == "deactivate" and change.local_user_id != actor_id)
     return change.user_id != actor_id
 
@@ -164,17 +164,23 @@ def _select(rows: Any, keys: tuple[str, ...], universe: tuple) -> list:
     return picked
 
 
-def _persist(applied: dd.AppliedDirectoryDiff, actor: identity.ClinicAccountPolicy, entries: dict) -> None:
+def _persist(applied: dd.AppliedDirectoryDiff, actor: identity.ClinicAccountPolicy) -> None:
+    users = {user.id: user for user in applied.local_users}
+    profiles: dict[int, dict[str, str | None]] = {}
     for action in applied.actions:
-        policy = db.session.get(identity.ClinicAccountPolicy, action.local_user_id, populate_existing=True)
         if action.kind == "update_display_name":
-            identity.update_local_account(
-                action.local_user_id, actor_id=actor.user_id, expected_version=policy.version,
-                changes={"profile": {"name": entries[action.object_id].display_name}},
-                actor_security_version=actor.security_version)
+            profiles.setdefault(action.local_user_id, {})["name"] = users[action.local_user_id].display_name
+        elif action.kind == "update_email":
+            profiles.setdefault(action.local_user_id, {})["email"] = users[action.local_user_id].email
         elif action.kind == "deactivate":
+            policy = db.session.get(identity.ClinicAccountPolicy, action.local_user_id, populate_existing=True)
             identity.set_status(action.local_user_id, "disabled", actor_id=actor.user_id,
                                 expected_version=policy.version)
+    for user_id, profile in profiles.items():
+        policy = db.session.get(identity.ClinicAccountPolicy, user_id, populate_existing=True)
+        identity.update_local_account(
+            user_id, actor_id=actor.user_id, expected_version=policy.version, changes={"profile": profile},
+            actor_security_version=actor.security_version)
     for change in applied.membership_changes:
         add, remove = ((pools.add_author_member, pools.remove_author_member) if change.pool_kind == "author"
                        else (pools.add_staff_member, pools.remove_staff_member))
@@ -252,7 +258,7 @@ def apply():
                                selected_memberships=changes, actor_id=actor.user_id,
                                authorize=_authorize, enabled=True)
     try:
-        _persist(applied, actor, {e.object_id: e for e in snapshot.entries})
+        _persist(applied, actor)
     except (identity.IdentityError, pools.PoolError) as exc:
         db.session.rollback()
         raise dd.DirectoryDiffError("apply_failed", str(exc)) from exc
