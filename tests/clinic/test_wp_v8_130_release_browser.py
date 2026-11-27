@@ -15,6 +15,19 @@ import test_wp_mount_correction as mount
 from test_wp_mount_correction import live_server  # noqa: F401
 
 
+KIS_PROBE = r'''
+import os
+from pathlib import Path
+from src.clinic.kis import MockKisAdapter
+
+def unexpected_kis_delivery(*args):
+    (Path(os.environ['CLINIC_ORIGINALS_ROOT']).parent / 'kis-delivery-attempted').touch()
+    raise AssertionError('KIS delivery attempted during default read-only workflow')
+
+MockKisAdapter.deliver = unexpected_kis_delivery
+'''
+
+
 @pytest.fixture
 def review_scene(request, monkeypatch):
     """Capture the existing synthetic server's database for seed and final persistence checks."""
@@ -31,6 +44,10 @@ def review_scene(request, monkeypatch):
     receipt = 'content_hash="o" * 64, size_bytes=1000'
     assert receipt in mount.SERVER
     server = mount.SERVER.replace(receipt, f"content_hash={sha256(audio).hexdigest()!r}, size_bytes={len(audio)}")
+    server = server.replace('    rec = Recording(',
+                            "    pools.allow(author.id, 'own', actor_id=admin.id, actions=('export',))\n"
+                            '    rec = Recording(')
+    server = server.replace('server = make_server', KIS_PROBE + '\nserver = make_server')
     monkeypatch.setattr(mount, "SERVER", server)
     database = {}
     original_env = mount._env
@@ -40,7 +57,9 @@ def review_scene(request, monkeypatch):
         database["url"] = env["SQLALCHEMY_DATABASE_URI"]
         database["originals"] = path / "review-audio"
         env["CLINIC_ORIGINALS_ROOT"] = str(database["originals"])
-        return {**env, "CLINIC_PROFILE": "staging", "SPEAKR_SKIP_BACKGROUND_TASKS": "true"}
+        env.pop('CLINIC_KIS_DELIVERY_ENABLED', None)
+        return {**env, "CLINIC_PROFILE": "staging", "SPEAKR_SKIP_BACKGROUND_TASKS": "true",
+                "TRANSCRIPTION_BASE_URL": "http://127.0.0.1:9/v1"}
 
     monkeypatch.setattr(mount, "_env", local_profile)
     base, did = request.getfixturevalue("live_server")
@@ -66,6 +85,7 @@ def review_scene(request, monkeypatch):
         session.commit()
     try:
         yield base, did, other_id, engine
+        assert not (database['originals'].parent / 'kis-delivery-attempted').exists()
     finally:
         engine.dispose()
 
@@ -96,8 +116,30 @@ def _command(page, base, did, review, name, fields):
                                    "payload": {"dictation_id": did, **fields}})
 
 
+def _capture(page, focus, dest, state):
+    for theme in ('light', 'dark'):
+        page.set_viewport_size({'width': 1440, 'height': 900})
+        if page.locator('html').evaluate("node => node.classList.contains('dark')") != (theme == 'dark'):
+            avatar = page.locator('button[data-user-menu-toggle]')
+            avatar.click()
+            page.locator('button.v8-theme').click()
+            avatar.click()
+        expect(page.locator('html.dark')).to_have_count(int(theme == 'dark'))
+        for width, height in ((1440, 900), (1280, 720), (390, 844)):
+            page.set_viewport_size({'width': width, 'height': height})
+            focus.evaluate("node => node.scrollIntoView({block: 'center', behavior: 'instant'})")
+            page.screenshot(path=dest / f'{state}-{width}x{height}-{theme}.png', animations='disabled')
+
+
+def _open_output(page, dictation_id):
+    page.locator(f'[data-testid=open-link][data-id="{dictation_id}"]').click()
+    page.get_by_test_id('clinic-dictation-link-output').click()
+    return page.get_by_test_id('output-view')
+
+
 def test_review_and_release_current_bound_versions(review_scene, tmp_path):
-    from src.clinic.models import ClinicRelease
+    from src.clinic.models import ClinicDelivery, ClinicDictation, ClinicRelease
+    from src.models import AuditEvent, ProcessingJob
 
     base, did, other, engine = review_scene
     path = f"{base}/api/clinic/v1/dictations/{did}"
@@ -106,6 +148,11 @@ def test_review_and_release_current_bound_versions(review_scene, tmp_path):
         try:
             page = mount._login(browser, base, mount.TYPIST)
             admin = mount._login(browser, base, "admin213@local.test")
+            output_page = mount._login(browser, base, 'author213@local.test')
+            output = _open_output(output_page, did)
+            expect(output.get_by_test_id('not-released')).to_be_visible()
+            expect(output.locator('[data-target=kis]')).to_have_count(0)
+            _capture(output_page, output, tmp_path, 'p16-unreleased')
             detail = _get(page, path + "/detail")
             typist, author = detail["takeover"]["user_id"], detail["author"]["user_id"]
             initial = _get(page, path + "/review")
@@ -228,10 +275,18 @@ def test_review_and_release_current_bound_versions(review_scene, tmp_path):
             expect(review.get_by_role("checkbox")).to_have_count(2)
             for checkbox in review.get_by_role("checkbox").all():
                 checkbox.check()
+            dialog = review.get_by_role('alertdialog')
+            expect(dialog.get_by_text(re.compile(r'\bKIS\b'))).to_have_count(0)
+            _capture(page, dialog, tmp_path, 'p07-confirm')
             page.set_viewport_size({"width": 1440, "height": 900})
             page.screenshot(path=tmp_path / "p07-confirm-1440.png")
             page.set_viewport_size({"width": 390, "height": 844})
             page.screenshot(path=tmp_path / "p07-confirm-390.png")
+            with Session(engine) as session:
+                recording_id = session.get(ClinicDictation, did).recording_id
+                prior_audit = {item.id: item.to_dict() for item in
+                               session.query(AuditEvent).filter_by(recording_id=recording_id)}
+                assert prior_audit
             with page.expect_response(lambda r: r.url.endswith("/releases") and r.request.method == "POST") as released:
                 review.get_by_test_id("confirm").click()
             assert released.value.status == 201, released.value.text()
@@ -240,6 +295,21 @@ def test_review_and_release_current_bound_versions(review_scene, tmp_path):
                 row = session.query(ClinicRelease).filter_by(dictation_id=did).one()
                 assert (row.audio_revision_id, row.transcript_revision_id, row.context_revision_id, row.actor_user_id) == (
                     binding["audio_revision_id"], binding["text_revision_id"], binding["context_revision_id"], typist)
+                assert session.get(ProcessingJob, released.value.json()['job_id']).job_type == 'clinic_finalize'
+                assert session.query(ProcessingJob).filter_by(recording_id=recording_id, job_type='clinic_output').count() == 0
+                assert session.query(ClinicDelivery).count() == 0
+                assert all(session.get(AuditEvent, key).to_dict() == value for key, value in prior_audit.items())
+            _capture(page, review.get_by_role('heading', name='Prüfentscheidung'), tmp_path, 'p07-finished')
+            output_page.get_by_test_id('clinic-dictation-back').click()
+            output = _open_output(output_page, did)
+            expect(output.get_by_test_id('revision')).to_be_visible()
+            expect(output.locator('[data-target]')).to_have_count(2)
+            expect(output.locator('[data-target=kis]')).to_have_count(0)
+            _capture(output_page, output, tmp_path, 'p16-released')
+            with output_page.expect_response(lambda r: r.url.endswith('/exports') and r.request.method == 'POST') as exported:
+                output.locator('[data-target=txt]').get_by_role('button', name='Ausgabe starten').click()
+            assert (exported.value.status, exported.value.json()['status']) == (201, 'ready')
+            assert not output_page.js_errors
             assert not page.js_errors
         finally:
             browser.close()

@@ -72,6 +72,14 @@ def clinic_off(monkeypatch):
     monkeypatch.setitem(app.config, 'WTF_CSRF_ENABLED', False)
 
 
+@pytest.fixture
+def legacy_kis_delivery(monkeypatch):
+    """Opt into the retired path only for synthetic compatibility tests."""
+    monkeypatch.setenv('CLINIC_MODE', '1')
+    monkeypatch.setenv('CLINIC_PROFILE', 'staging')
+    monkeypatch.setenv('CLINIC_KIS_DELIVERY_ENABLED', '1')
+
+
 @pytest.fixture(autouse=True)
 def _no_policy_providers():
     policy.clear_providers()
