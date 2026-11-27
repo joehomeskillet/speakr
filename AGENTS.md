@@ -25,6 +25,17 @@ Web-only clinic dictation fork of Speakr v0.11.1, pinned to upstream commit `48d
 - A test is marked passed only with real execution evidence (verbatim command output). Mocks are not evidence for Philips devices, Entra, KIS or foot pedals.
 - No production deploy. No push or merge without explicit authorization. No data deletion.
 
+## Persona panel
+
+Klinik Südhang is an addiction clinic. Most users have limited technical experience. Run the panel once per new or changed author, typist or team lead flow before the owner makes UX decisions. One run covers the flow change across its commits. Budget about 120,000 tokens per run on the subscription.
+
+```
+python3 scripts/persona_panel/persona_panel.py walkthrough "Flow name" /path/to/staging.png
+python3 scripts/persona_panel/persona_panel.py brainstorm "Question about the flow"
+```
+
+Use synthetic personas and staging screenshots with synthetic data only. Never include patient data or private fixtures. Findings are suggestions for the owner. Fix blocker findings or explain them in the work-package report.
+
 ## Gate
 
 Run from the worktree root. Each line is a separate command, run in this order. Record the output verbatim.
