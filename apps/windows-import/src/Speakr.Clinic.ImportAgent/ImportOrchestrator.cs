@@ -303,6 +303,12 @@ public sealed class ImportOrchestrator
         MtimeUtc = item.MtimeUtc,
         Sha256 = item.ContentSha256,
         SnapshotVersion = item.SnapshotVersion,
+        ClaimedAuthorCode = item.Completion.ClaimedAuthorCode is string code && ContractIds.IsId(code) ? code : null,
+        // The simulator sidecar is the only supported explicit EOL fixture.
+        CompletionSource = item.Completion is
+            { ObservedCompletion: "completed", EvidenceLevel: "fixture", ParserVersion: "simulator-sidecar" }
+            ? "philips_eol"
+            : null,
         ObservedCompletion = item.Completion.ObservedCompletion,
         EvidenceLevel = item.Completion.EvidenceLevel
     };

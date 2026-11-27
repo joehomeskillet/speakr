@@ -54,6 +54,8 @@ AUTH: tuple[str, ...] = (
     'clinic_correction.save',
     'clinic_correction.add_marker',
     'clinic_correction.change_marker',
+    'clinic_correction.get_review_markers',
+    'clinic_correction.confirm_review_marker',
     'clinic_alignment.get_document',
     'clinic_alignment.get_alignment',
     'clinic_alignment.post_alignment',

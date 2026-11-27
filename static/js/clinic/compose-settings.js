@@ -22,6 +22,7 @@
  */
 
 import { createPreferencesComponent } from './preferences-ui.js';
+import { createHandmicController } from './handmic-webhid.js';
 import { CorrectionModes } from './correction-modes-ui.js';
 import { surfaceFor } from './tokens.js';
 import {
@@ -324,6 +325,38 @@ const PEDAL_TEMPLATE = `
   <p v-if="saveError" class="${NOTE_WARNING}" role="alert">{{ labels.notSaved }}</p>
 </section>`;
 
+const HANDMIC_STATUS = Object.freeze({
+    disconnected: 'Kein Handmikrofon verbunden.',
+    pairing: 'Verbindung wird hergestellt …',
+    unsupported: 'Gerät nicht unterstützt. Kein Handmikrofon verbunden.',
+    error: 'Verbindung fehlgeschlagen. Kein Handmikrofon verbunden.',
+});
+
+function createHandmicSettingsComponent(Vue, hid) {
+    return {
+        template: `
+<section class="panel col-span-full" aria-labelledby="clinic-settings-handmic-title" data-testid="clinic-settings-handmic">
+  <h2 id="clinic-settings-handmic-title">Handmikrofon (WebHID)</h2>
+  <p class="hint mb-3">Für unterstützte Geräte im HID-Modus. Alternativ den Tastaturmodus des Geräts verwenden.</p>
+  <div class="actions">
+    <button v-if="available" type="button" class="max-[760px]:min-h-11"
+            :disabled="state.status === 'pairing' || state.status === 'connected'" @click="pair">Handmikrofon koppeln</button>
+  </div>
+  <div class="mt-3" role="status">
+    <p>{{ state.status === 'connected' ? state.name + ' verbunden.' : messages[state.status] }}</p>
+    <p v-if="!available" class="hint">WebHID ist in diesem Browser nicht verfügbar.</p>
+    <p class="hint">{{ state.ledAvailable ? 'LED-Steuerung verfügbar.' : 'LED-Rückmeldung nicht verfügbar.' }}</p>
+  </div>
+</section>`,
+        setup() {
+            const state = Vue.ref({ status: 'disconnected', ledAvailable: false });
+            const controller = createHandmicController(hid, { onState: (value) => { state.value = value; } });
+            Vue.onBeforeUnmount(() => controller.dispose().catch((error) => console.warn('WebHID close failed', error)));
+            return { state, messages: HANDMIC_STATUS, available: Boolean(hid), pair: controller.pair };
+        },
+    };
+}
+
 const CONSENT_TEMPLATE = `
 <section class="panel" role="region" :aria-label="view.title" data-testid="clinic-settings-consent"
          :aria-busy="String(view.busy)" @keydown="onKeydown">
@@ -411,6 +444,7 @@ export const SETTINGS_TEMPLATE = `
         <component :is="consent" :key="'v:' + state.epoch"></component>
       </div>
       <component :is="pedal"></component>
+      <component :is="handmic" :key="'hid:' + state.epoch"></component>
     </div>
   </template>
 </div>`;
@@ -437,6 +471,7 @@ export const SettingsView = {
         }));
         const correction = Vue.markRaw(CorrectionModes);
         const pedal = Vue.markRaw(createPedalSettingsComponent(Vue));
+        const handmic = Vue.markRaw(createHandmicSettingsComponent(Vue, globalThis.navigator?.hid));
         const consent = Vue.markRaw(createConsentComponent(Vue, ctrl.client, { t: props.t }));
         const s = surfaceFor('error');
         const errorStyle = { background: s.background, color: s.color, borderColor: s.border };
@@ -444,7 +479,7 @@ export const SettingsView = {
         Vue.onBeforeUnmount(() => ctrl.dispose());
         return {
             state: ctrl.state, labels: LABELS, rows: ctrl.originRows, client: ctrl.client, vue: props.vue,
-            audio: NO_AUDIO, preferences, correction, pedal, consent, errorStyle,
+            audio: NO_AUDIO, preferences, correction, pedal, handmic, consent, errorStyle,
         };
     },
 };
