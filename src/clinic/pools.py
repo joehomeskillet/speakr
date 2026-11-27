@@ -181,7 +181,7 @@ class ClinicVisibilityGrant(db.Model):
     pool_id = db.Column(
         db.String(36), db.ForeignKey("clinic_author_pool.id"), nullable=True, index=True
     )
-    actions = db.Column(db.String(64), nullable=True)
+    actions = db.Column(db.Text, nullable=True)
     created_by = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
     created_at = _ts()
     __table_args__ = (

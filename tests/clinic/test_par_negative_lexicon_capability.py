@@ -31,7 +31,7 @@ def author(monkeypatch):
     monkeypatch.setitem(app.extensions, "clinic_capability_registry", registry)
     with app.app_context():
         db.create_all()
-        name = f"p185_{uuid4().hex}"
+        name = f"p185_{uuid4().hex[:15]}"
         user = User(username=name, email=f"{name}@local.test", password="x")
         db.session.add(user)
         db.session.flush()

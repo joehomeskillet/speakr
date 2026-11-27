@@ -1,8 +1,9 @@
-"""Additive, reversible migration: pool activation flag and validity window (v8-29).
+"""Migrate the pool activation flag, validity window and grant action list.
 
 Adds nullable ``active``, ``valid_from`` and ``valid_to`` to both pool tables. NULL ``active``
 means active, so existing rows keep working untouched. ``downgrade`` drops the three columns again.
 Both directions are idempotent. A fresh database already has the columns from ``create_all``.
+PostgreSQL also needs room for all grant actions. Downgrade preserves that capacity.
 """
 
 from __future__ import annotations
@@ -44,6 +45,10 @@ def upgrade(bind) -> list[str]:
             f"ALTER TABLE {table} ADD COLUMN {name} {types[name]}"
             for name in COLUMNS if name not in have
         ]
+    if bind.dialect.name == "postgresql" and inspector.has_table("clinic_visibility_grant"):
+        columns = inspector.get_columns("clinic_visibility_grant")
+        if any(col["name"] == "actions" and getattr(col["type"], "length", None) for col in columns):
+            statements.append("ALTER TABLE clinic_visibility_grant ALTER COLUMN actions TYPE TEXT")
     _run(bind, statements)
     return statements
 

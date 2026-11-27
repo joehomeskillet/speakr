@@ -6,9 +6,13 @@ does not contain jsonschema. No packages are installed or environments changed.
 
 import copy
 import hashlib
+import importlib.util
 import json
+import os
 from pathlib import Path
+import shutil
 import subprocess
+import sys
 
 from src.clinic.richtext import CanonicalDocument
 
@@ -59,7 +63,9 @@ def test_plain_and_rich_payloads_against_openapi_schema():
         cases.append(("CorrectionRecognitionMark", {**MARK, field: value}, False))
     cases.append(("CorrectionMove", {**RICH["move_map"][0], "old_start": True}, False))
     # Real Draft 2020-12 validation, including references, format and dependentRequired.
-    result = subprocess.run(["rtk", "python3", "-c", """
+    python = sys.executable if importlib.util.find_spec("jsonschema") else shutil.which("python3", path=os.defpath)
+    assert python, "A Python interpreter with jsonschema is required"
+    result = subprocess.run([python, "-c", """
 import json, sys
 from jsonschema import Draft202012Validator, FormatChecker
 document, cases = json.load(sys.stdin)

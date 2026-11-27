@@ -93,7 +93,10 @@
     /* Native selects already reserve room for the arrow. Keep the mobile type size. */
     .clinic-recordings-view .record-toolbar select.record-select { padding-inline-end: 6px; }
     .v8-ui .clinic-recordings-view .record-list-meta { margin-block: var(--sp-1); }
-    .clinic-recordings-view #crv-role-filters { grid-template-columns: minmax(0, 1fr); }
+    .clinic-recordings-view #crv-role-filters {
+        grid-template-columns: minmax(0, 1fr);
+        margin-block-start: var(--sp-2);
+    }
 }
 
 @media (min-width: 360px) and (max-width: 700px) {
