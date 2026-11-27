@@ -65,6 +65,12 @@ def list_state(user_id: int) -> dict[str, Any]:
     """Pools for ``user_id``. Managers see all members; others only pools they are in, with themselves."""
     manager = _is_manager(user_id)
     out: dict[str, Any] = {"revision": revision(), "author_pools": [], "staff_pools": []}
+    routed: dict[str, list[str]] = {}
+    if manager:
+        for author_id, staff_id in db.session.query(
+                pools.ClinicPoolRoute.author_pool_id, pools.ClinicPoolRoute.staff_pool_id
+        ).order_by(pools.ClinicPoolRoute.id):
+            routed.setdefault(author_id, []).append(staff_id)
     for kind, model in (("author", pools.ClinicAuthorPool), ("staff", pools.ClinicStaffPool)):
         order = model.name if kind == "author" else model.id
         for pool in db.session.query(model).order_by(order).all():
@@ -74,6 +80,8 @@ def list_state(user_id: int) -> dict[str, Any]:
                     continue
                 members = [user_id]
             state = {"id": pool.id, "name": pool.name, "member_user_ids": members}
+            if kind == "author" and manager:
+                state["staff_pool_ids"] = routed.get(pool.id, [])
             if kind == "staff":
                 state["members"] = [member for member in pools.staff_member_roles(pool.id)
                                     if manager or member["user_id"] == user_id]

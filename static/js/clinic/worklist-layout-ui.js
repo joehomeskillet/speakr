@@ -32,6 +32,8 @@ export const LABELS = Object.freeze({
     columns: 'Spalten',
     groupBy: 'Gruppieren nach',
     groupNone: 'Keine Gruppierung',
+    groupLevel: 'Ebene',
+    unknownColumn: 'Unbekannte Spalte. Das Layout wurde nicht gespeichert.',
     save: 'Layout speichern',
     reload: 'Neu laden',
     loading: 'Layout wird geladen',
@@ -87,6 +89,8 @@ export function normalizeLayout(raw, known) {
 
 function rankOf(key, value) {
     if (key === 'priority') return { 128: 0, 1: 1, 0: 2 }[value] ?? 3;
+    if (key === 'dictated_by' || key === 'lease_holder') value = value?.display_name ?? value?.id ?? '';
+    if (key === 'staff_pools') value = (value || []).map((pool) => pool.name ?? pool.id).sort().join(', ');
     if (typeof value === 'string') {
         return value.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase();
     }
@@ -117,10 +121,14 @@ export function groupRows(rows, groupBy, path = []) {
     const buckets = new Map();
     for (const row of rows) {
         const v = row[key] === undefined ? GROUP_ABSENT : row[key];
-        if (!buckets.has(v)) buckets.set(v, []);
-        buckets.get(v).push(row);
+        // Role DTOs are separate objects per row; group by identity, retaining the label DTO.
+        let identity = v;
+        if (key === 'dictated_by' || key === 'lease_holder') identity = v?.id ?? v;
+        if (key === 'staff_pools' && Array.isArray(v)) identity = JSON.stringify(v.map((pool) => pool.id).sort());
+        if (!buckets.has(identity)) buckets.set(identity, { value: v, members: [] });
+        buckets.get(identity).members.push(row);
     }
-    return [...buckets].map(([v, members]) => {
+    return [...buckets.values()].map(({ value: v, members }) => {
         const here = [...path, v === GROUP_ABSENT ? null : v];
         return { path: here, rows: members, children: rest.length ? groupRows(members, rest, here) : [] };
     });
@@ -188,6 +196,14 @@ export function useWorklistLayout(options) {
 
     async function save() {
         if (!state.canEdit || state.version === null) return false;
+        const keys = new Set(known.map((c) => c.key));
+        const referenced = [...state.layout.columns.map((c) => c.key),
+            ...state.layout.sort.map(([key]) => key), ...state.layout.group_by];
+        if (referenced.some((key) => !keys.has(key))) {
+            state.status = 'error';
+            state.message = LABELS.unknownColumn;
+            return false;
+        }
         state.status = 'saving';
         const body = normalizeLayout(state.layout, known);
         const signature = `${state.version}:${JSON.stringify(body)}`;
@@ -276,6 +292,16 @@ export function useWorklistLayout(options) {
         touch();
     }
 
+    /** Ordered levels cannot have gaps or duplicate fields; clearing trims deeper levels. */
+    function setGroupLevel(level, key) {
+        const groups = state.layout.group_by.slice();
+        if (!Number.isInteger(level) || level < 0 || level >= MAX_GROUP_DEPTH || level > groups.length) return;
+        if (key && (index(key) < 0 || groups.some((value, i) => i !== level && value === key))) return;
+        if (key) groups[level] = key;
+        else groups.splice(level);
+        setGroupBy(groups);
+    }
+
     /** Filters change: reset paging only if the filter content really changed. */
     function setFilters(filters) {
         const signature = JSON.stringify(Object.entries(filters || {}).sort(([a], [b]) => (a < b ? -1 : 1)));
@@ -345,7 +371,7 @@ export function useWorklistLayout(options) {
     }
 
     return {
-        state, load, save, move, resize, toggleVisible, cycleSort, setSort, setGroupBy,
+        state, load, save, move, resize, toggleVisible, cycleSort, setSort, setGroupBy, setGroupLevel,
         setFilters, setPage, query, orderedColumns, applyToRows, headerProps,
         onKeydown, banner, labelOf,
     };
@@ -362,16 +388,33 @@ export function WorklistLayoutControls(Vue) {
         props: { layout: { type: Object, required: true } },
         setup(props) {
             const open = Vue.ref(false);
-            return { LABELS, L: props.layout, open };
+            const trigger = Vue.ref(null);
+            const panelStyle = Vue.ref({});
+            function fitPanel() {
+                panelStyle.value = {};
+                if (globalThis.innerWidth < 768 || !trigger.value) return;
+                const anchor = trigger.value.getBoundingClientRect();
+                const height = Math.min(512, globalThis.innerHeight - 32);
+                panelStyle.value = {
+                    position: 'fixed', maxHeight: height + 'px',
+                    top: Math.max(16, Math.min(anchor.bottom + 8, globalThis.innerHeight - height - 16)) + 'px',
+                    right: Math.max(16, globalThis.innerWidth - anchor.right) + 'px',
+                };
+            }
+            function toggle() { fitPanel(); open.value = !open.value; }
+            Vue.onMounted(() => globalThis.addEventListener('resize', fitPanel));
+            Vue.onUnmounted(() => globalThis.removeEventListener('resize', fitPanel));
+            return { LABELS, MAX_GROUP_DEPTH, L: props.layout, open, trigger, panelStyle, toggle };
         },
         template: `
 <div class="cl-pop" :aria-label="LABELS.region" role="group" @keydown.esc="open = false">
-  <button type="button" class="icon-btn" data-testid="view-toggle" aria-controls="wl-view-panel"
-          :aria-expanded="open ? 'true' : 'false'" @click="open = !open">
+  <button ref="trigger" type="button" class="icon-btn" data-testid="view-toggle" aria-controls="wl-view-panel"
+          :aria-expanded="open ? 'true' : 'false'" @click="toggle">
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/></svg>{{ LABELS.view }}
     <span v-if="L.banner()" class="cl-dot" aria-hidden="true"></span>
   </button>
   <div v-show="open" id="wl-view-panel" class="cl-popover" role="group" :aria-label="LABELS.view" data-testid="view-panel"
+       :style="panelStyle"
        style="background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); color: var(--v8-text)">
     <div class="cl-panel__head">
       <h3 class="cl-panel__title" style="margin: 0">{{ LABELS.view }}</h3>
@@ -380,21 +423,34 @@ export function WorklistLayoutControls(Vue) {
     <p v-if="L.banner()" :role="L.banner().role" class="cl-note" :style="L.banner().style">{{ L.banner().text }}</p>
     <p class="cl-sr-only">{{ LABELS.keys }}</p>
     <span class="cl-section-label" id="wl-cols-label">{{ LABELS.columns }}</span>
-    <ul class="cl-checklist" role="group" aria-labelledby="wl-cols-label">
-      <li v-for="c in L.state.layout.columns" :key="c.key">
-        <label class="cl-check">
+    <ul class="cl-checklist" role="group" aria-labelledby="wl-cols-label"
+        style="grid-template-columns: minmax(0, 1fr); max-height: 10rem; overflow: auto">
+      <li v-for="(c, index) in L.state.layout.columns" :key="c.key" style="display: flex; align-items: center; gap: var(--sp-1)">
+        <label class="cl-check" style="flex: 1; min-width: 0">
           <input type="checkbox" :checked="c.visible" :disabled="!L.state.canEdit" :aria-label="(c.visible ? LABELS.hide : LABELS.show) + ': ' + L.labelOf(c.key)"
                  @change="L.toggleVisible(c.key)">
-          <span>{{ L.labelOf(c.key) }}</span>
+          <span style="overflow-wrap: anywhere">{{ L.labelOf(c.key) }}</span>
         </label>
+        <button type="button" class="icon-btn" :aria-label="LABELS.moveLeft + ': ' + L.labelOf(c.key)" :title="LABELS.moveLeft"
+                :disabled="!L.state.canEdit || index === 0" @click="L.move(c.key, -1)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg>
+        </button>
+        <button type="button" class="icon-btn" :aria-label="LABELS.moveRight + ': ' + L.labelOf(c.key)" :title="LABELS.moveRight"
+                :disabled="!L.state.canEdit || index === L.state.layout.columns.length - 1" @click="L.move(c.key, 1)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m10 6 6 6-6 6"/></svg>
+        </button>
       </li>
     </ul>
-    <label class="cl-section-label" for="wl-group-by">{{ LABELS.groupBy }}</label>
-    <select id="wl-group-by" class="select" style="width: 100%; height: auto; margin: 0; appearance: auto" :disabled="!L.state.canEdit" :value="L.state.layout.group_by[0] || ''"
-            @change="L.setGroupBy($event.target.value ? [$event.target.value] : [])">
-      <option value="">{{ LABELS.groupNone }}</option>
-      <option v-for="c in L.state.layout.columns" :key="c.key" :value="c.key">{{ L.labelOf(c.key) }}</option>
-    </select>
+    <div v-for="level in MAX_GROUP_DEPTH" :key="level">
+      <label class="cl-section-label" :for="level === 1 ? 'wl-group-by' : 'wl-group-by-' + level">{{ LABELS.groupBy }} · {{ LABELS.groupLevel }} {{ level }}</label>
+      <select :id="level === 1 ? 'wl-group-by' : 'wl-group-by-' + level" class="select" style="width: 100%; height: auto; margin: 0; appearance: auto"
+              :disabled="!L.state.canEdit || level > L.state.layout.group_by.length + 1" :value="L.state.layout.group_by[level - 1] || ''"
+              @change="L.setGroupLevel(level - 1, $event.target.value)">
+        <option value="">{{ LABELS.groupNone }}</option>
+        <option v-for="c in L.state.layout.columns" :key="c.key" :value="c.key"
+                :disabled="L.state.layout.group_by.includes(c.key) && L.state.layout.group_by[level - 1] !== c.key">{{ L.labelOf(c.key) }}</option>
+      </select>
+    </div>
     <div class="cl-panel__foot">
       <button type="button" class="primary" :disabled="!L.state.canEdit || !L.state.dirty || L.state.status === 'saving'"
               @click="L.save()">{{ LABELS.save }}</button>

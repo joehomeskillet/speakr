@@ -48,6 +48,14 @@ describe('recordings prototype look (V8 P01)', () => {
         expect(toViewRow(item(3, { time_source: 'created' })).fallbackText).toBe('Erstelldatum');
     });
 
+    it('carries the author-entered title apart from the Fall-ID and renders it only when present', () => {
+        const own = toViewRow(item(1, { own_title: ' Eigener Titel ' }));
+        expect(own).toMatchObject({ ownTitle: 'Eigener Titel', heading: 'Fall-ID F-77', caseDisplay: 'F-77' });
+        expect(toViewRow(item(2, { own_title: null })).ownTitle).toBe('');
+        expect(toViewRow(item(3)).ownTitle).toBe('');
+        expect(RecordingsView.template).toContain('v-if="r.ownTitle"');
+    });
+
     it('maps period presets to a Zurich date range and back', () => {
         expect(periodRange('today', '2026-11-20')).toEqual({ from: '2026-11-20', to: '2026-11-20' });
         expect(periodRange('week', '2026-11-20')).toEqual({ from: '2026-11-14', to: '2026-11-20' });

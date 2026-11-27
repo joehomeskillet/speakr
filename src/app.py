@@ -1271,7 +1271,7 @@ def register_clinic_worklist(flask_app):
     flask_app.register_blueprint(routes_worklist.create_blueprint(
         load_entries, filters, layouts, load_case_displays=worklist_entries.case_displays))
     flask_app.register_blueprint(routes_columns.create_columns_blueprint(
-        layouts, lambda _actor: (routes_worklist._DEFAULT_LAYOUT, routes_worklist.COLUMNS), run_once))
+        layouts, lambda _actor: (routes_worklist._DEFAULT_LAYOUT, routes_worklist.LAYOUT_COLUMNS), run_once))
     flask_app.register_blueprint(routes_workflow.create_blueprint(
         authorize=workflow_authorize, run_once=run_once, allowed_actions=allowed_actions,
         record_audit=record_audit, trusted_context=context_is_trusted,

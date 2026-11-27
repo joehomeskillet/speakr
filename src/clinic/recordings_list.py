@@ -4,7 +4,9 @@ Visibility reuses the worklist: the injected loader narrows the candidates
 (W12 admin full access incl. audit of foreign reads, W13 pool leads) and the
 worklist's own row policy (``query_worklist``) decides every row. There is no
 second policy here. The payload carries identifiers, workflow state and staff
-names only: no patient name, no title, no patient reference.
+names only: no patient name, no patient reference, no notes. The author-entered
+title is projected only on the viewer's own rows (owner decision Q-01); every
+other viewer gets ``own_title: None``. Fall-ID context stays in ``case_display``.
 
 Sort time: the recording time (``Recording.meeting_date``, set at import from
 the client or file metadata) is the best real time and gives
@@ -177,6 +179,7 @@ def list_recordings(
             "archived_at": None if archived is None else _iso(archived),
             "duration_ms": None if seconds is None else round(seconds * 1000),
             "case_display": contexts.get(dictation_id),
+            "own_title": (recording.title or None) if dictation.author_user_id == subject.user_id else None,
         })
     last = page[-1][0] if more else None
     return {"items": items, "next_cursor": None if last is None else encode_cursor(*last)}
