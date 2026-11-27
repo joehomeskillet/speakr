@@ -31,10 +31,11 @@ CATALOGS = (
 
 # Full tables from 7acabaf4 plus the P-189, P-036, P-083 and P-042 clinic endpoints,
 # serialized with json.dumps(sort_keys=True).
+# P-235 adds effective preset reads and admin-only preset and workstation lock writes.
 # Intentional route changes must update the snapshot together with their registration tests.
 BASELINE_TABLE_SHA256 = {
     False: "88f25130a4c4514b82b166e06829ec5427fb26343a2cba42f37b0614fb03502e",
-    True: "738505e6558870c156e39b5fc06673a54b963e7af319a2f7641f6ae7981b8eb8",
+    True: "c052f296efc6eafb26e5536c7d1087a5b18393b55274007409ac8392a2118a4a",
 }
 
 _CHILD_INSPECT = r'''
@@ -137,7 +138,10 @@ def test_catalog_endpoints_match_built_clinic_table(monkeypatch):
             for endpoint in getattr(module, attr):
                 catalog_entries[endpoint] = kind
 
-    assert len(catalog_entries) == 152
+    assert len(catalog_entries) == 155
+    assert catalog_entries["clinic_preferences.presets"] == route_policy.AUTH
+    assert catalog_entries["clinic_preferences.system_preset"] == route_policy.ADMIN
+    assert catalog_entries["clinic_preferences.workstation_lock"] == route_policy.ADMIN
     assert not (set(catalog_entries) & set(off_table))
     assert set(on_table) - set(off_table) == set(catalog_entries)
     for endpoint, kind in catalog_entries.items():

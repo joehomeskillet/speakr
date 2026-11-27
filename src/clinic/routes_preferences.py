@@ -7,9 +7,9 @@ role. Every write checks CSRF and the session. Allowances (``allowed_for``)
 and the author pool (``author_pool_for``) come from the caller's central
 policy, are read on every request, and so apply at save and at use time.
 
-The OpenAPI catalog has no preference command yet, so these routes are not
-parity commands. Mounting ``blueprint`` in the app is left to the consumer
-package (w196-routes-identity).
+The app mounts these routes in clinic mode. Central writes are system-wide
+and require an active site administrator. Effective workflow presets use
+the session user and their server-selected author pool.
 """
 
 from __future__ import annotations
@@ -17,12 +17,14 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from flask import Blueprint, abort, jsonify, request, session
+from flask import Blueprint, abort, current_app, jsonify, request, session
 from flask_login import current_user
 from flask_wtf.csrf import CSRFError, validate_csrf
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from wtforms.validators import ValidationError
 
-from src.clinic import correction_modes, pools, recipient_defaults as rd
+from src.clinic import correction_modes, pools, presets, recipient_defaults as rd
+from src.clinic.admin_dictation_access import _is_active_site_admin
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.last_selection import (
     Allowed,
@@ -31,12 +33,13 @@ from src.clinic.last_selection import (
     SelectionStore,
     restore,
 )
-from src.database import db
 from src.clinic.workstation_preferences import (
+    ALLOWLIST,
     PreferenceError,
     StaleVersion,
     WorkstationPreferences,
 )
+from src.database import db
 
 PREFIX = "/api/clinic/v1/preferences"
 # Identity and authority come from the session, never from the request.
@@ -73,6 +76,25 @@ def _selection_json(selection: Selection) -> dict[str, Any]:
     return {key: value for key, value in vars(selection).items()}
 
 
+def _require_central_admin() -> None:
+    if not _is_active_site_admin(db.session, current_user):
+        raise PreferenceError("unauthorized")
+    if request.args or (request.method == "DELETE" and request.get_data()):
+        raise PreferenceError("invalid_payload")
+
+
+def _valid_preset_value(key: str, value: Any) -> bool:
+    if key == "priority":
+        return type(value) is int and value in presets.ALLOWED_PRIORITIES
+    if key == "security":
+        return isinstance(value, str) and value in presets.ALLOWED_SECURITY_LEVELS
+    if key in ("use_speech_recognition", "with_approval"):
+        return type(value) is bool
+    if key == "typist" and (value is None or type(value) is int):
+        return value is None or value > 0
+    return isinstance(value, str) and len(value) <= 128 and bool(value.strip())
+
+
 class PreferenceRoutes:
     """Build the blueprint around injected stores and central allowances."""
 
@@ -97,6 +119,9 @@ class PreferenceRoutes:
             ("/last-selection", "last_selection", self._last_selection, ("GET", "PUT")),
             ("/workstations", "workstation_issue", self._workstation_issue, ("POST",)),
             ("/workstations/<workstation_id>", "workstation", self._workstation, ("GET", "PUT")),
+            ("/workstation-locks/<key>", "workstation_lock", self._workstation_lock, ("PUT", "DELETE")),
+            ("/presets", "presets", self._resolved_presets, ("GET",)),
+            ("/presets/<key>", "system_preset", self._system_preset, ("PUT", "DELETE")),
             ("/correction-mode", "correction_mode", self._correction_mode, ("GET", "PUT")),
         ):
             bp.add_url_rule(PREFIX + rule, name, self._wrap(view), methods=list(methods))
@@ -126,6 +151,10 @@ class PreferenceRoutes:
                 return _problem(error.code)
             except correction_modes.ModeError as error:
                 return _problem(error.code)
+            except SQLAlchemyError as error:
+                db.session.rollback()
+                current_app.logger.error("Clinic preference %s failed (%s)", request.endpoint, type(error).__name__)
+                return _problem("preference_read_failed" if request.method == "GET" else "preference_write_failed")
 
         run.__name__ = view.__name__
         return run
@@ -211,6 +240,48 @@ class PreferenceRoutes:
             current_user, workstation_id, body.get("changes"), expected_version=body.get("expected_version"),
         )
         return jsonify(version=version)
+
+    def _workstation_lock(self, key: str):
+        _require_central_admin()
+        if key not in ALLOWLIST:
+            raise PreferenceError("not_allowlisted")
+        if request.method == "DELETE":
+            self._workstations.unlock(key)
+        else:
+            body = _body()
+            if body.keys() != {"value"}:
+                raise PreferenceError("invalid_payload")
+            self._workstations.lock(key, body["value"])
+        return "", 204
+
+    def _resolved_presets(self):
+        actor = current_user.id
+        result = presets.resolve_presets(user_id=actor, pool_id=self._author_pool_for(actor))
+        keys = presets.SYSTEM_DEFAULTS
+        return jsonify(values={key: result.values[key] for key in keys},
+                       origins={key: result.origins[key] for key in keys},
+                       locked=sorted(result.locked.intersection(keys)))
+
+    def _system_preset(self, key: str):
+        _require_central_admin()
+        if key not in presets.SYSTEM_DEFAULTS:
+            raise PreferenceError("not_allowlisted")
+        if request.method == "DELETE":
+            presets.ClinicPreset.query.filter_by(scope="system", scope_id=presets.SYSTEM_SCOPE_ID, key=key).delete()
+        else:
+            body = _body()
+            is_locked = body.get("is_locked", False)
+            if "value" not in body or body.keys() - {"value", "is_locked"} or type(is_locked) is not bool:
+                raise PreferenceError("invalid_payload")
+            if not _valid_preset_value(key, body["value"]):
+                raise PreferenceError("bad_value")
+            try:
+                presets.set_preset(key, body["value"], is_locked=is_locked)
+            except IntegrityError:
+                db.session.rollback()
+                return _problem("conflict")
+        db.session.commit()
+        return "", 204
 
     # -- correction playback mode (W6) --------------------------------------
     def _correction_mode(self):
