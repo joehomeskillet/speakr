@@ -163,6 +163,13 @@ export const TEXT = Object.freeze({
     wordAria: 'Wort abspielen',
     unalignedMark: 'ohne Audio',
     markers: 'Marken im Audio',
+    reviewTitle: 'Zu prüfende Wörter',
+    reviewHint: 'Pfeiltasten wechseln den Treffer, Eingabe bestätigt ihn. Eine Änderung am Wort macht ihn wieder offen.',
+    reviewConfirm: 'Bestätigen',
+    reviewConfirmed: 'Bestätigt',
+    reviewOpen: 'Offen',
+    reviewNone: 'Keine offenen Treffer',
+    reviewFailed: 'Bestätigung nicht möglich. Bitte erneut versuchen.',
     lease: 'Bearbeitungsstatus',
     save: 'Speichern',
     saveSection: 'Speicherstand',
@@ -440,7 +447,7 @@ export function createCorrectionViewController(options) {
             knownRevision = editor.textRevisionId.value;
             ready.value = true;
             loadGeneration.value += 1;
-            await Promise.all([alignment.refresh(), saver.loadResume(), modes.load()]);
+            await Promise.all([alignment.refresh(), saver.loadResume(), modes.load(), loadReview()]);
         }
         return res;
     }
@@ -452,6 +459,7 @@ export function createCorrectionViewController(options) {
         if (revision === knownRevision) return null;
         knownRevision = revision;
         revisionGeneration.value += 1;
+        loadReview();
         return alignment.refresh();
     }
 
@@ -480,6 +488,7 @@ export function createCorrectionViewController(options) {
         if (res && res.ok) {
             knownRevision = editor.textRevisionId.value;
             loadGeneration.value += 1;
+            loadReview();
             await alignment.refresh();
         }
         return res;
@@ -496,6 +505,7 @@ export function createCorrectionViewController(options) {
         if (res && res.ok) {
             knownRevision = editor.textRevisionId.value;
             loadGeneration.value += 1;
+            loadReview();
             await alignment.refresh();
         }
         return res;
@@ -539,6 +549,91 @@ export function createCorrectionViewController(options) {
         seek(ms / 1000);
         return true;
     }
+
+    // --- review markers at the affected span (PAR-VOC-004) ---------------------------
+    // Open caution-word hits of the head revision come from GET .../correction/review-markers (offsets are
+    // UTF-16 units). A confirmation is bound to the revision the hit was read from. Editing the span (or a
+    // new revision) makes the hit unresolved again; the server counts only hits on the current head.
+    const reviewHits = ref([]);
+    const reviewActive = ref(0);
+    const reviewMessage = ref('');
+    let reviewBase = '';
+    let reviewRevision = null;
+    let reviewSeq = 0;
+    const reviewPath = () => '/dictations/' + encodeURIComponent(dictationId) + '/correction/review-markers';
+    const reviewKeys = new Map();
+    const newReviewKey = () => (globalThis.crypto && globalThis.crypto.randomUUID ? globalThis.crypto.randomUUID() : 'rk-' + Date.now() + '-' + Math.random().toString(16).slice(2));
+
+    /** Span [start, end) of the unsaved edit against the text the hits were read from (null: unchanged). */
+    function reviewEdit(current) {
+        if (current === reviewBase) return null;
+        let p = 0;
+        const max = Math.min(current.length, reviewBase.length);
+        while (p < max && current[p] === reviewBase[p]) p += 1;
+        let s = 0;
+        while (s < max - p && current[current.length - 1 - s] === reviewBase[reviewBase.length - 1 - s]) s += 1;
+        return [p, reviewBase.length - s];
+    }
+
+    /** Hits with their state: 'confirmed' only while the confirmed span is untouched in the editor text. */
+    const reviewList = api.computed(() => {
+        const edit = reviewEdit(String(editor.text.value || ''));
+        return reviewHits.value.map((h, index) => {
+            const end = h.offset + h.label.length;
+            const touched = Boolean(edit) && h.offset < Math.max(edit[1], edit[0] + 1) && end > edit[0];
+            return {
+                ...h, index, state: h.confirmed && !touched ? 'confirmed' : 'open',
+                context: reviewBase.slice(Math.max(0, h.offset - 20), end + 20).replace(/\s+/g, ' '),
+            };
+        });
+    });
+    const reviewOutstanding = api.computed(() => reviewList.value.filter((h) => h.state === 'open').length);
+
+    async function loadReview() {
+        if (disposed) return { ok: false, code: 'cancelled', message: '' };
+        const mine = ++reviewSeq;
+        const res = await client.request(reviewPath());
+        if (mine !== reviewSeq || disposed || (res && res.outcome === 'cancelled')) return { ok: false, code: 'cancelled', message: '' };
+        const list = res && res.outcome === 'ok' && res.data && Array.isArray(res.data.review_markers) ? res.data.review_markers : [];
+        reviewRevision = res && res.data ? res.data.text_revision_id || null : null;
+        reviewBase = String(editor.text.value || '');
+        reviewHits.value = list.filter((h) => h && typeof h.id === 'string' && typeof h.label === 'string' && Number.isInteger(h.anchor_offset))
+            .map((h) => ({ id: h.id, label: h.label, offset: h.anchor_offset, confirmed: false }));
+        reviewActive.value = 0;
+        reviewMessage.value = '';
+        return { ok: true };
+    }
+
+    function moveReview(step) {
+        const n = reviewHits.value.length;
+        if (!n) return null;
+        reviewActive.value = (reviewActive.value + step + n) % n;
+        return reviewActive.value;
+    }
+
+    /** Confirm one open hit (server: lease generation and expected text revision). */
+    async function confirmReview(id) {
+        const hit = reviewList.value.find((h) => h.id === id);
+        const snap = editor.lease && editor.lease.value;
+        const generation = snap && Number.isInteger(snap.generation) ? snap.generation : null;
+        if (disposed || !hit || hit.state !== 'open') return { ok: false, code: 'noop', message: '' };
+        if (!editor.canEdit.value || generation === null || !reviewRevision) return { ok: false, code: 'readOnly', message: TEXT.readOnly };
+        const body = { expected_text_revision_id: reviewRevision, lease_generation: generation };
+        const digest = id + JSON.stringify(body);
+        if (!reviewKeys.has(digest)) reviewKeys.set(digest, newReviewKey());
+        const res = await client.request(reviewPath() + '/' + encodeURIComponent(id) + '/confirm',
+            { method: 'POST', idempotencyKey: reviewKeys.get(digest), body });
+        if (disposed || (res && res.outcome === 'cancelled')) return { ok: false, code: 'cancelled', message: '' };
+        if (res && res.outcome === 'ok') {
+            reviewKeys.delete(digest);
+            reviewHits.value = reviewHits.value.map((h) => (h.id === id ? { ...h, confirmed: true } : h));
+            reviewMessage.value = '';
+            return { ok: true };
+        }
+        reviewMessage.value = TEXT.reviewFailed;
+        return { ok: false, code: 'failed', message: TEXT.reviewFailed };
+    }
+
 
     // --- lifecycle ------------------------------------------------------------
     const leaseRun = { acquire: editor.acquire, release: editor.release, takeOver: editor.takeOver };
@@ -634,6 +729,7 @@ export function createCorrectionViewController(options) {
     return {
         vue: V, api, editor, alignment, modes, saver, repeat, gain: () => gain,
         ready, loadGeneration, revisionGeneration, audioEl, gainState, closeMessage, resumeLabel,
+        reviewList, reviewOutstanding, reviewActive, reviewMessage, loadReview, moveReview, confirmReview,
         recordingId: () => opts.recordingId || editor.audio.value.recordingId || null,
         peaksKey, peaksFetch,
         stepSeconds: v8 ? STEP_SECONDS_V8 : STEP_SECONDS,
@@ -911,7 +1007,26 @@ export const CorrectionBody = {
         const unsavedSuffix = () => Boolean(e.dirty.value) && !/nicht gespeicherte/i.test(String(s.message.value || ''));
         const pickTemplate = (id) => { templatesOpen.value = false; if (id) e.applyTemplate(id); };
         const toolStatus = () => tbState.value.readOnlyReason || tbState.value.message || '';
+        // Review hits: arrow keys move between hits (the span is selected in the editor), Enter/Space confirms.
+        const reviewRefs = {};
+        const setReviewRef = (id) => (node) => { if (node) reviewRefs[id] = node; else delete reviewRefs[id]; };
+        const focusReview = (index) => {
+            const hit = c.reviewList.value[index];
+            if (!hit) return;
+            c.reviewActive.value = index;
+            if (textEl.value && typeof textEl.value.setSelectionRange === 'function') textEl.value.setSelectionRange(hit.offset, hit.offset + hit.label.length);
+            later(() => { if (reviewRefs[hit.id]) reviewRefs[hit.id].focus(); });
+        };
+        const onReviewKeydown = (event, index) => {
+            const n = c.reviewList.value.length;
+            const to = { ArrowDown: index + 1, ArrowRight: index + 1, ArrowUp: index - 1, ArrowLeft: index - 1, Home: 0, End: n - 1 }[event.key];
+            if (to === undefined || !n) return;
+            event.preventDefault();
+            focusReview((to + n) % n);
+        };
         return {
+            reviewList: c.reviewList, reviewOutstanding: c.reviewOutstanding, reviewActive: c.reviewActive, reviewMessage: c.reviewMessage,
+            setReviewRef, focusReview, onReviewKeydown,
             formatDictationReference,
             c, FOCUS, MODES, box, styleFor, TEXT, showDiff,
             tb, tbState, textEl, setTextEl, fontPx, focusMode, shortcutsOpen, highlightOn, inlineWord, editorScroll, followOn, onTextInput, onTextKeydown, onFindKeydown,
@@ -1119,6 +1234,27 @@ export const CorrectionBody = {
                     @scroll.passive="editorScroll = $event.target.scrollTop" @input="onTextInput($event)" @keydown="onTextKeydown($event)" @select="followOn = false; c.onSelect($event)"
                     @keyup="c.onSelect($event)" @mouseup="c.onSelect($event)"></textarea>
         </div>
+        <section v-if="reviewList.length" class="panel review-hits" :aria-label="TEXT.reviewTitle" data-testid="review-hits">
+          <div class="panel-header">
+            <h2>{{ TEXT.reviewTitle }}</h2>
+            <span class="hint" role="status" data-testid="review-outstanding">{{ reviewOutstanding ? reviewOutstanding + ' ' + TEXT.reviewOpen.toLowerCase() : TEXT.reviewNone }}</span>
+          </div>
+          <p class="hint" style="margin: 0">{{ TEXT.reviewHint }}</p>
+          <ul style="list-style: none; margin: 0; padding: 0; display: grid; gap: 6px">
+            <li v-for="(hit, i) in reviewList" :key="hit.id" class="review-hit" :data-state="hit.state" :data-testid="'review-hit-' + hit.id"
+                style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0">
+              <button type="button" class="button small" :ref="setReviewRef(hit.id)" :style="FOCUS" :tabindex="i === reviewActive ? 0 : -1"
+                      :disabled="!canEdit || hit.state !== 'open'" :aria-label="TEXT.reviewConfirm + ': ' + hit.label"
+                      @focus="focusReview(i)" @keydown="onReviewKeydown($event, i)" @click="c.confirmReview(hit.id)">
+                {{ hit.state === 'confirmed' ? TEXT.reviewConfirmed : TEXT.reviewConfirm }}
+              </button>
+              <strong>{{ hit.label }}</strong>
+              <span class="hint" style="overflow-wrap: anywhere; min-width: 0">{{ hit.context }}</span>
+              <span class="sr-only">{{ hit.state === 'confirmed' ? TEXT.reviewConfirmed : TEXT.reviewOpen }}</span>
+            </li>
+          </ul>
+          <p v-if="reviewMessage" role="alert" class="hint" data-testid="review-message">{{ reviewMessage }}</p>
+        </section>
         <p v-if="!canEdit && !loading" id="ccv-readonly" class="template-meta" style="margin: 0">{{ lease.mayAcquire === false ? TEXT.readOnlyAccess : TEXT.readOnly }}</p>
         <section class="panel" :aria-label="TEXT.alignment" :data-status="alignStatus" data-testid="alignment">
           <div class="panel-header">
