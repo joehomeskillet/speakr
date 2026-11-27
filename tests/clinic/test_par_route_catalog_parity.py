@@ -1,9 +1,14 @@
-"""Parity and structural tests for the partitioned clinic route catalogs (P-018)."""
+"""Parity and structural tests for the partitioned clinic route catalogs (P-018).
+
+A package that adds, removes or changes a clinic route also adds, removes or changes the
+matching lines in tests/clinic/data/clinic_route_table.txt (one line per route and mode:
+"<on|off> <endpoint> <rule json>", sorted). The test compares that file line by line, so
+packages touching different routes merge without conflicts.
+"""
 
 from __future__ import annotations
 
 import ast
-import hashlib
 import json
 import os
 import subprocess
@@ -29,13 +34,31 @@ CATALOGS = (
     route_policy_admin,
 )
 
-# Full tables from 7acabaf4 plus the P-189, P-036, P-083, P-042 and P-174 clinic endpoints,
-# serialized with json.dumps(sort_keys=True).
-# Intentional route changes must update the snapshot together with their registration tests.
-BASELINE_TABLE_SHA256 = {
-    False: "88f25130a4c4514b82b166e06829ec5427fb26343a2cba42f37b0614fb03502e",
-    True: "6859ba2c140468253d40a9d3ab966d404b124cbb6d54c5d1b22f4817decf80b9",
-}
+BASELINE_FILE = Path(__file__).parent / "data" / "clinic_route_table.txt"
+
+
+def _baseline_lines(mode: str) -> list[str]:
+    lines = BASELINE_FILE.read_text(encoding="utf-8").splitlines()
+    assert lines == sorted(lines), "baseline file must stay sorted"
+    return [x for x in lines if x.startswith(mode + " ")]
+
+
+def _table_lines(mode: str, table: dict) -> list[str]:
+    return sorted(
+        f"{mode} {endpoint} {json.dumps(rule, sort_keys=True, separators=(',', ':'))}"
+        for endpoint, rule in table.items()
+    )
+
+
+def _assert_same_lines(expected: list[str], actual: list[str], label: str) -> None:
+    missing = sorted(set(expected) - set(actual))
+    extra = sorted(set(actual) - set(expected))
+    assert expected == actual, (
+        f"{label} differs from baseline file.\n"
+        f"in baseline but not built ({len(missing)}):\n  " + "\n  ".join(missing) + "\n"
+        f"built but not in baseline ({len(extra)}):\n  " + "\n  ".join(extra)
+    )
+
 
 _CHILD_INSPECT = r'''
 import json
@@ -137,9 +160,19 @@ def test_catalog_endpoints_match_built_clinic_table(monkeypatch):
             for endpoint in getattr(module, attr):
                 catalog_entries[endpoint] = kind
 
-    assert len(catalog_entries) == 153
-    assert not (set(catalog_entries) & set(off_table))
-    assert set(on_table) - set(off_table) == set(catalog_entries)
+    baseline_on = {x.split(" ", 2)[1] for x in _baseline_lines("on")}
+    baseline_off = {x.split(" ", 2)[1] for x in _baseline_lines("off")}
+    expected_catalog = baseline_on - baseline_off
+    missing = sorted(expected_catalog - set(catalog_entries))
+    extra = sorted(set(catalog_entries) - expected_catalog)
+    assert not missing and not extra, f"catalog endpoints missing: {missing}; extra: {extra}"
+    overlap = sorted(set(catalog_entries) & set(off_table))
+    assert not overlap, f"catalog endpoints also in the clinic-off table: {overlap}"
+    on_extra = sorted(set(on_table) - set(off_table) - set(catalog_entries))
+    on_missing = sorted(set(catalog_entries) - (set(on_table) - set(off_table)))
+    assert not on_extra and not on_missing, (
+        f"clinic-on table has endpoints not in the catalogs: {on_extra}; catalog endpoints absent from it: {on_missing}"
+    )
     for endpoint, kind in catalog_entries.items():
         assert on_table[endpoint] == route_policy.RouteRule(kind)
 
@@ -187,8 +220,8 @@ def test_inventory_missing_stale_and_recording_scope(clinic, clinic_off_snapshot
 @pytest.mark.parametrize("clinic", [False, True])
 def test_complete_table_matches_before_partition(clinic, clinic_off_snapshot, clinic_on_snapshot):
     snapshot = clinic_on_snapshot if clinic else clinic_off_snapshot
-    serialized = json.dumps(snapshot["table"], sort_keys=True).encode()
-    assert hashlib.sha256(serialized).hexdigest() == BASELINE_TABLE_SHA256[clinic]
+    mode = "on" if clinic else "off"
+    _assert_same_lines(_baseline_lines(mode), _table_lines(mode, snapshot["table"]), f"clinic-{mode} table")
 
 
 def test_duplicate_endpoint_across_catalogs_is_rejected(monkeypatch):
