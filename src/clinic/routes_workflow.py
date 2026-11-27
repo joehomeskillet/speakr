@@ -255,10 +255,12 @@ def register_commands(
                     raise CommandProblem('INVALID_PAYLOAD')
                 if heads is None:
                     heads = _head_ids(row)  # a return is stored even without audio or context
+            flow = db.session.get(workflow.ClinicWorkflowDictation, target) if action == 'reopen' else None
+            archived = flow is not None and flow.status == workflow.TO_ARCHIVE
             try:
                 done = workflow_actions.apply_action(
                     target, action, actor_user_id=actor, expected_version=envelope['expected_revision'] - 1,
-                    lease_generation=_generation(target), now=datetime.now(timezone.utc),
+                    lease_generation=None if archived else _generation(target), now=datetime.now(timezone.utc),
                     authorize=authorize, text_revision_id=payload.get('text_revision_id'),
                     reason=payload.get('reason'), acceptance_policy=acceptance_policy)
             except workflow.WorkflowError as error:
