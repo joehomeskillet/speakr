@@ -50,6 +50,7 @@ _STATUS = {
     "stale_version": 409, "conflict": 409,
     "selection_not_allowed": 422, "not_author_pool": 422, "invalid_mode": 422, "bad_version": 422,
     "preference_read_failed": 503, "preference_write_failed": 503,
+    "invalid_transport_policy": 503,
 }
 _TITLES = {400: "Ungültige Anfrage", 401: "Anmeldung erforderlich", 403: "Zugriff verweigert",
            409: "Versionskonflikt", 422: "Auswahl nicht zulässig", 503: "Dienst nicht verfügbar"}
@@ -152,24 +153,28 @@ class PreferenceRoutes:
         actor = current_user.id
         if request.method == "GET":
             row = rd.get_default(actor)
+            choice = rd.effective_choice(row, rd.get_choice_grant(actor))
             pool_id = self._author_pool_for(actor)
             overrides = rd.selectable_overrides(actor, pool_id) if pool_id else None
             return jsonify(
                 version=0 if row is None else row.version,
                 mode=None if row is None else row.mode,
                 target_ids=[] if row is None else row.target_ids,
-                choice=rd.CHOICE_OPEN if row is None else row.choice,
+                choice=choice,
                 overrides=overrides,
             )
         body = _body()
+        if "choice" in body and body["choice"] is None:
+            raise rd.RecipientDefaultError("invalid_choice")
         mode, ids = body.get("mode"), body.get("target_ids") or []
         if isinstance(ids, list):
             self._checked_default_targets(actor, mode, ids)
         row = rd.set_default(
             actor, mode, actor_id=actor, expected_version=body.get("expected_version"),
-            target_ids=ids, choice=body.get("choice", rd.CHOICE_OPEN),
+            target_ids=ids, choice=body.get("choice"),
         )
-        return jsonify(version=row.version, mode=row.mode, target_ids=row.target_ids, choice=row.choice)
+        return jsonify(version=row.version, mode=row.mode, target_ids=row.target_ids,
+                       choice=rd.effective_choice(row, rd.get_choice_grant(actor)))
 
     def _recipient_resolve(self):
         """Use time: revalidate the stored default or an override against the pool now."""
@@ -206,7 +211,11 @@ class PreferenceRoutes:
     def _workstation(self, workstation_id: str):
         if request.method == "GET":
             effective = self._workstations.effective(current_user, workstation_id)
-            return jsonify(values=effective.values, origins=effective.origins, version=effective.version)
+            return jsonify(
+                values=effective.values, origins=effective.origins, version=effective.version,
+                transport_mode=effective.transport_mode,
+                device_redirection_verified=effective.device_redirection_verified,
+            )
         body = _body()
         version = self._workstations.apply(
             current_user, workstation_id, body.get("changes"), expected_version=body.get("expected_version"),

@@ -1,5 +1,9 @@
 # Speakr V8: geprüfte Änderungen im Klinik-Webclient
 
+## Implementierung P-084
+
+Versionierte Importabsichten werden pro Datei in den bestehenden Klinik-Import übernommen. Synthetische HTTP-/DB-Tests prüfen Metadaten, Poolwahl, Empfänger, die drei ASR-Modi und den unveränderten nicht ausgewählten Inventareintrag. Staging- und Philips-Referenztests für BT-IMP-003 stehen noch aus.
+
 ## Q-05 vom 27. November 2026 – KIS nur lesend (X-KIS-1)
 
 Die Freigabe schliesst das Diktat in Speakr ab. Dateiausgabe und Zwischenablage bleiben verfügbar. Der Klinikbetrieb bietet keinen KIS-Versand an. Bestehende Zustellbelege und Audit-Ereignisse bleiben erhalten. Der synthetische MockKIS-Kompatibilitätspfad erfordert eine explizite Aktivierung im Staging-Profil.
