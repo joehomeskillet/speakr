@@ -1386,18 +1386,18 @@ def register_clinic_audio(flask_app):
     ParityDispatch (start/stop live session are registered on it). Object decisions go through
     pool_policy.decide; an active site admin may open audio of any user (W12, audited by the
     audio handler). Capabilities that do not exist yet answer "unavailable" and are never faked:
-    no bundle persistence (503), no local TTS engine or declared capability
-    (CAPABILITY_UNAVAILABLE), no live-draft coordinator (CAPABILITY_UNAVAILABLE). The derived
+    no local TTS engine or declared capability (CAPABILITY_UNAVAILABLE), no live-draft
+    coordinator (CAPABILITY_UNAVAILABLE). The derived
     rendering reads the stored originals (app_wiring.make_source_loader); the protection store is
     durable (clinic_dictation_protection). The mounted sdict export uses that same current
     revision. A source that cannot be read stays empty and is never replaced by synthetic audio.
     """
-    from src.clinic import (app_wiring, audio_render, audio_revisions, config, local_tts, policy, pool_policy,
+    from src.clinic import (app_wiring, bundle_store, config, local_tts, policy, pool_policy,
                             revisions, routes_audio, routes_bundle, routes_clipboard, routes_correction,
                             routes_dictation_properties, routes_live, routes_output, routes_tts, startup)
     from src.clinic.admin_dictation_access import can_open_content
     from src.clinic.ingest import IngestService
-    from src.clinic.models import ClinicDictation, ClinicTranscriptRevision
+    from src.clinic.models import ClinicDictation
 
     dispatch = flask_app.extensions['clinic_parity_dispatch']
     run_once = flask_app.extensions['clinic_run_once']
@@ -1420,38 +1420,20 @@ def register_clinic_audio(flask_app):
             return True
         return may(user.id, name, dictation)
 
-    def text_version(dictation):
-        return db.session.query(ClinicTranscriptRevision).filter_by(dictation_id=dictation.id).count()
-
-    load_sources = app_wiring.make_source_loader(startup.originals_root(flask_app))
+    originals_root = startup.originals_root(flask_app)
+    load_sources = app_wiring.make_source_loader(originals_root)
     protection_store = app_wiring.DurableProtectionStore(
         lambda user_id, dictation_id: may(user_id, 'play', db.session.get(ClinicDictation, dictation_id)),
         lambda user_id, dictation_id: may(user_id, 'edit', db.session.get(ClinicDictation, dictation_id)),
         lambda dictation_id: db.session.get(ClinicDictation, dictation_id) is not None)
 
-    def bundle_audio(dictation):
-        # Missing source stays empty so the archive builder refuses it. Never invent audio.
-        revision = audio_revisions.current_audio_revision(dictation)
-        if revision is None:
-            return b''
-        try:
-            edl = audio_revisions.get_revision_edl(dictation, revision)
-            return audio_render.render_current_revision(
-                dictation, revision.id, load_sources(dictation, edl)).wav
-        except audio_revisions.AudioRevisionError:
-            return b''
-
-    def bundle_load(actor, dictation_id):
+    def bundle_load(_actor, dictation_id):
         dictation = db.session.get(ClinicDictation, dictation_id)
-        head = None if dictation is None else revisions.current_revision(dictation)
-        if head is None:
-            return None
-        return routes_bundle.BundleSession(
-            doc=routes_bundle.text_to_document(head.body.encode('utf-8')),
-            audio=bundle_audio(dictation), version=text_version(dictation))
+        return None if dictation is None else bundle_store.load(dictation, originals_root, load_sources)
 
-    def bundle_persist(_actor, _dictation_id, _doc, _audio, _expected):
-        raise OSError('no durable bundle store is wired yet')
+    def bundle_persist(actor, dictation_id, doc, audio, expected):
+        return bundle_store.persist(db.session.get(ClinicDictation, dictation_id), actor, doc, audio,
+                                    expected, originals_root, load_sources)
 
     def managed_client():
         return config.client_capabilities()['profiles'][config.client_profile()].get('document_export') is not False
@@ -1462,7 +1444,7 @@ def register_clinic_audio(flask_app):
         if head is None or not may(actor, 'play', dictation):
             return None
         return routes_tts.Loaded(
-            document=local_tts.CanonicalText(text=head.body, version=text_version(dictation)),
+            document=local_tts.CanonicalText(text=head.body, version=bundle_store.text_version(dictation)),
             subject=policy.build_subject(actor),
             recording=policy.build_facts(dictation.recording_id, dictation.author_user_id))
 
@@ -1473,7 +1455,8 @@ def register_clinic_audio(flask_app):
     flask_app.register_blueprint(routes_dictation_properties.DictationPropertyRoutes(protection_store).blueprint())
     flask_app.register_blueprint(routes_bundle.create_blueprint(
         bundle_load, lambda actor, dictation_id, action: may(actor, action, db.session.get(ClinicDictation, dictation_id)),
-        bundle_persist, run_once, managed_client))
+        bundle_persist, lambda scope, digest, operation: bundle_store.run_locked(scope, digest, operation, run_once, may),
+        managed_client))
     flask_app.register_blueprint(routes_live.create_blueprint(
         lambda actor, dictation_id: may(actor, 'edit', db.session.get(ClinicDictation, dictation_id)),
         IngestService(startup.originals_root(flask_app))))
