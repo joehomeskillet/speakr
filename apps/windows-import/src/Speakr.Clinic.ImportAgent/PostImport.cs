@@ -1,3 +1,6 @@
+using System.Globalization;
+using System.Security.Cryptography;
+
 namespace Speakr.Clinic.ImportAgent;
 
 public sealed class PostImport
@@ -13,6 +16,65 @@ public sealed class PostImport
 
     // Test seam: runs after the captured file is verified and before delete/move completes.
     internal Action<string>? AfterVerify { get; set; }
+
+    internal void BackupBeforeSend(InventoryItem item, ReadOnlySpan<byte> bytes)
+    {
+        var name = _options.FormatBackupName(Path.GetFileNameWithoutExtension(item.RelativePath),
+            Path.GetExtension(item.RelativePath), item.RootId, item.MtimeUtc);
+        var folder = new DirectoryInfo(_options.BackupFolder);
+        var temporary = Path.Combine(_options.BackupFolder, Guid.NewGuid().ToString("N") + ".part");
+        if (!PathGuard.TryAdmit(folder.FullName, temporary, out var part))
+            throw new IOException("Pre-send backup path is unsafe.");
+        for (DirectoryInfo? parent = folder; parent is not null; parent = parent.Parent)
+        {
+            var attributes = parent.Attributes;
+            if (attributes != (FileAttributes)(-1) && (attributes & FileAttributes.ReparsePoint) != 0)
+                throw new IOException("BackupFolder must not pass through a reparse point.");
+        }
+        folder.Create();
+
+        var copy = new FileStream(part, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None);
+        var published = false;
+        try
+        {
+            using (copy)
+            {
+                copy.Write(bytes);
+                copy.Flush(flushToDisk: true);
+                copy.Position = 0;
+                if (copy.Length != item.Size
+                    || !Convert.ToHexString(SHA256.HashData(copy)).Equals(item.ContentSha256, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("Pre-send backup does not match the snapshot.");
+            }
+
+            var stem = Path.GetFileNameWithoutExtension(name);
+            var ext = Path.GetExtension(name);
+            for (var suffix = 0; ; suffix++)
+            {
+                var candidate = suffix == 0 ? name : stem + "-" + suffix.ToString(CultureInfo.InvariantCulture) + ext;
+                var destination = Path.Combine(folder.FullName, candidate);
+                if (Path.Exists(destination))
+                    continue;
+                if (!PathGuard.TryAdmit(folder.FullName, destination, out var admitted))
+                    throw new IOException("Pre-send backup path is unsafe.");
+                try
+                {
+                    File.Move(part, admitted, overwrite: false);
+                    published = true;
+                    return;
+                }
+                catch (Exception ex) when ((ex is IOException or UnauthorizedAccessException) && Path.Exists(destination))
+                {
+                    // A concurrent writer claimed this filename. Keep its file and try the next suffix.
+                }
+            }
+        }
+        finally
+        {
+            if (!published)
+                File.Delete(part);
+        }
+    }
 
     public PostImportOutcome Apply(InventoryItem item, ImportIntent intent, BoundReceipt receipt)
     {
