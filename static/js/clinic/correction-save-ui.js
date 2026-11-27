@@ -10,11 +10,13 @@
  *
  * Exports:
  *   useCorrectionSave({ editor, client, dictationId, lease?, getPositionMs?,
- *                       autosaveMs?, maxRetries?, setTimer?, clearTimer?, vue? })
+ *                       autosaveMs?, maxRetries?, setTimer?, clearTimer?, vue?, document?, seek? })
  *     editor  the object returned by useCorrectionEditor (text, dirty,
  *             textRevisionId, etag, lease, canEdit refs)
  *     lease   optional lease controller from lease-ui.js (clears the
  *             unsaved marker after a save, reports a lost holder)
+ *     document true enables the canonical document adapter (returned as document).
+ *     seek    optional callback that seeks audio to a position in seconds.
  *     returns state ref ('saved' | 'unsaved' | 'saving' | 'conflict' | 'lost'),
  *             message, resumePosition (ms or null), stateVersion, error refs,
  *             and the methods save(), touch(), loadResume(), reloadLatest(),
@@ -41,6 +43,7 @@
  */
 
 import { createClinicApiClient } from './api-client.js';
+import { useCorrectionDocument } from './correction-document-ui.js';
 import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
 
 /** Debounce of the automatic save in ms; configurable through the `autosaveMs` option (0 or null: off). */
@@ -160,6 +163,15 @@ export function useCorrectionSave(options) {
     const retries = refs.ref(0);
     // Conflict view data: { mine, server: { text, revisionId, etag, stateVersion, positionMs } | null }.
     const conflict = refs.shallow(null);
+    const document = opts.document === true ? useCorrectionDocument({
+        editor, seek: opts.seek, vue: refs.V,
+        onEdit(text) {
+            editor.text.value = text;
+            editor.dirty.value = true;
+            if (lease) lease.setUnsaved(text);
+            touch();
+        },
+    }) : null;
 
     let position = null;
     // The operation in flight or awaiting an answer: { key, digest, body, sent, ifMatch, unclear }.
@@ -227,6 +239,11 @@ export function useCorrectionSave(options) {
     async function loadResume() {
         const res = await client.request(base);
         if (res.outcome !== 'ok' || !res.data) return { ok: false, message: res.message || LABELS.failed };
+        if (document && (disposed || res.data.text_revision_id !== editor.textRevisionId.value
+            || (!editor.dirty.value && res.data.text !== editor.text.value))) {
+            return { ok: false, message: LABELS.precondition };
+        }
+        if (document && !editor.dirty.value) document.reset(res.data);
         const st = res.data.state;
         if (st && Number.isInteger(st.audio_position_ms)) {
             resumePosition.value = st.audio_position_ms;
@@ -263,12 +280,13 @@ export function useCorrectionSave(options) {
         return { ok: false, state: next, message: message.value };
     }
 
-    function buildBody(gen) {
+    function buildBody(gen, fields) {
         const body = {
             text: editor.text.value,
             audio_position_ms: currentPosition(),
             lease_generation: gen,
             expected_text_revision_id: editor.textRevisionId.value,
+            ...fields,
         };
         if (stateVersion.value !== null) body.expected_state_version = stateVersion.value;
         return body;
@@ -296,6 +314,7 @@ export function useCorrectionSave(options) {
                 : (typeof d.text_revision_id === 'string' ? '"' + d.text_revision_id + '"' : null),
             stateVersion: st && Number.isInteger(st.version) ? st.version : null,
             positionMs: st ? st.audio_position_ms : null,
+            ...(document ? { correction: d } : {}),
         };
     }
 
@@ -317,20 +336,25 @@ export function useCorrectionSave(options) {
         if (disposed || res.outcome === 'cancelled') return { ok: false, state: state.value, message: '' };
         if (res.outcome === 'ok' && res.data && typeof res.data.text_revision_id === 'string') {
             const d = res.data;
+            if (req.body.document && !document.acknowledge(d)) {
+                await enterConflict();
+                return { ok: false, state: 'conflict', message: message.value };
+            }
             pending = null;
             retries.value = 0;
             editor.textRevisionId.value = d.text_revision_id;
             editor.etag.value = typeof d.etag === 'string' && d.etag ? d.etag : '"' + d.text_revision_id + '"';
             stateVersion.value = Number.isInteger(d.state_version) ? d.state_version : stateVersion.value;
             if (Number.isInteger(d.audio_position_ms)) resumePosition.value = d.audio_position_ms;
-            if (editor.text.value === req.sent) {
+            const current = req.body.document ? document.doc.value : editor.text.value;
+            if (current === req.sent) {
                 editor.dirty.value = false;
                 if (lease) lease.setUnsaved(null);
                 set('saved');
             } else {
                 // Newer local text stays dirty and becomes the next, single request on the new base.
                 set('unsaved');
-                if (resave || (autosaveMs !== null && autosaveMs !== 0)) followUp();
+                if (!req.bootstrap && (resave || (autosaveMs !== null && autosaveMs !== 0))) followUp();
             }
             resave = false;
             return { ok: true, state: state.value };
@@ -385,23 +409,25 @@ export function useCorrectionSave(options) {
         }
         if (terminal) return { ok: false, state: state.value, message: message.value };
         stop();
-        const gen = generation();
-        if (!editor.canEdit.value || gen === null) {
-            return fail('lost', LABELS.readOnly);
-        }
-        const body = buildBody(gen);
-        const digest = JSON.stringify(body);
-        inflight = true;
-        set('saving');
         running = (async () => {
-            if (reconcileFirst && pending && pending.unclear && pending.digest !== digest) {
-                // The earlier answer was lost and the text moved on: learn that result before any new key is used.
-                return settle(await transmit(pending), pending);
+            for (;;) {
+                const gen = generation();
+                if (!editor.canEdit.value || gen === null) return fail('lost', LABELS.readOnly);
+                const canonical = document?.payload();
+                const body = buildBody(gen, canonical?.fields);
+                const digest = JSON.stringify(body);
+                inflight = true;
+                set('saving');
+                // Learn the result of an unclear request before giving a changed body a new key.
+                const replay = (reconcileFirst || canonical) && pending?.unclear;
+                if (!pending || (pending.digest !== digest && !replay)) {
+                    pending = { key: newKey(), digest, body, sent: canonical?.sent ?? body.text,
+                        bootstrap: canonical?.bootstrap, ifMatch: ifMatchFor(gen), unclear: false };
+                }
+                const req = pending;
+                const result = await settle(await transmit(req), req);
+                if (!req.bootstrap || !result.ok || result.state !== 'unsaved' || disposed) return result;
             }
-            if (!pending || pending.digest !== digest) {
-                pending = { key: newKey(), digest, body, sent: body.text, ifMatch: ifMatchFor(gen), unclear: false };
-            }
-            return settle(await transmit(pending), pending);
         })();
         return running;
     }
@@ -416,6 +442,9 @@ export function useCorrectionSave(options) {
         if (state.value !== 'conflict') return { ok: false, state: state.value, message: message.value };
         const server = (conflict.value && conflict.value.server) || await fetchServer();
         if (!server || !server.etag) return { ok: false, state: 'conflict', message: LABELS.serverUnavailable };
+        if (document?.available.value && !document.reset(server.correction, { keepDraft: true })) {
+            return { ok: false, state: 'conflict', message: LABELS.serverUnavailable };
+        }
         editor.textRevisionId.value = server.revisionId;
         editor.etag.value = server.etag;
         stateVersion.value = server.stateVersion;
@@ -435,6 +464,7 @@ export function useCorrectionSave(options) {
         editor.textRevisionId.value = server.revisionId;
         editor.etag.value = server.etag;
         editor.dirty.value = false;
+        if (document) document.reset(server.correction);
         stateVersion.value = server.stateVersion;
         resumePosition.value = server.positionMs;
         if (lease) lease.setUnsaved(null);
@@ -461,7 +491,13 @@ export function useCorrectionSave(options) {
         const res = await editor.load({ discard: true });
         if (res && res.ok) {
             if (lease) lease.setUnsaved(null);
-            await loadResume();
+            if (document) document.available.value = false;
+            const loaded = await loadResume();
+            if (document && !loaded.ok) {
+                terminal = 'conflict';
+                set('conflict', loaded.message);
+                return loaded;
+            }
             set('saved');
         } else {
             terminal = 'conflict';
@@ -481,7 +517,7 @@ export function useCorrectionSave(options) {
     return {
         state, message, resumePosition, stateVersion, retries, conflict,
         save, whenSettled, touch, loadResume, reloadLatest, refresh, setPosition, dispose,
-        keepMine, takeServer, compare,
+        keepMine, takeServer, compare, ...(document ? { document } : {}),
     };
 }
 
