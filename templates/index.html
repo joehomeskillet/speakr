@@ -151,6 +151,7 @@
         {% else %}
         {% include 'components/header.html' %}
         {% endif %}
+        {% include 'modals/global-error.html' %}
 
         <div class="flex-1 flex overflow-hidden relative">
             <!-- Sidebar (renders its own mobile backdrop as its first element) -->
@@ -333,7 +334,6 @@
         {% include 'modals/upload-disclaimer-modal.html' %}
         {% include 'modals/recording-recovery-modal.html' %}
         {% include 'modals/duplicates-modal.html' %}
-        {% include 'modals/global-error.html' %}
         {% include 'modals/toast-container.html' %}
 
         <!-- Bulk Operations Modals -->
