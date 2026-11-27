@@ -22,7 +22,7 @@
  */
 
 import { createVocabularyComponent } from './vocabulary-ui.js';
-import { createVoiceCommandsComponent } from './voice-commands-ui.js';
+import { createPronunciationHintsComponent } from './voice-commands-ui.js';
 import { createPanels } from './compose-resources.js';
 import { surfaceFor } from './tokens.js';
 
@@ -191,7 +191,7 @@ export const VocabularyView = {
         const build = {
             words: () => createVocabularyComponent(Vue, props.client, () => ctrl.state.userId),
             proposals: () => panels.review,
-            pronunciation: () => createVoiceCommandsComponent(Vue),
+            pronunciation: () => createPronunciationHintsComponent(Vue),
             engine: () => panels.asr,
         };
         const activeComponent = Vue.computed(() => {

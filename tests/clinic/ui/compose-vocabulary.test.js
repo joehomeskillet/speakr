@@ -165,7 +165,9 @@ describe('mounted view', () => {
         expect(first.template).toContain('voc-title');
         expect(view.activeProps.value).toEqual({});
         view.select('pronunciation');
-        expect(view.activeComponent.value.name).toBe('ClinicVoiceCommandsUi');
+        expect(view.activeComponent.value.name).toBe('ClinicPronunciationHintsUi');
+        expect(view.activeComponent.value.template).toContain('ph-phonetic');
+        expect(view.activeComponent.value.template).not.toContain('vc-steps');
         expect(view.activeProps.value).toEqual({ client, scope: { type: 'user', id: '7' } });
         view.select('proposals');
         expect(view.activeComponent.value.name).toBe('ClinicVocabularyReviewPanel');

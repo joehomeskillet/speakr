@@ -43,6 +43,14 @@ SPEAKER_PROFILES_SUPPORTED = False
 _MODES = ("live", "batch")
 
 
+def negative_lexicon_run_metadata() -> dict[str, Any]:
+    """Record Q-18 independently of any generic registry entry."""
+    return {
+        "negative_lexicon": {"status": CAPABILITY_UNAVAILABLE},
+        "negative_lexicon_audio_pair": None,
+    }
+
+
 class AsrJobProfileError(Exception):
     """The job profile could not be resolved or stored."""
 
@@ -102,6 +110,7 @@ class AsrJobProfile:
                 {"id": set_id, "revision": revision}
                 for set_id, revision in self.hotword_set_revisions
             ],
+            **negative_lexicon_run_metadata(),
             "prompt": None,
             "prompts_enabled": PROMPTS_ENABLED,
             "speaker_profiles_supported": SPEAKER_PROFILES_SUPPORTED,
