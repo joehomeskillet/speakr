@@ -30,6 +30,97 @@ function fakeClient(overrides) {
 }
 const calls = (client, path) => client.request.mock.calls.filter((c) => c[0] === path);
 
+async function mountSourceRouting(canConfigureBackup, overrides = {}) {
+    let source = {
+        id: 'source-1', source_kind: 'device', source_ref: 'dev-a', policy_version: 3,
+        target_author_user_id: 5, target_pool_id: null,
+        backup_enabled: false, backup_folder: null, backup_filename_template: '', backup_retention_days: null,
+        ...overrides,
+    };
+    const path = `/imports/sources/${source.id}`;
+    const client = fakeClient({
+        '/imports/sources': () => ok({ items: [source], authors: [{ id: 5 }], pools: [{ id: 'p1', author_id: 5 }] }),
+        [path]: ({ body }) => {
+            const { expected_version, ...changes } = body;
+            source = { ...source, ...changes, policy_version: expected_version + 1 };
+            return ok(source);
+        },
+    });
+    let mounted;
+    const vue = { ref: (value) => ({ value }), onMounted: (fn) => { mounted = fn; } };
+    vi.stubGlobal('window', { Vue: vue });
+    let routing;
+    try {
+        routing = ImportView.components.ImportSourceRouting.setup({ client, canConfigureBackup });
+    } finally {
+        vi.unstubAllGlobals();
+    }
+    await mounted();
+    return { routing, client, path };
+}
+
+const CONFIGURED_BACKUP = {
+    backup_enabled: true,
+    backup_folder: '/approved/backup',
+    backup_filename_template: '%A_%T',
+    backup_retention_days: 14,
+};
+
+function expectSourceSave(client, path, body) {
+    expect(calls(client, path)).toEqual([[path, {
+        method: 'PUT', body, idempotencyKey: expect.any(String),
+    }]]);
+    expect(calls(client, '/imports/sources')).toHaveLength(2);
+}
+
+describe('import source backup settings', () => {
+    it.each([null, CONFIGURED_BACKUP.backup_folder])('enables backup with folder %s and reloads the saved settings', async (folder) => {
+        const { backup_folder, ...settings } = CONFIGURED_BACKUP;
+        const { routing, client, path } = await mountSourceRouting(true, { backup_folder: folder });
+        routing.edit(routing.sources.value[0]);
+        routing.backupEnabled.value = true;
+        if (!folder) routing.backupFolder.value = backup_folder;
+        routing.backupTemplate.value = settings.backup_filename_template;
+        routing.backupDays.value = '14';
+        await routing.save();
+        expectSourceSave(client, path, { expected_version: 3, ...settings, ...(!folder && { backup_folder }) });
+
+        routing.edit(routing.sources.value[0]);
+        expect(routing.backupEnabled.value).toBe(true);
+        expect(routing.backupFolder.value).toBe(backup_folder);
+        expect(routing.backupTemplate.value).toBe('%A_%T');
+        expect(String(routing.backupDays.value)).toBe('14');
+    });
+
+    it('clears retention with null and leaves the existing folder and template unchanged', async () => {
+        const { routing, client, path } = await mountSourceRouting(true, CONFIGURED_BACKUP);
+        routing.edit(routing.sources.value[0]);
+        routing.backupDays.value = '';
+        await routing.save();
+        expectSourceSave(client, path, { expected_version: 3, backup_retention_days: null });
+    });
+
+    it('disables backup without discarding its existing settings', async () => {
+        const { routing, client, path } = await mountSourceRouting(true, CONFIGURED_BACKUP);
+        routing.edit(routing.sources.value[0]);
+        routing.backupEnabled.value = false;
+        await routing.save();
+        expectSourceSave(client, path, { expected_version: 3, backup_enabled: false });
+        expect(routing.sources.value[0]).toMatchObject({ ...CONFIGURED_BACKUP, backup_enabled: false });
+    });
+
+    it('saves non-admin routing changes without writing backup settings', async () => {
+        const { routing, client, path } = await mountSourceRouting(false, CONFIGURED_BACKUP);
+        routing.edit(routing.sources.value[0]);
+        routing.pool.value = 'p1';
+        routing.backupEnabled.value = false;
+        routing.backupTemplate.value = 'ignored';
+        routing.backupDays.value = '';
+        await routing.save();
+        expectSourceSave(client, path, { expected_version: 3, target_author_user_id: 5, target_pool_id: 'p1' });
+    });
+});
+
 describe('import view composition', () => {
     it('exports the registration contract', () => {
         const app = { component: vi.fn() };

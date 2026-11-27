@@ -121,8 +121,11 @@ export function statusView(status) {
 
 /** W13: only active admins and pool leads see the clarification list. */
 export function mayClarify(user) {
-    const u = user || {};
-    return u.role === 'admin' || u.isAdmin === true || u.is_admin === true || u.isPoolLead === true;
+    return isImportAdmin(user) || user?.isPoolLead === true;
+}
+
+function isImportAdmin(user) {
+    return user?.role === 'admin' || user?.isAdmin === true || user?.is_admin === true;
 }
 
 const idOf = (user) => (user && user.id != null && String(user.id) !== '' ? String(user.id) : null);
@@ -355,7 +358,7 @@ export const IMPORT_TEMPLATE = `
       </div>
     </section>
 
-    <import-source-routing :client="client"></import-source-routing>
+    <import-source-routing :client="client" :can-configure-backup="canConfigureBackup"></import-source-routing>
     <details class="panel">
       <summary>Geräteautor am Philips LFH9600 oder LFH9620</summary>
       <p>Für ein neues Diktat wählen Sie am Recorder unter „KEYWORD“ das Feld „Author“.
@@ -418,7 +421,8 @@ export const ImportView = {
         const c = createImportController({ client: props.client, currentUser: props.currentUser, makeState: V.reactive });
         if (typeof V.onMounted === 'function') V.onMounted(() => c.load());
         if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => c.dispose());
-        return { c };
+        const canConfigureBackup = V.computed(() => isImportAdmin(props.currentUser));
+        return { c, canConfigureBackup };
     },
     template: IMPORT_TEMPLATE,
 };
