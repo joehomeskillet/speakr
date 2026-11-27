@@ -4,6 +4,7 @@ import {
     RECORDING_TEMPLATE, RecordingView, TEXT, createRecordingViewController, isAudioFile, receiptDictationId,
     registerRecordingView,
 } from '../../../static/js/clinic/compose-recording.js';
+import { acquireMicrophoneStream } from '../../../static/js/modules/composables/audio.js';
 
 function recorder(upload) {
     return {
@@ -59,7 +60,8 @@ describe('recording view controller', () => {
         expect(m.authorId).toBe('4');
         expect(Object.keys(c)).not.toContain('setAuthor');
         expect(Object.keys(c)).not.toContain('setPool');
-        expect(RECORDING_TEMPLATE).not.toMatch(/<select|author-picker|pool/i);
+        expect(RECORDING_TEMPLATE).not.toMatch(/<select\b(?! id="crv-microphone")|author-picker|pool/i);
+        expect(RECORDING_TEMPLATE.match(/<select\b/g)).toHaveLength(1);
         expect(RECORDING_TEMPLATE).not.toContain('c.text.author');
         expect(TEXT.author).toBe('Diktiert von');
     });
@@ -198,6 +200,31 @@ describe('recording view controller', () => {
         expect(c.model().phase).toBe('ready');
         expect(c.model().message).toBe(TEXT.startFailed);
         expect(c.model().message).toContain('Datei hochladen');
+    });
+
+    it.each(['NotFoundError', 'OverconstrainedError'])('names an unplugged microphone (%s) without starting or saving', async (name) => {
+        const microphone = { deviceId: 'desk', inputs: [
+            { deviceId: 'desk', label: 'Diktiermikrofon' },
+            { deviceId: 'laptop', label: 'Notebook' },
+        ] };
+        const rec = recorder();
+        const error = new DOMException('Device unavailable', name);
+        const getUserMedia = vi.fn().mockRejectedValue(error);
+        rec.startRecording.mockImplementation(() => acquireMicrophoneStream({ getUserMedia }, {
+            deviceId: microphone.deviceId, requireDevice: true,
+        }));
+        const { c } = make({ recorder: rec, options: { microphone } });
+        c.setTitle('Bericht');
+        expect(c.model().microphoneOptions).toEqual(microphone.inputs);
+        microphone.inputs = [{ deviceId: 'laptop', label: 'Notebook' }];
+        expect(await c.start()).toEqual({ ok: false, code: 'microphone_unavailable' });
+        expect(getUserMedia).toHaveBeenCalledOnce();
+        expect(getUserMedia).toHaveBeenCalledWith({ audio: expect.objectContaining({ deviceId: { exact: 'desk' } }) });
+        expect(c.model()).toMatchObject({ phase: 'ready', created: null });
+        expect(c.model().message).toContain('„Diktiermikrofon“ ist nicht verfügbar');
+        expect(c.model().message).not.toContain('Gespeichert');
+        expect((await c.sendRecording()).ok).toBe(false);
+        expect(rec.uploadRecordedAudio).not.toHaveBeenCalled();
     });
 
     it('offers Zur Arbeitsliste and Öffnen only after success', async () => {
@@ -424,11 +451,12 @@ describe('view registration and setup', () => {
         const app = { component: vi.fn() };
         registerRecordingView(app);
         expect(app.component).toHaveBeenCalledWith('clinic-recording-view', RecordingView);
-        expect(Object.keys(RecordingView.props)).toEqual(['client', 'currentUser', 'recorder', 'uploadFile', 'player', 'authorized', 'vue']);
+        expect(Object.keys(RecordingView.props)).toEqual(['client', 'currentUser', 'recorder', 'uploadFile', 'player', 'authorized', 'vue', 'microphone']);
         expect(RecordingView.emits).toEqual(['open', 'worklist']);
     });
 
     it('has german labels, status live region and touch targets', () => {
+        expect(RECORDING_TEMPLATE).toContain('<label for="crv-microphone">Mikrofon</label>');
         expect(RECORDING_TEMPLATE).toContain('role="status"');
         expect(RECORDING_TEMPLATE).toContain('aria-live="polite"');
         expect(RECORDING_TEMPLATE).toContain('min-height: 2.75rem');
