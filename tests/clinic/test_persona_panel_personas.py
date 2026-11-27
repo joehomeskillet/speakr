@@ -5,7 +5,7 @@ from pathlib import Path
 def test_persona_panel_personas_have_required_fields():
     personas = Path(__file__).resolve().parents[2] / "scripts/persona_panel/personas"
     paths = sorted(personas.glob("*.agent.json"))
-    assert len(paths) == 9
+    assert len(paths) == 12
 
     required = {
         "name": str, "age": int, "gender": str, "nationality": str,
