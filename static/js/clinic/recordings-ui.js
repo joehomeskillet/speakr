@@ -250,7 +250,12 @@ export function toViewRow(item, userId) {
     const pools = (Array.isArray(item.staff_pools) ? item.staff_pools : []).map((p) => p && p.name).filter(Boolean);
     const badge = statusBadge(item.workflow_status);
     const next = nextStep(item, pools, userId);
-    const processingActive = ['QUEUED', 'PENDING', 'PROCESSING', 'RUNNING'].includes(String(item.processing_status || '').toUpperCase());
+    const processingState = String(item.processing_status || '').toUpperCase();
+    const processingActive = ['QUEUED', 'PENDING', 'PROCESSING', 'RUNNING'].includes(processingState);
+    let processing = '';
+    if (item.text_created === true) processing = 'Text erstellt';
+    else if (processingActive) processing = 'Text wird erstellt';
+    else if (processingState === 'FAILED') processing = 'Text konnte nicht erstellt werden';
     const seconds = Number.isFinite(item.duration_ms) ? Math.round(item.duration_ms / 1000) : null;
     const time = formatTime(item.sort_time || item.recorded_at);
     const heading = item.case_display ? TEXT.caseId + ' ' + item.case_display : item.capture_label || TEXT.dictation;
@@ -279,7 +284,7 @@ export function toViewRow(item, userId) {
         statusStyle: badge.style,
         nextStep: next.label,
         needsAction: next.needsAction,
-        processing: item.text_created === true ? 'Text erstellt' : (processingActive ? 'Text wird erstellt' : ''),
+        processing,
         processingActive,
         duration: seconds === null ? TEXT.none : formatAudioDuration(seconds),
         caseDisplay: item.case_display || '',

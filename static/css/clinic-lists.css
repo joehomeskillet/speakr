@@ -58,7 +58,12 @@
     background: var(--v8-s2);
     border: 1px solid currentColor;
 }
-.v8-ui .clinic-recordings-view :is(.record-search, .record-select:not(:disabled)) { border-color: var(--v8-text-2) !important; }
+.v8-ui .clinic-recordings-view :is(.record-search, .record-select) { border-color: var(--v8-text-2) !important; }
+.v8-ui .clinic-recordings-view .record-select:disabled {
+    opacity: 1;
+    background-color: var(--v8-s2);
+    color: var(--v8-text-2);
+}
 .v8-ui .clinic-recordings-view :is(.record-search:focus-within, .record-select:focus-visible) { outline: 2px solid var(--v8-text); }
 .v8-ui .clinic-recordings-view .recording-row:focus-visible { outline-color: var(--v8-text); }
 .v8-ui .clinic-recordings-view :is(.record-search, .record-select:not(:disabled), .page-actions button, .cl-id-disclosure > summary) {

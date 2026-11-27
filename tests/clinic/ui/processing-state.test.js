@@ -5,13 +5,19 @@ import { createJobsViewController } from '../../../static/js/clinic/compose-jobs
 
 describe('processing state reaches list and scoped jobs consumers', () => {
     it.each([
-        ['QUEUED', 'PENDING', 'Transkription wartet'],
-        ['PROCESSING', 'RUNNING', 'Transkription läuft'],
-        ['FAILED', 'FAILED', 'Transkription fehlgeschlagen'],
-        ['COMPLETED', 'SUCCEEDED', 'Transkription abgeschlossen'],
-    ])('%s has a German label in both lists', (processing, asr, label) => {
-        expect(toViewRow({ dictation_id: 'd', workflow_status: 'neu_angelegt', processing_status: processing }).processing).toBe(label);
-        expect(statusBadge({ status: 'neu_angelegt', asr_state: asr }).label).toContain(label);
+        ['QUEUED', 'PENDING', 'Text wird erstellt', 'Transkription wartet'],
+        ['PROCESSING', 'RUNNING', 'Text wird erstellt', 'Transkription läuft'],
+        ['FAILED', 'FAILED', 'Text konnte nicht erstellt werden', 'Transkription fehlgeschlagen'],
+        ['COMPLETED', 'SUCCEEDED', 'Text erstellt', 'Transkription abgeschlossen'],
+    ])('%s has the expected German label in each list', (processing, asr, recordingsLabel, worklistLabel) => {
+        const item = { dictation_id: 'd', workflow_status: 'neu_angelegt', processing_status: processing };
+        if (asr === 'SUCCEEDED') item.text_created = true;
+        expect(toViewRow(item).processing).toBe(recordingsLabel);
+        expect(statusBadge({ status: 'neu_angelegt', asr_state: asr }).label).toContain(worklistLabel);
+    });
+
+    it('only shows text as created if the recordings API confirms it', () => {
+        expect(toViewRow({ dictation_id: 'd', processing_status: 'COMPLETED' }).processing).toBe('');
     });
 
     it('scopes all job states and never offers retry on a nonfailed job', async () => {
