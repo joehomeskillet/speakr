@@ -21,8 +21,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from src.clinic.draft_registry import Draft, DraftError, DraftRegistry
+from sqlalchemy import func
+
 from src.clinic import live_session as live
+from src.clinic.draft_registry import Draft, DraftError, DraftRegistry, _require_draft_id, _require_owner
+from src.clinic.draft_store import DraftStore
+from src.clinic.lease import _lock_dictation
+from src.clinic.live_phrases import ClinicLivePhrase
+from src.database import db
 
 IDLE = "idle"
 ARCHIVED = "archived"
@@ -30,6 +36,68 @@ ARCHIVED = "archived"
 
 class LiveDraftError(DraftError):
     """A live-draft rule failed. ``code`` stays stable for the caller."""
+
+
+@dataclass(frozen=True)
+class HolderFence:
+    session_id: str
+    tab_id: str
+    generation: int
+
+
+def select_draft(
+    owner_id: int, draft_id: str, tab_id: str, now: datetime,
+    *, acknowledged: HolderFence | None = None,
+) -> tuple[Draft, live.ClinicLiveSession]:
+    """Select and claim a durable draft, without starting its microphone.
+
+    A live holder must release or provide its exact fence as acknowledgement.
+    The caller commits or rolls back the selection and both session changes together.
+    """
+    now = _moment(now)
+    owner_id, draft_id = _require_owner(owner_id), _require_draft_id(draft_id)
+    if not isinstance(tab_id, str) or not 0 < len(tab_id) <= 128 or tab_id.strip() != tab_id:
+        raise LiveDraftError("invalid_tab_id")
+    live.lock_author(owner_id)
+    candidates = live.author_holders(owner_id)
+    for key in sorted({draft_id, *(row.dictation_id for row in candidates)}):
+        _lock_dictation(key)
+    draft = DraftStore().get(owner_id, draft_id)
+    if draft.discarded_at is not None:
+        raise LiveDraftError("discarded")
+    target = live._open(draft_id)
+    if target is not None and target.author_user_id != owner_id:
+        if live._expiry(target) > now:
+            raise live.LiveSessionError(live.ACTIVE_SESSION, target)
+        target = None
+
+    holders = [row for row in candidates if live._expiry(row) > now]
+    if acknowledged is not None:
+        if len(holders) != 1 or holders[0].id != acknowledged.session_id:
+            raise live.LiveSessionError(live.NOT_HOLDER)
+        live.check_fence(holders[0], acknowledged.tab_id, acknowledged.generation)
+        if holders[0].holder_generation is None:
+            raise live.LiveSessionError(live.NOT_HOLDER)
+    elif holders:
+        raise live.LiveSessionError(live.ACTIVE_SESSION, holders[0])
+
+    for row in candidates:
+        if row.dictation_id != draft_id:
+            db.session.refresh(row)
+            if row.state != live.ENDED:
+                live.revoke_holder(row)
+    db.session.flush()
+    if target is None:
+        target = live.start(draft_id, owner_id, now)
+
+    maximum = db.session.query(func.max(live.ClinicLiveSession.holder_generation)).filter_by(
+        author_user_id=owner_id).scalar()
+    last_phrase = db.session.query(func.max(ClinicLivePhrase.generation)).filter_by(
+        session_id=target.id).scalar()
+    target.client_id = tab_id
+    target.holder_generation = max(maximum or 0, last_phrase or 0) + 1
+    target.state = live.PAUSED
+    return draft, live._touch(target, now, None)
 
 
 @dataclass(frozen=True)
@@ -67,6 +135,7 @@ class LiveDrafts:
         self._sessions: dict[str, str] = {}
         self._live: dict[int, str] = {}
         self._tokens: dict[str, int] = {}
+        self._tabs: dict[str, str] = {}
         self._generation: dict[int, int] = {}
         self._audio: dict[str, str] = {}
         self._audit: list[DraftAudit] = []
@@ -107,6 +176,7 @@ class LiveDrafts:
         cleared, so an in-flight phrase cannot append here.
         """
         self._require_open(owner_id, draft_id)
+        self._require_holder_tab(owner_id, tab_id)
         self.registry.set_active(owner_id, tab_id, draft_id)
         if self._live.get(owner_id) != draft_id:
             self._pause_holder(owner_id, now)
@@ -121,24 +191,30 @@ class LiveDrafts:
         and keeps the phrase token. It does not open a second session.
         """
         draft = self._require_open(owner_id, draft_id)
+        self._require_holder_tab(owner_id, tab_id)
         self.registry.set_active(owner_id, tab_id, draft_id)
         if self._live.get(owner_id) == draft_id and draft_id in self._tokens:
             live.heartbeat(self._sessions[draft_id], owner_id, now)
             self._audit_add(draft_id, "resumed", now)
             return self._view(draft)
-        # Start the target first. A failure leaves the previous holder recording.
+        live.lock_author(owner_id)
+        previous = self._live.get(owner_id)
         session_id = self._sessions.get(draft_id)
-        if session_id is None:
-            session = live.start(draft_id, owner_id, now)
-            self._sessions[draft_id] = session.id
-        else:
-            live.continue_recording(session_id, owner_id, now)
-        if self._live.get(owner_id) not in (None, draft_id):
-            self._pause_holder(owner_id, now)
+        with db.session.begin_nested():
+            if previous is not None and previous != draft_id:
+                live.pause(self._sessions[previous], owner_id, now)
+            if session_id is None:
+                session_id = live.start(draft_id, owner_id, now).id
+            else:
+                live.continue_recording(session_id, owner_id, now)
+        self._sessions[draft_id] = session_id
+        if previous is not None and previous != draft_id:
+            self._mark_paused(owner_id, previous, now)
         self._state[draft_id] = live.RECORDING
         self._live[owner_id] = draft_id
         self._generation[owner_id] = self._generation.get(owner_id, 0) + 1
         self._tokens[draft_id] = self._generation[owner_id]
+        self._tabs[draft_id] = tab_id
         self._audit_add(draft_id, "resumed", now)
         return self._view(self._open(owner_id, draft_id))
 
@@ -160,11 +236,13 @@ class LiveDrafts:
         if self._live.get(owner_id) != draft_id or self._state.get(draft_id) != live.RECORDING:
             self._audit_add(draft_id, "phrase_rejected", now)
             raise LiveDraftError("wrong_draft", "phrase is not for the live draft")
-        if holder_token != self._tokens.get(draft_id):
+        if holder_token != self._tokens.get(draft_id) or tab_id != self._tabs.get(draft_id):
             self._audit_add(draft_id, "phrase_rejected", now)
             raise LiveDraftError("stale_holder", "holder token does not match the live draft")
         if not isinstance(phrase, str) or phrase.strip() == "":
             raise LiveDraftError("invalid_phrase", "phrase must be a non-empty string")
+        if live._holder_session(self._sessions[draft_id], owner_id, now, None, None).state != live.RECORDING:
+            raise LiveDraftError("wrong_draft", "phrase is not for the live draft")
         saved = self.registry.save(
             owner_id, draft_id, draft.text + phrase, base_version, tab_id, now
         )
@@ -274,14 +352,23 @@ class LiveDrafts:
                 return draft
         return None
 
+    def _require_holder_tab(self, owner_id: int, tab_id: str) -> None:
+        current = self._live.get(owner_id)
+        if current is not None and self._tabs.get(current) != tab_id:
+            raise LiveDraftError("stale_holder", "the current tab must release the draft")
+
     def _pause_holder(self, owner_id: int, now: datetime) -> None:
         current = self._live.get(owner_id)
         if current is None:
             return
         live.pause(self._sessions[current], owner_id, now)
+        self._mark_paused(owner_id, current, now)
+
+    def _mark_paused(self, owner_id: int, current: str, now: datetime) -> None:
         self._state[current] = live.PAUSED
         self._tokens.pop(current, None)
-        self._live[owner_id] = None
+        self._tabs.pop(current, None)
+        self._live.pop(owner_id, None)
         self._audit_add(current, "paused", now)
 
     def _release(self, owner_id: int, draft_id: str, now: datetime) -> None:
@@ -291,8 +378,9 @@ class LiveDrafts:
         live.end(session_id, owner_id, now)
         self._state[draft_id] = live.ENDED
         self._tokens.pop(draft_id, None)
+        self._tabs.pop(draft_id, None)
         if self._live.get(owner_id) == draft_id:
-            self._live[owner_id] = None
+            self._live.pop(owner_id, None)
 
     def _audit_add(self, draft_id: str, action: str, now: datetime) -> None:
         self._audit.append(DraftAudit(draft_id, action, _moment(now)))
