@@ -105,7 +105,7 @@ def _targets(http, c):
     return {item['id']: item for item in payload['targets']}
 
 
-def test_docx_failure_stays_visible_while_txt_stays_ready(web, monkeypatch):
+def test_docx_failure_stays_visible_while_txt_stays_ready(web, legacy_kis_delivery, monkeypatch):
     client, c = web
     _release(c)
     calls = {'txt': 0, 'docx': 0}

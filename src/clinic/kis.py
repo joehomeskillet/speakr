@@ -26,6 +26,7 @@ from sqlalchemy.exc import IntegrityError
 
 from src.database import db
 
+from .config import kis_delivery_enabled
 from .models import ClinicContextRevision, ClinicDelivery, ClinicRelease
 
 PRODUCTION_PROFILE = "production"
@@ -338,6 +339,8 @@ def _send(row, adapter, payload, now) -> DeliveryResult:
 def deliver(release, context_revision, adapter, idempotency_key, now) -> DeliveryResult:
     """Send one frozen payload at most once per (idempotency_key, adapter target)."""
     _require_aware(now)
+    if not kis_delivery_enabled():
+        return _refuse("KIS delivery is disabled")
     refusal = _check_gate(release, context_revision, adapter)
     if refusal is not None:
         return refusal
@@ -388,6 +391,8 @@ def deliver(release, context_revision, adapter, idempotency_key, now) -> Deliver
 def reconcile(delivery: ClinicDelivery, adapter, now) -> ReconcileResult:
     """Establish the real state of a PENDING or UNKNOWN delivery via adapter.lookup."""
     _require_aware(now)
+    if not kis_delivery_enabled():
+        return ReconcileResult(REFUSED, "KIS delivery is disabled")
     if not getattr(adapter, "enabled", False):
         return ReconcileResult("REFUSED", "KIS adapter disabled")
     if delivery.target != adapter.name:

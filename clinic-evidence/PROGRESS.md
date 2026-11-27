@@ -1,5 +1,11 @@
 # Speakr V8: geprüfte Änderungen im Klinik-Webclient
 
+## Q-05 vom 27. November 2026 – KIS nur lesend (X-KIS-1)
+
+Die Freigabe schliesst das Diktat in Speakr ab. Dateiausgabe und Zwischenablage bleiben verfügbar. Der Klinikbetrieb bietet keinen KIS-Versand an. Bestehende Zustellbelege und Audit-Ereignisse bleiben erhalten. Der synthetische MockKIS-Kompatibilitätspfad erfordert eine explizite Aktivierung im Staging-Profil.
+
+Auftraggeberabweichung, Status `not_run`: finale KIS-Signatur und KIS-Weiterverarbeitung aus PAR-WF-011 / BT-WF-011 und R-019 / T-019, KIS-Zustellung und Zustellquittung aus PAR-EXP-001 / BT-EXP-001 und R-028–029 / T-028–029 sowie KIS-Neuausstellung und KIS-Nachtrag aus PAR-WF-012 / BT-WF-012 und R-030 / T-030. P-078 und weitere KIS-Zustellpakete entfallen gemäss Q-05. Die zulässigen Teile dieser Anforderungen behalten ihren Abnahmeumfang.
+
 ## KI-Zusammenfassung im Diktat
 
 Auf Staging `f6b7b0a2` fehlte der Zugang zur gespeicherten Zusammenfassung sowohl im Schreibplatz als auch in den Diktatdetails. Ein regulär angemeldetes QA-Konto bestätigte das für ein synthetisches Diktat bei 390 und 1440 Pixeln. Der ursprüngliche Summary-Worker konnte in einer getrennten Testdatenbank über das lokale Modell eine Zusammenfassung erzeugen, speichern und erneut lesen. Beide vorgegebenen Fakten und der unveränderte Ausgangstext wurden geprüft.

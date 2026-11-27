@@ -21,7 +21,7 @@ from contextlib import contextmanager
 logger = logging.getLogger(__name__)
 
 from src.clinic.asr_capabilities import CAPABILITY_UNAVAILABLE
-from src.clinic.config import clinic_mode_enabled
+from src.clinic.config import clinic_mode_enabled, kis_delivery_enabled
 from src.services.error_classification import is_permanent_error, SummaryStepFailed
 from src.utils.error_text import describe_error, log_failure, user_error_text
 
@@ -1092,6 +1092,8 @@ class FairJobQueue:
         if output:
             if params.get(CLINIC_DELIVERY_STARTED):
                 raise ClinicDeliveryUnknown(f"[{correlation_id}] delivery state is UNKNOWN; reconcile, do not resend")
+            if not kis_delivery_enabled():
+                raise ClinicJobRefused(f"[{correlation_id}] KIS delivery is disabled; nothing was sent")
             job.params = json.dumps({**params, CLINIC_DELIVERY_STARTED: True})
             db.session.commit()
         try:

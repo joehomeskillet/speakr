@@ -10,9 +10,8 @@ policy itself:
   the release and revision ids and the content hash. The durable receipt lets any worker
   return the same job for a replay by the same actor. A failed render is stored on
   that same per-format receipt, so a reload still shows the failed target.
-* KIS delivery goes through `kis.deliver`, whose delivery ledger is the
-  idempotency record. A disabled adapter answers 503 `KIS_UNAVAILABLE`; no
-  success is ever reported without an adapter answer.
+* Existing KIS ledger entries remain readable. New KIS delivery is disabled
+  unless synthetic staging explicitly enables it and uses its mock adapter.
 * The actor is always `current_user`. The injected per-object policy allows
   viewers to list disabled targets. Exportable revisions and jobs require
   `export` permission.
@@ -31,7 +30,7 @@ from wtforms.validators import ValidationError
 from src.clinic import export as export_service
 from src.clinic import kis, parity_receipts, release
 from src.clinic.parity_dispatch import CommandProblem
-from src.clinic.config import clinic_mode_enabled
+from src.clinic.config import clinic_mode_enabled, kis_delivery_enabled
 from src.clinic.models import (
     ClinicAudioRevision, ClinicContextRevision, ClinicDelivery, ClinicDictation, ClinicRelease,
     ClinicTranscriptRevision,
@@ -195,9 +194,11 @@ def create_blueprint(
                 item['status'] = known[fmt].get('status')
                 item['job_id'] = known[fmt].get('id')
             listed.append(item)
-        kis_reason = gate or (None if adapter_for().enabled else 'kis_unavailable')
-        listed.append({'id': KIS_FORMAT, 'channel': 'kis', 'available': kis_reason is None,
-                       'reason': kis_reason})
+        if kis_delivery_enabled():
+            adapter = adapter_for()
+            kis_reason = gate or (None if adapter.enabled and adapter.is_mock else 'kis_unavailable')
+            listed.append({'id': KIS_FORMAT, 'channel': 'kis', 'available': kis_reason is None,
+                           'reason': kis_reason})
         listed.append({'id': 'clipboard', 'channel': 'clipboard', 'available': can_export,
                        'reason': None if can_export else gate})
         return jsonify(dictation_id=dictation.id,
@@ -267,8 +268,10 @@ def create_blueprint(
     def _kis_export(dictation: ClinicDictation, active: ClinicRelease) -> Response:
         # The ledger key binds to the release, not the HTTP request: at most one send per
         # release and target; a retry after UNKNOWN goes through kis.reconcile only.
+        if not kis_delivery_enabled():
+            return _problem(503, export_status='unavailable', detail='KIS-Ausgabe ist deaktiviert')
         adapter = adapter_for()
-        if not adapter.enabled:
+        if not adapter.enabled or not adapter.is_mock:
             return _problem(503, export_status='unavailable', detail='Keine KIS-Anbindung konfiguriert')
         context = db.session.get(ClinicContextRevision, active.context_revision_id)
         result = kis.deliver(active, context, adapter, f'export:{active.id}',

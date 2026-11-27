@@ -26,8 +26,7 @@ NOW = datetime(2026, 1, 5, 10, 0, tzinfo=timezone.utc)
 
 
 @pytest.fixture
-def kis_db(monkeypatch):
-    monkeypatch.delenv("CLINIC_PROFILE", raising=False)
+def kis_db(legacy_kis_delivery):
     with app.app_context():
         db.session.rollback()
         yield

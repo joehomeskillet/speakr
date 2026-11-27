@@ -145,7 +145,7 @@ def test_notify_does_not_reach_an_inactive_admin_without_a_grant(env):
     assert db.session.query(Notification).count() == 0
 
 
-def test_output_without_target_is_a_permanent_refusal_and_sends_nothing(env, monkeypatch):
+def test_output_without_target_is_a_permanent_refusal_and_sends_nothing(env, legacy_kis_delivery, monkeypatch):
     sent = []
     monkeypatch.setattr(kis, "deliver", lambda *a, **k: sent.append(a))
     job = _run(env, "clinic_output", clinic_release_id=env.release)
@@ -154,7 +154,8 @@ def test_output_without_target_is_a_permanent_refusal_and_sends_nothing(env, mon
     assert job.retry_count == 1  # the one failed run; the job stays failed, no retry loop
 
 
-def test_output_with_disabled_adapter_is_refused_and_sends_nothing(env, monkeypatch):
+def test_output_with_disabled_adapter_is_refused_and_sends_nothing(env, legacy_kis_delivery, monkeypatch):
+    env.app.extensions['clinic_kis_adapter'] = kis.DisabledAdapter()
     sent = []
     monkeypatch.setattr(kis, "deliver", lambda *a, **k: sent.append(a))
     job = _run(env, "clinic_output", clinic_release_id=env.release, target="kis")
@@ -162,8 +163,7 @@ def test_output_with_disabled_adapter_is_refused_and_sends_nothing(env, monkeypa
     assert "KIS adapter not configured" in job.error_message
 
 
-def test_output_with_mock_adapter_but_untrusted_context_is_refused(env, monkeypatch):
-    monkeypatch.setenv("CLINIC_PROFILE", "staging")
+def test_output_with_mock_adapter_but_untrusted_context_is_refused(env, legacy_kis_delivery, monkeypatch):
     sent = []
     monkeypatch.setattr(kis, "deliver", lambda *a, **k: sent.append(a))
     job = _run(env, "clinic_output", clinic_release_id=env.release, target="kis")
@@ -171,8 +171,7 @@ def test_output_with_mock_adapter_but_untrusted_context_is_refused(env, monkeypa
     assert "context is not trusted" in job.error_message
 
 
-def test_output_delivers_once_through_the_adapter_when_trusted(env, monkeypatch):
-    monkeypatch.setenv("CLINIC_PROFILE", "staging")
+def test_output_delivers_once_through_the_adapter_when_trusted(env, legacy_kis_delivery, monkeypatch):
     monkeypatch.setattr("src.clinic.finalize_gates.trusted_context", lambda *_: True)
     adapter = env.app.extensions["clinic_kis_adapter"] = kis.MockKisAdapter()
     calls = []

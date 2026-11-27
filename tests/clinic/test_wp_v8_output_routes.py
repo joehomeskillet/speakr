@@ -151,7 +151,7 @@ def test_superseded_revision_is_not_exportable(web):
     assert res.status_code == 409 and res.json["code"] == "NOT_RELEASED"
 
 
-def test_targets_follow_release_and_adapter(web):
+def test_targets_follow_release_and_adapter(web, legacy_kis_delivery):
     client, c = web
     cl, _ = client(c["actor"])
     before = cl.get(_base(c) + "/output-targets").json
@@ -168,7 +168,7 @@ def test_targets_follow_release_and_adapter(web):
     assert {t["id"]: t for t in cl.get(_base(c) + "/output-targets").json["targets"]}["kis"]["available"]
 
 
-def test_disabled_kis_reports_unavailable_never_success(web):
+def test_disabled_kis_reports_unavailable_never_success(web, legacy_kis_delivery):
     client, c = web
     _release(c)
     cl, csrf = client(c["actor"])
@@ -178,7 +178,7 @@ def test_disabled_kis_reports_unavailable_never_success(web):
     assert db.session.query(ClinicDelivery).count() == 0
 
 
-def test_mock_kis_delivers_once_per_key_and_status_reads_the_ledger(web):
+def test_mock_kis_delivers_once_per_key_and_status_reads_the_ledger(web, legacy_kis_delivery):
     client, c = web
     release = _release(c)
     c["adapter"] = adapter = MockKisAdapter()
@@ -235,7 +235,7 @@ def test_routes_are_registered_in_clinic_mode(tmp_path):
         assert suffix in line
 
 
-def test_new_key_after_unknown_does_not_send_again(web):
+def test_new_key_after_unknown_does_not_send_again(web, legacy_kis_delivery):
     client, c = web
     _release(c)
     c["adapter"] = adapter = MockKisAdapter(script=["timeout"])
@@ -249,7 +249,7 @@ def test_new_key_after_unknown_does_not_send_again(web):
     assert db.session.query(ClinicDelivery).count() == 1
 
 
-def test_new_key_after_delivered_does_not_send_again(web):
+def test_new_key_after_delivered_does_not_send_again(web, legacy_kis_delivery):
     client, c = web
     _release(c)
     c["adapter"] = adapter = MockKisAdapter()
