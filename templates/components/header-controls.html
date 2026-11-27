@@ -61,7 +61,7 @@
     </button>
 
     <!-- New Recording Button -->
-    <a href="/#/neu" data-testid="nav-clinic-new" data-clinic-tooltip aria-label="Neue Aufnahme" class="top-action"><svg class="ui-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 4v16M4 12h16"/></svg><span>Neue Aufnahme</span></a>
+    <a {% if request.endpoint in ('recordings.index', 'clinic_case.view') %}v-show="currentView !== 'clinic-recording'" {% endif %}href="/#/neu" data-testid="nav-clinic-new" data-clinic-tooltip aria-label="Neue Aufnahme" class="top-action"><svg class="ui-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 4v16M4 12h16"/></svg><span>Neue Aufnahme</span></a>
     {#- Connection indicator (icon only): opens Verbindungsstatus / Entwürfe. -#}
     <a href="/#/offline" data-testid="nav-clinic-offline" data-clinic-connection data-clinic-tooltip data-online="true"
        aria-label="Verbindungsstatus / Entwürfe" class="top-icon">
