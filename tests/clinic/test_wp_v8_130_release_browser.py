@@ -131,6 +131,24 @@ def _capture(page, focus, dest, state):
             page.screenshot(path=dest / f'{state}-{width}x{height}-{theme}.png', animations='disabled')
 
 
+def _output_dom(page):
+    return page.evaluate('''() => {
+        const html = document.documentElement.cloneNode(true);
+        html.querySelectorAll('script').forEach(node => node.remove());
+        for (const link of html.querySelectorAll('link[rel=stylesheet]')) {
+            const sheet = Array.from(document.styleSheets).find(sheet => sheet.href === link.href);
+            try {
+                const style = document.createElement('style');
+                style.textContent = Array.from(sheet.cssRules, rule => rule.cssText).join('\\n');
+                link.replaceWith(style);
+            } catch {
+                link.remove();
+            }
+        }
+        return '<!doctype html>\\n' + html.outerHTML;
+    }''')
+
+
 def _open_output(page, dictation_id):
     page.locator(f'[data-testid=open-link][data-id="{dictation_id}"]').click()
     page.get_by_test_id('clinic-dictation-link-output').click()
@@ -311,6 +329,40 @@ def test_review_and_release_current_bound_versions(review_scene, tmp_path):
             with output_page.expect_response(lambda r: r.url.endswith('/exports') and r.request.method == 'POST') as exported:
                 output.locator('[data-target=txt]').get_by_role('button', name='Ausgabe starten').click()
             assert (exported.value.status, exported.value.json()['status']) == (201, 'ready')
+
+            rtf = output.get_by_role('checkbox', name='Rich-Text-Dokument (RTF)')
+            kis = output.get_by_role('checkbox', name='KIS', exact=True)
+            rtf.check()
+            kis.check()
+            with output_page.expect_response(lambda r: r.url.endswith('/preferences/output') and r.request.method == 'PUT') as saved:
+                output.get_by_role('button', name='Standardziele speichern').click()
+            assert saved.value.status == 200, saved.value.text()
+            expect(output.get_by_text('Standardziele gespeichert.')).to_be_visible()
+            output_page.reload()
+            output = _open_output(output_page, did)
+            expect(rtf).to_be_checked()
+            expect(kis).to_be_checked()
+            with output_page.expect_response(lambda r: r.url.endswith('/exports') and r.request.method == 'POST') as rendered:
+                output.get_by_role('button', name='Ausgewählte ausgeben').click()
+            assert rendered.value.request.post_data_json['format'] == 'rtf'
+            assert (rendered.value.status, rendered.value.json()['status']) == (201, 'ready')
+            expect(output.locator('[data-target=rtf] [role=status]')).to_have_text('Datei erzeugt')
+            expect(output.locator('[data-phase=unavailable]')).to_contain_text('KIS nicht verfügbar')
+            _capture(output_page, output, tmp_path, 'p091-rows')
+            (tmp_path / 'p091-rows.html').write_text(_output_dom(output_page), encoding='utf-8')
+
+            targets_pattern = '**/output-targets?file_formats=all'
+
+            def empty_targets(route):
+                reply = route.fetch()
+                route.fulfill(response=reply, json={**reply.json(), 'targets': []})
+
+            output_page.route(targets_pattern, empty_targets)
+            output_page.reload()
+            output = _open_output(output_page, did)
+            expect(output.get_by_text('Keine Ausgabeziele verfügbar.')).to_be_visible()
+            _capture(output_page, output, tmp_path, 'p091-empty')
+            (tmp_path / 'p091-empty.html').write_text(_output_dom(output_page), encoding='utf-8')
             assert not output_page.js_errors
             assert not page.js_errors
         finally:

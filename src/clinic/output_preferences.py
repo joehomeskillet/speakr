@@ -25,7 +25,7 @@ _TARGET_KEYS = frozenset({"channel", "target_alias", "format", "selected_by_defa
 _CHANNEL_FORMATS = {
     "clipboard": frozenset({"plain", "formatted"}),
     "kis_draft": frozenset({"plain", "formatted"}),
-    "download": frozenset({"txt", "rtf", "docx"}),
+    "download": frozenset({"txt", "rtf", "docx", "odt"}),
     "server_alias": frozenset({"txt", "rtf", "docx"}),
 }
 

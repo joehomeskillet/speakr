@@ -23,7 +23,7 @@ from src.models import User
 from test_pools import _user, pool_db as pool_db
 
 URL = PREFIX + "/output"
-FORMATS = ["clipboard", "rtf"]
+FORMATS = ["clipboard", "rtf", "odt", "kis_draft"]
 
 
 @pytest.fixture

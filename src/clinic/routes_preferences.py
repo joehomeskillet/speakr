@@ -66,6 +66,7 @@ _OUTPUT_FORMATS = {
     "txt": {"channel": "download", "target_alias": "txt", "format": "txt", "selected_by_default": True},
     "rtf": {"channel": "download", "target_alias": "rtf", "format": "rtf", "selected_by_default": True},
     "docx": {"channel": "download", "target_alias": "docx", "format": "docx", "selected_by_default": True},
+    "odt": {"channel": "download", "target_alias": "odt", "format": "odt", "selected_by_default": True},
     "kis_draft": {"channel": "kis_draft", "target_alias": "kis_draft", "format": "plain",
                   "selected_by_default": True},
 }

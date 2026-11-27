@@ -27,13 +27,14 @@ const TARGETS = (released, kis = true) => ({
     ],
 });
 
-function fakeClient({ targets, exportResult } = {}) {
+function fakeClient({ targets, exportResult, preferences } = {}) {
     const calls = [];
     return {
         calls,
         request: vi.fn(async (path, options) => {
             const method = String((options && options.method) || 'GET').toUpperCase();
             calls.push({ method, path, options });
+            if (path === '/preferences/output' && preferences) return preferences(method, options);
             if (method === 'GET' && path.split('?')[0].endsWith('/output-targets')) return targets;
             if (method === 'POST' && path.endsWith('/exports')) return typeof exportResult === 'function' ? exportResult(options) : exportResult;
             if (method === 'GET' && path.includes('/exports/')) return ok({ id: 'j1', status: 'delivered', format: 'kis' });
@@ -64,6 +65,123 @@ describe('compose-output', () => {
         expect(client.calls[0].path).toBe('/dictations/d1/output-targets?file_formats=all');
         expect(c.targets.value.find((target) => target.id === 'rtf').label).toBe('Rich-Text-Dokument (RTF)');
         expect(c.targets.value.find((target) => target.id === 'odt').label).toBe('OpenDocument-Text (ODT)');
+    });
+
+    it('round-trips file and KIS defaults without changing clipboard preferences', async () => {
+        const data = TARGETS('r1');
+        data.targets.push({ id: 'rtf', channel: 'file', available: true });
+        let stored = { formats: ['docx', 'clipboard', 'formatted'], version: 7, open_after_export: true };
+        const client = fakeClient({
+            targets: ok(data),
+            preferences: (method, options) => {
+                if (method === 'PUT') stored = { ...options.body, version: stored.version + 1 };
+                return ok(stored);
+            },
+        });
+        const c = await loaded(client, { includeAllFileFormats: true });
+
+        expect(client.calls.map(({ method, path }) => [method, path])).toEqual([
+            ['GET', '/dictations/d1/output-targets?file_formats=all'],
+            ['GET', '/preferences/output'],
+        ]);
+        expect(c.selected.value).toEqual(['docx']);
+        c.toggleTarget('docx', false);
+        c.toggleTarget('rtf', true);
+        c.toggleTarget('rtf', true);
+        c.toggleTarget('kis', true);
+        expect([...c.selected.value].sort()).toEqual(['kis', 'rtf']);
+        expect(client.calls).toHaveLength(2);
+        await c.saveDefaults();
+
+        const puts = client.calls.filter(({ method }) => method === 'PUT');
+        expect(puts).toHaveLength(1);
+        expect(puts[0].path).toBe('/preferences/output');
+        expect(puts[0].options.ifMatch).toBe('"7"');
+        const { formats, ...otherFields } = puts[0].options.body;
+        expect([...formats].sort()).toEqual(['clipboard', 'formatted', 'kis_draft', 'rtf']);
+        expect(otherFields).toEqual({ open_after_export: true });
+        const reopened = await loaded(client, { includeAllFileFormats: true });
+        expect([...reopened.selected.value].sort()).toEqual(['kis', 'rtf']);
+
+        reopened.toggleTarget('kis', false);
+        await reopened.saveDefaults();
+        const secondPut = client.calls.filter(({ method }) => method === 'PUT')[1];
+        expect(secondPut.options.ifMatch).toBe('"8"');
+        expect([...secondPut.options.body.formats].sort()).toEqual(['clipboard', 'formatted', 'rtf']);
+        expect(posts(client)).toHaveLength(0);
+    });
+
+    it('reports a preferences load failure and refuses to overwrite unknown defaults', async () => {
+        const client = fakeClient({
+            targets: ok(TARGETS('r1')),
+            preferences: () => fail('network', null),
+        });
+        const c = await loaded(client);
+
+        expect(c.phase.value).toBe('ready');
+        expect(c.preferenceNotice.value).toBeTruthy();
+        c.toggleTarget('docx', true);
+        expect(c.selected.value).toContain('docx');
+        await c.saveDefaults();
+        expect(client.calls.some(({ method }) => method === 'PUT')).toBe(false);
+        expect(c.preferenceNotice.value).toBeTruthy();
+    });
+
+    it('reports a rejected defaults save without exporting anything', async () => {
+        const client = fakeClient({
+            targets: ok(TARGETS('r1')),
+            preferences: (method) => method === 'PUT'
+                ? fail('conflict', 412)
+                : ok({ formats: ['docx'], version: 2, open_after_export: false }),
+        });
+        const c = await loaded(client);
+        const priorNotice = c.preferenceNotice.value;
+        c.toggleTarget('txt', true);
+        await c.saveDefaults();
+
+        expect(client.calls.filter(({ method }) => method === 'PUT')).toHaveLength(1);
+        expect(c.preferenceNotice.value).toBeTruthy();
+        expect(c.preferenceNotice.value).not.toEqual(priorNotice);
+        expect(posts(client)).toHaveLength(0);
+    });
+
+    it('starts selected files independently and never executes a selected legacy KIS target', async () => {
+        let release;
+        const gate = new Promise((resolve) => { release = resolve; });
+        const data = TARGETS('r1');
+        data.targets.push(
+            { id: 'rtf', channel: 'file', available: true },
+            { id: 'odt', channel: 'file', available: true, status: 'ready', job_id: 'odt-job' },
+        );
+        const client = fakeClient({
+            targets: ok(data),
+            preferences: () => ok({ formats: ['rtf', 'docx', 'kis_draft'], version: 1, open_after_export: false }),
+            exportResult: ({ body }) => body.format === 'rtf'
+                ? gate
+                : ok(job({ id: 'docx-job', status: 'failed' }), 201),
+        });
+        const c = await loaded(client, { includeAllFileFormats: true });
+        c.toggleTarget('odt', true);
+        expect(c.selected.value).toContain('odt');
+        const exporting = c.exportSelected();
+        try {
+            await vi.waitFor(() => {
+                expect(c.results.value.rtf?.phase).toBe('working');
+                expect(c.results.value.docx?.phase).toBe('failed');
+            });
+        } finally {
+            release(ok(job({ id: 'rtf-job', format: 'rtf', filename: 'x.rtf' }), 201));
+            await exporting;
+        }
+
+        expect(posts(client).map(({ options }) => options.body.format).sort()).toEqual(['docx', 'rtf']);
+        expect(c.results.value.kis.phase).toBe('unavailable');
+        expect(c.downloadUrl('kis')).toBeNull();
+        expect(c.downloadUrl('docx')).toBeNull();
+        expect(c.downloadUrl('odt')).toBe('/api/clinic/v1/dictations/d1/exports/odt-job/download');
+        expect(c.downloadUrl('rtf')).toBe('/api/clinic/v1/dictations/d1/exports/rtf-job/download');
+        c.markDownloadStarted('rtf');
+        expect(c.results.value.rtf).toMatchObject({ phase: 'ready', label: 'Download gestartet' });
     });
 
     it('offers a ready file download independently of other target failures', async () => {
