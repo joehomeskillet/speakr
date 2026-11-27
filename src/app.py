@@ -1509,6 +1509,7 @@ def register_clinic_operations(flask_app):
 
     from src.clinic import routes_agent, routes_jobs, routes_recordings, routes_statistics, routes_training, startup
     from src.clinic.agent_channel import ChannelPolicy
+    from src.clinic.author_aliases import resolve_stored_author
     from src.clinic.ingest import IngestService
     from src.clinic.worklist_entries import load_entries
 
@@ -1524,7 +1525,8 @@ def register_clinic_operations(flask_app):
     run_once = flask_app.extensions['clinic_run_once']
     agent_bp = routes_agent.create_agent_blueprint(
         ChannelPolicy(master_secret=secret_from_env('CLINIC_AGENT_MASTER_SECRET')),
-        IngestService(startup.originals_root(flask_app)), secret_from_env('CLINIC_AGENT_PROXY_SECRET'))
+        IngestService(startup.originals_root(flask_app)), secret_from_env('CLINIC_AGENT_PROXY_SECRET'),
+        author_lookup=resolve_stored_author)
     flask_app.register_blueprint(routes_recordings.create_blueprint(load_entries))
     flask_app.register_blueprint(routes_jobs.create_blueprint(run_once=run_once))
     flask_app.register_blueprint(routes_statistics.blueprint)

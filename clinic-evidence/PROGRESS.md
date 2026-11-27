@@ -1,5 +1,9 @@
 # Speakr V8: geprüfte Änderungen im Klinik-Webclient
 
+## P-193 – DSS/DS2-Autorzuordnung beim Import (PAR-IMP-002)
+
+Synthetische Uploads über die registrierte Agent-Route bestätigen die Zuordnung per gespeicherter Autor- oder Gerätebindung. Unbekannte und widersprüchliche Autoren bleiben mit unverändertem Original auf der Klärliste; Desktop-Anmeldung und Agent-Hinweise bestimmen die Zuordnung nicht. 182 gezielte Tests bestanden. Staging und der Referenzvergleich BT-IMP-002 mit realen Geräten bleiben `not_run`.
+
 ## Q-05 vom 27. November 2026 – KIS nur lesend (X-KIS-1)
 
 Die Freigabe schliesst das Diktat in Speakr ab. Dateiausgabe und Zwischenablage bleiben verfügbar. Der Klinikbetrieb bietet keinen KIS-Versand an. Bestehende Zustellbelege und Audit-Ereignisse bleiben erhalten. Der synthetische MockKIS-Kompatibilitätspfad erfordert eine explizite Aktivierung im Staging-Profil.
