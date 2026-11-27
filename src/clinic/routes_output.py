@@ -1,8 +1,8 @@
 """Output routes: targets, export requests and export status (P16 backend reachability).
 
-Thin HTTP layer over `export` (DOCX/text render), `kis` (delivery ledger) and
-`release` (the active release). Nothing here renders, delivers or decides
-policy itself:
+Thin HTTP layer over `export` (DOCX/text render), `kis` (delivery ledger),
+`output_destinations` (server alias placement) and `release` (the active
+release). Nothing here renders, delivers or decides policy itself:
 
 * Only the active release of a dictation can be exported. The request names the
   transcript revision it expects; a different or unreleased revision is a 409.
@@ -19,11 +19,20 @@ policy itself:
 * The actor is always `current_user`. The injected per-object policy allows
   viewers to list disabled targets. Exportable revisions and jobs require
   `export` permission.
+* GET .../output-destinations lists the server alias catalog (name, kind,
+  label, version). It never returns a filesystem path. Optional placement
+  fields on POST .../exports (`filename_pattern` or `manual_name`,
+  `destination_alias`, `collision_policy`) write the rendered bytes under
+  that alias. A client-supplied path is refused. Collision and write
+  failures stay distinct, and `local_save_proven` stays false. A successful
+  placement appends a `ClinicOutputReceipt`.
 """
 
 import hashlib
-from collections.abc import Callable
+import json
+from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
+from pathlib import Path
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from flask import Blueprint, Flask, Response, abort, jsonify, request, session
@@ -35,14 +44,20 @@ from wtforms.validators import ValidationError
 from src.clinic import export as export_service
 from src.clinic import kis, parity_receipts, release
 from src.clinic.parity_dispatch import CommandProblem
-from src.clinic.config import clinic_mode_enabled, kis_delivery_enabled
+from src.clinic.config import FALLBACK_CLIENT_PROFILE, clinic_mode_enabled, config_dir, kis_delivery_enabled
 from src.clinic.models import (
     ClinicAudioRevision, ClinicContextRevision, ClinicDelivery, ClinicDictation, ClinicRelease,
     ClinicTranscriptRevision,
 )
+from src.clinic.output import (
+    CHANNEL_TEXT, FORMAT_PLAIN, ClinicOutputReceipt, OutputNameContext, OutputReceiptError, record_output,
+)
 from src.clinic.output_attempts import OutputAttemptError, OutputSource, bind_output_source
+from src.clinic.output_destinations import (
+    KIND_NAMED, KIND_WORKFLOW, POLICIES, ApprovedAlias, PlaceRequest, place_export,
+)
 from src.database import db
-from src.models import User
+from src.models import Recording, User
 from src.services import audit
 
 BASE = '/api/clinic/v1/dictations/<uuid:dictation_id>'
@@ -63,8 +78,16 @@ _PROBLEMS = {
     403: ('FORBIDDEN', 'Zugriff verweigert'),
     404: ('NOT_FOUND', 'Diktat nicht gefunden'),
     409: ('EXPORT_CONFLICT', 'Export nicht möglich'),
+    422: ('DESTINATION_WRITE_FAILED', 'Ablage fehlgeschlagen'),
     503: ('KIS_UNAVAILABLE', 'KIS-Anbindung nicht verfügbar'),
 }
+_OPTIONAL_EXPORT_KEYS = frozenset({
+    'filename_pattern', 'manual_name', 'destination_alias', 'collision_policy',
+    'client_path', 'path', 'destination_path',
+})
+_PLACEMENT_KEYS = frozenset({'filename_pattern', 'manual_name', 'destination_alias'})
+_FORMAT_EXTENSION = {'txt': 'txt', 'rtf': 'rtf', 'docx': 'docx', 'odt': 'odt'}
+_ALIAS_ACTIONS = frozenset({'export'})
 
 
 def _problem(status: int, code: str | None = None, **extra) -> Response:
@@ -111,6 +134,63 @@ def file_formats() -> dict:
     if not clinic_mode_enabled():
         return dict(FILE_FORMATS)
     return {**FILE_FORMATS, **_CLINIC_FILE_FORMATS}
+
+
+def destination_catalog() -> dict[str, ApprovedAlias]:
+    """Server alias catalog. Missing or unreadable config is an empty catalog.
+
+    A row without an absolute directory, a known kind, or a label is skipped.
+    The client never supplies this list.
+    """
+    path = Path(config_dir()) / 'output-destinations.json'
+    try:
+        raw = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return {}
+    rows = raw.get('aliases') if isinstance(raw, dict) else None
+    if not isinstance(rows, list):
+        return {}
+    catalog: dict[str, ApprovedAlias] = {}
+    for row in rows:
+        alias = _alias_row(row)
+        if alias is not None and alias.name not in catalog:
+            catalog[alias.name] = alias
+    return catalog
+
+
+def _alias_row(row: object) -> ApprovedAlias | None:
+    if not isinstance(row, dict):
+        return None
+    name = row.get('name')
+    root = row.get('root')
+    kind = row.get('kind')
+    label = row.get('label')
+    version = row.get('version')
+    if (not isinstance(name, str) or name.strip() == '' or '/' in name or '\\' in name
+            or not isinstance(root, str) or not Path(root).is_absolute()
+            or kind not in (KIND_WORKFLOW, KIND_NAMED)
+            or not isinstance(label, str) or label.strip() == ''
+            or type(version) is not int or version < 1):
+        return None
+    profiles = row.get('profiles')
+    if profiles is None:
+        allowed = frozenset({FALLBACK_CLIENT_PROFILE})
+    elif isinstance(profiles, list) and profiles and all(isinstance(item, str) and item for item in profiles):
+        allowed = frozenset(profiles)
+    else:
+        return None
+    return ApprovedAlias(
+        name=name, root=root, actions=_ALIAS_ACTIONS, profiles=allowed,
+        version=version, kind=kind, label=label,
+    )
+
+
+def _destination_view(alias: ApprovedAlias) -> dict:
+    """Public alias fields. The directory stays on the server."""
+    return {
+        'name': alias.name, 'kind': alias.kind, 'label': alias.label, 'version': alias.version,
+        'local_save_proven': False,
+    }
 
 
 def _attachment_name(filename: str) -> str:
@@ -231,14 +311,34 @@ def create_blueprint(
                        released_revision_id=None if active is None else active.transcript_revision_id,
                        targets=listed)
 
+    @bp.get(BASE + '/output-destinations')
+    def destinations(dictation_id: UUID) -> Response:
+        """Approved alias catalog for this dictation. Paths are not included."""
+        dictation_of(dictation_id)
+        profile = FALLBACK_CLIENT_PROFILE
+        listed = [
+            _destination_view(alias) for alias in destination_catalog().values()
+            if 'export' in alias.actions and profile in alias.profiles
+        ]
+        listed.sort(key=lambda item: item['name'])
+        return jsonify(dictation_id=str(dictation_id), destinations=listed, local_save_proven=False)
+
     @bp.post(BASE + '/exports')
     def request_export(dictation_id: UUID) -> Response:
         dictation = dictation_of(dictation_id)
         key = request_id()
         body = request.get_json(silent=True)
         offered = (*file_formats(), KIS_FORMAT)
-        if (not isinstance(body, dict) or body.keys() != {'revision_id', 'format'}
-                or body['format'] not in offered or not isinstance(body['revision_id'], str)):
+        if not isinstance(body, dict) or not isinstance(body.get('revision_id'), str):
+            abort(400)
+        extra = set(body) - {'revision_id', 'format'}
+        if extra - _OPTIONAL_EXPORT_KEYS or body.get('format') not in offered:
+            abort(400)
+        placing = bool(extra & _PLACEMENT_KEYS) or _client_path(body) is not None
+        if extra and (body['format'] == KIS_FORMAT or not placing
+                      or body.get('collision_policy', 'fail') not in POLICIES):
+            abort(400)
+        if placing and _name_choice(body) is None:
             abort(400)
         revision = db.session.get(ClinicTranscriptRevision, body['revision_id'])
         if revision is None or revision.dictation_id != dictation.id:
@@ -248,7 +348,10 @@ def create_blueprint(
             return _problem(409, 'NOT_RELEASED', detail='Nur die freigegebene Version kann ausgegeben werden')
         if body['format'] == KIS_FORMAT:
             return _kis_export(dictation, active)
-        return _file_export(dictation, active, body['format'], key)
+        placed = _file_export(dictation, active, body['format'], key)
+        if not placing or placed.status_code not in (200, 201):
+            return placed
+        return _place_file_export(dictation, active, body, placed)
 
     def _file_export(dictation: ClinicDictation, active: ClinicRelease, fmt: str, key: str) -> Response:
         actor_id = current_user.id
@@ -291,6 +394,42 @@ def create_blueprint(
         response = jsonify(_job_view(job) | {'replayed': replayed})
         response.status_code = 200 if replayed else 201
         return response
+
+    def _place_file_export(
+        dictation: ClinicDictation, active: ClinicRelease, body: dict, placed: Response,
+    ) -> Response:
+        """Write the rendered bytes under the named server alias and record the attempt."""
+        job = placed.get_json(silent=True) or {}
+        if job.get('status') != 'ready' or job.get('sha256') is None:
+            return placed
+        pattern, manual = _name_choice(body)
+        try:
+            rendered = file_formats()[body['format']](active)
+        except export_service.ExportRefused:
+            return _problem(409, 'EXPORT_REFUSED', reason='render_failed', format=body['format'])
+        if rendered.sha256 != job.get('sha256'):
+            return _problem(409, 'EXPORT_CONFLICT', detail='Gerenderte Datei stimmt nicht mit der Quittung überein')
+        alias_name = body['destination_alias']
+        catalog = destination_catalog()
+        known = catalog.get(alias_name) if isinstance(alias_name, str) else None
+        request_row = PlaceRequest(
+            alias=alias_name if isinstance(alias_name, str) else '',
+            alias_version=known.version if known is not None else 0,
+            action='export',
+            profile=FALLBACK_CLIENT_PROFILE,
+            context=_name_context(dictation, active),
+            policy=body.get('collision_policy', 'fail'),
+            content=rendered.content,
+            actor_user_id=current_user.id,
+            pattern=pattern,
+            manual_name=manual,
+            extension=_FORMAT_EXTENSION[body['format']],
+            client_path=_client_path(body),
+        )
+        receipt = place_export(catalog, request_row)
+        if receipt.outcome == 'created':
+            _remember_placement(dictation, active, receipt)
+        return _placement_response(placed, receipt)
 
     def _kis_export(dictation: ClinicDictation, active: ClinicRelease) -> Response:
         # The ledger key binds to the release, not the HTTP request: at most one send per
@@ -373,3 +512,116 @@ def create_blueprint(
                        revision_id=owner.transcript_revision_id)
 
     return bp
+
+
+def _name_choice(body: Mapping) -> tuple[str, None] | tuple[None, str] | None:
+    """Exactly one of pattern or manual name. Both, neither, or a non-string is refused."""
+    pattern = body.get('filename_pattern', None)
+    manual = body.get('manual_name', None)
+    if pattern is not None and manual is not None:
+        return None
+    if isinstance(pattern, str) and pattern != '':
+        return pattern, None
+    if isinstance(manual, str) and manual != '':
+        return None, manual
+    return None
+
+
+def _client_path(body: Mapping) -> str | None:
+    """Any client path field is the refusal signal. The value is never used as a path."""
+    for key in ('client_path', 'path', 'destination_path'):
+        if key in body:
+            return '' if body[key] is None else str(body[key])
+    return None
+
+
+def _name_context(dictation: ClinicDictation, active: ClinicRelease) -> OutputNameContext:
+    """Placeholder values taken from the recording and the release, never from the request."""
+    recording = db.session.get(Recording, dictation.recording_id)
+    author = db.session.get(User, dictation.author_user_id)
+    creator = db.session.get(User, active.actor_user_id)
+    created = recording.created_at if recording is not None else None
+    if created is not None and created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    title = recording.title if recording is not None and recording.title else None
+    return OutputNameContext(
+        author=None if author is None else author.username,
+        title=title,
+        created_on=created,
+        service_staff=None if author is None else author.username,
+        document_creator=None if creator is None else creator.username,
+    )
+
+
+def _remember_placement(dictation: ClinicDictation, active: ClinicRelease, receipt) -> None:
+    """Append the placement to the output ledger. A repeat of the same file is one row."""
+    target = f'{receipt.alias}/{receipt.filename}'
+    if len(target) > 255:
+        target = target[:255]
+    existing = (
+        db.session.query(ClinicOutputReceipt.id)
+        .filter(
+            ClinicOutputReceipt.dictation_id == dictation.id,
+            ClinicOutputReceipt.transcript_revision_id == active.transcript_revision_id,
+            ClinicOutputReceipt.actor_user_id == receipt.actor_user_id,
+            ClinicOutputReceipt.target == target,
+        )
+        .first()
+    )
+    if existing is not None:
+        return
+    revision = db.session.get(ClinicTranscriptRevision, active.transcript_revision_id)
+    if revision is None:
+        return
+    try:
+        record_output(
+            dictation, revision, receipt.actor_user_id, CHANNEL_TEXT, target,
+            text_format=FORMAT_PLAIN, output_at=receipt.at,
+        )
+        db.session.commit()
+    except OutputReceiptError:
+        db.session.rollback()
+
+
+def _placement_response(placed: Response, receipt) -> Response:
+    """Keep the file job and add the alias result. Collision and write errors differ."""
+    job = placed.get_json(silent=True) or {}
+    body = {
+        **job,
+        'destination': {
+            'alias': receipt.alias,
+            'alias_version': receipt.alias_version,
+            'kind': receipt.kind,
+            'label': receipt.label,
+            'policy': receipt.policy,
+            'requested_filename': receipt.requested_filename,
+            'filename': receipt.filename,
+            'relative_path': receipt.relative_path,
+            'outcome': receipt.outcome,
+            'reason': receipt.reason,
+            'sha256': receipt.sha256,
+            'size': receipt.size,
+            'local_save_proven': False,
+        },
+        'local_save_proven': False,
+    }
+    if receipt.outcome == 'created':
+        response = jsonify(body)
+        response.status_code = placed.status_code
+        return response
+    if receipt.outcome == 'collision':
+        return _problem(
+            409, 'NAME_COLLISION', detail='Dateiname ist bereits vergeben',
+            reason=receipt.reason, local_save_proven=False, destination=body['destination'],
+            id=job.get('id'), format=job.get('format'),
+        )
+    if receipt.outcome == 'write_error':
+        return _problem(
+            422, reason=receipt.reason, local_save_proven=False, destination=body['destination'],
+            id=job.get('id'), format=job.get('format'),
+        )
+    return _problem(
+        409, 'DESTINATION_REJECTED', detail='Ablageziel abgelehnt',
+        reason=receipt.reason, local_save_proven=False, destination=body['destination'],
+        id=job.get('id'), format=job.get('format'),
+    )
