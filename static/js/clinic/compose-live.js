@@ -140,6 +140,8 @@ export function createLiveViewController(options) {
     let note = '';
     let lost = false; // the last request ended without an answer
     let disposed = false;
+    let switchingUser = false;
+    let pending = 0;
 
     const client = {
         async request(path, o) {
@@ -154,7 +156,7 @@ export function createLiveViewController(options) {
 
     const session = createLiveSessionController({
         client, dictationId, newKey,
-        canWrite: () => phase === 'live' && canWriteOuter(),
+        canWrite: () => !disposed && phase === 'live' && canWriteOuter(),
     });
 
     function snapshot() {
@@ -215,7 +217,46 @@ export function createLiveViewController(options) {
         return state();
     }
 
-    return {
+    const hasPartialOrStale = (s) => !!s.partial || s.phrases.some((p) => p.state === 'stale');
+    const canStop = (s) => (phase === 'live' || phase === 'paused') && s.status !== 'stale';
+    const hasDraft = () => {
+        const s = session.getState();
+        return pending > 0 || s.hasUnsaved || hasPartialOrStale(s)
+            || (!!s.sessionId && phase !== 'stopped' && !canStop(s));
+    };
+
+    async function prepare(action) {
+        if (disposed || switchingUser || pending || !['save', 'discard', 'leave'].includes(action)) return false;
+        if (action === 'leave' && hasDraft()) return false;
+        const snap = session.getState();
+        if (action === 'save' && (phase === 'stale' || snap.status === 'stale' || hasPartialOrStale(snap))) return false;
+        switchingUser = true;
+        try {
+            if (canStop(snap) && (action === 'save' || !hasDraft())) {
+                if ((await controller.stop(true)).phase !== 'stopped') return false;
+            } else if (action !== 'discard' && hasDraft()) {
+                return false;
+            }
+            if (disposed) return false;
+            // Discard never uploads local phrases; a session we cannot stop stays owned by this account.
+            dispose(true);
+            client.switchContext({ accountId: 'signed-out' });
+            return true;
+        } catch {
+            return false;
+        } finally {
+            switchingUser = false;
+        }
+    }
+
+    function dispose(forSwitch = false) {
+        disposed = true;
+        session.dispose(); // clears phrases, partial and session id from memory
+        if (forSwitch) setPhase('idle');
+        listeners.clear();
+    }
+
+    const controller = {
         getState: state,
         subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
         session,
@@ -274,7 +315,7 @@ export function createLiveViewController(options) {
         },
 
         /** Stop needs every final phrase saved; otherwise the stop would drop text. */
-        async stop() {
+        async stop(forSwitch = false) {
             if (phase !== 'live' && phase !== 'paused') return state();
             const back = phase;
             const wasLive = phase === 'live';
@@ -283,7 +324,7 @@ export function createLiveViewController(options) {
             phase = back;
             if (disposed) return state();
             const afterSave = session.getState();
-            if (afterSave.hasUnsaved || afterSave.status === 'stale') {
+            if (afterSave.hasUnsaved || afterSave.status === 'stale' || (forSwitch && hasPartialOrStale(afterSave))) {
                 // A conflict or a failed save keeps the phrase text and does not end the session.
                 if (afterSave.status === 'stale') setPhase('stale', afterSave.hasUnsaved ? NOTES.stopBlocked : NOTES.stopFailed);
                 else setPhase(lost ? 'reconnecting' : back, NOTES.stopBlocked);
@@ -340,11 +381,23 @@ export function createLiveViewController(options) {
 
         saveUnsaved,
 
-        dispose() {
-            disposed = true;
-            listeners.clear();
-            session.dispose(); // clears phrases, partial and session id from memory
-        },
+        dispose, hasDraft, prepare,
+    };
+
+    // Block new transport and UI mutations while stop/save is being confirmed.
+    const active = (fn, fallback) => async (...args) => {
+        if (disposed || switchingUser) return fallback();
+        pending += 1;
+        try { return await fn(...args); } finally { pending -= 1; }
+    };
+    return {
+        ...controller,
+        start: active(controller.start, state), pause: active(controller.pause, state),
+        continueRecording: active(controller.continueRecording, state),
+        stop: active(() => controller.stop(), state), reconnect: active(controller.reconnect, state),
+        saveUnsaved: active(saveUnsaved, state), finalizePhrase: active(controller.finalizePhrase, () => null),
+        partial: (text) => !disposed && !switchingUser && controller.partial(text),
+        markDisconnected: () => { if (!disposed && !switchingUser) controller.markDisconnected(); },
     };
 }
 
@@ -363,6 +416,8 @@ const LiveBody = {
     setup(props) {
         const V = props.vue || globalThis.Vue;
         if (!V) throw new Error('Vue is required to mount the live view');
+        const registerSwitch = V.inject?.('clinicUserSwitch', null);
+        let unregisterSwitch;
         const c = createLiveViewController({
             client: props.client || undefined,
             dictationId: props.dictationId,
@@ -370,8 +425,11 @@ const LiveBody = {
         });
         const state = V.shallowRef(c.getState());
         const stop = c.subscribe((snap) => { state.value = snap; });
-        if (typeof V.onMounted === 'function') V.onMounted(() => { if (props.onReady) props.onReady(c); });
-        if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => { stop(); c.dispose(); });
+        V.onMounted?.(() => {
+            unregisterSwitch = registerSwitch?.({ hasDraft: c.hasDraft, prepare: c.prepare });
+            if (props.onReady) props.onReady(c);
+        });
+        V.onBeforeUnmount?.(() => { unregisterSwitch?.(); stop(); c.dispose(); });
         return { c, state, FOCUS, box, TEXT, ICON_PATHS };
     },
     template: `

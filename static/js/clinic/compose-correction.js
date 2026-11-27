@@ -271,7 +271,8 @@ export function createLeaseAdapter(editor, vue) {
  */
 export function createCorrectionViewController(options) {
     const opts = options || {};
-    const scoped = scopedClient(opts.client || createClinicApiClient());
+    const base = opts.client || createClinicApiClient();
+    const scoped = scopedClient(base);
     const client = scoped;
     const user = opts.currentUser || {};
     if (opts.dictationId === undefined || opts.dictationId === null || opts.dictationId === '') throw new Error('dictationId is required');
@@ -296,6 +297,8 @@ export function createCorrectionViewController(options) {
     let disposed = false;
     let opening = null;
     let closing = false;
+    const switchingUser = ref(false);
+    let leaseOperation = null;
     const stops = [];
     const audioListeners = [];
     let tempo = null;
@@ -460,6 +463,11 @@ export function createCorrectionViewController(options) {
     if (api.watch) stops.push(api.watch(editor.textRevisionId, () => { syncRevision(); }));
 
     async function save() {
+        if (switchingUser.value) return { ok: false, code: 'cancelled', message: '' };
+        return saveRevision();
+    }
+
+    async function saveRevision() {
         const res = await saver.save();
         if (res && res.ok) await syncRevision();
         return res;
@@ -473,11 +481,12 @@ export function createCorrectionViewController(options) {
 
     /** Conflict choice: keep the local text on the newest server revision. */
     function keepMine() {
-        return saver.keepMine();
+        if (!switchingUser.value) return saver.keepMine();
     }
 
     /** Conflict choice: adopt the server text; the new revision's alignment is loaded again. */
     async function takeServer() {
+        if (switchingUser.value) return;
         const res = await saver.takeServer();
         if (res && res.ok) {
             knownRevision = editor.textRevisionId.value;
@@ -488,12 +497,14 @@ export function createCorrectionViewController(options) {
     }
 
     function setText(next) {
+        if (switchingUser.value) return false;
         const accepted = editor.setText(next);
         if (accepted) saver.touch();
         return accepted;
     }
 
     async function reloadLatest() {
+        if (switchingUser.value) return;
         const res = await saver.reloadLatest();
         if (res && res.ok) {
             knownRevision = editor.textRevisionId.value;
@@ -543,7 +554,16 @@ export function createCorrectionViewController(options) {
     }
 
     // --- lifecycle ------------------------------------------------------------
-    const leaseRun = { acquire: editor.acquire, release: editor.release, takeOver: editor.takeOver };
+    const runLease = (fn) => async () => {
+        if (disposed || switchingUser.value || leaseOperation) return;
+        leaseOperation = fn();
+        try {
+            return await leaseOperation;
+        } finally {
+            leaseOperation = null;
+        }
+    };
+    const leaseRun = { acquire: runLease(editor.acquire), release: runLease(editor.release), takeOver: runLease(editor.takeOver) };
     const leaseButtons = () => editor.availableLeaseActions().filter((a) => typeof leaseRun[a.id] === 'function');
 
     // --- foot pedal, keyboard mode (PAR-OPS-001) -----------------------------
@@ -623,7 +643,7 @@ export function createCorrectionViewController(options) {
         // or the text can change while the save is awaited: save again, bounded, until nothing is dirty.
         // A save already in flight (autosave follow-up) is awaited, not counted as a failure or a pass.
         for (let pass = 0; editor.dirty.value;) {
-            const res = pass > CLOSE_EXTRA_SAVES ? null : await save();
+            const res = pass > CLOSE_EXTRA_SAVES ? null : await saveRevision();
             if (disposed) return false;
             if (res && res.state === 'saving') {
                 await saver.whenSettled();
@@ -639,6 +659,29 @@ export function createCorrectionViewController(options) {
         return true;
     }
 
+    const hasDraft = () => Boolean(editor.dirty.value || saver.state.value === 'saving');
+
+    async function prepare(action) {
+        if (disposed || closing || !['save', 'discard', 'leave'].includes(action)) return false;
+        if (action === 'leave' && hasDraft()) return false;
+        closing = switchingUser.value = true;
+        const resumeAutosave = saver.pauseAutosave();
+        try {
+            await opening;
+            await leaseOperation;
+            await saver.whenSettled();
+            if (disposed || (action === 'leave' && hasDraft())) return false;
+            if (action === 'save' && !(await saveBeforeClose())) return false;
+            await dispose();
+            return true;
+        } catch {
+            return false;
+        } finally {
+            if (!disposed) resumeAutosave();
+            closing = switchingUser.value = false;
+        }
+    }
+
     /** Stops every timer, listener and request, releases a held lease and clears clinical data held in memory. */
     function dispose() {
         if (disposed) return;
@@ -648,16 +691,18 @@ export function createCorrectionViewController(options) {
         for (const stop of stops.splice(0)) if (typeof stop === 'function') stop();
         if (pedal) { pedal.detach(); pedal = null; }
         pedalStatus.value = '';
+        audioEl.value?.pause?.();
         unbindAudio();
         audioEl.value = null;
         const released = holdsLease ? editor.release() : null; // writes stop first, then the server is told
+        const releases = Promise.allSettled([released, ...releaseState(base).pending]);
         modes.dispose();
         saver.dispose();
         alignment.dispose();
         editor.dispose();
         ready.value = false;
         editor.text.value = '';
-        Promise.resolve(released).catch(() => {});
+        return releases;
     }
 
     return {
@@ -669,6 +714,7 @@ export function createCorrectionViewController(options) {
         leaseRun, leaseButtons,
         pedalStatus, pedalReady: () => pedalReady, pedal: () => pedal, setPedalSettings,
         start, load, save, setText, reloadLatest, keepMine, takeServer, compare: () => saver.compare(), close, dispose, syncRevision,
+        hasDraft, prepare, switchingUser,
         client: scoped, adoptAudioRevision, bindAudio, bindAlignmentRoot, alignmentRootEl: () => alignmentRoot, alignmentNotice, onSync, onShortcut, onKeydown, onInput, onSelect, onTemplate, seekToResume, getPositionMs, seek,
         text: TEXT,
     };
@@ -800,6 +846,8 @@ export const CorrectionBody = {
     setup(props, ctx) {
         const V = props.vue || globalThis.Vue;
         if (!V) throw new Error('Vue is required to mount the correction view');
+        const registerSwitch = V.inject?.('clinicUserSwitch', null);
+        let unregisterSwitch;
         const c = createCorrectionViewController({
             client: props.client || undefined,
             dictationId: props.dictationId,
@@ -811,8 +859,11 @@ export const CorrectionBody = {
             createAudioContext: props.createAudioContext || undefined,
             onClose: () => { if (ctx && typeof ctx.emit === 'function') ctx.emit('close'); },
         });
-        if (typeof V.onMounted === 'function') V.onMounted(() => { c.start(); });
-        if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => c.dispose());
+        V.onMounted?.(() => {
+            unregisterSwitch = registerSwitch?.({ hasDraft: c.hasDraft, prepare: c.prepare });
+            c.start();
+        });
+        V.onBeforeUnmount?.(() => { unregisterSwitch?.(); return c.dispose(); });
         if (typeof document !== 'undefined' && document.head && !document.getElementById(LOCAL_CSS_ID)) {
             const styleEl = document.createElement('style');
             styleEl.id = LOCAL_CSS_ID;
@@ -947,7 +998,7 @@ export const CorrectionBody = {
             tb, tbState, textEl, setTextEl, fontPx, focusMode, shortcutsOpen, highlightOn, inlineWord, editorScroll, followOn, onTextInput, onTextKeydown, onFindKeydown,
             onQuery, onReplacement, onCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, drawerClose, closeDrawer, toggleDrawer, unsavedSuffix,
             repeatState: c.repeat.state, REPEAT_TEXT,
-            text: e.text, canEdit: e.canEdit, dirty: e.dirty, textRevisionId: e.textRevisionId, loading: e.loading, error: e.error, manual: e.manual,
+            text: e.text, canEdit: V.computed(() => e.canEdit.value && !c.switchingUser.value), dirty: e.dirty, textRevisionId: e.textRevisionId, loading: e.loading, error: e.error, manual: e.manual,
             lease: e.lease, audio: e.audio, template: e.template, templates: e.templates, templatesError: e.templatesError,
             editorAnnouncement: e.announcement,
             alignStatus: a.status, alignError: a.error, segments: a.segments, currentWord: a.currentWord, alignAnnouncement: a.announcement,

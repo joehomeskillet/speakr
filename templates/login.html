@@ -59,7 +59,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.css', v=app_version) }}">
     {% include 'includes/ui_theme.html' %}
     <!-- What is removed from the browser after a sign-out (no service worker is registered here) -->
-    <script src="{{ url_for('static', filename='js/service-worker-client.js', v=app_version) }}"></script>
+    <script src="{{ url_for('static', filename='js/service-worker-client.js', v=app_version) }}"{% if clinic_login %} data-clinic-login{% endif %}></script>
 </head>
 {% if clinic_login %}
 <body class="v8-ui">
@@ -81,6 +81,7 @@
             </div>
             <div class="head-actions"></div>
         </div>
+        <p id="clinic-switch-saved" class="note mb-4" role="status" hidden>Die Änderungen wurden gespeichert. Sie sind abgemeldet.</p>
         <div class="login-wrap">
             <div class="grid equal">
                 <section class="panel" aria-labelledby="login-panel-title">

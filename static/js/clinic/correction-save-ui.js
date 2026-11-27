@@ -166,6 +166,7 @@ export function useCorrectionSave(options) {
     // It keeps the exact request so a lost answer is reconciled with the same key and body.
     let pending = null;
     let timer = null;
+    let autosavePaused = false;
     let inflight = false;
     let running = null;
     let resave = false; // a save was asked for while another one was in flight
@@ -240,14 +241,14 @@ export function useCorrectionSave(options) {
 
     function schedule(ms) {
         stop();
-        if (disposed || autosaveMs === null || autosaveMs === 0) return;
+        if (disposed || autosavePaused || autosaveMs === null || autosaveMs === 0) return;
         timer = setTimer(() => { timer = null; save(); }, ms);
     }
 
     /** Run the next save right after the answer of the previous one (batched newer text). */
     function followUp() {
         stop();
-        if (disposed) return;
+        if (disposed || autosavePaused) return;
         timer = setTimer(() => { timer = null; save(); }, 0);
     }
 
@@ -393,7 +394,7 @@ export function useCorrectionSave(options) {
         const digest = JSON.stringify(body);
         inflight = true;
         set('saving');
-        running = (async () => {
+        const operation = (async () => {
             if (reconcileFirst && pending && pending.unclear && pending.digest !== digest) {
                 // The earlier answer was lost and the text moved on: learn that result before any new key is used.
                 return settle(await transmit(pending), pending);
@@ -403,12 +404,26 @@ export function useCorrectionSave(options) {
             }
             return settle(await transmit(pending), pending);
         })();
-        return running;
+        running = operation;
+        try {
+            return await operation;
+        } finally {
+            if (running === operation) running = null;
+        }
     }
 
     /** Resolves when the request in flight (if any) has been settled. */
     function whenSettled() {
-        return inflight && running ? running.then(() => undefined, () => undefined) : Promise.resolve();
+        return running ? running.then(() => undefined, () => undefined) : Promise.resolve();
+    }
+
+    function pauseAutosave() {
+        autosavePaused = true;
+        stop();
+        return () => {
+            autosavePaused = false;
+            touch();
+        };
     }
 
     /** Conflict choice: keep the local text on top of the newest server revision. Nothing is discarded. */
@@ -480,7 +495,7 @@ export function useCorrectionSave(options) {
 
     return {
         state, message, resumePosition, stateVersion, retries, conflict,
-        save, whenSettled, touch, loadResume, reloadLatest, refresh, setPosition, dispose,
+        save, whenSettled, pauseAutosave, touch, loadResume, reloadLatest, refresh, setPosition, dispose,
         keepMine, takeServer, compare,
     };
 }

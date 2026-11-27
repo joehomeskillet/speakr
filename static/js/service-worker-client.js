@@ -232,6 +232,8 @@
     }
 
     const confirmed = new WeakSet();
+    let clinicSwitch = null;
+    let switching = false;
 
     function onSubmit(event) {
         const form = event.target;
@@ -245,22 +247,25 @@
         event.preventDefault();
         event.stopImmediatePropagation();
         const submitter = event.submitter || null;
-        localCopies()
-            .catch(() => 0)
-            .then((count) => (count > 0 ? askAboutLocalCopies(count) : true))
-            .catch(() => true)
-            .then((go) => {
-                if (!go) return;
-                confirmed.add(form);
-                if (typeof form.requestSubmit === 'function') {
-                    try {
-                        form.requestSubmit(submitter || undefined);
-                        return;
-                    } catch (e) { /* a submitter outside the form: send it plainly */ }
-                }
-                confirmed.delete(form);
-                form.submit();
-            });
+        if (switching) return;
+        if (clinicSwitch) switching = true;
+        const decision = clinicSwitch
+            ? Promise.resolve().then(localCopies).then((count) => clinicSwitch(count)).catch(() => false)
+            : localCopies().catch(() => 0)
+                .then((count) => (count > 0 ? askAboutLocalCopies(count) : true)).catch(() => true);
+        decision.then((go) => {
+            switching = false;
+            if (!go) return;
+            confirmed.add(form);
+            if (typeof form.requestSubmit === 'function') {
+                try {
+                    form.requestSubmit(clinicSwitch ? undefined : submitter || undefined);
+                    return;
+                } catch (e) { /* a submitter outside the form: send it plainly */ }
+            }
+            confirmed.delete(form);
+            form.submit();
+        });
     }
 
     // ---- start ---------------------------------------------------------------
@@ -269,7 +274,31 @@
     if (root.document) {
         root.document.addEventListener('submit', onSubmit, true);
         if (signedOut()) {
-            ready = clearAfterSignOut().catch(() => false).then(forgetSignedOut);
+            const clinicLogin = script?.hasAttribute?.('data-clinic-login');
+            let saved = false;
+            if (clinicLogin) {
+                try { saved = root.sessionStorage.getItem('speakr.clinic-switch-saved') === '1'; } catch (e) { /* unavailable */ }
+                if (saved) root.document.addEventListener('DOMContentLoaded', () => {
+                    const status = root.document.getElementById('clinic-switch-saved');
+                    if (status) status.hidden = false;
+                }, { once: true });
+            }
+            ready = clearAfterSignOut().catch(() => false).then(() => {
+                forgetSignedOut();
+                if (clinicLogin) {
+                    try { root.localStorage.setItem('speakr.clinic-sign-out', String(Date.now())); } catch (e) { /* unavailable */ }
+                }
+            });
+            if (clinicLogin) {
+                const waitForCleanup = (event) => {
+                    event.preventDefault();
+                    const form = event.target;
+                    const submitter = event.submitter;
+                    ready.then(() => form.requestSubmit(submitter || undefined));
+                };
+                root.document.addEventListener('submit', waitForCleanup, true);
+                ready.then(() => root.document.removeEventListener('submit', waitForCleanup, true));
+            }
         }
         if (script && script.dataset && 'register' in script.dataset) {
             const start = () => { ready.then(register); };
@@ -282,6 +311,7 @@
         register,
         localCopies,
         clearAfterSignOut,
+        setClinicSwitch(handler) { clinicSwitch = handler; },
         /** Resolved when the clearing after a sign-out, if any, is done. */
         get ready() { return ready; },
         workerUrl,

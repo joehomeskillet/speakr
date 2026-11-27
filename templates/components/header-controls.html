@@ -142,12 +142,32 @@
                 </button>
             </div>
             <hr>
+            {% if request.endpoint == 'recordings.index' or clinic_case_marker %}
+            <button type="submit" form="clinic-sign-out" class="v8-item" role="menuitem" style="min-height:48px"><i class="fas fa-sign-out-alt" aria-hidden="true"></i><span>Benutzer wechseln</span></button>
+            {% else %}
             <form method="POST" action="/logout" style="margin: 0">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="v8-item" role="menuitem"><i class="fas fa-sign-out-alt" aria-hidden="true"></i><span>Abmelden</span></button>
             </form>
+            {% endif %}
         </div>
     </div>
+    {% endif %}
+    {% if current_user.is_authenticated and (request.endpoint == 'recordings.index' or clinic_case_marker) %}
+    <form id="clinic-sign-out" method="POST" action="/logout" hidden>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    </form>
+    <dialog id="clinic-user-switch" class="v8-page" aria-labelledby="clinic-user-switch-title" aria-describedby="clinic-user-switch-message" style="background:var(--surface)">
+        <h2 id="clinic-user-switch-title" class="mb-2 font-semibold text-lg">Benutzer wechseln</h2>
+        <p id="clinic-user-switch-message" data-switch-message></p>
+        <p role="alert" class="mt-2" hidden></p>
+        <form method="dialog" class="mt-4 flex flex-wrap gap-2">
+            <button type="submit" value="cancel" autofocus style="min-height:48px">Abbrechen</button>
+            <button type="submit" value="save" class="primary" style="min-height:48px" hidden>Speichern und abmelden</button>
+            <button type="submit" value="discard" style="min-height:48px" hidden>Verwerfen und abmelden</button>
+            <button type="submit" value="leave" class="primary" style="min-height:48px" hidden>Abmelden</button>
+        </form>
+    </dialog>
     {% endif %}
 </div>
 {% else %}

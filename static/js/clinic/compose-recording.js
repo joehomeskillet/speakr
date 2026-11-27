@@ -158,6 +158,7 @@ export function createRecordingViewController(options) {
     const listeners = new Set();
     const state = { mode: 'record', file: null, filePhase: 'idle', fileError: null, fileReceipt: null, disposed: false };
     let fileGeneration = 0;
+    let switchingUser = false;
     let submission = null;
     let submitError = '';
     let pendingSend = null;
@@ -191,7 +192,7 @@ export function createRecordingViewController(options) {
     function setMode(mode) {
         if (!allowed()) return denied('unauthorized');
         if (!MODES.includes(mode)) return denied('invalid_mode');
-        if (recorderBusy() || state.filePhase === 'sending' || state.filePhase === 'sent') return denied('invalid_phase');
+        if (machine.capturePending() || recorderBusy() || state.filePhase === 'sending' || state.filePhase === 'sent') return denied('invalid_phase');
         if (mode !== state.mode) {
             state.mode = mode;
             notify();
@@ -451,14 +452,61 @@ export function createRecordingViewController(options) {
         };
     }
 
+    const switchBusy = () => machine.capturePending() || machine.getState().phase === 'sending'
+        || state.filePhase === 'sending' || submission === 'checkingTarget' || submission === 'submitting'
+        || !!pendingSend;
+    const hasDraft = () => {
+        const { phase: capturePhase, title } = machine.getState();
+        return switchBusy() || (capturePhase !== 'sent' && (recorderBusy() || !!title.trim()))
+            || (!!state.file && state.filePhase !== 'sent');
+    };
+
+    async function prepare(action) {
+        if (state.disposed || switchingUser || switchBusy()) return false;
+        if (!['save', 'discard', 'leave'].includes(action) || (action === 'leave' && hasDraft())) return false;
+        switchingUser = true;
+        try {
+            if (hasDraft()) {
+                const p = machine.getState().phase;
+                if (action === 'save') {
+                    if (state.mode === 'file') {
+                        if (!(await sendFile()).ok) return false;
+                    } else {
+                        if (['recording', 'paused'].includes(p) && !(await machine.stop()).ok) return false;
+                        if (state.disposed || !(await sendRecording()).ok) return false;
+                    }
+                } else {
+                    // The app calls this only after the user confirms discard.
+                    if (state.mode === 'file' && state.file && !cancelFile().ok) return false;
+                    if (p !== 'sent' && !(await machine.cancel()).ok) return false;
+                }
+            }
+            if (state.disposed) return false;
+            await dispose(true);
+            return true;
+        } catch {
+            return false;
+        } finally {
+            switchingUser = false;
+        }
+    }
+
+    const whileActive = (fn) => (...args) => state.disposed || switchingUser ? denied('invalid_phase') : fn(...args);
+
     /** Leaves the view: discards an unsent recording and drops late upload results. */
-    async function dispose() {
+    async function dispose(forSwitch = false) {
         if (state.disposed) return;
         state.disposed = true;
         fileGeneration += 1;
+        if (forSwitch) {
+            Object.assign(state, { file: null, filePhase: 'idle', fileError: null, fileReceipt: null });
+            submission = sendPreview = null;
+            confirmedTarget = submitError = '';
+            machine.clearForSwitch();
+        }
         listeners.clear();
         const p = machine.getState().phase;
-        if (p !== 'sending' && p !== 'sent') {
+        if (!forSwitch && p !== 'sending' && p !== 'sent') {
             try {
                 await machine.cancel();
             } catch (e) {
@@ -475,14 +523,18 @@ export function createRecordingViewController(options) {
             listeners.add(listener);
             return () => listeners.delete(listener);
         },
-        setMode, setTitle: (value) => machine.setTitle(value),
-        start: () => routing || state.mode !== 'record' || state.disposed ? denied('invalid_phase') : machine.start(),
-        pause: () => machine.pause(), resume: () => machine.resume(),
-        stop: () => machine.stop(), rewind: () => machine.rewind(), play: () => machine.play(),
+        setMode: whileActive(setMode), setTitle: whileActive(machine.setTitle),
+        start: whileActive(() => routing || state.mode !== 'record' ? denied('invalid_phase') : machine.start()),
+        pause: whileActive(machine.pause), resume: whileActive(machine.resume),
+        stop: whileActive(machine.stop), rewind: machine.rewind, play: machine.play,
         beginning: machine.beginning, end: machine.end,
-        send: () => machine.send(), cancel: () => machine.cancel(),
-        selectFile, sendFile, cancelFile, prepareSubmit, selectTarget, cancelSubmit, submit, sendRecording, checkRouting,
-        openCreated, toWorklist, another, dispose,
+        send: whileActive(machine.send), cancel: whileActive(machine.cancel),
+        selectFile: whileActive(selectFile), sendFile: whileActive(sendFile), cancelFile: whileActive(cancelFile),
+        prepareSubmit: whileActive(prepareSubmit), selectTarget, cancelSubmit, submit: whileActive(submit),
+        sendRecording: whileActive(sendRecording), checkRouting,
+        openCreated: () => !state.disposed && !switchingUser && openCreated(),
+        toWorklist: () => !state.disposed && !switchingUser && toWorklist(), another: whileActive(another), dispose,
+        hasDraft, prepare,
     };
 }
 
@@ -600,6 +652,8 @@ export const RecordingView = {
     setup(props, ctx) {
         const V = props.vue || (typeof window !== 'undefined' ? window.Vue : null);
         if (!V) throw new Error('Vue is required to mount the recording view');
+        const registerSwitch = V.inject?.('clinicUserSwitch', null);
+        let unregisterSwitch;
         const emit = (name, payload) => { if (ctx && typeof ctx.emit === 'function') ctx.emit(name, payload); };
         const c = createRecordingViewController({
             client: props.client,
@@ -700,12 +754,14 @@ export const RecordingView = {
         };
         let doc;
         V.onMounted?.(() => {
+            unregisterSwitch = registerSwitch?.({ hasDraft: c.hasDraft, prepare: c.prepare });
             doc = root.value?.ownerDocument;
             doc?.addEventListener('keydown', onKeydown);
             globalThis.window?.addEventListener('keydown', space);
         });
         V.onMounted?.(() => { void c.checkRouting(); });
         V.onBeforeUnmount?.(() => {
+            unregisterSwitch?.();
             doc?.removeEventListener('keydown', onKeydown);
             globalThis.window?.removeEventListener('keydown', space);
             off();

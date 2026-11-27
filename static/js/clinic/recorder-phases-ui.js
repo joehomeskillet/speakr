@@ -122,6 +122,7 @@ export function createRecorderPhases(options) {
     const { recorder, player = null, api = null, authorized = () => true, automaticTitle = false } = options;
     let media = player;
     let capturePending = false;
+    let discardPending = false;
     const listeners = new Set();
     let generation = 0;
     let state = { phase: 'title', title: '', error: null, receipt: null };
@@ -283,14 +284,18 @@ export function createRecorderPhases(options) {
     async function cancel() {
         if (!authorized()) return denied('unauthorized');
         if (state.phase === 'sending' || state.phase === 'sent') return denied('invalid_phase');
+        if (discardPending) return denied('capture_pending');
         generation += 1;
         media?.pause?.();
         if (state.phase !== 'title' && state.phase !== 'ready') {
+            discardPending = true;
             try {
                 await recorder.discardRecording();
             } catch (e) {
                 set({ error: 'discard_failed' });
                 return denied('discard_failed');
+            } finally {
+                discardPending = false;
             }
         }
         if (api && typeof api.switchContext === 'function') api.switchContext({});
@@ -343,6 +348,12 @@ export function createRecorderPhases(options) {
 
     return {
         getState: () => state,
+        capturePending: () => capturePending || discardPending,
+        clearForSwitch() {
+            media?.pause?.();
+            media = null;
+            set({ phase: 'title', title: '', error: null, receipt: null });
+        },
         subscribe(listener) {
             listeners.add(listener);
             return () => listeners.delete(listener);

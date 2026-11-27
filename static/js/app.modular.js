@@ -277,6 +277,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const appRootElement = document.getElementById('app');
     const clinicMode = appRootElement?.dataset?.clinicMode === 'True';
     if (clinicMode) {
+        await window.SpeakrServiceWorker?.ready;
         try {
             const [{ createClinicApiClient }, { registerWorklistView }, { registerResourcesView }, { registerCorrectionView, resolveClinicOpenTarget }, { registerRecordingsView }, { createDictationChoices }, { readStartSelection }] = await Promise.all([
                 import('./clinic/api-client.js'),
@@ -426,6 +427,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         return window.i18n.t(key, params);
     };
 
+    let registerSwitchDraft;
     const app = createApp({
         setup() {
             // =========================================================================
@@ -3132,6 +3134,121 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return response.json();
             };
             const clinicRecorder = clinicMenu?.createClinicRecorder(audioComposable, state, clinicUploadFile);
+            let clinicLeaving = false;
+            if (clinicMode) {
+                let draft = null;
+                registerSwitchDraft = (adapter) => {
+                    draft = adapter;
+                    return () => { if (draft === adapter) draft = null; };
+                };
+                const clearClinicContext = () => {
+                    clinicWorklist?.client.switchContext({ accountId: 'signed-out' });
+                    clinicAdminClient?.switchContext();
+                    chatThreads.clearAll();
+                    for (const media of appRootElement.querySelectorAll('audio, video')) media.pause();
+                };
+                onMounted(() => {
+                    const dialog = document.getElementById('clinic-user-switch');
+                    if (!dialog) return;
+                    const message = dialog.querySelector('[data-switch-message]');
+                    const error = dialog.querySelector('[role="alert"]');
+                    const form = dialog.querySelector('form');
+                    const choices = [...form.querySelectorAll('button[value]')];
+                    const showChoices = (...actions) => {
+                        for (const button of choices) {
+                            button.hidden = !actions.includes(button.value);
+                            button.disabled = false;
+                        }
+                    };
+                    let decide;
+                    form.addEventListener('submit', (event) => {
+                        event.preventDefault();
+                        decide?.(event.submitter?.value);
+                    });
+                    dialog.addEventListener('cancel', (event) => {
+                        event.preventDefault();
+                        decide?.('cancel');
+                    });
+                    dialog.addEventListener('keydown', (event) => {
+                        if (event.key !== 'Escape') return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        decide?.('cancel');
+                    });
+                    const choose = () => new Promise((resolve) => {
+                        decide = (action) => {
+                            decide = null;
+                            resolve(action);
+                        };
+                        if (!dialog.open) dialog.showModal();
+                        choices[0].focus();
+                    });
+                    window.SpeakrServiceWorker.setClinicSwitch(async (copies) => {
+                        const active = draft;
+                        const looseAudio = !active && !!audioComposable.hasUnsavedRecording();
+                        const unsaved = !!active?.hasDraft();
+                        const uploadsBusy = () => uploadQueue.value.some(({ status }) => ['queued', 'ready', 'uploading'].includes(status));
+                        const loss = unsaved || copies > 0 || looseAudio;
+                        error.hidden = true;
+                        message.textContent = loss
+                            ? unsaved
+                                ? 'Das geöffnete Diktat hat ungespeicherte Änderungen. Wenn Sie speichern, bleiben die Änderungen beim Diktat. Die nächste Anmeldung öffnet es nicht automatisch.'
+                                : 'In diesem Browser gibt es Aufnahmen, die noch nicht gespeichert sind.'
+                            : 'Nach dem Abmelden kann sich eine andere Person anmelden.';
+                        showChoices('cancel', loss ? 'discard' : 'leave', unsaved ? 'save' : null);
+                        try {
+                            let action = await choose();
+                            if (action === 'discard') {
+                                message.textContent = 'Nicht gespeicherter Text und nicht gespeicherte Aufnahmen in diesem Browser gehen verloren. Gespeicherte Diktate bleiben erhalten.';
+                                showChoices('cancel', 'discard');
+                                action = await choose();
+                            } else if (action === 'save' && (copies > 0 || looseAudio)) {
+                                message.textContent = 'Das geöffnete Diktat wird gespeichert. Andere nicht gespeicherte Aufnahmen in diesem Browser gehen verloren.';
+                                showChoices('cancel', 'save');
+                                action = await choose();
+                            }
+                            if (!['save', 'discard', 'leave'].includes(action)) return false;
+                            message.textContent = action === 'save' ? 'Speichern läuft …' : 'Abmeldung wird vorbereitet …';
+                            for (const button of choices) button.disabled = true;
+                            if (uploadsBusy() || active !== draft || (active && !(await active.prepare(action)))) {
+                                throw new Error('switch_not_ready');
+                            }
+                            if (looseAudio) await audioComposable.discardRecording();
+                            clearClinicContext();
+                            clinicLeaving = true;
+                            if (action === 'save') {
+                                try { sessionStorage.setItem('speakr.clinic-switch-saved', '1'); } catch { /* storage unavailable */ }
+                            }
+                            return true;
+                        } catch {
+                            message.textContent = 'Sie bleiben angemeldet.';
+                            error.textContent = 'Der Wechsel konnte nicht abgeschlossen werden. Prüfen Sie das Diktat oder warten Sie, bis die Übertragung fertig ist.';
+                            error.hidden = false;
+                            showChoices('cancel');
+                            await choose();
+                            return false;
+                        } finally {
+                            dialog.close();
+                        }
+                    });
+                    window.addEventListener('storage', (event) => {
+                        if (event.key !== 'speakr.clinic-sign-out' || clinicLeaving) return;
+                        clinicLeaving = true;
+                        clearClinicContext();
+                        appRootElement.style.display = 'none';
+                        window.location.replace('/');
+                    });
+                    window.addEventListener('pagehide', () => {
+                        if (clinicLeaving) appRootElement.style.display = 'none';
+                    });
+                    window.addEventListener('pageshow', (event) => {
+                        if (!event.persisted) return;
+                        clinicLeaving = true;
+                        appRootElement.style.display = 'none';
+                        window.location.reload();
+                    });
+                });
+            }
             // Live-Diktat runs on an existing dictation: ?dictation=<id> or the id typed into the picker.
             const clinicLiveChoices = clinicWorklist ? clinicWorklist.createDictationChoices({ client: clinicWorklist.client, makeState: reactive, authorId: clinicWorklist.user.id }) : null;
             const clinicInitialLiveId = new URLSearchParams(window.location.search).get('dictation');
@@ -5089,6 +5206,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 // Prevent data loss on tab close/refresh during recording
                 window.addEventListener('beforeunload', (e) => {
+                    if (clinicLeaving) return;
                     // Check for unsaved recording
                     if (audioComposable.hasUnsavedRecording()) {
                         e.preventDefault();
@@ -5509,6 +5627,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         return window.i18n.tc(key, count, params);
     };
 
+    if (clinicMode) app.provide('clinicUserSwitch', (adapter) => registerSwitchDraft(adapter));
     app.provide('t', safeT);
     app.provide('tc', (key, count, params = {}) => {
         if (!window.i18n || !window.i18n.tc) {
