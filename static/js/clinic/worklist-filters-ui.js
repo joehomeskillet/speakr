@@ -22,9 +22,8 @@ export const MAX_FILTERS = 20;
 export const MAX_NAME_LENGTH = 60;
 export const MAX_CONDITIONS = 20;
 export const MAX_QUERY_LENGTH = 200;
-// V8 P02: staff_pool and lease_holder filter by ID; author is "Diktiert von". The server-side
-// field list (src/clinic/saved_filters.py) must accept staff_pool and lease_holder before use.
-export const FIELDS = ['status', 'priority', 'author', 'staff_pool', 'lease_holder', 'pool', 'title', 'created', 'deadline', 'assignee', 'audio_seconds'];
+// staff_pool and lease_holder are not offered: src/clinic/saved_filters.py does not support them. 'author' is "Diktiert von".
+export const FIELDS = ['status', 'priority', 'author', 'pool', 'title', 'created', 'deadline', 'assignee', 'audio_seconds'];
 export const OPERATORS = ['eq', 'ne', 'contains', 'startswith', 'lt', 'le', 'gt', 'ge', 'in', 'is_null'];
 
 const META_KEY = /^[a-z0-9_]{1,40}$/;
