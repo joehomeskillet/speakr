@@ -240,7 +240,7 @@ export const CommandsTemplatesView = {
         // Existing building blocks, built on first use of their kind.
         const build = {
             commands: () => createVoiceCommandsComponent(Vue),
-            templates: () => templatesComponent(Vue, { client: props.client }),
+            templates: () => templatesComponent(Vue, { client: props.client, listQuery: '?scope=management' }),
         };
         const showChild = Vue.computed(() => !ctrl.state.denied && (ctrl.state.status === 'ready' || ctrl.state.status === 'empty'));
         const childComponent = Vue.computed(() => {

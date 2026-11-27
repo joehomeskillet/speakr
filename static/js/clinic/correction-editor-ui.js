@@ -123,7 +123,8 @@ export function useCorrectionEditor(options) {
 
     client.switchContext({ accountId: user.id != null ? user.id : null, dictationId });
 
-    const manager = createTemplatesManager({ client, reactive: refs.reactive });
+    const listQuery = '?dictation_id=' + encodeURIComponent(dictationId);
+    const manager = createTemplatesManager({ client, reactive: refs.reactive, listQuery });
     const lease = createLeaseController({ client, dictationId, mayTakeOver: user.mayTakeOver === true });
     const leaseState = refs.shallow(lease.getState());
 

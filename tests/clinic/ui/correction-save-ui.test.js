@@ -20,7 +20,7 @@ function routes(extra) {
             state: { version: 3, audio_position_ms: 4200 },
         }),
         ['GET ' + base + '/audio-revisions/current']: ok({ revision_id: AUDIO, segments: [] }),
-        'GET /templates': ok({ items: [] }),
+        ['GET /templates?dictation_id=' + D]: ok({ items: [] }),
         ['POST ' + base + '/leases']: ok({ lease_id: 'L1', generation: 5, expires_at: new Date(Date.now() + 600000).toISOString() }),
         ['POST ' + base + '/correction/save']: ok({ text_revision_id: REV2, state_version: 4, audio_position_ms: 9000, derived_links: [] }),
         ...(extra || {}),

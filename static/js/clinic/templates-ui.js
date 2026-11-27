@@ -98,7 +98,7 @@ function scopeKey(row) {
 }
 
 /**
- * @param {{client?: object, reactive?: Function}} [options]
+ * @param {{client?: object, reactive?: Function, listQuery?: string}} [options]
  */
 export function createTemplatesManager(options) {
     const client = (options && options.client) || createClinicApiClient();
@@ -170,7 +170,7 @@ export function createTemplatesManager(options) {
 
     async function load() {
         setStatus('processing');
-        const row = await client.request(TEMPLATES);
+        const row = await client.request(TEMPLATES + (options?.listQuery || ''));
         if (row.outcome !== 'ok') return failure(row, 'permission');
         const rows = (row.data && row.data.items) || [];
         for (const item of state.items) if (!rows.some((next) => next.id === item.id)) item.active = false;

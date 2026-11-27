@@ -26,6 +26,7 @@ from flask_wtf.csrf import CSRFError, validate_csrf
 from wtforms.validators import ValidationError
 
 from src.clinic import policy, pool_policy, presets
+from src.clinic.app_wiring import choose_author_pool
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.models import ClinicDictation
 from src.clinic.workflow import ClinicWorkflowDictation
@@ -109,9 +110,15 @@ def validate_marker(marker: str | None) -> None:
         raise TemplateError("invalid_marker", 422)
 
 
-def visible_templates(user_id: int, include_system: bool = True) -> list[presets.ClinicTemplate]:
-    """Active templates the user may read: system, own author pools, own user templates."""
-    pool_ids = list(pool_policy.author_pool_ids(user_id))
+def visible_templates(
+    user_id: int, include_system: bool = True, *, management: bool = False,
+) -> list[presets.ClinicTemplate]:
+    """List effective templates, or all current member scopes for explicit management."""
+    if management:
+        pool_ids = list(pool_policy.author_pool_ids(user_id))
+    else:
+        pool_id = choose_author_pool(user_id)
+        pool_ids = [pool_id] if pool_id is not None else []
     return presets.list_templates(
         user_id=str(user_id),
         pool_ids=pool_ids,
@@ -192,7 +199,7 @@ def _can_read_template(actor_id: int, row: presets.ClinicTemplate) -> bool:
 
 
 def _requested_dictation_id() -> str | None:
-    """Optional case the template menu is opened for. Empty means the admin list."""
+    """Optional case the template menu is opened for."""
     raw = request.args.get("dictation_id")
     if raw is None or str(raw).strip() == "":
         return None
@@ -375,7 +382,7 @@ def list_templates():
     try:
         dictation_id = _requested_dictation_id()
         if dictation_id is None:
-            rows = visible_templates(current_user.id)
+            rows = visible_templates(current_user.id, management=request.args.get("scope") == "management")
         else:
             rows = templates_for_dictation(current_user.id, dictation_id)
     except TemplateError as err:
