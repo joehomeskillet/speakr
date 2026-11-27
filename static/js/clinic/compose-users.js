@@ -24,6 +24,7 @@
 import { createAccountsAdmin, AccountsAdminPanel } from './accounts-ui.js';
 import { createPoolsStore, POOL_TYPES } from './pools-ui.js';
 import { createGrantsComponent } from './grants-ui.js';
+import { createStatisticsGrantsPanel } from './statistics-grants-ui.js';
 import { surfaceFor } from './tokens.js';
 
 export const SECTIONS = Object.freeze([
@@ -31,6 +32,9 @@ export const SECTIONS = Object.freeze([
     Object.freeze({ id: 'pools', label: 'Poolbezüge' }),
     Object.freeze({ id: 'grants', label: 'Fachrechte' }),
 ]);
+
+const STATISTICS_SECTION = Object.freeze({ id: 'statistics', label: 'Statistikzugriff' });
+const ADMIN_SECTIONS = Object.freeze([...SECTIONS, STATISTICS_SECTION]);
 
 export const LABELS = Object.freeze({
     title: 'Benutzer und Rollen',
@@ -99,7 +103,7 @@ export function createUsersController(deps) {
     }
 
     function select(id) {
-        if (disposed || state.denied || state.forbidden || !SECTIONS.some((s) => s.id === id)) return false;
+        if (disposed || state.denied || state.forbidden || !ADMIN_SECTIONS.some((s) => s.id === id)) return false;
         state.active = id;
         return true;
     }
@@ -190,17 +194,17 @@ export const USERS_TEMPLATE = `
       <h1>{{ labels.title }}</h1>
       <p class="subline">{{ labels.subline }}</p>
     </div>
-    <div v-if="accounts.loaded && !state.denied && !state.forbidden" class="head-actions">
+    <div v-if="accounts.loaded && !state.denied && !state.forbidden && state.active !== 'statistics'" class="head-actions">
       <button type="button" class="primary" :disabled="accounts.busy" @click="startCreate"><span aria-hidden="true">+</span> Konto anlegen</button>
     </div>
   </div>
   <p v-if="state.denied" role="alert" class="note burgundy">{{ labels.deniedAnonymous }}</p>
   <p v-else-if="state.forbidden" role="alert" class="note burgundy">{{ labels.denied }}</p>
   <template v-else>
-    <nav class="tabs" :aria-label="labels.sections">
+    <nav class="tabs" :aria-label="labels.sections" :style="canManageStatistics ? { flexWrap: 'wrap' } : null">
       <button v-for="s in sections" :key="s.id" type="button" :id="'usr-sec-' + s.id"
         :aria-current="state.active === s.id ? 'true' : 'false'"
-        :style="state.active === s.id ? { borderBottomColor: 'var(--burgundy)', color: 'var(--v8-text)' } : null"
+        :style="{ minHeight: canManageStatistics ? 'var(--sp-7)' : null, borderBottomColor: state.active === s.id ? 'var(--burgundy)' : null, color: state.active === s.id ? 'var(--v8-text)' : null }"
         @click="select(s.id)">{{ s.label }}</button>
     </nav>
     <p v-if="accounts.loading" role="status" aria-live="polite" class="hint">{{ labels.loading }}</p>
@@ -210,17 +214,17 @@ export const USERS_TEMPLATE = `
     <div v-if="accounts.loaded" role="region" :class="{ panel: state.active !== 'accounts' }" :aria-labelledby="'usr-sec-' + state.active">
       <div v-if="state.active !== 'accounts'" class="cadm-subsection-head">
         <div>
-          <h2>{{ state.active === 'grants' ? sections[2].label : sections[1].label }}</h2>
+          <h2 :class="state.active === 'statistics' ? 'break-words min-w-0' : null">{{ sections.find((s) => s.id === state.active)?.label }}</h2>
         </div>
         <div class="field">
           <label for="usr-pick">{{ labels.user }}</label>
-          <select id="usr-pick" :value="state.selectedId === null ? '' : String(state.selectedId)" @change="selectUser($event.target.value)">
+                     <select id="usr-pick" :style="state.active === 'statistics' ? { minHeight: 'var(--sp-7)', borderColor: 'var(--v8-text-2)' } : null" :value="state.selectedId === null ? '' : String(state.selectedId)" @change="selectUser($event.target.value)">
             <option value="">Konto wählen</option>
             <option v-for="a in accounts.accounts" :key="a.id" :value="String(a.id)">{{ a.username }}</option>
           </select>
         </div>
       </div>
-      <p v-if="state.active === 'grants' && state.selectedId === null" class="hint" role="status">{{ labels.pickUser }}</p>
+      <p v-if="(state.active === 'grants' || state.active === 'statistics') && state.selectedId === null" class="hint" role="status">{{ labels.pickUser }}</p>
       <component v-else :is="activeComponent" v-bind="activeProps" :key="state.epoch + ':' + state.active + ':' + state.selectedId"></component>
       <div v-if="state.active === 'accounts'" class="cadm-login-shortcut">
         <label for="usr-login-account">Anmelderichtlinie für</label>
@@ -262,6 +266,9 @@ export const UsersView = {
         });
         const accountsPanel = Vue.markRaw(AccountsAdminPanel);
         const poolsPanel = Vue.markRaw(createPoolsPanel(Vue));
+        const statisticsPanel = Vue.markRaw(createStatisticsGrantsPanel(Vue));
+        const canManageStatistics = Vue.computed(() => props.currentUser?.is_admin === true);
+        const sections = Vue.computed(() => canManageStatistics.value ? ADMIN_SECTIONS : SECTIONS);
         const grantsCache = {};
         const grantsFor = (userId) => {
             const canEdit = props.currentUser?.is_admin === true;
@@ -277,17 +284,22 @@ export const UsersView = {
             const id = ctrl.state.active;
             if (id === 'accounts') return accountsPanel;
             if (id === 'pools') return poolsPanel;
+            if (id === 'statistics') return canManageStatistics.value ? statisticsPanel : null;
             return ctrl.state.selectedId === null ? null : grantsFor(ctrl.state.selectedId);
         });
         const activeProps = Vue.computed(() => {
             const id = ctrl.state.active;
             if (id === 'accounts') return { controller: ctrl.accounts, embedded: true };
             if (id === 'pools') return { client: props.client, userId: ctrl.state.selectedId };
+            if (id === 'statistics') return { client: props.client, adminClient: props.adminClient || props.client, userId: ctrl.state.selectedId };
             return {};
         });
         Vue.watch(() => userIdOf(props.currentUser), () => {
             ctrl.setUser(props.currentUser);
             ctrl.load();
+        });
+        Vue.watch(() => canManageStatistics.value, (allowed) => {
+            if (!allowed && ctrl.state.active === 'statistics') ctrl.select('accounts');
         });
         Vue.onMounted(() => ctrl.load());
         Vue.onBeforeUnmount(() => ctrl.dispose());
@@ -311,8 +323,9 @@ export const UsersView = {
                 ctrl.accounts.startCreate();
                 Vue.nextTick(() => document.getElementById('acc-username')?.focus());
             },
-            stats, state: ctrl.state, accounts: ctrl.accounts.state, sections: SECTIONS, labels: LABELS, errorStyle,
-            select: ctrl.select, load: ctrl.load, selectUser: ctrl.selectUser, activeComponent, activeProps,
+            stats, state: ctrl.state, accounts: ctrl.accounts.state, sections, canManageStatistics, labels: LABELS, errorStyle,
+            select: (id) => sections.value.some((s) => s.id === id) && ctrl.select(id),
+            load: ctrl.load, selectUser: ctrl.selectUser, activeComponent, activeProps,
         };
     },
 };
