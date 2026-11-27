@@ -75,7 +75,8 @@ _SEND_CONFLICTS = {
     'no_staff_pool': 'Kein Schreibkräfte-Pool zugeordnet.',
 }
 _STATUS = {'forbidden': 403, 'unauthorized': 403, 'not_found': 404, 'clinic_disabled': 404,
-           'audit_unavailable': 503}
+           'audit_unavailable': 503, 'recipient_not_eligible': 403, 'choice_disabled': 403,
+           'person_not_allowed': 403}
 _CATEGORY_STATUS = {
     'invalid_payload': 400, 'unauthorized': 403, 'unknown_category_set': 404,
     'stale_version': 409, 'missing_category': 422, 'invalid_category': 422,
@@ -504,9 +505,27 @@ def create_blueprint(
     @bp.post(f'{PATH}/send')
     def send(dictation_id: UUID):
         body = request.get_json(silent=True)
-        if not isinstance(body, dict) or set(body) - {'categories'}:
+        if body is None and not request.get_data():
+            body = {}
+        if not isinstance(body, dict) or body.keys() - {'categories', 'override', 'expected_version'}:
             abort(400)
         selections = body.get('categories', [])
+        default_version = body.get('expected_version')
+        if 'expected_version' in body and (type(default_version) is not int or default_version < 0):
+            abort(400)
+        override = body.get('override')
+        if 'override' in body:
+            if (not isinstance(override, dict) or not isinstance(override.get('mode'), str)
+                    or override.keys() - {'mode', 'target_ids'}):
+                abort(400)
+            targets = override.get('target_ids', [])
+            if not isinstance(targets, list):
+                abort(400)
+            if override['mode'] == 'person' and len(targets) == 1:
+                person = targets[0]
+                if (not isinstance(person, str) or len(person) > 19 or not person.isascii()
+                        or not person.isdecimal() or not 0 < int(person) <= 2**63 - 1):
+                    abort(400)
 
         def apply(row, expected, _key, now):
             if row.version_counter != expected:
@@ -516,9 +535,13 @@ def create_blueprint(
                 raise workflow.WorkflowError('not_draft')
             if db.session.query(ClinicAudioRevision.id).filter_by(dictation_id=row.id).first() is None:
                 raise workflow.WorkflowError('audio_required')
+            if item.pool_id != row.pool_id or row.pool_id not in author_pool_ids(current_user.id):
+                raise workflow.WorkflowError('forbidden')
             if not pools.routable_staff_pool_ids(row.pool_id, now):
                 raise workflow.WorkflowError('no_staff_pool')
             check_submission(current_user.id, selections)
+            workflow.store_routing_target(db.session(), row.id, actor_id=current_user.id,
+                                          override=override, expected_version=default_version)
             note = selection_notes(current_user.id, selections)
             fields = ['workflow_status', 'workflow_send']
             if note:
@@ -530,7 +553,6 @@ def create_blueprint(
                 fields.append('notes')
 
             workflow.transition(db.session(), row.id, 'send_online')
-            workflow.store_routing_target(db.session(), row.id, actor_id=current_user.id)
             settled = recognition_state.settle(db.session(), row.id)
             row.version_counter += 1
             if audit.record_in_tx('recording.edited', recording_id=row.recording_id,
