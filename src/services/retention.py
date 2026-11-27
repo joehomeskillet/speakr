@@ -101,6 +101,8 @@ def process_auto_deletion():
     Each recording and its mandatory evidence commit in one transaction.
     """
     from src.clinic.archive import archive_for_retention, lock_recording
+    from src.clinic.config import clinic_mode_enabled
+    from src.clinic.retention_eligibility import eligible_for_retention
 
     if not _self.ENABLE_AUTO_DELETION:
         return api_error("auto_deletion_disabled")
@@ -137,7 +139,10 @@ def process_auto_deletion():
                 if not retention_days:
                     stats["skipped_no_retention"] += 1
                     continue
-                if recording.created_at is None or recording.created_at >= current_time - timedelta(days=retention_days):
+                if clinic_mode_enabled():
+                    if not eligible_for_retention(recording, now=current_time, retention_days=retention_days):
+                        continue
+                elif recording.created_at is None or recording.created_at >= current_time - timedelta(days=retention_days):
                     continue
                 matching_tags = [tag.id for tag in retention_tags(recording)
                                  if tag.retention_days == retention_days and tag.retention_days > 0]

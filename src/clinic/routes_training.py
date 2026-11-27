@@ -13,6 +13,13 @@ The services bind a manifest to its own author (actor == subject), so a manifest
 always built for the calling admin's own dictations; an admin cannot start a run for
 another user.
 
+POST /runs may also send one window (local ``start``/``end``), ``weekdays``
+(Monday is 0), ``min_utterances`` and ``min_audio_seconds``. Those fields go
+to ``ScheduleConfig``. Each included item counts as one utterance; audio
+seconds are the stored recording duration, and a missing duration counts as
+none. Outside the window the answer is ``deferred`` and names the next start;
+too little material is ``insufficient_data``. Neither outcome queues a job.
+
 Mounting needs the route-policy rows in ``ENDPOINTS`` (admin) and one
 ``register_blueprint(routes_training.blueprint)`` in clinic mode; both belong to the
 consumer package (see handover).
@@ -37,6 +44,7 @@ from src.clinic.training_schedule import (
     PARAM,
     ScheduleConfig,
     TrainingScheduleError,
+    parse_window,
     schedule_training,
     training_state,
 )
@@ -44,7 +52,10 @@ from src.database import db
 
 PREFIX = "/api/admin/clinic/training"
 MAX_BODY_BYTES = 4 * 1024
-_START_KEYS = {"kind", "scope", "pool_id", "expected_profile_version"}
+_START_KEYS = {
+    "kind", "scope", "pool_id", "expected_profile_version",
+    "window", "weekdays", "min_utterances", "min_audio_seconds",
+}
 _STATUS = {
     "unauthorized": 403, "stale_version": 409, "profile_missing": 404,
     "clinic_mode_required": 404, "not_found": 404,
@@ -148,6 +159,72 @@ def _query_manifest_args():
     return kind, scope, pool_id
 
 
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _whole_number(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _audio_seconds(value) -> bool:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    number = float(value)
+    return number >= 0.0 and number != float("inf")
+
+
+def _weekday_list(value) -> bool:
+    return (
+        isinstance(value, list)
+        and len(value) > 0
+        and all(_whole_number(day) for day in value)
+    )
+
+
+def _material_stats(manifest: dict) -> dict:
+    """Stored duration per revision. One utterance per item; unknown duration is no audio."""
+    from src.models import Recording
+
+    stats = {}
+    for item in manifest["items"]:
+        dictation = db.session.get(ClinicDictation, item["dictation_id"])
+        recording = None if dictation is None else db.session.get(Recording, dictation.recording_id)
+        seconds = None if recording is None else recording.audio_duration_seconds
+        stats[item["transcript_revision_id"]] = {
+            "audio_seconds": 0.0 if seconds is None else max(float(seconds), 0.0),
+            "utterances": 1,
+        }
+    return stats
+
+
+def _schedule_config(body: dict) -> ScheduleConfig:
+    """Forward the optional window and data floors. Shapes that do not fit are refused."""
+    utterances = body["min_utterances"] if "min_utterances" in body else 1
+    audio_seconds = body["min_audio_seconds"] if "min_audio_seconds" in body else 0
+    if not _whole_number(utterances) or not _audio_seconds(audio_seconds):
+        raise TrainingScheduleError("invalid_payload")
+    if "weekdays" in body and "window" not in body:
+        raise TrainingScheduleError("invalid_payload")
+    windows = ()
+    if "window" in body:
+        window = body["window"]
+        if not isinstance(window, dict) or set(window) != {"start", "end"}:
+            raise TrainingScheduleError("invalid_payload")
+        start, end = window["start"], window["end"]
+        if not isinstance(start, str) or not isinstance(end, str):
+            raise TrainingScheduleError("window_invalid")
+        days = None
+        if "weekdays" in body:
+            days = body["weekdays"]
+            if not _weekday_list(days):
+                raise TrainingScheduleError("window_invalid")
+        windows = (parse_window(start, end, days),)
+    return ScheduleConfig(
+        windows=windows, min_utterances=utterances, min_audio_seconds=float(audio_seconds),
+    )
+
+
 @blueprint.route(PREFIX + "/manifest", methods=["GET"])
 def manifest():
     """Sealed manifest of the admin's own approved corrections (read only, starts nothing)."""
@@ -177,12 +254,16 @@ def start():
     version = body.get("expected_profile_version")
     if isinstance(version, bool) or not isinstance(version, int):
         return _refuse("invalid_payload")
+    try:
+        config = _schedule_config(body)
+    except TrainingScheduleError as error:
+        return _refuse(error.code)
     pool_id = body.get("pool_id")
     try:
         sealed = _own_manifest(body.get("kind", "language_model"), body.get("scope", "author"), pool_id)
         result = schedule_training(
-            current_user.id, sealed, config=ScheduleConfig(),
-            now=datetime.now(timezone.utc), expected_profile_version=version,
+            current_user.id, sealed, config=config, stats=_material_stats(sealed),
+            now=_now(), expected_profile_version=version,
         )
     except (TrainingManifestError, TrainingScheduleError) as error:
         db.session.rollback()

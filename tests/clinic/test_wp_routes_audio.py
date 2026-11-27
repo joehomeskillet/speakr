@@ -33,7 +33,8 @@ EXPECTED = {
 }
 
 SCRIPT = r'''
-import json, sys, uuid
+import hashlib, io, json, os, sys, uuid, wave, zipfile
+from pathlib import Path
 from datetime import datetime, timezone
 from src.app import app, db
 from src.init_db import initialize_database
@@ -82,8 +83,29 @@ with app.app_context():
     asr = add_asr_revision(dic, orig, BODY, "model:test")
     head = init_audio_revision(dic, orig, 1000)
     lease = acquire(dic.id, ids["a"], datetime.now(timezone.utc), duration=3600)
+    # A second dictation whose original is a real file. The first one stays without
+    # bytes so derived playback still answers unavailable.
+    ms, rate = 1000, 16000
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as writer:
+        writer.setparams((1, 2, rate, rate * ms // 1000, "NONE", "not compressed"))
+        writer.writeframes(b"\x01\x00" * (rate * ms // 1000))
+    pcm = buf.getvalue()
+    storage_key = "clinic/originals/v1/p067.wav"
+    dest = Path(os.environ["UPLOAD_FOLDER"]) / storage_key
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(pcm)
+    rec2 = Recording(user_id=ids["a"], title="Beta", status="COMPLETED", original_filename="b.wav")
+    db.session.add(rec2); db.session.flush()
+    dic2 = ClinicDictation(recording_id=rec2.id, author_user_id=ids["a"], version_counter=0)
+    db.session.add(dic2); db.session.flush()
+    orig2 = ClinicOriginal(dictation_id=dic2.id, content_hash=hashlib.sha256(pcm).hexdigest(),
+                           size_bytes=len(pcm), storage_key=storage_key, receipt="r2", origin_ref="o2")
+    db.session.add(orig2); db.session.flush()
+    add_asr_revision(dic2, orig2, BODY, "model:test")
+    init_audio_revision(dic2, orig2, ms)
     db.session.commit()
-    rec_id, did, head_id, asr_id, gen = rec.id, dic.id, head.id, asr.id, lease.generation
+    rec_id, did, did2, head_id, asr_id, gen = rec.id, dic.id, dic2.id, head.id, asr.id, lease.generation
 
 def login(uid):
     c = app.test_client()
@@ -167,6 +189,27 @@ out["import_no_match"] = ca.post(B + "/import?format=txt", headers={**ha, "Idemp
 out["import_stale"] = ca.post(B + "/import?format=txt", headers={**ha, **imp, "If-Match": '"1"'}, data=b"Text").status_code
 r = ca.post(B + "/import?format=txt", headers={**ha, **imp}, data=b"Text")
 out["import_a"] = [r.status_code, r.get_json()["code"]]
+
+# mounted export of the dictation that has real audio
+from src.clinic.app_wiring import make_source_loader
+from src.clinic.audio_render import render_current_revision
+from src.clinic.audio_revisions import current_audio_revision, get_revision_edl
+from src.clinic.startup import originals_root
+with app.app_context():
+    row = db.session.get(ClinicDictation, did2)
+    rev = current_audio_revision(row)
+    edl = get_revision_edl(row, rev)
+    expected_wav = render_current_revision(row, rev.id, make_source_loader(originals_root(app))(row, edl)).wav
+B2 = f"/api/clinic/v1/bundles/{did2}"
+sdict = ca.get(B2 + "/export?format=sdict")
+txt = ca.get(B2 + "/export?format=txt")
+rtf = ca.get(B2 + "/export?format=rtf")
+archive = zipfile.ZipFile(io.BytesIO(sdict.data))
+out["sdict"] = [sdict.status_code, sdict.mimetype, archive.read("text/body.txt").decode("utf-8"),
+                archive.read("audio/a.wav") == expected_wav]
+out["txt"] = [txt.status_code, txt.mimetype, txt.get_data(as_text=True)]
+out["rtf"] = [rtf.status_code, rtf.mimetype, rtf.data.startswith(b"{\\rtf1"), BODY.encode("ascii") in rtf.data]
+out["sdict_foreign"] = cb.get(B2 + "/export?format=sdict").status_code
 
 # live (+ parity commands on the one dispatcher)
 L = "/api/clinic/v1/live"
@@ -264,6 +307,14 @@ def test_bundle_needs_the_export_grant_and_import_stays_unavailable(on):
     assert on["import_no_match"] == 428
     assert on["import_stale"] == 409
     assert on["import_a"] == [503, "DEPENDENCY_UNAVAILABLE"]
+
+
+def test_mounted_sdict_contains_current_audio_and_text(on):
+    shown = "Anamnese Husten seit drei Tagen."
+    assert on["sdict"] == [200, "application/zip", shown, True]
+    assert on["txt"] == [200, "text/plain", shown]
+    assert on["rtf"] == [200, "application/rtf", True, True]
+    assert on["sdict_foreign"] == 404
 
 
 def test_live_commands_use_the_shared_dispatcher_and_session_actor(on):

@@ -19,6 +19,7 @@ from src.clinic.models import (
     ClinicDictation, ClinicOriginal, ClinicRelease, ClinicTranscriptRevision,
 )
 from src.clinic.archive import ArchiveRestoreDenied
+from src.clinic.workflow import ClinicWorkflowDictation, DONE
 from src.models import AuditEvent, ProcessingJob, Recording, RecordingTag, Tag, User
 from src.services import audit, retention
 from src.services.recording_state import set_user_archived
@@ -76,6 +77,10 @@ def scene(world, clinic_off, monkeypatch, tmp_path):
         dictation = ClinicDictation(recording_id=recording.id, author_user_id=recording.user_id)
         db.session.add(dictation)
         db.session.flush()
+        workflow = ClinicWorkflowDictation(
+            id=dictation.id, author_user_id=recording.user_id, pool_id='fixture', status=DONE,
+        )
+        db.session.add(workflow)
         original = ClinicOriginal(
             dictation_id=dictation.id,
             content_hash=hashlib.sha256(original_file.read_bytes()).hexdigest(),
@@ -98,6 +103,7 @@ def scene(world, clinic_off, monkeypatch, tmp_path):
             transcript_revision_id=transcript.id, context_revision_id=context.id,
             text_hash=transcript.normalised_text_hash, actor_user_id=recording.user_id,
             document_type='fixture', release_type='fixture', authorization_decision='{}',
+            created_at=utcnow() - timedelta(days=31),
         )
         db.session.add(release)
         db.session.flush()
@@ -107,7 +113,7 @@ def scene(world, clinic_off, monkeypatch, tmp_path):
         )
         db.session.add(delivery)
         db.session.commit()
-        children = [dictation, original, audio, transcript, context, release, delivery,
+        children = [dictation, workflow, original, audio, transcript, context, release, delivery,
                     db.session.get(ProcessingJob, world['job_b'])]
         yield {**world, 'recording': recording, 'files': [media, original_file, peaks],
                'children': children}
