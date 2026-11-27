@@ -7,16 +7,15 @@
  * fetched from /audio/<recordingId>/peaks) and marks three things apart, each
  * with a text label and a non-colour cue: the phrase being played, text the
  * recognizer flagged as uncertain, and text without an audio anchor. Uncertainty
- * comes only from real server metadata: a text/audio link counts as uncertain
- * when the link itself carries `uncertain: true`. No confidence value is ever
- * computed or guessed here; without such metadata the list stays empty and says
- * so. Peaks are tied to the audio revision they were loaded for and are shown
+ * comes from the server's stored recognition spans for the current audio and
+ * transcript revisions. Older snapshots may explicitly flag a text/audio link.
+ * Peaks are tied to the audio revision they were loaded for and are shown
  * as unavailable when the editor's audio revision moves on. Clinical text stays
  * in memory only. Colours come from tokens.js, requests from api-client.js.
  *
  * Exports (consumed by w212 compose, w286 compare):
  *   useCorrectionWaveform({ editor, alignment, client, dictationId, recordingId,
- *                           fetchFn?, sleep?, vue? })
+ *                           seek?, fetchFn?, sleep?, vue? })
  *     `editor` is the useCorrectionEditor() result (w149), `alignment` the
  *     useCorrectionAlignment() result (w150). `recordingId` addresses the peaks.
  *     state refs  peaks (parsed peaks or null), status ('idle'|'loading'|'ready'|
@@ -25,7 +24,7 @@
  *                 announcement
  *     methods     load(), seekToSpan(span), dispose()
  *     `currentPhrase` is { id, start, end, text, startMs, endMs } or null;
- *     `uncertainSpans` entries are { id, start, end, text, startMs, endMs };
+ *     `uncertainSpans` entries carry id, label text and audio times;
  *     `unalignedSpans` entries are { start, end, text }; `bars` are
  *     { x, y1, y2 } columns (0..1000 by -1..1) of the picked level.
  *     load() returns { ok, code?, message } with codes denied, none, failed.
@@ -46,9 +45,11 @@ export const LABELS = Object.freeze({
     waveform: 'Wellenform des gewählten Audios',
     currentPhrase: 'Aktuelle Phrase',
     noCurrent: 'Keine Phrase aktiv.',
+    recognitionMarks: 'Erkennungsmarken',
     uncertain: 'Unsicher erkannt',
+    unrecognized: 'Nicht erkannt',
     noUncertain: 'Keine Unsicherheitsdaten vorhanden.',
-    uncertainAria: 'Unsicher erkannte Stelle abspielen',
+    uncertainAria: 'Zur markierten Stelle springen',
     unaligned: 'Ohne Audio-Zuordnung',
     noUnaligned: 'Alle Wörter haben eine Audio-Zuordnung.',
     unavailable: 'Zuordnung nicht verfügbar.',
@@ -64,6 +65,7 @@ export const LABELS = Object.freeze({
 });
 
 const WIDTH = 1000;
+const EMPTY_EVIDENCE = { textRevisionId: null, audioRevisionId: null, spans: null, flags: new Map() };
 
 function fail(code) {
     return { ok: false, code, message: LABELS[code] || LABELS.failed };
@@ -109,8 +111,7 @@ export function useCorrectionWaveform(options) {
     const loadState = refs.ref('idle');
     const error = refs.shallow(null);
     const announcement = refs.ref('');
-    // Raw link metadata (uncertain flag) of the same text revision the alignment shows.
-    const meta = refs.shallow({ textRevisionId: null, flags: new Map() });
+    const meta = refs.shallow(EMPTY_EVIDENCE);
 
     let seq = 0;
     let disposed = false;
@@ -143,20 +144,21 @@ export function useCorrectionWaveform(options) {
         return link ? spanOf(link) : null;
     });
 
-    // Only links the server flagged, read at the text revision still shown.
-    const uncertaintyKnown = refs.computed(() => meta.value.flags.size > 0
-        && meta.value.textRevisionId === editor.textRevisionId.value);
     const uncertainSpans = refs.computed(() => {
-        if (!uncertaintyKnown.value) return [];
-        return alignment.links.value.filter((l) => meta.value.flags.get(l.id) === true).map(spanOf);
+        const { textRevisionId, audioRevisionId, spans, flags } = meta.value;
+        if (!textRevisionId || textRevisionId !== editor.textRevisionId.value) return [];
+        if (spans !== null) {
+            return audioRevisionId && audioRevisionId === editor.audio.value.revisionId ? spans : [];
+        }
+        return alignment.links.value.filter((l) => flags.has(l.id)).map(spanOf);
     });
+    const uncertaintyKnown = refs.computed(() => uncertainSpans.value.length > 0);
 
     const unalignedSpans = refs.computed(() => alignment.segments.value
         .filter((s) => s.flagged)
         .map((s) => ({ start: s.start, end: s.end, text: s.text })));
 
-    // Link ids and the server's uncertain flag; read once per load, kept apart from alignment internals.
-    async function readFlags(mine) {
+    async function readEvidence(mine) {
         const res = await client.request(base + '/correction');
         if (mine !== seq || disposed) return;
         const data = res.outcome === 'ok' ? res.data : null;
@@ -164,7 +166,14 @@ export function useCorrectionWaveform(options) {
         if (data && Array.isArray(data.links)) {
             for (const l of data.links) if (l && l.uncertain === true && typeof l.id === 'string') flags.set(l.id, true);
         }
-        meta.value = { textRevisionId: data ? data.text_revision_id : null, flags };
+        const spans = Array.isArray(data?.recognition_spans) ? data.recognition_spans
+            .filter((span) => span && (span.kind === 'uncertain' || span.kind === 'unrecognized')
+                && typeof span.id === 'string' && Number.isSafeInteger(span.start_ms)
+                && Number.isSafeInteger(span.end_ms) && 0 <= span.start_ms && span.start_ms < span.end_ms)
+            .map(({ id, kind, start_ms: startMs, end_ms: endMs }) => ({
+                id, kind, startMs, endMs, text: `${LABELS[kind]} (${startMs / 1000}–${endMs / 1000} s)`,
+            })) : null;
+        meta.value = { textRevisionId: data?.text_revision_id, audioRevisionId: data?.audio_revision_id, spans, flags };
     }
 
     /** Load the peaks of the recording for the editor's current audio revision. */
@@ -191,7 +200,7 @@ export function useCorrectionWaveform(options) {
                 onPending: () => say(LABELS.pending),
                 fetchFn: async (url, init) => { const r = await get(url, init); last = r.peaksFailed ? 'compute' : r.status; return r; },
             }),
-            readFlags(mine),
+            readEvidence(mine),
         ]);
         if (mine !== seq || disposed) return { ok: false, code: 'cancelled', message: '' };
         if (!parsed) {
@@ -209,8 +218,13 @@ export function useCorrectionWaveform(options) {
         return { ok: true };
     }
 
-    /** Move the player to an uncertain span through the alignment seek. */
+    /** Seek to the stored audio time or use the alignment for a legacy link. */
     function seekToSpan(span) {
+        if (span?.kind) {
+            if (typeof opts.seek !== 'function' || !uncertainSpans.value.includes(span)) return { ok: false };
+            opts.seek(span.startMs / 1000);
+            return { ok: true };
+        }
         const segment = alignment.segments.value.find((s) => s.linkId === (span && span.id));
         return alignment.seekToSegment(segment);
     }
@@ -221,7 +235,7 @@ export function useCorrectionWaveform(options) {
         seq += 1;
         if (controller) controller.abort();
         loaded.value = { peaks: null, audioRevisionId: null };
-        meta.value = { textRevisionId: null, flags: new Map() };
+        meta.value = EMPTY_EVIDENCE;
     }
 
     return {
@@ -239,6 +253,7 @@ export const CorrectionWaveform = {
         client: { type: Object, default: null },
         dictationId: { type: String, required: true },
         recordingId: { type: String, default: null },
+        seek: { type: Function, default: null },
         fetchFn: { type: Function, default: null },
         sleep: { type: Function, default: null },
         vue: { type: Object, default: null },
@@ -248,6 +263,7 @@ export const CorrectionWaveform = {
         const wave = useCorrectionWaveform({
             editor: props.editor, alignment: props.alignment, client: props.client || undefined,
             dictationId: props.dictationId, recordingId: props.recordingId || undefined,
+            seek: props.seek || undefined,
             fetchFn: props.fetchFn || undefined, sleep: props.sleep || undefined, vue: props.vue || undefined,
         });
         if (V && typeof V.onMounted === 'function') V.onMounted(() => { wave.load(); });
@@ -261,9 +277,9 @@ export const CorrectionWaveform = {
         // Range as a share of the drawn width; empty when the span lies outside the peaks.
         function rect(span) {
             const total = duration();
-            if (!(total > 0) || !span) return null;
+            if (!(total > 0) || !span || span.startMs >= total) return null;
             const x = Math.max(0, Math.min(WIDTH, (span.startMs / total) * WIDTH));
-            const w = Math.max(4, Math.min(WIDTH - x, ((span.endMs - span.startMs) / total) * WIDTH));
+            const w = Math.min(WIDTH - x, ((span.endMs - span.startMs) / total) * WIDTH);
             return { x, w };
         }
         return { ...wave, LABELS, WIDTH, surfaces, focusStyle, boxStyle, rect };
@@ -284,7 +300,8 @@ export const CorrectionWaveform = {
     <line v-for="bar in bars" :key="bar.x" :x1="bar.x" :x2="bar.x" :y1="bar.y1" :y2="bar.y2" stroke="currentColor" stroke-width="1" vector-effect="non-scaling-stroke" />
     <template v-for="span in uncertainSpans" :key="'u' + span.id">
       <rect v-if="rect(span)" :x="rect(span).x" y="-1" :width="rect(span).w" height="2" fill="none"
-        :stroke="surfaces.uncertain.border" stroke-dasharray="6 3" stroke-width="2" vector-effect="non-scaling-stroke" data-kind="uncertain" />
+        :stroke="surfaces.uncertain.border" :stroke-dasharray="span.kind === 'unrecognized' ? '1 3' : '6 3'" stroke-width="2"
+        vector-effect="non-scaling-stroke" :data-kind="span.kind || 'uncertain'" />
     </template>
     <rect v-if="currentPhrase && rect(currentPhrase)" :x="rect(currentPhrase).x" y="-1" :width="rect(currentPhrase).w" height="2"
       :fill="surfaces.current.background" fill-opacity="0.6" :stroke="surfaces.current.border" stroke-width="2" vector-effect="non-scaling-stroke" data-kind="current" />
@@ -294,7 +311,7 @@ export const CorrectionWaveform = {
     <strong>{{ LABELS.currentPhrase }}:</strong> {{ currentPhrase ? currentPhrase.text : LABELS.noCurrent }}
   </p>
   <div class="clinic-correction-waveform-uncertain hint">
-    <strong>{{ LABELS.uncertain }}:</strong>{{ ' ' }}
+    <strong>{{ LABELS.recognitionMarks }}:</strong>{{ ' ' }}
     <span v-if="!uncertainSpans.length">{{ LABELS.noUncertain }}</span>
     <ul v-else class="chiprow" style="list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px">
       <li v-for="span in uncertainSpans" :key="span.id">

@@ -34,11 +34,12 @@ from wtforms.validators import ValidationError
 
 from src.clinic import alignment_tokens as at
 from src.clinic import correction as corr
-from src.clinic import lease, live_session, revisions
+from src.clinic import caution_words, lease, live_session, revisions
 from src.clinic.alignment import ClinicAlignmentRevision
 from src.clinic.audio_invalidation import get_compatible_links
 from src.clinic.audio_revisions import current_audio_revision
 from src.clinic.config import clinic_mode_enabled
+from src.clinic.correction_recognition_marks import current_marks
 from src.clinic.correction_transaction import CorrectionOriginalError, save_correction_transaction
 from src.clinic.models import ClinicDictation, ClinicTranscriptRevision
 from src.clinic.parity_dispatch import JSON, CommandProblem, RunOnce
@@ -267,7 +268,13 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
             state=None if state is None else dict(version=state.version, audio_position_ms=state.audio_position_ms),
             audio_revision_id=audio.id if audio else None,
             links=[_link_json(row, body) for row in links],
-            markers=[_marker_json(m) for m in corr.list_markers(dictation)])
+            markers=[_marker_json(m) for m in corr.list_markers(dictation) if not caution_words.is_review_marker(m)])
+        if clinic_mode_enabled():
+            evidence = current_marks(dictation.id, audio.id, head.id) if head and audio else []
+            out['recognition_spans'] = [
+                dict(id=row.id, kind=row.kind, start_ms=row.start_ms, end_ms=row.end_ms)
+                for row in evidence if row.kind in ('uncertain', 'unrecognized')
+            ]
         if 'offset' in request.args:
             try:
                 cp = to_codepoint_offset(body, int(request.args['offset']))
@@ -342,6 +349,45 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
 
         return write(dictation_id, 'save', 'text', data, apply)
 
+    @bp.get(f'{PATH}/review-markers')
+    def get_review_markers(dictation_id: UUID) -> Response:
+        dictation = object_for(dictation_id, 'correction_read')
+        head = revisions.current_revision(dictation)
+        hits = caution_words.open_review_hits(dictation, head)
+        return jsonify(text_revision_id=head.id if head else None, review_markers=[
+            dict(id=hit.marker_id, label=hit.word, anchor_offset=to_utf16_offset(head.body, hit.offset))
+            for hit in hits
+        ] if head else [])
+
+    @bp.post(f'{PATH}/review-markers/<uuid:marker_id>/confirm')
+    def confirm_review_marker(dictation_id: UUID, marker_id: UUID) -> Response:
+        data = _body({'expected_text_revision_id', 'lease_generation'},
+                     {'expected_text_revision_id', 'lease_generation'})
+        generation = _int(data['lease_generation'], 1)
+        try:
+            expected = _uuid(data['expected_text_revision_id'])
+        except ValueError:
+            abort(400)
+
+        def current_head(dictation: ClinicDictation) -> ClinicTranscriptRevision:
+            head = revisions.current_revision(dictation)
+            if head is None or head.id != expected:
+                abort(409)
+            return head
+
+        dictation = object_for(dictation_id, 'correction_edit')
+        current_head(dictation)  # A receipt from a superseded revision is stale too.
+        pool_id = dictation.pool_id
+
+        def apply(dictation: ClinicDictation, actor: int) -> JSON:
+            head = current_head(dictation)
+            if dictation.pool_id != pool_id:
+                abort(409)
+            caution_words.confirm_review_hit(dictation, head, str(marker_id), actor, lease_generation=generation)
+            return dict(id=str(marker_id), text_revision_id=head.id, confirmed=True)
+
+        return write(dictation_id, 'review_marker_confirm', f'{pool_id}:{marker_id}', data, apply)
+
     @bp.post(f'{PATH}/markers')
     def add_marker(dictation_id: UUID) -> Response:
         data = _body({'position_ms', 'audio_revision_id', 'lease_generation', 'marker_type', 'label',
@@ -349,6 +395,8 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
         position, generation = _int(data['position_ms']), _int(data['lease_generation'], 1)
         label, kind = data.get('label'), data.get('marker_type', corr.MARKER_SECTION)
         if not isinstance(data['audio_revision_id'], str) or not (label is None or isinstance(label, str)):
+            abort(400)
+        if kind == corr.MARKER_INDEX and caution_words.reserved_label(label):
             abort(400)
         if 'anchor_offset' in data:
             _int(data['anchor_offset'])
@@ -380,7 +428,7 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
 
         def apply(dictation: ClinicDictation, actor: int) -> JSON:
             marker = db.session.get(corr.ClinicMarker, str(marker_id))
-            if marker is None or marker.dictation_id != dictation.id:
+            if marker is None or marker.dictation_id != dictation.id or caution_words.is_review_marker(marker):
                 abort(404)
             kwargs = dict(expected_version=version, lease_generation=generation)
             if move:

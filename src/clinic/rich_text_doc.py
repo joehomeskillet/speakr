@@ -58,13 +58,15 @@ class Run:
 
 @dataclass(frozen=True)
 class Node:
-    """A document node: paragraph, heading, or list item."""
+    """A document node: paragraph, heading, list item, or local graphic."""
     id: str
-    kind: str  # "paragraph" | "heading" | "list_item"
+    kind: str  # "paragraph" | "heading" | "list_item" | "graphic"
     runs: tuple[Run, ...]
     level: int = 0  # heading level 1..3
     text_align: str | None = None
     line_spacing: float | None = None  # Unitless line-height multiplier.
+    object_id: str | None = None  # SHA-256 of a stored local graphic.
+    alt_text: str | None = None
 
     def __post_init__(self):
         if self.text_align is not None and (
@@ -79,14 +81,21 @@ class Node:
             raise RichTextError("invalid_line_spacing")
         if not isinstance(self.id, str) or self.id == "":
             raise RichTextError("invalid_id", "Node.id must be a non-empty string")
-        if self.kind not in ("paragraph", "heading", "list_item"):
-            raise RichTextError("invalid_kind", f"Node.kind must be paragraph|heading|list_item, got {self.kind!r}")
+        if self.kind not in ("paragraph", "heading", "list_item", "graphic"):
+            raise RichTextError("invalid_kind", f"Node.kind must be paragraph|heading|list_item|graphic, got {self.kind!r}")
         if self.kind == "heading":
             if not isinstance(self.level, int) or not (1 <= self.level <= 3):
                 raise RichTextError("invalid_heading_level", "Heading level must be 1, 2, or 3")
         else:
             if self.level != 0:
                 raise RichTextError("invalid_level", "Only heading nodes may have a non-zero level")
+        if self.kind == "graphic":
+            _validate_graphic(self.object_id, self.alt_text)
+            if self.runs:
+                raise RichTextError("invalid_graphic", "A graphic node has no text runs")
+            return
+        if self.object_id is not None or self.alt_text is not None:
+            raise RichTextError("invalid_graphic", "Only graphic nodes carry an object reference")
         if not isinstance(self.runs, tuple):
             raise RichTextError("invalid_type", "Node.runs must be a tuple")
         if len(self.runs) == 0:
@@ -131,21 +140,28 @@ def from_plain_text(text: str, id_factory: Callable[[], str]) -> Document:
     return Document(nodes=tuple(nodes))
 
 
+def graphic_plain_text(alt_text: str) -> str:
+    """The only plain-text form of a graphic. Same alt text, same line."""
+    return f"[graphic: {alt_text}]"
+
+
 def to_plain_text(doc: Document) -> str:
     """Serialise document to plain text (no markup)."""
     if not isinstance(doc, Document):
         raise RichTextError("invalid_type", "doc must be a Document")
     lines = []
     for node in doc.nodes:
-        text = "".join(run.text for run in node.runs)
-        lines.append(text)
+        if node.kind == "graphic":
+            lines.append(graphic_plain_text(node.alt_text))
+        else:
+            lines.append("".join(run.text for run in node.runs))
     return "\n".join(lines)
 
 
 # ─── HTML conversion ──────────────────────────────────────────────────────────
 
 _ALLOWED_TAGS = {
-    "p", "h1", "h2", "h3", "ul", "li", "strong", "em", "u", "br", "b", "i"
+    "p", "h1", "h2", "h3", "ul", "li", "strong", "em", "u", "br", "b", "i", "img"
 }
 # Tags to drop entirely (but keep their text content)
 _DROP_TAGS = {"script", "style", "iframe", "object"}
@@ -155,17 +171,34 @@ _ITALIC_TAGS = {"i", "em"}
 _UNDERLINE_TAGS = {"u"}
 # Self-closing tags we allow
 _VOID_TAGS = {"br"}
+# Local object ids are content hashes. Anything else is not an authorized reference.
+_OBJECT_ID_RE = re.compile(r"[0-9a-f]{64}")
 
 
 def _escape(text: str) -> str:
     return html.escape(text, quote=True)
 
 
+def _validate_graphic(object_id, alt_text) -> None:
+    """A graphic is a local object id plus alt text. URLs and active content are not."""
+    if type(object_id) is not str or not _OBJECT_ID_RE.fullmatch(object_id):
+        raise RichTextError("invalid_graphic_reference")
+    if (type(alt_text) is not str or not alt_text or len(alt_text) > 200
+            or any(ord(c) < 32 and c not in "\t" for c in alt_text)
+            or "<" in alt_text or ">" in alt_text):
+        raise RichTextError("invalid_alt_text")
+
+
+def graphic_node(node_id: str, object_id: str, alt_text: str) -> Node:
+    """Build a graphic node. The object id must already be a local content hash."""
+    return Node(id=node_id, kind="graphic", runs=(), object_id=object_id, alt_text=alt_text)
+
+
 def to_html(doc: Document) -> str:
     """Serialise document to sanitised HTML.
 
-    Only emits <p>, <h1>..<h3>, <ul>, <li>, <strong>, <em>, <u>, <br>.
-    All text is HTML-escaped. No attributes at all.
+    Only emits <p>, <h1>..<h3>, <ul>, <li>, <strong>, <em>, <u>, <br>
+    and <img> for an authorized local graphic. Text and alt text are escaped.
     """
     if not isinstance(doc, Document):
         raise RichTextError("invalid_type", "doc must be a Document")
@@ -174,7 +207,14 @@ def to_html(doc: Document) -> str:
     in_list = False
 
     for node in doc.nodes:
-        if node.kind == "list_item":
+        if node.kind == "graphic":
+            if in_list:
+                parts.append("</ul>")
+                in_list = False
+            parts.append(
+                f'<img src="local:{_escape(node.object_id)}" alt="{_escape(node.alt_text)}">'
+            )
+        elif node.kind == "list_item":
             if not in_list:
                 parts.append("<ul>")
                 in_list = True
@@ -280,6 +320,8 @@ def _sanitise_html(html_text: str) -> str:
         if tag_content.endswith("/"):
             tag_content = tag_content[:-1].strip()
         tag_name = tag_content.split()[0].lower() if tag_content else ""
+        if tag_name == "img":
+            return _authorised_img(tag) or ""
         if tag_name in _ALLOWED_TAGS:
             # Strip all attributes from allowed tags
             clean_tag = f"<{tag_name}>"
@@ -292,6 +334,26 @@ def _sanitise_html(html_text: str) -> str:
     html_text = _TAG_RE.sub(lambda m: replace_tag(m) if m.group(1) else _escape(m.group(2)), html_text)
 
     return html_text
+
+
+def _authorised_img(tag: str) -> str | None:
+    """Keep one local object reference. Remote, script and event sources are dropped."""
+    if _JS_URL_RE.search(tag) or _EVENT_ATTR_RE.search(tag):
+        return None
+    source = re.search(r"""(?i)\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)')""", tag)
+    alt = re.search(r"""(?i)\salt\s*=\s*(?:"([^"]*)"|'([^']*)')""", tag)
+    if source is None or alt is None:
+        return None
+    object_id = html.unescape(source.group(1) if source.group(1) is not None else source.group(2))
+    alt_text = html.unescape(alt.group(1) if alt.group(1) is not None else alt.group(2))
+    prefix = "local:"
+    if not object_id.startswith(prefix):
+        return None
+    try:
+        _validate_graphic(object_id[len(prefix):], alt_text)
+    except RichTextError:
+        return None
+    return f'<img src="{_escape(object_id)}" alt="{_escape(alt_text)}">'
 
 
 def _parse_html(html_text: str, id_factory: Callable[[], str]) -> list[Node]:
@@ -309,7 +371,17 @@ def _parse_html(html_text: str, id_factory: Callable[[], str]) -> list[Node]:
             tag = html_text[i:j+1]
             i = j + 1
 
-            if tag in ("<p>", "<h1>", "<h2>", "<h3>", "<li>"):
+            if tag.startswith("<img "):
+                if current_list_items:
+                    nodes.extend(current_list_items)
+                    current_list_items = []
+                source = re.search(r'src="local:([^"]+)"', tag)
+                alt = re.search(r'alt="([^"]*)"', tag)
+                if source and alt:
+                    nodes.append(graphic_node(
+                        id_factory(), html.unescape(source.group(1)), html.unescape(alt.group(1)),
+                    ))
+            elif tag in ("<p>", "<h1>", "<h2>", "<h3>", "<li>"):
                 # Start of a node
                 tag_name = tag[1:-1]
                 level = int(tag_name[1]) if tag_name.startswith("h") else 0
@@ -452,6 +524,8 @@ def replace_text(doc: Document, node_id: str, new_text: str) -> Document:
     for node in doc.nodes:
         if node.id == node_id:
             found = True
+            if node.kind == "graphic":
+                raise RichTextError("invalid_graphic", "A graphic node has no replaceable text")
             if not node.runs:
                 raise RichTextError("empty_runs", "Node has no runs")
             first_run = node.runs[0]
@@ -477,7 +551,7 @@ def canonical_json(doc: Document) -> str:
         raise RichTextError("invalid_type", "doc must be a Document")
 
     def node_to_dict(node: Node) -> dict:
-        return {
+        data = {
             "id": node.id,
             "kind": node.kind,
             "level": node.level,
@@ -492,6 +566,10 @@ def canonical_json(doc: Document) -> str:
                 for run in node.runs
             ],
         }
+        if node.kind == "graphic":
+            data["object_id"] = node.object_id
+            data["alt_text"] = node.alt_text
+        return data
 
     data = {"nodes": [node_to_dict(n) for n in doc.nodes]}
     return json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))

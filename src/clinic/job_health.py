@@ -17,6 +17,12 @@ from src.clinic.asr_capabilities import CAPABILITY_UNAVAILABLE
 _STATUSES = ("queued", "processing", "completed", "failed")
 _UTC_MIN = datetime.min.replace(tzinfo=timezone.utc)
 _REDACTED = "[…]"
+_FAILURE_LABELS = {
+    "storage_unavailable": "Ablage nicht verfügbar",
+    "engine_unavailable": "Erkennungsengine nicht verfügbar",
+    "missing_author_pool": "Autor oder Autorenpool fehlt",
+    "corrupt_audio": "Audiodatei beschädigt",
+}
 _EMAIL_LOCAL = r"[\w.!#$%&'*+/=?^`{|}~-]"
 _SENSITIVE = re.compile(
     r"""(["'])(?:\\[\s\S]|(?!\1)[^\\])*(?:\1|\\?\Z)"""
@@ -118,7 +124,11 @@ def summarise(
                 error_class = name
             # Pattern scrubbing cannot reliably detect unquoted clinical text.
             message = "Fehlerdetails ausgeblendet." if error is not None else ""
-            if job_type == "asr_training" and error == CAPABILITY_UNAVAILABLE:
+            # Only an exact leading code is trusted; never classify free-text details.
+            if name in _FAILURE_LABELS:
+                error_class = name
+                message = _FAILURE_LABELS[name]
+            elif job_type == "asr_training" and error == CAPABILITY_UNAVAILABLE:
                 error_class = CAPABILITY_UNAVAILABLE
                 message = "Training nicht verfügbar"
             failures.append(FailureView(job_id, job_type, error_class, message, finished))

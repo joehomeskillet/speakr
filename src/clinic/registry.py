@@ -2,8 +2,8 @@
 
 ``init_db`` imports this module before ``create_all()``. Without the imports a
 module whose models nobody imports yet would have no table in production. The
-``create_tables`` entry points use ``checkfirst``, so a table is created exactly
-once and an existing one is left alone.
+central migration entry point creates missing tables with ``checkfirst``, then
+runs the registered modules' ``create_tables`` hooks for additive upgrades.
 """
 from __future__ import annotations
 

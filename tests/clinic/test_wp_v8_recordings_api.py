@@ -34,7 +34,7 @@ from src.services import audit
 ROOT = Path(__file__).resolve().parents[2]
 ITEM_KEYS = {"dictation_id", "recording_id", "recorded_at", "time_source", "sort_time", "day", "dictated_by",
              "staff_pools", "lease_holder", "processing_status", "workflow_status", "duration_ms",
-             "case_display", "archived_at"}
+             "case_display", "archived_at", "own_title"}
 
 
 @pytest.fixture(autouse=True)
@@ -62,8 +62,8 @@ def _user(name, *, is_admin=False, status=None, full_name=None):
 
 
 def _dictation(author, *, pool_id, meeting=None, created=None, status=workflow.TO_WRITE, assignee=None,
-               seconds=12, rec_status="COMPLETED"):
-    rec = Recording(user_id=author.id, title="PATIENT-TITLE-SECRET", status=rec_status,
+               seconds=12, rec_status="COMPLETED", title="PATIENT-TITLE-SECRET", notes=None):
+    rec = Recording(user_id=author.id, title=title, status=rec_status, notes=notes,
                     original_filename="x.wav", meeting_date=meeting)
     db.session.add(rec)
     db.session.flush()
@@ -131,7 +131,8 @@ def test_unauthenticated_is_401_and_contract_shape(scene):
     assert scene.flask.test_client().get(PREFIX).status_code == 401
     with app.app_context():
         author = db.session.get(User, scene.a)
-        item = _dictation(author, pool_id=scene.pool_a, meeting=datetime(2026, 7, 1, 8, 30), seconds=42)
+        item = _dictation(author, pool_id=scene.pool_a, meeting=datetime(2026, 7, 1, 8, 30), seconds=42,
+                          title="Eigener Titel")
         db.session.add(ClinicContextRevision(dictation_id=item.id, case_ref="FALL-77", patient_ref="PAT-SECRET"))
         db.session.commit()
         dictation_id, recording_id = item.id, item.recording_id
@@ -149,9 +150,32 @@ def test_unauthenticated_is_401_and_contract_shape(scene):
     assert row["lease_holder"] is None and row["case_display"] == "FALL-77"
     assert row["processing_status"] == "COMPLETED" and row["workflow_status"] == workflow.TO_WRITE
     assert row["duration_ms"] == 42000
-    assert row["archived_at"] is None
+    assert row["archived_at"] is None and row["own_title"] == "Eigener Titel"
     text = json.dumps(body)
     assert "PATIENT-TITLE-SECRET" not in text and "PAT-SECRET" not in text and "patient" not in text.lower()
+
+
+def test_title_is_projected_only_on_own_rows_and_notes_never(scene):
+    with app.app_context():
+        own = _dictation(db.session.get(User, scene.a), pool_id=scene.pool_a, meeting=datetime(2026, 6, 1, 9),
+                         title="Eigener Titel", notes="NOTE-SECRET")
+        db.session.add(ClinicContextRevision(dictation_id=own.id, case_ref="FALL-5"))
+        db.session.commit()
+        own_id = own.id
+        flow = db.session.get(workflow.ClinicWorkflowDictation, own_id)
+        flow.assignee_user_id = scene.typist
+        db.session.commit()
+    seen = {uid: get(client_for(scene, uid)) for uid in (scene.a, scene.typist, scene.admin, scene.b)}
+    [mine] = seen[scene.a].json["items"]
+    assert mine["own_title"] == "Eigener Titel" and mine["case_display"] == "FALL-5"
+    for uid in (scene.typist, scene.admin):  # granted, but not the author
+        [row] = [r for r in seen[uid].json["items"] if r["dictation_id"] == own_id]
+        assert row["own_title"] is None and row["case_display"] == "FALL-5"
+    assert seen[scene.b].json["items"] == []  # ungranted: no row, so no title and no note
+    for response in seen.values():
+        assert "NOTE-SECRET" not in json.dumps(response.json)
+    for uid in (scene.typist, scene.admin, scene.b):
+        assert "Eigener Titel" not in json.dumps(seen[uid].json)
 
 
 def test_foreign_dictation_is_never_listed_for_an_unauthorised_user(scene):
@@ -181,7 +205,7 @@ def test_archive_dates_use_durable_sources_without_widening_visibility(scene, ma
     with app.app_context():
         author = db.session.get(User, scene.a)
         own = _dictation(author, pool_id=scene.pool_a, meeting=datetime(2026, 7, 1, 8),
-                         status=workflow.TO_ARCHIVE)
+                         status=workflow.TO_ARCHIVE, title="Eigener Titel")
         newer = _dictation(author, pool_id=scene.pool_a, meeting=datetime(2026, 7, 2, 8),
                            status=workflow.TO_ARCHIVE)
         foreign = _dictation(db.session.get(User, scene.b), pool_id=scene.pool_b,

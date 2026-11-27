@@ -10,14 +10,18 @@ policy itself:
   the release and revision ids and the content hash. The durable receipt lets any worker
   return the same job for a replay by the same actor. A failed render is stored on
   that same per-format receipt, so a reload still shows the failed target.
-* KIS delivery goes through `kis.deliver`, whose delivery ledger is the
-  idempotency record. A disabled adapter answers 503 `KIS_UNAVAILABLE`; no
-  success is ever reported without an adapter answer.
+  The target list stays txt and docx. rtf and odt are accepted on the export
+  request while clinic mode is on. GET .../exports/<job>/download returns those
+  bytes again for the owning actor and audits recording.content.read. It does
+  not prove a local save.
+* Existing KIS ledger entries remain readable. New KIS delivery is disabled
+  unless synthetic staging explicitly enables it and uses its mock adapter.
 * The actor is always `current_user`. The injected per-object policy allows
   viewers to list disabled targets. Exportable revisions and jobs require
   `export` permission.
 """
 
+import hashlib
 from collections.abc import Callable
 from datetime import datetime, timezone
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
@@ -31,7 +35,7 @@ from wtforms.validators import ValidationError
 from src.clinic import export as export_service
 from src.clinic import kis, parity_receipts, release
 from src.clinic.parity_dispatch import CommandProblem
-from src.clinic.config import clinic_mode_enabled
+from src.clinic.config import clinic_mode_enabled, kis_delivery_enabled
 from src.clinic.models import (
     ClinicAudioRevision, ClinicContextRevision, ClinicDelivery, ClinicDictation, ClinicRelease,
     ClinicTranscriptRevision,
@@ -39,9 +43,16 @@ from src.clinic.models import (
 from src.clinic.output_attempts import OutputAttemptError, OutputSource, bind_output_source
 from src.database import db
 from src.models import User
+from src.services import audit
 
 BASE = '/api/clinic/v1/dictations/<uuid:dictation_id>'
+# The target list stays txt and docx. Existing clients assert that exact list.
+# rtf and odt are accepted on POST /exports and on the download while clinic mode is on.
 FILE_FORMATS = {'txt': export_service.render_text, 'docx': export_service.render_docx}
+_CLINIC_FILE_FORMATS = {
+    'rtf': export_service.render_rtf,
+    'odt': export_service.render_odt,
+}
 KIS_FORMAT = 'kis'
 FORMATS = (*FILE_FORMATS, KIS_FORMAT)
 ACTION = 'export'
@@ -95,6 +106,19 @@ def _job_view(job: dict) -> dict:
     return {key: value for key, value in job.items() if key not in ('actor_id', 'request')}
 
 
+def file_formats() -> dict:
+    """Renderers a POST or a download may use. rtf and odt need clinic mode."""
+    if not clinic_mode_enabled():
+        return dict(FILE_FORMATS)
+    return {**FILE_FORMATS, **_CLINIC_FILE_FORMATS}
+
+
+def _attachment_name(filename: str) -> str:
+    """One quoted filename token. Quotes and path separators are not kept."""
+    cleaned = ''.join(ch for ch in (filename or 'export.bin') if ch not in '"\\\r\n/' and ord(ch) >= 32)
+    return cleaned or 'export.bin'
+
+
 def _failed_file_job(job_id, fmt, dictation_id, release_id, revision_id, actor_id, reason) -> dict:
     """Durable per-target failure. No file bytes and no exception text."""
     return {
@@ -106,7 +130,8 @@ def _failed_file_job(job_id, fmt, dictation_id, release_id, revision_id, actor_i
 
 def _latest_file_results(actor_id: int, release_id: str) -> dict:
     """Newest file receipt per format for this actor and release."""
-    digests = [f'{release_id}:{fmt}' for fmt in FILE_FORMATS]
+    offered = file_formats()
+    digests = [f'{release_id}:{fmt}' for fmt in offered]
     rows = (
         db.session.query(parity_receipts.ClinicParityReceipt)
         .filter(parity_receipts.ClinicParityReceipt.digest.in_(digests))
@@ -119,7 +144,7 @@ def _latest_file_results(actor_id: int, release_id: str) -> dict:
         if result.get('kind') != 'file' or result.get('actor_id') != actor_id:
             continue
         fmt = result.get('format')
-        if fmt in FILE_FORMATS:
+        if fmt in offered:
             found[fmt] = result
     return found
 
@@ -195,9 +220,11 @@ def create_blueprint(
                 item['status'] = known[fmt].get('status')
                 item['job_id'] = known[fmt].get('id')
             listed.append(item)
-        kis_reason = gate or (None if adapter_for().enabled else 'kis_unavailable')
-        listed.append({'id': KIS_FORMAT, 'channel': 'kis', 'available': kis_reason is None,
-                       'reason': kis_reason})
+        if kis_delivery_enabled():
+            adapter = adapter_for()
+            kis_reason = gate or (None if adapter.enabled and adapter.is_mock else 'kis_unavailable')
+            listed.append({'id': KIS_FORMAT, 'channel': 'kis', 'available': kis_reason is None,
+                           'reason': kis_reason})
         listed.append({'id': 'clipboard', 'channel': 'clipboard', 'available': can_export,
                        'reason': None if can_export else gate})
         return jsonify(dictation_id=dictation.id,
@@ -209,8 +236,9 @@ def create_blueprint(
         dictation = dictation_of(dictation_id)
         key = request_id()
         body = request.get_json(silent=True)
+        offered = (*file_formats(), KIS_FORMAT)
         if (not isinstance(body, dict) or body.keys() != {'revision_id', 'format'}
-                or body['format'] not in FORMATS or not isinstance(body['revision_id'], str)):
+                or body['format'] not in offered or not isinstance(body['revision_id'], str)):
             abort(400)
         revision = db.session.get(ClinicTranscriptRevision, body['revision_id'])
         if revision is None or revision.dictation_id != dictation.id:
@@ -234,7 +262,7 @@ def create_blueprint(
         def render_job():
             # A renderer error used to roll back with no receipt, so the target vanished on reload.
             try:
-                rendered = FILE_FORMATS[fmt](active)
+                rendered = file_formats()[fmt](active)
             except export_service.ExportRefused as refused:
                 db.session.rollback()
                 return _failed_file_job(
@@ -267,8 +295,10 @@ def create_blueprint(
     def _kis_export(dictation: ClinicDictation, active: ClinicRelease) -> Response:
         # The ledger key binds to the release, not the HTTP request: at most one send per
         # release and target; a retry after UNKNOWN goes through kis.reconcile only.
+        if not kis_delivery_enabled():
+            return _problem(503, export_status='unavailable', detail='KIS-Ausgabe ist deaktiviert')
         adapter = adapter_for()
-        if not adapter.enabled:
+        if not adapter.enabled or not adapter.is_mock:
             return _problem(503, export_status='unavailable', detail='Keine KIS-Anbindung konfiguriert')
         context = db.session.get(ClinicContextRevision, active.context_revision_id)
         result = kis.deliver(active, context, adapter, f'export:{active.id}',
@@ -285,6 +315,47 @@ def create_blueprint(
 
     def _status_of(outcome: str) -> str:
         return {kis.DELIVERED: 'delivered', kis.REJECTED: 'rejected'}.get(outcome, 'unknown')
+
+    @bp.get(BASE + '/exports/<uuid:job_id>/download')
+    def download_export(dictation_id: UUID, job_id: UUID) -> Response:
+        """Bytes of one ready file export, for the actor who rendered it.
+
+        The receipt stores no bytes. The same renderer and the same release
+        produce them again, and the stored sha256 must match. A failed job,
+        another actor, or a missing receipt is 404. The download is not a
+        proof that the file was stored on the client.
+        """
+        dictation = dictation_of(dictation_id)
+        scope = (current_user.id, 'file_export', dictation.id, str(job_id))
+        receipt = db.session.get(parity_receipts.ClinicParityReceipt, parity_receipts.scope_key(scope))
+        job = receipt.result if receipt is not None and isinstance(receipt.result, dict) else None
+        if (job is None or job.get('kind') != 'file' or job.get('status') != 'ready'
+                or job.get('actor_id') != current_user.id or job.get('format') not in file_formats()):
+            abort(404)
+        active = db.session.get(ClinicRelease, job.get('release_id'))
+        if (active is None or active.dictation_id != dictation.id
+                or active.transcript_revision_id != job.get('revision_id')):
+            abort(404)
+        try:
+            rendered = file_formats()[job['format']](active)
+        except export_service.ExportRefused:
+            abort(404)
+        if (rendered.sha256 != job.get('sha256') or rendered.filename != job.get('filename')
+                or hashlib.sha256(rendered.content).hexdigest() != job.get('sha256')):
+            abort(409)
+        export_service.download_started(rendered)
+        audit.record(
+            'recording.content.read', recording_id=dictation.recording_id,
+            actor_kind='session', actor_user_id=current_user.id, details={'part': 'export'},
+        )
+        response = Response(rendered.content, mimetype=rendered.mimetype.split(';')[0])
+        response.headers['Content-Type'] = rendered.mimetype
+        response.headers['Content-Disposition'] = (
+            f'attachment; filename="{_attachment_name(rendered.filename)}"'
+        )
+        response.headers['X-Content-SHA256'] = rendered.sha256
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        return response
 
     @bp.get(BASE + '/exports/<uuid:job_id>')
     def export_status(dictation_id: UUID, job_id: UUID) -> Response:

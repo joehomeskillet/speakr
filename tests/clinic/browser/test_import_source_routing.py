@@ -25,6 +25,7 @@ def test_change_existing_import_routing(browser, tmp_path, monkeypatch):
         before = admin.request.get(api).json()
         item, = before["items"]
         assert "approved_root" not in item
+        assert (item["autosend_enabled"], item["eol_filter_enabled"]) == (False, True)
         actor = next(a["id"] for a in before["authors"] if a["name"] == "author-v860")
         pool = next(p["id"] for p in before["pools"] if p["author_id"] == actor)
         support._open_shell_view(page, base, "#/import")
@@ -47,6 +48,7 @@ def test_change_existing_import_routing(browser, tmp_path, monkeypatch):
         updated, = admin.request.get(api).json()["items"]
         assert (updated["target_author_user_id"], updated["target_pool_id"], updated["policy_version"]) == (
             actor, pool, item["policy_version"] + 1)
+        assert (updated["autosend_enabled"], updated["eol_filter_enabled"]) == (False, True)
 
         headers = {k: v for k, v in put.value.request.all_headers().items()
                    if k in {"x-csrf-token", "idempotency-key"}}
@@ -57,13 +59,42 @@ def test_change_existing_import_routing(browser, tmp_path, monkeypatch):
         assert admin.request.put(endpoint, headers=headers, data=body).status == 409
         assert admin.request.put(endpoint, headers=headers, data={**body, "approved_root": "/extra"}).status == 400
         assert admin.request.get(api).json()["items"] == [updated]
-        admin.close()
         member = browser.new_context(storage_state=support.login(browser, base, support.ROLES["author"]))
         assert member.request.get(api).status == 403
         headers["x-csrf-token"] = member.request.get(base + "/api/csrf-token").json()["csrf_token"]
         assert member.request.put(endpoint, headers=headers, data=body).status == 403
+        headers["idempotency-key"] = str(uuid4())
+        denied = {"expected_version": updated["policy_version"], "autosend_enabled": True,
+                  "eol_filter_enabled": False}
+        assert member.request.put(endpoint, headers=headers, data=denied).status == 403
         member.close()
         with sqlite3.connect(tmp_path / "v860.db") as conn:
             [(target,)] = conn.execute("select target_user_id from audit_event where event = ?",
                                        ("admin.setting.changed",))
             assert target == actor
+        headers["x-csrf-token"] = admin.request.get(base + "/api/csrf-token").json()["csrf_token"]
+        headers["idempotency-key"] = str(uuid4())
+        toggled = admin.request.put(endpoint, headers=headers, data=denied).json()
+        assert (toggled["autosend_enabled"], toggled["eol_filter_enabled"], toggled["policy_version"]) == (
+            True, False, updated["policy_version"] + 1)
+        assert (toggled["target_author_user_id"], toggled["target_pool_id"]) == (actor, pool)
+        page.reload()
+        expect(page.get_by_text("Importautor · author-v860", exact=True)).to_be_visible()
+        reloaded, = admin.request.get(api).json()["items"]
+        assert reloaded == toggled
+        headers["idempotency-key"] = str(uuid4())
+        combined = {**body, "expected_version": reloaded["policy_version"],
+                    "autosend_enabled": False, "eol_filter_enabled": True}
+        restored = admin.request.put(endpoint, headers=headers, data=combined).json()
+        assert (restored["autosend_enabled"], restored["eol_filter_enabled"]) == (False, True)
+        assert restored["policy_version"] == reloaded["policy_version"] + 1
+        headers["idempotency-key"] = str(uuid4())
+        assert admin.request.put(endpoint, headers=headers, data={
+            "expected_version": restored["policy_version"], "autosend_enabled": "yes",
+            "eol_filter_enabled": False}).status == 400
+        assert admin.request.get(api).json()["items"] == [restored]
+        with sqlite3.connect(tmp_path / "v860.db") as conn:
+            targets = [row[0] for row in conn.execute(
+                "select target_user_id from audit_event where event = ?", ("admin.setting.changed",))]
+            assert targets == [actor, actor, actor]
+        admin.close()

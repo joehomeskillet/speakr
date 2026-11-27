@@ -64,6 +64,14 @@ public sealed class InventoryItemWire
     [JsonPropertyName("snapshot_version")]
     public string SnapshotVersion { get; set; } = "";
 
+    [JsonPropertyName("claimed_author_code")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ClaimedAuthorCode { get; set; }
+
+    [JsonPropertyName("completion_source")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? CompletionSource { get; set; }
+
     [JsonPropertyName("observed_completion")]
     public string ObservedCompletion { get; set; } = "unknown";
 

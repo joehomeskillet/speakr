@@ -16,6 +16,9 @@ const PATH = '/vocabulary';
 export const MAX_SELECTION = 255;
 export const SEARCH_MODES = Object.freeze(['contains', 'prefix', 'suffix', 'exact']);
 export const STATUS_FILTERS = Object.freeze(['active', 'suppressed', 'all']);
+const IMPORT_LIMIT = 256 * 1024;
+const ENCODINGS = { 'utf-8': 'UTF-8', cp1252: 'Windows-1252', 'latin-1': 'ISO-8859-1' };
+const DUPLICATE_RULES = { replace: 'Aktualisieren', skip: 'Überspringen', error: 'Import abbrechen' };
 
 const LABELS = {
     'clinic.vocabulary.title': 'Wörter und Vorschläge',
@@ -160,8 +163,10 @@ export function createVocabularyStore(client, onChange) {
     // Live membership recheck before every mutation. Own list needs none.
     async function permitted() {
         if (state.scope.kind !== 'pool') return true;
+        const scope = state.scope;
         const params = scopeParams(new URLSearchParams({ q: '', mode: 'exact', status: 'active' }));
         const res = await client.request(PATH + '/search?' + params.toString());
+        if (scope !== state.scope) return false;
         if (res.outcome === 'ok') return true;
         state.entries = [];
         state.failedWrite = null;
@@ -170,15 +175,28 @@ export function createVocabularyStore(client, onChange) {
     }
 
     async function send(write) {
-        if (!(await permitted())) return null;
+        const scope = state.scope;
+        if (!(await permitted()) || scope !== state.scope) return null;
         const res = await client.request(write.path, { method: 'POST', body: write.body, idempotencyKey: write.key });
+        if (scope !== state.scope) return null;
         if (res.outcome === 'ok') {
-            state.failedWrite = null;
             if (write.keepResult) state.importResult = res.data;
-            await search();
+            if (write.body.dry_run) emit();
+            else {
+                state.failedWrite = null;
+                await search();
+            }
             return res;
         }
-        state.failedWrite = res.outcome === 'network' || res.outcome === 'UNKNOWN' ? write : null;
+        if (!write.body.dry_run) state.failedWrite = res.outcome === 'network' || res.outcome === 'UNKNOWN' ? write : null;
+        if (res.code === 'duplicate_entry') {
+            emit();
+            return { ...res, message: 'Doppelter Eintrag. Keine Änderungen übernommen.' };
+        }
+        if (write.keepResult) {
+            emit();
+            return res;
+        }
         fail(res);
         if (res.outcome === 'conflict') await search();
         if (res.outcome === 'conflict') { state.status = 'stale'; emit(); }
@@ -193,6 +211,16 @@ export function createVocabularyStore(client, onChange) {
             path: PATH + '/entries/' + encodeURIComponent(entry.id) + '/' + action,
             body: { expected_version: entry.version },
         });
+    }
+
+    function importPayload(payload, duplicateRule, dryRun) {
+        const body = { ...scopeBody(), ...payload };
+        if (duplicateRule) body.duplicate_rule = duplicateRule;
+        if (dryRun) body.dry_run = true;
+        if (new TextEncoder().encode(JSON.stringify(body)).length > IMPORT_LIMIT) {
+            return Promise.resolve({ outcome: 'validation', message: 'Die Wortliste ist zu gross.' });
+        }
+        return send({ key: newId(), path: PATH + '/import', body, keepResult: true });
     }
 
     return {
@@ -212,15 +240,30 @@ export function createVocabularyStore(client, onChange) {
             }
             return send({ key: newId(), path: PATH + '/additions', body: Object.assign(scopeBody(), { written }) });
         },
-        importText(content, duplicateRule) {
+        importText(content, duplicateRule, dryRun) {
             if (typeof content !== 'string' || !content.trim()) return Promise.resolve(null);
-            const body = Object.assign(scopeBody(), { content });
-            if (duplicateRule) body.duplicate_rule = duplicateRule;
-            return send({ key: newId(), path: PATH + '/import', body, keepResult: true });
+            return importPayload({ content }, duplicateRule, dryRun);
+        },
+        async importFile(file, encoding, duplicateRule, dryRun) {
+            if (!/\.txt$/i.test(file.name) || file.size === 0 || file.size > IMPORT_LIMIT * 3 / 4) {
+                return { outcome: 'validation', message: 'Bitte eine nicht leere .txt-Datei bis 192 KiB wählen.' };
+            }
+            const scope = state.scope;
+            let bytes;
+            try {
+                bytes = new Uint8Array(await file.arrayBuffer());
+            } catch {
+                return scope === state.scope ? { outcome: 'validation', message: 'Die Datei konnte nicht gelesen werden.' } : null;
+            }
+            if (scope !== state.scope) return null;
+            const content_base64 = btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(''));
+            return importPayload({ content_base64, encoding }, duplicateRule, dryRun);
         },
         async exportList(effective) {
+            const scope = state.scope;
             const params = effective ? new URLSearchParams({ scope: 'effective' }) : scopeParams(new URLSearchParams());
             const res = await client.request(PATH + '/export?' + params.toString());
+            if (scope !== state.scope) return null;
             if (res.outcome !== 'ok') return fail(res);
             state.exportText = String((res.data || {}).content || '');
             emit();
@@ -252,7 +295,7 @@ export const VOCABULARY_TEMPLATE = `
   <form class="filterbar voc-filters" @submit.prevent="store.search()">
     <div class="field voc-list" style="border:0;padding:0;box-shadow:none;background:none">
       <label for="voc-pool">Wortliste</label>
-      <select id="voc-pool" class="select" :style="controlStyle" :value="state.scope.poolId || ''"
+      <select id="voc-pool" class="select" :style="controlStyle" :value="state.scope.poolId || ''" :disabled="importBusy"
         @change="selectList($event.target.value)">
         <option value="">{{ label('clinic.vocabulary.scopeUser') }}</option>
         <option v-for="pool in pools" :key="pool.id" :value="pool.id">{{ pool.name }}</option>
@@ -282,7 +325,7 @@ export const VOCABULARY_TEMPLATE = `
   <p role="status" aria-live="polite" aria-atomic="true" class="note voc-feedback"
     :class="{ 'voc-quiet': !state.message && !['error', 'denied', 'stale'].includes(state.status) }" :style="surfaceStyle">
     <span class="voc-scope">{{ label('clinic.vocabulary.scope') }}:
-      <strong>{{ state.scope.kind === 'pool' ? selectedPoolName : label('clinic.vocabulary.ownList') }}</strong>
+      <strong>{{ state.scope.kind === 'pool' ? selectedPoolName : label('clinic.vocabulary.ownList') }}</strong> ·
     </span>
     <span v-if="state.status === 'loading'">{{ label('clinic.vocabulary.loading') }}</span>
     <span v-else-if="state.status === 'stale'">{{ label('clinic.vocabulary.stale') }}</span>
@@ -317,22 +360,52 @@ export const VOCABULARY_TEMPLATE = `
       <h3 id="voc-editor-title">Wortliste bearbeiten</h3>
       <div class="actions">
         <button type="button" class="small" @click="store.reload()">{{ label('clinic.vocabulary.reload') }}</button>
-        <button type="button" class="small" v-if="state.failedWrite" @click="store.retry()">{{ label('clinic.vocabulary.retry') }}</button>
+        <button type="button" class="small" v-if="state.failedWrite" :disabled="importBusy" @click="runImport(() => store.retry())">{{ label('clinic.vocabulary.retry') }}</button>
         <button type="button" class="small" @click="addSelected()">{{ label('clinic.vocabulary.addSelection') }}</button>
       </div>
     </header>
     <div class="voc-editor-body">
-      <form @submit.prevent="doImport()">
-        <label for="voc-import">{{ label('clinic.vocabulary.importLabel') }}</label>
-        <textarea id="voc-import" rows="4" aria-describedby="voc-import-format" v-model="importDraft"></textarea>
-        <small id="voc-import-format">Ein Eintrag pro Zeile.</small>
-        <button type="submit" class="primary">{{ label('clinic.vocabulary.import') }}</button>
+      <form @submit.prevent="doImport(false)">
+        <h4>Import</h4>
+        <input ref="fileInput" type="file" accept=".txt" hidden @change="pickFile">
+        <div class="actions">
+          <button type="button" class="small" :disabled="importBusy" @click="fileInput.click()">.txt-Datei auswählen</button>
+          <button v-if="importFile" type="button" class="small" :disabled="importBusy" @click="importFile = null">Text eingeben</button>
+        </div>
+        <template v-if="importFile">
+          <p class="min-w-0" style="overflow-wrap:anywhere">{{ importFile.name }}</p>
+          <label for="voc-encoding">Kodierung</label>
+          <select id="voc-encoding" class="select" :style="controlStyle" :disabled="importBusy" aria-describedby="voc-import-format" v-model="encoding">
+            <option v-for="(text, value) in encodings" :key="value" :value="value">{{ text }}</option>
+          </select>
+        </template>
+        <template v-else>
+          <label for="voc-import">{{ label('clinic.vocabulary.importLabel') }}</label>
+          <textarea id="voc-import" class="w-full" rows="4" aria-describedby="voc-import-format" :disabled="importBusy" v-model="importDraft"></textarea>
+        </template>
+        <small id="voc-import-format">Ein Eintrag pro Zeile. Eine optionale Aussprache mit Tabulator abtrennen.</small>
+        <label for="voc-duplicate">Bei doppelten Einträgen</label>
+        <select id="voc-duplicate" class="select" :style="controlStyle" :disabled="importBusy" v-model="duplicateRule">
+          <option v-for="(text, value) in duplicateRules" :key="value" :value="value">{{ text }}</option>
+        </select>
+        <div class="actions">
+          <button type="button" class="small" :disabled="!canImport" @click="doImport(true)">Vorschau</button>
+          <button type="submit" class="primary" :disabled="!canImport">{{ label('clinic.vocabulary.import') }}</button>
+        </div>
+        <div role="status" aria-live="polite" aria-atomic="true">
+          <div v-if="importError" class="note" :style="importErrorStyle">{{ importError }}</div>
+          <div v-else-if="importReport" class="note">
+            <strong>{{ importReport.dry_run ? 'Vorschau (nicht gespeichert)' : 'Importbericht' }}</strong>
+            <div>Hinzugefügt: {{ importReport.added }} · Aktualisiert: {{ importReport.updated }} · Übersprungen: {{ importReport.skipped }}</div>
+            <div v-if="importReport.errors?.length" style="overflow-wrap:anywhere">Fehlerhafte Zeilen: {{ importReport.errors.map(error => error.line).join(', ') }}</div>
+          </div>
+        </div>
       </form>
       <div class="voc-editor-export">
         <h4>Export</h4>
         <div class="actions">
-          <button type="button" class="small" @click="store.exportList(false)">{{ label('clinic.vocabulary.export') }}</button>
-          <button type="button" class="small" @click="store.exportList(true)">{{ label('clinic.vocabulary.exportEffective') }}</button>
+          <button type="button" class="small" :disabled="exportBusy" @click="downloadList(false)">{{ label('clinic.vocabulary.export') }}</button>
+          <button type="button" class="small" :disabled="exportBusy" @click="downloadList(true)">{{ label('clinic.vocabulary.exportEffective') }}</button>
         </div>
         <template v-if="state.exportText">
           <label for="voc-export">{{ label('clinic.vocabulary.exported') }}</label>
@@ -382,22 +455,79 @@ export function createVocabularyComponent(Vue, client, currentUserId = () => nul
                 poolStatus.value = pools.value.length ? 'ready' : 'empty';
             }
             function selectList(id) {
+                importError.value = '';
                 return id ? store.setScope('pool', id) : store.setScope('user');
             }
             const importDraft = Vue.ref('');
+            const importFile = Vue.shallowRef(null);
+            const fileInput = Vue.ref(null);
+            const encoding = Vue.ref('utf-8');
+            const duplicateRule = Vue.ref('replace');
+            const importBusy = Vue.ref(false);
+            const importError = Vue.ref('');
+            const error = surfaceFor('error');
+            const importErrorStyle = { background: error.background, color: error.color, borderColor: error.border };
+            const exportBusy = Vue.ref(false);
+            const previewDraft = Vue.shallowRef(null);
+            const draft = Vue.computed(() => ({ content: importFile.value || importDraft.value, encoding: encoding.value, rule: duplicateRule.value }));
+            const canImport = Vue.computed(() => !importBusy.value && Boolean(importFile.value || importDraft.value.trim()));
+            const importReport = Vue.computed(() => state.importResult?.dry_run && previewDraft.value !== draft.value ? null : state.importResult);
+            function pickFile(event) {
+                if (event.target.files[0]) {
+                    importFile.value = event.target.files[0];
+                    encoding.value = 'utf-8';
+                }
+                event.target.value = '';
+            }
             function addSelected() {
                 const sel = typeof window !== 'undefined' && window.getSelection ? window.getSelection().toString() : '';
                 return store.addSelection(sel);
             }
-            async function doImport() {
-                const content = importDraft.value;
-                importDraft.value = '';
-                return store.importText(content);
+            async function runImport(action) {
+                if (importBusy.value) return;
+                importBusy.value = true;
+                importError.value = '';
+                try {
+                    const res = await action();
+                    if (res && res.outcome !== 'ok') importError.value = res.message || 'Die Wortliste konnte nicht importiert werden.';
+                    if (res?.outcome === 'ok' && res.data?.dry_run === false) {
+                        importDraft.value = '';
+                        importFile.value = null;
+                        previewDraft.value = null;
+                    }
+                } finally {
+                    importBusy.value = false;
+                }
+            }
+            function doImport(dryRun) {
+                if (!canImport.value) return;
+                previewDraft.value = draft.value;
+                return runImport(() => importFile.value
+                    ? store.importFile(importFile.value, encoding.value, duplicateRule.value, dryRun)
+                    : store.importText(importDraft.value, duplicateRule.value, dryRun));
+            }
+            async function downloadList(effective) {
+                if (exportBusy.value) return;
+                exportBusy.value = true;
+                try {
+                    const res = await store.exportList(effective);
+                    if (res?.outcome !== 'ok') return;
+                    const link = document.createElement('a');
+                    const url = URL.createObjectURL(new Blob([res.data.content], { type: 'text/plain;charset=utf-8' }));
+                    link.href = url;
+                    link.download = effective ? 'wortliste-wirksam.txt' : 'wortliste.txt';
+                    link.click();
+                    setTimeout(() => URL.revokeObjectURL(url), 1000);
+                } finally {
+                    exportBusy.value = false;
+                }
             }
             Vue.onMounted(() => Promise.all([store.search(), loadPools()]));
             return {
-                state, store, label, enumLabel: vocabularyEnumLabel, surfaceStyle, controlStyle, pools, poolStatus, selectedPoolName, selectList, loadPools, importDraft, addSelected, doImport,
-                modes: SEARCH_MODES, filters: STATUS_FILTERS, onKey: (e) => handleKey(store, e),
+                state, store, label, enumLabel: vocabularyEnumLabel, surfaceStyle, controlStyle, pools, poolStatus, selectedPoolName, selectList, loadPools, addSelected,
+                importDraft, importFile, fileInput, encoding, duplicateRule, importBusy, importError, importErrorStyle, exportBusy, canImport, importReport,
+                pickFile, runImport, doImport, downloadList,
+                encodings: ENCODINGS, duplicateRules: DUPLICATE_RULES, modes: SEARCH_MODES, filters: STATUS_FILTERS, onKey: (e) => handleKey(store, e),
             };
         },
     };

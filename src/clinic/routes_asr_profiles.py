@@ -10,6 +10,10 @@ Contract (fixed by static/js/clinic/asr-profiles-ui.js):
 
 * ``GET  /api/clinic/v1/asr-profiles``
 * ``PUT  /api/clinic/v1/asr-profiles/selection`` with ``expected_version``
+  Optional ``skip_wait_minutes`` (positive int, minutes) and ``wait_disabled``
+  (bool) are stored on the caller's own profile. GET ``wait`` then reports
+  ``offer_manual_after_s`` (minutes × 60) or, when disabled, a running view
+  with no manual offer.
 
 The stored profile is one body, so it is offered as one entry with mode ``both``.
 Separate live/batch choices cannot be persisted by ``asr_profiles._clean_options``;
@@ -33,7 +37,7 @@ from wtforms.validators import ValidationError
 from src.clinic import asr_fallback, asr_profiles
 from src.clinic.asr_capabilities import AsrCapability, AsrCapabilityRegistry, CapabilityEvidence
 from src.clinic.asr_job_profile import PROMPTS_ENABLED, asr_capability_target
-from src.clinic.asr_wait_policy import WaitConfig, WaitError, view_state
+from src.clinic.asr_wait_policy import profile_wait_view
 from src.clinic.audio_format_choice import FormatError, choose_upload_format, sample_rate_for
 from src.clinic.config import clinic_mode_enabled
 from src.database import db
@@ -47,7 +51,10 @@ _FORBIDDEN_KEYS = frozenset({
     "actor", "actor_id", "user", "user_id", "author_user_id", "role", "roles",
     "is_admin", "created_by",
 })
-_SELECTION_KEYS = {"source", "live_profile_id", "batch_profile_id", "expected_version"}
+_SELECTION_KEYS = {
+    "source", "live_profile_id", "batch_profile_id", "expected_version",
+    "skip_wait_minutes", "wait_disabled",
+}
 _STATUS = {
     "unauthenticated": 401, "unauthorized": 403, "profile_not_found": 404,
     "stale_version": 409, "invalid_payload": 400,
@@ -95,18 +102,24 @@ def _body() -> dict[str, Any]:
 
 
 def _wait(profile: asr_profiles.ClinicAsrProfile | None) -> dict[str, Any]:
-    """Manual-entry timing; ``skip_wait_minutes`` only counts when WaitConfig accepts it."""
-    config = WaitConfig()
-    minutes = profile.options.get("skip_wait_minutes") if profile is not None else None
-    if minutes is not None:
-        try:
-            config = WaitConfig(offer_manual_after_s=minutes * 60)
-        except WaitError:
-            pass
-    # The manual action must stay open on valid audio once ASR timed out.
-    timed_out = view_state("running", config.hard_timeout_s, manual_started=False, config=config)
-    return {"offer_manual_after_s": config.offer_manual_after_s, "hard_timeout_s": config.hard_timeout_s,
-            "manual_on_timeout": timed_out.can_start_manual}
+    """Effective deadline, or the shutdown when this profile disables the wait."""
+    return profile_wait_view(profile.options if profile is not None else None)
+
+
+def _wait_changes(body: dict[str, Any]) -> dict[str, Any]:
+    """Validated wait fields from a selection body. Absent fields are left alone."""
+    changes: dict[str, Any] = {}
+    if "skip_wait_minutes" in body:
+        minutes = body["skip_wait_minutes"]
+        if isinstance(minutes, bool) or not isinstance(minutes, int) or minutes < 1:
+            raise ApiError("invalid_payload")
+        changes["skip_wait_minutes"] = minutes
+    if "wait_disabled" in body:
+        flag = body["wait_disabled"]
+        if not isinstance(flag, bool):
+            raise ApiError("invalid_payload")
+        changes["wait_disabled"] = flag
+    return changes
 
 
 def _proven(registry: AsrCapabilityRegistry | None, target: Any, names: list[str]) -> list[str]:
@@ -203,6 +216,7 @@ def create_asr_profiles_blueprint(registry: RegistryProvider | None = None) -> B
         source = body.get("source")
         if isinstance(version, bool) or not isinstance(version, int) or source not in asr_profiles.SOURCES:
             raise ApiError("invalid_payload")
+        updates = _wait_changes(body)
         profile = asr_profiles.ClinicAsrProfile.query.filter_by(user_id=current_user.id).first()
         current = profile.version if profile is not None else 0
         if version != current:
@@ -214,6 +228,7 @@ def create_asr_profiles_blueprint(registry: RegistryProvider | None = None) -> B
                 raise ApiError("profile_not_found")
         options = dict(profile.options) if profile is not None else {}
         options["source"] = source
+        options.update(updates)
         asr_profiles.set_profile(current_user.id, actor_id=current_user.id, options=options)
         return jsonify(_view(snapshot(), []))
 

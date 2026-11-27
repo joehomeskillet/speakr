@@ -278,7 +278,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const clinicMode = appRootElement?.dataset?.clinicMode === 'True';
     if (clinicMode) {
         try {
-            const [{ createClinicApiClient }, { registerWorklistView }, { registerResourcesView }, { registerCorrectionView }, { registerRecordingsView }, { createDictationChoices }] = await Promise.all([
+            const [{ createClinicApiClient }, { registerWorklistView }, { registerResourcesView }, { registerCorrectionView, resolveClinicOpenTarget }, { registerRecordingsView }, { createDictationChoices }] = await Promise.all([
                 import('./clinic/api-client.js'),
                 import('./clinic/compose-worklist.js'),
                 import('./clinic/compose-resources.js'),
@@ -290,6 +290,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 registerWorklistView,
                 registerResourcesView,
                 registerCorrectionView,
+                resolveClinicOpenTarget,
                 registerRecordingsView,
                 createDictationChoices,
                 client: createClinicApiClient(),
@@ -505,6 +506,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             const currentView = ref(clinicWorklist ? clinicViewFromHash() : null);
             // Clinic correction view ('clinic-correction'): the dictation it shows.
             const clinicCorrectionId = ref(null);
+            const clinicOpenMode = ref('correction');
+            const clinicDictationId = ref(null);
             const clinicListMount = ref(null);
             // Browser history carries only the ID. Names come from a row opened on this page.
             const clinicOpenedRows = reactive(new Map());
@@ -520,14 +523,29 @@ document.addEventListener('DOMContentLoaded', async () => {
             let clinicPendingView = null;
             const clinicActiveTab = computed(() => (currentView.value === 'clinic-correction' || currentView.value in CLINIC_DICTATION_HASH ? clinicOrigin.value : currentView.value));
             // The correction view gets the user's permissions from the server.
-            const openClinicDictation = (payload) => {
-                if (!payload || !['correction', 'player', 'author_case'].includes(payload.mode)) return;
-                if (payload.dictationId === undefined || payload.dictationId === null) return;
-                if (currentView.value !== 'clinic-correction') clinicOrigin.value = currentView.value === 'clinic-worklist' ? 'clinic-worklist' : 'clinic-recordings';
-                const id = String(payload.dictationId);
+            // Worklist double-click: author → case details, typist → player or correction.
+            // A denied row stays on the list. Aufnahmen keeps the editor (see resolveClinicOpenTarget).
+            const openClinicDictation = (payload, source) => {
+                if (!clinicWorklist || typeof clinicWorklist.resolveClinicOpenTarget !== 'function') return;
+                // Lists are mounted only on their own view, so currentView is the source.
+                // The template stays @open="openClinicDictation"; the mount test matches that text.
+                const view = typeof source === 'string' ? source : currentView.value;
+                const target = clinicWorklist.resolveClinicOpenTarget(payload, { view, user: clinicWorklist.user });
+                if (!target) return;
+                const onDictation = currentView.value === 'clinic-correction' || currentView.value in CLINIC_DICTATION_HASH;
+                if (!onDictation) clinicOrigin.value = (view === 'clinic-worklist' || currentView.value === 'clinic-worklist') ? 'clinic-worklist' : 'clinic-recordings';
+                const id = target.dictationId;
                 const context = clinicListMount.value?.rowContext?.(id);
                 if (context) clinicOpenedRows.set(id, context);
                 else clinicOpenedRows.delete(id);
+                if (target.surface === 'details') {
+                    clinicCorrectionId.value = null;
+                    clinicOpenMode.value = 'correction';
+                    clinicDictationId.value = id;
+                    currentView.value = 'clinic-detail';
+                    return;
+                }
+                clinicOpenMode.value = target.openMode === 'player' ? 'player' : 'correction';
                 clinicCorrectionId.value = id;
                 currentView.value = 'clinic-correction';
             };
@@ -554,7 +572,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             };
             // V8 dictation views (v8-70)
             // Detail, review, output, processing and activity of the opened dictation. The dictation id stays in state.
-            const clinicDictationId = ref(null);
             const isClinicDictationView = (view) => Object.prototype.hasOwnProperty.call(CLINIC_DICTATION_HASH, view);
             const clinicDictationViewActive = computed(() => isClinicDictationView(currentView.value));
             // From the open correction the switch goes through the editor's own save-first close; it stays open when saving fails.
@@ -578,6 +595,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const openClinicEditorFromView = () => {
                 if (clinicDictationId.value === null) return;
                 clinicCorrectionId.value = clinicDictationId.value;
+                clinicOpenMode.value = 'correction';
                 clinicDictationId.value = null;
                 currentView.value = 'clinic-correction';
             };
@@ -606,7 +624,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const syncClinicHash = (view) => {
                     const hash = CLINIC_VIEW_HASH[view];
                     if (!hash || window.location.hash === hash) return;
-                    window.history.pushState({ clinicView: view, dictationId: clinicCorrectionId.value, origin: clinicOrigin.value }, '', hash);
+                    window.history.pushState({ clinicView: view, dictationId: clinicCorrectionId.value, origin: clinicOrigin.value,
+                        openMode: view === 'clinic-correction' ? clinicOpenMode.value : null }, '', hash);
                 };
                 if (CLINIC_VIEW_HASH[currentView.value] !== window.location.hash) {
                     window.history.replaceState(window.history.state, '', CLINIC_VIEW_HASH[currentView.value]);
@@ -625,6 +644,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     if (reopen) {
                         clinicCorrectionId.value = String(state.dictationId);
                         clinicOrigin.value = state.origin === 'clinic-worklist' ? 'clinic-worklist' : 'clinic-recordings';
+                        clinicOpenMode.value = state.openMode === 'player' ? 'player' : 'correction';
                     }
                     currentView.value = target;
                 });
@@ -5443,7 +5463,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 clinicWorklistEnabled: !!clinicWorklist,
                 clinicClient: clinicWorklist ? clinicWorklist.client : null,
                 clinicUser: clinicWorklist ? clinicWorklist.user : null,
-                clinicCorrectionId, clinicCorrectionRow, clinicListMount, clinicCorrectionMount, clinicViewMount, clinicOrigin, clinicActiveTab, goClinicView,
+                clinicCorrectionId, clinicOpenMode, clinicCorrectionRow, clinicListMount, clinicCorrectionMount, clinicViewMount, clinicOrigin, clinicActiveTab, goClinicView,
                 openClinicDictation, closeClinicCorrection,
                 requestClinicCorrectionClose, clinicAudioContextFactory,
                 // V8 dictation views (v8-70)

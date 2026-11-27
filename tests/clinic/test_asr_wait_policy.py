@@ -27,6 +27,7 @@ from src.clinic.asr_wait_policy import (
     WaitConfig,
     WaitError,
     WaitView,
+    profile_wait_view,
     view_state,
 )
 
@@ -76,6 +77,11 @@ class TestWaitConfig:
 
         with pytest.raises(WaitError) as exc:
             WaitConfig(offer_manual_after_s=120, hard_timeout_s="900")
+        assert exc.value.code == "bad_config"
+
+    def test_wait_disabled_must_be_bool(self):
+        with pytest.raises(WaitError) as exc:
+            WaitConfig(wait_disabled=1)
         assert exc.value.code == "bad_config"
 
 
@@ -301,6 +307,35 @@ class TestInputValidation:
         with pytest.raises(WaitError) as exc:
             WaitConfig(offer_manual_after_s=120, hard_timeout_s=100)
         assert exc.value.code == "bad_config"
+
+
+class TestWaitDisabled:
+    def test_running_never_offers_manual(self):
+        cfg = WaitConfig(wait_disabled=True)
+        for waited in (0, 119, 120, 900, 5000):
+            view = view_state("running", waited, manual_started=False, config=cfg)
+            assert view.state == "waiting"
+            assert view.can_start_manual is False
+            assert "Manuell" not in view.message
+
+    def test_failure_still_offers_manual_and_active_manual_stays(self):
+        cfg = WaitConfig(wait_disabled=True)
+        failed = view_state("failed", 0, manual_started=False, config=cfg)
+        assert failed.state == "asr_failed"
+        assert failed.can_start_manual is True
+        active = view_state("pending", 10, manual_started=True, config=cfg)
+        assert active.state == "manual_active"
+
+    def test_profile_view_reports_deadline_or_shutdown(self):
+        deadline = profile_wait_view({"skip_wait_minutes": 2, "source": "headset"})
+        assert deadline["offer_manual_after_s"] == 120
+        assert deadline["skip_wait_minutes"] == 2
+        assert "wait_disabled" not in deadline
+        off = profile_wait_view({"skip_wait_minutes": 2, "wait_disabled": True})
+        assert off["wait_disabled"] is True
+        assert off["offer_manual_after_s"] is None
+        assert off["during_run"]["can_start_manual"] is False
+        assert off["during_run"]["state"] == "waiting"
 
 
 class TestCustomConfig:

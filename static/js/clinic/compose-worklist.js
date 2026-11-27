@@ -61,6 +61,8 @@ export const HOSTED_CSS = [
     '.v8-ui .v8-empty{border:0;border-radius:0;min-height:260px}',
     '.v8-ui .v8-empty h2{font-weight:750}',
     '.v8-ui .v8-empty p{color:var(--v8-muted)}',
+    '.v8-ui .worktable .titletext .cl-search-metadata{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6}',
+    '.v8-ui .cl-search-metadata mark{border-radius:2px;padding:0;font:inherit}',
 ].join('\n');
 
 /** Adds the stylesheet above once per document. */
@@ -279,6 +281,42 @@ export function dictationLabel(row) {
     return row?.created_at ? 'Diktat vom ' + formatDateTime(row.created_at) : 'Diktat';
 }
 
+/** Literal search terms become text segments, never HTML. Keep original glyphs for sharp-s matches. */
+export function searchSegments(value, query) {
+    const text = String(value ?? '').normalize('NFC');
+    const fold = (s) => s.toLowerCase().replace(/ß/g, 'ss').replace(/ς/g, 'σ');
+    const terms = fold(String(query ?? '').normalize('NFC')).split(/\s+/u).filter(Boolean);
+    const chars = Array.from(text);
+    const offsets = [];
+    const folded = chars.map((char, index) => {
+        const part = fold(char);
+        for (let i = 0; i < part.length; i++) offsets.push(index);
+        return part;
+    }).join('');
+    const marked = new Set();
+    for (const term of terms) {
+        for (let at = folded.indexOf(term); at !== -1; at = folded.indexOf(term, at + 1)) {
+            for (let i = offsets[at]; i <= offsets[at + term.length - 1]; i++) marked.add(i);
+        }
+    }
+    const segments = [];
+    chars.forEach((char, index) => {
+        const match = marked.has(index);
+        const previous = segments[segments.length - 1];
+        if (previous && previous.match === match) previous.text += char;
+        else segments.push({ text: char, match });
+    });
+    return segments;
+}
+
+/** Only searched fields from the already authorized response; no additional detail fetch. */
+export function searchMetadata(row, query) {
+    if (!String(query ?? '').trim()) return [];
+    return [['title', 'Titel'], ['notes', 'Anmerkung'], ['recipient', 'Empfänger']]
+        .map(([key, label]) => ({ key, label, segments: searchSegments(row[key], query) }))
+        .filter((field) => field.segments.some((part) => part.match));
+}
+
 function entryCount(count) {
     return count + (count === 1 ? ' Eintrag' : ' Einträge');
 }
@@ -344,6 +382,7 @@ export function createWorklistViewController(options) {
     const panels = reactive({ protection: false, acceptance: false, history: false });
     const selectedId = ref(null);
     const leaseState = shallowRef(null);
+    let firstClickRowId = null;
     let started = false;
     let disposed = false;
     let detailId = null;
@@ -562,9 +601,29 @@ export function createWorklistViewController(options) {
         const target = worklist.selectedRow.value;
         if (!rowKey(target) || leaseBlocksOpen()) return false;
         if (typeof options.onOpen === 'function') {
-            options.onOpen({ dictationId: rowKey(target), mode: listenOnly.value ? 'player' : getOpenMode(target, user.role) });
+            let mode = getOpenMode(target, user.role);
+            if (mode === 'player' && target.source_kind === 'document') mode = 'correction';
+            const payload = { dictationId: rowKey(target), mode: listenOnly.value ? 'player' : mode };
+            if (payload.mode === 'author_case' && target.open_mode === 'author_case') {
+                payload.author_user_id = target.author_user_id;
+            }
+            options.onOpen(payload);
         }
         return true;
+    }
+
+    function rememberFirstClick(event) {
+        if (event.detail === 1) firstClickRowId = event.target.closest('[data-row]')?.dataset.id;
+    }
+
+    function keepDoubleClickOnRow(event) {
+        const id = firstClickRowId;
+        firstClickRowId = null;
+        if (!id || id === event.target.closest('[data-row]')?.dataset.id) return;
+        // Opening the preview on the first click can move the rows under the pointer.
+        event.stopPropagation();
+        const row = worklist.rows.value.find((item) => rowKey(item) === id);
+        if (row) open(row);
     }
 
     function onRowKey(event, row) {
@@ -702,8 +761,11 @@ export function createWorklistViewController(options) {
         worklist, refresh, filters, layout, workflow, detailClient, displayed, columns, headerAttrs,
         detailRequest: (id) => id === detailId ? pendingDetail : null,
         refreshIfChanged: () => loadedRevision !== client.dictationChanges ? reload() : null,
-        start, dispose, reload, assignmentDone, select, open, canOpen, listenOnly, onRowKey, goto, pages, hasNext, applyFilter,
+        start, dispose, reload, assignmentDone, select, open, canOpen, listenOnly, onRowKey,
+        rememberFirstClick, keepDoubleClickOnRow, goto, pages, hasNext, applyFilter,
         key: rowKey, cell: cellText, badge: statusBadge, dictationLabel, entryCount, text: TEXT,
+        searchMetadata: (row) => searchMetadata(row, view.search),
+        searchMarkStyle: surfaceStyle('warning', () => ({})),
         referenceLabel: (row) => 'Diktat ' + formatDictationReference(rowKey(row)),
         emptyCell: (row, key) => !ROLE_KEYS.includes(key) && key !== 'status' && cellText(row, key) === '–',
         priorityTone: priorityToneOf,
@@ -868,7 +930,8 @@ export const WorklistView = {
               <div class="empty-icon" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div>
               <h2>{{ c.view.filterId || c.view.search || c.worklist.rows.value.length ? c.text.noMatch : c.text.empty }}</h2>
             </div>
-            <table v-else class="worktable" data-layout="cl-table" role="grid" aria-label="Arbeitsliste" aria-describedby="cwv-keys">
+            <table v-else class="worktable" data-layout="cl-table" role="grid" aria-label="Arbeitsliste" aria-describedby="cwv-keys"
+                   @click.capture="c.rememberFirstClick($event)" @dblclick.capture="c.keepDoubleClickOnRow($event)">
               <thead>
                 <tr>
                   <th class="check"><input type="checkbox" :checked="c.allChecked()" :aria-label="c.text.selectAll" @change="c.toggleAll()"></th>
@@ -896,6 +959,9 @@ export const WorklistView = {
                         </span>
                         <div class="titletext"><strong>{{ c.dictationLabel(item.row) }}</strong>
                           <small class="cl-row-reference">{{ c.referenceLabel(item.row) }}</small>
+                          <small v-for="field in c.searchMetadata(item.row)" :key="field.key" class="cl-search-metadata" :data-search-field="field.key">
+                            {{ field.label }}: <template v-for="(part, index) in field.segments" :key="index"><mark v-if="part.match" :style="c.searchMarkStyle">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template>
+                          </small>
                           <span v-if="c.badge(item.row).processing" class="cl-processing">Spracherkennung: {{ c.badge(item.row).processing }}</span>
                         </div>
                       </div>

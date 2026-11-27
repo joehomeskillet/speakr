@@ -205,6 +205,7 @@
                      data-testid="clinic-correction-mount" data-clinic-shell-view ref="clinicCorrectionMount"
                      class="flex-1 overflow-y-auto content">
                     <clinic-correction-view :client="clinicClient" :dictation-id="clinicCorrectionId" :current-user="clinicUser"
+                                            :open-mode="clinicOpenMode"
                                             :create-audio-context="clinicAudioContextFactory"
                                             :dictator="clinicCorrectionRow.dictator" :pool="clinicCorrectionRow.pool"
                                             @close="closeClinicCorrection">

@@ -419,8 +419,8 @@ const DetailBody = {
   </div>
 
   <p v-if="status === 'loading' && !c.data.value" role="status" aria-live="polite" class="note" data-testid="loading-state">{{ TEXT.loading }}</p>
-  <div v-if="status === 'denied'" role="alert" class="note burgundy" data-testid="denied-state">{{ message }}</div>
-  <div v-else-if="status === 'error'" role="alert" class="note burgundy" data-testid="load-error" style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+  <div v-if="status === 'denied'" role="alert" class="note" :style="box('error')" data-testid="denied-state">{{ message }}</div>
+  <div v-else-if="status === 'error'" role="alert" class="note" :style="box('error')" data-testid="load-error" style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
     {{ message }}
     <button type="button" class="secondary" @click="c.load()">{{ TEXT.retry }}</button>
   </div>
@@ -435,6 +435,10 @@ const DetailBody = {
         <div class="eyebrow">{{ c.header().recordingTime }}</div>
         <h1 id="cdv-title" tabindex="-1" style="font-weight: 700">{{ TEXT.title }}</h1>
         <p>{{ TEXT.author }}: {{ c.header().author }} · {{ TEXT.pool }}: {{ c.header().pool }}</p>
+        <div class="head-actions">
+          <button type="button" class="primary" data-testid="open-editor"
+                  :disabled="!c.canOpenEditor()" @click="c.openEditor()">{{ TEXT.openEditor }}</button>
+        </div>
       </div>
       <span class="status" :class="tone(c.header().axes)">{{ axisText(c.header().axes) }}</span>
     </header>
@@ -460,10 +464,6 @@ const DetailBody = {
 
         <section class="panel v8-hosted" :aria-label="TEXT.actions" data-testid="actions">
           <h2 class="cl-sr-only">{{ TEXT.actions }}</h2>
-          <div class="actions">
-            <button type="button" class="primary" data-testid="open-editor"
-                    :disabled="!c.canOpenEditor()" @click="c.openEditor()">{{ TEXT.openEditor }}</button>
-          </div>
           <p v-if="c.leaseBlocksOpen()" role="note" class="hint" style="margin: 0">{{ TEXT.openBlocked }}</p>
           <component :is="parts.Lease" v-if="leaseState" :state="leaseState" :run="c.leaseRun" />
           <component :is="parts.Workflow" v-if="!c.offline()" :wf="c.workflow" />

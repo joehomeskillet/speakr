@@ -126,6 +126,8 @@ export function createTemplatesManager(options) {
             mimeType: item.mime_type,
             sha256: item.content_sha256,
             marker: item.insertion_mark !== undefined ? item.insertion_mark : (prior ? prior.marker : null),
+            notes: item.notes !== undefined ? item.notes : (prior ? prior.notes : ''),
+            active: item.is_active !== undefined ? item.is_active : (prior ? prior.active : true),
         };
     }
 
@@ -134,6 +136,8 @@ export function createTemplatesManager(options) {
     }
 
     function latestFor(name, scope, scopeId) {
+        // The server exposes only the caller's user templates; an omitted ID means self.
+        if ((scope === 'user' || scope === 'system') && scopeId == null) scopeId = state.items.find((row) => row.scope === scope)?.scopeId;
         const key = scope + '|' + (scopeId == null ? '' : scopeId) + '|' + name;
         return state.items.filter((row) => scopeKey(row) === key).reduce((top, row) => (!top || row.version > top.version ? row : top), null);
     }
@@ -168,7 +172,9 @@ export function createTemplatesManager(options) {
         setStatus('processing');
         const row = await client.request(TEMPLATES);
         if (row.outcome !== 'ok') return failure(row, 'permission');
-        merge((row.data && row.data.items) || []);
+        const rows = (row.data && row.data.items) || [];
+        for (const item of state.items) if (!rows.some((next) => next.id === item.id)) item.active = false;
+        merge(rows);
         state.loaded = true;
         state.stale = false;
         setStatus('success');
@@ -180,6 +186,31 @@ export function createTemplatesManager(options) {
         if (!row) return refuse('unknown_template');
         state.selectedId = id;
         return { ok: true, template: row };
+    }
+
+    /** List summaries omit scope IDs and markers; the editor needs full metadata. */
+    async function refresh() {
+        const loaded = await load();
+        if (!loaded.ok) return loaded;
+        setStatus('processing');
+        const details = await Promise.all(state.items.filter((row) => row.active).map((row) => client.request(TEMPLATES + '/' + encodeURIComponent(row.id))));
+        const failed = details.find((row) => row.outcome !== 'ok');
+        if (failed) return failure(failed, 'permission');
+        merge(details.map((row) => row.data));
+        setStatus('success');
+        return { ok: true };
+    }
+
+    /** DELETE deactivates the server version; keep its metadata in the local history. */
+    async function deactivate(id) {
+        const item = find(id);
+        if (!item || !item.active) return refuse('unknown_template');
+        setStatus('processing');
+        const row = await client.request(TEMPLATES + '/' + encodeURIComponent(id), { method: 'DELETE' });
+        if (row.outcome !== 'ok') return failure(row, 'permission');
+        item.active = false;
+        setStatus('success');
+        return { ok: true };
     }
 
     /** Versions of one template line, newest first. Older versions stay visible. */
@@ -292,7 +323,7 @@ export function createTemplatesManager(options) {
         client.switchContext({ accountId: null, dictationId: null });
     }
 
-    return { state, load, select, history, issues, previewInsertion, save, assign, onKey, reset };
+    return { state, load, refresh, deactivate, select, history, issues, previewInsertion, save, assign, onKey, reset };
 }
 
 /**
@@ -313,8 +344,62 @@ export function templatesComponent(vue, options) {
         name: 'ClinicTemplates',
         setup() {
             const manager = useTemplatesManager(vue, options);
-            manager.load();
-            return { manager };
+            const form = vue.reactive({ name: '', notes: '', marker: '', scope: 'user', scopeId: '', file: null,
+                target: 'user', targetId: '', sample: '', text: '', author: '', title: '', message: '', error: false, busy: false, ready: false });
+            const selected = () => manager.state.items.find((row) => row.id === manager.state.selectedId);
+            async function run(action, message) {
+                if (form.busy) return;
+                form.busy = true;
+                form.message = '';
+                try {
+                    const result = await action();
+                    form.error = !result.ok;
+                    form.message = result.ok ? message : result.message;
+                    return result;
+                } catch {
+                    form.error = true;
+                    form.message = REASONS.failure;
+                } finally { form.busy = false; }
+            }
+            async function reload() {
+                form.ready = false;
+                const result = await run(() => manager.refresh(), 'Vorlagen geladen.');
+                form.ready = !!result?.ok;
+            }
+            async function upload() {
+                return run(async () => {
+                    const file = form.file;
+                    const types = { docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', odt: 'application/vnd.oasis.opendocument.text' };
+                    const mimeType = types[file?.name.split('.').pop().toLowerCase()];
+                    if (!mimeType || !file.size || !form.name.trim() || (form.scope === 'pool' && !form.scopeId.trim())) return refuse('invalid_draft');
+                    if (file.size > 2 * 1024 * 1024) return refuse('too_large');
+                    const result = await manager.save({ name: form.name.trim(), notes: form.notes, marker: form.marker || null,
+                        scope: form.scope, scopeId: form.scope === 'system' ? null : form.scopeId.trim() || null,
+                        mimeType, bytes: new Uint8Array(await file.arrayBuffer()) });
+                    if (!result.ok) return result;
+                    form.ready = false;
+                    const refreshed = await manager.refresh();
+                    form.ready = refreshed.ok;
+                    return refreshed;
+                }, 'Vorlage gespeichert.');
+            }
+            function assign() {
+                return run(async () => {
+                    if (form.target === 'pool' && !form.targetId.trim()) return refuse('invalid_draft');
+                    const result = await manager.assign(manager.state.selectedId, form.target, form.targetId.trim() || null);
+                    if (!result.ok) return result;
+                    form.ready = false;
+                    const refreshed = await manager.refresh();
+                    form.ready = refreshed.ok;
+                    return refreshed;
+                }, 'Vorlage zugewiesen. Die Serverkopie bleibt erhalten.');
+            }
+            const preview = () => manager.previewInsertion(manager.state.selectedId, form.sample, form.text, { author: form.author, title: form.title });
+            reload();
+            return { manager, form, selected, reload, upload, assign, preview, reasons: REASONS,
+                onKey: (event) => { if (manager.onKey(event).ok) event.preventDefault(); },
+                contentUrl: (id) => '/api/clinic/v1/templates/' + encodeURIComponent(id) + '/content',
+                deactivate: () => run(() => manager.deactivate(manager.state.selectedId), 'Vorlage deaktiviert.') };
         },
         template: `
 <section role="region" aria-labelledby="clinic-tpl-title" :aria-busy="manager.state.status === 'processing'" class="space-y-4">
@@ -322,18 +407,60 @@ export function templatesComponent(vue, options) {
     <h2 id="clinic-tpl-title" class="text-lg font-semibold text-[var(--text-primary)]">${LABELS.title}</h2>
     <p class="mt-1 text-sm text-[var(--text-muted)]">Vorlagen mit Versionen und Einfügemarke. Jede Änderung legt eine neue Version an.</p>
   </header>
+  <div class="cadm-inline">
+    <button type="button" class="btn" :disabled="form.busy" @click="reload">Neu laden</button>
+    <p v-if="form.message" :role="form.error ? 'alert' : 'status'">{{ form.message }}</p>
+  </div>
+  <form class="cadm-editor" aria-label="Vorlage hochladen" @submit.prevent="upload">
+    <h3 class="cadm-subtitle">DOCX-/ODT-Vorlage hochladen</h3>
+    <fieldset class="cadm-form" :disabled="form.busy || !form.ready">
+      <legend>Neue Version</legend>
+      <label class="cadm-field">Name<input class="field" v-model="form.name" required maxlength="128"></label>
+      <label class="cadm-field">Datei (DOCX/ODT, maximal 2 MiB)<input class="field" type="file" accept=".docx,.odt" required @change="form.file = $event.target.files[0] || null"></label>
+      <label class="cadm-field">Anmerkung<textarea class="field" v-model="form.notes" maxlength="4000" rows="2"></textarea></label>
+      <label class="cadm-field">Einfügemarke<input class="field" v-model="form.marker" maxlength="128" placeholder="[[TEXT]]"></label>
+      <div class="cadm-field"><label for="tpl-scope">Bereich</label><select id="tpl-scope" class="field" v-model="form.scope" @change="form.scopeId = ''"><option value="user">Benutzer</option><option value="pool">Autorenpool</option><option value="system">System</option></select></div>
+      <label v-if="form.scope !== 'system'" class="cadm-field">{{ form.scope === 'pool' ? 'Autorenpool-ID' : 'Benutzer-ID (leer = eigenes Konto)' }}<input class="field" v-model="form.scopeId" :required="form.scope === 'pool'"></label>
+      <p class="cadm-hint">Benutzer: eigenes Konto. Pool: eigener Autorenpool. System: nur Administratoren.</p>
+      <div class="cadm-form__actions"><button class="btn primary" type="submit">${LABELS.save}</button></div>
+    </fieldset>
+  </form>
   <p v-if="manager.state.status === 'processing'" role="status" class="text-sm text-[var(--text-muted)]">{{ manager.state.loaded ? 'Wird verarbeitet …' : 'Vorlagen werden geladen.' }}</p>
   <p v-else-if="manager.state.loaded && !manager.state.items.length" role="status" class="rounded-lg border border-dashed border-[var(--border-primary)] p-4 text-sm text-[var(--text-muted)]">Keine Vorlagen vorhanden.</p>
-  <ul role="listbox" aria-label="${LABELS.list}" tabindex="0" class="grid gap-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)]" @keydown="manager.onKey($event)">
-    <li v-for="row in manager.state.items" :key="row.id" role="option" :aria-selected="row.id === manager.state.selectedId"
+  <ul role="listbox" aria-label="${LABELS.list}" tabindex="0" :aria-activedescendant="manager.state.selectedId ? 'tpl-' + manager.state.selectedId : undefined" class="grid gap-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)]" @keydown="onKey">
+    <li v-for="row in manager.state.items" :key="row.id" :id="'tpl-' + row.id" role="option" :aria-selected="row.id === manager.state.selectedId"
         class="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-4 py-3 text-sm hover:bg-[var(--bg-tertiary)] aria-selected:border-[var(--border-focus)] aria-selected:bg-[var(--bg-tertiary)]"
         @click="manager.select(row.id)">
       <span class="font-medium text-[var(--text-primary)]">{{ row.name }}</span>
       <span class="inline-flex items-center rounded-full bg-[var(--bg-tertiary)] px-2.5 py-0.5 text-xs text-[var(--text-primary)]">v{{ row.version }}</span>
       <span class="ml-auto text-xs text-[var(--text-muted)]">${LABELS.scope}: {{ row.scope }}</span>
+      <span v-if="!row.active" class="cadm-muted">Deaktiviert</span>
     </li>
   </ul>
   <div v-if="manager.state.selectedId" role="group" aria-label="${LABELS.history}" class="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4 space-y-3">
+    <h3 class="cadm-subtitle">{{ selected().name }}</h3>
+    <p>{{ selected().notes || 'Keine Anmerkung hinterlegt.' }}</p>
+    <div class="cadm-inline">
+      <a v-if="selected().active" class="btn" :href="contentUrl(manager.state.selectedId)" download>Serverkopie herunterladen</a>
+      <button type="button" class="btn" :disabled="form.busy || !form.ready || !selected().active" @click="deactivate">Löschen (deaktivieren)</button>
+    </div>
+    <form class="cadm-inline" aria-label="Vorlage zuweisen" @submit.prevent="assign">
+      <div class="cadm-field"><label for="tpl-target">Zielbereich</label><select id="tpl-target" class="field" v-model="form.target" :disabled="form.busy" @change="form.targetId = ''"><option value="user">Benutzer</option><option value="pool">Autorenpool</option></select></div>
+      <label class="cadm-field">{{ form.target === 'pool' ? 'Ziel-Autorenpool-ID' : 'Ziel-Benutzer-ID (leer = eigenes Konto)' }}<input class="field" v-model="form.targetId" :required="form.target === 'pool'" :disabled="form.busy"></label>
+      <button type="submit" class="btn" :disabled="form.busy || !form.ready || !selected().active">${LABELS.assign}</button>
+    </form>
+    <section class="cadm-editor" aria-labelledby="tpl-preview">
+      <h3 id="tpl-preview" class="cadm-subtitle">${LABELS.preview}</h3>
+      <p class="cadm-hint">Textbeispiel, keine Dokumentansicht. Einfügemarke: {{ selected().marker || 'keine' }}. Platzhalter: %A Autor, %T Titel, %% Prozent.</p>
+      <div class="cadm-form">
+        <label class="cadm-field">Beispieltext mit Einfügemarke<textarea class="field" v-model="form.sample" rows="3"></textarea></label>
+        <label class="cadm-field">Einzufügender Text<textarea class="field" v-model="form.text" rows="3"></textarea></label>
+        <label class="cadm-field">Autor für Vorschau<input class="field" v-model="form.author"></label>
+        <label class="cadm-field">Titel für Vorschau<input class="field" v-model="form.title"></label>
+      </div>
+      <p v-if="!preview().ok || preview().warning" role="status">{{ preview().message || reasons[preview().warning] }}</p>
+      <output class="whitespace-pre-wrap break-words" aria-live="polite">{{ preview().text || '' }}</output>
+    </section>
     <h3 class="text-base font-semibold text-[var(--text-primary)]">${LABELS.history}</h3>
     <div class="overflow-x-auto rounded-lg border border-[var(--border-primary)]">
       <ul role="list" class="divide-y divide-[var(--border-primary)] text-sm">

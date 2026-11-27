@@ -163,6 +163,12 @@ const ASR_TEMPLATE = `
         <option value="">Kein Profil</option><option v-for="o in view.batch" :key="o.value" :value="o.value">{{ o.label }}</option>
       </select>
     </div>
+    <div class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
+      <label for="res-asr-wait">{{ view.labels.wait }}</label>
+      <input id="res-asr-wait" type="number" min="1" inputmode="numeric" autocomplete="off"
+        :disabled="!view.ready || view.busy" :value="view.skipWaitMinutes"
+        @change="controller.setSkipWaitMinutes($event.target.value)">
+    </div>
   </div>
   <template v-if="view.ready && !view.error">
     <h3>Profilstand</h3>

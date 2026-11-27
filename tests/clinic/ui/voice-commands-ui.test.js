@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-    MAX_DEPTH, MAX_STEPS, createVoiceCommandsController, createVoiceCommandsComponent,
+    MAX_DEPTH, MAX_STEPS, createVoiceCommandsController, createVoiceCommandsComponent, createPronunciationHintsComponent,
     previewMacro, validateDefinition, isSensitiveAction,
 } from '../../../static/js/clinic/voice-commands-ui.js';
 
@@ -13,6 +13,7 @@ function fakeClient(over) {
         '/resources/commands': ok({ items: [{ id: '1', trigger_phrase: 'm1', action_type: 'macro', action_payload: '["next_marker"]' }] }),
         '/resources/pronunciations': ok({ items: [] }),
         '/pronunciations/capabilities': ok({ training_proven: false }),
+        '/tts/capability': ok({ available: false }),
     }, over || {});
     return {
         calls,
@@ -116,5 +117,98 @@ describe('voice commands ui', () => {
         expect(comp.template).toContain('for="vc-phrase"');
         expect(comp.template).toContain('aria-live="polite"');
         expect(comp.template).not.toMatch(/#[0-9a-fA-F]{3,6}\b/);
+    });
+});
+
+describe('pronunciation hints panel', () => {
+    function mount(client) {
+        let mounted;
+        const vue = {
+            reactive: (value) => value, ref: (value) => ({ value }),
+            computed: (get) => ({ get value() { return get(); } }),
+            onMounted: (callback) => { mounted = callback; },
+        };
+        const panel = createPronunciationHintsComponent(vue).setup({ client, scope: { type: 'user', id: '7' } });
+        return { panel, mounted };
+    }
+
+    it('loads hints without the commands permission and preserves capability evidence', async () => {
+        const hint = { id: '1', written_form: 'Ileus', phonetic_hint: 'ile-us', sounds_like: 'Ile us' };
+        const client = fakeClient({ '/resources/pronunciations': ok({ items: [hint] }) });
+        const { panel, mounted } = mount(client);
+        await mounted();
+        expect(panel.loaded.value).toBe(true);
+        expect(panel.c.state.pronunciations).toEqual([hint]);
+        expect(panel.c.state.capabilities).toEqual({ training_proven: false, tts: { available: false } });
+        expect(client.calls.map((call) => call[1])).toEqual([
+            '/resources/pronunciations', '/pronunciations/capabilities', '/tts/capability',
+        ]);
+        panel.edit(hint);
+        expect(panel.form).toStrictEqual({ written_form: 'Ileus', phonetic_hint: 'ile-us', sounds_like: 'Ile us', editing: true });
+        panel.reset();
+        expect(panel.form.written_form).toBe('');
+        expect(panel.form.editing).toBe(false);
+    });
+
+    it('creates and updates a hint, then reads the saved list back', async () => {
+        let items = [];
+        const client = fakeClient({
+            '/resources/pronunciations': () => ok({ items }),
+            '/pronunciations/commands': (options) => {
+                items = [{ id: 'hint-1', ...options.body.payload }];
+                return ok({ status: 'committed', hint_id: 'hint-1' });
+            },
+        });
+        const { panel, mounted } = mount(client);
+        await mounted();
+        Object.assign(panel.form, { written_form: ' Ileus ', phonetic_hint: ' ile-us ', sounds_like: ' Ile us ' });
+        await panel.save();
+        expect(panel.c.state.pronunciations).toEqual([{
+            id: 'hint-1', scope_type: 'user', scope_id: '7', written_form: 'Ileus', phonetic_hint: 'ile-us', sounds_like: 'Ile us',
+        }]);
+        expect(panel.form.written_form).toBe('');
+        panel.edit(panel.c.state.pronunciations[0]);
+        panel.form.phonetic_hint = 'i-le-us';
+        panel.form.sounds_like = '  ';
+        await panel.save();
+        expect(panel.c.state.pronunciations).toHaveLength(1);
+        expect(panel.c.state.pronunciations[0]).toMatchObject({ written_form: 'Ileus', phonetic_hint: 'i-le-us', sounds_like: null });
+        const writes = client.calls.filter((call) => call[1] === '/pronunciations/commands');
+        expect(writes).toHaveLength(2);
+        expect(writes[0][2]).toMatchObject({ method: 'POST', body: { command: 'save_pronunciation_hint' } });
+        expect(writes[0][2].body.request_id).toBeTruthy();
+        expect(panel.c.state.message).toBe('Gespeichert.');
+        await panel.load();
+        expect(panel.c.state.pronunciations[0].phonetic_hint).toBe('i-le-us');
+    });
+
+    it('keeps input after validation or save failure and retries failed reads', async () => {
+        let response = bad('permission');
+        const client = fakeClient({
+            '/resources/pronunciations': () => response,
+            '/pronunciations/capabilities': bad('network'), '/tts/capability': bad('network'),
+            '/pronunciations/commands': bad('network'),
+        });
+        const { panel, mounted } = mount(client);
+        await mounted();
+        expect(panel.loaded.value).toBe(false);
+        await panel.save();
+        expect(client.calls.filter((call) => call[1] === '/pronunciations/commands')).toHaveLength(0);
+        response = ok({ items: [] });
+        await panel.load();
+        expect(panel.loaded.value).toBe(true);
+        expect(panel.c.state.capabilities).toEqual({ training_proven: false, tts: { available: null } });
+        expect(panel.c.state.errors).toEqual([]);
+        panel.form.written_form = 'Ileus';
+        expect((await panel.save()).outcome).toBe('validation');
+        expect(panel.form.written_form).toBe('Ileus');
+        panel.form.phonetic_hint = 'ile-us';
+        expect((await panel.save()).outcome).toBe('network');
+        expect(panel.form.phonetic_hint).toBe('ile-us');
+        expect(panel.c.state.errors).toEqual(['network']);
+        panel.c.state.status = 'saving';
+        const before = client.calls.length;
+        await panel.save();
+        expect(client.calls).toHaveLength(before);
     });
 });

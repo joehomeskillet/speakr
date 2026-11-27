@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 
 WORKER = r'''
 from datetime import datetime, timezone
@@ -66,6 +68,11 @@ with app.app_context():
 '''
 
 APP_CHECK = WORKER + SEED + r'''
+import sys
+from src.clinic.kis import DisabledAdapter
+
+app.extensions['clinic_kis_adapter'] = DisabledAdapter()
+expected_kis = [{'id': 'kis', 'channel': 'kis', 'available': False, 'reason': 'kis_unavailable'}]
 base = f'/api/clinic/v1/dictations/{dictation_id}'
 url = base + '/output-targets'
 assert app.test_client().get(url).status_code == 401
@@ -83,7 +90,7 @@ assert allowed.json == {
     'targets': [
         {'id': 'txt', 'channel': 'file', 'available': True, 'reason': None},
         {'id': 'docx', 'channel': 'file', 'available': True, 'reason': None},
-        {'id': 'kis', 'channel': 'kis', 'available': False, 'reason': 'kis_unavailable'},
+        *(expected_kis if sys.argv[1] == 'staging' else []),
         {'id': 'clipboard', 'channel': 'clipboard', 'available': True, 'reason': None},
     ],
 }
@@ -109,16 +116,18 @@ assert reader.get(f'{base}/exports/{uuid4()}').status_code == 404
 '''
 
 
-def test_output_targets_use_view_and_export_rights_separately(tmp_path):
+@pytest.mark.parametrize('profile', ['production', 'staging'])
+def test_output_targets_use_view_and_export_rights_separately(tmp_path, profile):
     env = {
         **os.environ,
         'CLINIC_MODE': '1',
-        'CLINIC_PROFILE': 'production',
+        'CLINIC_PROFILE': profile,
+        'CLINIC_KIS_DELIVERY_ENABLED': '1',
         'SQLALCHEMY_DATABASE_URI': f'sqlite:///{tmp_path / "output.db"}',
         'UPLOAD_FOLDER': str(tmp_path / 'uploads'),
         'TRANSCRIPTION_BASE_URL': 'http://127.0.0.1:9/v1',
     }
-    result = subprocess.run([sys.executable, '-c', APP_CHECK], cwd=Path(__file__).resolve().parents[2],
+    result = subprocess.run([sys.executable, '-c', APP_CHECK, profile], cwd=Path(__file__).resolve().parents[2],
                             env=env, capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stdout + result.stderr
 

@@ -144,6 +144,20 @@ describe('live session ui', () => {
         expect(state.status).toBe('stale');
     });
 
+    it('adopts a paused recovery without presenting a writable recording', async () => {
+        const { client, controller } = setup();
+        client.request.mockResolvedValue(ok({
+            session_id: SID, generation: 1, sequence: 2, state: 'PAUSED', events: [],
+        }));
+        const state = await controller.resume();
+        expect(state).toMatchObject({ status: 'paused', writable: false, checkpoint: 2, revision: 3 });
+        expect(controller.finalize('C', {})).toBeNull();
+        expect(controller.setPartial('x')).toBe(false);
+        controller.applyServerState({ state: 'RECORDING', sequence: 2 });
+        expect(controller.getState().status).toBe('live');
+        expect(controller.finalize('C', {})).toMatchObject({ generation: 1, sequence: 3 });
+    });
+
     it('holderLost makes unsaved text stale and clears the partial', () => {
         const { controller } = setup();
         controller.setPartial('t');

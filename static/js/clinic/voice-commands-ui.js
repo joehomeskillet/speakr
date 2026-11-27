@@ -182,6 +182,25 @@ export function createVoiceCommandsController(deps) {
         return { outcome: 'ok' };
     }
 
+    async function loadPronunciations() {
+        state.status = 'loading';
+        state.errors = [];
+        state.message = '';
+        const [hints, caps, tts] = await Promise.all([
+            client.request('/resources/pronunciations'),
+            client.request('/pronunciations/capabilities'),
+            client.request('/tts/capability'),
+        ]);
+        if (hints.outcome !== 'ok') return fail(hints);
+        state.pronunciations = hints.data.items || [];
+        state.capabilities = {
+            training_proven: caps.outcome === 'ok' && caps.data?.training_proven === true,
+            tts: { available: tts.outcome === 'ok' ? tts.data?.available === true : null },
+        };
+        state.status = 'ready';
+        return { outcome: 'ok' };
+    }
+
     function macroMap() {
         const map = {};
         for (const c of state.commands) {
@@ -253,7 +272,7 @@ export function createVoiceCommandsController(deps) {
                 payload: {
                     scope_type: scope.type, scope_id: String(scope.id),
                     written_form: def.written_form.trim(), phonetic_hint: def.phonetic_hint.trim(),
-                    sounds_like: def.sounds_like || null,
+                    sounds_like: (def.sounds_like || '').trim() || null,
                 },
             },
         });
@@ -279,7 +298,7 @@ export function createVoiceCommandsController(deps) {
     }
 
     return {
-        state: state, load: load, saveCommand: saveCommand, savePronunciation: savePronunciation,
+        state: state, load: load, loadPronunciations, saveCommand: saveCommand, savePronunciation: savePronunciation,
         requestTraining: requestTraining, requestConfirmation: requestConfirmation,
         preview: (steps) => previewMacro(steps, macroMap()),
         surface: (kind) => surfaceFor(kind),
@@ -290,6 +309,85 @@ export function createVoiceCommandsController(deps) {
 export function useVoiceCommands(client, vue) {
     const V = vue || globalThis.Vue;
     return createVoiceCommandsController({ client: client, makeState: (o) => V.reactive(o) });
+}
+
+/** Own pronunciation hints; saving a hint is not proof of acoustic training. */
+export function createPronunciationHintsComponent(vue) {
+    const V = vue || globalThis.Vue;
+    return {
+        name: 'ClinicPronunciationHintsUi',
+        props: { client: { type: Object, required: true }, scope: { type: Object, required: true } },
+        emits: ['saved'],
+        setup(props, context) {
+            const c = useVoiceCommands(props.client, V);
+            const form = V.reactive({ written_form: '', phonetic_hint: '', sounds_like: '', editing: false });
+            const loaded = V.ref(false);
+            const busy = V.computed(() => ['loading', 'saving'].includes(c.state.status));
+            const reset = () => Object.assign(form, { written_form: '', phonetic_hint: '', sounds_like: '', editing: false });
+            const edit = (hint) => Object.assign(form, {
+                written_form: hint.written_form, phonetic_hint: hint.phonetic_hint,
+                sounds_like: hint.sounds_like || '', editing: true,
+            });
+            const load = async () => { loaded.value = (await c.loadPronunciations()).outcome === 'ok'; };
+            const save = async () => {
+                if (busy.value || !loaded.value) return;
+                const result = await c.savePronunciation(form, props.scope);
+                if (result.outcome === 'ok') {
+                    reset();
+                    await load();
+                    if (loaded.value) c.state.message = LABELS.saved;
+                    context?.emit('saved');
+                }
+                return result;
+            };
+            V.onMounted(load);
+            return { c, form, loaded, busy, edit, load, save, reset, errorLabel: commandErrorLabel };
+        },
+        template: `
+<section class="v8-page stack" aria-labelledby="ph-title" :aria-busy="busy">
+  <h2 id="ph-title">Aussprachehinweise</h2>
+  <p v-if="busy" class="note" role="status">{{ c.state.status === 'loading' ? 'Aussprachehinweise werden geladen …' : 'Wird gespeichert …' }}</p>
+  <p v-if="c.state.message" class="note" role="status" aria-live="polite">{{ c.state.message }}</p>
+  <ul v-if="c.state.errors.length" class="note burgundy" role="alert">
+    <li v-for="error in c.state.errors" :key="error">{{ errorLabel(error) }}</li>
+  </ul>
+  <button v-if="!loaded && !busy" type="button" @click="load">Erneut laden</button>
+  <template v-if="loaded">
+    <div class="note" role="status" aria-live="polite">
+      <p>{{ c.state.capabilities.training_proven ? 'Aussprachetraining nachgewiesen; hier werden nur Hinweise gespeichert.' : 'Aussprachetraining nicht verfügbar oder nicht nachgewiesen. Gespeicherte Hinweise sind kein akustisches Training.' }}</p>
+      <p>{{ c.state.capabilities.tts?.available === true ? 'Lokale Sprachausgabe verfügbar; das Vorlesen einzelner Hinweise ist hier nicht angebunden.' : c.state.capabilities.tts?.available === false ? 'Lokale Sprachausgabe nicht verfügbar.' : 'Verfügbarkeit der lokalen Sprachausgabe konnte nicht bestätigt werden.' }}</p>
+    </div>
+    <p v-if="!c.state.pronunciations.length" class="note">Noch keine Aussprachehinweise gespeichert.</p>
+    <ul v-else class="stack" aria-label="Gespeicherte Aussprachehinweise">
+      <li v-for="hint in c.state.pronunciations" :key="hint.id" class="note" style="overflow-wrap:anywhere">
+        <strong>{{ hint.written_form }}</strong>
+        <p>Lautschrift: {{ hint.phonetic_hint }}</p>
+        <p v-if="hint.sounds_like">Klingt wie: {{ hint.sounds_like }}</p>
+        <button type="button" class="small" :disabled="busy" :aria-label="hint.written_form + ' bearbeiten'" @click="edit(hint)">Bearbeiten</button>
+      </li>
+    </ul>
+    <form class="stack" @submit.prevent="save">
+      <h3>{{ form.editing ? 'Aussprachehinweis bearbeiten' : 'Neuer Aussprachehinweis' }}</h3>
+      <div class="field" style="border:0;padding:0;box-shadow:none;background:none">
+        <label for="ph-written">Schreibweise</label>
+        <input id="ph-written" v-model="form.written_form" :readonly="form.editing" :disabled="busy" maxlength="255" required autocomplete="off">
+      </div>
+      <div class="field" style="border:0;padding:0;box-shadow:none;background:none">
+        <label for="ph-phonetic">Lautschrift</label>
+        <input id="ph-phonetic" v-model="form.phonetic_hint" :disabled="busy" maxlength="255" required autocomplete="off">
+      </div>
+      <div class="field" style="border:0;padding:0;box-shadow:none;background:none">
+        <label for="ph-sounds">Klingt wie (optional)</label>
+        <input id="ph-sounds" v-model="form.sounds_like" :disabled="busy" maxlength="255" autocomplete="off">
+      </div>
+      <div class="actions">
+        <button type="submit" class="primary" :disabled="busy">Speichern</button>
+        <button type="button" :disabled="busy" @click="reset">{{ form.editing ? 'Abbrechen' : 'Zurücksetzen' }}</button>
+      </div>
+    </form>
+  </template>
+</section>`,
+    };
 }
 
 /** Component factory with labelled, keyboard-operable markup (Enter saves, Escape clears). */

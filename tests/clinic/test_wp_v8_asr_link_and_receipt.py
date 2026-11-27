@@ -1,4 +1,6 @@
 """Web upload receipts and recognition settlement with a synthetic PCM WAV."""
+import os
+import tempfile
 from datetime import datetime
 from uuid import UUID
 
@@ -9,8 +11,9 @@ from src.clinic.correction import ClinicTextAudioLink
 from src.clinic.models import ClinicDictation, ClinicOriginal
 from src.clinic.web_ingest import dictation_for_recording
 from src.database import db
-from src.models import ProcessingJob, Recording
+from src.models import ProcessingJob, Recording, User
 from src.services.job_queue import MAX_RETRIES, job_queue
+from src.services.recording_ingestion import handle_duplicate_replay
 from src.services.transcription.connectors.clinic_stub import ClinicStubTranscriptionConnector
 from test_stub_asr import _fixture_bytes, _fixture_duration
 from test_wp_v8_web_ingest import _post, author, originals  # noqa: F401 - shared fixtures
@@ -141,3 +144,63 @@ def test_legacy_prefix_and_anchor_priority(upload):
     db.session.add(direct)
     db.session.flush()
     assert dictation_for_recording(prefix * 10) is direct
+
+
+def _transcript_jobs(recording_ids):
+    return ProcessingJob.query.filter(
+        ProcessingJob.recording_id.in_(recording_ids),
+        ProcessingJob.job_type.in_(('transcribe', 'convert')),
+    )
+
+
+def test_opposite_asr_choices_send_without_a_transcript_when_opted_out(upload):
+    """Old uploads queue ASR. An explicit opt-out stays writable, sends, and keeps its head."""
+    on_dictation, on_job = upload
+    author_id = on_dictation.author_user_id
+    on_sent = workflow.transition(db.session, on_dictation.id, 'send_online')
+    assert recognition_state.asr_outcome(on_dictation) == 'running'
+    assert recognition_state.settle(db.session, on_dictation.id).status == workflow.PREP_ONLINE
+    assert on_sent.acceptance_required is False
+    on_ref = ClinicOriginal.query.filter_by(dictation_id=on_dictation.id).one().origin_ref
+    assert ':asr=off:' not in on_ref
+    assert _transcript_jobs([on_job.recording_id]).count() == 1
+
+    response = _post(
+        author_id, content=_fixture_bytes(), filename='manual.wav', title='Manuell',
+        client_upload_id='cu-manual', meeting_date='2026-03-03T08:15:00Z',
+        use_speech_recognition='false')
+    assert response.status_code == 202, response.get_data(as_text=True)
+    body = response.get_json()
+    assert body['use_speech_recognition'] is False
+    off = db.session.get(ClinicDictation, body['dictation_id'])
+    upload_id = body['id']
+    assert _transcript_jobs([upload_id, off.recording_id]).count() == 0
+    original = ClinicOriginal.query.filter_by(dictation_id=off.id).one()
+    assert ':asr=off:' in original.origin_ref and original.origin_ref.endswith(':time=recording')
+
+    off_row = db.session.get(workflow.ClinicWorkflowDictation, off.id)
+    off_row.acceptance_required = True
+    db.session.commit()
+    human = revisions.add_human_revision(
+        off, None, 'Manuell geschrieben.', off.author_user_id, original_version=original)
+    assert db.session.get(workflow.ClinicWorkflowDictation, off.id).status == workflow.DRAFT
+    assert revisions.current_revision(off).id == human.id
+
+    workflow.transition(db.session, off.id, 'send_online')
+    sent = recognition_state.settle(db.session, off.id)
+    assert sent.status == workflow.TO_WRITE
+    assert sent.acceptance_required is True
+    assert _transcript_jobs([upload_id, off.recording_id]).count() == 0
+    assert revisions.current_revision(off).id == human.id
+
+    recording = db.session.get(Recording, upload_id)
+    handle, path = tempfile.mkstemp(suffix='.wav')
+    os.close(handle)
+    replay, status = handle_duplicate_replay(
+        recording, owner=db.session.get(User, author_id), filepath=path,
+        file_hash='ab' * 32, success_status=202, form={})
+    assert status == 202 and replay.get_json()['idempotent_replay'] is True
+    assert _transcript_jobs([upload_id, off.recording_id]).count() == 0
+    assert revisions.current_revision(off).id == human.id
+    assert db.session.get(workflow.ClinicWorkflowDictation, off.id).acceptance_required is True
+    assert db.session.get(workflow.ClinicWorkflowDictation, on_dictation.id).acceptance_required is False

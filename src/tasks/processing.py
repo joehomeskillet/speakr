@@ -1168,12 +1168,16 @@ def merge_diarized_chunks(chunk_results):
                 start_time = seg.start_time
                 end_time = seg.end_time
                 words = getattr(seg, 'words', None)
+                avg_logprob = getattr(seg, 'avg_logprob', None)
+                no_speech_prob = getattr(seg, 'no_speech_prob', None)
             else:
                 speaker = seg.get('speaker')
                 text = seg.get('text', '')
-                start_time = seg.get('start_time') or seg.get('start')
-                end_time = seg.get('end_time') or seg.get('end')
+                start_time = seg.get('start_time', seg.get('start'))
+                end_time = seg.get('end_time', seg.get('end'))
                 words = seg.get('words')
+                avg_logprob = seg.get('avg_logprob')
+                no_speech_prob = seg.get('no_speech_prob')
 
             # Skip empty segments
             if not text or not text.strip():
@@ -1218,6 +1222,8 @@ def merge_diarized_chunks(chunk_results):
                 start_time=adjusted_start,
                 end_time=adjusted_end,
                 words=adjusted_words,
+                avg_logprob=avg_logprob if start_time is not None and end_time is not None else None,
+                no_speech_prob=no_speech_prob if start_time is not None and end_time is not None else None,
             ))
 
     merged_text = '\n'.join(merged_parts)
@@ -1598,7 +1604,7 @@ _TRANSCRIPT_STATE_FIELDS = (
 )
 
 
-def _link_asr_segments_at_ingest(dictation, asr_text, stored, model_ref, *, expected_asr_revision_id=None):
+def _link_asr_segments_at_ingest(dictation, asr_text, stored, model_ref, **binding):
     """CLINIC_MODE: store the ASR revision and its timed segment links; never fails the ASR run.
 
     Returns True when stored, False when the step failed (logged without transcript text).
@@ -1606,8 +1612,7 @@ def _link_asr_segments_at_ingest(dictation, asr_text, stored, model_ref, *, expe
     from src.clinic.correction import ingest_asr_result
     try:
         with db.session.begin_nested():
-            ingest_asr_result(dictation, asr_text, stored, model_ref,
-                              expected_asr_revision_id=expected_asr_revision_id)
+            ingest_asr_result(dictation, asr_text, stored, model_ref, **binding)
     except Exception as link_err:
         log_failure(current_app.logger, logging.WARNING,
                     f"ASR segment links of dictation {dictation.id} not stored", link_err)
@@ -1615,7 +1620,7 @@ def _link_asr_segments_at_ingest(dictation, asr_text, stored, model_ref, *, expe
     return True
 
 
-def _handle_late_asr(recording, prior, model_ref, *, attempt=None):
+def _handle_late_asr(recording, prior, model_ref, *, attempt=None, recognition_segments=None):
     """CLINIC_MODE: an ASR result that arrives after a human revision is a side revision.
 
     With a human head the visible transcript fields go back to what they were
@@ -1648,9 +1653,15 @@ def _handle_late_asr(recording, prior, model_ref, *, attempt=None):
             recording.transcription = head.body
     stored_ok = False
     if not rejected and asr_text.strip():
+        run_id = None
+        if (job and job.status == 'processing' and job.cancel_requested_at is None
+                and attempt == (job.retry_count, job.started_at)):
+            run_id = f"job:{job.id}:{job.retry_count}:{job.started_at}"
         stored_ok = _link_asr_segments_at_ingest(
             dictation, asr_text, stored, model_ref,
-            expected_asr_revision_id=head.id if head and status == 'eligible' else None)
+            expected_asr_revision_id=head.id if head and status == 'eligible' else None,
+            recognition_segments=recognition_segments, recognition_run_id=run_id,
+            verified_repeat_audio=status == 'eligible')
     if stored_ok:
         if head is None and status == 'unbound':
             from src.clinic.dictation_summary import queue_first_asr_summary
@@ -2049,6 +2060,7 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
                             task_scope=f"speakr-{recording.id}" if recording else None,
                             engines=ran_engines, model_refs=model_refs,
                         )
+                        recognition_result = chunk_result
                         # A safe point: the result is dropped, nothing of it is stored.
                         job.check_cancel()
 
@@ -2106,6 +2118,7 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
                             )
                             _end_transaction_before_external_call(recording)
                             response = connector.transcribe(request)
+                            recognition_result = response
                             ran_engines.append(getattr(response, 'engine_actual', None))
                             if model_refs is not None:
                                 model_refs.add(_response_model_ref(response))
@@ -2289,7 +2302,9 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
                     model_ref = next(iter(model_refs), None)
                 if not model_ref:
                     model_ref = f"{connector_name}:{transcription_model or getattr(connector, 'model', None) or 'default'}"
-                dictation = _handle_late_asr(recording, clinic_prior, model_ref, attempt=clinic_attempt)
+                dictation = _handle_late_asr(
+                    recording, clinic_prior, model_ref, attempt=clinic_attempt,
+                    recognition_segments=getattr(recognition_result, 'segments', None))
             if not has_asr_text:
                 current_app.logger.warning(
                     f"Transcription for recording {recording_id} returned no text; marking it failed")

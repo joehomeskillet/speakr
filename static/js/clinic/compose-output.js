@@ -4,6 +4,7 @@
  * Lists the output targets of one dictation, requests the export of the
  * released transcript revision and shows the result per target. Clipboard
  * copy is the existing clipboard-ui module; nothing of it is re-implemented.
+ * The view only offers file exports and clipboard copy.
  *
  * Contract (package v8-14, src/clinic/routes_output.py):
  *   GET  /dictations/{id}/output-targets  -> { released_revision_id, targets: [{ id, channel, available, reason }] }
@@ -255,7 +256,7 @@ export const OutputView = {
           <table :aria-label="TEXT.targets">
             <thead><tr><th scope="col">{{ TEXT.colTarget }}</th><th scope="col">{{ TEXT.colStatus }}</th><th scope="col">{{ TEXT.colAction }}</th></tr></thead>
             <tbody>
-              <tr v-for="t in c.targets.value.filter((x) => x.channel !== 'clipboard')" :key="t.id" :data-target="t.id">
+              <tr v-for="t in c.targets.value.filter((x) => x.channel === 'file')" :key="t.id" :data-target="t.id">
                 <td><strong>{{ t.label }}</strong></td>
                 <td>
                   <span v-if="!t.available" class="tag wait" data-testid="unavailable">{{ t.reason }}</span>

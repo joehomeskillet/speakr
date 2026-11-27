@@ -100,6 +100,32 @@ def confirmed_hits(dictation: ClinicDictation, rules: CautionRuleSet) -> list[Ca
     return [_hit(m) for m in _rows(dictation, head, rules) if m.deleted_at is not None]
 
 
+def reserved_label(label: str | None) -> bool:
+    return bool(label and label.startswith(PREFIX + _SEP))
+
+
+def is_review_marker(marker: ClinicMarker) -> bool:
+    if (marker.marker_type != correction.MARKER_INDEX or marker.anchor_revision_id is None
+            or marker.anchor_offset is None or not reserved_label(marker.label)):
+        return False
+    parts = marker.label.split(_SEP)
+    return len(parts) == 5 and bool(parts[1] and parts[3]) and parts[4] == str(marker.anchor_offset)
+
+
+def open_review_hits(dictation: ClinicDictation, head: ClinicTranscriptRevision | None) -> list[CautionHit]:
+    """Open hits already materialized on this revision for the dictation's pool."""
+    return [_hit(marker) for marker in _open_review_rows(dictation, head)]
+
+
+def confirm_review_hit(dictation: ClinicDictation, head: ClinicTranscriptRevision, marker_id: str,
+                       actor_user_id: int, *, lease_generation: int) -> None:
+    """Confirm a materialized hit after the caller locks the dictation and checks its head."""
+    marker = next((row for row in _open_review_rows(dictation, head) if row.id == marker_id), None)
+    if marker is None:
+        raise correction.CorrectionConflict("no open caution hit for this revision and pool")
+    _confirm_marker(marker, actor_user_id, lease_generation)
+
+
 def confirm(
     dictation: ClinicDictation,
     rules: CautionRuleSet,
@@ -116,11 +142,15 @@ def confirm(
                    if m.id == marker_id and m.deleted_at is None), None) if head else None
     if marker is None or not _same_pool(dictation, rules):
         raise CorrectionError("no open caution hit for this revision and rule set")
+    _confirm_marker(marker, actor_user_id, lease_generation)
+    return _hit(marker)
+
+
+def _confirm_marker(marker: ClinicMarker, actor_user_id: int, lease_generation: int | None) -> None:
     correction.delete_marker(
         marker, actor_user_id,
         expected_version=marker.version, lease_generation=lease_generation,
     )
-    return _hit(marker)
 
 
 def _same_pool(dictation: ClinicDictation, rules: CautionRuleSet) -> bool:
@@ -131,11 +161,19 @@ def _label(rules: CautionRuleSet, word: str, offset: int) -> str:
     return _SEP.join((PREFIX, rules.pool_id, rules.version, word, str(offset)))
 
 
+def _open_review_rows(dictation: ClinicDictation, head: ClinicTranscriptRevision | None) -> list[ClinicMarker]:
+    if head is None or not dictation.pool_id:
+        return []
+    return [marker for marker in _rows(dictation, head)
+            if marker.deleted_at is None and is_review_marker(marker)]
+
+
 def _rows(
-    dictation: ClinicDictation, head: ClinicTranscriptRevision, rules: CautionRuleSet
+    dictation: ClinicDictation, head: ClinicTranscriptRevision, rules: CautionRuleSet | None = None,
 ) -> list[ClinicMarker]:
-    """Live and soft-deleted caution markers anchored to ``head`` for this pool and version."""
-    stem = _SEP.join((PREFIX, rules.pool_id, rules.version)) + _SEP
+    """Caution markers anchored to ``head``, optionally bound to a specific rule set."""
+    scope = (rules.pool_id, rules.version) if rules is not None else (dictation.pool_id,)
+    stem = _SEP.join((PREFIX, *scope, ""))
     rows = db.session.query(ClinicMarker).filter(
         ClinicMarker.dictation_id == dictation.id,
         ClinicMarker.marker_type == correction.MARKER_INDEX,

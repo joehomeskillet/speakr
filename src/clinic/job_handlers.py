@@ -3,8 +3,8 @@
 ``register_clinic_job_handlers`` registers one handler per ``CLINIC_JOBS`` type, so queued
 follow-ups are claimed instead of waiting forever. Every handler fails closed with a permanent
 ``ClinicJobRefused`` (reason in the job error, no retry loop) when its binding, target or
-trusted context is missing. Nothing leaves the database except a KIS delivery, and that goes
-only through the configured adapter (MockKIS on staging, DisabledAdapter in production).
+trusted context is missing. KIS delivery is off by default and can be enabled only
+for the synthetic staging adapter.
 
 - ``clinic_finalize``: re-reads the durable release the job names and checks its binding.
   No external effect; the release itself was committed before the job was enqueued.
@@ -22,6 +22,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from src.clinic import finalize_gates, kis, pool_policy, policy
+from src.clinic.config import kis_delivery_enabled
 from src.clinic.models import ClinicContextRevision, ClinicDictation, ClinicRelease
 from src.database import db
 from src.services import job_queue as jq
@@ -56,8 +57,10 @@ def output_handler(adapter_for):
     def handle(params, correlation_id):
         if params.get("target") != OUTPUT_TARGET:
             raise jq.ClinicJobRefused(f"[{correlation_id}] no configured output target; nothing was sent")
+        if not kis_delivery_enabled():
+            raise jq.ClinicJobRefused(f"[{correlation_id}] KIS delivery is disabled; nothing was sent")
         adapter = adapter_for()
-        if not adapter.enabled:
+        if not adapter.enabled or not adapter.is_mock:
             raise jq.ClinicJobRefused(f"[{correlation_id}] KIS adapter not configured; nothing was sent")
         release = _release_of(params, correlation_id)
         context = db.session.get(ClinicContextRevision, release.context_revision_id)

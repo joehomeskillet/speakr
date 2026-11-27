@@ -76,6 +76,40 @@ describe('asr profiles ui', () => {
         expect(c.view().prompts).toEqual({ enabled: false, label: 'Aus' });
     });
 
+    it('saves a changed wait in minutes and shows it again after reload', async () => {
+        let stored = { ...PROFILES, wait: { offer_manual_after_s: 120, skip_wait_minutes: 2 } };
+        const client = makeClient({
+            'GET /asr-profiles': () => ok(stored),
+            'PUT /asr-profiles/selection': (o) => {
+                const minutes = o.body.skip_wait_minutes;
+                stored = {
+                    ...stored,
+                    version: stored.version + 1,
+                    wait: { offer_manual_after_s: minutes * 60, skip_wait_minutes: minutes },
+                };
+                return ok({});
+            },
+        });
+        const c = createAsrProfilesController({ client });
+        await c.load();
+        expect(c.view().skipWaitMinutes).toBe(2);
+        expect(c.view().labels.wait).toBe('Wartezeit (Minuten)');
+        expect(c.setSkipWaitMinutes('0')).toBe(false);
+        expect(c.setSkipWaitMinutes('3')).toBe(true);
+        expect(await c.save()).toBe(true);
+        const put = client.calls.find((call) => call.method === 'PUT');
+        expect(put.body.skip_wait_minutes).toBe(3);
+        expect(c.view().skipWaitMinutes).toBe(3);
+    });
+
+    it('hides the manual offer while recognition runs when the wait is disabled', async () => {
+        const data = { ...PROFILES, wait: { wait_disabled: true, offer_manual_after_s: null } };
+        const c = createAsrProfilesController({ client: makeClient({ 'GET /asr-profiles': () => ok(data) }) });
+        await c.load();
+        expect(c.view('running', 500).manual.visible).toBe(false);
+        expect(c.view('failed', 0).manual.visible).toBe(true);
+    });
+
     it('offers manual correction after the configured wait, or at once on failure', async () => {
         const c = createAsrProfilesController({ client: makeClient(routes()) });
         await c.load();

@@ -45,6 +45,13 @@ def clinic_mode_enabled() -> bool:
     return os.environ.get('CLINIC_MODE', '').strip().lower() in _TRUE
 
 
+def kis_delivery_enabled() -> bool:
+    """Read-only by default. Only synthetic staging can opt into legacy delivery."""
+    return (clinic_mode_enabled()
+            and os.environ.get('CLINIC_PROFILE', '').strip().lower() == 'staging'
+            and os.environ.get('CLINIC_KIS_DELIVERY_ENABLED') == '1')
+
+
 def web_only() -> bool:
     """A temporary HTTP worker for an already initialized clinic deployment."""
     value = os.environ.get('CLINIC_WEB_ONLY', '')

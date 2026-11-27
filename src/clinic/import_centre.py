@@ -413,7 +413,8 @@ def assign_unassigned(
     return _claim_unassigned(actor_user_id=actor_user_id, delivery_id=delivery_id, intent_id=intent_id, now=now)
 
 
-def _claim_unassigned(*, actor_user_id: int, delivery_id: str, intent_id: str, now: datetime | None) -> str:
+def _claim_unassigned(*, actor_user_id: int, delivery_id: str, intent_id: str, now: datetime | None,
+                      commit: bool = True) -> str:
     now = aware(now) or utcnow()
     intent = _own_intent(actor_user_id, intent_id)
     delivery = db.session.get(ClinicImportDelivery, delivery_id)
@@ -433,7 +434,8 @@ def _claim_unassigned(*, actor_user_id: int, delivery_id: str, intent_id: str, n
     original = db.session.get(ClinicImportOriginal, delivery.id)
     if original is not None:
         _heal_original(original, intent)
-    db.session.commit()
+    if commit:
+        db.session.commit()
     return delivery.id
 
 

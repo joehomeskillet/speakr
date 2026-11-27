@@ -5,18 +5,18 @@ from sqlalchemy.orm import aliased
 
 from src.database import db
 
-from . import revisions
+from . import caution_words, revisions
 from .kis import PRODUCTION_PROFILE, KisAdapter, _profile
 from .models import ClinicContextRevision, ClinicDictation, ClinicTranscriptRevision
 from .context_grants import ClinicContextGrantUse
 
 
 def open_review_flags(dictation: ClinicDictation, head: ClinicTranscriptRevision) -> int:
-    """Number of open review markers: ASR revisions that are off the head's lineage.
+    """Count open W11 hits on the head plus ASR revisions off its lineage.
 
-    A marker is closed once a human revision takes it into the head's parent chain.
+    An ASR flag closes once a human revision takes it into the head's parent chain.
     """
-    return sum(
+    return len(caution_words.open_review_hits(dictation, head)) + sum(
         1 for row in revisions.history(dictation)
         if row.id != head.id and revisions.is_flagged(dictation, row)
     )

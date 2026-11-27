@@ -5,12 +5,13 @@ Positive, unauthorized, stale-version and failure cases against the real
 """
 
 import pytest
-from flask import Flask, jsonify
+from flask import Flask, g, jsonify
 from flask_login import LoginManager, login_user
 from flask_wtf.csrf import CSRFProtect, generate_csrf
 
 from src.app import app as real_app
 from src.clinic import pools, presets
+from src.clinic.identity import ClinicAccountPolicy
 from src.clinic.routes_categories import PREFIX, blueprint
 from src.database import db
 from src.models import User
@@ -22,7 +23,12 @@ from test_pools import _suffix, _user, pool_db as pool_db
 def world(pool_db, monkeypatch):
     monkeypatch.setenv("CLINIC_MODE", "1")
     presets.ClinicCategorySet.__table__.create(db.engine, checkfirst=True)
+    ClinicAccountPolicy.__table__.create(db.engine, checkfirst=True)
     admin, author, other = _user(admin=True), _user(), _user()
+    revoked = _user(admin=True)
+    db.session.add(ClinicAccountPolicy(user_id=admin.id, status="active"))
+    db.session.add(ClinicAccountPolicy(user_id=revoked.id, status="disabled"))
+    db.session.commit()
     own_pool = pools.create_author_pool("A-" + _suffix(), actor_id=admin.id)
     foreign_pool = pools.create_author_pool("F-" + _suffix(), actor_id=admin.id)
     pools.add_author_member(own_pool.id, author.id, actor_id=admin.id)
@@ -53,18 +59,23 @@ def world(pool_db, monkeypatch):
     flask.register_blueprint(blueprint)
 
     def client(user):
+        for key in ("_login_user", "csrf_token"):  # cached on the shared app context
+            g.pop(key, None)
         c = flask.test_client()
         return c, {"X-CSRF-Token": c.get(f"/login/{user.id}").json["csrf"]}
 
     outer = db.session()  # the shared pool_db session holds a read lock until rolled back
     outer.commit()
     with flask.app_context():
-        yield dict(client=client, author=author, other=other, system=system, pool_set=pool_set,
-                   foreign_set=foreign_set, flask=flask)
+        yield dict(client=client, author=author, other=other, admin=admin, revoked=revoked,
+                   system=system, pool_set=pool_set, foreign_set=foreign_set, flask=flask,
+                   created=created)
         outer.rollback()
         db.session.rollback()
         db.session.query(presets.ClinicCategorySet).filter(
             presets.ClinicCategorySet.id.in_(created)).delete(synchronize_session=False)
+        db.session.query(ClinicAccountPolicy).filter(
+            ClinicAccountPolicy.user_id.in_([admin.id, revoked.id])).delete(synchronize_session=False)
         db.session.commit()
 
 
@@ -129,6 +140,42 @@ def test_foreign_unknown_and_untrusted_payloads(world):
         assert r.status_code == 400
     for bad in (None, "x", [1], [dict(ok), dict(ok)], [dict(ok, value=5)]):
         assert c.post(url, headers=h, json={"selections": bad}).status_code == 400
+
+
+def test_admin_creates_and_updates_a_required_set(world):
+    c, h = world["client"](world["admin"])
+    created = c.post(PREFIX, headers={"X-CSRFToken": h["X-CSRF-Token"]}, json={
+        "name": "Versand-" + _suffix(), "categories": ["Ambulant", "Stationär"], "required": True})
+    assert created.status_code == 201, created.get_data(as_text=True)
+    body = created.json
+    world["created"].append(body["id"])
+    assert body["required"] is True and body["version"] == 1
+    assert body["categories"] == ["Ambulant", "Stationär"]
+    listed = {row["id"]: row for row in c.get(PREFIX).json["sets"]}
+    assert listed[body["id"]]["required"] is True
+    stale = c.put(PREFIX, headers=h, json={"id": body["id"], "version": 9, "required": False})
+    assert (stale.status_code, stale.json["code"], stale.json["current_version"]) == (409, "stale_version", 1)
+    db.session.expire_all()
+    stored = db.session.get(presets.ClinicCategorySet, body["id"])
+    assert stored.version == 1 and stored.is_required is True
+    updated = c.put(PREFIX, headers=h, json={
+        "id": body["id"], "version": 1, "is_required": True, "categories": ["Ambulant", "Konsil"]})
+    assert updated.status_code == 200, updated.get_data(as_text=True)
+    assert updated.json["version"] == 2 and updated.json["categories"] == ["Ambulant", "Konsil"]
+    assert updated.json["required"] is True
+
+
+def test_category_writes_reject_unauthorized_callers(world):
+    payload = {"name": "Nein-" + _suffix(), "categories": ["Ambulant"], "required": True}
+    for user in (world["author"], world["revoked"]):
+        c, h = world["client"](user)
+        refused = c.post(PREFIX, headers=h, json=payload)
+        assert (refused.status_code, refused.json["code"]) == (403, "unauthorized")
+        assert c.put(PREFIX, headers=h, json={"id": world["system"].id, "version": 1, "required": False}).status_code == 403
+    c, h = world["client"](world["admin"])
+    assert c.post(PREFIX, json=payload).status_code == 403
+    forged = c.post(PREFIX, headers=h, json={**payload, "actor_id": world["other"].id})
+    assert forged.status_code == 400
 
 
 def test_unauthorized_csrf_and_clinic_mode(world, monkeypatch):

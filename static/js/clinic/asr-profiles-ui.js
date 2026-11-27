@@ -13,7 +13,7 @@
  *     sources: [...], live_profile_id, batch_profile_id, profiles: [{id, name, mode}],
  *     output_format: {container, codec, sample_rate},
  *     engine: {configured: 'gpu'|'cpu', actual: 'gpu'|'cpu', reason},
- *     prompts_enabled, wait: {offer_manual_after_s},
+ *     prompts_enabled, wait: {offer_manual_after_s, skip_wait_minutes?, wait_disabled?},
  *     capabilities: {configured: [...], proven: [...]} }
  *
  * German labels go through the injected `t` (existing i18n mechanism, keys
@@ -60,6 +60,7 @@ const LABELS = Object.freeze({
     'clinic.asr.proven': 'Nachgewiesen',
     'clinic.asr.unproven': 'Nicht nachgewiesen',
     'clinic.asr.manual': 'Manuell schreiben',
+    'clinic.asr.wait': 'Wartezeit (Minuten)',
     'clinic.asr.save': 'Übernehmen',
     'clinic.asr.cancel': 'Abbrechen',
     'clinic.asr.retry': 'Erneut versuchen',
@@ -75,6 +76,15 @@ const SERVER_MESSAGES = Object.freeze({
 
 function str(value) {
     return typeof value === 'string' ? value : '';
+}
+
+// Stored minutes win. Otherwise a deadline that is a whole number of minutes.
+function minutesOf(wait) {
+    const stored = wait.skip_wait_minutes;
+    if (Number.isInteger(stored) && stored >= 1) return stored;
+    const seconds = wait.offer_manual_after_s;
+    if (Number.isInteger(seconds) && seconds >= 60 && seconds % 60 === 0) return seconds / 60;
+    return DEFAULT_OFFER_MANUAL_AFTER_S / 60;
 }
 
 /**
@@ -96,6 +106,7 @@ export function createAsrProfilesController(deps) {
             version: 0, profile: null, source: 'headset', liveProfileId: null, batchProfileId: null,
             profiles: [], output: null, engine: { configured: 'gpu', actual: 'gpu', reason: '' },
             promptsEnabled: false, offerManualAfterS: DEFAULT_OFFER_MANUAL_AFTER_S,
+            waitDisabled: false, skipWaitMinutes: DEFAULT_OFFER_MANUAL_AFTER_S / 60,
             configured: [], proven: [],
         };
     }
@@ -107,7 +118,7 @@ export function createAsrProfilesController(deps) {
         error: null, // { outcome, code, message, retryable }
         notice: null,
         server: emptyServer(),
-        draft: { source: 'headset', liveProfileId: null, batchProfileId: null },
+        draft: { source: 'headset', liveProfileId: null, batchProfileId: null, skipWaitMinutes: 2 },
     };
 
     function emit() {
@@ -179,6 +190,8 @@ export function createAsrProfilesController(deps) {
             promptsEnabled: d.prompts_enabled === true,
             offerManualAfterS: Number.isInteger(wait.offer_manual_after_s) && wait.offer_manual_after_s >= 0
                 ? wait.offer_manual_after_s : DEFAULT_OFFER_MANUAL_AFTER_S,
+            waitDisabled: wait.wait_disabled === true,
+            skipWaitMinutes: minutesOf(wait),
             configured: Array.isArray(caps.configured) ? caps.configured.map(String) : [],
             proven: Array.isArray(caps.proven) ? caps.proven.map(String) : [],
         };
@@ -186,6 +199,7 @@ export function createAsrProfilesController(deps) {
             source: state.server.source,
             liveProfileId: state.server.liveProfileId,
             batchProfileId: state.server.batchProfileId,
+            skipWaitMinutes: state.server.skipWaitMinutes,
         };
         state.ready = true;
         revalidate();
@@ -196,6 +210,16 @@ export function createAsrProfilesController(deps) {
     function setSource(source) {
         if (!SOURCES.includes(source)) return false;
         state.draft.source = source;
+        emit();
+        return true;
+    }
+
+    function setSkipWaitMinutes(value) {
+        const text = String(value == null ? '' : value).trim();
+        if (!/^[1-9]\d*$/.test(text)) return false;
+        const minutes = Number(text);
+        if (!Number.isInteger(minutes) || minutes < 1) return false;
+        state.draft.skipWaitMinutes = minutes;
         emit();
         return true;
     }
@@ -214,12 +238,14 @@ export function createAsrProfilesController(deps) {
         state.busy = true;
         state.error = null;
         emit();
+        const body = {
+            source: d.source, live_profile_id: d.liveProfileId, batch_profile_id: d.batchProfileId,
+            expected_version: state.server.version,
+        };
+        if (d.skipWaitMinutes !== state.server.skipWaitMinutes) body.skip_wait_minutes = d.skipWaitMinutes;
         const res = await client.request(BASE + '/selection', {
             method: 'PUT',
-            body: {
-                source: d.source, live_profile_id: d.liveProfileId, batch_profile_id: d.batchProfileId,
-                expected_version: state.server.version,
-            },
+            body,
         });
         state.busy = false;
         if (res.outcome !== 'ok') {
@@ -234,7 +260,10 @@ export function createAsrProfilesController(deps) {
 
     function cancel() {
         const s = state.server;
-        state.draft = { source: s.source, liveProfileId: s.liveProfileId, batchProfileId: s.batchProfileId };
+        state.draft = {
+            source: s.source, liveProfileId: s.liveProfileId, batchProfileId: s.batchProfileId,
+            skipWaitMinutes: s.skipWaitMinutes,
+        };
         state.error = null;
         emit();
     }
@@ -244,7 +273,7 @@ export function createAsrProfilesController(deps) {
         const n = next || {};
         client.switchContext({ accountId: n.accountId, dictationId: n.dictationId });
         state.server = emptyServer();
-        state.draft = { source: 'headset', liveProfileId: null, batchProfileId: null };
+        state.draft = { source: 'headset', liveProfileId: null, batchProfileId: null, skipWaitMinutes: 2 };
         return load();
     }
 
@@ -253,6 +282,9 @@ export function createAsrProfilesController(deps) {
     function manualAction(asrStatus, waitedS) {
         const failed = asrStatus === 'failed' || asrStatus === 'skipped';
         const waiting = asrStatus === 'pending' || asrStatus === 'running';
+        if (state.server.waitDisabled && waiting) {
+            return { visible: false, label: label('clinic.asr.manual') };
+        }
         const waited = Number.isInteger(waitedS) && waitedS >= state.server.offerManualAfterS;
         return { visible: failed || (waiting && waited), label: label('clinic.asr.manual') };
     }
@@ -263,7 +295,8 @@ export function createAsrProfilesController(deps) {
         const fallback = s.engine.configured === 'gpu' && s.engine.actual === 'cpu';
         const provenSet = new Set(s.proven);
         const verifiedEngine = ['batch', 'live'].some((name) => provenSet.has(name)) || fallback;
-        const dirty = d.source !== s.source || d.liveProfileId !== s.liveProfileId || d.batchProfileId !== s.batchProfileId;
+        const dirty = d.source !== s.source || d.liveProfileId !== s.liveProfileId || d.batchProfileId !== s.batchProfileId
+            || d.skipWaitMinutes !== s.skipWaitMinutes;
         const choices = (mode) => offered(mode).map((id) => ({
             value: id,
             label: (s.profiles.find((p) => p.id === id) || {}).name || id,
@@ -296,6 +329,7 @@ export function createAsrProfilesController(deps) {
                 proven: provenSet.has(name),
                 label: provenSet.has(name) ? label('clinic.asr.proven') : label('clinic.asr.unproven'),
             })),
+            skipWaitMinutes: d.skipWaitMinutes,
             manual: manualAction(asrStatus, waitedS),
             error: state.error,
             errorSurface: state.error ? surfaceFor('error') : null,
@@ -311,7 +345,7 @@ export function createAsrProfilesController(deps) {
                 profile: label('clinic.asr.profile'), source: label('clinic.asr.source'),
                 live: label('clinic.asr.live'), batch: label('clinic.asr.batch'),
                 format: label('clinic.asr.format'), engine: label('clinic.asr.engine'),
-                prompts: label('clinic.asr.prompts'),
+                prompts: label('clinic.asr.prompts'), wait: label('clinic.asr.wait'),
                 configured: label('clinic.asr.configured'), proven: label('clinic.asr.proven'),
                 save: label('clinic.asr.save'), cancel: label('clinic.asr.cancel'),
                 retry: label('clinic.asr.retry'), reload: label('clinic.asr.reload'),
@@ -333,7 +367,7 @@ export function createAsrProfilesController(deps) {
     }
 
     return {
-        state, view, load, setSource, setProfile, save, cancel, switchContext, onKeydown,
+        state, view, load, setSource, setProfile, setSkipWaitMinutes, save, cancel, switchContext, onKeydown,
         subscribe(fn) {
             listeners.add(fn);
             return () => listeners.delete(fn);

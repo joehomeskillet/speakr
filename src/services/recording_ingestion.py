@@ -52,6 +52,8 @@ Enqueue:
 
 * :func:`enqueue_ingestion_jobs` queues the convert job of a deferred
   conversion or the transcribe job, then emits recording.created.
+  A clinic dictation that opted out of speech recognition skips both jobs
+  and still emits the event.
 
 Assembly:
 
@@ -178,11 +180,12 @@ def lookup_duplicate(*, owner, filepath, form, processing_source, original_filen
     return DuplicateLookup(file_hash, existing, duplicate_warning)
 
 
-def handle_duplicate_replay(existing, *, owner, filepath, file_hash, success_status):
+def handle_duplicate_replay(existing, *, owner, filepath, file_hash, success_status, form=None):
     """Answer a retried upload with the recording it already created.
 
     Removes the retry's staging copy and queues the transcription again if
-    the recording is still waiting without a job. Returns the response.
+    the recording is still waiting without a job. A clinic opt-out does not
+    queue one. Returns the response.
     """
     # The existing recording already owns the durable media object, so
     # the retry's staging copy is never needed for job recovery. Remove
@@ -195,7 +198,12 @@ def handle_duplicate_replay(existing, *, owner, filepath, file_hash, success_sta
         ProcessingJob.recording_id == existing.id,
         ProcessingJob.job_type.in_(('transcribe', 'convert')),
     ).first()
-    if existing.status in ('PENDING', 'QUEUED') and existing_job is None:
+    from src.clinic.config import clinic_mode_enabled
+    skip = False
+    if clinic_mode_enabled():
+        from src.clinic.web_ingest import skip_transcript_job
+        skip = skip_transcript_job(form, existing.id)
+    if existing.status in ('PENDING', 'QUEUED') and existing_job is None and not skip:
         # Resolve from the existing recording (tags/folder aware), not
         # just the owner: equivalent for ASR-sourced recordings today,
         # but robust if another caller ever reuses this recovery path.
@@ -853,11 +861,15 @@ def handle_unique_conflict(error, *, filepath, on_conflict):
 
 
 def build_ingestion_response(recording, *, owner, duplicate_warning, reuse_duplicate,
-                             success_status, dictation_id=None):
+                             success_status, dictation_id=None, use_speech_recognition=None):
     """The success answer for a stored recording: its dict, the duplicate warning, the replay flag."""
     response_data = recording.to_dict(viewer_user=owner)
     if dictation_id is not None:
         response_data['dictation_id'] = dictation_id
+        # Visible on the upload receipt, which the Einreichen step already holds.
+        # None means the caller did not choose; the owner default is on.
+        response_data['use_speech_recognition'] = (
+            True if use_speech_recognition is None else bool(use_speech_recognition))
     if duplicate_warning:
         response_data['duplicate_warning'] = duplicate_warning
     if reuse_duplicate:
@@ -866,12 +878,13 @@ def build_ingestion_response(recording, *, owner, duplicate_warning, reuse_dupli
 
 
 def enqueue_ingestion_jobs(recording, *, owner, resolved_params, conversion_deferred,
-                           extracted_audio_limit_mb):
+                           extracted_audio_limit_mb, skip_transcription=False):
     """Queue the committed recording's first job and emit its recording.created event.
 
     A deferred conversion queues the convert job, which carries the
     transcribe params and extracted_audio_limit_mb and queues the
-    transcription itself; otherwise the transcribe job is queued. Returns
+    transcription itself; otherwise the transcribe job is queued.
+    ``skip_transcription`` emits the event and queues neither job. Returns
     nothing.
     """
     # Read from src.api.recordings at call time: its routes use it too, and
@@ -899,7 +912,12 @@ def enqueue_ingestion_jobs(recording, *, owner, resolved_params, conversion_defe
     finally:
         session.expire_on_commit = expire_on_commit
 
-    if conversion_deferred:
+    if skip_transcription:
+        # shortcut: opt-out also skips a deferred convert, because that worker
+        # always queues transcription. Upgrade when convert can finish without one.
+        current_app.logger.info(
+            f"Skipping transcription for recording {recording_id}: recognition disabled")
+    elif conversion_deferred:
         # The convert job queues the transcription with these params.
         job_queue.enqueue(
             user_id=owner_id,
@@ -1063,6 +1081,7 @@ def ingest(
                 filepath=filepath,
                 file_hash=file_hash,
                 success_status=success_status,
+                form=form,
             )
 
         # Dictation containers (.ds2/.dss): the extension must match the magic
@@ -1389,6 +1408,7 @@ def ingest(
 
         from src.clinic.config import clinic_mode_enabled
         dictation_id = None
+        use_speech_recognition = None
         if clinic_mode_enabled():
             from src.clinic import web_ingest
             dictation_id = web_ingest.register_upload(
@@ -1396,6 +1416,8 @@ def ingest(
                 meeting_date=meeting_date, processing_source=processing_source)
             if isinstance(dictation_id, tuple):
                 return dictation_id
+            if isinstance(dictation_id, str):
+                use_speech_recognition = web_ingest.speech_recognition_requested(form)
 
         enqueue_ingestion_jobs(
             recording,
@@ -1403,6 +1425,7 @@ def ingest(
             resolved_params=resolved_params,
             conversion_deferred=conversion_deferred,
             extracted_audio_limit_mb=extracted_audio_limit_mb,
+            skip_transcription=use_speech_recognition is False,
         )
 
         return build_ingestion_response(
@@ -1412,6 +1435,7 @@ def ingest(
             reuse_duplicate=reuse_duplicate,
             success_status=success_status,
             dictation_id=dictation_id,
+            use_speech_recognition=use_speech_recognition,
         )
 
     except RequestEntityTooLarge:

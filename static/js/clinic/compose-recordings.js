@@ -230,6 +230,7 @@ export const RecordingsView = {
             </span>
             <span class="record-text">
               <span class="record-title">{{ recordingLabel(r) }}</span>
+              <span v-if="r.ownTitle" class="record-subtitle" data-testid="own-title">Titel: {{ r.ownTitle }}</span>
               <span class="record-roles">
                 <span class="record-role"><span class="record-role-label">{{ t.author }}:</span> <span class="dictator-name" data-cell="author" :title="r.author">{{ r.author }}</span></span>
                 <span class="record-role"><span class="record-role-label">{{ t.pool }}:</span> <span class="pool-name" data-cell="pool" :title="r.poolText">{{ r.poolText }}</span></span>

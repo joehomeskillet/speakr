@@ -7,6 +7,8 @@ unit of work.  If either write fails, both are rolled back.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.database import db as _db
@@ -22,6 +24,7 @@ from src.clinic.revisions import add_human_revision, current_revision
 from src.services.audit import record_in_tx
 from src.clinic.lease import LeaseConflict, assert_current
 from src.clinic.notify_enqueue import record_notice
+from src.clinic.richtext import CanonicalDocument, save_document
 
 
 class CorrectionOriginalError(CorrectionError):
@@ -38,12 +41,22 @@ def save_correction_transaction(
     live_session_id: str | None = None,
     expected_state_version: int | None = None,
     expected_text_revision_id: str | None = None,
+    document: CanonicalDocument | None = None,
+    expected_document_version: int | None = None,
+    now: datetime | None = None,
 ) -> tuple[ClinicTranscriptRevision, ClinicCorrectionState]:
     """Append a human transcript revision and save the correction position atomically.
 
-    All checks (lease, live session, expected versions) are performed before any
-    database write.  If any check or write fails, the entire transaction is rolled
-    back and no partial state is left visible.
+    When ``document`` is set, the canonical snapshot (text, formatting and audio
+    anchors) is written in the same unit of work as the transcript and the
+    playback position. ``save_document`` applies the existing edit lease and the
+    same pool/object ``edit`` decision as ``correction_edit``. The caller commits.
+    A failed check or write rolls the whole unit back. Older revisions and
+    snapshots are not updated.
+
+    Lease, live-session and expected-version checks run before any database write.
+    If any check or write fails, the entire transaction is rolled back and no
+    partial state is left visible.
 
     Returns ``(revision, state)`` on success.
 
@@ -54,8 +67,9 @@ def save_correction_transaction(
     :raises SQLAlchemyError: any database error rolls back the transaction
     """
     # ── Validate lease ────────────────────────────────────────────────────
+    checked_at = now if now is not None else _utcnow()
     try:
-        assert_current(dictation.id, user_id, lease_generation, _utcnow())
+        assert_current(dictation.id, user_id, lease_generation, checked_at)
     except LeaseConflict:
         raise
     except Exception:
@@ -106,6 +120,15 @@ def save_correction_transaction(
             text_offset=0,
             expected_version=expected_state_version,
         )
+        if document is not None:
+            # Same lease instant and the same edit decision as the correction route.
+            save_document(
+                dictation, revision, document,
+                expected_version=expected_document_version,
+                actor_user_id=user_id,
+                lease_generation=lease_generation,
+                now=checked_at,
+            )
 
         _db.session.flush()
         return revision, state

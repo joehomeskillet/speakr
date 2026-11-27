@@ -89,6 +89,25 @@ describe('import view composition', () => {
         expect(c.askAssign('d1')).toBe(false);
     });
 
+    it('loads candidates and submits the author and pool chosen by a routed lead', async () => {
+        const candidate = { target_author_user_id: 6, target_pool_id: 'p2', author_name: 'Test', pool_name: 'Pool 2' };
+        const client = fakeClient({
+            [ENDPOINTS.inventory]: () => ok({ items: INVENTORY, can_clarify: true }),
+            '/imports/unassigned/d1/candidates': () => ok({ items: [candidate] }),
+        });
+        const c = createImportController({ client, currentUser: { id: 5, role: 'typist' } });
+        await c.load();
+        expect(c.canClarify).toBe(true);
+        expect(c.state.unassigned).toEqual(UNASSIGNED);
+        expect(c.askAssign('d1')).toBe(true);
+        await c.loadCandidates('d1');
+        expect(c.state.candidates).toEqual([candidate]);
+        await c.confirmAssign('d1', candidate, 's1');
+        expect(calls(client, ENDPOINTS.assign('d1'))[0][1].body).toEqual({
+            target_author_user_id: 6, target_pool_id: 'p2', expected_snapshot_version: 's1',
+        });
+    });
+
     it('assignment needs a confirmation step and sends one request with a key', async () => {
         const client = fakeClient({ [ENDPOINTS.assign('d1')]: () => ok({}) });
         const c = createImportController({ client, currentUser: { id: 1, role: 'admin' } });

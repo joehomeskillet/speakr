@@ -90,7 +90,7 @@ def test_upstream_dedupe_unchanged_with_clinic_mode_off(env, monkeypatch):
     assert _enqueue(env, "clinic_notify") != first
 
 
-def test_output_failure_is_visible_with_correlation_and_never_retried(env):
+def test_output_failure_is_visible_with_correlation_and_never_retried(env, legacy_kis_delivery):
     calls = []
 
     def boom(params, correlation_id):
@@ -110,7 +110,7 @@ def test_output_failure_is_visible_with_correlation_and_never_retried(env):
     assert "UNKNOWN" in job.error_message
 
 
-def test_output_outcome_unknown_is_not_an_automatic_resend(env):
+def test_output_outcome_unknown_is_not_an_automatic_resend(env, legacy_kis_delivery):
     from src.clinic.output_attempts import UNKNOWN
 
     calls = []
@@ -193,7 +193,7 @@ def test_two_transitions_at_same_version_both_notify_and_retry_does_not_duplicat
 
 
 @pytest.mark.parametrize("job_type", jq.CLINIC_JOBS)
-def test_job_without_handler_stays_pending_and_runs_once_after_registration(env, job_type):
+def test_job_without_handler_stays_pending_and_runs_once_after_registration(env, job_type, legacy_kis_delivery):
     job_id = _enqueue(env, job_type)
     claim = lambda: jq.job_queue._claim_next_job(jq.SUMMARY_JOBS, "summary")  # noqa: E731
     # Workers skip it: not claimed, not failed, nothing consumed.
