@@ -617,22 +617,22 @@
 .cadm .v8-page .chiprow + .actions, .cadm .v8-page .actions + .hint { margin-top: var(--sp-3); }
 
 /* P13–P15 embed the existing vocabulary, command and ASR editors. */
-.cadm :is(.clinic-vocabulary-view,.clinic-commands-templates-view,.clinic-asr-profiles-view) .panel > section {
+.cadm :is(.clinic-vocabulary-view,.clinic-commands-templates-view) .panel > section {
     min-width: 0;
 }
-.cadm :is(.clinic-vocabulary-view,.clinic-commands-templates-view,.clinic-asr-profiles-view) .panel > section :where(label) {
+.cadm :is(.clinic-vocabulary-view,.clinic-commands-templates-view) .panel > section :where(label) {
     display: block;
     margin-block: var(--sp-3) var(--sp-1);
     font-size: var(--fs-label);
     font-weight: 600;
 }
-.cadm :is(.clinic-vocabulary-view,.clinic-commands-templates-view,.clinic-asr-profiles-view) .panel > section :is(input:not([type=checkbox],[type=radio]),select,textarea) {
+.cadm :is(.clinic-vocabulary-view,.clinic-commands-templates-view) .panel > section :is(input:not([type=checkbox],[type=radio]),select,textarea) {
     max-width: 35rem;
 }
-.cadm :is(.clinic-vocabulary-view,.clinic-commands-templates-view,.clinic-asr-profiles-view) .panel > section > :is(form,table,fieldset,p[role=status]) {
+.cadm :is(.clinic-vocabulary-view,.clinic-commands-templates-view) .panel > section > :is(form,table,fieldset,p[role=status]) {
     margin-block: var(--sp-3);
 }
-.cadm :is(.clinic-vocabulary-view,.clinic-commands-templates-view,.clinic-asr-profiles-view) .panel > section > button + button {
+.cadm :is(.clinic-vocabulary-view,.clinic-commands-templates-view) .panel > section > button + button {
     margin-inline-start: var(--sp-1);
 }
 
@@ -661,14 +661,44 @@
     font-weight: 600;
 }
 .cadm .command-editor[open] > summary { margin-bottom: var(--sp-2); }
-.cadm .clinic-asr-profiles-view .asr-panels {
+.v8-ui .asr-admin-layout { max-width: none; gap: var(--sp-4); }
+.v8-ui .asr-admin-layout .pagehead { margin-bottom: 0; }
+.v8-ui .asr-admin-layout .subline + .subline { margin-top: var(--sp-1); }
+.v8-ui .asr-admin-layout .asr-panels {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: start;
     gap: var(--sp-4);
 }
-.cadm .asr-profile > .cl-panel { border: 0; padding: 0; background: transparent; }
-.cadm .clinic-asr-profiles-view .panel .primary {
+.v8-ui .asr-admin-layout .asr-profile-layout { display: contents; }
+.v8-ui .asr-admin-layout .asr-evidence { grid-column: 1 / -1; }
+.v8-ui .asr-admin-layout .panel { align-items: stretch; }
+.v8-ui .asr-admin-layout .panel > h2:first-child { margin-bottom: 0; }
+.v8-ui .asr-admin-layout .panel .table-wrap { width: 100%; border: 0; border-radius: 0; overflow-x: auto; }
+.v8-ui .asr-admin-layout :is(th, td, .tag) { white-space: normal; }
+.v8-ui .asr-admin-layout th[scope="col"] { text-transform: none; letter-spacing: normal; }
+.v8-ui .asr-admin-layout h2 { overflow-wrap: break-word; }
+.v8-ui .asr-admin-layout .keyvalues dd { overflow-wrap: anywhere; }
+.v8-ui .asr-admin-layout .panel :is(p[role="alert"], p[role="status"]) { padding: 0; border: 0; }
+.v8-ui .asr-admin-layout .asr-feedback-error { color: var(--text-danger-strong); }
+.v8-ui .asr-admin-layout .asr-feedback-warning { color: var(--text-warn-strong); }
+.v8-ui .asr-admin-layout .asr-save-actions { margin-top: var(--sp-2); }
+.v8-ui .asr-admin-layout .asr-save-feedback:not(:empty) { margin-top: var(--sp-2); }
+.v8-ui .asr-admin-layout .panel :is(input, select) {
+    border-color: color-mix(in srgb, var(--v8-text-2) 70%, var(--surface));
+}
+.v8-ui .asr-admin-layout .panel select { max-width: none; }
+.v8-ui .asr-admin-layout .field-grid { row-gap: var(--sp-2); }
+.v8-ui .asr-admin-layout .field-grid .field { margin-bottom: 0; }
+.v8-ui .asr-admin-layout .asr-wait { grid-column: 1 / -1; }
+.v8-ui .asr-admin-layout .asr-wait input { max-width: 12rem; }
+.v8-ui .asr-admin-layout .panel :is(button, a.button, input, select, summary) { min-height: var(--sp-7); }
+.v8-ui .asr-admin-layout .panel :is(button, a.button, input, select, summary):focus-visible {
+    outline: 2px solid var(--v8-text);
+    outline-offset: 2px;
+}
+.v8-ui .asr-admin-layout summary { padding-block: var(--sp-3); cursor: pointer; font-weight: 600; }
+.v8-ui .asr-admin-layout .asr-save-actions .primary {
     background: var(--ink);
     border-color: var(--ink);
     color: var(--v8-on-ink, var(--text-button));
@@ -676,8 +706,15 @@
     font-weight: 600;
     padding: var(--sp-2) var(--sp-4);
 }
+.v8-ui .asr-admin-layout .asr-save-actions .primary:hover:not(:disabled) {
+    background: var(--ink2);
+    border-color: var(--ink2);
+    color: var(--surface);
+}
 @media (max-width: 760px) {
-    .cadm .clinic-asr-profiles-view .asr-panels { grid-template-columns: minmax(0, 1fr); }
+    .v8-ui .asr-admin-layout .asr-panels { grid-template-columns: minmax(0, 1fr); }
+    .v8-ui .asr-admin-layout .asr-wait input { max-width: none; }
+    .v8-ui .asr-admin-layout .asr-save-actions .primary { width: 100%; }
 }
 
 .cadm .clinic-vocabulary-view .vocabulary-ui > .filterbar { margin-block: 0; }
