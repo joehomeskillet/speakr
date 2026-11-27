@@ -96,6 +96,8 @@
     font-size: var(--fs-meta);
     color: var(--text-muted);
 }
+.cadm-section-nav { display: contents; }
+.cadm-section-nav__toggle { display: none; }
 .cadm-main {
     min-width: 0;
     display: flex;
@@ -376,22 +378,27 @@
 /* ---- Narrow screens ---------------------------------------------------- */
 @media (max-width: 860px) {
     .cadm-layout { grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); }
-    .cadm-nav {
-        flex-direction: row;
+    .cadm-section-nav { display: block; min-width: 0; }
+    .cadm-section-nav:not(.is-expanded) .cadm-nav { display: none; }
+    .cadm-nav { margin-top: var(--sp-2); }
+    .cadm-nav__item {
+        display: flex;
         align-items: center;
-        gap: var(--sp-2);
-        overflow-x: auto;
-        padding-bottom: var(--sp-2);
-        border-bottom: var(--border-hairline) solid var(--border-primary);
-        scrollbar-width: thin;
+        min-height: var(--sp-7);
+        white-space: normal;
+        overflow-wrap: anywhere;
+        transition: none;
     }
-    .cadm-nav__group { align-items: stretch; gap: 0; flex: 0 0 auto; }
-    .cadm-nav__items { display: flex; gap: var(--sp-1); }
-    .cadm-nav__group + .cadm-nav__group { padding-left: var(--sp-3); border-left: var(--border-hairline) solid var(--border-primary); }
-    .cadm-nav__label { position: sticky; left: 0; align-self: flex-start; margin: 0; padding: 0; white-space: nowrap; }
-    .cadm-nav__item { width: auto; white-space: nowrap; padding: var(--sp-2) var(--sp-3); }
-    .cadm-nav__notice { white-space: nowrap; }
-    .cadm-nav__item.is-active { box-shadow: inset 0 -3px 0 var(--border-accent); border-radius: var(--radius-md) var(--radius-md) 0 0; }
+    .cadm-nav__item:focus-visible { outline-offset: -2px; }
+    .cadm-section-nav__toggle {
+        justify-content: space-between;
+        gap: var(--sp-2);
+        border: var(--border-hairline) solid var(--border-primary);
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+        font-weight: 600;
+    }
+    .cadm-section-nav__toggle[aria-expanded="true"] i { transform: rotate(180deg); }
 }
 @media (max-width: 640px) {
     .cadm-rows--grid { grid-template-columns: minmax(0, 1fr); }

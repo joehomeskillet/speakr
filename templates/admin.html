@@ -243,10 +243,9 @@
                   <div class="cadm-nav__group" role="group" aria-labelledby="admin-system-label">
                     <p id="admin-system-label" class="cadm-nav__label">System</p>
                     <div class="cadm-nav__items">
-                      <a href="#/system/statistik" class="cadm-nav__item" :class="{ 'is-active': activeTab === 'stats' }" :aria-current="activeTab === 'stats' ? 'page' : null">Systemstatistik</a>
-                      <a href="#/system/einstellungen" class="cadm-nav__item" :class="{ 'is-active': activeTab === 'settings' }" :aria-current="activeTab === 'settings' ? 'page' : null">Systemeinstellungen</a>
-                      <a href="#/system/modelle" class="cadm-nav__item" :class="{ 'is-active': activeTab === 'models' }" :aria-current="activeTab === 'models' ? 'page' : null">Modellwahl</a>
-                      <a href="#/system/audit" class="cadm-nav__item" data-audit-tab :class="{ 'is-active': activeTab === 'audit' }" :aria-current="activeTab === 'audit' ? 'page' : null">System-Auditprotokoll</a>
+                      <a v-for="(section, hash) in clinicSystemSections" :key="hash" :href="hash" class="cadm-nav__item"
+                         :class="{ 'is-active': activeTab === section.tab }" :aria-current="activeTab === section.tab ? 'page' : null"
+                         :data-audit-tab="section.tab === 'audit' ? '' : null" v-text="section.label"></a>
                     </div>
                   </div>
                 </teleport>
@@ -2219,6 +2218,14 @@ Summarization Instructions:
 
     <script>
         const { createApp, ref, computed, onMounted, watch, nextTick } = Vue
+        {% if clinic_mode %}
+        const clinicSystemSections = {
+            '#/system/statistik': { tab: 'stats', label: 'Systemstatistik' },
+            '#/system/einstellungen': { tab: 'settings', label: 'Systemeinstellungen' },
+            '#/system/modelle': { tab: 'models', label: 'Modellwahl' },
+            '#/system/audit': { tab: 'audit', label: 'System-Auditprotokoll' },
+        };
+        {% endif %}
         
         // Initialize i18n before Vue app creation
         initializeI18n().then(() => {
@@ -2240,20 +2247,12 @@ Summarization Instructions:
                 onMounted(() => {
                     const tabFromHash = () => {
                         const path = window.location.hash.split('?')[0];
-                        const pages = { '#/system/statistik': 'stats', '#/system/einstellungen': 'settings', '#/system/modelle': 'models', '#/system/audit': 'audit' };
-                        if (pages[path] === 'audit') {
+                        const section = clinicSystemSections[path];
+                        if (section?.tab === 'audit') {
                             const account = new URLSearchParams(window.location.hash.split('?')[1]).get('konto');
                             auditFilters.value = { ...emptyAuditFilters(), user: /^\d+$/.test(account || '') ? account : '' };
                         }
-                        activeTab.value = pages[path] || 'clinic';
-                        nextTick(() => {
-                            const nav = document.querySelector('#clinic-admin-root nav');
-                            const current = nav?.querySelector('[aria-current="page"]');
-                            if (!current || nav.scrollWidth <= nav.clientWidth) return;
-                            const item = current.getBoundingClientRect(), bounds = nav.getBoundingClientRect();
-                            if (item.left < bounds.left) nav.scrollLeft += item.left - bounds.left;
-                            else if (item.right > bounds.right) nav.scrollLeft += item.right - bounds.right;
-                        });
+                        activeTab.value = section?.tab || 'clinic';
                     };
                     window.addEventListener('clinic-admin-panelchange', tabFromHash);
                     // The inner navigation signals after its permission check and portal mount.
@@ -4597,6 +4596,7 @@ Summarization Instructions:
                     // State
                     isTeamAdminOnly,
                     activeTab,
+                    {% if clinic_mode %}clinicSystemSections,{% endif %}
                     users,
                     stats,
                     voiceEmbedding, voiceEmbeddingBusy, checkVoiceEmbedding, rebaselineVoiceEmbedding,
@@ -5253,12 +5253,21 @@ Summarization Instructions:
                     return id && allDefs.some((d) => d.id === id) ? id : null;
                 };
                 // Landing page: Benutzer und Rollen (it carries the former Konten panel).
-                const onSystemPage = () => !team && /^#\/system\/(statistik|einstellungen|modelle|audit)(?:\?|$)/.test(window.location.hash);
-                const selectedId = () => onSystemPage() ? null : (idFromHash() || (team ? null : 'users'));
+                const systemPage = () => !team && clinicSystemSections[window.location.hash.split('?')[0]];
+                const selectedId = () => systemPage() ? null : (idFromHash() || (team ? null : 'users'));
                 const activeId = ref(selectedId());
+                const systemSection = ref(systemPage());
+                const navExpanded = ref(false);
+                const navToggle = ref(null);
+                const closeNavigation = () => {
+                    if (!navExpanded.value) return;
+                    navExpanded.value = false;
+                    window.Vue.nextTick(() => navToggle.value?.focus());
+                };
                 const notifyShell = () => window.dispatchEvent(new Event('clinic-admin-panelchange'));
                 const open = (id) => {
                     activeId.value = id;
+                    systemSection.value = null;
                     const slug = SLUG_BY_ID[id];
                     if (slug && window.location.hash !== '#/' + slug) {
                         window.history.pushState(null, '', '#/' + slug);
@@ -5267,11 +5276,13 @@ Summarization Instructions:
                 };
                 const syncNavigation = () => {
                     activeId.value = selectedId();
+                    systemSection.value = systemPage();
                     notifyShell();
                 };
                 window.addEventListener('popstate', syncNavigation);
                 window.addEventListener('hashchange', syncNavigation);
                 const selected = computed(() => allDefs.find(d => d.id === activeId.value));
+                const sectionLabel = computed(() => selected.value?.label || systemSection.value?.label);
                 const viewName = computed(() => {
                     const id = activeId.value;
                     const suffix = { 'admin-pools': 'pools', 'commands-templates': 'commands', 'asr-profiles': 'asr' }[id] || id;
@@ -5306,14 +5317,15 @@ Summarization Instructions:
                     const wanted = idFromHash();
                     if (wanted && visible.some((d) => d.id === wanted)) {
                         activeId.value = wanted;
-                    } else if (!onSystemPage() && !wanted && !visible.some((d) => d.id === activeId.value)) {
+                    } else if (!systemPage() && !wanted && !visible.some((d) => d.id === activeId.value)) {
                         activeId.value = visible.length ? visible[0].id : null;
                     }
                     probing.value = false;
                     if (!team) window.Vue.nextTick(notifyShell);
                 }
                 onMounted(probe);
-                return { team, shown, shownV8, withheld, withheldText, probing, activeId, active, viewTestId, groups, selected, viewName, deniedIds, open };
+                return { team, shown, shownV8, withheld, withheldText, probing, activeId, active, viewTestId, groups, selected, viewName, deniedIds, open,
+                    navExpanded, navToggle, sectionLabel, closeNavigation };
             },
             template: `
 <section class="cadm" aria-labelledby="clinic-admin-title" data-testid="clinic-admin">
@@ -5324,18 +5336,26 @@ Summarization Instructions:
   <p v-if="probing" role="status" class="cadm-state">Berechtigungen werden geprüft …</p>
   <template v-else>
     <div class="cadm-layout">
-      <nav v-if="groups.length || !team || withheld.length" class="cadm-nav" aria-label="Verwaltung" data-testid="clinic-v8-nav">
-        <div v-for="g in groups" :key="g.id" class="cadm-nav__group" role="group" :data-testid="g.id === 'policy' ? 'clinic-policy-nav' : null" :aria-labelledby="'cadm-group-' + g.id">
-          <p class="cadm-nav__label" :id="'cadm-group-' + g.id" v-text="g.label"></p>
-          <div class="cadm-nav__items">
-            <button v-for="d in g.items" :key="d.id" type="button" class="cadm-nav__item" :class="{ 'is-active': d.id === activeId }"
-                    :aria-current="d.id === activeId ? 'page' : null" :data-testid="(d.policy ? 'clinic-policy-panel-' : d.v8 ? 'clinic-v8-panel-' : 'clinic-panel-') + d.id"
-                    @click="open(d.id)"><span v-if="d.id === 'users'" data-testid="admin-tab-clinic" :class="{ 'is-active': d.id === activeId }" v-text="d.label"></span><span v-else v-text="d.label"></span></button>
+      <div v-if="groups.length || !team || withheld.length" class="cadm-section-nav" :class="{ 'is-expanded': navExpanded }" @keydown.esc="closeNavigation">
+        <button ref="navToggle" type="button" class="cadm-nav__item cadm-section-nav__toggle" data-testid="clinic-admin-nav-toggle"
+                :aria-expanded="navExpanded" aria-controls="clinic-admin-section-list" @click="navExpanded = !navExpanded">
+          <span v-text="sectionLabel ? 'Bereich: ' + sectionLabel : 'Bereich wählen'"></span>
+          <i class="fas fa-chevron-down" aria-hidden="true"></i>
+        </button>
+        <nav id="clinic-admin-section-list" class="cadm-nav" aria-label="Verwaltung" data-testid="clinic-v8-nav"
+             @click="$event.target.closest('.cadm-nav__item') && closeNavigation()">
+          <div v-for="g in groups" :key="g.id" class="cadm-nav__group" role="group" :data-testid="g.id === 'policy' ? 'clinic-policy-nav' : null" :aria-labelledby="'cadm-group-' + g.id">
+            <p class="cadm-nav__label" :id="'cadm-group-' + g.id" v-text="g.label"></p>
+            <div class="cadm-nav__items">
+              <button v-for="d in g.items" :key="d.id" type="button" class="cadm-nav__item" :class="{ 'is-active': d.id === activeId }"
+                      :aria-current="d.id === activeId ? 'page' : null" :data-testid="(d.policy ? 'clinic-policy-panel-' : d.v8 ? 'clinic-v8-panel-' : 'clinic-panel-') + d.id"
+                      @click="open(d.id)"><span v-if="d.id === 'users'" data-testid="admin-tab-clinic" :class="{ 'is-active': d.id === activeId }" v-text="d.label"></span><span v-else v-text="d.label"></span></button>
+            </div>
           </div>
-        </div>
-        <div v-if="!team" id="clinic-admin-system-nav"></div>
-        <p v-if="withheld.length" role="status" class="cadm-nav__notice" data-testid="clinic-admin-withheld" v-text="withheldText"></p>
-      </nav>
+          <div v-if="!team" id="clinic-admin-system-nav"></div>
+          <p v-if="withheld.length" role="status" class="cadm-nav__notice" data-testid="clinic-admin-withheld" v-text="withheldText"></p>
+        </nav>
+      </div>
       <div class="cadm-main" :data-testid="active && active.id === 'users' ? 'clinic-view-accounts' : null">
         <div v-if="!team" id="clinic-admin-system-content"></div>
         <section v-if="selected" class="cadm-main" data-testid="clinic-admin-view" :data-admin-view="viewName" aria-labelledby="cadm-page-label">

@@ -62,12 +62,14 @@ def test_no_horizontal_page_overflow_at_390_px_for_the_four_identity_panels(live
     base, ids = live_server
     page, js_errors = _open(browser, base, 390, 844)
     nav = page.get_by_test_id("clinic-v8-nav")
+    toggle = page.get_by_test_id("clinic-admin-nav-toggle")
     for panel, entry, root in (
         ("accounts", "Benutzer und Rollen", "#acc-title"),
         ("pools", "Diktierende und Autorenpools", "#pools-title"),
         ("grants", "Benutzer und Rollen", "#grants-title"),
         ("directory", "Verzeichnis", "[data-testid=clinic-view-directory]"),
     ):
+        toggle.click()
         nav.get_by_role("button", name=entry, exact=True).click()
         if panel == "pools":
             page.locator("#authors-pools").click()
@@ -96,6 +98,10 @@ def test_clinic_admin_lands_on_accounts_with_the_active_tab_visible_on_mobile(li
     page.set_viewport_size({"width": 390, "height": 844})
     page.goto(base + "/admin")
     page.locator("#acc-title").wait_for(state="visible")
+    toggle = page.get_by_test_id("clinic-admin-nav-toggle")
+    expect(toggle).to_have_text("Bereich: Benutzer und Rollen")
+    expect(toggle).to_be_in_viewport(ratio=1)
+    toggle.click()
     tab = page.get_by_role("button", name="Benutzer und Rollen", exact=True)
     expect(tab).to_have_attribute("aria-current", "page")
     assert tab.evaluate("el => el.getBoundingClientRect().left >= 0 && el.getBoundingClientRect().right <= innerWidth")

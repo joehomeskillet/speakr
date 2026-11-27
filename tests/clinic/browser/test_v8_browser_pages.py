@@ -15,6 +15,7 @@ import v8_browser_support as support
 
 MOUNTED = [(p, role, size, theme) for p in support.PAGES if p.mounted
            for role in p.roles for size in support.VIEWPORTS for theme in support.THEMES]
+PROFILE_VIEWPORTS = {**support.VIEWPORTS, "320x700": (320, 700)}
 
 
 @pytest.fixture(scope="module")
@@ -106,10 +107,30 @@ def test_axe_core_available(axe_js):
         raise pytest.skip.Exception("no local axe-core (set AXE_CORE_JS or install axe-core in node_modules); nothing is downloaded")
 
 
+def _capture_profile(page, proof):
+    # Freeze the rendered DOM and keep local styles available for Hallmark's file render.
+    proof.parent.mkdir(parents=True, exist_ok=True)
+    page.screenshot(path=proof.with_suffix(".png"), full_page=True, animations="disabled", caret="hide")
+    document = page.evaluate(r"""(root) => {
+        const snapshot = document.documentElement.cloneNode(true);
+        snapshot.querySelectorAll('script, meta[name="csrf-token"]').forEach(node => node.remove());
+        snapshot.querySelectorAll('link[href], img[src]').forEach(node => {
+            const attr = node.matches('link') ? 'href' : 'src';
+            const url = new URL(node.getAttribute(attr), location.href);
+            if (url.origin === location.origin && url.pathname.startsWith('/static/')) {
+                node.setAttribute(attr, root + url.pathname);
+                node.removeAttribute('srcset');
+            } else if (node.matches('link[rel="stylesheet"]')) node.remove();
+        });
+        return '<!doctype html>\n' + snapshot.outerHTML;
+    }""", support.ROOT.as_uri())
+    proof.with_suffix(".html").write_text(document, encoding="utf-8")
+
+
 @pytest.mark.parametrize("state", ["empty", "populated"])
-@pytest.mark.parametrize("size,theme", [(size, theme) for size in support.VIEWPORTS for theme in support.THEMES])
+@pytest.mark.parametrize("size,theme", [(size, theme) for size in PROFILE_VIEWPORTS for theme in support.THEMES])
 def test_p15_profile_layout(browser, app_base, role_states, size, theme, state):
-    width, height = support.VIEWPORTS[size]
+    width, height = PROFILE_VIEWPORTS[size]
     with browser.new_context(viewport={"width": width, "height": height}, storage_state=role_states["admin"],
                              **support.theme_context_options(theme)) as context:
         context.add_init_script(support.theme_init_script(theme))
@@ -129,24 +150,49 @@ def test_p15_profile_layout(browser, app_base, role_states, size, theme, state):
         expect(view.get_by_text("Ausgabeformat", exact=True)).to_be_attached()
         assert page.locator("html").evaluate("(html) => html.classList.contains('dark')") == (theme == "dark")
 
-        # Freeze the rendered DOM and keep local styles available for Hallmark's file render.
         proof = support.OUT_DIR / f"P15-{size}-{theme}-{state}"
-        proof.parent.mkdir(parents=True, exist_ok=True)
-        page.screenshot(path=proof.with_suffix(".png"), full_page=True, animations="disabled", caret="hide")
-        document = page.evaluate(r"""(root) => {
-            const snapshot = document.documentElement.cloneNode(true);
-            snapshot.querySelectorAll('script, meta[name="csrf-token"]').forEach(node => node.remove());
-            snapshot.querySelectorAll('link[href], img[src]').forEach(node => {
-                const attr = node.matches('link') ? 'href' : 'src';
-                const url = new URL(node.getAttribute(attr), location.href);
-                if (url.origin === location.origin && url.pathname.startsWith('/static/')) {
-                    node.setAttribute(attr, root + url.pathname);
-                    node.removeAttribute('srcset');
-                } else if (node.matches('link[rel="stylesheet"]')) node.remove();
-            });
-            return '<!doctype html>\n' + snapshot.outerHTML;
-        }""", support.ROOT.as_uri())
-        proof.with_suffix(".html").write_text(document, encoding="utf-8")
+        _capture_profile(page, proof)
+        nav = page.get_by_test_id("clinic-v8-nav")
+        toggle = page.get_by_test_id("clinic-admin-nav-toggle")
+        if width == 1440:
+            nav.screenshot(path=proof.with_name(proof.name + "-sidebar").with_suffix(".png"),
+                           animations="disabled", caret="hide")
+        if width <= 390:
+            expect(toggle).to_have_text("Bereich: Sprachprofile")
+            expect(toggle).to_have_attribute("aria-expanded", "false")
+            expect(toggle).to_be_in_viewport(ratio=1)
+            assert toggle.bounding_box()["height"] >= 48
+            expect(nav).to_be_hidden()
+            toggle.press("Enter")
+            expect(toggle).to_have_attribute("aria-expanded", "true")
+            expect(nav.get_by_role("button", name="Sprachprofile", exact=True)).to_have_attribute("aria-current", "page")
+            assert nav.locator(".cadm-nav__label").all_text_contents() == [
+                "Konten und Pools", "Inhalte", "Richtlinien", "Betrieb", "System",
+            ]
+            assert nav.evaluate("""nav => {
+                const bounds = nav.getBoundingClientRect();
+                return nav.scrollWidth <= nav.clientWidth && bounds.left >= 0 && bounds.right <= innerWidth &&
+                    [...nav.querySelectorAll('.cadm-nav__item, .cadm-nav__label')].every(node => {
+                        const range = document.createRange();
+                        range.selectNodeContents(node);
+                        const text = range.getBoundingClientRect();
+                        const item = node.getBoundingClientRect();
+                        return text.width > 0 && text.left >= item.left && text.right <= item.right &&
+                            (!node.matches('.cadm-nav__item') || item.height >= 48);
+                    });
+            }""")
+            _capture_profile(page, proof.with_name(proof.name + "-navigation"))
+            nav.get_by_role("group", name="Richtlinien").evaluate(
+                "node => node.scrollIntoView({block: 'start', behavior: 'instant'})"
+            )
+            page.screenshot(path=proof.with_name(proof.name + "-navigation-bottom").with_suffix(".png"),
+                            animations="disabled", caret="hide")
+            nav.get_by_role("button", name="Sprachprofile", exact=True).press("Escape")
+            expect(toggle).to_be_focused()
+            expect(toggle).to_have_attribute("aria-expanded", "false")
+        else:
+            expect(toggle).to_be_hidden()
+            expect(nav).to_be_visible()
 
         config = view.get_by_role("region", name="Profilkonfiguration")
         current = view.get_by_role("region", name="Profilstand")
@@ -154,7 +200,7 @@ def test_p15_profile_layout(browser, app_base, role_states, size, theme, state):
         for region in (config, current, evidence):
             expect(region).to_be_visible()
         left, right, table = [region.bounding_box() for region in (config, current, evidence)]
-        if width == 390:
+        if width <= 390:
             assert left["x"] == right["x"] == table["x"]
             assert left["width"] == right["width"] == table["width"]
             assert left["y"] + left["height"] <= right["y"]
@@ -176,8 +222,9 @@ def test_p15_profile_layout(browser, app_base, role_states, size, theme, state):
         expect(primary).to_be_visible()
         expect(view.locator(".primary:visible")).to_have_count(1)
         assert primary.bounding_box()["height"] >= 48
-        if width == 390:
+        if width <= 390:
             assert primary.bounding_box()["width"] == config.locator(".asr-save-actions").bounding_box()["width"]
+        if width == 390:
             expect(primary).to_be_in_viewport(ratio=1)
         expect(view.get_by_text("Ihr Gerät sendet Aufnahmen an Speakr.", exact=False)).to_be_visible()
         if state == "empty":
