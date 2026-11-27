@@ -13,7 +13,7 @@ import html
 import hashlib
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable
 
 
@@ -36,12 +36,24 @@ class Run:
     bold: bool = False
     italic: bool = False
     underline: bool = False
+    # Stored document formatting, never the editor's display zoom. None inherits.
+    font_family: str | None = None
+    font_size_pt: int | None = None
 
     def __post_init__(self):
         if not isinstance(self.text, str):
             raise RichTextError("invalid_type", "Run.text must be a str")
         if any(ord(c) < 32 and c not in "\t\n\r" for c in self.text):
             raise RichTextError("control_character", "Run.text contains control characters")
+        if self.font_family is not None and (
+            type(self.font_family) is not str
+            or self.font_family not in ("serif", "sans-serif", "monospace")
+        ):
+            raise RichTextError("invalid_font_family")
+        if self.font_size_pt is not None and (
+            type(self.font_size_pt) is not int or not 8 <= self.font_size_pt <= 72
+        ):
+            raise RichTextError("invalid_font_size")
 
 
 @dataclass(frozen=True)
@@ -51,8 +63,20 @@ class Node:
     kind: str  # "paragraph" | "heading" | "list_item"
     runs: tuple[Run, ...]
     level: int = 0  # heading level 1..3
+    text_align: str | None = None
+    line_spacing: float | None = None  # Unitless line-height multiplier.
 
     def __post_init__(self):
+        if self.text_align is not None and (
+            type(self.text_align) is not str
+            or self.text_align not in ("left", "center", "right", "justify")
+        ):
+            raise RichTextError("invalid_text_align")
+        if self.line_spacing is not None and (
+            type(self.line_spacing) not in (int, float)
+            or self.line_spacing not in (1, 1.15, 1.5, 2, 2.5, 3)
+        ):
+            raise RichTextError("invalid_line_spacing")
         if not isinstance(self.id, str) or self.id == "":
             raise RichTextError("invalid_id", "Node.id must be a non-empty string")
         if self.kind not in ("paragraph", "heading", "list_item"):
@@ -432,8 +456,9 @@ def replace_text(doc: Document, node_id: str, new_text: str) -> Document:
                 raise RichTextError("empty_runs", "Node has no runs")
             first_run = node.runs[0]
             new_run = Run(text=new_text, bold=first_run.bold,
-                          italic=first_run.italic, underline=first_run.underline)
-            new_node = Node(id=node.id, kind=node.kind, runs=(new_run,), level=node.level)
+                          italic=first_run.italic, underline=first_run.underline,
+                          font_family=first_run.font_family, font_size_pt=first_run.font_size_pt)
+            new_node = replace(node, runs=(new_run,))
             new_nodes.append(new_node)
         else:
             new_nodes.append(node)
@@ -456,8 +481,14 @@ def canonical_json(doc: Document) -> str:
             "id": node.id,
             "kind": node.kind,
             "level": node.level,
+            **{key: value for key, value in (
+                ("text_align", node.text_align), ("line_spacing", node.line_spacing),
+            ) if value is not None},
             "runs": [
-                {"text": run.text, "bold": run.bold, "italic": run.italic, "underline": run.underline}
+                {"text": run.text, "bold": run.bold, "italic": run.italic, "underline": run.underline,
+                 **{key: value for key, value in (
+                     ("font_family", run.font_family), ("font_size_pt", run.font_size_pt),
+                 ) if value is not None}}
                 for run in node.runs
             ],
         }

@@ -188,3 +188,66 @@ describe('authors view composition', () => {
         expect(AUTHORS_TEMPLATE).not.toMatch(/email|patient|fall/i);
     });
 });
+
+describe('author pool creation and assignment (PAR-ADM-002)', () => {
+    const readyClient = (extra) => {
+        const client = fakeClient({ '/admin/users': ok(USERS), '/pools': ok(POOLS) });
+        const base = client.request.getMockImplementation();
+        client.request.mockImplementation(async (path, options) => (extra && extra[path] ? extra[path](options) : base(path, options)));
+        return client;
+    };
+
+    it('creates an author pool through the pool admin API and reloads', async () => {
+        const client = readyClient({ '/pool-admin/pools': () => ok({ id: 'ap-9', name: 'Alpha' }) });
+        const ctrl = createAuthorsController({ client });
+        await ctrl.load();
+        ctrl.state.createName = '  Alpha ';
+        expect(await ctrl.createPool()).toBe(true);
+        expect(client.request).toHaveBeenCalledWith('/pool-admin/pools', { method: 'POST', body: { kind: 'author', name: 'Alpha' } });
+        expect(ctrl.state.createName).toBe('');
+        expect(ctrl.state.createFailed).toBe(false);
+        expect(ctrl.state.createMessage).toContain('Alpha');
+        expect(ctrl.state.status).toBe('ready');
+    });
+
+    it('shows the server conflict for a duplicate name and keeps the input', async () => {
+        const client = readyClient({ '/pool-admin/pools': () => ({ outcome: 'conflict', status: 409, code: 'name_taken' }) });
+        const ctrl = createAuthorsController({ client });
+        await ctrl.load();
+        ctrl.state.createName = 'Chirurgie';
+        expect(await ctrl.createPool()).toBe(false);
+        expect(ctrl.state.createMessage).toBe(LABELS.nameTaken);
+        expect(ctrl.state.createFailed).toBe(true);
+        expect(ctrl.state.createName).toBe('Chirurgie');
+    });
+
+    it('rejects an empty name without a request', async () => {
+        const client = readyClient();
+        const ctrl = createAuthorsController({ client });
+        await ctrl.load();
+        ctrl.state.createName = '   ';
+        expect(await ctrl.createPool()).toBe(false);
+        expect(ctrl.state.createMessage).toBe(LABELS.nameRequired);
+        expect(client.request.mock.calls.some(([path]) => path === '/pool-admin/pools')).toBe(false);
+    });
+
+    it('assigns a user with the persisted revision and lists only non-members as candidates', async () => {
+        const client = readyClient({ '/pools/author/ap-1': () => ok({}) });
+        const ctrl = createAuthorsController({ client });
+        await ctrl.load();
+        const card = ctrl.state.poolCards.find((c) => c.id === 'ap-1');
+        expect(ctrl.candidates(card).map((a) => a.id)).toEqual([9]);
+        ctrl.state.assign['ap-1'] = '9';
+        expect(await ctrl.assign(card)).toBe(true);
+        const put = client.request.mock.calls.find(([path]) => path === '/pools/author/ap-1');
+        expect(put[1].method).toBe('PUT');
+        expect(put[1].body).toEqual({ expected_revision: 4, name: 'Chirurgie', member_user_ids: [1, 3, 9] });
+    });
+
+    it('explains multiple memberships as allowed, not as a one-pool rule', () => {
+        expect(LABELS.ruleMultiPool).toContain('mehreren Autorenpools');
+        expect(LABELS.multiMembership).not.toContain('einen Autorenpool je Benutzer');
+        expect(AUTHORS_TEMPLATE).toContain('labels.ruleMultiPool');
+        expect(AUTHORS_TEMPLATE).not.toContain('labels.ruleOnePool');
+    });
+});

@@ -71,7 +71,7 @@ def plan_changes(
         A ChangePlan with only fields that actually change.
 
     Raises:
-        ChangeError: unknown_field, forbidden, invalid_title, invalid_priority,
+        ChangeError: unknown_field, forbidden, invalid_title, invalid_notes, invalid_priority,
             deadline_date_required, invalid_deadline, or validation errors for reassign.
     """
     if not isinstance(current, Mapping):
@@ -86,16 +86,18 @@ def plan_changes(
     # This also catches deadline_time without deadline_date across the request
     validated: dict[str, Any] = {}
     for field, new_value in requested.items():
-        if field not in FIELD_ACTION:
+        if field != "notes" and field not in FIELD_ACTION:
             raise ChangeError("unknown_field", field=field)
 
-        action = FIELD_ACTION[field]
+        action = "rename" if field == "notes" else FIELD_ACTION[field]
         if action not in allowed_set:
             raise ChangeError("forbidden", action=action)
 
         # Validate and normalise per field
         if field == "title":
             validated[field] = _validate_title(new_value)
+        elif field == "notes":
+            validated[field] = _validate_notes(new_value)
         elif field == "priority":
             validated[field] = _validate_priority(new_value)
         elif field in ("deadline_date", "deadline_time"):
@@ -134,7 +136,8 @@ def to_audit_rows(
         now: Timezone-aware UTC datetime for the audit timestamp.
 
     Returns:
-        List of audit row dicts with keys: actor_id, dictation_id, field, old, new, at.
+        List of audit row dicts with keys: actor_id, dictation_id, field, at.
+        Existing fields also include old and new; notes never include content.
 
     Raises:
         ValueError: If now is not timezone-aware.
@@ -150,8 +153,7 @@ def to_audit_rows(
                 "actor_id": actor_id,
                 "dictation_id": dictation_id,
                 "field": change.field,
-                "old": change.old,
-                "new": change.new,
+                **({"old": change.old, "new": change.new} if change.field != "notes" else {}),
                 "at": now_utc,
             }
         )
@@ -174,6 +176,19 @@ def _validate_title(value: object) -> str:
         if cat.startswith("C"):
             raise ChangeError("invalid_title", field="title")
     return stripped
+
+
+def _validate_notes(value: object) -> str:
+    """Accept up to 4000 NFC characters; blank text clears notes only."""
+    if not isinstance(value, str):
+        raise ChangeError("invalid_notes", field="notes")
+    normalised = unicodedata.normalize("NFC", value)
+    if len(normalised) > 4000 or any(
+        unicodedata.category(ch).startswith("C") and ch not in "\n\r\t"
+        for ch in normalised
+    ):
+        raise ChangeError("invalid_notes", field="notes")
+    return normalised.strip()
 
 
 def _validate_priority(value: object) -> int:

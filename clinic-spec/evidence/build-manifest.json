@@ -108,8 +108,8 @@
     },
     {
       "path": "contracts/parity-api.openapi.json",
-      "bytes": 48836,
-      "sha256": "bc1f7434cc761cd4f01a6a1a5487e65d66410e04ed720f22e8459204c3260f59"
+      "bytes": 59033,
+      "sha256": "2a409feba062e5aed96c569d5233c8e473903ddd30ca456c8acbbfc2a718ad70"
     },
     {
       "path": "contracts/parity-command-catalog.json",

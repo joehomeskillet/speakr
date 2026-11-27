@@ -88,6 +88,72 @@ describe('recording view controller', () => {
         expect(c.model().message).toBe(TEXT.sent);
     });
 
+    it('keeps the title editable after stop, blocks empty titles on start/send, and uploads the edited title', async () => {
+        let release;
+        const rec = recorder(() => new Promise((resolve) => { release = resolve; }));
+        const { c } = make({ recorder: rec });
+
+        // Empty or whitespace-only title cannot start recording.
+        expect(c.model().titleLocked).toBe(false);
+        expect(c.model().controls.find((b) => b.id === 'start').disabled).toBe(true);
+        c.setTitle('   ');
+        expect(c.model().phase).toBe('title');
+        expect((await c.start()).code).toBe('invalid_phase');
+        expect(rec.startRecording).not.toHaveBeenCalled();
+
+        // Start with initial title; locked during recording and pause.
+        c.setTitle('Erster Titel');
+        await c.start();
+        expect(c.model().titleLocked).toBe(true);
+        expect(c.setTitle('Zwischentitel').code).toBe('invalid_phase');
+        c.pause();
+        expect(c.model().titleLocked).toBe(true);
+        expect(c.setTitle('Zwischentitel').code).toBe('invalid_phase');
+
+        // Stop unlocks the title in review; clearing blocks send until a new title is entered.
+        await c.stop();
+        expect(c.model().phase).toBe('review');
+        expect(c.model().titleLocked).toBe(false);
+        expect(c.setTitle('').ok).toBe(true);
+        expect(c.model().phase).toBe('review');
+        expect(c.model().controls.find((b) => b.id === 'send').disabled).toBe(true);
+        expect(c.model().message).toBe('Ein Titel ist erforderlich.');
+        expect((await c.send()).code).toBe('missing_title');
+        expect(rec.uploadRecordedAudio).not.toHaveBeenCalled();
+
+        // Editing the title in review enables send and sends the trimmed new title.
+        expect(c.setTitle('  Geänderter Titel  ').ok).toBe(true);
+        expect(c.model().controls.find((b) => b.id === 'send').disabled).toBe(false);
+        const pending = c.send();
+        expect(c.model().phase).toBe('sending');
+        expect(c.model().titleLocked).toBe(true);
+        expect(c.setTitle('Zu spät').code).toBe('invalid_phase');
+        release({ dictation_id: 'd-42' });
+        expect((await pending).ok).toBe(true);
+        expect(rec.uploadRecordedAudio).toHaveBeenCalledWith({ title: 'Geänderter Titel' });
+        expect(c.model().phase).toBe('sent');
+        expect(c.model().titleLocked).toBe(true);
+        expect(c.setTitle('Nach Speichern').code).toBe('invalid_phase');
+    });
+
+    it('keeps the title editable after an upload failure so the edited title is sent on retry', async () => {
+        let calls = 0;
+        const rec = recorder(async () => {
+            calls += 1;
+            if (calls === 1) throw new Error('offline');
+            return { dictation_id: 'd-7' };
+        });
+        const { c } = make({ recorder: rec });
+        await toReview(c);
+        expect((await c.send()).code).toBe('no_receipt');
+        expect(c.model().phase).toBe('failed');
+        expect(c.model().titleLocked).toBe(false);
+        expect(c.setTitle('Korrigierter Titel').ok).toBe(true);
+        expect((await c.send()).ok).toBe(true);
+        expect(rec.uploadRecordedAudio).toHaveBeenNthCalledWith(1, { title: 'Bericht' });
+        expect(rec.uploadRecordedAudio).toHaveBeenNthCalledWith(2, { title: 'Korrigierter Titel' });
+    });
+
     it('refuses invalid transitions and a second start', async () => {
         const { c, rec } = make();
         expect((await c.start()).code).toBe('invalid_phase');

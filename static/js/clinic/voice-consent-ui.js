@@ -28,6 +28,64 @@ export const STATEMENT_TEXT = 'Einwilligung (Version ' + STATEMENT_VERSION + '):
     + 'angezeigt werden. Ich kann die Einwilligung jederzeit widerrufen; mit dem Widerruf '
     + 'werden mein Stimmprofil und die Vorschläge entfernt.';
 
+const ENROLL_URL = '/voice/enrollment';
+const MAX_SAMPLE_BYTES = 2000000;
+const SAMPLE_RATE = 16000;
+
+/** Encode mono float samples as 16 kHz 16-bit PCM WAV (the format the enrolment route accepts). */
+export function encodeWav(samples) {
+    const buf = new ArrayBuffer(44 + samples.length * 2);
+    const v = new DataView(buf);
+    const str = (o, t) => { for (let i = 0; i < t.length; i += 1) v.setUint8(o + i, t.charCodeAt(i)); };
+    str(0, 'RIFF'); v.setUint32(4, 36 + samples.length * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, SAMPLE_RATE, true); v.setUint32(28, SAMPLE_RATE * 2, true);
+    v.setUint16(32, 2, true); v.setUint16(34, 16, true); str(36, 'data'); v.setUint32(40, samples.length * 2, true);
+    for (let i = 0; i < samples.length; i += 1) {
+        const x = Math.max(-1, Math.min(1, samples[i]));
+        v.setInt16(44 + i * 2, x < 0 ? x * 0x8000 : x * 0x7fff, true);
+    }
+    return new Blob([buf], { type: 'audio/wav' });
+}
+
+/** Browser microphone recorder producing a WAV Blob; returns null when the browser cannot record. */
+export function createSampleRecorder(env) {
+    const g = env || globalThis;
+    const nav = g.navigator;
+    const Ctx = g.AudioContext || g.webkitAudioContext;
+    if (!Ctx || !nav || !nav.mediaDevices || typeof nav.mediaDevices.getUserMedia !== 'function') return null;
+    let ctx = null; let stream = null; let node = null; let chunks = [];
+    return {
+        async start() {
+            stream = await nav.mediaDevices.getUserMedia({ audio: true });
+            ctx = new Ctx({ sampleRate: SAMPLE_RATE });
+            const src = ctx.createMediaStreamSource(stream);
+            node = ctx.createScriptProcessor(4096, 1, 1);
+            chunks = [];
+            node.onaudioprocess = (e) => { chunks.push(new Float32Array(e.inputBuffer.getChannelData(0))); };
+            src.connect(node);
+            node.connect(ctx.destination);
+        },
+        async stop() {
+            if (node) node.disconnect();
+            if (stream) stream.getTracks().forEach((t) => t.stop());
+            const rate = ctx ? ctx.sampleRate : SAMPLE_RATE;
+            if (ctx) await ctx.close();
+            const total = chunks.reduce((n, c) => n + c.length, 0);
+            const all = new Float32Array(total);
+            let o = 0;
+            for (const c of chunks) { all.set(c, o); o += c.length; }
+            chunks = []; ctx = null; stream = null; node = null;
+            if (rate !== SAMPLE_RATE) {
+                const out = new Float32Array(Math.floor(total * SAMPLE_RATE / rate));
+                for (let i = 0; i < out.length; i += 1) out[i] = all[Math.floor(i * rate / SAMPLE_RATE)];
+                return encodeWav(out);
+            }
+            return encodeWav(all);
+        },
+    };
+}
+
 const LABELS = Object.freeze({
     'clinic.voiceConsent.title': 'Eigene Stimme: Einwilligung',
     'clinic.voiceConsent.statement': 'Einwilligungserklärung',
@@ -43,6 +101,13 @@ const LABELS = Object.freeze({
     'clinic.voiceConsent.reload': 'Neu laden',
     'clinic.voiceConsent.granted': 'Einwilligung gespeichert.',
     'clinic.voiceConsent.revoked': 'Einwilligung widerrufen. Stimmprofil und Vorschläge sind entfernt.',
+    'clinic.voiceConsent.enroll.record': 'Stimmprobe aufnehmen',
+    'clinic.voiceConsent.enroll.stop': 'Aufnahme beenden und senden',
+    'clinic.voiceConsent.enroll.upload': 'Stimmprobe hochladen (WAV)',
+    'clinic.voiceConsent.enroll.hint': 'Kurze eigene Probe, 3 bis 30 Sekunden, nur Ihre Stimme.',
+    'clinic.voiceConsent.enroll.done': 'Stimmprobe angenommen.',
+    'clinic.voiceConsent.enroll.invalid': 'Die Stimmprobe ist ungültig (WAV, 3 bis 30 Sekunden, höchstens 2 MB).',
+    'clinic.voiceConsent.enroll.unsupported': 'Aufnahme ist in diesem Browser nicht möglich. Bitte eine WAV-Datei hochladen.',
     'clinic.voiceConsent.stale': 'Der Stand war veraltet und wurde neu geladen. Bitte erneut prüfen.',
 });
 
@@ -164,6 +229,44 @@ export function createVoiceConsentController(deps) {
         if (res.outcome === 'ok') apply(res.data);
     }
 
+    // Own voice sample: only while consent is granted; the route needs If-Match and a payload-bound Idempotency-Key.
+    async function enroll(sample) {
+        if (!state.ready || state.loading || state.busy || state.consent.state !== 'granted') return false;
+        if (!sample || !sample.size || sample.size > MAX_SAMPLE_BYTES) {
+            state.error = { outcome: 'validation', code: 'INVALID_AUDIO', message: label('clinic.voiceConsent.enroll.invalid'), retryable: false };
+            emit();
+            return false;
+        }
+        const body = sample.type === 'audio/wav' ? sample : new Blob([sample], { type: 'audio/wav' });
+        const expected = state.consent.latestId;
+        const k = keys.enroll;
+        if (!k || k.expected !== expected || k.sample !== sample) keys.enroll = { expected, sample, key: newKey() };
+        state.busy = true;
+        state.error = null;
+        state.notice = null;
+        emit();
+        const res = await client.request(ENROLL_URL, {
+            method: 'POST', formData: body, idempotencyKey: keys.enroll.key, ifMatch: '"voice-consent:' + expected + '"',
+        });
+        state.busy = false;
+        if (res.outcome === 'ok') {
+            delete keys.enroll;
+            const d = res.data || {};
+            if (Number.isInteger(d.embedding_count)) state.consent = { ...state.consent, embeddingCount: d.embedding_count };
+            state.notice = label('clinic.voiceConsent.enroll.done');
+            emit();
+            return true;
+        }
+        fail(res);
+        if (res.code === 'INVALID_AUDIO') state.error.message = label('clinic.voiceConsent.enroll.invalid');
+        if (res.outcome === 'conflict' && await load()) {
+            state.error = null;
+            state.notice = label('clinic.voiceConsent.stale');
+        }
+        emit();
+        return false;
+    }
+
     function grant() {
         if (state.consent.state === 'granted') return Promise.resolve(false);
         return command('grant', {
@@ -224,6 +327,7 @@ export function createVoiceConsentController(deps) {
             suggestionCount: state.suggestions.length,
             history: state.consent.history,
             canGrant: state.ready && s !== 'granted' && !state.busy && !state.loading,
+            canEnroll: s === 'granted' && !state.busy && !state.loading,
             canRevoke: s === 'granted' && !state.busy && !state.loading,
             confirmingRevoke: state.confirmingRevoke,
             busy: state.busy,
@@ -245,6 +349,11 @@ export function createVoiceConsentController(deps) {
                 cancel: label('clinic.voiceConsent.cancel'),
                 retry: label('clinic.voiceConsent.retry'),
                 reload: label('clinic.voiceConsent.reload'),
+                record: label('clinic.voiceConsent.enroll.record'),
+                stopRecord: label('clinic.voiceConsent.enroll.stop'),
+                upload: label('clinic.voiceConsent.enroll.upload'),
+                enrollHint: label('clinic.voiceConsent.enroll.hint'),
+                unsupported: label('clinic.voiceConsent.enroll.unsupported'),
             },
         };
     }
@@ -259,7 +368,7 @@ export function createVoiceConsentController(deps) {
     }
 
     return {
-        state, view, load, grant, requestRevoke, confirmRevoke, cancel,
+        state, view, load, grant, enroll, requestRevoke, confirmRevoke, cancel,
         setSuggestions, switchContext, onKeydown,
         subscribe(fn) {
             listeners.add(fn);

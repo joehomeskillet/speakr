@@ -1,10 +1,11 @@
 """Persist approved import-source and autosend configuration.
 
 Each approved source (device root or dropfolder) carries server-authorized
-author routing, autosend settings and the EOL filter. The server owns the
-policy version; clients cannot forge versions or grant themselves source
-deletion rights. Path safety is enforced here; callers supply the
-authenticated user id.
+author routing, autosend settings, the EOL filter and optional backup name,
+retention and cleanup. The server owns the policy version; clients cannot
+forge versions or grant themselves source deletion rights. Path safety is
+enforced here; callers supply the authenticated user id. A backup name,
+retention period or cleanup requires an approved backup root.
 """
 
 from __future__ import annotations
@@ -58,6 +59,10 @@ class ClinicImportSourceConfig(db.Model):
     asr_profile_id = db.Column(db.String(36), nullable=True)
     policy_version = db.Column(db.Integer, nullable=False, default=1)
     allow_source_delete = db.Column(db.Boolean, nullable=False, default=False)
+    backup_name = db.Column(db.String(255), nullable=False, default="")
+    backup_retention_days = db.Column(db.Integer, nullable=True)
+    cleanup_enabled = db.Column(db.Boolean, nullable=False, default=False)
+    backup_root = db.Column(db.String(1024), nullable=True)
     created_by_user_id = db.Column(db.Integer, ForeignKey("user.id"), nullable=False)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
@@ -73,12 +78,16 @@ CONFIG_TABLES = (ClinicImportSourceConfig,)
 
 
 def create_tables(bind=None):
-    """Create this module's tables if they are missing."""
+    """Create this module's tables if they are missing, then fill option columns on older copies."""
+    bind = bind or db.engine
     db.metadata.create_all(
-        bind=bind or db.engine,
+        bind=bind,
         tables=[m.__table__ for m in CONFIG_TABLES],
         checkfirst=True,
     )
+    from . import migration_import_source_options
+
+    migration_import_source_options.upgrade(bind)
 
 
 def _clean_ref(value, what):
@@ -87,29 +96,29 @@ def _clean_ref(value, what):
     return value
 
 
-def _root_path(value: str) -> PurePosixPath | PureWindowsPath:
+def _root_path(value: str, what="approved_root") -> PurePosixPath | PureWindowsPath:
     root = value.replace("\\", "/")
     if _CONTROL.search(root) or ".." in root.split("/"):
-        raise AgentChannelError("invalid", "approved_root")
+        raise AgentChannelError("invalid", what)
     drive = re.match(r"^[A-Za-z]:", root)
     if root.startswith("//") or drive:
         # Reject Windows device namespaces and names Win32 may reinterpret.
         tail = root[2:] if drive else root
         if (root.startswith(("//?/", "//./")) or re.search(r'[<>"|?*:]', tail)
                 or any(p != "." and p.endswith((".", " ")) for p in tail.split("/"))):
-            raise AgentChannelError("invalid", "approved_root")
+            raise AgentChannelError("invalid", what)
         path: PurePosixPath | PureWindowsPath = PureWindowsPath(root)
     else:
         path = PurePosixPath(root)
     if not path.is_absolute():
-        raise AgentChannelError("invalid", "approved_root")
+        raise AgentChannelError("invalid", what)
     return path
 
 
-def _clean_root(value: str) -> str:
+def _clean_root(value: str, what="approved_root") -> str:
     if not isinstance(value, str):
-        raise AgentChannelError("invalid", "approved_root")
-    root = _root_path(value)
+        raise AgentChannelError("invalid", what)
+    root = _root_path(value, what)
     for entry in os.environ.get("CLINIC_IMPORT_ROOT_ALLOWLIST", "").split(";"):
         try:
             base = _root_path(entry.strip())
@@ -117,7 +126,7 @@ def _clean_root(value: str) -> str:
             continue
         if type(root) is type(base) and root.is_relative_to(base):
             return root.as_posix()
-    raise AgentChannelError("forbidden", "approved_root outside allowlist")
+    raise AgentChannelError("forbidden", what + " outside allowlist")
 
 
 def _clean_pattern(value):
@@ -125,6 +134,69 @@ def _clean_pattern(value):
     if not pattern or _CONTROL.search(pattern):
         raise AgentChannelError("invalid", "file_pattern")
     return pattern
+
+
+_MISSING = object()
+_BACKUP_TOKENS = frozenset("ATDSC")  # same letters as output.PLACEHOLDERS
+_BACKUP_CHAR = re.compile(r"[A-Za-z0-9 ._()\-]")
+_MAX_RETENTION_DAYS = 36500
+
+
+def _clean_backup_name(value):
+    """Allowed backup file name. Empty keeps the source file name."""
+    if value is None or value == "":
+        return ""
+    if not isinstance(value, str) or len(value) > 255 or value != value.strip() or value in (".", ".."):
+        raise AgentChannelError("invalid", "backup_name")
+    index = 0
+    while index < len(value):
+        char = value[index]
+        if char == "%":
+            if index + 1 >= len(value) or (value[index + 1] != "%" and value[index + 1] not in _BACKUP_TOKENS):
+                raise AgentChannelError("invalid", "backup_name")
+            index += 2
+            continue
+        if _BACKUP_CHAR.fullmatch(char) is None:
+            raise AgentChannelError("invalid", "backup_name")
+        index += 1
+    return value
+
+
+def _clean_retention(value):
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= _MAX_RETENTION_DAYS:
+        raise AgentChannelError("invalid", "backup_retention_days")
+    return value
+
+
+def _overlaps(left: str, right: str) -> bool:
+    a, b = _root_path(left), _root_path(right)
+    if type(a) is not type(b):
+        return False
+    return a.is_relative_to(b) or b.is_relative_to(a)
+
+
+def _clean_backup_root(value, approved_root: str):
+    if value is None or value == "":
+        return None
+    root = _clean_root(value, "backup_root")
+    if _overlaps(root, approved_root):
+        raise AgentChannelError("invalid", "backup_root overlaps approved_root")
+    return root
+
+
+def _checked_backup(approved_root, backup_root, backup_name, retention, cleanup):
+    """A backup name, retention period or cleanup requires an approved backup root."""
+    name = _clean_backup_name(backup_name)
+    days = _clean_retention(retention)
+    enabled = bool(cleanup)
+    root = _clean_backup_root(backup_root, approved_root)
+    if (enabled or days is not None or name != "") and root is None:
+        raise AgentChannelError("invalid", "backup requires an approved root")
+    if enabled and days is None:
+        raise AgentChannelError("invalid", "backup_retention_days")
+    return root, name, days, enabled
 
 
 def _known_actor(actor_user_id: int) -> User:
@@ -166,13 +238,17 @@ def _view(row):
         "target_author_user_id": row.target_author_user_id,
         "target_pool_id": row.target_pool_id,
         "autosend_enabled": row.autosend_enabled,
-        "eol_filter_enabled": row.eol_filter_enabled,
-        "file_pattern": row.file_pattern,
-        "priority": row.priority,
-        "language_id": row.language_id,
+        "eol_filter_enabled": True if row.eol_filter_enabled is None else bool(row.eol_filter_enabled),
+        "file_pattern": row.file_pattern or "*",
+        "priority": 1 if row.priority is None else row.priority,
+        "language_id": 1031 if row.language_id is None else row.language_id,
         "asr_profile_id": row.asr_profile_id,
         "policy_version": row.policy_version,
         "allow_source_delete": row.allow_source_delete,
+        "backup_name": row.backup_name or "",
+        "backup_retention_days": row.backup_retention_days,
+        "cleanup_enabled": False if row.cleanup_enabled is None else bool(row.cleanup_enabled),
+        "backup_root": row.backup_root,
         "created_at": aware(row.created_at).isoformat(),
         "updated_at": aware(row.updated_at).isoformat(),
     }
@@ -183,6 +259,7 @@ def create_source_config(
     *, actor_user_id, source_kind, source_ref, approved_root, target_author_user_id,
     target_pool_id=None, autosend_enabled=False, eol_filter_enabled=True, file_pattern="*",
     priority=None, language_id=None, asr_profile_id=None, allow_source_delete=False,
+    backup_name="", backup_retention_days=None, cleanup_enabled=False, backup_root=None,
     may_assign_author: Optional[Callable[[int, int], bool]] = None,
     may_manage_deletion: Optional[Callable[[int], bool]] = None, now=None,
 ):
@@ -203,6 +280,8 @@ def create_source_config(
             raise AgentChannelError("forbidden", "source deletion rights require authorization")
     priority, _ = normalize_priority(priority)
     language_id = resolve_language(language_id)
+    backup_root, backup_name, backup_retention_days, cleanup_enabled = _checked_backup(
+        approved_root, backup_root, backup_name, backup_retention_days, cleanup_enabled)
     row = ClinicImportSourceConfig(
         source_kind=source_kind, source_ref=source_ref, approved_root=approved_root,
         target_author_user_id=target_author_user_id, target_pool_id=target_pool_id,
@@ -210,6 +289,8 @@ def create_source_config(
         file_pattern=_clean_pattern(file_pattern), priority=priority, language_id=language_id,
         asr_profile_id=_clean_ref(asr_profile_id, "asr_profile_id") if asr_profile_id else None,
         policy_version=1, allow_source_delete=bool(allow_source_delete),
+        backup_name=backup_name, backup_retention_days=backup_retention_days,
+        cleanup_enabled=cleanup_enabled, backup_root=backup_root,
         created_by_user_id=actor_user_id, created_at=now, updated_at=now,
     )
     db.session.add(row)
@@ -223,6 +304,7 @@ def update_source_config(
     target_author_user_id=None, target_pool_id=..., autosend_enabled=None,
     eol_filter_enabled=None, file_pattern=None, priority=None, language_id=None,
     asr_profile_id=None, allow_source_delete=None,
+    backup_name=None, backup_retention_days=_MISSING, cleanup_enabled=None, backup_root=_MISSING,
     may_assign_author: Optional[Callable[[int, int], bool]] = None,
     may_manage_deletion: Optional[Callable[[int], bool]] = None, now=None, commit=True,
 ):
@@ -265,6 +347,12 @@ def update_source_config(
             if may_manage_deletion is None or not may_manage_deletion(actor_user_id):
                 raise AgentChannelError("forbidden", "source deletion rights require authorization")
         row.allow_source_delete = bool(allow_source_delete)
+    next_root = row.backup_root if backup_root is _MISSING else backup_root
+    next_name = row.backup_name if backup_name is None else backup_name
+    next_days = row.backup_retention_days if backup_retention_days is _MISSING else backup_retention_days
+    next_cleanup = row.cleanup_enabled if cleanup_enabled is None else cleanup_enabled
+    row.backup_root, row.backup_name, row.backup_retention_days, row.cleanup_enabled = _checked_backup(
+        row.approved_root, next_root, next_name, next_days, next_cleanup)
     row.policy_version = expected_version + 1
     row.updated_at = now
     if commit:

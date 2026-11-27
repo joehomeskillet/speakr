@@ -1,9 +1,11 @@
-"""DOCX and plain-text export of one clinic dictation revision.
+"""DOCX, RTF and plain-text export of one clinic dictation revision.
 
 A release is rendered only from the transcript revision it binds. The
-dictated text is copied as paragraphs and is not rewritten. A draft is
-rendered only when ``allow_draft=True`` and carries the marking
-``ENTWURF – nicht freigegeben`` in the header and at the start of the body.
+dictated text is copied as paragraphs and is not rewritten. RTF maps
+markup already in that revision to RTF styles and does not add clinical
+wording. A draft is rendered only when ``allow_draft=True`` and carries
+the marking ``ENTWURF – nicht freigegeben`` in the header and at the
+start of the body.
 
 ``rendered``, ``download_started`` and ``user_confirmed`` are separate
 outcome records for later wiring. Starting a download does not prove that
@@ -25,6 +27,7 @@ from src.clinic.models import (
     ClinicRelease,
     ClinicTranscriptRevision,
 )
+from src.clinic.output_rtf import RTFValidationError, get_rtf_bytes, validate_rtf
 from src.database import db
 from src.file_exporter import sanitize_export_filename
 from src.services.document import DOCX_MIMETYPE, add_document_header, new_document
@@ -37,6 +40,7 @@ DOWNLOAD_STARTED = 'download_started'
 USER_CONFIRMED = 'user_confirmed'
 
 TEXT_MIMETYPE = 'text/plain; charset=utf-8'
+RTF_MIMETYPE = 'application/rtf'
 _RELEASED_TITLE = 'Freigegebenes Diktat'
 _ID_CHARS = frozenset('0123456789abcdefABCDEF-')
 
@@ -102,7 +106,7 @@ class _Source:
 
 def export_filename(dictation_id: str, revision_id: str, extension: str, *, mode: str, label: str = '') -> str:
     """One path segment. User-controlled path characters are not kept."""
-    if extension not in ('.txt', '.docx'):
+    if extension not in ('.txt', '.docx', '.rtf'):
         raise ExportRefused('unsupported_extension')
     if mode not in ('released', 'draft'):
         raise ExportRefused('unsupported_source')
@@ -123,6 +127,17 @@ def render_text(release_or_draft, *, allow_draft: bool = False, filename_label: 
 def render_docx(release_or_draft, *, allow_draft: bool = False, filename_label: str | None = None) -> RenderedExport:
     """DOCX of the bound revision, or of a draft when explicitly allowed."""
     return _render(release_or_draft, kind='docx', allow_draft=allow_draft, filename_label=filename_label)
+
+
+def render_rtf(release_or_draft, *, allow_draft: bool = False, filename_label: str | None = None) -> RenderedExport:
+    """RTF of the bound revision, or of a draft when explicitly allowed.
+
+    Revision hashes are checked the same way as :func:`render_docx`. The
+    release header and the formatted body are written by
+    ``output_rtf.get_rtf_bytes`` (through ``text_to_rtf``). The bytes are
+    refused unless the RTF groups balance.
+    """
+    return _render(release_or_draft, kind='rtf', allow_draft=allow_draft, filename_label=filename_label)
 
 
 def download_started(rendered: RenderedExport) -> ExportOutcome:
@@ -148,7 +163,12 @@ def _render(release_or_draft, *, kind: str, allow_draft: bool, filename_label: s
     source = _resolve(release_or_draft, allow_draft)
     draft = source.mode == 'draft'
     header = _header_lines(source)
-    extension = '.txt' if kind == 'text' else '.docx'
+    if kind == 'text':
+        extension = '.txt'
+    elif kind == 'rtf':
+        extension = '.rtf'
+    else:
+        extension = '.docx'
     label = source.document_type if filename_label is None else filename_label
     filename = export_filename(
         source.dictation_id,
@@ -158,11 +178,14 @@ def _render(release_or_draft, *, kind: str, allow_draft: bool, filename_label: s
         label=label,
     )
     body = (DRAFT_MARK + '\n' + source.body) if draft else source.body
+    title = DRAFT_MARK if draft else _RELEASED_TITLE
     if kind == 'text':
         content = ('\n'.join(header) + '\n\n' + body).encode('utf-8')
         mimetype = TEXT_MIMETYPE
+    elif kind == 'rtf':
+        content = _rtf_bytes(title, header, body)
+        mimetype = RTF_MIMETYPE
     else:
-        title = DRAFT_MARK if draft else _RELEASED_TITLE
         content = _docx_bytes(title, header, _paragraphs(body))
         mimetype = DOCX_MIMETYPE
     digest = hashlib.sha256(content).hexdigest()
@@ -284,6 +307,19 @@ def _paragraphs(body: str) -> list[str]:
     if body == '':
         return []
     return body.split('\n')
+
+
+def _rtf_bytes(title: str, header_lines: list[str], body: str) -> bytes:
+    """Header metadata plus the formatted body, as validated RTF bytes."""
+    document = '\n'.join(header_lines) + '\n\n' + body
+    try:
+        content = get_rtf_bytes(document, title=title)
+        checked = validate_rtf(content)
+    except RTFValidationError as exc:
+        raise ExportRefused('rtf_invalid') from exc
+    if not checked.groups_balanced:
+        raise ExportRefused('rtf_unbalanced')
+    return content
 
 
 def _docx_bytes(title: str, header_lines: list[str], paragraphs: list[str]) -> bytes:

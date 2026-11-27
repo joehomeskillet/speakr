@@ -10,11 +10,12 @@
 
 import { surfaceFor } from './tokens.js';
 
-export const LEASE_STATUSES = Object.freeze(['idle', 'acquiring', 'held', 'foreign', 'lost', 'error']);
+export const LEASE_STATUSES = Object.freeze(['idle', 'acquiring', 'held', 'releasing', 'foreign', 'lost', 'error']);
 
 const MESSAGES = Object.freeze({
     idle: 'Nicht zur Bearbeitung geöffnet.',
     acquiring: 'Bearbeitung wird angefordert …',
+    releasing: 'Bearbeitung wird freigegeben …',
     foreign: 'Dieses Diktat wird von einer anderen Person bearbeitet.',
     lost: 'Die Bearbeitung wurde entzogen. Das Diktat ist schreibgeschützt.',
     error: 'Die Bearbeitung konnte nicht angefordert werden.',
@@ -23,7 +24,7 @@ const MESSAGES = Object.freeze({
 });
 
 const SURFACE = Object.freeze({
-    idle: 'normal', acquiring: 'processing', held: 'success',
+    idle: 'normal', acquiring: 'processing', held: 'success', releasing: 'processing',
     foreign: 'warning', lost: 'error', error: 'error',
 });
 
@@ -143,7 +144,7 @@ export function createLeaseController(options) {
     }
 
     async function requestLease(operation) {
-        if (disposed || status === 'acquiring') return snapshot();
+        if (disposed || status === 'acquiring' || status === 'releasing') return snapshot();
         const was = status;
         inspection += 1;
         status = 'acquiring';
@@ -213,12 +214,16 @@ export function createLeaseController(options) {
         if (status !== 'held' || !proof) return snapshot();
         const current = proof;
         // Writes stop first; the release call follows.
-        drop('idle');
-        await client.request(base + '/release', {
-            method: 'POST',
-            idempotencyKey: newKey(),
-            body: { lease_id: current.leaseId, generation: current.generation },
-        });
+        drop('releasing');
+        try {
+            await client.request(base + '/release', {
+                method: 'POST',
+                idempotencyKey: newKey(),
+                body: { lease_id: current.leaseId, generation: current.generation },
+            });
+        } finally {
+            if (!disposed) drop('idle');
+        }
         return snapshot();
     }
 
@@ -280,11 +285,11 @@ export function createLeaseController(options) {
 export function leaseActions(state) {
     const actions = [];
     if (state.mayAcquire !== false && (state.status === 'idle' || state.status === 'error')) actions.push({ id: 'acquire', label: 'Bearbeiten', disabled: false });
-    if (state.status === 'acquiring') actions.push({ id: 'acquire', label: 'Bearbeiten', disabled: true });
+    if (state.status === 'acquiring' || state.status === 'releasing') actions.push({ id: 'acquire', label: 'Bearbeiten', disabled: true });
     if (state.status === 'held') actions.push({ id: 'release', label: 'Freigeben', disabled: false });
     if (state.canTakeOver) actions.push({ id: 'takeOver', label: 'Übernehmen', disabled: false });
     if (state.conflict) {
-        actions.push({ id: 'reapply', label: 'Änderungen erneut anwenden', disabled: false });
+        actions.push({ id: 'reapply', label: 'Änderungen erneut anwenden', disabled: state.status === 'releasing' });
         actions.push({ id: 'discard', label: 'Änderungen verwerfen', disabled: false });
     }
     return actions;

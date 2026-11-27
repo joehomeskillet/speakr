@@ -39,6 +39,7 @@ from .agent_channel_ingest import finalize_ingest, get_receipt
 from .author_resolution import AuthorResolutionError, resolve_author
 from .config import clinic_mode_enabled
 from .ingest import IngestError, IngestService, storage_key_for
+from .migration_import_intent_metadata import IntentMetadataError, encode_metadata, interpret, upgrade
 from .models import ClinicDictation
 
 if TYPE_CHECKING:
@@ -80,6 +81,9 @@ class ClinicImportIntent(db.Model):
     target_author_user_id = db.Column(db.Integer, ForeignKey("user.id"), nullable=False)
     target_pool_id = db.Column(db.String(36), nullable=True)
     language_id = db.Column(db.Integer, nullable=False, default=DEFAULT_LANG_ID)
+    # NULL version: intent created before explicit keep/set metadata. See migration_import_intent_metadata.
+    metadata_version = db.Column(db.Integer, nullable=True)
+    metadata_json = db.Column(db.Text, nullable=True)
     status = db.Column(db.String(16), nullable=False, default="OPEN")
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
     expires_at = db.Column(db.DateTime(timezone=True), nullable=False)
@@ -135,7 +139,9 @@ IMPORT_TABLES = (ClinicImportIntent, ClinicImportDelivery, ClinicImportOriginal)
 
 
 def create_tables(bind=None):
-    db.metadata.create_all(bind=bind or db.engine, tables=[m.__table__ for m in IMPORT_TABLES], checkfirst=True)
+    bind = bind or db.engine
+    db.metadata.create_all(bind=bind, tables=[m.__table__ for m in IMPORT_TABLES], checkfirst=True)
+    upgrade(bind)
 
 
 def resolve_language(value=None):
@@ -172,7 +178,7 @@ def _view(intent):
         "source_ref": intent.source_ref, "expected_files": json.loads(intent.expected_files),
         "target_author_user_id": intent.target_author_user_id, "target_pool_id": intent.target_pool_id,
         "language_id": intent.language_id, "created_at": aware(intent.created_at).isoformat(),
-        "expires_at": aware(intent.expires_at).isoformat(),
+        "expires_at": aware(intent.expires_at).isoformat(), "metadata": interpret(intent),
     }
 
 
@@ -211,7 +217,7 @@ def _may_import(actor_user_id):
 def create_import_intent(
     *, actor_user_id, source_kind, source_ref, expected_files=(), target_author_user_id=None,
     target_pool_id=None, language_id=None, may_assign_author: Optional[Callable[[int, int], bool]] = None,
-    now=None,
+    overrides=None, approved_recipients=(), now=None,
 ):
     """A signed-in user announces an import. The author is the user unless ``may_assign_author`` allows another."""
     now = aware(now) or utcnow()
@@ -220,6 +226,7 @@ def create_import_intent(
         raise AgentChannelError("invalid", "source_kind")
     if not isinstance(source_ref, str) or not _REF.match(source_ref):
         raise AgentChannelError("invalid", "source_ref")
+    metadata_version, metadata_json = _stored_metadata(overrides, approved_recipients)
     author = actor_user_id if target_author_user_id is None else target_author_user_id
     if author != actor_user_id:
         if may_assign_author is None or not may_assign_author(actor_user_id, author):
@@ -230,11 +237,24 @@ def create_import_intent(
         created_by_user_id=actor_user_id, source_kind=source_kind, source_ref=source_ref,
         expected_files=json.dumps(_clean_files(expected_files)), target_author_user_id=author,
         target_pool_id=target_pool_id, language_id=resolve_language(language_id),
+        metadata_version=metadata_version, metadata_json=metadata_json,
         created_at=now, expires_at=now + INTENT_TTL,
     )
     db.session.add(intent)
     db.session.commit()
     return _view(intent)
+
+
+def _stored_metadata(overrides, approved_recipients) -> tuple[int | None, str | None]:
+    """``None`` keeps the legacy interpretation. An explicit document is version 1."""
+    if overrides is None:
+        return None, None
+    try:
+        return encode_metadata(overrides, approved_recipients=approved_recipients)
+    except IntentMetadataError as exc:
+        if exc.code == "unapproved_recipient":
+            raise AgentChannelError("forbidden", "unapproved recipient") from exc
+        raise AgentChannelError("invalid", exc.code) from exc
 
 
 def _own_intent(actor_user_id, intent_id):
