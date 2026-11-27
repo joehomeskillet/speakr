@@ -223,7 +223,7 @@ export const RecordingsView = {
         <div class="record-group-list" data-testid="cards">
           <div v-for="r in g.rows" :key="r.key" class="cl-reference-row">
           <button type="button" class="recording-row" data-row data-card :data-id="r.dictationId" data-testid="open-link"
-             :disabled="!r.dictationId" :aria-label="r.ariaLabel" :aria-describedby="'crv-workflow-' + r.key + (r.processing ? ' crv-processing-' + r.key : '')" @click.prevent="c.open(r)">
+             :disabled="!r.dictationId" :aria-label="r.ariaLabel" :aria-describedby="'crv-next-' + r.key + (r.processing ? ' crv-processing-' + r.key : '')" @click.prevent="c.open(r)">
             <time class="record-time" :datetime="r.datetime || null">{{ r.time }}</time>
             <span class="record-icon" aria-hidden="true">
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h10l4 4v14H5zM15 3v6h5M9 12h6M9 16h6"/></svg>
@@ -237,10 +237,11 @@ export const RecordingsView = {
                 <span v-if="r.hasLease" class="record-role"><span class="record-role-label">{{ t.lease }}:</span> <span class="dictator-name" data-cell="lease">{{ r.leaseHolder }}</span></span>
               </span>
               <span class="record-subtitle" :class="r.isFallback ? 'date-fallback' : ''"><span>Diktat {{ r.reference }}</span><span v-if="r.fallbackText" data-testid="fallback" :title="r.fallbackTip" :aria-label="r.fallbackTip"> · {{ r.fallbackText }}</span><span v-else-if="r.isFallback" data-testid="fallback" :title="r.fallbackTip" :aria-label="r.fallbackTip"> · {{ r.fallbackLabel }}</span></span>
-              <span v-if="r.processing" :id="'crv-processing-' + r.key" class="cl-processing">Spracherkennung: {{ r.processing }}</span>
+              <span v-if="r.processing" :id="'crv-processing-' + r.key" class="cl-processing" data-testid="recording-text-state">{{ r.processing }}</span>
             </span>
-            <span class="status" :id="'crv-workflow-' + r.key" :class="r.statusClass">Arbeitsstand: {{ r.status }}</span>
-            <span class="record-source" aria-hidden="true"></span>
+            <span class="status" :id="'crv-next-' + r.key" :class="r.needsAction ? 'wartet' : r.statusClass"
+                   data-testid="recording-next-step" :data-action-needed="r.needsAction ? 'true' : 'false'"><span>{{ r.nextStep }}</span></span>
+            <span class="record-source" hidden></span>
             <span class="record-duration">{{ r.duration }}</span>
             <span class="record-chevron" aria-hidden="true">›</span>
           </button>
