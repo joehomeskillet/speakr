@@ -595,6 +595,60 @@
     .cadm .v8-admin-page .filterbar .icon-button { min-width: 40px; min-height: 40px; }
 }
 
+.clinic-authors-view .authors-cell-label { display: none; }
+.v8-ui .clinic-authors-view .authors-pool-action {
+    display: flex;
+    align-items: center;
+    width: fit-content;
+    max-width: 100%;
+    min-height: 32px;
+    padding: 0 var(--sp-1);
+    border: 0;
+    background: transparent;
+    color: var(--v8-text);
+    font: inherit;
+    text-align: start;
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+.v8-ui .clinic-authors-view .filterbar :is(input, select) { border-color: var(--v8-text-2); }
+.v8-ui .clinic-authors-view :is(button, input, select, summary, .authors-table-wrap):focus-visible,
+.v8-ui .clinic-authors-view .authors-pool-target:focus {
+    outline: 2px solid var(--v8-text);
+    outline-offset: 2px;
+}
+@media (max-width: 640px) {
+    .v8-ui .clinic-authors-view .authors-table-wrap { border: 0; overflow: visible; }
+    .v8-ui .clinic-authors-view .cadm-table--stack { white-space: normal; overflow-wrap: anywhere; }
+    .v8-ui .clinic-authors-view .cadm-table--stack tbody tr {
+        grid-template-columns: minmax(0, 1fr);
+        gap: var(--sp-2);
+        background: var(--surface);
+    }
+    .v8-ui .clinic-authors-view .cadm-table--stack td {
+        grid-area: auto;
+        grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+        justify-self: stretch;
+        align-items: start;
+        min-width: 0;
+        max-width: none;
+        border: 0;
+    }
+    .v8-ui .clinic-authors-view .cadm-table--stack td::before { content: none; }
+    .v8-ui .clinic-authors-view .cadm-table--stack .authors-memberships { grid-template-columns: minmax(0, 1fr); }
+    .v8-ui .clinic-authors-view .authors-cell-label {
+        display: block;
+        color: var(--v8-text-2);
+        font-weight: 600;
+    }
+    .v8-ui .clinic-authors-view .tag { justify-self: start; white-space: normal; }
+    .v8-ui .clinic-authors-view :is(.head-actions button, .authors-pool-action, .filterbar button, .panel > summary) { min-height: 48px; }
+    .v8-ui .clinic-authors-view :is(.authors-pool-action, .filterbar .icon-button) { min-width: 48px; }
+    .v8-ui .clinic-authors-view .filterbar :is(input, select) { min-height: 48px !important; }
+}
+
 .cadm .clinic-authors-view th[scope="row"] small {
     display: block;
     margin-top: var(--sp-1);
