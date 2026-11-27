@@ -97,7 +97,10 @@ def test_get_profile_wait_and_unproven_capabilities(world):
     assert d["profiles"] == [{"id": p.id, "name": "large-v3", "mode": "both"}]
     assert d["live_profile_id"] == d["batch_profile_id"] == p.id
     assert d["output_format"] == {"container": "wav", "codec": None, "sample_rate": 48000}
-    assert d["wait"] == {"offer_manual_after_s": 300, "hard_timeout_s": 900, "manual_on_timeout": True}
+    assert d["wait"] == {
+        "offer_manual_after_s": 300, "hard_timeout_s": 900, "manual_on_timeout": True,
+        "skip_wait_minutes": 5,
+    }
     # Configured is not proven: no evidence means an empty proven list and no actual-engine claim.
     assert d["capabilities"] == {"configured": ["batch", "live"], "proven": []}
     assert d["engine"]["reason"] == "nicht ermittelt"
@@ -107,7 +110,62 @@ def test_get_profile_wait_and_unproven_capabilities(world):
 def test_oversized_skip_wait_falls_back_to_default(world):
     _profile(world["a"], skip_wait_minutes=60)
     c, _ = world["client"](world["a"])
-    assert c.get(PREFIX).json["wait"]["offer_manual_after_s"] == 120
+    wait = c.get(PREFIX).json["wait"]
+    assert wait["offer_manual_after_s"] == 120
+    assert wait["skip_wait_minutes"] == 60
+
+
+def test_put_skip_wait_minutes_stores_two_minutes_as_120_seconds(world):
+    other = _profile(world["b"], skip_wait_minutes=9, save_rule="ask")
+    before = (other.version, dict(other.options))
+    c, h = world["client"](world["a"])
+    saved = c.put(PREFIX + "/selection", headers=h, json={
+        "source": "headset", "expected_version": 0, "skip_wait_minutes": 2})
+    assert saved.status_code == 200
+    assert saved.json["wait"]["skip_wait_minutes"] == 2
+    assert saved.json["wait"]["offer_manual_after_s"] == 120
+    again = c.get(PREFIX).json["wait"]
+    assert again["offer_manual_after_s"] == 120
+    assert again["skip_wait_minutes"] == 2
+    own = asr_profiles.ClinicAsrProfile.query.filter_by(user_id=world["a"]).one()
+    assert own.options["skip_wait_minutes"] == 2
+    foreign = asr_profiles.ClinicAsrProfile.query.filter_by(user_id=world["b"]).one()
+    assert (foreign.version, foreign.options) == before
+
+
+def test_put_wait_disabled_hides_manual_offer_while_running(world):
+    _profile(world["b"], skip_wait_minutes=4)
+    c, h = world["client"](world["a"])
+    saved = c.put(PREFIX + "/selection", headers=h, json={
+        "source": "recorder", "expected_version": 0, "skip_wait_minutes": 2, "wait_disabled": True})
+    assert saved.status_code == 200
+    wait = saved.json["wait"]
+    assert wait["wait_disabled"] is True
+    assert wait["offer_manual_after_s"] is None
+    assert wait["manual_on_timeout"] is False
+    assert wait["during_run"] == {
+        "state": "waiting",
+        "can_start_manual": False,
+        "message": "Spracherkennung läuft …",
+    }
+    assert c.get(PREFIX).json["wait"]["during_run"]["can_start_manual"] is False
+    own = asr_profiles.ClinicAsrProfile.query.filter_by(user_id=world["a"]).one()
+    assert own.options["wait_disabled"] is True
+    assert own.options["skip_wait_minutes"] == 2
+    foreign = asr_profiles.ClinicAsrProfile.query.filter_by(user_id=world["b"]).one()
+    assert foreign.options == {"source": "headset", "skip_wait_minutes": 4}
+
+
+def test_put_wait_rejects_invalid_values(world):
+    c, h = world["client"](world["a"])
+    url = PREFIX + "/selection"
+    base = {"source": "headset", "expected_version": 0}
+    for extra in (
+        {"skip_wait_minutes": 0}, {"skip_wait_minutes": True}, {"skip_wait_minutes": -2},
+        {"skip_wait_minutes": "2"}, {"wait_disabled": "true"}, {"wait_disabled": 1},
+    ):
+        assert c.put(url, headers=h, json={**base, **extra}).status_code == 400
+    assert asr_profiles.ClinicAsrProfile.query.filter_by(user_id=world["a"]).first() is None
 
 
 def test_proven_capabilities_and_gpu_fallback_state(world, monkeypatch):

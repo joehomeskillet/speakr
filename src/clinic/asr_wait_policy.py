@@ -13,6 +13,7 @@ routes are a later wiring package.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 
 ASR_STATES = ("pending", "running", "succeeded", "failed", "skipped")
@@ -32,15 +33,19 @@ class WaitConfig:
 
     offer_manual_after_s -- seconds until the editor offers manual entry
     hard_timeout_s      -- seconds until ASR is considered timed out
+    wait_disabled       -- while true, a running recognition never offers manual entry
     """
     offer_manual_after_s: int = 120
     hard_timeout_s: int = 900
+    wait_disabled: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.offer_manual_after_s, int) or isinstance(self.offer_manual_after_s, bool):
             raise WaitError("offer_manual_after_s must be an int", code="bad_config")
         if not isinstance(self.hard_timeout_s, int) or isinstance(self.hard_timeout_s, bool):
             raise WaitError("hard_timeout_s must be an int", code="bad_config")
+        if not isinstance(self.wait_disabled, bool):
+            raise WaitError("wait_disabled must be a bool", code="bad_config")
         if self.hard_timeout_s <= self.offer_manual_after_s:
             raise WaitError("hard_timeout_s must be greater than offer_manual_after_s", code="bad_config")
         if self.offer_manual_after_s < 0 or self.hard_timeout_s < 0:
@@ -126,6 +131,15 @@ def view_state(
             message="Manuelle Abschrift aktiv. Spracherkennung läuft weiter.",
         )
 
+    # The deadline is switched off: no manual offer for the whole run, including timeout.
+    if config.wait_disabled:
+        return WaitView(
+            state="waiting",
+            can_start_manual=False,
+            late_result_policy="side_revision",
+            message="Spracherkennung läuft …",
+        )
+
     if waited_s >= config.hard_timeout_s:
         return WaitView(
             state="timed_out",
@@ -148,6 +162,54 @@ def view_state(
         late_result_policy="side_revision",
         message="Spracherkennung läuft …",
     )
+
+
+def config_from_options(options: dict | None) -> WaitConfig:
+    """Build the wait config from one profile's stored options.
+
+    ``wait_disabled`` wins over ``skip_wait_minutes``. A minute value the
+    config rejects (it would meet or pass the hard timeout) falls back to
+    the defaults; the stored minutes stay untouched.
+    """
+    data = options or {}
+    if data.get("wait_disabled") is True:
+        return WaitConfig(wait_disabled=True)
+    minutes = data.get("skip_wait_minutes")
+    if isinstance(minutes, int) and not isinstance(minutes, bool) and minutes > 0:
+        try:
+            return WaitConfig(offer_manual_after_s=minutes * 60)
+        except WaitError:
+            return WaitConfig()
+    return WaitConfig()
+
+
+def profile_wait_view(options: dict | None) -> dict[str, Any]:
+    """GET payload: the effective deadline, or the shutdown with no offer while ASR runs."""
+    data = options or {}
+    config = config_from_options(data)
+    at_timeout = view_state("running", config.hard_timeout_s, manual_started=False, config=config)
+    if config.wait_disabled:
+        view: dict[str, Any] = {
+            "wait_disabled": True,
+            "offer_manual_after_s": None,
+            "hard_timeout_s": config.hard_timeout_s,
+            "manual_on_timeout": at_timeout.can_start_manual,
+            "during_run": {
+                "state": at_timeout.state,
+                "can_start_manual": at_timeout.can_start_manual,
+                "message": at_timeout.message,
+            },
+        }
+    else:
+        view = {
+            "offer_manual_after_s": config.offer_manual_after_s,
+            "hard_timeout_s": config.hard_timeout_s,
+            "manual_on_timeout": at_timeout.can_start_manual,
+        }
+    minutes = data.get("skip_wait_minutes")
+    if isinstance(minutes, int) and not isinstance(minutes, bool) and minutes > 0:
+        view["skip_wait_minutes"] = minutes
+    return view
 
 
 def _validate_inputs(

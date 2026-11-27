@@ -10,7 +10,10 @@
  *   start  parity command start_live_session {dictation_id}, then the resume
  *          POST adopts the new session id and position;
  *   pause / continue  POST live/sessions/<id>/pause and /continue;
- *   stop   parity command stop_live_session {session_id, generation, last_sequence};
+ *   resume            recover() returns state PAUSED; the view stays paused until
+ *                     continue answers with a state other than PAUSED;
+ *   stop   parity command stop_live_session {session_id, generation, last_sequence}
+ *          and expected_revision = ack_seq + 1 (positive server revision);
  *   phrases and reconnect  handled by the live-session controller.
  *
  * Phases: idle, starting, live, paused, reconnecting, stopping, stopped, stale, error.
@@ -205,6 +208,7 @@ export function createLiveViewController(options) {
         const snap = await session.resume();
         if (disposed) return state();
         if (lost) setPhase('reconnecting', NOTES.retry);
+        else if (snap.status === 'paused') setPhase('paused');
         else if (snap.status === 'live') setPhase('live');
         else if (snap.status === 'stale') setPhase('stale');
         else setPhase('error');
@@ -239,8 +243,12 @@ export function createLiveViewController(options) {
                 method: 'POST', idempotencyKey: newKey(), body: {},
             });
             if (disposed || res.outcome === 'cancelled') return state();
-            if (res.outcome === 'ok') setPhase('paused');
-            else failed(res, 'live');
+            if (res.outcome === 'ok') {
+                const data = res.data || {};
+                // An answer that is still RECORDING did not pause.
+                session.applyServerState(data.state === 'RECORDING' ? data : { ...data, state: 'PAUSED' });
+                setPhase(session.getState().status === 'live' ? 'live' : 'paused');
+            } else failed(res, 'live');
             return state();
         },
 
@@ -251,8 +259,17 @@ export function createLiveViewController(options) {
                 method: 'POST', idempotencyKey: newKey(), body: {},
             });
             if (disposed || res.outcome === 'cancelled') return state();
-            if (res.outcome === 'ok') setPhase('live');
-            else failed(res, 'paused');
+            // Phase stays paused until this answer. PAUSED is not recording.
+            if (res.outcome === 'ok') {
+                const data = res.data || {};
+                if (data.state === 'PAUSED') {
+                    session.applyServerState(data);
+                    setPhase('paused');
+                } else {
+                    session.applyServerState({ ...data, state: 'RECORDING' });
+                    setPhase('live');
+                }
+            } else failed(res, 'paused');
             return state();
         },
 
@@ -265,14 +282,21 @@ export function createLiveViewController(options) {
             await saveUnsaved();
             phase = back;
             if (disposed) return state();
-            if (session.getState().hasUnsaved) {
-                setPhase(lost ? 'reconnecting' : back, NOTES.stopBlocked);
+            const afterSave = session.getState();
+            if (afterSave.hasUnsaved || afterSave.status === 'stale') {
+                // A conflict or a failed save keeps the phrase text and does not end the session.
+                if (afterSave.status === 'stale') setPhase('stale', afterSave.hasUnsaved ? NOTES.stopBlocked : NOTES.stopFailed);
+                else setPhase(lost ? 'reconnecting' : back, NOTES.stopBlocked);
                 return state();
             }
             const s = session.getState();
+            if (!Number.isInteger(s.revision) || s.revision < 1) {
+                setPhase(back, NOTES.stopFailed);
+                return state();
+            }
             setPhase('stopping');
             const res = await client.command({
-                command: 'stop_live_session', request_id: newKey(), expected_revision: 0,
+                command: 'stop_live_session', request_id: newKey(), expected_revision: s.revision,
                 payload: { session_id: s.sessionId, generation: s.generation, last_sequence: s.checkpoint },
             }, { idempotencyKey: newKey() });
             if (disposed || res.outcome === 'cancelled') return state();
@@ -287,7 +311,13 @@ export function createLiveViewController(options) {
             if (phase !== 'reconnecting' && phase !== 'stale' && phase !== 'live' && phase !== 'paused') return state();
             setPhase('reconnecting');
             await adoptSession();
-            if (phase === 'live') await saveUnsaved();
+            if (disposed) return state();
+            if (session.getState().hasUnsaved && (phase === 'live' || phase === 'paused')) {
+                const back = phase;
+                phase = 'live'; // save gate only; the view still shows the last emitted phase
+                await saveUnsaved();
+                if (!disposed && phase === 'live') setPhase(back);
+            }
             return state();
         },
 
