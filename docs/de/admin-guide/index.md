@@ -40,7 +40,7 @@ Lokale Kontoverwaltung verlangt beide Rollenflags, ein aktives Konto und eine fr
 
 Autorenpools organisieren Autorenressourcen und Sichtbarkeit. Schreibkräfte-Pools organisieren die Bearbeitungszuständigkeit. Beide sind getrennt und explizit miteinander verbunden. Die [Gruppenverwaltung](group-management.md) beschreibt Mitgliedschaft, Leitung, Gültigkeit und Zuweisungsregeln.
 
-Die Seite **Abnahme** legt fest, ob ein Diktat eine Abnahme braucht und wer abnehmen darf. Die Veröffentlichung der Richtlinie verlangt aktive Standortadministration. Die endgültige Freigabe hängt zusätzlich von Workflow und vertrauenswürdigem KIS-Kontext ab; ein simulierter Adapter belegt keine funktionierende klinische KIS-Integration.
+Die Seite **Abnahme** legt fest, ob ein Diktat eine Abnahme braucht und wer abnehmen darf. Die Veröffentlichung der Richtlinie verlangt aktive Standortadministration. Die endgültige Freigabe hängt zusätzlich vom Workflow ab. Die KIS-Anbindung ist rein lesend: Das KIS öffnet Speakr mit einer Fall-ID als URL-Kontext, und Speakr zeigt nur Diktate, die mit diesem Fall verknüpft sind und die die Person ohnehin sehen darf. Nichts wird an das KIS geliefert oder zurückgeschrieben.
 
 ## Klinikmodus und Verarbeitung
 
@@ -52,7 +52,7 @@ Spracherkennung nutzt lokale Dienste. Der OpenAI-kompatible ASR-Pfad und das opt
 
 ## Entfernte Upstream-Funktionen
 
-Der Klinik-Fork bietet keine Ereignis-/Kalenderextraktion, öffentlichen Freigabelinks, internen Freigaben, Webhooks, allgemeine API v1, Inkognito-Funktion, Cloud-ASR-Konnektoren, Ordner, Selbstregistrierung, Mailverifikation, Passwortzurücksetzung per Mail, What's-New-Popups oder harte automatische Löschung. API-Tokens sind dem Import-Agenten vorbehalten. Die Aufbewahrung archiviert statt zu löschen. Siehe [Webhooks](webhooks.md), [E-Mail und Wiederherstellung](email-setup.md) sowie [Aufbewahrung](retention.md).
+Der Klinik-Fork bietet keine Ereignis-/Kalenderextraktion, öffentlichen Freigabelinks, internen Freigaben, Webhooks, allgemeine API v1, Inkognito-Funktion, Cloud-ASR-Konnektoren, Ordner, Selbstregistrierung, E-Mail jeder Art (kein SMTP, keine Benachrichtigungs- oder Verarbeitungsmails, kein EML-Download), Windows-Einmalanmeldung (kein IWA, Negotiate oder Kerberos), PDF- oder Bildanhänge, Dokumentimport, Citrix-/RDP-/ICA-Sitzungen, What's-New-Popups oder harte automatische Löschung. API-Tokens sind dem Import-Agenten vorbehalten. Die Aufbewahrung archiviert statt zu löschen. Siehe [Webhooks](webhooks.md), [E-Mail und Benachrichtigungen](email-setup.md) sowie [Aufbewahrung](retention.md).
 
 ## Status und Nachweisgrenzen
 

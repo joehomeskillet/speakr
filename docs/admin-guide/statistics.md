@@ -60,6 +60,6 @@ Open **Verarbeitung** to inspect processing jobs. Its health endpoint reads at m
 
 The page shows completed, failed and stuck jobs and recent failures. A running job older than 1800 seconds counts as stuck. Investigate the configured local service and worker state; a growing queue alone does not identify the cause.
 
-**Erneut versuchen** requires an active site administrator and a versioned, CSRF-protected, idempotent request. It queues a new job. A delivery with an unknown outcome shows **Abgleich prüfen** and cannot be retried here. Release and delivery jobs carrying their own operation key also require their dedicated recovery path. Do not resend an uncertain delivery before reconciliation.
+**Erneut versuchen** requires an active site administrator and a versioned, CSRF-protected, idempotent request. It queues a new job. A legacy delivery job with an unknown outcome shows **Abgleich prüfen** and cannot be retried here. Delivery to the KIS is not offered in this fork (the KIS integration is read-only), so such rows come only from historical or simulated data. Release jobs carrying their own operation key also require their dedicated recovery path.
 
 The page does not provide native tray/autostart operation; WG-OPS-004 remains open. See [Local speech recognition](whisperx-setup.md) for local service checks and [Audit log](audit-log.md) for audit coverage.

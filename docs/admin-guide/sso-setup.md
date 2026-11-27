@@ -2,11 +2,13 @@
 
 [Deutsch](../de/admin-guide/sso-setup.md)
 
-With `CLINIC_MODE` enabled, local sign-in is the working sign-in method. The login page shows **Lokale Anmeldung: Aktiv** and **Einmalanmeldung: Nicht eingerichtet**. Microsoft Entra ID, LDAP federation and integrated Windows sign-in (IWA) have prepared server-side code, but application startup leaves them disabled. There is no administration setting or environment switch that completes their integration.
+With `CLINIC_MODE` enabled, sign-in is the normal web sign-in with local accounts. The login page shows **Lokale Anmeldung: Aktiv** and **Einmalanmeldung: Nicht eingerichtet**. Microsoft Entra ID may follow later; it does not work today. Prepared Entra and LDAP server-side code exists, but application startup leaves it disabled, and no administration setting or environment switch completes its integration.
+
+Windows single sign-on is not offered in this fork: no integrated Windows authentication (IWA), no Negotiate and no Kerberos. The browser never signs a user in from a workstation's Windows account.
 
 ## Local access
 
-Use a username or email address and the local password. Sign-in requires an active clinic account policy, a stored supported password hash and policy **Nur lokal** or **Lokal und Entra**. A pending password change or login lock prevents access. **Keine Anmelderichtlinie** means that an existing account has no clinic account policy; it does not identify an external provider.
+Use a username or email address (the account's sign-in name; no mail is ever sent) and the local password. Sign-in requires an active clinic account policy, a stored supported password hash and policy **Nur lokal** or **Lokal und Entra**. A pending password change or login lock prevents access. **Keine Anmelderichtlinie** means that an existing account has no clinic account policy; it does not identify an external provider.
 
 Clinic sign-in does not use **Remember me**. Sessions are tied to the account's security version. Deactivation, a reset-code issue and relevant role or sign-in-policy changes invalidate existing sessions. Sensitive identity administration additionally requires a local login within the last five minutes.
 
@@ -37,11 +39,11 @@ There is no Entra lifecycle synchronization in the running application wiring. D
 
 The LDAP module validates a disabled server-side federation profile. The application does not instantiate a directory connection or consume end-user directory passwords. The profile does not provide live LDAP sign-in or role synchronization.
 
-The IWA code expects a trusted server-side Windows SID assertion and replay protection. The application provides neither the necessary enabled configuration nor the middleware. Client-supplied identity headers cannot activate it. No browser operation reads a workstation's local Windows accounts; WG-ADM-009 remains open.
+Windows single sign-on is not offered in this fork (see above). Client-supplied identity headers cannot create a sign-in. No browser operation reads a workstation's local Windows accounts; WG-ADM-009 remains open.
 
 ## Provider and directory status
 
-`GET /api/clinic/v1/identity/providers` reports `entra`, `iwa` and `ldap` with `enabled: false` in the current application wiring. A disabled provider entry point returns `422 CAPABILITY_UNAVAILABLE` with **Anbieter nicht aktiviert**. These are clinic identity routes, not general API-token access.
+`GET /api/clinic/v1/identity/providers` reports `entra`, `iwa` and `ldap` with `enabled: false` in the current application wiring. The `iwa` entry is a legacy placeholder that stays disabled; it is not a sign-in method of this fork. A disabled provider entry point returns `422 CAPABILITY_UNAVAILABLE` with **Anbieter nicht aktiviert**. These are clinic identity routes, not general API-token access.
 
 Under **Verwaltung → Konten und Pools → Verzeichnis** (`/admin#/verzeichnis`), identity administrators see that directory comparison is not activated. **Lokale Konten verwalten** returns to account administration. The directory capability reports `directory_available: false`, `local_accounts: true`, `local_windows_accounts: "unavailable"` and gap `WG-ADM-009`. No directory provider is registered; preview and apply return `503 ldap_capability_unavailable`.
 
@@ -49,6 +51,6 @@ Prepared directory reconciliation uses immutable external object IDs and a revie
 
 ## Evidence limits
 
-Provider activation needs completed wiring and real acceptance evidence for the chosen tenant, directory or trusted Windows ingress. Local fixtures and synthetic keys do not establish Entra, LDAP or IWA acceptance. Local-account security acceptance also remains a separate deployment requirement; this handbook describes code behavior, not production approval.
+Provider activation needs completed wiring and real acceptance evidence for the chosen tenant or directory. Local fixtures and synthetic keys do not establish Entra or LDAP acceptance. Local-account security acceptance also remains a separate deployment requirement; this handbook describes code behavior, not production approval.
 
 Local sign-in, failed attempts, lockout and password changes have audit event types. Prepared provider-link operations have separate SSO event types. See [Audit log](audit-log.md) for configuration and coverage, and [User management](user-management.md) for current account procedures.

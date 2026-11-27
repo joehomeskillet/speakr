@@ -47,6 +47,21 @@ The current **KI-Zusammenfassung** panel records each state read as `recording.c
 
 The legacy voice-data cleanup module registers `admin.upstream_voice.purge` when used. Its phase and counts distinguish a completed database step from remaining file work. An event name in the registry does not prove that a corresponding clinic UI or supported operation exists.
 
+## Legacy and inherited events
+
+The registry still contains inherited upstream events. They are legacy: the clinic fork does not offer the functions behind most of them (SSO account linking, personal API tokens, public sharing and deletion, folders, groups, inquire mode), so these events normally do not occur. Their presence in the registry is not evidence that the function is offered. Mail and KIS delivery have no events here because the fork does not offer them.
+
+| Event | Meaning |
+|---|---|
+| `auth.sso.linked`, `auth.sso.unlinked`, `auth.sso.link_requested` | Legacy: external identity linking; Entra is not active, see [sign-in](sso-setup.md) |
+| `token.created`, `token.changed`, `token.revoked`, `token.first_used` | Legacy: API token lifecycle; tokens are reserved for the import agent |
+| `recording.viewed`, `recording.downloaded`, `recording.exported` | Legacy: inherited view, download and export operations; clinic reads use `recording.content.read` and `recording.media.*` |
+| `recording.deleted`, `recording.audio.deleted` | Legacy: deletion; the clinic fork archives instead of deleting, see [Retention](retention.md) |
+| `admin.user.created`, `admin.user.changed`, `admin.user.password_set`, `admin.user.unlocked`, `admin.user.role_changed`, `admin.user.deleted` | Account administration events (the `admin.user.*` group above) |
+| `admin.retention.run`, `admin.inquire.processed` | Legacy: inherited retention run and inquire-mode processing |
+| `group.created`, `group.changed`, `group.deleted`, `group.member.added`, `group.member.role_changed`, `group.member.removed` | Inherited group administration; pool administration has its own history tables |
+| `audit.pruned` | Legacy: pruning evidence; the clinic pruning job deletes no rows (see below) |
+
 ## Mandatory evidence and gaps
 
 An active site administrator can open another user's transcript or audio through the dedicated admin content routes without a reason prompt. Each successful opening must have its audit row stored first; otherwise the server returns `503 audit_unavailable` and delivers no content. This read or playback does not grant editing, release or export rights.

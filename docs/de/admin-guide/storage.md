@@ -83,7 +83,7 @@ Der übernommene Aufnahmedownload liefert das Medium aus dem Speicherverweis der
 
 Bei lokalen DS2-/DSS-Aufnahmemedien kann die Klinikwiedergabe eine separate MP3-Ableitung erzeugen und die DS2-/DSS-Datei erhalten. Bei S3 leiten die übernommenen Medienrouten zum gespeicherten Objekt weiter; ein Browser kann ein DS2-/DSS-Objekt möglicherweise nicht dekodieren. Prüfen Sie bei fehlendem Ton sowohl die verfügbare Quelle als auch den vorgesehenen Wiedergabepfad.
 
-Das separate Modul für hashgeprüfte Originalausgabe ist mit keiner unterstützten Benutzerroute verbunden. Das Erstellen eines lokalen Mailentwurfs mit Originalaudio bleibt die offene Lücke WG-EXP-009.
+Das separate Modul für hashgeprüfte Originalausgabe ist mit keiner unterstützten Benutzerroute verbunden. Ein Mailentwurf mit Originalaudio wird in diesem Fork nicht angeboten (keine E-Mail-Funktion); der Registereintrag WG-EXP-009 bleibt als offen geführt.
 
 ## Sicherungen und Wiederherstellungsprüfungen
 

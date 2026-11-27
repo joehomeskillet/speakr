@@ -40,7 +40,7 @@ Local account administration requires both role flags, an active account and rec
 
 Author pools organise author resources and visibility. Staff pools organise responsibility for processing. They are distinct, with explicit routing between them. See [group management](group-management.md) for membership, leadership, validity and assignment rules.
 
-The **Abnahme** page configures whether a dictation requires acceptance and who may accept. Publishing the policy requires active site administration. Final release also depends on the workflow and trusted KIS context; a simulated adapter is not proof of a working clinical KIS integration.
+The **Abnahme** page configures whether a dictation requires acceptance and who may accept. Publishing the policy requires active site administration. Final release also depends on the workflow. The KIS integration is read-only: the KIS opens Speakr with a case (Fall) ID as URL context, and Speakr shows only dictations linked to that case that the user may already see. Nothing is delivered or written back to the KIS.
 
 ## Clinic mode and processing
 
@@ -52,7 +52,7 @@ Speech recognition uses local services. The OpenAI-compatible ASR path and optio
 
 ## Removed upstream features
 
-The clinic fork does not offer event/calendar extraction, public share links, internal shares, webhooks, the general API v1, incognito mode, cloud ASR connectors, folders, self-registration, mail verification, password reset by mail, the What's-New popup or hard automatic deletion. API tokens are reserved for the import agent. Retention archives instead of deleting. See [webhooks](webhooks.md), [email and recovery](email-setup.md) and [retention](retention.md).
+The clinic fork does not offer event/calendar extraction, public share links, internal shares, webhooks, the general API v1, incognito mode, cloud ASR connectors, folders, self-registration, mail of any kind (no SMTP, no notification or processing mail, no EML download), Windows single sign-on (no IWA, Negotiate or Kerberos), PDF or image attachments, document import, Citrix/RDP/ICA sessions, the What's-New popup or hard automatic deletion. API tokens are reserved for the import agent. Retention archives instead of deleting. See [webhooks](webhooks.md), [mail and notifications](email-setup.md) and [retention](retention.md).
 
 ## Status and evidence limits
 

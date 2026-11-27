@@ -83,7 +83,7 @@ The inherited recording download serves the media named by the recording's stora
 
 For local DS2/DSS recording media, clinic playback can create a separate MP3 derivative while retaining the DS2/DSS file. With S3, the inherited media routes redirect to the stored object; a browser may not decode a DS2/DSS object. Check both the available source and the intended playback path when diagnosing missing sound.
 
-The separate hash-verified original-output module is not connected to a supported user route. Creating a local mail draft with original audio remains open gap WG-EXP-009.
+The separate hash-verified original-output module is not connected to a supported user route. A mail draft with original audio is not offered in this fork (no mail of any kind); the register entry WG-EXP-009 stays listed as open.
 
 ## Backups and recovery checks
 

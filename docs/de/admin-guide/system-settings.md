@@ -89,7 +89,7 @@ Davon getrennt ist `video_retention` / `VIDEO_RETENTION`, ebenfalls standardmäs
 
 Solange die zugehörigen Klinikfunktionen gesperrt sind, wirken `api_query_tokens_enabled` und `sso_api_tokens_enabled` immer als `false`. Aktivierungsversuche liefern `403 clinic_policy_ceiling`. Ein angezeigter gespeicherter Wert belegt keine Nutzbarkeit einer Funktion.
 
-Der Klinik-Fork bietet keine öffentlichen oder internen Freigaben, Webhooks, allgemeine API v1, keinen Inkognitomodus, Cloud-ASR, Organisationsordner, Selbstregistrierung, E-Mail-Verifizierung, Passwort-Reset per Mail, Kalenderextraktion oder What's-New-Popup. API-Tokens sind dem Importagenten-Zweck vorbehalten. Übernommene Einstellungen stellen diese entfernten Funktionen nicht wieder her.
+Der Klinik-Fork bietet keine öffentlichen oder internen Freigaben, Webhooks, allgemeine API v1, keinen Inkognitomodus, Cloud-ASR, Organisationsordner, Selbstregistrierung, E-Mail jeder Art (kein SMTP, keine Benachrichtigungsmails, kein EML-Download; Benachrichtigungen erscheinen nur in der Anwendung), Passwort-Reset per Mail, Kalenderextraktion oder What's-New-Popup. API-Tokens sind dem Importagenten-Zweck vorbehalten. Übernommene Einstellungen stellen diese entfernten Funktionen nicht wieder her.
 
 Der Betrieb verwaltet diese Werte ausserhalb der Einstellungsseite:
 

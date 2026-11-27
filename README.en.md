@@ -58,7 +58,7 @@ Correcting a transcript, saving it and reopening it (9.28 s).
 
 ## Features
 
-The clinic features are active only when `CLINIC_MODE=1` is set. Regardless of this switch, the fork has removed some upstream features, including share links, calendar events, incognito mode, self-registration, password reset by email and several cloud speech recognition providers.
+The clinic features are active only when `CLINIC_MODE=1` is set. Regardless of this switch, the fork has removed some upstream features, including share links, calendar events, incognito mode, self-registration, password reset by email and several cloud speech recognition providers. Also not offered in this fork: mail of any kind (no SMTP, no notification mail, no EML download; notifications are in-app only), Windows single sign-on (no IWA, Negotiate or Kerberos), PDF or image attachments, document import, and Citrix/RDP/ICA. Sign-in is the normal web sign-in with local accounts.
 
 ### Recording in the browser
 
@@ -148,7 +148,7 @@ Real-world acceptance testing:
 
 - device detection and file import on physical Philips LFH9600 and LFH9620 recorders
 - a real foot pedal
-- a partner hospital information system (KIS); the KIS check currently uses a simulator
+- a partner hospital information system (KIS); the integration is read-only (the KIS opens Speakr with a case ID as URL context, nothing is delivered or written back to the KIS), and the KIS check currently uses a simulator
 - production sign-in services
 
 Behavior gaps:

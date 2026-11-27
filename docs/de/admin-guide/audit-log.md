@@ -47,6 +47,21 @@ Das aktuelle Panel **KI-Zusammenfassung** erfasst jedes Lesen seines Zustands al
 
 Das Modul zur Bereinigung alter Stimmdaten registriert bei seiner Verwendung `admin.upstream_voice.purge`. Phase und Zähler unterscheiden einen abgeschlossenen Datenbankschritt von verbleibenden Dateiarbeiten. Ein Ereignisname im Register belegt weder eine entsprechende Klinikoberfläche noch einen unterstützten Vorgang.
 
+## Veraltete und übernommene Ereignisse
+
+Das Register enthält weiterhin übernommene Upstream-Ereignisse. Sie sind veraltet: Der Klinik-Fork bietet die Funktionen hinter den meisten davon nicht an (SSO-Kontoverknüpfung, persönliche API-Tokens, öffentliche Freigaben und Löschung, Ordner, Gruppen, Inquire-Modus); diese Ereignisse treten daher normalerweise nicht auf. Ihr Vorhandensein im Register belegt nicht, dass die Funktion angeboten wird. E-Mail und KIS-Zustellung haben hier keine Ereignisse, weil der Fork sie nicht anbietet.
+
+| Ereignis | Bedeutung |
+|---|---|
+| `auth.sso.linked`, `auth.sso.unlinked`, `auth.sso.link_requested` | Veraltet: Verknüpfung externer Identitäten; Entra ist nicht aktiv, siehe [Anmeldung](sso-setup.md) |
+| `token.created`, `token.changed`, `token.revoked`, `token.first_used` | Veraltet: Lebenszyklus von API-Tokens; Tokens bleiben dem Importagenten vorbehalten |
+| `recording.viewed`, `recording.downloaded`, `recording.exported` | Veraltet: übernommene Anzeige-, Download- und Exportvorgänge; Klinik-Lesezugriffe verwenden `recording.content.read` und `recording.media.*` |
+| `recording.deleted`, `recording.audio.deleted` | Veraltet: Löschung; der Klinik-Fork archiviert statt zu löschen, siehe [Aufbewahrung](retention.md) |
+| `admin.user.created`, `admin.user.changed`, `admin.user.password_set`, `admin.user.unlocked`, `admin.user.role_changed`, `admin.user.deleted` | Ereignisse der Kontoverwaltung (die Gruppe `admin.user.*` oben) |
+| `admin.retention.run`, `admin.inquire.processed` | Veraltet: übernommener Aufbewahrungslauf und Inquire-Verarbeitung |
+| `group.created`, `group.changed`, `group.deleted`, `group.member.added`, `group.member.role_changed`, `group.member.removed` | Übernommene Gruppenverwaltung; die Poolverwaltung hat eigene Verlaufstabellen |
+| `audit.pruned` | Veraltet: Bereinigungsnachweis; der Klinik-Bereinigungsjob löscht keine Zeilen (siehe unten) |
+
 ## Pflichtnachweise und Lücken
 
 Eine aktive Standortadministration kann fremde Transkripte oder Audiodateien über die eigenen Admin-Inhaltsrouten ohne Begründungsabfrage öffnen. Vor jeder erfolgreichen Öffnung muss die Auditzeile gespeichert sein; andernfalls antwortet der Server mit `503 audit_unavailable` und liefert keinen Inhalt. Dieser Lese- oder Wiedergabezugriff erteilt keine Bearbeitungs-, Freigabe- oder Exportrechte.

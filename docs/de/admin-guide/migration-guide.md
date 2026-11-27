@@ -16,7 +16,7 @@ Prüfen Sie die Wiederherstellung vor Änderungen. Behalten Sie den Sicherungssa
 
 Bauen Sie die gewählte Klinikrevision wie unter [Installation](../getting-started/installation.md) beschrieben. Erhalten Sie Datenbank-, Speicher- und Signaturschlüsselzuordnungen. Setzen Sie `CLINIC_MODE=1` und konfigurieren Sie freigegebene lokale Transkriptionsdienste. Falls ein Textmodell konfiguriert ist, verwenden Sie einen freigegebenen lokalen Endpunkt; setzen Sie nicht nur einen Textmodell-API-Schlüssel im Vertrauen auf eine Standardadresse. Siehe [Modellwahl](model-configuration.md).
 
-Belassen Sie Entra, LDAP und Windows-Anmeldung als vorbereitete, deaktivierte Integrationen. Ursprüngliche `ENABLE_SSO`-Einstellungen aktivieren die Klinik-Identitätsadapter nicht. Belassen Sie `ENABLE_INQUIRE_MODE=false` für den Klinikarbeitsplatz. Siehe [Anmeldung und Identitätsanbieter](sso-setup.md) und [Vektorspeicher](vector-store.md).
+Verwenden Sie die normale Web-Anmeldung mit lokalen Konten. Belassen Sie Entra und LDAP als vorbereitete, deaktivierte Integrationen; Windows-Einmalanmeldung wird nicht angeboten. Ursprüngliche `ENABLE_SSO`-Einstellungen aktivieren die Klinik-Identitätsadapter nicht. Belassen Sie `ENABLE_INQUIRE_MODE=false` für den Klinikarbeitsplatz. Siehe [Anmeldung und Identitätsanbieter](sso-setup.md) und [Vektorspeicher](vector-store.md).
 
 ## 3. Schema initialisieren
 
@@ -103,7 +103,7 @@ Automatische Zusammenfassungen sind an die erste ASR-Revision geeigneter neuer D
 
 ## Entfernte ursprüngliche Funktionen
 
-Der Klinik-Fork bietet keine Ereignis-/Kalenderextraktion, öffentlichen Freigabelinks, internen Freigaben, Webhooks, allgemeine API v1, Inkognitomodus, Cloud-ASR-Konnektoren, Ordner, Selbstregistrierung, E-Mail-Verifizierung, Passwortwiederherstellung per E-Mail, What's-New-Popup oder harte automatische Löschung. API-Tokens bleiben allein dem Importagenten vorbehalten. Historische Datenbankzeilen stellen diese Funktionen nicht wieder her. Aufbewahrung archiviert statt zu löschen; siehe [Aufbewahrung](retention.md).
+Der Klinik-Fork bietet keine Ereignis-/Kalenderextraktion, öffentlichen Freigabelinks, internen Freigaben, Webhooks, allgemeine API v1, Inkognitomodus, Cloud-ASR-Konnektoren, Ordner, Selbstregistrierung, E-Mail jeder Art (kein SMTP, keine Benachrichtigungsmails, kein EML-Download), Passwortwiederherstellung per E-Mail, Windows-Einmalanmeldung (kein IWA, Negotiate oder Kerberos), PDF- oder Bildanhänge, Dokumentimport, Citrix/RDP/ICA, What's-New-Popup oder harte automatische Löschung. API-Tokens bleiben allein dem Importagenten vorbehalten. Historische Datenbankzeilen stellen diese Funktionen nicht wieder her. Aufbewahrung archiviert statt zu löschen; siehe [Aufbewahrung](retention.md).
 
 ## Konnektor- und Speicherkompatibilität
 

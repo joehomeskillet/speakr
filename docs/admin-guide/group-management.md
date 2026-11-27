@@ -88,9 +88,9 @@ Pool-resource permissions also differ from dictation permissions. An edit or rel
 
 **Freigeben** is an explicit permission, including for authors and site administrators. Submission for acceptance needs editing and release rights; acceptance, rejection and reopening need release rights. Assignment through **Zuweisen** follows the separate lead/administrator rules above.
 
-The **Abnahme** page sets an acceptance policy for a selected dictation: whether acceptance is required and which active users may accept. Only an active site administrator can publish the policy. Without a published policy, acceptance is not required. A listed approver still needs the release permission. Final release is distinct from acceptance and requires the current revisions and a trusted KIS context. The default KIS adapter is disabled outside the staging simulation; a simulation is not evidence of a working clinical integration.
+The **Abnahme** page sets an acceptance policy for a selected dictation: whether acceptance is required and which active users may accept. Only an active site administrator can publish the policy. Without a published policy, acceptance is not required. A listed approver still needs the release permission. Final release is distinct from acceptance and requires the current revisions. The KIS integration is read-only: the KIS opens Speakr with a case (Fall) ID as URL context, and Speakr shows only dictations linked to that case that the user may already see. Nothing is delivered or written back to the KIS (no document delivery, no receipts, no reissue or addendum). A simulation is not evidence of a working clinical integration.
 
-**Originalaudio exportieren** (`audio_export`) is separate from document **Exportieren**. Neither own defaults nor administrator playback access include original-audio download. The browser-to-mail-client handoff with an audio attachment remains open gap WG-EXP-009. See [Privacy](privacy.md) and [Retention](retention.md) for data handling.
+**Originalaudio exportieren** (`audio_export`) is separate from document **Exportieren**. Neither own defaults nor administrator playback access include original-audio download. No mail handoff or mail attachment is offered in this fork. See [Privacy](privacy.md) and [Retention](retention.md) for data handling.
 
 ## History and common problems
 

@@ -16,7 +16,7 @@ Verify the restore before applying changes. Retain the pre-upgrade set until acc
 
 Build the selected clinic revision as described in [Installation](../getting-started/installation.md). Preserve database, storage and signing-key mappings. Set `CLINIC_MODE=1` and configure approved local transcription services. If a text model is configured, use an approved local endpoint; do not set only a text-model API key and rely on a default address. See [Model configuration](model-configuration.md).
 
-Keep Entra, LDAP and Windows sign-in as prepared, disabled integrations. Upstream `ENABLE_SSO` settings do not activate the clinic identity adapters. Keep `ENABLE_INQUIRE_MODE=false` for the clinic workspace. See [Sign-in and identity providers](sso-setup.md) and [Vector store](vector-store.md).
+Use the normal web sign-in with local accounts. Keep Entra and LDAP as prepared, disabled integrations; Windows single sign-on is not offered. Upstream `ENABLE_SSO` settings do not activate the clinic identity adapters. Keep `ENABLE_INQUIRE_MODE=false` for the clinic workspace. See [Sign-in and identity providers](sso-setup.md) and [Vector store](vector-store.md).
 
 ## 3. Initialize the schema
 
@@ -103,7 +103,7 @@ Automatic summaries are tied to the first ASR revision of eligible new dictation
 
 ## Removed upstream functions
 
-The clinic fork does not offer event/calendar extraction, public share links, internal shares, webhooks, general API v1, incognito mode, cloud ASR connectors, folders, self-registration, email verification, password reset by email, the What's-New popup or hard automatic deletion. API tokens remain only for the import agent. Historical database rows do not restore these functions. Retention archives instead of deleting; see [Retention](retention.md).
+The clinic fork does not offer event/calendar extraction, public share links, internal shares, webhooks, general API v1, incognito mode, cloud ASR connectors, folders, self-registration, mail of any kind (no SMTP, no notification mail, no EML download), password reset by email, Windows single sign-on (no IWA, Negotiate or Kerberos), PDF or image attachments, document import, Citrix/RDP/ICA, the What's-New popup or hard automatic deletion. API tokens remain only for the import agent. Historical database rows do not restore these functions. Retention archives instead of deleting; see [Retention](retention.md).
 
 ## Connector and storage compatibility
 

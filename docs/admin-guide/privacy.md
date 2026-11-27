@@ -66,7 +66,7 @@ The clinic fork does not offer hard automatic deletion. The retention sweep arch
 
 Public share links, internal shares, webhooks, folders, incognito mode, event/calendar extraction and the What's-New popup are not offered by the clinic fork. They are not alternate ways to deliver or protect a dictation.
 
-In-app workflow notices stay in the application. Optional inherited SMTP processing notifications can carry recording titles outside it; leave SMTP unset unless the site has reviewed that use. See [Email setup](email-setup.md). An S3 backend and configured model services are also data destinations, not just technical settings. KIS and identity-provider preparation does not establish approval for a real external system.
+In-app workflow notices stay in the application. The clinic fork sends no mail of any kind, so no recording title leaves the application through a mail server. See [Mail and notifications](email-setup.md). An S3 backend and configured model services are also data destinations, not just technical settings. The KIS integration is read-only (case ID as URL context); nothing is delivered or written back to the KIS. The clinic works locally only: no Citrix, RDP or ICA sessions, no cloud ASR and no PDF or image attachments. Identity-provider preparation does not establish approval for a real external system.
 
 Keep `LOG_LEVEL` at `INFO` or higher when handling sensitive data. Debug logging can expose prompts, model replies, names and provider error details. Audit detail allowlists do not sanitize every application, proxy or container log. Protect those logs and exported audit files, restrict access, and define their retention outside the application.
 

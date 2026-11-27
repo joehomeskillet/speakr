@@ -58,7 +58,7 @@ Korrigieren, Speichern und erneutes Öffnen eines Transkripts (9,28 s).
 
 ## Funktionen
 
-Die Klinikfunktionen sind nur aktiv, wenn `CLINIC_MODE=1` gesetzt ist. Unabhängig von diesem Schalter hat der Fork einzelne Upstream-Funktionen entfernt, darunter Freigabelinks, Kalenderereignisse, den Inkognito-Modus, die Selbstregistrierung, die Passwortrücksetzung per E-Mail und mehrere Cloud-Spracherkennungsanbieter.
+Die Klinikfunktionen sind nur aktiv, wenn `CLINIC_MODE=1` gesetzt ist. Unabhängig von diesem Schalter hat der Fork einzelne Upstream-Funktionen entfernt, darunter Freigabelinks, Kalenderereignisse, den Inkognito-Modus, die Selbstregistrierung, die Passwortrücksetzung per E-Mail und mehrere Cloud-Spracherkennungsanbieter. Ausserdem werden in diesem Fork nicht angeboten: E-Mail jeder Art (kein SMTP, keine Benachrichtigungsmails, kein EML-Download; Benachrichtigungen erscheinen nur in der Anwendung), Windows-Einmalanmeldung (kein IWA, Negotiate oder Kerberos), PDF- oder Bildanhänge, Dokumentimport und Citrix/RDP/ICA. Die Anmeldung ist die normale Web-Anmeldung mit lokalen Konten.
 
 ### Aufnahme im Browser
 
@@ -148,7 +148,7 @@ Abnahme in realer Umgebung:
 
 - Erkennung und Dateiimport an physischen Philips-Geräten LFH9600 und LFH9620
 - echtes Fusspedal
-- Partner-KIS (Krankenhausinformationssystem); die KIS-Prüfung verwendet derzeit einen Simulator
+- Partner-KIS (Krankenhausinformationssystem); die Anbindung ist rein lesend (das KIS öffnet Speakr mit einer Fall-ID als URL-Kontext, nichts wird an das KIS geliefert oder zurückgeschrieben), die KIS-Prüfung verwendet derzeit einen Simulator
 - produktive Anmeldedienste
 
 Verhaltenslücken:

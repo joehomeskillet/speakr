@@ -2,11 +2,13 @@
 
 [English](../../admin-guide/sso-setup.md)
 
-Bei aktiviertem `CLINIC_MODE` ist die lokale Anmeldung der funktionsfähige Anmeldeweg. Die Anmeldeseite zeigt **Lokale Anmeldung: Aktiv** und **Einmalanmeldung: Nicht eingerichtet**. Für Microsoft Entra ID, LDAP-Föderation und integrierte Windows-Anmeldung (IWA) besteht vorbereiteter serverseitiger Code; der Anwendungsstart lässt diese Anbieter aber deaktiviert. Keine Verwaltungseinstellung und kein Umgebungsschalter vervollständigt ihre Anbindung.
+Bei aktiviertem `CLINIC_MODE` ist die normale Web-Anmeldung mit lokalen Konten der Anmeldeweg. Die Anmeldeseite zeigt **Lokale Anmeldung: Aktiv** und **Einmalanmeldung: Nicht eingerichtet**. Microsoft Entra ID kann später folgen; es funktioniert heute nicht. Für Entra und LDAP-Föderation besteht vorbereiteter serverseitiger Code; der Anwendungsstart lässt ihn aber deaktiviert, und keine Verwaltungseinstellung und kein Umgebungsschalter vervollständigt die Anbindung.
+
+Windows-Einmalanmeldung wird in diesem Fork nicht angeboten: keine integrierte Windows-Authentifizierung (IWA), kein Negotiate und kein Kerberos. Der Browser meldet niemanden anhand des Windows-Kontos eines Arbeitsplatzes an.
 
 ## Lokaler Zugriff
 
-Verwenden Sie Benutzername oder E-Mail-Adresse und das lokale Passwort. Die Anmeldung benötigt eine aktive Klinik-Kontorichtlinie, einen gespeicherten unterstützten Passwort-Hash und die Richtlinie **Nur lokal** oder **Lokal und Entra**. Ein ausstehender Passwortwechsel oder eine Anmeldesperre verhindert den Zugriff. **Keine Anmelderichtlinie** bedeutet, dass ein Bestandskonto keine Klinik-Kontorichtlinie besitzt; es bezeichnet keinen externen Anbieter.
+Verwenden Sie Benutzername oder E-Mail-Adresse (Anmeldename des Kontos; es wird nie eine E-Mail versendet) und das lokale Passwort. Die Anmeldung benötigt eine aktive Klinik-Kontorichtlinie, einen gespeicherten unterstützten Passwort-Hash und die Richtlinie **Nur lokal** oder **Lokal und Entra**. Ein ausstehender Passwortwechsel oder eine Anmeldesperre verhindert den Zugriff. **Keine Anmelderichtlinie** bedeutet, dass ein Bestandskonto keine Klinik-Kontorichtlinie besitzt; es bezeichnet keinen externen Anbieter.
 
 Die Klinikanmeldung verwendet kein **Angemeldet bleiben**. Sitzungen sind an die Sicherheitsversion des Kontos gebunden. Deaktivierung, das Ausstellen eines Rücksetzcodes und relevante Rollen- oder Anmelderichtlinienänderungen machen bestehende Sitzungen ungültig. Sensible Identitätsverwaltung benötigt zusätzlich eine lokale Anmeldung innerhalb der letzten fünf Minuten.
 
@@ -37,11 +39,11 @@ Die laufende Anwendungseinbindung hat keine Entra-Lebenszyklussynchronisierung. 
 
 Das LDAP-Modul prüft ein deaktiviertes serverseitiges Föderationsprofil. Die Anwendung erstellt keine Verzeichnisverbindung und verarbeitet keine Verzeichnispasswörter von Endbenutzern. Das Profil bietet keine echte LDAP-Anmeldung oder Rollensynchronisierung.
 
-Der IWA-Code erwartet eine vertrauenswürdige serverseitige Windows-SID-Zusicherung und Wiederholungsschutz. Die Anwendung stellt weder die erforderliche aktivierte Konfiguration noch die Middleware bereit. Vom Client gelieferte Identitätsheader können IWA nicht aktivieren. Kein Browservorgang liest die lokalen Windows-Konten eines Arbeitsplatzes; WG-ADM-009 bleibt offen.
+Windows-Einmalanmeldung wird in diesem Fork nicht angeboten (siehe oben). Vom Client gelieferte Identitätsheader können keine Anmeldung erzeugen. Kein Browservorgang liest die lokalen Windows-Konten eines Arbeitsplatzes; WG-ADM-009 bleibt offen.
 
 ## Anbieter- und Verzeichnisstatus
 
-`GET /api/clinic/v1/identity/providers` meldet in der aktuellen Anwendungseinbindung `entra`, `iwa` und `ldap` mit `enabled: false`. Ein deaktivierter Anbietereinstieg antwortet mit `422 CAPABILITY_UNAVAILABLE` und **Anbieter nicht aktiviert**. Dies sind Klinik-Identitätsrouten, kein allgemeiner API-Tokenzugriff.
+`GET /api/clinic/v1/identity/providers` meldet in der aktuellen Anwendungseinbindung `entra`, `iwa` und `ldap` mit `enabled: false`. Der Eintrag `iwa` ist ein veralteter Platzhalter, der deaktiviert bleibt; er ist keine Anmeldemethode dieses Forks. Ein deaktivierter Anbietereinstieg antwortet mit `422 CAPABILITY_UNAVAILABLE` und **Anbieter nicht aktiviert**. Dies sind Klinik-Identitätsrouten, kein allgemeiner API-Tokenzugriff.
 
 Unter **Verwaltung → Konten und Pools → Verzeichnis** (`/admin#/verzeichnis`) sieht die Identitätsadministration, dass der Verzeichnisabgleich nicht aktiviert ist. **Lokale Konten verwalten** führt zur Kontoverwaltung zurück. Die Verzeichniskapazität meldet `directory_available: false`, `local_accounts: true`, `local_windows_accounts: "unavailable"` und die Lücke `WG-ADM-009`. Kein Verzeichnisanbieter ist registriert; Vorschau und Anwendung antworten mit `503 ldap_capability_unavailable`.
 
@@ -49,6 +51,6 @@ Der vorbereitete Verzeichnisabgleich verwendet unveränderliche externe Objekt-I
 
 ## Nachweisgrenzen
 
-Die Aktivierung eines Anbieters benötigt vollständige Einbindung und echte Abnahmenachweise für den gewählten Mandanten, das Verzeichnis oder den vertrauenswürdigen Windows-Eingang. Lokale Fixtures und synthetische Schlüssel belegen keine Entra-, LDAP- oder IWA-Abnahme. Die Sicherheitsabnahme lokaler Konten bleibt ebenfalls eine getrennte Bereitstellungsvoraussetzung; dieses Handbuch beschreibt Codeverhalten, keine Produktionsfreigabe.
+Die Aktivierung eines Anbieters benötigt vollständige Einbindung und echte Abnahmenachweise für den gewählten Mandanten oder das Verzeichnis. Lokale Fixtures und synthetische Schlüssel belegen keine Entra- oder LDAP-Abnahme. Die Sicherheitsabnahme lokaler Konten bleibt ebenfalls eine getrennte Bereitstellungsvoraussetzung; dieses Handbuch beschreibt Codeverhalten, keine Produktionsfreigabe.
 
 Für lokale Anmeldung, Fehlversuche, Sperren und Passwortwechsel bestehen Audit-Ereignistypen. Vorbereitete Anbieterverknüpfungen haben getrennte SSO-Ereignistypen. [Auditprotokoll](audit-log.md) beschreibt Konfiguration und Abdeckung, [Benutzerverwaltung](user-management.md) die aktuellen Kontoverfahren.

@@ -89,7 +89,7 @@ This is separate from `video_retention` / `VIDEO_RETENTION`, also off by default
 
 While their clinic features are locked, `api_query_tokens_enabled` and `sso_api_tokens_enabled` are effectively `false`. Attempts to enable them return `403 clinic_policy_ceiling`. A displayed stored value is not proof that a feature is usable.
 
-The clinic fork does not offer public or internal shares, webhooks, general API v1 access, incognito mode, cloud ASR, organizer folders, self-registration, email verification, password reset by mail, calendar extraction or a What's-New popup. API tokens are reserved for the import-agent purpose. Inherited settings do not restore these removed features.
+The clinic fork does not offer public or internal shares, webhooks, general API v1 access, incognito mode, cloud ASR, organizer folders, self-registration, mail of any kind (no SMTP, no notification mail, no EML download; notifications are in-app only), password reset by mail, calendar extraction or a What's-New popup. API tokens are reserved for the import-agent purpose. Inherited settings do not restore these removed features.
 
 Operations manages these values outside the settings page:
 
