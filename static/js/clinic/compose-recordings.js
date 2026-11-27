@@ -29,6 +29,7 @@ export const RecordingsView = {
     props: {
         client: { type: Object, required: true },
         currentUser: { type: Object, required: true },
+        startSelection: { type: Promise, default: null },
         vue: { type: Object, default: null },
         memory: { type: Object, default: null },
         autoStart: { type: Boolean, default: true },
@@ -37,6 +38,7 @@ export const RecordingsView = {
         const c = createRecordingsController({
             client: props.client,
             currentUser: props.currentUser,
+            startSelection: props.startSelection,
             vue: props.vue || undefined,
             memory: props.memory || undefined,
             onOpen: (payload) => { if (ctx && typeof ctx.emit === 'function') ctx.emit('open', payload); },
@@ -127,7 +129,7 @@ export const RecordingsView = {
     <div>
       <div class="eyebrow">{{ t.eyebrow }}</div>
       <div class="hline"><h1 id="crv-title" class="cl-title" tabindex="-1">{{ t.title }}</h1><span v-if="c.state.loaded" class="count-pill" data-testid="total-count">{{ c.totalLabel() }}</span></div>
-      <p class="subtitle">{{ t.subtitle }}</p>
+      <p class="subtitle break-words" role="status" data-testid="start-selection-status">{{ c.state.startNotice || t.subtitle }}</p>
     </div>
     <div class="page-actions">
       <button type="button" class="btn btn--ghost btn--icon" :aria-label="t.refresh" :title="t.refresh"
@@ -185,7 +187,7 @@ export const RecordingsView = {
       </template>
       <div class="page-actions">
         <button v-if="c.hasDraftChanges()" type="submit" class="btn btn--primary primary" style="font-size: 12px; min-height: 40px" data-testid="apply">{{ t.apply }}</button>
-        <button v-if="c.canReset()" type="button" class="btn btn--ghost" style="font-size: 12px; min-height: 40px" data-testid="reset" @click="c.resetFilters()">{{ t.reset }}</button>
+        <button v-if="c.canReset()" type="button" class="btn btn--ghost !min-h-12" style="font-size: 12px" data-testid="reset" @click="c.resetFilters()">{{ t.reset }}</button>
       </div>
     </div>
   </form>
@@ -209,7 +211,7 @@ export const RecordingsView = {
       <div class="empty-icon" aria-hidden="true">◉</div>
       <h2 class="font-bold">{{ c.searchPartial() ? t.noMatchLoaded : (c.hasFilters() || c.hasQuery() ? t.noMatch : t.empty) }}</h2>
       <p>{{ c.searchPartial() ? t.searchLoadedHint : (c.hasFilters() || c.hasQuery() ? t.noMatchHint : t.emptyHint) }}</p>
-      <button v-if="c.hasFilters() || c.hasQuery()" type="button" class="primary" @click="c.resetFilters()">{{ t.resetFilters }}</button>
+      <button v-if="c.hasFilters() || c.hasQuery()" type="button" class="primary !min-h-12" @click="c.resetFilters()">{{ t.resetFilters }}</button>
     </div>
     <!-- One responsive list for desktop and phone: the grid of .recording-row changes at the prototype breakpoints.
          The former copies (table "hidden md:table" and cards) are gone; the role cells keep their data-cell markers. -->

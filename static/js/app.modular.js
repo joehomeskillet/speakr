@@ -278,14 +278,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     const clinicMode = appRootElement?.dataset?.clinicMode === 'True';
     if (clinicMode) {
         try {
-            const [{ createClinicApiClient }, { registerWorklistView }, { registerResourcesView }, { registerCorrectionView, resolveClinicOpenTarget }, { registerRecordingsView }, { createDictationChoices }] = await Promise.all([
+            const [{ createClinicApiClient }, { registerWorklistView }, { registerResourcesView }, { registerCorrectionView, resolveClinicOpenTarget }, { registerRecordingsView }, { createDictationChoices }, { readStartSelection }] = await Promise.all([
                 import('./clinic/api-client.js'),
                 import('./clinic/compose-worklist.js'),
                 import('./clinic/compose-resources.js'),
                 import('./clinic/compose-correction.js'),
                 import('./clinic/compose-recordings.js'),
                 import('./clinic/dictation-choices.js'),
+                import('./clinic/selection-ui.js'),
             ]);
+            const client = createClinicApiClient();
             clinicWorklist = {
                 registerWorklistView,
                 registerResourcesView,
@@ -293,7 +295,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 resolveClinicOpenTarget,
                 registerRecordingsView,
                 createDictationChoices,
-                client: createClinicApiClient(),
+                client,
+                startSelection: readStartSelection(client, !appRootElement.dataset.clinicCaseView
+                    && ['', '#/aufnahmen'].includes(window.location.hash)),
                 user: { id: appRootElement.dataset.currentUserId, name: appRootElement.dataset.currentUserName, role: appRootElement.dataset.clinicRole || 'author' },
             };
             // V8 dictation views (v8-70)
@@ -5477,6 +5481,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 clinicWorklistEnabled: !!clinicWorklist,
                 clinicClient: clinicWorklist ? clinicWorklist.client : null,
                 clinicUser: clinicWorklist ? clinicWorklist.user : null,
+                clinicStartSelection: clinicWorklist?.startSelection || null,
                 clinicCorrectionId, clinicOpenMode, clinicCorrectionRow, clinicListMount, clinicCorrectionMount, clinicViewMount, clinicOrigin, clinicActiveTab, goClinicView,
                 openClinicDictation, closeClinicCorrection,
                 requestClinicCorrectionClose, clinicAudioContextFactory,
