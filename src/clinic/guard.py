@@ -219,6 +219,10 @@ def clinic_guard():
     """before_request hook; returns a response to refuse, None to continue."""
     if not clinic_mode_enabled():
         return None
+    if request.endpoint == 'recordings.index':
+        from .case_handoff import is_handoff_request
+        if is_handoff_request():
+            return None  # The handoff hook redirects after the idle-session check.
     if request.endpoint is None:
         return None  # no route matched: Flask answers 404, nothing is served
     rule = ROUTE_POLICY.get(request.endpoint)

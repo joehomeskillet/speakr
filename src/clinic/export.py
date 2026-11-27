@@ -17,10 +17,10 @@ native Word document (WB-013) and native file pickers (WB-014).
 from __future__ import annotations
 
 import hashlib
+import zipfile
 from dataclasses import dataclass
 from datetime import datetime
 from io import BytesIO
-from zipfile import ZipFile
 
 from src.clinic.models import (
     ClinicAudioRevision,
@@ -355,15 +355,24 @@ def _docx_bytes(title: str, header_lines: list[str], paragraphs: list[str]) -> b
         doc.add_paragraph(paragraph)
     buffer = BytesIO()
     doc.save(buffer)
-    # The download verifies the original byte hash after rendering the same release again.
-    # python-docx stamps each ZIP entry with the current time.
-    stable = BytesIO()
-    with ZipFile(buffer) as source, ZipFile(stable, 'w') as archive:
-        for entry in source.infolist():
-            content = source.read(entry)
-            entry.date_time = (1980, 1, 1, 0, 0, 0)
-            archive.writestr(entry, content)
-    return stable.getvalue()
+    return _fixed_zip_dates(buffer.getvalue())
+
+
+def _fixed_zip_dates(data: bytes) -> bytes:
+    """Same bytes on every render: python-docx stamps each zip entry with the wall clock.
+
+    The download route re-renders the release and compares the sha256 with the
+    receipt. Without a fixed entry date that comparison fails (409) whenever the
+    two renders fall into different two-second zip time slots.
+    """
+    out = BytesIO()
+    with zipfile.ZipFile(BytesIO(data)) as src, zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as dst:
+        for info in src.infolist():
+            entry = zipfile.ZipInfo(info.filename, date_time=(1980, 1, 1, 0, 0, 0))
+            entry.compress_type = zipfile.ZIP_DEFLATED
+            entry.external_attr = info.external_attr
+            dst.writestr(entry, src.read(info.filename))
+    return out.getvalue()
 
 
 def _outcome(rendered: RenderedExport, action: str, local_save_proven: bool) -> ExportOutcome:
