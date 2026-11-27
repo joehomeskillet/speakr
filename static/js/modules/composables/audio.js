@@ -157,12 +157,17 @@ export function useAudio(state, utils) {
     // upload path uses it to build the File with the right container type and
     // extension — a video capture must not be uploaded as `audio/webm`.
     let currentRecordingMimeType = 'audio/webm';
+    let settleClinicDisclaimer = null;
+
+    function isClinicRecordingView() {
+        return document.getElementById('app')?.dataset?.clinicMode === 'True' && currentView.value === 'clinic-recording';
+    }
 
     function _serverRecordingChunksEnabled() {
         const el = document.getElementById('app');
         if (!el || !el.dataset) return false;
         // Clinic recordings use one multipart upload after capture.
-        if (el.dataset.clinicMode === 'True' && currentView.value === 'clinic-recording') return false;
+        if (isClinicRecordingView()) return false;
         return (el.dataset.serverRecordingChunks || '').toLowerCase() === 'true';
     }
 
@@ -334,7 +339,7 @@ export function useAudio(state, utils) {
     };
 
     // Acquire wake lock to prevent screen from sleeping during recording
-    const acquireWakeLock = async () => {
+    const acquireWakeLock = async (quiet = false) => {
         // iOS doesn't support Wake Lock API - use silent audio instead
         if (isiOS()) {
             return await startiOSWakeLock();
@@ -354,11 +359,12 @@ export function useAudio(state, utils) {
                 return true;
             } else {
                 console.warn('[WakeLock] Wake Lock API not supported');
-                showToast((utils.t && utils.t('toasts.screenMaySleep')) || 'Screen may sleep during recording', 'info');
+                if (!quiet) showToast((utils.t && utils.t('toasts.screenMaySleep')) || 'Screen may sleep during recording', 'info');
                 return false;
             }
         } catch (err) {
             console.warn('[WakeLock] Could not acquire:', err.message);
+            if (quiet) return false;
             if (err.name === 'NotAllowedError') {
                 showToast((utils.t && utils.t('toasts.wakeLockPermissionDenied')) || 'Screen lock permission denied', 'warning');
             } else if (err.name === 'NotSupportedError') {
@@ -407,8 +413,9 @@ export function useAudio(state, utils) {
     const handleVisibilityChange = async () => {
         if (document.visibilityState === 'visible' && isRecording.value) {
             console.log('[Visibility] Page visible, re-acquiring wake lock');
-            const acquired = await acquireWakeLock();
-            if (acquired) {
+            const quiet = isClinicRecordingView();
+            const acquired = await acquireWakeLock(quiet);
+            if (acquired && !quiet) {
                 showToast((utils.t && utils.t('toasts.recordingResumedScreenAwake')) || 'Recording resumed. The screen stays on.', 'success');
             }
         } else if (document.visibilityState === 'hidden' && isRecording.value) {
@@ -459,8 +466,9 @@ export function useAudio(state, utils) {
     // Start recording
     // IMPORTANT: For Firefox, getDisplayMedia MUST be the first async call from user gesture
     const startRecording = async (mode = 'microphone', resumeContext = null) => {
-        if (isPreparingRecording.value || isRecording.value) return;
+        if (isPreparingRecording.value || isRecording.value) return false;
         isPreparingRecording.value = true;
+        const clinicTake = isClinicRecordingView();
 
         try {
             const needsDisplayMedia = mode === 'system' || mode === 'both';
@@ -504,10 +512,12 @@ export function useAudio(state, utils) {
                 showRecordingDisclaimerModal.value = true;
                 pendingRecordingMode.value = mode;
                 pendingResumeContext = resumeContext;
-                return;
+                if (!clinicTake) return;
+                const accepted = await new Promise(resolve => { settleClinicDisclaimer = resolve; });
+                if (!accepted || !isClinicRecordingView()) return false;
             }
 
-            await startRecordingInternal(mode, resumeContext);
+            return await startRecordingInternal(mode, resumeContext, clinicTake);
         } finally {
             isPreparingRecording.value = false;
         }
@@ -515,6 +525,13 @@ export function useAudio(state, utils) {
 
     // Accept recording disclaimer and start recording
     const acceptRecordingDisclaimer = async () => {
+        if (settleClinicDisclaimer) {
+            showRecordingDisclaimerModal.value = false;
+            settleClinicDisclaimer(true);
+            settleClinicDisclaimer = null;
+            pendingResumeContext = null;
+            return;
+        }
         if (isPreparingRecording.value || isRecording.value) return;
         isPreparingRecording.value = true;
         showRecordingDisclaimerModal.value = false;
@@ -530,6 +547,8 @@ export function useAudio(state, utils) {
     // Cancel recording disclaimer
     const cancelRecordingDisclaimer = () => {
         showRecordingDisclaimerModal.value = false;
+        settleClinicDisclaimer?.(false);
+        settleClinicDisclaimer = null;
         // Clean up pending display stream if user cancels
         if (pendingDisplayStream) {
             pendingDisplayStream.getTracks().forEach(track => track.stop());
@@ -562,13 +581,13 @@ export function useAudio(state, utils) {
         }
     };
 
-    const startRecordingInternal = async (mode, resumeContext = null) => {
+    const startRecordingInternal = async (mode, resumeContext = null, clinicTake = false) => {
         if (!resumeContext && !(await hasStorageRoom())) {
             if (pendingDisplayStream) {
                 pendingDisplayStream.getTracks().forEach(track => track.stop());
                 pendingDisplayStream = null;
             }
-            return;
+            return clinicTake ? false : undefined;
         }
         try {
             recordingMode.value = mode;
@@ -644,7 +663,7 @@ export function useAudio(state, utils) {
                 // upload modal, which a crash-recovery resume may not have
                 // open — awaiting the selection there would hang forever
                 // with the record buttons stuck disabled.
-                if (!primaryDeviceId && !resumeContext && shouldAutoOfferExternalAudioInput()) {
+                if (!clinicTake && !primaryDeviceId && !resumeContext && shouldAutoOfferExternalAudioInput()) {
                     const candidates = findExternalAudioInputCandidates(refreshedInputs, activeDeviceId);
                     const candidateSignature = getAudioInputCandidateSignature(candidates);
                     if (candidates.length > 0
@@ -923,26 +942,29 @@ export function useAudio(state, utils) {
                 _attachVideoPreview(new MediaStream([capturedVideoTrack]));
             }
 
-            // Start IndexedDB recording session - convert Vue reactive objects to plain objects
+            // Start IndexedDB recording session - convert Vue reactive objects to plain objects.
+            // Clinic microphone takes are kept in memory until submitted.
             currentRecordingSessionStartTime = null;
-            try {
-                const savedSession = await RecordingDB.startRecordingSession({
-                    mode,
-                    notes: recordingNotes.value || '',
-                    tags: selectedTagIds.value ? [...selectedTagIds.value] : [], // Convert reactive array to plain array
-                    asrOptions: {
-                        language: asrLanguage.value || '',
-                        min_speakers: asrMinSpeakers.value || '',
-                        max_speakers: asrMaxSpeakers.value || '',
-                        initial_prompt: asrInitialPrompt.value || '',
-                        hotwords: asrHotwords.value || '',
-                        transcription_model: asrTranscriptionModel.value || ''
-                    },
-                    mimeType,
-                });
-                currentRecordingSessionStartTime = savedSession ? savedSession.startTime : null;
-            } catch (dbError) {
-                console.warn('[Recording] IndexedDB persistence failed, continuing without persistence:', dbError);
+            if (!clinicTake) {
+                try {
+                    const savedSession = await RecordingDB.startRecordingSession({
+                        mode,
+                        notes: recordingNotes.value || '',
+                        tags: selectedTagIds.value ? [...selectedTagIds.value] : [], // Convert reactive array to plain array
+                        asrOptions: {
+                            language: asrLanguage.value || '',
+                            min_speakers: asrMinSpeakers.value || '',
+                            max_speakers: asrMaxSpeakers.value || '',
+                            initial_prompt: asrInitialPrompt.value || '',
+                            hotwords: asrHotwords.value || '',
+                            transcription_model: asrTranscriptionModel.value || ''
+                        },
+                        mimeType,
+                    });
+                    currentRecordingSessionStartTime = savedSession ? savedSession.startTime : null;
+                } catch (dbError) {
+                    console.warn('[Recording] IndexedDB persistence failed, continuing without persistence:', dbError);
+                }
             }
 
             // If server-side chunk streaming is enabled (#287 c/d), open the
@@ -950,7 +972,7 @@ export function useAudio(state, utils) {
             // straight to the server. A failure here logs and falls back to
             // local-only recording — the user's audio is never blocked on
             // a network round-trip.
-            if (_serverRecordingChunksEnabled()) {
+            if (!clinicTake && _serverRecordingChunksEnabled()) {
                 try {
                     let startIndex = 1;
                     if (resumeContext && resumeContext.sessionId) {
@@ -992,16 +1014,18 @@ export function useAudio(state, utils) {
                 if (event.data.size > 0) {
                     audioChunks.value.push(event.data);
 
-                    // Save chunk to IndexedDB for crash recovery
-                    try {
-                        await RecordingDB.saveChunk(event.data, currentChunkIndex);
-                        await RecordingDB.updateRecordingMetadata({
-                            duration: recordingTime.value,
-                            notes: recordingNotes.value || ''
-                        });
-                        currentChunkIndex++;
-                    } catch (dbError) {
-                        // Don't spam console - recording continues in memory regardless
+                    // Save chunk to IndexedDB for crash recovery in the stock recorder.
+                    if (!clinicTake) {
+                        try {
+                            await RecordingDB.saveChunk(event.data, currentChunkIndex);
+                            await RecordingDB.updateRecordingMetadata({
+                                duration: recordingTime.value,
+                                notes: recordingNotes.value || ''
+                            });
+                            currentChunkIndex++;
+                        } catch (dbError) {
+                            // Don't spam console - recording continues in memory regardless
+                        }
                     }
 
                     // Server-side streaming (Phase B of #287 c/d). The
@@ -1041,7 +1065,7 @@ export function useAudio(state, utils) {
             recorder.start(_recordingChunkMs());
             isRecording.value = true;
             // Switch to recording view immediately so pending wake-lock/notification awaits don't block Safari rendering
-            currentView.value = 'recording';
+            if (!clinicTake) currentView.value = 'recording';
             // Dismiss the upload modal while the recording view is on
             // screen so the two don't compete for the same surface.
             showUploadModal.value = false;
@@ -1102,7 +1126,7 @@ export function useAudio(state, utils) {
             startSizeMonitoring();
 
             // Acquire wake lock
-            await acquireWakeLock();
+            await acquireWakeLock(clinicTake);
 
             // Show notification
             await showRecordingNotification();
@@ -1112,7 +1136,7 @@ export function useAudio(state, utils) {
 
         } catch (error) {
             console.error('Recording error:', error);
-            setGlobalError((utils.t && utils.t('errors.startRecordingFailed', { error: error.message })) || `Failed to start recording: ${error.message}`);
+            if (!clinicTake) setGlobalError((utils.t && utils.t('errors.startRecordingFailed', { error: error.message })) || `Failed to start recording: ${error.message}`);
 
             // Clean up any started streams
             if (activeStreams.value.length > 0) {
@@ -1127,6 +1151,7 @@ export function useAudio(state, utils) {
             _stopPendingDisplayStream();
             _clearVideoPreview();
             _releaseAudioContext();
+            if (clinicTake) throw error;
         }
     };
 

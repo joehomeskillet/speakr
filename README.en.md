@@ -24,7 +24,7 @@ The project is for clinics and development teams who want to evaluate or extend 
 
 ![Speakr transcription workspace with correction editor and audio playback for a synthetic test dictation](docs/images/clinic/editor.png)
 
-The typing workspace shows the dictation text and playback controls.
+*Transcription workspace with correction editor and playback. All data shown is synthetic.*
 
 <table>
   <tr>
@@ -58,7 +58,7 @@ Correcting a transcript, saving it and reopening it (9.28 s).
 
 ## Features
 
-The clinic features are active only when `CLINIC_MODE=1` is set. Regardless of this switch, the fork has removed some upstream features, including share links, calendar events, incognito mode, self-registration, password reset by email and several cloud speech recognition providers.
+The clinic features are active only when `CLINIC_MODE=1` is set. Regardless of this switch, the fork has removed some upstream features, including share links, calendar events, incognito mode, self-registration, password reset by email and several cloud speech recognition providers. Also not offered in this fork: mail of any kind (no SMTP, no notification mail, no EML download; notifications are in-app only), Windows single sign-on (no IWA, Negotiate or Kerberos), PDF or image attachments, document import, and Citrix/RDP/ICA. Sign-in is the normal web sign-in with local accounts.
 
 ### Recording in the browser
 
@@ -113,6 +113,8 @@ The clinic features are active only when `CLINIC_MODE=1` is set. Regardless of t
 
 The [project specification](clinic-spec/CLAUDE.md) covers 101 mandatory functions. The original register classifies 56 for the web client, identifies dependencies to verify for 32, and records specific conflicts with the web architecture for 13. All remain in scope. The original register records no direct comparison against dns.comfort for any of the 101 functions. The results below come from tests of the fork with synthetic dictations.
 
+Further clinic, identity and boundary requirements also apply. No mandatory function has been dropped; the 13 conflicting sub-clauses remain open. This project does not claim 1:1 equivalence with dns.comfort while web-boundary gaps and complete reference comparisons remain open. The related registers are linked under [Evidence and registers](#evidence-and-registers).
+
 ### Verified
 
 Verified in a test environment with synthetic user flows:
@@ -146,7 +148,7 @@ Real-world acceptance testing:
 
 - device detection and file import on physical Philips LFH9600 and LFH9620 recorders
 - a real foot pedal
-- a partner hospital information system (KIS); the KIS check currently uses a simulator
+- a partner hospital information system (KIS); the integration is read-only (the KIS opens Speakr with a case ID as URL context, nothing is delivered or written back to the KIS), and the KIS check currently uses a simulator
 - production sign-in services
 
 Behavior gaps:
@@ -158,7 +160,9 @@ Behavior gaps:
 
 ## Evidence and registers
 
-The public project registers describe the requirements, how they map to the code and which tests are planned. They are not test logs, and they are in German.
+The public project registers describe the requirements, how they map to the code and which tests are planned. They are not test logs, and they are in German. Their status fields (`not_started`, `not_run`) come from the specification dated November 17, 2026; they are not current test evidence. [Replacement status](#replacement-status) summarizes the state described here.
+
+The fork has its own [GitHub CI checks](.github/workflows/test.yml), including Python tests on SQLite and PostgreSQL and browser checks. The existing [Forgejo configuration](.forgejo/workflows/test.yml) is separate. Workflow files describe checks but do not prove a successful run. Even passing synthetic tests replace neither physical device acceptance nor the complete comparison with dns.comfort.
 
 - [All 101 mandatory functions](clinic-spec/docs/20_Alle_101_Pflichtfunktionen.md): target behavior of each mandatory function (PAR)
 - [PAR parity matrix](clinic-spec/planning/parity-matrix.csv) (also as [JSON](clinic-spec/planning/parity-matrix.json)): maps each mandatory function to modules, reuse and tests
@@ -186,7 +190,7 @@ docker build --platform linux/amd64 -t speakr-clinic .
 
 The [`Dockerfile`](Dockerfile) installs the dependencies from the lock files with hash checks and builds the DSS/DS2 decoder and the CSS. With `--build-arg LIGHTWEIGHT=1`, you get an image without the embedding dependencies.
 
-The [installation guide](https://joehomeskillet.github.io/speakr/getting-started/installation/) covers local model configuration, networking, startup and the first administrator account. Keep the environment file outside the build directory. PostgreSQL is the primary database in the clinic architecture. Test the installation with a short synthetic recording.
+The [installation guide](https://joehomeskillet.github.io/speakr/getting-started/installation/) covers local model configuration, networking, startup and the first administrator account. Keep the environment file outside the build directory. PostgreSQL is the primary database in the clinic architecture. Further speech recognition options are documented in [`config/env.transcription.example`](config/env.transcription.example). Test the installation with a short synthetic recording.
 
 ## Contributing
 
@@ -208,6 +212,7 @@ npm test
 - `scripts/build_css.sh` downloads the pinned Tailwind CLI, checks its hash and builds `static/css/tailwind.css`.
 - `scripts/clinic_pg_run.sh` runs `tests/clinic` against a throwaway PostgreSQL container (requires Docker).
 - The Windows import agent is tested on Windows with the .NET 10 SDK: `dotnet test apps/windows-import/Speakr.Clinic.ImportAgent.sln`.
+- Known issue: `tests/test_audit_log_coverage.py::test_no_marker_reaches_a_row_or_a_fallback_line` can fail in the parallel run depending on test order; it passes when run on its own.
 
 ### Rules
 
