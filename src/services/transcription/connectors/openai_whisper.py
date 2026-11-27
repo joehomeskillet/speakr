@@ -207,11 +207,15 @@ class OpenAIWhisperConnector(BaseTranscriptionConnector):
                         if end is None:
                             end = seg.get("end_time")
                         words = seg.get("words")
+                        avg_logprob = seg.get("avg_logprob")
+                        no_speech_prob = seg.get("no_speech_prob")
                     else:
                         seg_text = getattr(seg, "text", getattr(seg, "sentence", ""))
                         start = getattr(seg, "start", getattr(seg, "start_time", None))
                         end = getattr(seg, "end", getattr(seg, "end_time", None))
                         words = getattr(seg, "words", None)
+                        avg_logprob = getattr(seg, "avg_logprob", None)
+                        no_speech_prob = getattr(seg, "no_speech_prob", None)
 
                     try:
                         start_time = float(start) if start is not None else None
@@ -246,6 +250,8 @@ class OpenAIWhisperConnector(BaseTranscriptionConnector):
                             start_time=start_time,
                             end_time=end_time,
                             words=parsed_words,
+                            avg_logprob=avg_logprob,
+                            no_speech_prob=no_speech_prob,
                         )
                     )
 

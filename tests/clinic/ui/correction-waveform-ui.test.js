@@ -129,6 +129,35 @@ describe('correction waveform ui', () => {
         expect(wave.unalignedSpans.value.map((s) => s.text.trim())).toEqual(['neu']);
     });
 
+    it('shows the exact stored ranges and hides them when either revision changes', async () => {
+        const editor = mockEditor();
+        const table = routes(['L2']);
+        Object.assign(table['GET ' + base + '/correction'].data, {
+            audio_revision_id: AUDIO,
+            recognition_spans: [
+                { id: 'measured', kind: 'uncertain', start_ms: 1100, end_ms: 1234 },
+                { id: 'gap', kind: 'unrecognized', start_ms: 1500, end_ms: 1900 },
+            ],
+        });
+        const client = mockClient(table);
+        const seek = vi.fn();
+        const alignment = useCorrectionAlignment({ editor, client, dictationId: D, seek });
+        await alignment.refresh();
+        const wave = useCorrectionWaveform({
+            editor, alignment, client, dictationId: D, recordingId: REC, fetchFn: peaksFetch(200), seek,
+        });
+        await wave.load();
+        expect(wave.uncertainSpans.value.map(({ id, kind, startMs, endMs }) => [id, kind, startMs, endMs]))
+            .toEqual([['measured', 'uncertain', 1100, 1234], ['gap', 'unrecognized', 1500, 1900]]);
+        wave.seekToSpan(wave.uncertainSpans.value[0]);
+        expect(seek).toHaveBeenCalledWith(1.1);
+        editor.textRevisionId.value = D;
+        expect(wave.uncertainSpans.value).toEqual([]);
+        editor.textRevisionId.value = REV;
+        editor.audio.value = { status: 'ready', revisionId: AUDIO2 };
+        expect(wave.uncertainSpans.value).toEqual([]);
+    });
+
     it('answers 403 with a denied state and no peaks', async () => {
         const { wave } = await make({ fetchFn: peaksFetch(403) });
         const res = await wave.load();

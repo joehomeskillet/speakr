@@ -410,6 +410,7 @@ def link_asr_segments(
 def ingest_asr_result(
     dictation: ClinicDictation, text: str, stored_transcription, model_ref: str,
     *, expected_asr_revision_id: str | None = None,
+    recognition_segments=None, recognition_run_id: str | None = None, verified_repeat_audio=False,
 ) -> list[ClinicTextAudioLink]:
     """CLINIC_MODE ingest step: link the segments of a finished ASR run.
 
@@ -446,6 +447,11 @@ def ingest_asr_result(
         return []
     revision = add_asr_revision(dictation, original, text, model_ref)
     links = link_asr_segments(dictation, revision, segments_of(stored_transcription) or [])
+    if recognition_run_id and revision.kind == KIND_ASR:
+        from src.clinic.correction_recognition_marks import store_result
+
+        store_result(dictation, original, revision, run_id=recognition_run_id, model_ref=model_ref,
+                     segments=recognition_segments, verified_repeat_audio=verified_repeat_audio)
     # Word timings are a side product: a failure here never drops the revision or the links.
     try:
         with db.session.begin_nested():

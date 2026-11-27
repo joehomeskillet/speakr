@@ -10,10 +10,12 @@ import math
 from sqlalchemy import CheckConstraint, ForeignKeyConstraint, Index, event, inspect
 
 from src.clinic.append_only_guards import install_append_only_guards
+from src.clinic.audio_revisions import ClinicAudioRevisionSnapshot, current_audio_revision
 from src.clinic.models import (
     ClinicAudioRevision, ClinicDictation, ClinicTranscriptRevision,
     _created_at, _in_check, _uuid,
 )
+from src.clinic.recognition_marks import recognition_marks
 from src.database import db
 
 MARK_KINDS = ("recognition", "command", "uncertain", "unrecognized")
@@ -57,6 +59,22 @@ class ClinicRecognitionMark(db.Model):
     )
 
 
+class ClinicCurrentRecognitionRun(db.Model):
+    __tablename__ = "clinic_current_recognition_run"
+
+    dictation_id = db.Column(db.String(36), db.ForeignKey("clinic_dictation.id"), primary_key=True)
+    audio_revision_id = db.Column(db.String(36), primary_key=True)
+    transcript_revision_id = db.Column(db.String(36), primary_key=True)
+    run_id = db.Column(db.String(255), nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(["dictation_id", "audio_revision_id"],
+                             ["clinic_audio_revision.dictation_id", "clinic_audio_revision.id"]),
+        ForeignKeyConstraint(["dictation_id", "transcript_revision_id"],
+                             ["clinic_transcript_revision.dictation_id", "clinic_transcript_revision.id"]),
+    )
+
+
 def _immutable(_mapper, _connection, _target):
     raise RecognitionMarkError("recognition evidence is append-only")
 
@@ -68,6 +86,7 @@ event.listen(ClinicRecognitionMark, "before_delete", _immutable)
 def create_tables(bind=None):
     engine = bind if bind is not None else db.engine
     ClinicRecognitionMark.__table__.create(engine, checkfirst=True)
+    ClinicCurrentRecognitionRun.__table__.create(engine, checkfirst=True)
     install_append_only_guards(engine)
 
 
@@ -109,3 +128,55 @@ def marks_for(dictation_id, audio_revision_id, transcript_revision_id, *, run_id
         transcript_revision_id=transcript_revision_id, run_id=run_id,
     ).order_by(ClinicRecognitionMark.start_ms, ClinicRecognitionMark.end_ms,
                ClinicRecognitionMark.id).all()
+
+
+def current_marks(dictation_id, audio_revision_id, transcript_revision_id):
+    """Read one exact run. Legacy evidence is usable when its run is unambiguous."""
+    binding = (dictation_id, audio_revision_id, transcript_revision_id)
+    current = db.session.get(ClinicCurrentRecognitionRun, binding)
+    if current is not None:
+        return marks_for(*binding, run_id=current.run_id)
+    runs = db.session.query(ClinicRecognitionMark.run_id).filter_by(
+        dictation_id=dictation_id, audio_revision_id=audio_revision_id,
+        transcript_revision_id=transcript_revision_id,
+    ).distinct().limit(2).all()
+    return marks_for(*binding, run_id=runs[0].run_id) if len(runs) == 1 else []
+
+
+def store_asr_marks(dictation, audio, revision, *, run_id, model_ref, segments, duration_ms):
+    """Write measured spans and select the accepted run, even when it has no marks."""
+    current = db.session.get(ClinicCurrentRecognitionRun, (dictation.id, audio.id, revision.id))
+    if current is not None and current.run_id == run_id:
+        return
+    report = recognition_marks(segments)
+    for mark in report.marks:
+        if mark.end_ms > duration_ms:
+            continue
+        if mark.source == "word":
+            metric, confidence = "probability", mark.value
+        else:
+            metric = "no_speech_prob" if mark.kind == "no_speech" else "avg_logprob"
+            confidence = None
+        add_mark(dictation, audio, revision, run_id=run_id, start_ms=mark.start_ms, end_ms=mark.end_ms,
+                 kind="uncertain", source=f"{model_ref}/{mark.source}/{metric}", confidence=confidence)
+    if current is None:
+        db.session.add(ClinicCurrentRecognitionRun(
+            dictation_id=dictation.id, audio_revision_id=audio.id,
+            transcript_revision_id=revision.id, run_id=run_id,
+        ))
+    else:
+        current.run_id = run_id
+
+
+def store_result(dictation, original, revision, *, run_id, model_ref, segments, verified_repeat_audio):
+    """Bind original input to its root revision, or use the repeat's verified EDL."""
+    audio = current_audio_revision(dictation)
+    if audio is None or (not verified_repeat_audio and audio.parent_revision_id is not None):
+        return
+    snapshot = ClinicAudioRevisionSnapshot.query.filter_by(
+        dictation_id=dictation.id, audio_revision_id=audio.id, original_id=original.id).one_or_none()
+    if snapshot is None:
+        return
+    measurements = (segment if isinstance(segment, dict) else vars(segment) for segment in segments or ())
+    store_asr_marks(dictation, audio, revision, run_id=run_id, model_ref=model_ref,
+                    segments=measurements, duration_ms=snapshot.total_duration_ms)
