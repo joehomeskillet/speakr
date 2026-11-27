@@ -188,6 +188,8 @@ class PreferenceRoutes:
         actor = current_user.id
         allowed = self._allowed_for(actor)
         if request.method == "GET":
+            if "start_pool" in request.args:
+                return self._start_pool(actor, allowed)
             result = self._selections.start_context(actor, allowed)
             return jsonify(selection=_selection_json(result.selection), fallback=list(result.fallback))
         raw = _body().get("selection")
@@ -198,6 +200,15 @@ class PreferenceRoutes:
             raise LastSelectionError("selection_not_allowed")
         self._selections.remember(actor, selection)
         return jsonify(selection=_selection_json(selection))
+
+    def _start_pool(self, actor: int, allowed: Allowed):
+        """Check the link against the session's current allowances without saving it."""
+        requested = request.args.get("start_pool")
+        accepted = requested in allowed.pool_ids
+        saved = self._selections.start_context(actor, allowed).selection if allowed.roles and not accepted else None
+        pool_id = requested if accepted else (saved.pool_id if saved else None)
+        pool = db.session.get(pools.ClinicAuthorPool, pool_id) if pool_id else None
+        return jsonify(pool={"id": pool.id, "name": pool.name} if pool else None, accepted=accepted and pool is not None)
 
     # -- workstation --------------------------------------------------------
     def _workstation_issue(self):

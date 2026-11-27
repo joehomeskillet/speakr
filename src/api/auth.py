@@ -340,7 +340,11 @@ def _clinic_login():
                 audit.record('auth.login.succeeded', actor_kind='session', actor_user_id=user.id,
                              details={'method': 'password', 'remember': False})
                 next_page = request.args.get('next')
-                return redirect(next_page if next_page and is_safe_url(next_page) else url_for('recordings.index'))
+                response = redirect(next_page if next_page and is_safe_url(next_page) else url_for('recordings.index'))
+                response.set_cookie('clinic_last_login', user.username, max_age=30 * 86400,
+                                    path=url_for('auth.login'), httponly=True,
+                                    secure=request.is_secure, samesite='Lax')
+                return response
         _audit_login_failed(candidate, 'locked' if locked else 'bad_password')
         flash('Anmeldung fehlgeschlagen.', 'danger')
 

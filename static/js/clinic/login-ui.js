@@ -21,4 +21,10 @@
         var button = event.target.closest && event.target.closest('[data-password-toggle]');
         if (button) toggle(button);
     });
+    var localForm = document.querySelector('[data-clinic-start]');
+    if (localForm) {
+        import('./selection-ui.js').then(function (selection) {
+            selection.applyLoginStartHints(localForm, document.getElementById('clinic-login-hint'));
+        });
+    }
 })();
