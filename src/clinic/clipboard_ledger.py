@@ -80,9 +80,11 @@ class AuditClipboardLedger(MutableMapping[str, OutputAttempt]):
                     or value.channel != CHANNEL_CLIPBOARD or value.target != 'browser'):
                 raise OutputAttemptError('invalid clipboard claim')
             dictation_id = value.source.dictation_id
+            # Leave keys untouched: concurrent output receipts hold FK key-share locks.
             locked = db.session.execute(
                 update(ClinicDictation).where(ClinicDictation.id == dictation_id)
-                .values(id=ClinicDictation.id).execution_options(synchronize_session=False))
+                .values(version_counter=ClinicDictation.version_counter)
+                .execution_options(synchronize_session=False))
             if locked.rowcount != 1:
                 raise OutputAttemptError('clipboard dictation does not exist')
             entries = self._entries(dictation_id)
