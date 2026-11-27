@@ -108,6 +108,25 @@ def add_human_revision(
     )
 
 
+def append_working_revision(
+    dictation: ClinicDictation, head: ClinicTranscriptRevision, *, actor_user_id: int,
+) -> ClinicTranscriptRevision:
+    """Start a distinct working revision from the locked head, preserving its text kind."""
+    _check_dictation(dictation)
+    _check_revision(dictation, head)
+    _require_author(actor_user_id)
+    return _append(
+        dictation,
+        kind=head.kind,
+        text=head.body,
+        explicit_parent=head,
+        original_version=None,
+        model_ref=head.model_ref,
+        author_user_id=actor_user_id if head.kind == KIND_HUMAN else None,
+        reuse_unchanged=False,
+    )
+
+
 def current_revision(dictation: ClinicDictation) -> ClinicTranscriptRevision | None:
     """The head: latest human correction, or the latest ASR row if no human exists."""
     _check_dictation(dictation)
@@ -156,18 +175,21 @@ def is_flagged(dictation: ClinicDictation, revision: ClinicTranscriptRevision) -
 
 
 def _append(dictation, *, kind, text, explicit_parent, original_version, model_ref,
-            author_user_id=None):
+            author_user_id=None, reuse_unchanged=True):
     digest = text_hash(text)
     normalised = normalise_text(text)
-    rows = _load(dictation.id)
-    existing, parent = _link(dictation, explicit_parent, rows, kind, digest)
-    if existing is not None:
-        return existing
+    if reuse_unchanged:
+        rows = _load(dictation.id)
+        existing, parent = _link(dictation, explicit_parent, rows, kind, digest)
+        if existing is not None:
+            return existing
+    else:
+        parent = explicit_parent
     if kind == KIND_HUMAN:
         original_id = _human_original_id(parent, original_version, dictation)
         stored_model = None
     else:
-        original_id = original_version.id
+        original_id = original_version.id if original_version is not None else parent.original_version_id
         stored_model = model_ref
     row = ClinicTranscriptRevision(
         dictation_id=dictation.id,
