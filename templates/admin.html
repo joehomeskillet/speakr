@@ -4924,7 +4924,7 @@ Summarization Instructions:
         import { categoriesComponent } from "{{ url_for('static', filename='js/clinic/categories-ui.js', v=app_version) }}";
         import { columnsComponent } from "{{ url_for('static', filename='js/clinic/columns-ui.js', v=app_version) }}";
         import { createRegexRulesComponent } from "{{ url_for('static', filename='js/clinic/regex-ui.js', v=app_version) }}";
-        import { createPreferencesComponent } from "{{ url_for('static', filename='js/clinic/preferences-ui.js', v=app_version) }}";
+        import { createCentralPreferencesComponent, createPreferencesComponent } from "{{ url_for('static', filename='js/clinic/preferences-ui.js', v=app_version) }}";
         import { registerAdminPoolsView } from "{{ url_for('static', filename='js/clinic/compose-admin-pools.js', v=app_version) }}";
         import { registerAuthorsView } from "{{ url_for('static', filename='js/clinic/compose-authors.js', v=app_version) }}";
         import { registerUsersView } from "{{ url_for('static', filename='js/clinic/compose-users.js', v=app_version) }}";
@@ -4941,6 +4941,7 @@ Summarization Instructions:
         const team = root.dataset.mode === 'team';
         const userId = Number(root.dataset.userId);
         const client = createClinicApiClient();
+        const CentralPreferences = !team ? markRaw(createCentralPreferencesComponent(window.Vue, client)) : null;
 
         // Same-origin client for the admin routes outside /api/clinic/v1 (same call shape as the clinic client):
         // /admin/users (src/api/admin.py) and /api/admin/clinic/training/* (routes_training.py, written as /admin/clinic/training/*).
@@ -5313,7 +5314,7 @@ Summarization Instructions:
                     if (!team) window.Vue.nextTick(notifyShell);
                 }
                 onMounted(probe);
-                return { team, shown, shownV8, withheld, withheldText, probing, activeId, active, viewTestId, groups, selected, viewName, deniedIds, open };
+                return { team, CentralPreferences, shown, shownV8, withheld, withheldText, probing, activeId, active, viewTestId, groups, selected, viewName, deniedIds, open };
             },
             template: `
 <section class="cadm" aria-labelledby="clinic-admin-title" data-testid="clinic-admin">
@@ -5344,6 +5345,7 @@ Summarization Instructions:
             <span aria-hidden="true">›</span> <span id="cadm-page-label" aria-current="page" v-text="selected.label"></span>
           </nav>
           <div v-if="active" :key="active.id" :data-testid="viewTestId">
+            <component v-if="!team && active.id === 'preferences'" :is="CentralPreferences"></component>
             <component :is="active.comp" v-bind="active.props" @open-accounts="open('users')"></component>
           </div>
           <p v-else-if="deniedIds.includes(selected.id)" role="status" class="banner banner--warn" data-testid="clinic-admin-denied">

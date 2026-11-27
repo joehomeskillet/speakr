@@ -14,8 +14,8 @@ from src.app import app as real_app, register_clinic_identity
 from src.clinic import config, guard, pools, presets, recipient_defaults as rd, route_policy
 from src.clinic.identity import ClinicAccountPolicy
 from src.clinic.last_selection import Allowed, PreferenceUnavailable, SelectionStore
-from src.clinic.routes_preferences import PREFIX, PreferenceRoutes
-from src.clinic.workstation_preferences import WorkstationPreferences
+from src.clinic.routes_preferences import PREFIX, _SESSION_WORKSTATION, PreferenceRoutes
+from src.clinic.workstation_preferences import ALLOWLIST, WorkstationPreferences
 from src.database import db
 from src.models import User
 
@@ -190,6 +190,118 @@ def test_workstation_issue_apply_stale_and_foreign(world):
     assert c2.put(url, headers=h2, json={"expected_version": 1, "changes": {"theme_dark_mode": True}}).status_code == 403
 
 
+def test_workstation_reuse_preserves_overrides_and_account_defaults(world):
+    user = world["author"]
+    defaults = {
+        "ui_theme": "cards", "theme_color_scheme": "teal", "theme_dark_mode": True,
+        "ui_language": "fr", "audio_player_position": "top", "keyboard_shortcuts": False,
+        "show_timestamps_simple_view": True, "editor_autosave": True,
+    }
+    assert defaults.keys() == ALLOWLIST
+    for key, value in defaults.items():
+        setattr(user, key, value)
+    db.session.commit()
+
+    client, headers = world["client"](user)
+    url = PREFIX + "/workstations"
+    assert client.post(url, json={"reuse": True}).status_code == 403
+    issued = client.post(url, headers=headers, json={"reuse": True})
+    wid = issued.json["workstation_id"]
+    assert (issued.status_code, issued.json) == (201, {"workstation_id": wid, "defaults": defaults})
+    assert client.put(f"{url}/{wid}", headers=headers, json={
+        "expected_version": 0, "changes": {"audio_player_position": "bottom"},
+    }).json == {"version": 1}
+
+    legacy_ids = set()
+    for _ in range(2):
+        legacy = client.post(url, headers=headers)
+        assert (legacy.status_code, legacy.json.keys()) == (201, {"workstation_id"})
+        legacy_ids.add(legacy.json["workstation_id"])
+    assert len(legacy_ids) == 2 and wid not in legacy_ids
+    assert client.post(url, headers=headers, json={"reuse": True, "workstation_id": wid}).status_code == 400
+    reloaded = client.post(url, headers=headers, json={"reuse": True})
+    assert (reloaded.status_code, reloaded.json) == (200, issued.json)
+    assert client.get(f"{url}/{wid}").json["values"]["audio_player_position"] == "bottom"
+
+    separate, separate_headers = world["client"](user)
+    assert separate.post(url, headers=separate_headers, json={"reuse": True}).json["workstation_id"] != wid
+
+    for key in defaults:
+        setattr(user, key, None)
+    db.session.commit()
+    refreshed = client.post(url, headers=headers, json={"reuse": True})
+    assert (refreshed.status_code, refreshed.json) == (200, {
+        "workstation_id": wid,
+        "defaults": {
+            "ui_theme": "default", "theme_color_scheme": "blue", "theme_dark_mode": False,
+            "ui_language": "en", "audio_player_position": "bottom", "keyboard_shortcuts": True,
+            "show_timestamps_simple_view": False, "editor_autosave": False,
+        },
+    })
+
+
+@pytest.mark.parametrize("cached_binding", ["account_mismatch", "foreign", "missing"])
+def test_workstation_reuse_recovers_invalid_session_binding(world, cached_binding):
+    url = PREFIX + "/workstations"
+    foreign, foreign_headers = world["client"](world["other"])
+    foreign_id = foreign.post(url, headers=foreign_headers, json={"reuse": True}).json["workstation_id"]
+    client, headers = world["client"](world["author"])
+    account_id = world["author"].get_id()
+    own_id = client.post(url, headers=headers, json={"reuse": True}).json["workstation_id"]
+    with client.session_transaction() as saved:
+        saved[_SESSION_WORKSTATION] = {
+            "account_id": world["other"].get_id() if cached_binding == "account_mismatch" else account_id,
+            "workstation_id": {"account_mismatch": own_id, "foreign": foreign_id, "missing": "missing"}[
+                cached_binding
+            ],
+        }
+    issued = client.post(url, headers=headers, json={"reuse": True})
+    wid = issued.json["workstation_id"]
+    assert issued.status_code == 201
+    assert wid not in {own_id, foreign_id, "missing"}
+    assert client.get(f"{url}/{wid}").status_code == 200
+    reloaded = client.post(url, headers=headers, json={"reuse": True})
+    assert (reloaded.status_code, reloaded.json) == (200, issued.json)
+
+
+def test_central_preferences_only_returns_raw_system_rows(world, monkeypatch):
+    assert route_policy._build()["clinic_preferences.central"].kind == route_policy.ADMIN
+    admin_id = world["admin"].id
+    db.session.add_all([
+        ClinicAccountPolicy(user_id=admin_id, status="active"),
+        ClinicAccountPolicy(user_id=world["first"].id, status="active", is_identity_admin=True),
+    ])
+    presets.set_preset("language", "it-CH", scope="pool", scope_id=world["authors"].id)
+    presets.set_preset("with_approval", True, scope="user", scope_id=admin_id)
+    db.session.commit()
+    client, headers = world["client"](world["admin"])
+    url = PREFIX + "/central"
+    assert world["flask"].test_client().get(url).status_code == 401
+    for user in (world["author"], world["first"]):
+        other, _ = world["client"](user)
+        denied = other.get(url)
+        assert (denied.status_code, denied.json["code"]) == (403, "unauthorized")
+    assert client.get(url).json == {
+        "workstation_locks": {}, "presets": {}, "preset_defaults": presets.SYSTEM_DEFAULTS,
+    }
+    assert client.put(PREFIX + "/workstation-locks/ui_theme", headers=headers, json={"value": "desk"}).status_code == 204
+    assert client.put(PREFIX + "/presets/language", headers=headers, json={"value": "fr-CH"}).status_code == 204
+    assert client.put(PREFIX + "/presets/typist", headers=headers, json={"value": None, "is_locked": True}).status_code == 204
+    monkeypatch.setitem(config.SETTING_CEILINGS, "ui_theme", ("public_sharing", "focus"))
+    result = client.get(url)
+    assert (result.status_code, result.json) == (200, {
+        "workstation_locks": {"ui_theme": "desk"},
+        "presets": {"language": {"value": "fr-CH", "is_locked": False},
+                    "typist": {"value": None, "is_locked": True}},
+        "preset_defaults": presets.SYSTEM_DEFAULTS,
+    })
+    assert client.get(url + "?scope=user").status_code == 400
+    db.session.get(ClinicAccountPolicy, admin_id).status = "disabled"
+    db.session.commit()
+    denied = client.get(url)
+    assert (denied.status_code, denied.json["code"]) == (403, "unauthorized")
+
+
 @pytest.mark.parametrize(("path", "body"), [
     ("/presets/language", {"value": "fr-CH", "is_locked": True}),
     ("/workstation-locks/ui_theme", {"value": "desk"}),
@@ -260,6 +372,8 @@ def test_mounted_preferences_reapply_policy_on_fresh_app(world, monkeypatch):
         "values": {"ui_theme": "desk", "theme_dark_mode": True},
         "origins": {"ui_theme": "central", "theme_dark_mode": "workstation"},
         "version": 1,
+        "transport_mode": "local",
+        "device_redirection_verified": False,
     })
     resolved = user.get(PREFIX + "/presets").json
     assert (resolved["values"]["language"], resolved["origins"]["language"], resolved["locked"]) == (

@@ -20,6 +20,29 @@ export const MODES = Object.freeze(['all_eligible', 'person', 'staff_pool', 'sel
 export const CHOICES = Object.freeze(['default_only', 'staff_pools_only', 'open']);
 export const LOCKED_ORIGINS = Object.freeze(['central', 'ceiling']);
 
+export const WORKSTATION_FIELDS = {
+    theme_dark_mode: { label: 'Dunkle Darstellung', default: false },
+    ui_language: { label: 'Sprache der Oberfläche', default: 'de', options: [
+        ['de', 'Deutsch'], ['en', 'Englisch'], ['es', 'Spanisch'], ['fr', 'Französisch'],
+        ['pt-BR', 'Portugiesisch (Brasilien)'], ['ru', 'Russisch'], ['zh', 'Chinesisch'],
+    ] },
+    ui_theme: { label: 'Ansicht', default: 'default', options: [
+        ['default', 'Standard'], ['classic', 'Klassisch'], ['workspace', 'Arbeitsbereich'],
+        ['focus', 'Fokus'], ['desk', 'Schreibtisch'], ['cards', 'Karten'],
+    ] },
+    theme_color_scheme: { label: 'Akzentfarbe', default: 'blue', options: [
+        ['blue', 'Blau'], ['emerald', 'Grün'], ['purple', 'Violett'], ['rose', 'Rosé'], ['amber', 'Bernstein'], ['teal', 'Türkis'],
+    ] },
+    audio_player_position: { label: 'Position der Wiedergabe', default: 'bottom', options: [['bottom', 'Unten'], ['top', 'Oben']] },
+    keyboard_shortcuts: { label: 'Tastenkürzel', default: true },
+    show_timestamps_simple_view: { label: 'Zeitangaben im Text anzeigen', default: false },
+    editor_autosave: { label: 'Text automatisch speichern', default: false },
+};
+
+export const WORKSTATION_ORIGINS = Object.freeze({
+    workstation: 'Persönlich (Arbeitsplatz)', central: 'Zentral festgelegt', ceiling: 'Zentral begrenzt',
+});
+
 const LABELS = Object.freeze({
     'clinic.preferences.title': 'Empfänger und Arbeitsplatz',
     'clinic.preferences.mode': 'Standardempfänger',
@@ -33,7 +56,6 @@ const LABELS = Object.freeze({
     'clinic.preferences.choice.staff_pools_only': 'Nur Personalpools',
     'clinic.preferences.choice.open': 'Frei wählbar',
     'clinic.preferences.workstation': 'Arbeitsplatz-Einstellungen',
-    'clinic.preferences.locked': 'Zentral festgelegt',
     'clinic.preferences.save': 'Übernehmen',
     'clinic.preferences.cancel': 'Abbrechen',
     'clinic.preferences.retry': 'Erneut versuchen',
@@ -62,6 +84,8 @@ export function createPreferencesController(deps) {
     const client = deps.client;
     const translate = typeof deps.t === 'function' ? deps.t : null;
     let workstationId = deps.workstationId || null;
+    let inherited = {};
+    let generation = 0;
     const listeners = new Set();
 
     function label(key) {
@@ -89,7 +113,7 @@ export function createPreferencesController(deps) {
 
     function fail(res, fallbackCode) {
         const code = res.code || fallbackCode || null;
-        const message = SERVER_MESSAGES[String(code).toLowerCase()] || res.message;
+        const message = SERVER_MESSAGES[String(code).toLowerCase()] || res.message || 'Die Einstellungen konnten nicht geladen oder gespeichert werden.';
         state.error = {
             outcome: res.outcome, code, message,
             retryable: res.outcome === 'network' || res.outcome === 'UNKNOWN',
@@ -136,11 +160,13 @@ export function createPreferencesController(deps) {
     }
 
     async function load() {
+        const seen = generation;
         state.loading = true;
         state.error = null;
         state.notice = null;
         emit();
         const def = await client.request(BASE + '/recipient-default');
+        if (seen !== generation || def.outcome === 'cancelled') return false;
         if (def.outcome !== 'ok') {
             state.loading = false;
             fail(def);
@@ -154,8 +180,21 @@ export function createPreferencesController(deps) {
         state.choice = d.choice || 'open';
         state.overrides = d.overrides || null;
         state.draft = { mode: state.mode, targetIds: state.targetIds.slice(), choice: state.choice, changes: {} };
+        if (!workstationId && deps.issueWorkstation) {
+            const issued = await client.request(BASE + '/workstations', { method: 'POST', body: { reuse: true } });
+            if (seen !== generation || issued.outcome === 'cancelled') return false;
+            if (issued.outcome !== 'ok' || !issued.data?.workstation_id) {
+                state.loading = false;
+                fail(issued);
+                emit();
+                return false;
+            }
+            workstationId = issued.data.workstation_id;
+            inherited = issued.data.defaults || {};
+        }
         if (workstationId) {
             const ws = await client.request(BASE + '/workstations/' + encodeURIComponent(workstationId));
+            if (seen !== generation || ws.outcome === 'cancelled') return false;
             if (ws.outcome !== 'ok') {
                 state.loading = false;
                 fail(ws);
@@ -163,7 +202,7 @@ export function createPreferencesController(deps) {
                 return false;
             }
             const w = ws.data || {};
-            state.workstation = { values: w.values || {}, origins: w.origins || {}, version: w.version || 0 };
+            state.workstation = { values: { ...inherited, ...w.values }, origins: w.origins || {}, version: w.version || 0 };
         }
         revalidate();
         state.loading = false;
@@ -195,13 +234,15 @@ export function createPreferencesController(deps) {
     }
 
     function setWorkstationValue(key, value) {
-        if (isLocked(key)) return false;
-        state.draft.changes[key] = value;
+        if (!Object.hasOwn(state.workstation.values, key) || isLocked(key)) return false;
+        if (Object.is(value, state.workstation.values[key])) delete state.draft.changes[key];
+        else state.draft.changes[key] = value;
         emit();
         return true;
     }
 
     async function saveDefault() {
+        const seen = generation;
         const d = state.draft;
         if ((d.mode === 'person' || d.mode === 'staff_pool') && d.targetIds.length !== 1) {
             state.error = { outcome: 'validation', code: 'INVALID_PAYLOAD', message: label('clinic.preferences.target'), retryable: false };
@@ -215,6 +256,7 @@ export function createPreferencesController(deps) {
             method: 'PUT',
             body: { mode: d.mode, target_ids: d.targetIds, choice: d.choice, expected_version: state.version },
         });
+        if (seen !== generation || res.outcome === 'cancelled') return false;
         state.busy = false;
         if (res.outcome !== 'ok') {
             fail(res);
@@ -223,11 +265,12 @@ export function createPreferencesController(deps) {
         }
         const loaded = await load();
         if (loaded) { state.notice = label("clinic.preferences.saved"); emit(); }
-        return true;
+        return loaded;
     }
 
     async function saveWorkstation() {
         if (!workstationId || !Object.keys(state.draft.changes).length) return true;
+        const seen = generation;
         state.busy = true;
         state.error = null;
         emit();
@@ -235,6 +278,7 @@ export function createPreferencesController(deps) {
             method: 'PUT',
             body: { changes: state.draft.changes, expected_version: state.workstation.version },
         });
+        if (seen !== generation || res.outcome === 'cancelled') return false;
         state.busy = false;
         if (res.outcome !== 'ok') {
             fail(res);
@@ -243,19 +287,24 @@ export function createPreferencesController(deps) {
         }
         const loaded = await load();
         if (loaded) { state.notice = label("clinic.preferences.saved"); emit(); }
-        return true;
+        return loaded;
     }
 
     function cancel() {
+        if (state.loading || state.busy || !view().dirty) return;
         state.draft = { mode: state.mode, targetIds: state.targetIds.slice(), choice: state.choice, changes: {} };
         state.error = null;
+        state.notice = 'Ungespeicherte Änderungen verworfen.';
         emit();
     }
 
     // Account or workstation change: abort in-flight calls, drop all state, reload.
     async function switchContext(next) {
         const n = next || {};
-        workstationId = n.workstationId !== undefined ? n.workstationId : workstationId;
+        generation += 1;
+        state.busy = false;
+        inherited = {};
+        workstationId = n.workstationId !== undefined ? n.workstationId : (deps.issueWorkstation ? null : workstationId);
         client.switchContext({ accountId: n.accountId, dictationId: n.dictationId });
         state.workstation = { values: {}, origins: {}, version: 0 };
         state.overrides = null;
@@ -299,10 +348,15 @@ export function createPreferencesController(deps) {
             })),
             settings: Object.keys(state.workstation.values).map((key) => ({
                 key,
+                label: WORKSTATION_FIELDS[key]?.label || 'Arbeitsplatzwert',
+                options: WORKSTATION_FIELDS[key]?.options,
                 value: key in d.changes ? d.changes[key] : state.workstation.values[key],
+                origin: Object.hasOwn(WORKSTATION_ORIGINS, state.workstation.origins[key])
+                    ? WORKSTATION_ORIGINS[state.workstation.origins[key]] : 'Persönlich (Konto)',
                 locked: isLocked(key),
-                lockedLabel: isLocked(key) ? label('clinic.preferences.locked') : '',
+                lockedLabel: isLocked(key) ? WORKSTATION_ORIGINS[state.workstation.origins[key]] : '',
             })),
+            noOverrides: !Object.keys(state.workstation.origins).length,
             error: state.error,
             errorSurface,
             notice: state.notice,
@@ -375,7 +429,7 @@ const PANEL_TEMPLATE = `
   <form v-else @submit.prevent="onSave" :aria-busy="busy ? 'true' : 'false'" novalidate>
     <fieldset class="mb-4 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4" :aria-label="view.a11y.modeGroup.label" role="radiogroup">
       <legend class="px-1 text-sm font-semibold text-[var(--text-primary)]">{{ view.a11y.modeGroup.label }}</legend>
-      <label v-for="m in view.modes" :key="m.value" class="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]">
+      <label v-for="m in view.modes" :key="m.value" class="flex cursor-pointer items-center gap-2 min-h-12 rounded-md px-2 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]">
         <input type="radio" name="clinic-preferences-mode" :value="m.value" :checked="m.selected" :disabled="m.disabled || busy"
                :data-testid="'clinic-preferences-mode-' + m.value" @change="controller.setMode(m.value)">
         {{ m.label }}
@@ -383,7 +437,7 @@ const PANEL_TEMPLATE = `
     </fieldset>
     <div v-if="view.targets.length" class="mb-4">
       <label for="clinic-preferences-target" class="mb-1 block text-sm font-medium text-[var(--text-secondary)]">{{ view.labels.target }}</label>
-      <select id="clinic-preferences-target" class="field field--sm" :disabled="busy" data-testid="clinic-preferences-target"
+      <select id="clinic-preferences-target" class="field min-h-12 !border-ui-text-muted" :disabled="busy" data-testid="clinic-preferences-target"
               @change="controller.setTarget($event.target.value)">
         <option value="" :selected="!view.targets.some((x) => x.selected)">–</option>
         <option v-for="x in view.targets" :key="x.value" :value="x.value" :selected="x.selected">{{ x.value }}</option>
@@ -391,37 +445,41 @@ const PANEL_TEMPLATE = `
     </div>
     <fieldset class="mb-4 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4" :aria-label="view.a11y.choiceGroup.label" role="radiogroup">
       <legend class="px-1 text-sm font-semibold text-[var(--text-primary)]">{{ view.a11y.choiceGroup.label }}</legend>
-      <label v-for="c in view.choices" :key="c.value" class="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]">
+      <label v-for="c in view.choices" :key="c.value" class="flex cursor-pointer items-center gap-2 min-h-12 rounded-md px-2 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]">
         <input type="radio" name="clinic-preferences-choice" :value="c.value" :checked="c.selected" :disabled="c.disabled || busy"
                :data-testid="'clinic-preferences-choice-' + c.value" @change="controller.setChoice(c.value)">
         {{ c.label }}
       </label>
     </fieldset>
-    <fieldset v-if="view.settings.length" class="mb-4 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4">
+    <fieldset v-if="view.settings.length" class="mb-4 min-w-0 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4">
       <legend class="px-1 text-sm font-semibold text-[var(--text-primary)]">{{ view.labels.workstation }}</legend>
+      <p v-if="view.noOverrides" class="hint mb-2">Keine eigenen Arbeitsplatzwerte. Es gelten Ihre Kontoeinstellungen.</p>
       <div v-for="s in view.settings" :key="s.key" class="py-1" :data-testid="'clinic-preferences-setting-' + s.key">
+        <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+          <label :for="'clinic-workstation-' + s.key">{{ s.label }}</label>
+          <span class="tag neutral" :id="'clinic-origin-' + s.key">{{ s.origin }}</span>
+        </div>
         <template v-if="s.locked">
-          <span>{{ s.key }}: </span>
-          <output :data-testid="'clinic-preferences-locked-' + s.key">{{ String(s.value) }}</output>
-          <span class="text-sm"> ({{ s.lockedLabel }})</span>
+          <output :id="'clinic-workstation-' + s.key" :data-testid="'clinic-preferences-locked-' + s.key">
+            {{ s.options?.find(([v]) => v === s.value)?.[1] ?? (typeof s.value === 'boolean' ? (s.value ? 'Ein' : 'Aus') : s.value) }}
+          </output>
         </template>
-        <label v-else-if="typeof s.value === 'boolean'" class="inline-flex items-center gap-2 text-sm text-[var(--text-primary)]">
-          <input type="checkbox" :checked="s.value" :disabled="busy" @change="controller.setWorkstationValue(s.key, $event.target.checked)">
-          {{ s.key }}
-        </label>
-        <label v-else class="grid gap-1 text-sm font-medium text-[var(--text-secondary)]">{{ s.key }}
-          <input type="text" class="field field--sm" :value="s.value" :disabled="busy" @input="controller.setWorkstationValue(s.key, $event.target.value)">
-        </label>
+        <select v-else-if="s.options || typeof s.value === 'boolean'" :id="'clinic-workstation-' + s.key" :aria-describedby="'clinic-origin-' + s.key" class="field min-h-12 !border-ui-text-muted"
+                :value="s.value" :disabled="busy" @change="controller.setWorkstationValue(s.key, typeof s.value === 'boolean' ? $event.target.value === 'true' : $event.target.value)">
+          <option v-if="s.options && !s.options.some(([v]) => v === s.value)" :value="s.value">{{ s.value }}</option>
+          <option v-for="[value, label] in s.options || [[true, 'Ein'], [false, 'Aus']]" :key="value" :value="value">{{ label }}</option>
+        </select>
+        <input v-else :id="'clinic-workstation-' + s.key" :aria-describedby="'clinic-origin-' + s.key" type="text" class="field min-h-12 !border-ui-text-muted" :value="s.value" :disabled="busy" @input="controller.setWorkstationValue(s.key, $event.target.value)">
       </div>
     </fieldset>
     <div class="flex flex-wrap gap-2">
-      <button type="submit" class="btn btn--sm btn--primary" :disabled="!view.dirty || busy" data-testid="clinic-preferences-save">{{ view.labels.save }}</button>
-      <button type="button" class="btn btn--sm btn--ghost" :disabled="!view.dirty || busy" data-testid="clinic-preferences-cancel"
+      <button type="submit" class="btn btn--primary min-h-12" :disabled="!view.dirty || busy" data-testid="clinic-preferences-save">{{ view.labels.save }}</button>
+      <button type="button" class="btn btn--ghost min-h-12" :disabled="!view.dirty || busy" data-testid="clinic-preferences-cancel"
               @click="controller.cancel()">{{ view.labels.cancel }}</button>
-      <button type="button" class="btn btn--sm btn--ghost" :disabled="busy" data-testid="clinic-preferences-reload"
-              @click="controller.load()">{{ view.labels.reload }}</button>
-      <button v-if="view.error && view.error.retryable" type="button" class="btn btn--sm btn--ghost" data-testid="clinic-preferences-retry"
-              @click="onSave">{{ view.labels.retry }}</button>
+      <button type="button" class="btn btn--ghost min-h-12" :disabled="busy || view.dirty && !view.error" data-testid="clinic-preferences-reload"
+              @click="onReload">{{ view.labels.reload }}</button>
+      <button v-if="view.error && view.error.retryable" type="button" class="btn btn--ghost min-h-12" :disabled="busy" data-testid="clinic-preferences-retry"
+              @click="view.dirty ? onSave() : controller.load()">{{ view.labels.retry }}</button>
     </div>
   </form>
 </section>`;
@@ -440,7 +498,7 @@ export function createPreferencesComponent(Vue, client, props = {}) {
         template: PANEL_TEMPLATE,
         setup() {
             const { controller, view, unsubscribe } = usePreferences(
-                { client, workstationId: props.workstationId || null, t: props.t },
+                { client, workstationId: props.workstationId || null, issueWorkstation: props.issueWorkstation, t: props.t },
                 Vue,
             );
             const loading = Vue.ref(true);
@@ -465,12 +523,175 @@ export function createPreferencesComponent(Vue, client, props = {}) {
                 if (Object.keys(changes).length) return controller.saveWorkstation();
                 return true;
             }
+            function onReload() {
+                if (!view.value.dirty || window.confirm('Neu laden und ungespeicherte Änderungen verwerfen?')) return controller.load();
+            }
             function onKeydown(event) {
                 if (event && event.key === 'Escape') controller.cancel();
             }
             Vue.onMounted(async () => { await controller.load(); syncFlags(); });
             Vue.onBeforeUnmount(() => { if (unsubscribe) unsubscribe(); });
-            return { controller, view, loading, busy, errorStyle, noticeStyle, onSave, onKeydown };
+            return { controller, view, loading, busy, errorStyle, noticeStyle, onSave, onReload, onKeydown };
+        },
+    };
+}
+
+const PRESET_FIELDS = {
+    language: { label: 'Diktatsprache' },
+    priority: { label: 'Priorität', options: [[0, 'Niedrig'], [1, 'Normal'], [128, 'Dringend']] },
+    security: { label: 'Vertraulichkeit', options: [['normal', 'Normal'], ['confidential', 'Vertraulich'], ['restricted', 'Streng vertraulich']] },
+    use_speech_recognition: { label: 'Spracherkennung verwenden' },
+    with_approval: { label: 'Abnahme verlangen' },
+    pool: { label: 'Schreibgruppe' },
+    typist: { label: 'Schreibkraft' },
+};
+const ON_OFF_OPTIONS = [[true, 'Ein'], [false, 'Aus']];
+const PRESET_VALUE_LABELS = new Map([
+    ['<Automatisch>', 'Automatisch'], ['<Voreingestellt>', 'Voreingestellt'], ['all_eligible', 'Alle berechtigten Personen'],
+]);
+
+const CENTRAL_TEMPLATE = `
+<section v-if="!denied" class="panel mb-4" aria-labelledby="clinic-central-title" data-testid="clinic-central-preferences">
+  <h2 id="clinic-central-title" class="t-subhead">Zentrale Vorgaben</h2>
+  <p class="hint mt-1 mb-4">Zentral festgelegte Arbeitsplatzwerte gelten für alle und lassen sich persönlich nicht ändern. Vorgaben für Diktate können Sie auch ohne Sperre speichern.</p>
+  <p v-if="error" role="alert" class="banner banner--danger mb-3">{{ error }}</p>
+  <p v-if="notice" role="status" class="banner banner--success mb-3">{{ notice }}</p>
+  <p v-if="!data && busy" role="status">Zentrale Vorgaben werden geladen …</p>
+  <button v-else-if="!data" type="button" class="btn btn--ghost min-h-12" @click="load">Erneut laden</button>
+  <form v-else @submit.prevent="save" :aria-busy="busy">
+    <fieldset :disabled="busy" class="min-w-0 max-w-lg space-y-3">
+      <div>
+        <label for="clinic-central-field" class="block text-sm font-medium mb-1">Einstellung</label>
+        <select id="clinic-central-field" class="field min-h-12 !border-ui-text-muted" :value="key" @change="select($event.target.value)">
+          <optgroup label="Arbeitsplatz">
+            <option v-for="f in workstationFields" :key="f.key" :value="f.key">{{ f.label }}</option>
+          </optgroup>
+          <optgroup v-if="presetFields.length" label="Diktatablauf">
+            <option v-for="f in presetFields" :key="f.key" :value="f.key">{{ f.label }}</option>
+          </optgroup>
+        </select>
+      </div>
+      <div v-if="field" :key="key" class="space-y-3">
+        <p class="hint" role="status">{{ currentStatus }}</p>
+        <div>
+          <label for="clinic-central-value" class="block text-sm font-medium mb-1">Neuer Wert</label>
+          <select v-if="options" id="clinic-central-value" class="field min-h-12 !border-ui-text-muted" v-model="draftValue">
+            <option v-for="[value, label] in options" :key="value" :value="value">{{ label }}</option>
+          </select>
+          <input v-else id="clinic-central-value" class="field min-h-12 !border-ui-text-muted" type="text" maxlength="128"
+                 :required="key !== 'typist'" v-model.trim="draftValue">
+        </div>
+        <label v-if="isPreset" class="flex items-center gap-2 min-h-12 text-sm cursor-pointer">
+          <input type="checkbox" v-model="draftLocked"> Änderungen durch Benutzende sperren
+        </label>
+        <div class="actions">
+          <button type="submit" class="btn btn--primary min-h-12 !bg-brand-primary !text-[color:var(--v8-on-ink,var(--ui-surface))] hover:!bg-brand-accent dark:hover:!bg-brand-primary" :disabled="busy">{{ isPreset ? 'Vorgabe speichern' : 'Wert festlegen und sperren' }}</button>
+          <button v-if="hasOverride" type="button" class="btn btn--ghost min-h-12" :disabled="busy" @click="remove">
+            {{ isPreset ? 'Vorgabe entfernen' : 'Sperre aufheben' }}
+          </button>
+        </div>
+      </div>
+    </fieldset>
+  </form>
+</section>`;
+
+export function createCentralPreferencesComponent(Vue, client) {
+    return {
+        name: 'ClinicCentralPreferences',
+        template: CENTRAL_TEMPLATE,
+        setup() {
+            const data = Vue.ref(null);
+            const key = Vue.ref('');
+            const draftValue = Vue.ref(null);
+            const draftLocked = Vue.ref(false);
+            const denied = Vue.ref(false);
+            const busy = Vue.ref(false);
+            const error = Vue.ref('');
+            const notice = Vue.ref('');
+            const workstationFields = Object.entries(WORKSTATION_FIELDS).map(([key, field]) => ({ key, ...field }));
+            const presetFields = Vue.computed(() => Object.entries(PRESET_FIELDS)
+                .filter(([id]) => Object.hasOwn(data.value?.preset_defaults ?? {}, id))
+                .map(([id, field]) => ({ key: id, ...field, default: data.value.preset_defaults[id] })));
+            const preset = Vue.computed(() => presetFields.value.find((f) => f.key === key.value));
+            const isPreset = Vue.computed(() => Boolean(preset.value));
+            const field = Vue.computed(() => preset.value ?? workstationFields.find((f) => f.key === key.value));
+            const values = Vue.computed(() => isPreset.value ? data.value?.presets : data.value?.workstation_locks);
+            const hasOverride = Vue.computed(() => key.value in (values.value ?? {}));
+            const current = Vue.computed(() => hasOverride.value
+                ? (isPreset.value ? values.value[key.value].value : values.value[key.value])
+                : field.value?.default);
+            const locked = Vue.computed(() => hasOverride.value && (!isPreset.value || values.value[key.value].is_locked));
+            const options = Vue.computed(() => field.value?.options ?? (typeof field.value?.default === 'boolean' ? ON_OFF_OPTIONS : null));
+            const currentStatus = Vue.computed(() => {
+                if (!field.value) return '';
+                if (!isPreset.value && !hasOverride.value) return 'Nicht gesperrt · Persönliche Einstellungen gelten.';
+                const value = options.value?.find(([v]) => v === current.value)?.[1]
+                    ?? PRESET_VALUE_LABELS.get(current.value) ?? current.value ?? 'Keine Schreibkraft';
+                if (!hasOverride.value) return `Standardwert (keine zentrale Vorgabe): ${value}`;
+                return locked.value ? `Zentral gesperrt: ${value}` : `Zentrale Vorgabe (änderbar): ${value}`;
+            });
+
+            function select(id) {
+                key.value = id;
+                draftValue.value = current.value;
+                draftLocked.value = locked.value;
+                error.value = '';
+                notice.value = '';
+            }
+            async function load() {
+                if (busy.value) return;
+                busy.value = true;
+                error.value = '';
+                try {
+                    const result = await client.request(BASE + '/central');
+                    denied.value = result.outcome === 'permission';
+                    if (result.outcome === 'ok' && result.data) {
+                        data.value = result.data;
+                        select(workstationFields[0]?.key ?? presetFields.value[0]?.key ?? '');
+                    } else {
+                        error.value = result.message || 'Zentrale Vorgaben konnten nicht geladen werden.';
+                    }
+                } catch {
+                    error.value = 'Zentrale Vorgaben konnten nicht geladen werden.';
+                } finally {
+                    busy.value = false;
+                }
+            }
+            async function change(method) {
+                if (!data.value || busy.value || !field.value) return false;
+                const removing = method === 'DELETE';
+                if (removing && (!hasOverride.value || !window.confirm(isPreset.value
+                    ? `Zentrale Vorgabe für „${field.value.label}“ entfernen? Andere Vorgaben bleiben bestehen. Ohne andere Vorgabe gilt der Standardwert.`
+                    : `Zentrale Sperre für „${field.value.label}“ aufheben? Persönliche Einstellungen gelten wieder, sofern keine andere Einschränkung greift.`))) return false;
+                const id = key.value;
+                const value = id === 'typist' && draftValue.value === '' ? null : draftValue.value;
+                const body = isPreset.value ? { value, is_locked: draftLocked.value } : { value };
+                const path = BASE + (isPreset.value ? '/presets/' : '/workstation-locks/') + id;
+                busy.value = true;
+                error.value = '';
+                notice.value = '';
+                try {
+                    const result = await client.request(path, removing ? { method } : { method, body });
+                    if (result.outcome !== 'ok') {
+                        error.value = result.message || 'Die Änderung konnte nicht gespeichert werden.';
+                        return false;
+                    }
+                    if (removing) delete values.value[id];
+                    else values.value[id] = isPreset.value ? body : value;
+                    select(id);
+                    notice.value = removing ? 'Die zentrale Einstellung wurde entfernt.' : 'Die zentrale Einstellung wurde gespeichert.';
+                    return true;
+                } catch {
+                    error.value = 'Die Änderung konnte nicht gespeichert werden.';
+                    return false;
+                } finally {
+                    busy.value = false;
+                }
+            }
+            Vue.onMounted(load);
+            return { data, denied, busy, error, notice, key, field, options, workstationFields, presetFields,
+                isPreset, hasOverride, currentStatus, draftValue, draftLocked, select, load,
+                save: () => change('PUT'), remove: () => change('DELETE') };
         },
     };
 }

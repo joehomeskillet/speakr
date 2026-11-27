@@ -85,6 +85,33 @@ describe('settings view composition', () => {
         expect(view.state.denied).toBe(false);
     });
 
+    it('opens settings with a server-issued workstation and inherited editable values', async () => {
+        const Vue = fakeVue();
+        const client = fakeClient((path) => {
+            if (path === '/preferences/workstations') return ok({ workstation_id: 'ws-1', defaults: { editor_autosave: false } });
+            return routes(path);
+        });
+        const view = SettingsView.setup({ client, currentUser: { id: 7 }, vue: Vue });
+        const child = view.preferences.setup();
+        await Vue.hooks.mounted[0]();
+        expect(client.request).toHaveBeenCalledWith('/preferences/workstations', { method: 'POST', body: { reuse: true } });
+        expect(client.request).toHaveBeenCalledWith('/preferences/workstations/ws-1', undefined);
+        expect(child.view.value.settings.find((field) => field.key === 'editor_autosave')).toMatchObject({
+            value: false, origin: 'Persönlich (Konto)', locked: false,
+        });
+    });
+
+    it('does not publish an origin response from the previous account', async () => {
+        let resolve;
+        const client = fakeClient(() => new Promise((done) => { resolve = done; }));
+        const ctrl = createSettingsController({ client, currentUser: { id: 7 } });
+        const pending = ctrl.client.request('/preferences/workstations/ws-1');
+        ctrl.setUser({ id: 8 });
+        resolve(ok(WORKSTATION));
+        expect(await pending).toMatchObject({ outcome: 'cancelled' });
+        expect(ctrl.originRows()).toEqual([]);
+    });
+
     it('offers the correction mode preference without audio and keeps the saved mode', async () => {
         const Vue = fakeVue();
         const client = fakeClient(routes);
