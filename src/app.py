@@ -1179,22 +1179,38 @@ def register_clinic_worklist(flask_app):
     dispatch = flask_app.extensions['clinic_parity_dispatch']
     run_once = flask_app.extensions['clinic_run_once']
     # Permission or action name -> central policy actions that must all be allowed.
+    # rename, priority, reassign and reopen are not implied by edit or release.
     needs = {
-        'clinic.metadata': ('edit',), 'clinic.archive': ('archive',), 'clinic.delete': ('edit', 'delete'),
+        'clinic.archive': ('archive',), 'clinic.delete': ('edit', 'delete'),
         'clinic.release': ('release',),
         'clinic.review': ('edit', 'release'), 'clinic.accept': ('release',),
-        'clinic.reopen': ('release',), 'clinic.dictate': ('edit',), 'history': ('view',),
-        'review': ('edit',), 'listen': ('play',), 'regex_preview': ('edit',), 'regex_apply': ('edit',),
-        'rename': ('edit',), 'priority': ('edit',), 'reassign': ('edit', 'release'),
+        'clinic.reopen': ('reopen',), 'clinic.dictate': ('edit',), 'history': ('view',),
+        'listen': ('play',), 'regex_preview': ('edit',), 'regex_apply': ('edit',),
+        'rename': ('rename',), 'priority': ('priority',), 'reassign': ('reassign',),
+    }
+    # One door, any listed grant. Field writes still use the exact name in ``needs``.
+    # ``edit`` keeps a denied field as a refusal and still holds the write lease.
+    # ``reopen`` holds that lease only on a finished dictation, which is when reopen needs it.
+    any_of = {
+        'clinic.metadata': ('edit', 'rename', 'priority', 'reassign'),
+        'review': ('edit', 'rename', 'priority', 'reassign'),
     }
 
     def may(user_id, name, dictation):
-        actions = needs.get(name)
-        if not actions or dictation is None:
+        if dictation is None:
             return False
         subject = policy.build_subject(user_id)
-        return (all(pool_policy.decide(subject, action, dictation).allowed for action in actions)
-                and (name != 'clinic.archive' or archive_available(dictation)))
+        choices = any_of.get(name)
+        if name == 'review':
+            item = db.session.get(workflow.ClinicWorkflowDictation, dictation.id)
+            if item is not None and item.status == workflow.DONE:
+                choices = choices + ('reopen',)
+        actions = choices if choices is not None else needs.get(name)
+        if not actions:
+            return False
+        combine = any if choices is not None else all
+        allowed = combine(pool_policy.decide(subject, action, dictation).allowed for action in actions)
+        return allowed and (name != 'clinic.archive' or archive_available(dictation))
 
     def allowed_actions(user_id, dictation):
         return {name for name in ('rename', 'priority', 'reassign') if may(user_id, name, dictation)}
@@ -1392,12 +1408,15 @@ def register_clinic_audio(flask_app):
     durable (clinic_dictation_protection). The mounted sdict export uses that same current
     revision. A source that cannot be read stays empty and is never replaced by synthetic audio.
     """
+    from flask import abort
     from src.clinic import (app_wiring, audio_render, audio_revisions, config, local_tts, policy, pool_policy,
-                            revisions, routes_audio, routes_bundle, routes_clipboard, routes_correction,
+                            revisions, richtext, routes_audio, routes_bundle, routes_clipboard, routes_correction,
                             routes_dictation_properties, routes_live, routes_output, routes_tts, startup)
     from src.clinic.admin_dictation_access import can_open_content
+    from src.clinic.clipboard_ledger import AuditClipboardLedger
     from src.clinic.ingest import IngestService
     from src.clinic.models import ClinicDictation, ClinicTranscriptRevision
+    from src.clinic.rich_text_doc import RichTextError
 
     dispatch = flask_app.extensions['clinic_parity_dispatch']
     run_once = flask_app.extensions['clinic_run_once']
@@ -1446,9 +1465,14 @@ def register_clinic_audio(flask_app):
         head = None if dictation is None else revisions.current_revision(dictation)
         if head is None:
             return None
+        try:
+            _, doc = richtext.load_latest_document(head.id)
+        except RichTextError:
+            abort(409)
+        if doc is None:  # Legacy text revisions have no saved formatting.
+            doc = routes_bundle.text_to_document(head.body.encode('utf-8'))
         return routes_bundle.BundleSession(
-            doc=routes_bundle.text_to_document(head.body.encode('utf-8')),
-            audio=bundle_audio(dictation), version=text_version(dictation))
+            doc=doc, audio=bundle_audio(dictation), version=text_version(dictation))
 
     def bundle_persist(_actor, _dictation_id, _doc, _audio, _expected):
         raise OSError('no durable bundle store is wired yet')
@@ -1489,7 +1513,7 @@ def register_clinic_audio(flask_app):
     flask_app.register_blueprint(routes_tts.TtsApi(tts_load, lambda: None, None).blueprint)
     flask_app.register_blueprint(routes_clipboard.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation),
-        source_for=routes_output.output_source, ledger={}))
+        source_for=routes_output.output_source, ledger=AuditClipboardLedger()))
     flask_app.register_blueprint(routes_output.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation),
         adapter_for=lambda: routes_output.configured_adapter(flask_app)))
