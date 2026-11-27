@@ -537,11 +537,13 @@ def create_blueprint(
                 raise workflow.WorkflowError('audio_required')
             if item.pool_id != row.pool_id or row.pool_id not in author_pool_ids(current_user.id):
                 raise workflow.WorkflowError('forbidden')
-            if not pools.routable_staff_pool_ids(row.pool_id, now):
+            target = workflow.store_routing_target(
+                db.session(), row.id, actor_id=current_user.id,
+                override=override, expected_version=default_version,
+            )
+            if target.mode != 'self_correction' and not pools.routable_staff_pool_ids(row.pool_id, now):
                 raise workflow.WorkflowError('no_staff_pool')
             check_submission(current_user.id, selections)
-            workflow.store_routing_target(db.session(), row.id, actor_id=current_user.id,
-                                          override=override, expected_version=default_version)
             note = selection_notes(current_user.id, selections)
             fields = ['workflow_status', 'workflow_send']
             if note:
