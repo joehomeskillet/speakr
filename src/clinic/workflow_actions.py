@@ -14,6 +14,7 @@ from src.clinic.lease import assert_current
 from src.clinic.live_session import assert_edit_allowed
 from src.clinic.models import ClinicDictation
 from src.clinic.pool_policy import author_pool_ids
+from src.clinic.richtext import ClinicRichTextSnapshot
 from src.database import db
 from src.services.audit import record_in_tx
 
@@ -130,6 +131,15 @@ def apply_action(
                     release_id=former.id, reason="reopened", superseded_at=now,
                 ))
                 session.flush()
+            if head is not None:
+                snapshot = session.scalar(db.select(ClinicRichTextSnapshot)
+                                          .filter_by(revision_id=head.id)
+                                          .order_by(ClinicRichTextSnapshot.version.desc()).limit(1))
+                head = revisions.append_working_revision(dictation, head, actor_user_id=actor_user_id)
+                if snapshot is not None:
+                    session.add(ClinicRichTextSnapshot(
+                        revision_id=head.id, version=1, payload=snapshot.payload,
+                    ))
 
         if record_in_tx(
             "recording.edited", actor_user_id=actor_user_id, recording_id=dictation.recording_id,
