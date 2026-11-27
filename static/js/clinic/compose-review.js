@@ -42,6 +42,7 @@ import { createClinicApiClient } from './api-client.js';
 import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
 import { useCorrectionEditor } from './correction-editor-ui.js';
 import { useCorrectionAlignment } from './correction-alignment-ui.js';
+import { FinishOptions } from './finish-options-ui.js';
 import { createAcceptancePolicyEditor } from './acceptance-policy-ui.js';
 import { ACTIONS, createWorkflowActions } from './workflow-actions-ui.js';
 
@@ -520,6 +521,7 @@ const BODY_PROPS = {
 
 const ReviewBody = {
     name: 'ClinicReviewBody',
+    components: { FinishOptions },
     props: BODY_PROPS,
     emits: ['close', 'correct'],
     setup(props, ctx) {
@@ -539,6 +541,23 @@ const ReviewBody = {
         if (typeof V.onMounted === 'function') V.onMounted(() => { c.start(); });
         if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => c.dispose());
         const a = c.alignment;
+        let finishOptions = null;
+        const onFinishKeydown = (event) => {
+            event.stopPropagation();
+            finishOptions?.onKeydown(event);
+            event.preventDefault();
+        };
+        const finishWorkflow = {
+            ...c.wf,
+            async confirm() {
+                const why = c.blockedReason('release');
+                if (why || await c.checkNewer()) {
+                    c.wf.state.error = why || TEXT.newerRevision;
+                    return null;
+                }
+                return c.wf.confirm();
+            },
+        };
         const styleFor = (seg) => {
             const word = a.currentWord.value;
             if (word && seg.linkId === word.id) return box('processing');
@@ -546,17 +565,19 @@ const ReviewBody = {
             return {};
         };
         return {
-            c, FOCUS, short: (v) => (typeof v === 'string' && v.length > 13 ? v.slice(0, 8) + '…' : v), box, styleFor, TEXT, wf: c.wf,
+            c, FOCUS, short: (v) => (typeof v === 'string' && v.length > 13 ? v.slice(0, 8) + '…' : v), box, styleFor, TEXT, wf: c.wf, finishWorkflow, onFinishKeydown,
+            setFinishOptions: (view) => { finishOptions = view; },
             toneBox: (tone) => box({ success: 'success', warn: 'warning', danger: 'error', info: 'pending' }[tone] || 'normal'),
             status: c.status, review: c.review, newer: c.newer, confirming: c.confirming, reason: c.reason, error: c.error,
-            reasonInvalid: c.reasonInvalid, contentChecked: c.contentChecked, contextChecked: c.contextChecked,
+            reasonInvalid: c.reasonInvalid,
             audio: c.editor.audio, manual: c.editor.manual, lease: c.editor.lease,
             segments: a.segments, currentWord: a.currentWord,
             setReasonNode: (n) => { reasonNode = n; },
         };
     },
     template: `
-<section class="clinic-review-view v8-page" data-testid="clinic-review-view" aria-labelledby="crv-title" :aria-busy="status === 'loading' ? 'true' : 'false'">
+<section class="clinic-review-view v8-page" data-testid="clinic-review-view" aria-labelledby="crv-title" :aria-busy="status === 'loading' ? 'true' : 'false'"
+         @keydown.f5.exact.capture="onFinishKeydown">
   <nav class="breadcrumb" aria-label="Pfad"><span>Speakr</span><span aria-hidden="true">›</span><span>{{ TEXT.eyebrow }}</span><span aria-hidden="true">›</span><span aria-current="page">{{ TEXT.title }}</span></nav>
   <div class="pagehead">
     <div>
@@ -646,9 +667,13 @@ const ReviewBody = {
           </div>
           <p v-if="c.readOnly()" class="note" role="note" data-testid="read-only">{{ TEXT.readOnly }}</p>
           <div class="actions text-sm" style="margin-top: 14px">
-            <button v-for="a in c.actions()" :key="a.id" type="button" class="button" style="min-height: 2.75rem"
-                    :style="[FOCUS, a.id === 'accept' ? '${PRIMARY}' : null]" :disabled="a.disabled" :data-action="a.id" :aria-describedby="a.why ? 'crv-why-' + a.id : null"
-                    @click="c.request(a.id)">{{ a.label }}</button>
+            <template v-for="a in c.actions()" :key="a.id">
+              <FinishOptions v-if="a.id === 'release'" :ref="setFinishOptions" :workflow="finishWorkflow" :client="c.client" :vue="vue"
+                             :disabled="a.disabled || !lease.writable || !!confirming" @finished="c.close()" />
+              <button v-else type="button" class="button" style="min-height: 2.75rem"
+                      :style="[FOCUS, a.id === 'accept' ? '${PRIMARY}' : null]" :disabled="a.disabled" :data-action="a.id" :aria-describedby="a.why ? 'crv-why-' + a.id : null"
+                      @click="c.request(a.id)">{{ a.label }}</button>
+            </template>
           </div>
           <template v-for="a in c.actions()" :key="'w' + a.id"><span v-if="a.why" :id="'crv-why-' + a.id" :class="a.id === 'accept' ? 'hint' : 'visually-hidden'">{{ a.why }}</span></template>
 
@@ -659,10 +684,6 @@ const ReviewBody = {
               <label style="${LABEL}" for="crv-reason">{{ TEXT.reason }}</label>
               <textarea style="${TEXTAREA}" id="crv-reason" :ref="setReasonNode" v-model="reason" maxlength="2000"
                         :aria-invalid="reasonInvalid ? 'true' : 'false'" aria-describedby="crv-error" data-testid="reason"></textarea>
-            </div>
-            <div v-if="confirming === 'release'" class="checkboxes">
-              <label class="inline-label"><input type="checkbox" v-model="contentChecked"> {{ TEXT.contentChecked }}</label>
-              <label class="inline-label"><input type="checkbox" v-model="contextChecked"> {{ TEXT.contextChecked }}</label>
             </div>
             <div class="actions text-sm">
               <button type="submit" class="button" style="min-height: 2.75rem; ${PRIMARY}" :style="FOCUS" :disabled="wf.state.busy" data-testid="confirm">{{ TEXT.confirm }}</button>

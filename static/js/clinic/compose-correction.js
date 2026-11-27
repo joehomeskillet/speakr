@@ -963,7 +963,7 @@ export const CorrectionBody = {
         <h1 id="ccv-title" style="font-weight: 700; letter-spacing: -.8px; color: var(--v8-text)">{{ openMode === 'player' ? TEXT.playerPage : TEXT.page }}</h1>
         <FinishOptions v-if="finishWorkflow.state.allowed.includes('release')"
                        ref="finishOptions" :workflow="finishWorkflow" :client="c.client" :vue="vue"
-                       :disabled="dirty || loading || !!error" @finished="c.close()" />
+                       :disabled="!ready || !lease.writable || dirty || loading || !!error" @finished="c.close()" />
       </div>
       <p class="subline">{{ openMode === 'player' ? TEXT.playerSubline : TEXT.subline }}</p>
     </div>
