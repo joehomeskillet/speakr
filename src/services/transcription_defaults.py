@@ -285,22 +285,15 @@ def _engine_plan():
     return {'selected': 'cpu', 'fallback': None, 'actual': None}
 
 
-def _capability_extras(registry, user_id, target, record):
-    """Negative lexicon and checkpoint adapter, only when proven."""
+def _capability_extras(registry, target, record):
+    """Record checkpoint evidence and legacy negative-lexicon provenance."""
     from src.clinic.asr_capabilities import (
         CAPABILITY_UNAVAILABLE, AsrCapability, CapabilityEvidence,
     )
     proof = registry.check(AsrCapability.NEGATIVE_LEXICON.value, target)
     if isinstance(proof, CapabilityEvidence):
-        from src.clinic.negative_lexicon import lexicon_version, resolve_negative_terms
-        from src.database import db
-        terms = resolve_negative_terms(user_id, [], db.session)
-        record['negative_lexicon'] = {
-            'terms': list(terms), 'lexicon_version': lexicon_version(terms),
-            'evidence_ref': proof.evidence_ref,
-        }
-    else:
-        record['negative_lexicon'] = {'status': CAPABILITY_UNAVAILABLE}
+        # A registry reference is diagnostic only. No suppression terms are applied.
+        record['negative_lexicon'].update(terms=[], evidence_ref=proof.evidence_ref)
     proof = registry.check(AsrCapability.CHECKPOINT.value, target)
     if isinstance(proof, CapabilityEvidence):
         record['checkpoint'] = {'evidence_ref': proof.evidence_ref}
@@ -318,14 +311,15 @@ def _apply_clinic_profile(result, overrides, owner, *, force_auto_language):
     from flask import current_app
     from src.clinic.asr_capabilities import AsrCapabilityRegistry
     from src.clinic.asr_job_profile import (
-        AsrJobProfileError, asr_capability_target, resolve_asr_job_profile,
+        AsrJobProfileError, asr_capability_target, negative_lexicon_run_metadata,
+        resolve_asr_job_profile,
     )
 
     if not result['language'] and not force_auto_language:
         result['language'] = CLINIC_DEFAULT_LANGUAGE
 
     record = {'engine': _engine_plan(), 'profile': None, 'profile_version': None,
-              'status': 'defaults'}
+              'status': 'defaults', **negative_lexicon_run_metadata()}
     owner_id = getattr(owner, 'id', None)
     if owner_id is not None:
         registry = current_app.extensions.get('clinic_capability_registry') or AsrCapabilityRegistry()
@@ -346,10 +340,7 @@ def _apply_clinic_profile(result, overrides, owner, *, force_auto_language):
                 result['language'] = run['language']
             if not (overrides or {}).get('transcription_model'):
                 result['transcription_model'] = run['model']
-            _capability_extras(
-                registry, owner_id,
-                asr_capability_target(run['language'], run['model']), record,
-            )
+            _capability_extras(registry, asr_capability_target(run['language'], run['model']), record)
 
     record['language'] = result['language']
     record['lang_id'] = CLINIC_LANG_ID_DE if result['language'] == CLINIC_DEFAULT_LANGUAGE else None
