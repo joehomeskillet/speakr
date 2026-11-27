@@ -178,7 +178,9 @@ class VocabularyApi:
             raise ApiError("invalid_payload")
         kwargs = self._scope(args.get("scope"), args.get("pool_id"), write=False)
         rows = vocabulary.search_vocabulary(args.get("q", ""), mode=mode, status=None if status == "all" else status, **kwargs)
-        return jsonify(entries=[_entry_json(row) for row in rows])
+        pool_id = kwargs.get("pool_id")
+        can_write = pool_id is None or self._can_write_pool(current_user.id, pool_id)
+        return jsonify(entries=[_entry_json(row) for row in rows], can_write=can_write)
 
     def _export(self):
         if request.args.get("scope") == "effective":

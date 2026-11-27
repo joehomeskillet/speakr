@@ -250,6 +250,13 @@ def list_resource_vocabulary_reviews():
     if not (current_user.is_authenticated and current_user.is_active):
         return _problem("UNAUTHORIZED")
 
+    if request.args.get("catalog") == "author_pools":
+        pools = db.session.query(ClinicAuthorPool.id, ClinicAuthorPool.name).order_by(ClinicAuthorPool.name)
+        return jsonify(author_pools=[
+            {"id": pool.id, "name": pool.name}
+            for pool in pools if can_review_pool(current_user.id, pool.id)
+        ])
+
     scope_type = request.args.get("scope_type")
     scope_id = request.args.get("scope_id")
     status = request.args.get("status", vocabulary.REVIEW_STATUS_PENDING)

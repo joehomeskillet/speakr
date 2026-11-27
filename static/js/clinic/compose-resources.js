@@ -218,9 +218,26 @@ export function createPanels(Vue) {
         setup(props) {
             const controller = createVocabularyReviewController({ client: props.client, scope: props.scope });
             const panel = usePanel(controller);
+            const reviewPools = Vue.ref([]);
+            const reviewPoolsFailed = Vue.ref(false);
+            const selectedPool = Vue.ref('');
+            async function loadReviewPools() {
+                reviewPoolsFailed.value = false;
+                const res = await props.client.request('/resources/vocabulary/reviews?catalog=author_pools');
+                if (res.outcome === 'ok') reviewPools.value = res.data?.author_pools || [];
+                else if (res.outcome !== 'cancelled') reviewPoolsFailed.value = true;
+            }
+            function selectReviewPool(id) {
+                if (id === selectedPool.value || controller.state.loading || controller.state.busy) return;
+                if (id && !reviewPools.value.some((pool) => pool.id === id)) return;
+                selectedPool.value = id;
+                return controller.setScope(id ? { type: 'author_pool', id } : props.scope);
+            }
+            Vue.onMounted(loadReviewPools);
             function onKey(e) {
                 const el = e.target && e.target.closest ? e.target.closest('[data-id]') : null;
-                const id = el ? el.dataset.id : null;
+                if (!el) return;
+                const id = el.dataset.id;
                 const next = controller.onKeydown(e, id);
                 if (next) e.preventDefault?.();
                 if (next && next !== id && e.currentTarget && e.currentTarget.querySelector) {
@@ -228,7 +245,7 @@ export function createPanels(Vue) {
                     if (target) target.focus();
                 }
             }
-            return Object.assign(panel, { controller, onKey });
+            return Object.assign(panel, { controller, onKey, reviewPools, reviewPoolsFailed, selectedPool, loadReviewPools, selectReviewPool });
         },
     };
 
