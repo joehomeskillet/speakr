@@ -50,6 +50,7 @@ _STATUS = {
     "stale_version": 409, "conflict": 409,
     "selection_not_allowed": 422, "not_author_pool": 422, "invalid_mode": 422, "bad_version": 422,
     "preference_read_failed": 503, "preference_write_failed": 503,
+    "invalid_transport_policy": 503,
 }
 _TITLES = {400: "Ungültige Anfrage", 401: "Anmeldung erforderlich", 403: "Zugriff verweigert",
            409: "Versionskonflikt", 422: "Auswahl nicht zulässig", 503: "Dienst nicht verfügbar"}
@@ -205,7 +206,11 @@ class PreferenceRoutes:
     def _workstation(self, workstation_id: str):
         if request.method == "GET":
             effective = self._workstations.effective(current_user, workstation_id)
-            return jsonify(values=effective.values, origins=effective.origins, version=effective.version)
+            return jsonify(
+                values=effective.values, origins=effective.origins, version=effective.version,
+                transport_mode=effective.transport_mode,
+                device_redirection_verified=effective.device_redirection_verified,
+            )
         body = _body()
         version = self._workstations.apply(
             current_user, workstation_id, body.get("changes"), expected_version=body.get("expected_version"),
