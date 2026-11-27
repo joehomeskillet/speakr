@@ -68,9 +68,13 @@ def show_jobs(page, base):
     support._click_noting(page, page.get_by_test_id("clinic-dictation-link-jobs"), "Verarbeitung")
     view = page.get_by_test_id("clinic-jobs-view")
     expect(view.get_by_role("heading", name="Aufträge dieses Diktats", exact=True)).to_be_visible()
-    expect(view.get_by_test_id("job-count")).to_have_text("1")
-    expect(view.get_by_test_id("job-list").locator("tbody tr")).to_have_count(1)
+    # Opening the recording from the Aufnahmen row now takes the write lease (WF007), and the
+    # editor holder requests the missing word alignment once: one queued job beside the seeded one.
+    expect(view.get_by_test_id("job-count")).to_have_text("2")
+    expect(view.get_by_test_id("job-list").locator("tbody tr")).to_have_count(2)
     expect(view.get_by_test_id("job-list")).to_contain_text("Abgeschlossen")
+    expect(view.get_by_test_id("job-list")).to_contain_text("Wortzuordnung")
+    expect(view.get_by_test_id("job-list")).to_contain_text("Wartend")
 
 
 def show_activity(page, base):
