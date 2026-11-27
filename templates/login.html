@@ -17,7 +17,7 @@
     {% if clinic_login %}<link rel="stylesheet" href="{{ url_for('static', filename='css/clinic-v8.css', v=app_version) }}">
     <style>
         .v8-ui .v8-page :focus-visible { outline-color: var(--brand-accent); }
-        .v8-ui [aria-labelledby="login-panel-title"] { --v8-input-outline: var(--v8-muted); }
+        .v8-ui [aria-labelledby="login-panel-title"]:not(.dark *, [data-theme="dark"] *) { --v8-input-outline: var(--v8-muted); }
         #admin-login-form input::placeholder { color: var(--v8-muted); }
 
         @media (max-width: 760px) {
