@@ -232,12 +232,14 @@ public sealed class ImportOrchestrator
 
     public Task<BoundReceipt> UploadAsync(InventoryItem item, ImportIntent intent, CancellationToken cancellationToken = default)
     {
+        var backupVerified = false;
         if (_options.PreSendBackupEnabled)
         {
             cancellationToken.ThrowIfCancellationRequested();
             _post.BackupBeforeSend(item, _spool.Read(item.SnapshotVersion));
+            backupVerified = true;
         }
-        return _uploader.UploadAsync(item, intent, cancellationToken);
+        return _uploader.UploadAsync(item, intent, cancellationToken, backupVerified);
     }
 
     private ImportIntent SyntheticIntent(InventoryItem item) => new()

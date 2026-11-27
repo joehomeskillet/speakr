@@ -224,7 +224,7 @@ def create_agent_blueprint(
     @bp.get('/ingests/<ingest_id>')
     @handled
     def receipt(ingest_id):
-        return _ok(agent_channel_ingest.get_receipt(g.clinic_agent, ingest_id=_ingest_id(ingest_id)))
+        return _ok(agent_channel_ingest.get_receipt(g.clinic_agent, ingest_id=_ingest_id(ingest_id), policy=policy))
 
     @bp.post('/ingests/<ingest_id>/abort')
     @handled
