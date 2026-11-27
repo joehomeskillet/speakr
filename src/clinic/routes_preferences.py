@@ -1,11 +1,12 @@
-"""HTTP surface for recipient, selection and workstation preferences.
+"""HTTP surface for recipient, selection, workstation and key-binding preferences.
 
-PAR-ADM-006, PAR-ADM-007, PAR-ADM-011, PAR-CFG-001. A thin layer over
-``recipient_defaults``, ``last_selection`` and ``workstation_preferences``.
-The actor is always ``current_user``. A body never names an actor, user or
-role. Every write checks CSRF and the session. Allowances (``allowed_for``)
-and the author pool (``author_pool_for``) come from the caller's central
-policy, are read on every request, and so apply at save and at use time.
+PAR-ADM-006, PAR-ADM-007, PAR-ADM-011, PAR-CFG-001, PAR-OPS-003. A thin layer over
+``recipient_defaults``, ``last_selection``, ``workstation_preferences`` and
+``key_bindings``. The actor is always ``current_user``. A body never names an
+actor, user or role. Every write checks CSRF and the session. Allowances
+(``allowed_for``) and the author pool (``author_pool_for``) come from the
+caller's central policy, are read on every request, and so apply at save and
+at use time.
 
 The OpenAPI catalog has no preference command yet, so these routes are not
 parity commands. Mounting ``blueprint`` in the app is left to the consumer
@@ -22,7 +23,7 @@ from flask_login import current_user
 from flask_wtf.csrf import CSRFError, validate_csrf
 from wtforms.validators import ValidationError
 
-from src.clinic import correction_modes, pools, recipient_defaults as rd
+from src.clinic import correction_modes, key_bindings, pools, recipient_defaults as rd
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.last_selection import (
     Allowed,
@@ -49,6 +50,8 @@ _STATUS = {
     "choice_disabled": 403, "person_not_allowed": 403, "capability_forbidden": 403,
     "stale_version": 409, "conflict": 409,
     "selection_not_allowed": 422, "not_author_pool": 422, "invalid_mode": 422, "bad_version": 422,
+    "reserved_chord": 422, "bad_chord": 422, "unknown_action": 422, "bad_bindings": 422,
+    "binding_conflict": 409,
     "preference_read_failed": 503, "preference_write_failed": 503,
 }
 _TITLES = {400: "Ungültige Anfrage", 401: "Anmeldung erforderlich", 403: "Zugriff verweigert",
@@ -88,6 +91,7 @@ class PreferenceRoutes:
         self._author_pool_for = author_pool_for
         self._selections = selections
         self._workstations = workstations
+        self._binding_store = key_bindings.KeyBindingStore()
         bp = self.blueprint = Blueprint("clinic_preferences", __name__)
         bp.before_request(self._guard)
         bp.register_error_handler(CSRFError, lambda _e: _problem("unauthorized"))
@@ -98,6 +102,7 @@ class PreferenceRoutes:
             ("/workstations", "workstation_issue", self._workstation_issue, ("POST",)),
             ("/workstations/<workstation_id>", "workstation", self._workstation, ("GET", "PUT")),
             ("/correction-mode", "correction_mode", self._correction_mode, ("GET", "PUT")),
+            ("/key-bindings", "key_bindings", self._key_bindings, ("GET", "PUT", "DELETE")),
         ):
             bp.add_url_rule(PREFIX + rule, name, self._wrap(view), methods=list(methods))
 
@@ -125,6 +130,12 @@ class PreferenceRoutes:
             except (rd.RecipientDefaultError, PreferenceError, LastSelectionError) as error:
                 return _problem(error.code)
             except correction_modes.ModeError as error:
+                return _problem(error.code)
+            except key_bindings.StaleVersion as error:
+                return _problem("stale_version", current_version=error.current_version)
+            except key_bindings.BindingConflict as error:
+                return _problem(error.code, conflicts=[list(pair) for pair in error.conflicts])
+            except key_bindings.BindingError as error:
                 return _problem(error.code)
 
         run.__name__ = view.__name__
@@ -222,3 +233,65 @@ class PreferenceRoutes:
         body = _body()
         mode, version = correction_modes.set_mode(actor, body.get("mode"), body.get("expected_version"))
         return jsonify(mode=mode, version=version)
+
+    # -- focused key and pedal bindings (PAR-OPS-003) -----------------------
+    def _key_bindings(self):
+        """Read or change only the signed-in user's bindings."""
+        actor = current_user.id
+        if request.method == "GET":
+            return _bindings_json(self._binding_store.load(actor))
+        if request.method == "DELETE":
+            return self._reset_key_bindings(actor)
+        return self._put_key_binding(actor)
+
+    def _put_key_binding(self, actor: int):
+        body = _body()
+        action, chord = body.get("action"), body.get("chord")
+        _reject_reserved_chord(chord)
+        loaded = self._binding_store.load(actor)
+        version = body["expected_version"] if "expected_version" in body else loaded.version
+        # set_binding checks the chord, the action and conflicts. The store persists that result.
+        stored = self._binding_store.set_binding(actor, action, chord, version)
+        return _bindings_json(stored)
+
+    def _reset_key_bindings(self, actor: int):
+        body = _body() if request.data else {}
+        action = request.args.get("action")
+        if action is not None and not action.strip():
+            action = None
+        if "expected_version" in body:
+            version = body["expected_version"]
+        elif "expected_version" in request.args:
+            version = _query_version(request.args["expected_version"])
+        else:
+            version = self._binding_store.load(actor).version
+        stored = self._binding_store.reset(actor, action, expected_version=version)
+        return _bindings_json(stored)
+
+
+def _bindings_json(stored: key_bindings.StoredBindings):
+    return jsonify(
+        bindings=stored.bindings,
+        defaults=dict(key_bindings.DEFAULTS),
+        version=stored.version,
+    )
+
+
+def _reject_reserved_chord(chord: object) -> None:
+    """Report a reserved browser chord from ``set_binding`` before other PUT checks.
+
+    An omitted or unknown action would otherwise hide ``reserved_chord``.
+    """
+    if not isinstance(chord, str):
+        return
+    try:
+        key_bindings.set_binding({"stop": "F1"}, "stop", chord)
+    except key_bindings.BindingError as error:
+        if error.code == "reserved_chord":
+            raise
+
+
+def _query_version(raw: object) -> int:
+    if isinstance(raw, str) and raw.isascii() and raw.isdigit():
+        return int(raw)
+    raise key_bindings.BindingError("bad_version")
