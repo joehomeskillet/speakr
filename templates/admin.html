@@ -5066,13 +5066,23 @@ Summarization Instructions:
                 const editor = useAcceptancePolicyEditor(window.Vue, { client });
                 const draft = ref('');
                 const approverDraft = ref('');
+                const scopeDrafts = ref({ approverPoolIds: '', denyUserIds: '' });
+                const scopes = [
+                    { key: 'approverPoolIds', id: 'acc-pool', title: 'Berechtigte Autorenpools', label: 'Pool-ID',
+                        rowLabel: 'Autorenpool', action: 'Pool aufnehmen', empty: 'Keine Autorenpools ausgewählt.', invalid: 'Bitte eine gültige Pool-ID eingeben.' },
+                    { key: 'denyUserIds', id: 'acc-deny', title: 'Ausgeschlossene Benutzer', label: 'Ausgeschlossene Benutzer-ID',
+                        rowLabel: 'Benutzer', action: 'Benutzer ausschließen', empty: 'Keine Benutzer ausgeschlossen.', invalid: 'Bitte eine gültige Benutzer-ID eingeben.' },
+                ];
                 const opened = ref(false);
                 const note = ref('');
                 const noteKind = ref('info');
                 function say(text, kind) { note.value = text; noteKind.value = kind || 'info'; }
                 async function open() {
+                    if (editor.state.status === 'processing') return;
                     const id = draft.value.trim();
                     opened.value = false;
+                    approverDraft.value = '';
+                    for (const scope of scopes) scopeDrafts.value[scope.key] = '';
                     say('');
                     if (!id) { say('Bitte eine Diktat-ID eingeben.', 'warn'); return; }
                     editor.reset();
@@ -5089,11 +5099,29 @@ Summarization Instructions:
                     say('');
                 }
                 function removeApprover(id) { editor.toggle(id); say(''); }
+                function addScope(scope) {
+                    const pool = scope.key === 'approverPoolIds';
+                    const draft = String(scopeDrafts.value[scope.key]).trim();
+                    const id = pool ? draft.toLowerCase() : Number(draft);
+                    const valid = pool ? /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(id)
+                        : /^[0-9]+$/.test(draft) && Number.isSafeInteger(id) && id > 0;
+                    if (!valid) { say(scope.invalid, 'warn'); return; }
+                    const ids = editor.state[scope.key];
+                    if (ids.includes(id)) { say('Diese ID ist bereits ausgewählt.', 'warn'); return; }
+                    ids.push(id);
+                    scopeDrafts.value[scope.key] = '';
+                    say('');
+                }
+                function removeScope(scope, id) {
+                    editor.state[scope.key] = editor.state[scope.key].filter(value => value !== id);
+                    say('');
+                }
                 async function save() {
                     const res = await editor.save();
                     say(res.ok ? 'Gespeichert. Version ' + editor.state.version + '.' : res.message, res.ok ? 'ok' : 'error');
                 }
-                return { editor, draft, approverDraft, opened, note, noteKind, open, addApprover, removeApprover, save };
+                return { editor, draft, approverDraft, scopes, scopeDrafts, opened, note, noteKind,
+                    open, addApprover, removeApprover, addScope, removeScope, save };
             },
             template: `
 <div class="acc-host" data-testid="clinic-acceptance">
@@ -5102,7 +5130,7 @@ Summarization Instructions:
   <form class="acc-form" @submit.prevent="open">
     <label for="acc-dictation" class="t-label">Diktat-ID</label>
     <input id="acc-dictation" class="field field--sm acc-id" type="text" autocomplete="off" spellcheck="false" v-model="draft">
-    <button type="submit" class="btn btn--sm btn--ghost" data-testid="acc-load">Richtlinie laden</button>
+    <button type="submit" class="btn btn--sm btn--ghost" data-testid="acc-load" :disabled="editor.state.status === 'processing'">Richtlinie laden</button>
   </form>
   <p v-if="note && !opened" role="status" class="acc-note" :data-kind="noteKind" data-testid="acc-note" v-text="note"></p>
   <p v-if="!opened && !note" class="t-meta" data-testid="acc-empty">Noch kein Diktat geöffnet.</p>
@@ -5127,8 +5155,24 @@ Summarization Instructions:
         <button type="button" class="btn btn--sm btn--ghost" data-testid="acc-add" @click="addApprover">Hinzufügen</button>
       </div>
     </fieldset>
+    <fieldset v-for="scope in scopes" :key="scope.key" class="acc-approvers" :data-testid="scope.id + '-scope'">
+      <legend class="t-label" v-text="scope.title"></legend>
+      <ul v-if="editor.state[scope.key].length" class="acc-list">
+        <li v-for="id in editor.state[scope.key]" :key="id" class="acc-row">
+          <span class="acc-row__name" v-text="scope.rowLabel + ' ' + id"></span>
+          <button type="button" class="btn btn--sm btn--ghost" :aria-label="scope.rowLabel + ' ' + id + ' entfernen'" @click="removeScope(scope, id)">Entfernen</button>
+        </li>
+      </ul>
+      <p v-else class="t-meta" v-text="scope.empty"></p>
+      <form class="acc-form acc-form--inline" novalidate @submit.prevent="addScope(scope)">
+        <label :for="scope.id" class="t-label" v-text="scope.label"></label>
+        <input :id="scope.id" class="field field--sm" :class="scope.id === 'acc-pool' ? 'acc-id' : 'acc-num'"
+          type="text" :inputmode="scope.id === 'acc-deny' ? 'numeric' : null" autocomplete="off" spellcheck="false" v-model="scopeDrafts[scope.key]">
+        <button type="submit" class="btn btn--sm btn--ghost" :data-testid="scope.id + '-add'" v-text="scope.action"></button>
+      </form>
+    </fieldset>
     <div class="acc-actions">
-      <button type="button" class="btn btn--primary" data-testid="acc-save" :disabled="editor.state.status === 'processing'" @click="save">Speichern</button>
+      <button type="button" class="btn btn--primary" data-testid="acc-save" :disabled="editor.state.status === 'processing' || editor.state.stale" @click="save">Speichern</button>
       <p v-if="note" role="status" class="acc-note" :data-kind="noteKind" data-testid="acc-note" v-text="note"></p>
     </div>
     <h4 class="t-subhead acc-decisions-title">Entscheidungen</h4>

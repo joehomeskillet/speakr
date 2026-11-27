@@ -3,11 +3,12 @@
  *
  * Server contract (src/clinic/routes_acceptance_policy.py, x15):
  *   GET dictations/<id>/acceptance-policy -> { version, acceptance_required, approver_ids }
- *   PUT same path, If-Match: <version>, body { acceptance_required, approver_ids }
- *   409 STALE_VERSION { version } | 422 INVALID_APPROVER | 428 missing If-Match
+ *   Nonempty approver_pool_ids and deny_user_ids are returned as optional fields.
+ *   PUT to the same path uses If-Match. Omitted scopes are kept; [] clears a scope.
+ *   409 STALE_VERSION { version } | 422 INVALID_APPROVER / INVALID_POOL / INVALID_DENY | 428 missing If-Match
  *   | 503 AUDIT_UNAVAILABLE.
  * Edits stay in memory until saved. Author and admin are never approvers by
- * label: only explicitly selected approvers count; the server validates
+ * label: direct grants and author-pool grants are subject to exclusions. The server validates
  * membership (422). Optional `eligible` [{user_id, name}] and `decisions`
  * [{kind, actor_id, actor_name, revision_id, reason, policy_version}] are shown
  * when a response carries them; x15 does not serve them yet, so without
@@ -38,11 +39,13 @@ export const DECISION_LABELS = Object.freeze({
 const REASONS = Object.freeze({
     not_eligible: 'Diese Person ist nicht freigabeberechtigt.',
     removed_participant: 'Eine entfernte Person ist noch ausgewählt.',
-    no_approver: 'Eine Pflichtfreigabe braucht mindestens eine freigebende Person.',
+    no_approver: 'Eine Pflichtfreigabe braucht mindestens eine freigebende Person oder einen Autorenpool.',
     not_loaded: 'Die Richtlinie ist nicht geladen.',
     stale_version: 'Der Stand ist veraltet. Bitte neu laden.',
     permission: 'Keine Berechtigung für diese Aktion.',
     invalid_approver: 'Eine ausgewählte Person ist nicht freigabeberechtigt.',
+    invalid_pool: 'Ein ausgewählter Autorenpool ist ungültig oder inaktiv.',
+    invalid_deny: 'Eine ausgeschlossene Benutzer-ID ist ungültig oder gehört zu keinem aktiven Konto.',
     audit_unavailable: 'Das Protokoll ist nicht verfügbar. Bitte später erneut versuchen.',
     failure: 'Das Speichern ist fehlgeschlagen.',
 });
@@ -73,12 +76,21 @@ export function createAcceptancePolicyEditor(options) {
         version: 0,
         required: false,
         approvers: [], // selected user ids
+        approverPoolIds: [],
+        denyUserIds: [],
         eligible: [], // { userId, name }
         eligibleKnown: false,
         decisions: [], // { state, label, actorId, actorName, revisionId, reason }
         stale: false,
         status: 'normal',
     });
+
+    let savedPools = [];
+    let savedDenials = [];
+
+    function scopeChanged(ids, saved) {
+        return ids.length !== saved.length || ids.some((id) => !saved.includes(id));
+    }
 
     function setStatus(status) {
         state.status = surfaceFor(status).status;
@@ -107,6 +119,10 @@ export function createAcceptancePolicyEditor(options) {
         state.version = Number.isInteger(data.version) ? data.version : 0;
         state.required = !!data.acceptance_required;
         state.approvers = (data.approver_ids || []).slice();
+        savedPools = data.approver_pool_ids || [];
+        savedDenials = data.deny_user_ids || [];
+        state.approverPoolIds = savedPools.slice();
+        state.denyUserIds = savedDenials.slice();
         state.eligibleKnown = Array.isArray(data.eligible);
         state.eligible = (data.eligible || []).map((p) => ({ userId: p.user_id, name: p.name }));
         state.decisions = (data.decisions || []).map((d) => {
@@ -175,19 +191,24 @@ export function createAcceptancePolicyEditor(options) {
         if (!state.loaded) return refuse('not_loaded');
         if (state.stale) return refuse('stale_version');
         if (removed().length > 0) return refuse('removed_participant');
-        if (state.required && state.approvers.length === 0) return refuse('no_approver');
+        if (state.required && !state.approvers.length && !state.approverPoolIds.length) return refuse('no_approver');
+        const body = { acceptance_required: state.required, approver_ids: state.approvers.slice() };
+        if (scopeChanged(state.approverPoolIds, savedPools)) body.approver_pool_ids = state.approverPoolIds.slice();
+        if (scopeChanged(state.denyUserIds, savedDenials)) body.deny_user_ids = state.denyUserIds.slice();
         setStatus('processing');
         const result = await client.request(
             '/dictations/' + encodeURIComponent(state.dictationId) + '/acceptance-policy',
             {
                 method: 'PUT',
                 ifMatch: String(state.version),
-                body: { acceptance_required: state.required, approver_ids: state.approvers.slice() },
+                body,
             },
         );
         if (result.outcome === 'ok') {
             const data = result.data || {};
             if (Number.isInteger(data.version)) state.version = data.version;
+            if (body.approver_pool_ids) savedPools = body.approver_pool_ids;
+            if (body.deny_user_ids) savedDenials = body.deny_user_ids;
             setStatus('success');
             return { ok: true };
         }
@@ -196,9 +217,9 @@ export function createAcceptancePolicyEditor(options) {
             setStatus('warning');
             return refuse('stale_version');
         }
-        if (result.code === 'INVALID_APPROVER') {
+        if (['INVALID_APPROVER', 'INVALID_POOL', 'INVALID_DENY'].includes(result.code)) {
             setStatus('warning');
-            return refuse('invalid_approver');
+            return refuse(result.code.toLowerCase());
         }
         if (result.code === 'AUDIT_UNAVAILABLE') {
             setStatus('error');
@@ -221,6 +242,10 @@ export function createAcceptancePolicyEditor(options) {
         state.version = 0;
         state.required = false;
         state.approvers = [];
+        state.approverPoolIds = [];
+        state.denyUserIds = [];
+        savedPools = [];
+        savedDenials = [];
         state.eligible = [];
         state.eligibleKnown = false;
         state.decisions = [];
