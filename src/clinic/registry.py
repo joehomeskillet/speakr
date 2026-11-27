@@ -46,8 +46,10 @@ MODEL_MODULES = (
     "worklist_layout",
     "worklist_filters",
     "correction_modes",
+    "key_bindings",
     "app_wiring",
     "alignment_tokens", "alignment",
+    "output_preferences",
 )
 
 

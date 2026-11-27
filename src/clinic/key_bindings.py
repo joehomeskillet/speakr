@@ -9,9 +9,16 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping
+import threading
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
+
+from flask import current_app, has_app_context
+from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
+
+from src.database import db
 
 ACTIONS = (
     "record_toggle", "play_pause", "stop", "rewind", "forward", "speed_up",
@@ -202,3 +209,206 @@ def feedback_for(state: str) -> Feedback:
     if not isinstance(state, str) or state not in _FEEDBACK:
         raise BindingError("unknown_state")
     return _FEEDBACK[state]
+
+
+class StaleVersion(BindingError):
+    """``expected_version`` did not match the stored version."""
+
+    def __init__(self, current_version: int):
+        self.current_version = current_version
+        super().__init__("stale_version")
+
+
+@dataclass(frozen=True)
+class StoredBindings:
+    """One user's persisted bindings and optimistic-lock version."""
+
+    user_id: int
+    version: int
+    bindings: dict[str, str]
+
+
+class ClinicKeyBindings(db.Model):
+    """Per-user focused-browser key and pedal bindings. ``version`` guards concurrent writes."""
+
+    __tablename__ = "clinic_key_bindings"
+    user_id = db.Column(
+        db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), primary_key=True
+    )
+    version = db.Column(db.Integer, nullable=False)
+    bindings_json = db.Column(db.Text, nullable=False)
+
+
+def create_tables(bind=None) -> None:
+    db.metadata.create_all(
+        bind=bind or db.engine,
+        tables=[ClinicKeyBindings.__table__],
+        checkfirst=True,
+    )
+
+
+def _user_id(value: object) -> int:
+    if type(value) is not int or value <= 0:
+        raise BindingError("bad_user")
+    return value
+
+
+def _version(value: object) -> int:
+    if type(value) is not int or value < 0:
+        raise BindingError("bad_version")
+    return value
+
+
+def _check_conflicts(normalized: Mapping[str, str]) -> None:
+    by_chord: dict[str, list[str]] = {}
+    for action in sorted(normalized):
+        by_chord.setdefault(normalized[action], []).append(action)
+    conflicts = tuple(
+        (chord, action)
+        for chord, actions in sorted(by_chord.items())
+        if len(actions) > 1
+        for action in actions
+    )
+    if conflicts:
+        raise BindingConflict(conflicts)
+
+
+def _db_ready() -> bool:
+    return has_app_context() and "sqlalchemy" in current_app.extensions
+
+
+class KeyBindingStore:
+    """Per-user binding store with optimistic concurrency and single-key reset.
+
+    Inside a Flask app context with SQLAlchemy, rows live in ``clinic_key_bindings``.
+    Otherwise bindings stay in process memory.
+    Callers must supply the authenticated user's ID, never an unchecked client ID.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._rows: dict[int, tuple[int, str]] = {}
+
+    def _durable(self) -> bool:
+        return _db_ready()
+
+    def _get(self, user_id: int) -> tuple[int, str] | None:
+        if not self._durable():
+            return self._rows.get(user_id)
+        # Column select bypasses the identity map so concurrent commits are visible.
+        row = db.session.execute(
+            select(ClinicKeyBindings.version, ClinicKeyBindings.bindings_json).where(
+                ClinicKeyBindings.user_id == user_id
+            )
+        ).first()
+        return None if row is None else (row[0], row[1])
+
+    def _commit(self, user_id: int, version: int, text: str, previous: int | None) -> None:
+        if not self._durable():
+            self._rows[user_id] = (version, text)
+            return
+        try:
+            if previous is None:
+                db.session.add(
+                    ClinicKeyBindings(user_id=user_id, version=version, bindings_json=text)
+                )
+                db.session.flush()
+            else:
+                result = db.session.execute(
+                    update(ClinicKeyBindings)
+                    .where(
+                        ClinicKeyBindings.user_id == user_id,
+                        ClinicKeyBindings.version == previous,
+                    )
+                    .values(version=version, bindings_json=text)
+                )
+                if result.rowcount != 1:
+                    db.session.rollback()
+                    latest = self._get(user_id)
+                    raise StaleVersion(0 if latest is None else latest[0])
+            db.session.commit()
+        except IntegrityError as exc:
+            db.session.rollback()
+            latest = self._get(user_id)
+            if previous is None and latest is not None:
+                raise StaleVersion(latest[0]) from exc
+            raise
+        except BaseException:
+            db.session.rollback()
+            raise
+
+    def _update(
+        self,
+        user_id: int,
+        expected_version: object,
+        transform: Callable[[dict[str, str]], dict[str, str]],
+    ) -> StoredBindings:
+        uid = _user_id(user_id)
+        expected = _version(expected_version)
+        if not self._durable():
+            with self._lock:
+                return self._apply_update(uid, expected, transform)
+        return self._apply_update(uid, expected, transform)
+
+    def _apply_update(
+        self,
+        user_id: int,
+        expected_version: int,
+        transform: Callable[[dict[str, str]], dict[str, str]],
+    ) -> StoredBindings:
+        current = self._get(user_id)
+        current_version = 0 if current is None else current[0]
+        if expected_version != current_version:
+            raise StaleVersion(current_version)
+        current_bindings = dict(DEFAULTS) if current is None else from_json(current[1])
+        updated = transform(current_bindings)
+        text = to_json(updated)
+        new_version = current_version + 1
+        self._commit(user_id, new_version, text, None if current is None else current_version)
+        return StoredBindings(user_id, new_version, updated)
+
+    def load(self, user_id: int) -> StoredBindings:
+        """Return the user's bindings, or defaults with version 0 when unset."""
+        uid = _user_id(user_id)
+        if not self._durable():
+            with self._lock:
+                current = self._rows.get(uid)
+        else:
+            current = self._get(uid)
+        if current is None:
+            return StoredBindings(uid, 0, dict(DEFAULTS))
+        return StoredBindings(uid, current[0], from_json(current[1]))
+
+    def save(
+        self, user_id: int, bindings: Mapping[str, str], expected_version: int
+    ) -> StoredBindings:
+        """Validate and persist a full binding map if ``expected_version`` matches."""
+        normalized = _normalized_items(bindings)
+        _check_conflicts(normalized)
+        used = set(normalized.values())
+        complete = {
+            **normalized,
+            **{a: c for a, c in DEFAULTS.items() if a not in normalized and c not in used},
+        }
+        return self._update(user_id, expected_version, lambda _current: dict(complete))
+
+    def set_binding(
+        self, user_id: int, action: str, chord: str, expected_version: int
+    ) -> StoredBindings:
+        """Change one action's chord unless another action already uses it."""
+        _require_action(action)
+        canonical = normalize_chord(chord)
+        return self._update(
+            user_id, expected_version, lambda current: set_binding(current, action, canonical)
+        )
+
+    def reset(
+        self,
+        user_id: int,
+        action: str | None = None,
+        expected_version: int | None = None,
+    ) -> StoredBindings:
+        """Restore all defaults, or one action while preserving the other bindings."""
+        if action is not None:
+            _require_action(action)
+        return self._update(user_id, expected_version, lambda current: reset(current, action))
