@@ -93,7 +93,8 @@
             var overlay = document.createElement('div');
             overlay.className = 'app-loading-overlay';
             overlay.setAttribute('role', 'status');
-            var caption = /^de(?:-|$)/i.test(document.documentElement.lang) ? 'Lädt…' : 'Loading…';
+            var clinic = {{ (clinic_mode or clinic_login or false)|tojson }};
+            var caption = (clinic || /^de(?:-|$)/i.test(document.documentElement.lang)) ? 'Lädt…' : 'Loading…';
             overlay.innerHTML = '<div class="app-loading-content"><div class="app-loading-spinner" aria-hidden="true"></div><div class="app-loading-text">' + caption + '</div></div>';
             document.body.appendChild(overlay);
         }
