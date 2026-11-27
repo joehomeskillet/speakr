@@ -42,7 +42,11 @@ with app.app_context():
             page.goto(base + "/#/aufnahmen")
             listing = page.get_by_test_id("clinic-recordings-view")
             row = listing.locator(".recording-row").first
-            expect(row).to_contain_text("Transkription wartet")
+            status = row.get_by_test_id("recording-next-step")
+            text_state = row.get_by_test_id("recording-text-state")
+            expect(status).to_have_count(1)
+            expect(status).to_have_text("Das System bereitet das Diktat vor – Sie müssen nichts tun")
+            expect(text_state).to_have_text("Text wird erstellt")
             page.get_by_test_id("nav-clinic-worklist").click()
             expect(page.get_by_test_id("clinic-worklist-view")).to_be_visible()
             background_reads = len(reads)
@@ -51,10 +55,19 @@ with app.app_context():
             page.go_back()
             expect(row).to_be_visible()
             row.focus()
-            advance("processing")
-            expect(row).to_contain_text("Transkription läuft", timeout=12000)
+            def shows_processing(response):
+                return ("/api/clinic/v1/recordings?" in response.url and response.ok
+                        and any(item["processing_status"] == "PROCESSING" for item in response.json()["items"]))
+
+            with page.expect_response(shows_processing, timeout=12000):
+                advance("processing")
+            expect(text_state).to_have_text("Text wird erstellt")
             advance("completed")
-            expect(row).to_contain_text("Transkription abgeschlossen", timeout=12000)
+            expect(text_state).to_have_text("Text erstellt", timeout=12000)
+            expect(status).to_have_count(1)
+            expect(status).to_have_attribute("data-action-needed", "false")
+            expect(status).to_contain_text("Sie müssen nichts tun")
+            expect(row).not_to_contain_text("Transkription abgeschlossen")
             expect(row).to_be_focused()
             assert len(navigations) == 1
             assert len(reads) >= 3
