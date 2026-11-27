@@ -1,5 +1,9 @@
 # Speakr V8: geprüfte Änderungen im Klinik-Webclient
 
+## P-254 – Web-Alternative für PAR-OPS-004
+
+Im Klinikmodus bietet das App-Manifest die Schnellzugriffe **Neue Aufnahme**, **Aufnahmen** und **Arbeitsliste**. Sie öffnen bestehende Ansichten und setzen eine gültige Anmeldung voraus. Die [Browser-App-Anleitung](../docs/de/user-guide/pwa.md) erklärt auch Lesezeichen und Browserstart. `WG-OPS-004` bleibt offen; `BT-OPS-004` wurde nicht gegen das Referenzsystem ausgeführt. Kein nativer Autostart- oder Tray-Ersatz.
+
 ## Implementierung P-084
 
 Versionierte Importabsichten werden pro Datei in den bestehenden Klinik-Import übernommen. Synthetische HTTP-/DB-Tests prüfen Metadaten, Poolwahl, Empfänger, die drei ASR-Modi und den unveränderten nicht ausgewählten Inventareintrag. Staging- und Philips-Referenztests für BT-IMP-003 stehen noch aus.
