@@ -2,10 +2,53 @@
 
 [Deutsch](../de/admin-guide/sso-setup.md)
 
-Use the local sign-in form with the account created by the identity administrator. **Einmalanmeldung: Nicht eingerichtet** means the instance offers no active single sign-on. An email address matching an external directory entry does not join the accounts. The upstream OIDC configuration, account-linking controls and SSO API tokens are inactive in clinic mode.
+With `CLINIC_MODE` enabled, local sign-in is the working sign-in method. The login page shows **Lokale Anmeldung: Aktiv** and **Einmalanmeldung: Nicht eingerichtet**. Microsoft Entra ID, LDAP federation and integrated Windows sign-in (IWA) have prepared server-side code, but application startup leaves them disabled. There is no administration setting or environment switch that completes their integration.
 
-The code prepares an explicit Entra link to a particular existing account. On a confirmed transition to Entra-only, the internal user ID and dictation assignments are preserved, the local password and outstanding recovery codes are invalidated, and existing sessions end. An administrator must preserve a usable local identity administrator. This is a prepared transition, not a procedure to enable against a live directory.
+## Local access
 
-LDAP and integrated Windows sign-in are also prepared but disabled. Local identity tests do not establish that a particular Entra tenant, domain controller or workstation has passed acceptance. Use [account administration](user-management.md) for today’s local access and recovery.
+Use a username or email address and the local password. Sign-in requires an active clinic account policy, a stored supported password hash and policy **Nur lokal** or **Lokal und Entra**. A pending password change or login lock prevents access. **Keine Anmelderichtlinie** means that an existing account has no clinic account policy; it does not identify an external provider.
 
-[Original Speakr handbook at the archived revision](https://github.com/murtaza-nasir/speakr/blob/039a19b1f1c7f0ddaeac0a49b806845626f48a6c/docs/admin-guide/sso-setup.md)
+Clinic sign-in does not use **Remember me**. Sessions are tied to the account's security version. Deactivation, a reset-code issue and relevant role or sign-in-policy changes invalidate existing sessions. Sensitive identity administration additionally requires a local login within the last five minutes.
+
+New accounts use **Nur lokal**. Entra policy choices in the account editor do not enable Entra. **Nur Gerät** and **Nur Entra** do not permit local password sign-in. Disabling an external provider does not silently restore local-password access to an Entra-only account.
+
+The clinic fork does not offer self-registration, email verification or password reset by email. Identity administration creates accounts and issues local one-time codes. The login endpoint supports code redemption, but the login page currently has no redemption form. See [User management](user-management.md) for bootstrap, activation, lock recovery and account adoption.
+
+## Account identity and permissions
+
+- Every sign-in method must resolve to the existing internal `user.id`; dictation ownership and assignments stay attached to that ID.
+- There is no linking by matching email address, UPN or display name, and no account creation on first external sign-in.
+- External roles or group claims do not automatically grant clinic roles, pool membership or dictation permissions.
+- Identity administration and clinical permissions remain separate. An identity-administration flag alone grants no dictation access.
+
+## Upstream sign-in and tokens
+
+The upstream OIDC sign-in and account-linking controls are inactive in clinic mode. `ENABLE_SSO` and `SSO_*` do not enable the clinic identity adapters. The clinic fork also does not offer general API v1 or SSO token exchange for arbitrary applications; tokens are reserved for the import agent. The system ceilings keep `sso_api_tokens_enabled` and query-parameter token access disabled.
+
+## Prepared Entra adapter
+
+The Entra code prepares authorization-code authentication with PKCE, state, nonce, issuer/tenant checks and an explicit link to an existing clinic account. The application mounts it with a disabled `EntraConfig` and a refusing exchange function. The example files `auth.hybrid.example.json` and `auth.local.example.json` are not loaded by that application wiring. Editing them does not activate sign-in.
+
+The prepared linking flow requires an explicit identity-administration request and confirmation by the target user. It does not match accounts by email. A confirmed transition from local-only to Entra-only preserves the internal user ID, removes the local password hash, invalidates recovery codes and ends sessions. It protects the last locally usable identity administrator. These are prepared behaviors, not instructions to activate a live directory.
+
+There is no Entra lifecycle synchronization in the running application wiring. Disabling a person only in Entra is not a substitute for deactivating their clinic account. Synthetic provider tests do not demonstrate tenant sign-in, Conditional Access, MFA or offboarding against a real provider.
+
+## LDAP and Windows sign-in
+
+The LDAP module validates a disabled server-side federation profile. The application does not instantiate a directory connection or consume end-user directory passwords. The profile does not provide live LDAP sign-in or role synchronization.
+
+The IWA code expects a trusted server-side Windows SID assertion and replay protection. The application provides neither the necessary enabled configuration nor the middleware. Client-supplied identity headers cannot activate it. No browser operation reads a workstation's local Windows accounts; WG-ADM-009 remains open.
+
+## Provider and directory status
+
+`GET /api/clinic/v1/identity/providers` reports `entra`, `iwa` and `ldap` with `enabled: false` in the current application wiring. A disabled provider entry point returns `422 CAPABILITY_UNAVAILABLE` with **Anbieter nicht aktiviert**. These are clinic identity routes, not general API-token access.
+
+Under **Verwaltung → Konten und Pools → Verzeichnis** (`/admin#/verzeichnis`), identity administrators see that directory comparison is not activated. **Lokale Konten verwalten** returns to account administration. The directory capability reports `directory_available: false`, `local_accounts: true`, `local_windows_accounts: "unavailable"` and gap `WG-ADM-009`. No directory provider is registered; preview and apply return `503 ldap_capability_unavailable`.
+
+Prepared directory reconciliation uses immutable external object IDs and a reviewed preview; it does not match by name or email. It is not a demonstrated directory import or offboarding process. Keep local account administration as the operational path.
+
+## Evidence limits
+
+Provider activation needs completed wiring and real acceptance evidence for the chosen tenant, directory or trusted Windows ingress. Local fixtures and synthetic keys do not establish Entra, LDAP or IWA acceptance. Local-account security acceptance also remains a separate deployment requirement; this handbook describes code behavior, not production approval.
+
+Local sign-in, failed attempts, lockout and password changes have audit event types. Prepared provider-link operations have separate SSO event types. See [Audit log](audit-log.md) for configuration and coverage, and [User management](user-management.md) for current account procedures.
