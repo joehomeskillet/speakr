@@ -10,6 +10,11 @@ import test_wp_mount_correction as mount
 def unsubmitted_draft(tmp_path_factory, monkeypatch):
     seed = mount.SERVER.replace("status=workflow.TO_WRITE", "status=workflow.DRAFT")
     seed = seed.replace("Anamnese Husten seit drei Tagen.", "...")
+    seed = seed.replace(
+        "    db.session.add(workflow.ClinicWorkflowDictation(",
+        "    pools.add_author_member(pool.id, author.id, actor_id=admin.id)\n"
+        "    db.session.add(workflow.ClinicWorkflowDictation(",
+    )
     monkeypatch.setattr(mount, "SERVER", seed)
     yield from mount.live_server.__wrapped__(tmp_path_factory)
 

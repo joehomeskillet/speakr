@@ -189,6 +189,7 @@ export function createDetailViewController(options) {
     const audio = shallowRef(null);
     let lease = null; // { ctrl, unsubscribe }
     let handedOff = false;
+    let openingEditor = false;
     let disposed = false;
     let seq = 0;
 
@@ -309,17 +310,26 @@ export function createDetailViewController(options) {
         return s === 'foreign' || s === 'lost';
     };
     const offline = () => status.value === 'offline';
-    const canOpenEditor = () => status.value === 'ready' && !leaseBlocksOpen();
+    const canOpenEditor = () => status.value === 'ready' && !leaseBlocksOpen()
+        && leaseState.value?.mayAcquire !== false && leaseState.value?.status !== 'acquiring'
+        && leaseState.value?.status !== 'releasing';
 
     // --- actions ------------------------------------------------------------
     /** Requests the lease (idempotent for the holder) and tells the page to open the editor; the editor holds the lease from there. */
     async function openEditor() {
-        if (disposed || !canOpenEditor()) return false;
-        const snap = await ctrl.acquire();
-        if (disposed || !snap || snap.status !== 'held') return false;
-        handedOff = true; // the editor re-acquires as holder; releasing here would drop what it is about to use
-        if (typeof opts.onOpenEditor === 'function') opts.onOpenEditor({ dictationId });
-        return true;
+        if (disposed || handedOff || openingEditor || !canOpenEditor()) return false;
+        openingEditor = true;
+        try {
+            const snap = leaseState.value?.writable ? leaseState.value : await ctrl.acquire();
+            if (disposed || !snap?.writable) return false;
+            if (typeof opts.onOpenEditor === 'function') {
+                handedOff = true;
+                opts.onOpenEditor({ dictationId });
+            }
+            return true;
+        } finally {
+            openingEditor = false;
+        }
     }
 
     /** Returns the caller's own origin object unchanged so the list can restore filter, page, scroll and focus. */

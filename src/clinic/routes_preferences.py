@@ -31,7 +31,6 @@ from src.clinic.last_selection import (
     SelectionStore,
     restore,
 )
-from src.database import db
 from src.clinic.workstation_preferences import (
     PreferenceError,
     StaleVersion,
@@ -143,33 +142,38 @@ class PreferenceRoutes:
             if not ids or ids[0] not in {str(uid) for uid in rd.eligible_user_ids(pool_id)}:
                 raise rd.RecipientDefaultError("recipient_not_eligible")
         else:
-            linked = {row[0] for row in db.session.query(pools.ClinicPoolRoute.staff_pool_id)
-                      .filter_by(author_pool_id=pool_id)}
-            if not ids or ids[0] not in linked:
+            if not ids or ids[0] not in pools.routable_staff_pool_ids(pool_id):
                 raise rd.RecipientDefaultError("recipient_not_eligible")
 
     def _recipient_default(self):
         actor = current_user.id
         if request.method == "GET":
             row = rd.get_default(actor)
+            choice = rd.effective_choice(row, rd.get_choice_grant(actor))
             pool_id = self._author_pool_for(actor)
             overrides = rd.selectable_overrides(actor, pool_id) if pool_id else None
             return jsonify(
                 version=0 if row is None else row.version,
                 mode=None if row is None else row.mode,
                 target_ids=[] if row is None else row.target_ids,
-                choice=rd.CHOICE_OPEN if row is None else row.choice,
+                choice=choice,
                 overrides=overrides,
             )
         body = _body()
-        mode, ids = body.get("mode"), body.get("target_ids") or []
-        if isinstance(ids, list):
-            self._checked_default_targets(actor, mode, ids)
+        if "choice" in body and body["choice"] is None:
+            raise rd.RecipientDefaultError("invalid_choice")
+        mode, ids = body.get("mode"), body.get("target_ids")
+        if ids is None:
+            ids = []
+        elif not isinstance(ids, list):
+            raise rd.RecipientDefaultError("invalid_target")
+        self._checked_default_targets(actor, mode, ids)
         row = rd.set_default(
             actor, mode, actor_id=actor, expected_version=body.get("expected_version"),
-            target_ids=ids, choice=body.get("choice", rd.CHOICE_OPEN),
+            target_ids=ids, choice=body.get("choice"),
         )
-        return jsonify(version=row.version, mode=row.mode, target_ids=row.target_ids, choice=row.choice)
+        return jsonify(version=row.version, mode=row.mode, target_ids=row.target_ids,
+                       choice=rd.effective_choice(row, rd.get_choice_grant(actor)))
 
     def _recipient_resolve(self):
         """Use time: revalidate the stored default or an override against the pool now."""
