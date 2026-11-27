@@ -51,7 +51,7 @@ export const TEXT = Object.freeze({
     startFailed: 'Prüfen Sie Ihr Mikrofon oder wählen Sie „oder Datei hochladen“.',
     microphoneDenied: 'Erlauben Sie den Mikrofonzugriff in den Website-Einstellungen Ihres Browsers und starten Sie die Aufnahme erneut.',
     routingPending: 'Berechtigung wird geprüft …',
-    routingMissing: 'Ihr Konto ist noch keinem Autorenpool zugeordnet. Bitte wenden Sie sich an die Verwaltung.',
+    routingMissing: 'Ihr Konto ist noch nicht für Diktate freigeschaltet. Bitte wenden Sie sich an die Verwaltung.',
     routingError: 'Die Berechtigung konnte nicht geprüft werden. Bitte laden Sie die Seite neu.',
     recordFailed: 'Senden fehlgeschlagen. Der Entwurf wurde nicht gesendet. Die Aufnahme wird nicht lokal gespeichert.',
     fileFailed: 'Hochladen fehlgeschlagen. Der Entwurf wurde nicht gesendet. Die Audiodatei wird nicht lokal gespeichert.',
@@ -121,7 +121,7 @@ export function isAudioFile(file) {
 const SEND_REFUSALS = Object.freeze({
     AUDIO_REQUIRED: 'Für diesen Entwurf liegt keine gültige Audiofassung vor.',
     NOT_DRAFT: 'Das Diktat ist kein neuer Entwurf mehr. Bitte den aktuellen Stand öffnen.',
-    NO_STAFF_POOL: 'Kein Schreibkräfte-Pool zugeordnet.',
+    NO_STAFF_POOL: 'Das Diktat wurde nicht gesendet. Es ist kein Schreibdienst zugeordnet.',
     STALE_VERSION: 'Der Entwurf wurde geändert. Bitte den aktuellen Stand prüfen.',
 });
 

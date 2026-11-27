@@ -96,7 +96,7 @@ describe('P04 draft submission', () => {
             .mockResolvedValueOnce({ outcome: 'conflict', code: 'NO_STAFF_POOL' });
         expect((await controller.submit()).ok).toBe(false);
         expect(controller.model()).toMatchObject({
-            canSubmit: true, message: 'Kein Schreibkräfte-Pool zugeordnet.', created: { dictationId: id },
+            canSubmit: true, message: 'Das Diktat wurde nicht gesendet. Es ist kein Schreibdienst zugeordnet.', created: { dictationId: id },
         });
         request.mockResolvedValueOnce(detail);
         const retry = controller.submit();

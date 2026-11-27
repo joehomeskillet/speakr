@@ -95,9 +95,9 @@ export const TEXT = Object.freeze({
     acceptance: 'Pflichtfreigabe',
     history: 'Verlauf',
     close: 'Details schliessen',
-    noPool: 'Kein Pool zugewiesen',
+    noPool: 'Kein Schreibdienst zugeordnet',
     eyebrow: 'Aufnahmenverwaltung',
-    subline: 'Diktate nach Schreibkräfte-Pool und diktierender Person bearbeiten.',
+    subline: 'Diktate nach Schreibdienst und diktierender Person bearbeiten.',
     kpiAll: 'Alle Diktate',
     kpiOpen: 'Offen',
     kpiWorking: 'In Bearbeitung',
@@ -127,7 +127,7 @@ export const TEXT = Object.freeze({
 export const LIST_COLUMNS = Object.freeze([
     { key: 'status', label: 'Status' },
     { key: 'priority', label: 'Priorität' },
-    { key: 'staff_pools', label: 'Schreibkräfte-Pool' },
+    { key: 'staff_pools', label: 'Schreibdienst' },
     { key: 'dictated_by', label: 'Diktiert von' },
     { key: 'source_kind', label: 'Quelle' },
     { key: 'duration_seconds', label: 'Dauer' },
@@ -277,7 +277,7 @@ export function formatDateTime(value) {
 }
 
 export function dictationLabel(row) {
-    if (row?.case_display) return 'Fall-ID ' + row.case_display;
+    if (row?.case_display) return 'Fallnummer ' + row.case_display;
     return row?.created_at ? 'Diktat vom ' + formatDateTime(row.created_at) : 'Diktat';
 }
 
@@ -1010,7 +1010,7 @@ export const WorklistView = {
                 </div>
                 <div class="detail-info" v-if="c.selectedRow.value">
                   <div class="detail-line"><span>Diktiert von</span><span>{{ c.cell(c.selectedRow.value, 'dictated_by') }}</span></div>
-                  <div class="detail-line"><span>Schreibkräfte-Pool</span><span>{{ c.cell(c.selectedRow.value, 'staff_pools') }}</span></div>
+                  <div class="detail-line"><span>Schreibdienst</span><span>{{ c.cell(c.selectedRow.value, 'staff_pools') }}</span></div>
                   <div class="detail-line"><span>Übernommen von</span><span>{{ c.cell(c.selectedRow.value, 'lease_holder') }}</span></div>
                   <div class="detail-line"><span>Quelle</span><span>{{ c.cell(c.selectedRow.value, 'source_kind') }}</span></div>
                   <div class="detail-line"><span>Dauer</span><span>{{ c.cell(c.selectedRow.value, 'duration_seconds') }}</span></div>

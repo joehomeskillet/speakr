@@ -82,7 +82,7 @@ def _exercise():
     key = str(uuid4())
     unrouted = post(idle, key=key)
     assert unrouted.status_code == 409 and unrouted.mimetype == 'application/problem+json'
-    assert unrouted.json['detail'] == 'Kein Schreibkräfte-Pool zugeordnet.'
+    assert unrouted.json['detail'] == 'Das Diktat wurde nicht gesendet. Es ist kein Schreibdienst zugeordnet.'
     with app.app_context():
         staff = pools.create_staff_pool('Schreibdienst', actor_id=other)
         pools.link_staff_pool(pool, staff.id, actor_id=other)

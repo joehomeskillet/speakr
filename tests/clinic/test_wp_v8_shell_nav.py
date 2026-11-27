@@ -161,7 +161,7 @@ def test_open_dictation_and_close_returns_to_origin(live_server, width, height):
             correction.wait_for(state="visible", timeout=30000)
             assert dictation in correction.inner_text()
             assert correction.locator("[data-dictator-name]").inner_text() == "Synthetisch"
-            assert correction.locator("[data-pool-name]").inner_text() == "Kein Pool zugewiesen"
+            assert correction.locator("[data-pool-name]").inner_text() == "Kein Schreibdienst zugeordnet"
             back = page.locator("[data-testid=clinic-correction-back]")
             assert back.inner_text().strip() == "Zurück zu Aufnahmen"
             back.click()
@@ -175,7 +175,7 @@ def test_open_dictation_and_close_returns_to_origin(live_server, width, height):
             row = page.locator("[data-row]").first
             row.wait_for(state="visible", timeout=30000)
             author = row.locator('[data-label="Diktiert von"]').inner_text()
-            pool = row.locator('[data-label="Schreibkräfte-Pool"]').inner_text()
+            pool = row.locator('[data-label="Schreibdienst"]').inner_text()
             row.click()
             worklist.get_by_role("button", name="Öffnen", exact=True).click()
             correction.wait_for(state="visible", timeout=30000)

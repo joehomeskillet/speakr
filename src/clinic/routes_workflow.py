@@ -72,7 +72,7 @@ _CONFLICT = frozenset({'stale_version', 'stale_revision'})
 _SEND_CONFLICTS = {
     'not_draft': 'Nur neu angelegte Diktate können eingereicht werden.',
     'audio_required': 'Keine Audiorevision vorhanden.',
-    'no_staff_pool': 'Kein Schreibkräfte-Pool zugeordnet.',
+    'no_staff_pool': 'Das Diktat wurde nicht gesendet. Es ist kein Schreibdienst zugeordnet.',
 }
 _STATUS = {'forbidden': 403, 'unauthorized': 403, 'not_found': 404, 'clinic_disabled': 404,
            'audit_unavailable': 503}
