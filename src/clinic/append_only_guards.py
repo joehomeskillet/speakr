@@ -13,6 +13,7 @@ from sqlalchemy import text
 APPEND_ONLY_TABLES: dict[str, str] = {
     "clinic_output_receipt": "clinic output receipt",
     "clinic_marker_event": "clinic marker event",
+    "clinic_recognition_mark": "clinic recognition mark",
     "clinic_asr_profile_version": "clinic ASR profile version",
     "clinic_asr_training_run": "clinic ASR training run",
     "clinic_voice_consent": "clinic voice consent",
