@@ -53,7 +53,7 @@ _FORBIDDEN_KEYS = frozenset({
 })
 _SELECTION_KEYS = {
     "source", "live_profile_id", "batch_profile_id", "expected_version",
-    "skip_wait_minutes", "wait_disabled",
+    "skip_wait_minutes", "wait_disabled", "save_rule", "profile_mode", "batch_source",
 }
 _STATUS = {
     "unauthenticated": 401, "unauthorized": 403, "profile_not_found": 404,
@@ -168,14 +168,22 @@ def _view(registry: AsrCapabilityRegistry | None, formats: list[str]) -> dict[st
     engine, caps = _engine_and_capabilities(profile, registry)
     entry = ({"id": profile.id, "name": profile.model or "Serverprofil", "version": profile.version}
              if profile is not None else None)
-    source = profile.options.get("source", DEFAULT_SOURCE) if profile is not None else DEFAULT_SOURCE
+    options = profile.options if profile is not None else {}
+    source = options.get("source", DEFAULT_SOURCE)
+    separate = options.get("separate_offline_profile") is True
+    batch_source = options.get("batch_source") if separate else source
+    available_id = entry["id"] if entry else None
+    mapped_id = available_id if not separate or batch_source in asr_profiles.SOURCES else None
     return {
         "version": profile.version if profile is not None else 0,
         "profile": entry,
         "source": source,
         "sources": list(asr_profiles.SOURCES),
-        "live_profile_id": entry["id"] if entry else None,
-        "batch_profile_id": entry["id"] if entry else None,
+        "profile_mode": "separate" if separate else "shared",
+        "batch_source": batch_source,
+        "save_rule": options.get("save_rule", "never"),
+        "live_profile_id": mapped_id,
+        "batch_profile_id": mapped_id,
         "profiles": [{"id": entry["id"], "name": entry["name"], "mode": "both"}] if entry else [],
         "output_format": _output_format(formats),
         "engine": engine,
@@ -227,6 +235,21 @@ def create_asr_profiles_blueprint(registry: RegistryProvider | None = None) -> B
             if wanted is not None and (not isinstance(wanted, str) or wanted != offered):
                 raise ApiError("profile_not_found")
         options = dict(profile.options) if profile is not None else {}
+        if "save_rule" in body:
+            if body["save_rule"] not in asr_profiles.SAVE_RULES:
+                raise ApiError("invalid_payload")
+            options["save_rule"] = body["save_rule"]
+        if "profile_mode" in body:
+            mode = body["profile_mode"]
+            if mode == "separate" and body.get("batch_source") in asr_profiles.SOURCES:
+                options.update(separate_offline_profile=True, batch_source=body["batch_source"])
+            elif mode == "shared" and "batch_source" not in body:
+                options["separate_offline_profile"] = False
+                options.pop("batch_source", None)
+            else:
+                raise ApiError("invalid_payload")
+        elif "batch_source" in body:
+            raise ApiError("invalid_payload")
         options["source"] = source
         options.update(updates)
         asr_profiles.set_profile(current_user.id, actor_id=current_user.id, options=options)
