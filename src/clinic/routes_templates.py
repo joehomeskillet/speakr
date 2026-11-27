@@ -17,6 +17,7 @@ import hashlib
 import io
 import uuid
 import zipfile
+from dataclasses import replace
 from typing import Any
 
 from flask import Blueprint, Response, abort, jsonify, request, session
@@ -24,7 +25,7 @@ from flask_login import current_user
 from flask_wtf.csrf import CSRFError, validate_csrf
 from wtforms.validators import ValidationError
 
-from src.clinic import pool_policy, presets
+from src.clinic import policy, pool_policy, presets
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.models import ClinicDictation
 from src.clinic.workflow import ClinicWorkflowDictation
@@ -213,10 +214,17 @@ def _authorized_dictation_scope(actor_id: int, dictation_id: str) -> tuple[int, 
     row = db.session.get(ClinicDictation, dictation_id)
     if row is None:
         raise TemplateError("not_found", 404)
-    if row.author_user_id == actor_id:
-        return row.author_user_id, row.pool_id
-    flow = db.session.get(ClinicWorkflowDictation, row.id)
-    if flow is None or flow.assignee_user_id != actor_id:
+    subject = policy.build_subject(actor_id, is_admin=user.is_admin)
+    if row.author_user_id != actor_id:
+        flow = db.session.get(ClinicWorkflowDictation, row.id)
+        if flow is None or flow.assignee_user_id != actor_id:
+            raise TemplateError("not_found", 404)
+        # Assignment grants this read only; central policy still applies denies.
+        subject = replace(subject, grants=subject.grants + (
+            policy.Grant("author", frozenset({"view"}),
+                         author_ids=frozenset({row.author_user_id})),
+        ))
+    if not pool_policy.decide(subject, "view", row).allowed:
         raise TemplateError("not_found", 404)
     return row.author_user_id, row.pool_id
 
@@ -249,11 +257,9 @@ def templates_for_dictation(actor_id: int, dictation_id: str) -> list[presets.Cl
 
 def _can_read_requested(actor_id: int, row: presets.ClinicTemplate) -> bool:
     """Own-scope read, or the author's template while the caller holds that case."""
-    if _can_read_template(actor_id, row):
-        return True
     dictation_id = _requested_dictation_id()
     if dictation_id is None:
-        return False
+        return _can_read_template(actor_id, row)
     try:
         author_id, pool_id = _authorized_dictation_scope(actor_id, dictation_id)
     except TemplateError:

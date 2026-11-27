@@ -110,6 +110,7 @@ def world(pool_db, monkeypatch):
     with flask.app_context():
         yield dict(
             client=client,
+            admin=admin,
             author=author,
             secretary=secretary,
             own_pool=own_pool,
@@ -195,3 +196,46 @@ def test_own_template_management_stays_unscoped(world):
         world["author_tmpl"].id,
         world["pool_tmpl"].id,
     }
+
+
+@pytest.mark.parametrize("actor", ["author", "secretary"])
+def test_central_deny_overrides_owner_and_assignment(world, actor):
+    user = world[actor]
+    http, _headers = world["client"](user)
+    query = f"?dictation_id={world['assigned'].id}"
+    assert http.get(PREFIX + query).status_code == 200
+    pools.deny(
+        user.id, "pool", actor_id=world["admin"].id,
+        pool_id=world["own_pool"].id, actions=["view"],
+    )
+    for path in (PREFIX, f"{PREFIX}/{world['author_tmpl'].id}",
+                 f"{PREFIX}/{world['author_tmpl'].id}/content"):
+        response = http.get(path + query)
+        assert (response.status_code, response.json["code"]) == (404, "not_found")
+    assert http.get(PREFIX).status_code == 200
+
+
+@pytest.mark.parametrize("suffix", ["", "/content"])
+def test_scoped_reads_cannot_fall_back_to_own_template_access(world, suffix):
+    http, _headers = world["client"](world["secretary"])
+    for case_id in (world["foreign"].id, str(uuid.uuid4())):
+        for template in (world["own_tmpl"], world["sys_tmpl"]):
+            response = http.get(f"{PREFIX}/{template.id}{suffix}?dictation_id={case_id}")
+            assert (response.status_code, response.json["code"]) == (404, "not_found")
+    unrelated = http.get(
+        f"{PREFIX}/{world['own_tmpl'].id}{suffix}?dictation_id={world['assigned'].id}",
+    )
+    assert (unrelated.status_code, unrelated.json["code"]) == (404, "not_found")
+
+
+def test_revoked_assignment_removes_author_template_access(world):
+    http, _headers = world["client"](world["secretary"])
+    query = f"?dictation_id={world['assigned'].id}"
+    assert http.get(PREFIX + query).status_code == 200
+    flow = db.session.get(workflow.ClinicWorkflowDictation, world["assigned"].id)
+    flow.assignee_user_id = None
+    db.session.commit()
+    for path in (PREFIX, f"{PREFIX}/{world['author_tmpl'].id}",
+                 f"{PREFIX}/{world['author_tmpl'].id}/content"):
+        response = http.get(path + query)
+        assert (response.status_code, response.json["code"]) == (404, "not_found")
