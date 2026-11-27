@@ -470,17 +470,24 @@
         .v8-ui .v8-admin-page :is(.pools-ui [role=alertdialog], [role=alertdialog].warning){border:1px solid var(--text-warn-strong);background:var(--bg-warn-light);color:var(--v8-text)}
         .v8-ui .v8-admin-page .pools-ui [role=alertdialog]{border-radius:8px;padding:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
         .v8-ui .v8-admin-page .pools-ui [role=alertdialog] p{flex:1 1 100%;margin:0}
+        .v8-ui .cadm .clinic-asr-profiles-view [data-testid=training] table{white-space:normal;overflow-wrap:anywhere}
+        .v8-ui .cadm .clinic-asr-profiles-view [data-testid=training] td button{white-space:nowrap}
         @media(max-width:1100px){.grid.equal:where(.v8-admin-page *){grid-template-columns:1fr 1fr}}
         @media(min-width:761px) and (max-width:960px){
             .v8-ui:has(.cadm[data-admin-view]) .topbar{flex-wrap:wrap;align-content:center}
+            .v8-ui .cadm .clinic-asr-profiles-view .asr-panels{grid-template-columns:minmax(0,1fr)}
         }
         @media(max-width:760px){h1:where(.v8-admin-page *){font-size:26px}
         .grid:where(.v8-admin-page *),.grid.equal:where(.v8-admin-page *),.grid.three:where(.v8-admin-page *){grid-template-columns:1fr}
         .filterbar .field:where(.v8-admin-page *){flex:1 1 150px}}
         @media(max-width:760px){
             .v8-ui .cadm .clinic-authors-view .table-wrap{overflow-x:auto}
-            .v8-ui .cadm :is(.clinic-admin-pools-view,.clinic-asr-profiles-view) table{table-layout:fixed;white-space:normal;overflow-wrap:anywhere}
-            .v8-ui .cadm :is(.clinic-admin-pools-view,.clinic-asr-profiles-view) :is(th,td){padding:8px}
+            .v8-ui .cadm .clinic-admin-pools-view table{white-space:normal;overflow-wrap:anywhere;hyphens:auto}
+            .v8-ui .cadm .clinic-admin-pools-view td.wrap{min-width:0}
+            .v8-ui .cadm .clinic-admin-pools-view :is(th,td){padding:6px}
+        }
+        @media(max-width:640px){
+            .v8-ui .cadm .cadm-account-table .cadm-account-name{display:none}
         }
         @media(max-width:760px),(pointer:coarse){
             .v8-ui .cadm :is(.v8-admin-page,.clinic-asr-profiles-view) :is(button,summary,input:not(:where([type=checkbox],[type=radio],[type=range])),select){min-height:48px}

@@ -352,13 +352,16 @@ const TRAINING_TEMPLATE = `
     </div>
     <p v-if="view.manifest" class="result-count" data-testid="manifest">{{ text.manifestItems }}: {{ view.manifest.items }}, {{ text.manifestExcluded }}: {{ view.manifest.excluded }}</p>
     <p v-if="view.empty" class="hint" data-testid="training-empty">{{ text.noRuns }}</p>
-    <div class="table-wrap" style="overflow-x:auto" v-else-if="view.runs.length">
-    <table :aria-label="text.runs">
-      <thead><tr><th scope="col">{{ text.columns.id }}</th><th scope="col">{{ text.columns.kind }}</th><th scope="col">{{ text.columns.items }}</th><th scope="col">{{ text.columns.state }}</th><th></th></tr></thead>
-      <tbody>
-        <tr v-for="r in view.runs" :key="r.id" :data-id="r.id">
-          <td>{{ r.id }}</td><td>{{ r.kind }}</td><td>{{ r.items }}</td><td><span class="tag" :class="r.stateTag">{{ r.stateLabel }}</span></td>
-          <td><button type="button" class="small" :disabled="!r.canCancel" :aria-label="r.cancelLabel" @click="controller.cancel(r.id)">Abbrechen</button></td>
+    <div class="table-wrap cadm-tablewrap--stack" style="overflow-x:auto" v-else-if="view.runs.length">
+    <table class="cadm-table cadm-table--stack" role="table" :aria-label="text.runs">
+      <thead role="rowgroup"><tr role="row"><th scope="col">{{ text.columns.id }}</th><th scope="col">{{ text.columns.kind }}</th><th scope="col">{{ text.columns.items }}</th><th scope="col">{{ text.columns.state }}</th><th scope="col" aria-label="Aktion"></th></tr></thead>
+      <tbody role="rowgroup">
+        <tr v-for="r in view.runs" :key="r.id" :data-id="r.id" role="row">
+          <td role="cell" :data-label="text.columns.id">{{ r.id }}</td>
+          <td role="cell" :data-label="text.columns.kind">{{ r.kind }}</td>
+          <td role="cell" :data-label="text.columns.items">{{ r.items }}</td>
+          <td role="cell" :data-label="text.columns.state"><span class="tag" :class="r.stateTag">{{ r.stateLabel }}</span></td>
+          <td role="cell" class="cadm-col-actions"><button type="button" class="small" :disabled="!r.canCancel" :aria-label="r.cancelLabel" @click="controller.cancel(r.id)">Abbrechen</button></td>
         </tr>
       </tbody>
     </table>
