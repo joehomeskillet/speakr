@@ -972,6 +972,11 @@
 /* Form fields stay at 16px: the editor surface always, all controls on phones (no zoom on focus). */
 .v8-ui :where(.v8-page textarea),:where(.v8-ui) [data-testid=text]:is(.v8-page *){font-size:16px}
 @media(max-width:760px){.v8-ui :where(.v8-page :is(input,select,textarea)){font-size:16px!important}}
+/* Put the primary tabs on their own row before the desktop header runs out of room. */
+@media(700px < width < 1024px){
+.v8-ui .topbar.v8-chrome{flex-wrap:wrap;gap:var(--ui-space-2);padding-block:var(--ui-space-2)}
+.v8-ui .topbar.v8-chrome .topnav{flex-basis:100%;order:1;margin:0}
+.v8-ui .topbar.v8-chrome .topnav button{flex:1;justify-content:center}}
 /* Phone header: the wrapped topbar keeps the prototype insets (14px) and its controls a 44x44 hit area. */
 @media(max-width:700px){.v8-ui .topbar{padding:14px 12px}}
 @media(max-width:760px){.v8-ui .topbar .top-icon,.v8-ui .topbar .top-action,.v8-ui .topbar .v6-admin summary,.v8-ui .topbar button.topavatar{position:relative}
