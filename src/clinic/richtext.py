@@ -12,7 +12,9 @@ from src.clinic import lease, policy, revisions
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.correction import effective_links
 from src.clinic.models import ClinicDictation, ClinicTranscriptRevision
-from src.clinic.rich_text_doc import Document, Node, RichTextError, Run, to_plain_text
+from src.clinic.rich_text_doc import (
+    Document, Node, RichTextError, Run, graphic_plain_text, to_plain_text,
+)
 from src.database import db
 from src.models import Recording, User
 
@@ -63,6 +65,8 @@ class CanonicalDocument(Document):
             _check_id(node.id)
             if type(node.level) is not int:
                 raise RichTextError("invalid_level")
+            if node.kind == "graphic":
+                chars += len(graphic_plain_text(node.alt_text))
             for segment in node.runs:
                 if not isinstance(segment, Segment):
                     raise RichTextError("invalid_segment")
@@ -135,14 +139,17 @@ class CanonicalDocument(Document):
         raise RichTextError("unknown_node")
 
     def project(self) -> tuple[str, dict[str, tuple[int, int]]]:
-        """Return raw Unicode text and half-open code-point spans for the offset mapper."""
+        """Return producer plain text and run spans; graphics occupy their full projected line."""
         spans = {}
         offset = 0
         for node in self.nodes:
-            for run in node.runs:
-                end = offset + len(run.text)
-                spans[run.id] = (offset, end)
-                offset = end
+            if node.kind == "graphic":
+                offset += len(graphic_plain_text(node.alt_text))
+            else:
+                for run in node.runs:
+                    end = offset + len(run.text)
+                    spans[run.id] = (offset, end)
+                    offset = end
             offset += 1  # Paragraph separator in to_plain_text.
         return to_plain_text(self), spans
 
@@ -172,6 +179,12 @@ def load_document(revision_id: str, version: int) -> CanonicalDocument | None:
     """Read an exact snapshot for an already authorized revision; legacy rows return None."""
     row = db.session.get(ClinicRichTextSnapshot, (revision_id, version))
     return None if row is None else CanonicalDocument.from_payload(row.payload)
+
+
+def load_latest_document(revision_id: str) -> tuple[int, CanonicalDocument | None]:
+    """Read the latest version and document together for an already authorized revision."""
+    row = _latest_snapshot(revision_id)
+    return (0, None) if row is None else (row.version, CanonicalDocument.from_payload(row.payload))
 
 
 def save_document(

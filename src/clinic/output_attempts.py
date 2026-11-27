@@ -100,6 +100,11 @@ def _check_output(
     raise OutputAttemptError("output mode requires a matching release binding")
 
 
+def output_attempt_key(actor_user_id: int, request_id: str, dictation_id: str, channel: str, target: str) -> str:
+    return payload_hash({"actor": actor_user_id, "request": request_id, "dictation": dictation_id,
+                         "channel": channel, "target": target})
+
+
 def freeze_output_attempts(
     dictation: ClinicDictation, expected: OutputSource, current: OutputSource, *,
     actor_user_id: int, request_id: str, allowed: bool, mode: str,
@@ -118,8 +123,7 @@ def freeze_output_attempts(
             raise OutputAttemptError("output target and format settings are required")
         if channel.casefold() == "kis" and mode != "kis_draft":
             raise OutputAttemptError("KIS output requires a bound KIS draft")
-        key = payload_hash({"actor": actor_user_id, "request": request_id,
-                            "dictation": expected.dictation_id, "channel": channel, "target": target})
+        key = output_attempt_key(actor_user_id, request_id, expected.dictation_id, channel, target)
         settings = tuple(sorted(format_settings.items()))
         format_hash = payload_hash(dict(settings))
         digest = payload_hash({"key": key, "source": asdict(expected), "mode": mode,

@@ -64,7 +64,7 @@ export function capabilities(env = {}) {
 
 /**
  * Framework-neutral controller. `state.value` holds { phase, message, surface }.
- * Options: client (createClinicApiClient), dictationId, revisionId, authorized (bool or fn),
+ * Options: client (createClinicApiClient), dictationId, revisionId, binding, authorized (bool or fn),
  * ref (Vue ref factory), clipboard / ClipboardItem / newKey (test seams).
  */
 export function createClipboardCopy(options) {
@@ -110,7 +110,9 @@ export function createClipboardCopy(options) {
         set('working');
         try {
             const key = makeKey();
-            const prepared = await opts.client.request(base(), { idempotencyKey: key });
+            const query = new URLSearchParams({ format });
+            if (opts.binding) query.set('binding', opts.binding);
+            const prepared = await opts.client.request(`${base()}?${query}`, { idempotencyKey: key });
             if (prepared.outcome !== 'ok') return set(failureFor(prepared));
             const flavors = prepared.data || {};
             const clip = clipboardApi(env);
@@ -172,6 +174,7 @@ export const ClipboardCopy = {
         client: { type: Object, required: true },
         dictationId: { type: String, required: true },
         revisionId: { type: String, required: true },
+        binding: { type: String, default: null },
         authorized: { type: Boolean, default: true },
     },
     setup(props) {
@@ -179,6 +182,7 @@ export const ClipboardCopy = {
             client: props.client,
             dictationId: props.dictationId,
             revisionId: props.revisionId,
+            binding: props.binding,
             authorized: () => props.authorized,
         });
         const styleOf = (s) => ({ background: s.background, color: s.color, borderColor: s.border });

@@ -34,6 +34,7 @@ from wtforms.validators import ValidationError
 
 from src.clinic import export as export_service
 from src.clinic import kis, parity_receipts, release
+from src.clinic import routes_clipboard
 from src.clinic.parity_dispatch import CommandProblem
 from src.clinic.config import clinic_mode_enabled, kis_delivery_enabled
 from src.clinic.models import (
@@ -95,11 +96,31 @@ def _leaf(model, dictation: ClinicDictation):
 
 def output_source(dictation: ClinicDictation) -> OutputSource:
     """Server-resolved current binding of a dictation; fails closed without a single head."""
-    rows = (_leaf(ClinicAudioRevision, dictation), _leaf(ClinicTranscriptRevision, dictation),
+    audio_id = release.current_audio_id(dictation.id)
+    audio = db.session.get(ClinicAudioRevision, audio_id) if audio_id is not None else None
+    rows = (audio, _leaf(ClinicTranscriptRevision, dictation),
             _leaf(ClinicContextRevision, dictation))
     if any(row is None for row in rows):
         raise OutputAttemptError('dictation has no single current revision')
     return bind_output_source(dictation, *rows)
+
+
+def _clipboard_target(dictation, can_export, active, *, include_binding):
+    item = {'id': 'clipboard', 'channel': 'clipboard', 'available': False, 'reason': 'forbidden'}
+    if not can_export or not routes_clipboard.client_can_copy():
+        return item
+    try:
+        source = output_source(dictation)
+        revision = db.session.get(ClinicTranscriptRevision, source.text_revision_id)
+        binding = routes_clipboard.clipboard_binding(revision, source, active)
+    except OutputAttemptError:
+        return dict(item, reason='no_clipboard_revision')
+    item.update(available=True, reason=None)
+    if include_binding:
+        item.update(revision_id=revision.id, binding=binding)
+        if binding == routes_clipboard.WORKING_COPY:
+            item['label'] = routes_clipboard.WORKING_COPY_LABEL
+    return item
 
 
 def _job_view(job: dict) -> dict:
@@ -231,8 +252,7 @@ def create_blueprint(
             kis_reason = gate or (None if adapter.enabled and adapter.is_mock else 'kis_unavailable')
             listed.append({'id': KIS_FORMAT, 'channel': 'kis', 'available': kis_reason is None,
                            'reason': kis_reason})
-        listed.append({'id': 'clipboard', 'channel': 'clipboard', 'available': can_export,
-                       'reason': None if can_export else gate})
+        listed.append(_clipboard_target(dictation, can_export, active, include_binding=include_all))
         return jsonify(dictation_id=dictation.id,
                        released_revision_id=None if active is None else active.transcript_revision_id,
                        targets=listed)

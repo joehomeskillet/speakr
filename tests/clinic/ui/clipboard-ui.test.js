@@ -39,7 +39,7 @@ describe('clinic clipboard ui', () => {
         const { calls, clipboard, copier } = setup();
         const state = await copier.copy('plain');
         expect(clipboard.writeText).toHaveBeenCalledWith('Befund');
-        expect(calls[0].path).toBe('/dictations/d1/clipboard/r1');
+        expect(calls[0].path).toBe('/dictations/d1/clipboard/r1?format=plain');
         expect(calls[1].path).toBe('/dictations/d1/clipboard/r1/outcome');
         expect(calls[1].options.body).toEqual({ outcome: 'copied' });
         expect(calls[1].options.idempotencyKey).toBe('key-1');
@@ -49,8 +49,9 @@ describe('clinic clipboard ui', () => {
     });
 
     it('copies formatted data as plain and html flavours', async () => {
-        const { clipboard, copier } = setup();
+        const { calls, clipboard, copier } = setup();
         const state = await copier.copy('formatted');
+        expect(calls[0].path).toBe('/dictations/d1/clipboard/r1?format=formatted');
         const [item] = clipboard.write.mock.calls[0][0];
         expect(Object.keys(item.data)).toEqual(['text/plain', 'text/html']);
         expect(state.phase).toBe('copied');

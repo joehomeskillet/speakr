@@ -58,7 +58,8 @@ def prepare(case, **changes):
 def report(case, outcome, **changes):
     options = dict(actor=case['actor'], request_id=case['request_id'], outcome=outcome)
     options.update(changes)
-    return report_clipboard(AuditClipboardLedger(), *objects(case), **options)
+    dictation, revision, _ = objects(case)
+    return report_clipboard(AuditClipboardLedger(), dictation, revision, **options)
 
 
 def test_fresh_worker_reads_claim_and_single_local_outcome(case):
