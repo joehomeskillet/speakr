@@ -7,8 +7,8 @@
  *
  * Rules applied:
  *   - The author is the logged-in user. A server check confirms a route before capture.
- *   - Audio and title stay in memory. This module never touches IndexedDB,
- *     localStorage or sessionStorage; a failed upload says so explicitly.
+ *   - Audio and title stay in memory. The recorder reports if a managed
+ *     staging browser retained an encrypted copy after a failed upload.
  *   - A dictation counts as created only when the upload resolves with a server
  *     receipt (an object carrying an id). The view shows the dictation id only
  *     (W16: no patient name, no title).
@@ -54,6 +54,7 @@ export const TEXT = Object.freeze({
     routingMissing: 'Ihr Konto ist noch keinem Autorenpool zugeordnet. Bitte wenden Sie sich an die Verwaltung.',
     routingError: 'Die Berechtigung konnte nicht geprüft werden. Bitte laden Sie die Seite neu.',
     recordFailed: 'Senden fehlgeschlagen. Der Entwurf wurde nicht gesendet. Die Aufnahme wird nicht lokal gespeichert.',
+    recordRetained: 'Die Aufnahme liegt verschlüsselt unter „Offline und Wiederherstellung“. Der Server hat den Entwurf nicht bestätigt.',
     fileFailed: 'Hochladen fehlgeschlagen. Der Entwurf wurde nicht gesendet. Die Audiodatei wird nicht lokal gespeichert.',
     sent: 'Gespeichert. Noch nicht an den Schreibdienst gesendet.',
     submit: 'Einreichen',
@@ -344,7 +345,10 @@ export function createRecordingViewController(options) {
             if (state.filePhase === 'failed') return TEXT.fileFailed;
             return state.fileError === 'invalid_file' ? TEXT.fileInvalid : '';
         }
-        if (s.phase === 'failed') return opts.oneButton || s.title.trim() ? TEXT.recordFailed : LABELS.titleHint;
+        if (s.phase === 'failed') {
+            if (s.error === 'offline_retained') return TEXT.recordRetained;
+            return opts.oneButton || s.title.trim() ? TEXT.recordFailed : LABELS.titleHint;
+        }
         if (s.error === 'microphone_denied') return TEXT.microphoneDenied;
         if (s.error === 'start_failed') return TEXT.startFailed;
         if (s.error === 'discard_failed') return TEXT.discardFailed;
@@ -398,7 +402,7 @@ export function createRecordingViewController(options) {
             try {
                 await machine.cancel();
             } catch (e) {
-                // Nothing is persisted locally, so a failed discard leaves nothing behind.
+                // The managed offline view owns any encrypted copy.
             }
         }
     }

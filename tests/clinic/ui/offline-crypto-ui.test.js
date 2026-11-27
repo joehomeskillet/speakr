@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
     OfflineCryptoError,
     createOfflineCrypto,
@@ -126,6 +126,22 @@ describe('offline-crypto-ui', () => {
         expect((await c.refreshAuthorization()).available).toBe(true);
         await c.setup(PASS, alice);
         expect(c.unlocked).toBe(true);
+    });
+
+    it('locks the managed test key at the server expiry even without a network check', async () => {
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(100000);
+        try {
+            const client = { request: async () => ({ outcome: 'ok', data: grant(), grantExpiresAt: 101 }) };
+            const c = createOfflineCrypto({ client, iterations: ITER, requireExpiry: true });
+            expect((await c.refreshAuthorization()).available).toBe(true);
+            await c.setup(PASS, alice);
+            await c.encryptRecord(bind(), { a: 1 });
+            clock.mockReturnValue(101000);
+            expect(await code(c.encryptRecord(bind(), { a: 2 }))).toBe('UNAUTHORIZED');
+            expect(c.unlocked).toBe(false);
+        } finally {
+            clock.mockRestore();
+        }
     });
 
     it('rejects a weak passphrase and a non-matching key policy', async () => {
