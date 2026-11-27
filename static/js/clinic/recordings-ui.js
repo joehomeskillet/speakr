@@ -221,7 +221,7 @@ export function toViewRow(item) {
     const badge = statusBadge(item.workflow_status);
     const seconds = Number.isFinite(item.duration_ms) ? Math.round(item.duration_ms / 1000) : null;
     const time = formatTime(item.sort_time || item.recorded_at);
-    const heading = item.case_display ? TEXT.caseId + ' ' + item.case_display : TEXT.dictation;
+    const heading = item.case_display ? TEXT.caseId + ' ' + item.case_display : item.capture_label || TEXT.dictation;
     const reference = formatDictationReference(item.dictation_id);
     const authorName = nameOf(item.dictated_by) || TEXT.noAuthor;
     const poolText = pools.length ? pools.join(', ') : TEXT.noPool;
@@ -233,7 +233,7 @@ export function toViewRow(item) {
         time,
         datetime: item.sort_time || item.recorded_at || '',
         statusClass: Object.prototype.hasOwnProperty.call(STATUS_TINT, item.workflow_status) ? STATUS_TINT[item.workflow_status] : 'neu',
-        ariaLabel: [heading + (!item.case_display && reference ? ' ' + reference : ''), TEXT.author + ' ' + authorName, TEXT.pool + ' ' + poolText, item.day ? formatLongDay(item.day) : '', time, badge.label,
+        ariaLabel: [heading + (!item.case_display && !item.capture_label && reference ? ' ' + reference : ''), TEXT.author + ' ' + authorName, TEXT.pool + ' ' + poolText, item.day ? formatLongDay(item.day) : '', time, badge.label,
             seconds === null ? '' : formatAudioDuration(seconds)].filter(Boolean).join(', '),
         isFallback: fallback,
         fallbackLabel: fallback ? TEXT.fallbackBadge : '',
@@ -251,7 +251,8 @@ export function toViewRow(item) {
         caseDisplay: item.case_display || '',
         ownTitle: typeof item.own_title === 'string' ? item.own_title.trim() : '',
         workflowStatus: item.workflow_status || null,
-        heading: item.case_display ? TEXT.caseId + ' ' + item.case_display : TEXT.dictation,
+        heading,
+        captureLabel: item.capture_label || '',
         hasLease: nameOf(item.lease_holder) !== null,
         fallbackText: source === 'imported' ? TEXT.fallbackImportedText : (source === 'created' ? TEXT.fallbackCreatedText : ''),
         searchText: [nameOf(item.dictated_by), pools.join(' '), item.case_display, '#' + item.dictation_id, item.dictation_id].filter(Boolean).join(' ').toLowerCase(),
