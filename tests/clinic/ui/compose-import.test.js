@@ -108,6 +108,86 @@ describe('import view composition', () => {
         });
     });
 
+    it('shows only eligible names as an optional hint and assigns the lead’s different choice once', async () => {
+        const hinted = { target_author_user_id: 6, target_pool_id: 'p1', author_name: 'Anna Test', pool_name: 'A' };
+        const chosen = { target_author_user_id: 7, target_pool_id: 'p2', author_name: 'Eva Test', pool_name: 'B' };
+        let delivered = false;
+        let finish;
+        const gate = new Promise((resolve) => { finish = resolve; });
+        const client = fakeClient({
+            [ENDPOINTS.unassigned]: () => ok({ items: delivered ? [] : UNASSIGNED }),
+            [ENDPOINTS.candidates('d1')]: () => ok({ items: [hinted, chosen] }),
+            [ENDPOINTS.suggestion('d1')]: () => ok({ band: 'choice', candidates: [6, 99] }),
+            [ENDPOINTS.assign('d1')]: async () => { await gate; delivered = true; return ok({}); },
+        });
+        const c = createImportController({ client, currentUser: { id: 5, isPoolLead: true } });
+        await c.load();
+        c.askAssign('d1');
+        await c.loadCandidates('d1');
+        expect(calls(client, ENDPOINTS.suggestion('d1'))).toHaveLength(0);
+        await c.loadSuggestion('d1');
+        expect(c.state.hint.names).toEqual(['Anna Test']);
+        expect(c.state.target).toBeNull();
+        expect(await c.confirmAssign('d1', { ...hinted, target_pool_id: 'p2' }, 's1')).toBeNull();
+        expect(calls(client, ENDPOINTS.assign('d1'))).toHaveLength(0);
+
+        c.state.target = chosen;
+        const first = c.confirmAssign('d1', c.state.target, 's1');
+        expect(await c.confirmAssign('d1', c.state.target, 's1')).toBeNull();
+        finish();
+        await first;
+        expect(calls(client, ENDPOINTS.assign('d1'))).toEqual([[
+            '/imports/unassigned/d1/assign',
+            { method: 'POST', idempotencyKey: expect.any(String), body: {
+                target_author_user_id: 7, target_pool_id: 'p2', expected_snapshot_version: 's1',
+            } },
+        ]]);
+        await c.load();
+        expect(c.state.unassigned).toEqual([]);
+        expect(c.state.notice).toBe(c.text.assigned);
+        expect(c.state.hint).toBeNull();
+    });
+
+    it.each([
+        [ok({ band: 'none', candidates: [6] }), []],
+        [{ outcome: 'network' }, []],
+        [ok({ band: 'single', candidates: [6] }), ['Anna Test']],
+    ])('keeps the picker blank independently of the hint response %j', async (response, names) => {
+        const client = fakeClient({
+            [ENDPOINTS.candidates('d1')]: () => ok({ items: [{
+                target_author_user_id: 6, target_pool_id: 'p1', author_name: 'Anna Test', pool_name: 'A',
+            }] }),
+            [ENDPOINTS.suggestion('d1')]: () => response,
+        });
+        const c = createImportController({ client, currentUser: { id: 5, isPoolLead: true } });
+        c.askAssign('d1');
+        await c.loadCandidates('d1');
+        await c.loadSuggestion('d1');
+        expect(c.state.hint.names).toEqual(names);
+        expect(c.state.target).toBeNull();
+        expect(calls(client, ENDPOINTS.assign('d1'))).toHaveLength(0);
+    });
+
+    it('ignores hints from a closed picker even when the same delivery was reopened', async () => {
+        const candidate = { target_author_user_id: 6, target_pool_id: 'p1', author_name: 'Anna Test' };
+        let finish;
+        const client = fakeClient({
+            [ENDPOINTS.candidates('d1')]: () => ok({ items: [candidate] }),
+            [ENDPOINTS.suggestion('d1')]: () => new Promise((resolve) => { finish = resolve; }),
+        });
+        const c = createImportController({ client, currentUser: { id: 5, isPoolLead: true } });
+        c.askAssign('d1');
+        await c.loadCandidates('d1');
+        const hint = c.loadSuggestion('d1');
+        c.cancelAssign();
+        c.askAssign('d1');
+        await c.loadCandidates('d1');
+        finish(ok({ band: 'single', candidates: [6] }));
+        await hint;
+        expect(c.state.hint).toBeNull();
+        expect(c.state.target).toBeNull();
+    });
+
     it('assignment needs a confirmation step and sends one request with a key', async () => {
         const client = fakeClient({ [ENDPOINTS.assign('d1')]: () => ok({}) });
         const c = createImportController({ client, currentUser: { id: 1, role: 'admin' } });
