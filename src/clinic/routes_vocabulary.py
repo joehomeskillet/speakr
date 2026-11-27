@@ -9,7 +9,9 @@ adapter (the later consumer package owning pool-lead rules). Mounting
 ``blueprint`` in the app is left to the consumer packages (w103, w200).
 
 Entry versions are the entry's ``updated_at``; a write with a different
-``expected_version`` fails with 409 ``stale_version`` and changes nothing.
+``expected_version`` fails with 409 ``stale_version`` and changes nothing. The
+confirmed bulk endpoint applies that check to every named entry and rolls the
+whole list back when any version or permission fails.
 """
 
 from __future__ import annotations
@@ -33,6 +35,9 @@ PREFIX = "/api/clinic/v1/vocabulary"
 MAX_BODY_BYTES = 256 * 1024
 MAX_SELECTION = 255
 SEARCH_MODES = ("contains", "prefix", "suffix", "exact")
+SEARCH_FIELDS = ("written", "spoken", "all")
+BULK_ACTIONS = ("suppress", "delete")
+MAX_BULK = 100
 _FORBIDDEN_KEYS = frozenset({
     "actor", "actor_id", "user", "user_id", "author_user_id", "role", "roles",
     "is_admin", "created_by",
@@ -127,6 +132,7 @@ class VocabularyApi:
             ("/additions", "additions", self._add, "POST"),
             ("/entries/<entry_id>/suppress", "suppress", lambda entry_id: self._toggle(entry_id, True), "POST"),
             ("/entries/<entry_id>/reactivate", "reactivate", lambda entry_id: self._toggle(entry_id, False), "POST"),
+            ("/entries/bulk", "bulk", self._bulk, "POST"),
         )
         for path, name, view, method in rules:
             bp.add_url_rule(PREFIX + path, name, self._wrap(view), methods=[method])
@@ -174,10 +180,13 @@ class VocabularyApi:
         args = request.args
         mode = args.get("mode", "contains")
         status = args.get("status", "active")
-        if mode not in SEARCH_MODES or status not in ("active", "suppressed", "all") or len(args.get("q", "")) > MAX_SELECTION:
+        field = args.get("field", "written")
+        if (mode not in SEARCH_MODES or field not in SEARCH_FIELDS
+                or status not in ("active", "suppressed", "all") or len(args.get("q", "")) > MAX_SELECTION):
             raise ApiError("invalid_payload")
         kwargs = self._scope(args.get("scope"), args.get("pool_id"), write=False)
-        rows = vocabulary.search_vocabulary(args.get("q", ""), mode=mode, status=None if status == "all" else status, **kwargs)
+        rows = vocabulary.search_vocabulary(
+            args.get("q", ""), mode=mode, field=field, status=None if status == "all" else status, **kwargs)
         return jsonify(entries=[_entry_json(row) for row in rows])
 
     def _export(self):
@@ -250,3 +259,46 @@ class VocabularyApi:
         entry = change(entry_id)
         db.session.commit()
         return jsonify(entry=_entry_json(entry))
+
+    def _permitted(self, entry: vocabulary.ClinicVocabularyEntry) -> bool:
+        """True when the caller may write this entry. Failures stay a 404, as on a single toggle."""
+        try:
+            self._scope(entry.scope, entry.pool_id if entry.scope == "pool" else None, write=True)
+        except ApiError:
+            return False
+        return not (entry.scope == "user" and entry.user_id != current_user.id)
+
+    def _bulk(self):
+        """Confirmed bulk suppress or hard delete. One stale version or one forbidden entry rejects all."""
+        body = _body()
+        entries = body.get("entries")
+        if (body.keys() - {"action", "entries", "confirm"} or body.get("confirm") is not True
+                or body.get("action") not in BULK_ACTIONS or not isinstance(entries, list)
+                or not entries or len(entries) > MAX_BULK):
+            raise ApiError("invalid_payload")
+        items: list[dict[str, str]] = []
+        chosen: list[vocabulary.ClinicVocabularyEntry] = []
+        for item in entries:
+            if not isinstance(item, dict) or item.keys() - {"id", "expected_version"}:
+                raise ApiError("invalid_payload")
+            entry_id, expected = item.get("id"), item.get("expected_version")
+            if not isinstance(entry_id, str) or not entry_id or not isinstance(expected, str):
+                raise ApiError("invalid_payload")
+            entry = db.session.get(vocabulary.ClinicVocabularyEntry, entry_id)
+            # Check permission before the version, so a foreign entry never reveals that it changed.
+            if entry is None or not self._permitted(entry):
+                raise ApiError("not_found")
+            if expected != _version(entry):
+                raise ApiError("stale_version", current_version=_version(entry))
+            items.append({"id": entry_id, "expected_version": expected})
+            chosen.append(entry)
+        try:
+            vocabulary.apply_vocabulary_bulk(items, body["action"])
+        except vocabulary.VocabularyError as error:
+            if error.code == "stale_version":
+                raise ApiError("stale_version")
+            raise
+        db.session.commit()
+        if body["action"] == "delete":
+            return jsonify(deleted=len(items))
+        return jsonify(entries=[_entry_json(row) for row in chosen])
