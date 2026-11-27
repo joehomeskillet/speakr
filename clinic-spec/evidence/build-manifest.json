@@ -18,8 +18,8 @@
     },
     {
       "path": "PROGRESS.md",
-      "bytes": 907,
-      "sha256": "a5efc27e95e2e6a13bc0ad13f40c8ccc4a746b44790625358101352256a4ea00"
+      "bytes": 1334,
+      "sha256": "247fa3bc0e36b18c53ca371afb8ed3a40fe45bd9517287baaf4ea2e6735b6cc6"
     },
     {
       "path": "README.md",
@@ -283,8 +283,8 @@
     },
     {
       "path": "planning/parity-matrix.json",
-      "bytes": 175648,
-      "sha256": "04785094d438258830923efb4a142aa68939a0a5449e111b7ae713b9becba8a7"
+      "bytes": 175644,
+      "sha256": "c21e9665cc0f4ca4fcfededef937fac8d7fe9d404c662a7678d2bd5d1b28c132"
     },
     {
       "path": "planning/reference-questions.json",
