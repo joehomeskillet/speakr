@@ -51,6 +51,7 @@ AUTH: tuple[str, ...] = (
     'clinic_clipboard.outcome',
     'clinic_output.targets',
     'clinic_output.request_export',
+    'clinic_output.download_export',
     'clinic_output.export_status',
 )
 

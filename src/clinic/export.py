@@ -27,6 +27,8 @@ from src.clinic.models import (
     ClinicRelease,
     ClinicTranscriptRevision,
 )
+from src.clinic.odt_export import ODT_MIMETYPE, OdtExportError
+from src.clinic.odt_export import render_odt as render_odt_file
 from src.clinic.output_rtf import RTFValidationError, get_rtf_bytes, validate_rtf
 from src.database import db
 from src.file_exporter import sanitize_export_filename
@@ -106,7 +108,7 @@ class _Source:
 
 def export_filename(dictation_id: str, revision_id: str, extension: str, *, mode: str, label: str = '') -> str:
     """One path segment. User-controlled path characters are not kept."""
-    if extension not in ('.txt', '.docx', '.rtf'):
+    if extension not in ('.txt', '.docx', '.rtf', '.odt'):
         raise ExportRefused('unsupported_extension')
     if mode not in ('released', 'draft'):
         raise ExportRefused('unsupported_source')
@@ -140,6 +142,16 @@ def render_rtf(release_or_draft, *, allow_draft: bool = False, filename_label: s
     return _render(release_or_draft, kind='rtf', allow_draft=allow_draft, filename_label=filename_label)
 
 
+def render_odt(release_or_draft, *, allow_draft: bool = False, filename_label: str | None = None) -> RenderedExport:
+    """ODT of the bound revision, or of a draft when explicitly allowed.
+
+    The same header and body as :func:`render_text` are written as paragraphs.
+    This is a file download only. It does not insert into an open Writer
+    document and does not close WG-EXP-005.
+    """
+    return _render(release_or_draft, kind='odt', allow_draft=allow_draft, filename_label=filename_label)
+
+
 def download_started(rendered: RenderedExport) -> ExportOutcome:
     """Record that a download response was started.
 
@@ -167,6 +179,8 @@ def _render(release_or_draft, *, kind: str, allow_draft: bool, filename_label: s
         extension = '.txt'
     elif kind == 'rtf':
         extension = '.rtf'
+    elif kind == 'odt':
+        extension = '.odt'
     else:
         extension = '.docx'
     label = source.document_type if filename_label is None else filename_label
@@ -185,6 +199,9 @@ def _render(release_or_draft, *, kind: str, allow_draft: bool, filename_label: s
     elif kind == 'rtf':
         content = _rtf_bytes(title, header, body)
         mimetype = RTF_MIMETYPE
+    elif kind == 'odt':
+        content = _odt_bytes(title, header, _paragraphs(body))
+        mimetype = ODT_MIMETYPE
     else:
         content = _docx_bytes(title, header, _paragraphs(body))
         mimetype = DOCX_MIMETYPE
@@ -320,6 +337,14 @@ def _rtf_bytes(title: str, header_lines: list[str], body: str) -> bytes:
     if not checked.groups_balanced:
         raise ExportRefused('rtf_unbalanced')
     return content
+
+
+def _odt_bytes(title: str, header_lines: list[str], paragraphs: list[str]) -> bytes:
+    """Header metadata plus the body paragraphs, as deterministic ODT bytes."""
+    try:
+        return render_odt_file([*header_lines, '', *paragraphs], title=title)
+    except (OdtExportError, TypeError) as exc:
+        raise ExportRefused('odt_invalid') from exc
 
 
 def _docx_bytes(title: str, header_lines: list[str], paragraphs: list[str]) -> bytes:
