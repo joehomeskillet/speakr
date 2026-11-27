@@ -22,6 +22,7 @@ from src.clinic.parity_dispatch import ParityDispatch
 from src.clinic.pools import ClinicAuthorPool, ClinicAuthorPoolMember, create_tables as create_pool_tables
 from src.clinic import routes_vocabulary_review as rvr
 from src.clinic import vocabulary
+from src.clinic.routes_vocabulary import VocabularyApi
 from src.database import db
 from src.models import User
 
@@ -93,6 +94,7 @@ def app_env(tmp_path, monkeypatch):
     rvr.register_parity_review_handlers(dispatch)
     app.register_blueprint(dispatch.blueprint)
     app.register_blueprint(rvr.vocabulary_review_bp)
+    app.register_blueprint(VocabularyApi(rvr.can_review_pool).blueprint)
 
     current_actor: list[MockUser] = [MockUser(101)]
 
@@ -141,6 +143,127 @@ def _login(client, uid: int) -> dict[str, str]:
         "X-CSRF-Token": token,
         "Idempotency-Key": f"key-{uuid.uuid4()}",
     }
+
+
+def _proposal(**payload):
+    return {
+        "command": "propose_vocabulary_change", "request_id": str(uuid.uuid4()),
+        "expected_revision": 0,
+        "payload": {"scope_type": "author_pool", "scope_id": "pool-cardio",
+                    "operation": "add", "written": "NeuesWort", **payload},
+    }
+
+
+@pytest.mark.parametrize("operation", ["add", "negative", "reactivate"])
+def test_proposal_waits_for_author_pool_review(app_env, operation):
+    app, _ = app_env
+    client = app.test_client()
+    with app.app_context():
+        # Exercise the pool owner's authority without site-admin privileges.
+        db.session.get(User, 999).is_admin = False
+        if operation != "add":
+            vocabulary.add_vocabulary_entry(
+                scope="pool", pool_id="pool-cardio", written_form="NeuesWort",
+                status=vocabulary.STATUS_ACTIVE if operation == "negative" else vocabulary.STATUS_SUPPRESSED,
+            )
+        db.session.commit()
+    headers = _login(client, 101)
+    search = "/api/clinic/v1/vocabulary/search?scope=pool&pool_id=pool-cardio"
+    before = client.get(search).json
+    body = _proposal(operation=operation, spoken="Neues Wort")
+    response = client.post(PATH_PARITY, headers=headers, json=body)
+    assert response.status_code == 200, response.data
+    assert response.json["revision"] == 1
+    assert response.json["status"] == "committed"
+    proposal_id = response.json["artifact_id"]
+    assert client.post(PATH_PARITY, headers=headers, json=body).json == response.json
+    assert client.get(search).json == before
+    with app.app_context():
+        item = db.session.get(vocabulary.ClinicVocabularyReviewItem, proposal_id)
+        assert item.status == vocabulary.REVIEW_STATUS_PENDING
+        assert item.operation == (vocabulary.REVIEW_OP_DELETE if operation == "negative" else vocabulary.REVIEW_OP_ADD)
+        assert (item.user_id, item.pool_id, item.spoken_form) == (101, "pool-cardio", "Neues Wort")
+        assert db.session.query(vocabulary.ClinicVocabularyReviewItem).count() == 1
+    review = {"command": "review_resource_change", "request_id": str(uuid.uuid4()),
+              "expected_revision": 1, "payload": {"proposal_id": proposal_id, "decision": "pool"}}
+    denied = client.post(PATH_PARITY, headers=_login(client, 101), json=review)
+    assert denied.status_code == 403
+    assert client.get(search).json == before
+    for decision in ("pool", "user", "reject"):
+        review["payload"]["decision"] = decision
+        denied = client.post(PATH_PARITY, headers=_login(client, 102), json=review)
+        assert denied.status_code == 403
+    reviewer = _login(client, 999)
+    queue = client.get(f"{PATH_REVIEWS}?scope_type=author_pool&scope_id=pool-cardio")
+    assert queue.status_code == 200
+    assert any(item["id"] == proposal_id for item in queue.json["items"])
+    review["payload"]["decision"] = "pool"
+    accepted = client.post(PATH_PARITY, headers=reviewer, json=review)
+    assert accepted.status_code == 200, accepted.data
+    _login(client, 101)
+    after = client.get(search)
+    assert after.status_code == 200
+    assert [entry["written"] for entry in after.json["entries"]] == ([] if operation == "negative" else ["NeuesWort"])
+
+
+@pytest.mark.parametrize("payload,code", [
+    ({"scope_type": "user", "scope_id": "102"}, "POLICY_DENIED"),
+    ({"scope_id": "missing-pool"}, "POLICY_DENIED"),
+    ({"written": "   "}, "INVALID_PAYLOAD"),
+    ({"written": "x" * 256}, "INVALID_PAYLOAD"),
+    ({"spoken": "x" * 256}, "INVALID_PAYLOAD"),
+    ({"written": "Wort\u0000"}, "INVALID_PAYLOAD"),
+    ({"operation": "DELETE"}, "INVALID_PAYLOAD"),
+    ({"actor_id": 999}, "INVALID_PAYLOAD"),
+])
+def test_proposal_rejects_invalid_or_foreign_scope(app_env, payload, code):
+    app, _ = app_env
+    client = app.test_client()
+    response = client.post(PATH_PARITY, headers=_login(client, 101), json=_proposal(**payload))
+    assert response.status_code == (403 if code == "POLICY_DENIED" else 400)
+    assert response.json["code"] == code
+    with app.app_context():
+        assert db.session.query(vocabulary.ClinicVocabularyReviewItem).count() == 0
+
+
+def test_proposal_rechecks_membership_and_account(app_env):
+    app, _ = app_env
+    client = app.test_client()
+    body = _proposal()
+    response = client.post(PATH_PARITY, headers=_login(client, 102), json=body)
+    assert response.status_code == 403
+    headers = _login(client, 101)
+    assert client.post(PATH_PARITY, headers=headers, json=body).status_code == 200
+    with app.app_context():
+        member = db.session.query(ClinicAuthorPoolMember).filter_by(user_id=101).one()
+        db.session.delete(member)
+        db.session.commit()
+    assert client.post(PATH_PARITY, headers=headers, json=body).status_code == 403
+    personal = _proposal(scope_type="user", scope_id="101")
+    assert client.post(PATH_PARITY, headers=_login(client, 101), json=personal).status_code == 200
+    with app.app_context():
+        db.session.add(ClinicAccountPolicy(user_id=101, status="disabled"))
+        db.session.commit()
+    assert client.post(PATH_PARITY, headers=_login(client, 101), json=personal).status_code == 403
+
+
+def test_proposal_revision_and_idempotency_conflict(app_env):
+    app, _ = app_env
+    client = app.test_client()
+    body = _proposal()
+    body["expected_revision"] = 1
+    stale = client.post(PATH_PARITY, headers=_login(client, 101), json=body)
+    assert stale.status_code == 409
+    assert stale.json["code"] == "REVISION_CONFLICT"
+    body["expected_revision"] = 0
+    headers = _login(client, 101)
+    assert client.post(PATH_PARITY, headers=headers, json=body).status_code == 200
+    body["payload"]["written"] = "AnderesWort"
+    conflict = client.post(PATH_PARITY, headers=headers, json=body)
+    assert conflict.status_code == 409
+    assert conflict.json["code"] == "IDEMPOTENCY_CONFLICT"
+    with app.app_context():
+        assert db.session.query(vocabulary.ClinicVocabularyReviewItem).count() == 1
 
 
 # ============================================================================

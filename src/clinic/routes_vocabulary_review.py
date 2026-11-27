@@ -19,6 +19,7 @@ from src.clinic.config import clinic_mode_enabled
 from src.clinic.identity import ClinicAccountPolicy
 from src.clinic.parity_dispatch import CommandProblem, ParityDispatch, _problem
 from src.clinic.pools import ClinicAuthorPool, ClinicAuthorPoolMember, ClinicVisibilityGrant
+from src.clinic.routes_vocabulary import ApiError, canonical_selection
 from src.clinic import vocabulary
 from src.database import db
 from src.models import User
@@ -156,6 +157,49 @@ def execute_review_resource_change(actor_id: int, target: str, envelope: dict[st
     }
 
 
+def authorize_propose_vocabulary_change(actor_id: int, permission: str, payload: dict[str, Any]) -> str | None:
+    """Allow personal proposals and proposals for a current author-pool member."""
+    if permission != "clinic.vocabulary.propose":
+        return None
+    s = db.session
+    uid = int(actor_id)
+    if s.get(User, uid) is None:
+        return None
+    account = s.get(ClinicAccountPolicy, uid)
+    if account is not None and account.status != "active":
+        return None
+    scope, scope_id = payload["scope_type"], payload["scope_id"]
+    if scope == "user":
+        return f"user:{uid}" if scope_id == str(uid) else None
+    if scope == "author_pool" and s.get(ClinicAuthorPool, scope_id) is not None:
+        member = s.query(ClinicAuthorPoolMember).filter_by(pool_id=scope_id, user_id=uid).first()
+        if member is not None:
+            return f"author_pool:{scope_id}"
+    return None
+
+
+def execute_propose_vocabulary_change(actor_id: int, target: str, envelope: dict[str, Any]) -> dict[str, Any]:
+    """Create a pending review item; only a later review changes vocabulary."""
+    payload = envelope["payload"]
+    operation = vocabulary.REVIEW_OP_DELETE if payload["operation"] == "negative" else vocabulary.REVIEW_OP_ADD
+    try:
+        item = vocabulary.submit_review_item(
+            user_id=actor_id, written_form=canonical_selection(payload["written"]),
+            spoken_form=canonical_selection(payload["spoken"]) if payload.get("spoken") else None,
+            operation=operation, origin=vocabulary.ORIGIN_MANUAL,
+            pool_id=payload["scope_id"] if payload["scope_type"] == "author_pool" else None,
+        )
+    except (ApiError, vocabulary.VocabularyError):
+        raise CommandProblem("INVALID_PAYLOAD")
+    return {
+        "request_id": envelope["request_id"],
+        "command_id": str(uuid.uuid4()),
+        "artifact_id": item.id,
+        "status": "committed",
+        "revision": 1,
+    }
+
+
 def register_parity_review_handlers(dispatch: ParityDispatch) -> None:
     """Register parity command adapter on ParityDispatch."""
     dispatch.register(
@@ -163,6 +207,12 @@ def register_parity_review_handlers(dispatch: ParityDispatch) -> None:
         authorize=authorize_review_resource_change,
         revision=get_review_item_revision,
         execute=execute_review_resource_change,
+    )
+    dispatch.register(
+        "propose_vocabulary_change",
+        authorize=authorize_propose_vocabulary_change,
+        revision=lambda _target: None,
+        execute=execute_propose_vocabulary_change,
     )
 
 
