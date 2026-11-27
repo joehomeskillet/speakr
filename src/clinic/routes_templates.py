@@ -5,7 +5,9 @@ The actor is always ``current_user``; a request body never names an actor, user 
 Central templates store a durable server copy (DOCX/ODT) that remains usable without
 the original client/workstation file. Append-only versioning preserves template history.
 Visibility covers system templates, templates of the caller's active author pools, and
-the caller's own user templates.
+the caller's own user templates. A ``dictation_id`` query binds the list and the
+content read to that dictation's author and pool when the caller is the author or
+the assigned Schreibkraft. Own template management ignores that query.
 """
 
 from __future__ import annotations
@@ -24,6 +26,8 @@ from wtforms.validators import ValidationError
 
 from src.clinic import pool_policy, presets
 from src.clinic.config import clinic_mode_enabled
+from src.clinic.models import ClinicDictation
+from src.clinic.workflow import ClinicWorkflowDictation
 from src.database import db
 from src.models import User
 
@@ -186,6 +190,77 @@ def _can_read_template(actor_id: int, row: presets.ClinicTemplate) -> bool:
     return False
 
 
+def _requested_dictation_id() -> str | None:
+    """Optional case the template menu is opened for. Empty means the admin list."""
+    raw = request.args.get("dictation_id")
+    if raw is None or str(raw).strip() == "":
+        return None
+    try:
+        return str(uuid.UUID(str(raw)))
+    except (ValueError, TypeError, AttributeError):
+        raise TemplateError("invalid_payload", 400)
+
+
+def _authorized_dictation_scope(actor_id: int, dictation_id: str) -> tuple[int, str | None]:
+    """Author and pool of a dictation this caller may transcribe.
+
+    The assigned Schreibkraft is enough. Membership in the author's pool is not.
+    A missing or foreign case is the same 404 as an unknown template.
+    """
+    user = db.session.get(User, actor_id)
+    if user is None or not user.is_active:
+        raise TemplateError("not_found", 404)
+    row = db.session.get(ClinicDictation, dictation_id)
+    if row is None:
+        raise TemplateError("not_found", 404)
+    if row.author_user_id == actor_id:
+        return row.author_user_id, row.pool_id
+    flow = db.session.get(ClinicWorkflowDictation, row.id)
+    if flow is None or flow.assignee_user_id != actor_id:
+        raise TemplateError("not_found", 404)
+    return row.author_user_id, row.pool_id
+
+
+def _belongs_to_dictation_author(
+    row: presets.ClinicTemplate, author_id: int, pool_id: str | None,
+) -> bool:
+    """System, that author's user templates, or the dictation's own pool."""
+    if not row.is_active:
+        return False
+    if row.scope == "system":
+        return True
+    if row.scope == "user":
+        return row.scope_id == str(author_id)
+    if row.scope == "pool" and pool_id is not None:
+        return row.scope_id == str(pool_id)
+    return False
+
+
+def templates_for_dictation(actor_id: int, dictation_id: str) -> list[presets.ClinicTemplate]:
+    """Active templates for one authorized dictation: system, its author, its pool."""
+    author_id, pool_id = _authorized_dictation_scope(actor_id, dictation_id)
+    return presets.list_templates(
+        user_id=str(author_id),
+        pool_ids=[str(pool_id)] if pool_id else None,
+        include_system=True,
+        session=db.session,
+    )
+
+
+def _can_read_requested(actor_id: int, row: presets.ClinicTemplate) -> bool:
+    """Own-scope read, or the author's template while the caller holds that case."""
+    if _can_read_template(actor_id, row):
+        return True
+    dictation_id = _requested_dictation_id()
+    if dictation_id is None:
+        return False
+    try:
+        author_id, pool_id = _authorized_dictation_scope(actor_id, dictation_id)
+    except TemplateError:
+        return False
+    return _belongs_to_dictation_author(row, author_id, pool_id)
+
+
 def assign_template(
     template_id: str,
     target_scope: str,
@@ -291,24 +366,42 @@ def _no_cache(response: Response) -> Response:
 
 @blueprint.get(PREFIX)
 def list_templates():
-    rows = visible_templates(current_user.id)
+    try:
+        dictation_id = _requested_dictation_id()
+        if dictation_id is None:
+            rows = visible_templates(current_user.id)
+        else:
+            rows = templates_for_dictation(current_user.id, dictation_id)
+    except TemplateError as err:
+        return _problem(err.code, err.status)
     return jsonify(items=[template_summary(row) for row in rows])
+
+
+def _readable_row(template_id: uuid.UUID) -> presets.ClinicTemplate | None:
+    row = db.session.get(presets.ClinicTemplate, str(template_id))
+    if row is None or not _can_read_requested(current_user.id, row):
+        return None
+    return row
 
 
 @blueprint.get(PREFIX + "/<uuid:template_id>")
 def get_template(template_id: uuid.UUID):
-    tid = str(template_id)
-    row = db.session.get(presets.ClinicTemplate, tid)
-    if row is None or not _can_read_template(current_user.id, row):
+    try:
+        row = _readable_row(template_id)
+    except TemplateError as err:
+        return _problem(err.code, err.status)
+    if row is None:
         return _problem("not_found", 404)
     return jsonify(template_detail(row))
 
 
 @blueprint.get(PREFIX + "/<uuid:template_id>/content")
 def get_template_content(template_id: uuid.UUID):
-    tid = str(template_id)
-    row = db.session.get(presets.ClinicTemplate, tid)
-    if row is None or not _can_read_template(current_user.id, row):
+    try:
+        row = _readable_row(template_id)
+    except TemplateError as err:
+        return _problem(err.code, err.status)
+    if row is None:
         return _problem("not_found", 404)
 
     return Response(
