@@ -110,6 +110,7 @@ export const TEXT = Object.freeze({
     openAssignment: 'Zuordnung offen',
     noPool: 'Kein Pool zugewiesen',
     options: 'Wiedergabeoptionen',
+    audioUnsynced: 'Text und Audio sind nicht synchronisiert.',
     highlightOn: 'Wortmarkierung ausschalten',
     highlightOff: 'Wortmarkierung einschalten',
     follow: 'Aktuelles Wort mitverfolgen',
@@ -918,7 +919,8 @@ export const CorrectionBody = {
             onQuery, onReplacement, onCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, drawerClose, closeDrawer, toggleDrawer, unsavedSuffix,
             repeatState: c.repeat.state, REPEAT_TEXT,
             text: e.text, canEdit: e.canEdit, dirty: e.dirty, textRevisionId: e.textRevisionId, loading: e.loading, error: e.error, manual: e.manual,
-            lease: e.lease, audio: e.audio, template: e.template, templates: e.templates, templatesError: e.templatesError,
+            lease: e.lease, audio: e.audio, audioSynced: e.audioSynced,
+            template: e.template, templates: e.templates, templatesError: e.templatesError,
             editorAnnouncement: e.announcement,
             alignStatus: a.status, alignError: a.error, segments: a.segments, currentWord: a.currentWord, alignAnnouncement: a.announcement,
             saveState: s.state, saveMessage: s.message,
@@ -1016,6 +1018,7 @@ export const CorrectionBody = {
       </div>
       <p class="word-sync-info" role="status" aria-live="polite">
         <template v-if="audio.status !== 'ready' && audio.status !== 'idle' && audio.status !== 'loading'">{{ audio.message + ' ' }}</template>
+        <span v-if="audioSynced === false">{{ TEXT.audioUnsynced + ' ' }}</span>
         <span v-if="alignmentNotice" data-testid="alignment-notice">{{ alignmentNotice + ' ' }}</span>
         <span v-if="pedalStatus" data-testid="pedal-status">{{ pedalStatus }}</span>
       </p>
