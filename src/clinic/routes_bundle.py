@@ -14,22 +14,24 @@ persisting import. Imports need CSRF, ``If-Match`` (current revision) and an
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from hashlib import sha256
 from uuid import UUID, uuid4
 
-from flask import Blueprint, Response, abort, jsonify, request, session
+from flask import Blueprint, Response, abort, current_app, jsonify, request, session
 from flask_login import current_user
 from flask_wtf.csrf import validate_csrf
 from werkzeug.exceptions import HTTPException
 from wtforms.validators import ValidationError
 
-from src.clinic import output_rtf, richtext_formats as formats
+from src.clinic import output_rtf, richtext_formats as formats, startup
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.parity_dispatch import _PROBLEMS, JSON, CommandProblem, RunOnce
 from src.clinic.rich_text_doc import RichTextError
 from src.clinic.richtext import SCHEMA_VERSION, CanonicalDocument, Node, Segment
+from src.clinic.richtext_graphics import GraphicStore
 from src.clinic.sdict_bundle import BundleError, read_bundle
 
 PREFIX = '/api/clinic/v1/bundles'
@@ -56,6 +58,7 @@ class BundleSession:
 Load = Callable[[int, str], BundleSession | None]
 Authorize = Callable[[int, str, str], bool]  # (actor, dictation_id, 'export' | 'import')
 Persist = Callable[[int, str, CanonicalDocument, bytes | None, int], int]
+LoadGraphic = Callable[[int, str, str], bytes]
 
 
 def text_to_document(raw: bytes) -> CanonicalDocument:
@@ -72,9 +75,16 @@ def text_to_document(raw: bytes) -> CanonicalDocument:
 
 def create_blueprint(
     load: Load, authorize: Authorize, persist: Persist, run_once: RunOnce,
-    is_managed_client: Callable[[], bool],
+    is_managed_client: Callable[[], bool], load_graphic: LoadGraphic | None = None,
 ) -> Blueprint:
     blueprint = Blueprint('clinic_bundle', __name__, url_prefix=PREFIX)
+
+    def graphic_bytes(actor: int, dictation_id: str, object_id: str) -> bytes:
+        if load_graphic is not None:
+            return load_graphic(actor, dictation_id, object_id)
+        return GraphicStore(startup.originals_root(current_app)).get(
+            dictation_id, object_id, actor_user_id=actor,
+        )[1]
 
     def problem(status: int, code: str):
         response = jsonify(type='about:blank', status=status, code=code,
@@ -130,6 +140,18 @@ def create_blueprint(
         try:
             if kind == 'txt':
                 body, mime, ext = formats.to_plain_text(current.doc).encode('utf-8'), 'text/plain; charset=utf-8', 'txt'
+            elif kind == 'html':
+                graphics = {}
+                for node in current.doc.nodes:
+                    if node.kind == 'graphic' and node.object_id not in graphics:
+                        try:
+                            graphics[node.object_id] = graphic_bytes(
+                                current_user.id, str(UUID(dictation_id)), node.object_id,
+                            )
+                        except (RichTextError, OSError) as error:
+                            raise formats.FormatError('graphic_unavailable') from error
+                body = formats.web_html(current.doc, graphics).encode('utf-8')
+                mime, ext = 'text/html; charset=utf-8', 'html'
             elif kind in ('sdict', 'rtf'):
                 out = formats.export_document(current.doc, expected_version=SCHEMA_VERSION,
                                               allowed=True, audio=current.audio)
@@ -145,6 +167,12 @@ def create_blueprint(
         response.headers['ETag'] = f'"{current.version}"'
         response.headers['X-Content-SHA256'] = sha256(body).hexdigest()
         response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['X-Export-Losses'] = json.dumps([
+            {'code': loss.code, 'detail': loss.detail}
+            for loss in formats.export_losses(current.doc, kind)
+        ], separators=(',', ':'))
+        if kind == 'html':
+            response.headers['Content-Security-Policy'] = formats.WEB_CSP
         return response
 
     @blueprint.post('/<dictation_id>/import')

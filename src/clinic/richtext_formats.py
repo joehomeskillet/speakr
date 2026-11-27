@@ -2,20 +2,22 @@
 
 Approved marks are bold, italic, paragraph and list. HTML uses the sanitiser
 in ``rich_text_doc``. Plain text and formatted RTF use the existing renderers.
-ODT, DOCX and the webbundle are projections of the same nodes. The canonical
-document is never rewritten.
+ODT, DOCX, standalone web HTML and the webbundle are projections of the same
+nodes. The canonical document is never rewritten.
 
-Unsupported marks, tables, graphics and macros become a loss report or a
-refusal. They are not imported as active content.
+Unsupported marks, tables and macros become a loss report or a refusal. Local
+graphics are embedded as validated PNG data in standalone web HTML.
 """
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import re
 import zipfile
 import xml.etree.ElementTree as ET
+from collections.abc import Mapping
 from dataclasses import dataclass
 from io import BytesIO
 
@@ -40,6 +42,8 @@ _W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 _TEXT_NS = "urn:oasis:names:tc:opendocument:xmlns:text:1.0"
 _STAMP = (1980, 1, 1, 0, 0, 0)
 _WAV = b"RIFF\x24\x00\x00\x00WAVEfmt " + b"\x00" * 24
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+WEB_CSP = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"
 
 
 class FormatError(ValueError):
@@ -56,6 +60,7 @@ class Loss:
 
     code: str
     detail: str
+    channels: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -125,6 +130,41 @@ def export_document(
         text_identity=text_hash(plain),
         anchors=anchors,
     )
+
+
+def web_html(doc: CanonicalDocument, graphics: Mapping[str, bytes]) -> str:
+    """Return an offline HTML document with authorised local graphics embedded."""
+    if not isinstance(doc, CanonicalDocument):
+        raise FormatError("invalid_document")
+    body = to_html(doc)
+    for node in doc.nodes:
+        if node.kind != "graphic":
+            continue
+        data = graphics.get(node.object_id)
+        if data is None:
+            raise FormatError("graphic_not_found")
+        if (not isinstance(data, bytes) or not data.startswith(_PNG_SIGNATURE)
+                or hashlib.sha256(data).hexdigest() != node.object_id):
+            raise FormatError("graphic_integrity_error")
+        encoded = base64.b64encode(data).decode("ascii")
+        body = body.replace(
+            f'src="local:{node.object_id}"', f'src="data:image/png;base64,{encoded}"',
+        )
+    return (
+        '<!doctype html><html lang="de"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        f'<meta http-equiv="Content-Security-Policy" content="{WEB_CSP}">'
+        f'<title>Diktat</title></head><body>{body}</body></html>'
+    )
+
+
+def export_losses(doc: CanonicalDocument, kind: str) -> tuple[Loss, ...]:
+    """Return the concrete losses for one explicitly selected export format."""
+    if not isinstance(doc, CanonicalDocument):
+        raise FormatError("invalid_document")
+    if kind not in {"txt", "rtf", "odt", "docx", "html", "sdict"}:
+        raise FormatError("invalid_format")
+    return tuple(loss for loss in _export_losses(doc) if kind in loss.channels)
 
 
 def import_html(raw: str, *, expected_version: int, allowed: bool) -> Import:
@@ -316,23 +356,43 @@ def _anchors(doc: CanonicalDocument) -> tuple[tuple[str, int, int], ...]:
 
 def _export_losses(doc: CanonicalDocument) -> tuple[Loss, ...]:
     losses: list[Loss] = []
-    formatted = False
+    limited = ("txt", "rtf", "odt", "docx")
+    runs = tuple(run for node in doc.nodes for run in node.runs)
     if any(node.kind == "heading" for node in doc.nodes):
-        losses.append(Loss("heading", "Überschrift wird ausser im Editor als Absatz exportiert."))
-        formatted = True
-    if any(run.underline for node in doc.nodes for run in node.runs):
-        losses.append(Loss("underline", "Unterstreichung entfällt in RTF, ODT und DOCX."))
-        formatted = True
+        losses.append(Loss(
+            "heading", "Überschrift wird in RTF, ODT und DOCX als Absatz und in TXT als reiner Text exportiert.",
+            limited,
+        ))
+    if any(run.underline for run in runs):
+        losses.append(Loss("underline", "Unterstreichung entfällt in TXT, RTF, ODT und DOCX.", limited))
     if any(node.kind == "list_item" for node in doc.nodes):
-        losses.append(Loss("list_plain", "Liste wird in ODT und DOCX als Absatz geführt."))
-        formatted = True
-    if any(run.bold or run.italic for node in doc.nodes for run in node.runs):
-        losses.append(Loss("odt_marks", "ODT übernimmt Fett und Kursiv nicht."))
-        formatted = True
-    if formatted:
-        losses.append(Loss("plain_unformatted", "TXT ist bewusst unformatiert."))
-    if any(run.audio_anchor_id for node in doc.nodes for run in node.runs):
-        losses.append(Loss("html_anchors", "Audioanker bleiben nur im Webbundle erhalten."))
+        losses.append(Loss(
+            "list_plain", "Liste wird in ODT und DOCX als Absatz und in TXT ohne Listenformat ausgegeben.",
+            ("txt", "odt", "docx"),
+        ))
+    if any(run.bold or run.italic for run in runs):
+        losses.append(Loss("odt_marks", "ODT übernimmt Fett und Kursiv nicht.", ("odt",)))
+    if any(run.font_family is not None or run.font_size_pt is not None for run in runs):
+        losses.append(Loss("font", "Schriftart und Schriftgrösse entfallen in TXT, RTF, ODT und DOCX.", limited))
+    if any(node.text_align is not None for node in doc.nodes):
+        losses.append(Loss("text_align", "Textausrichtung entfällt in TXT, RTF, ODT und DOCX.", limited))
+    if any(node.line_spacing is not None for node in doc.nodes):
+        losses.append(Loss("line_spacing", "Zeilenabstand entfällt in TXT, RTF, ODT und DOCX.", limited))
+    if any(node.kind == "graphic" for node in doc.nodes):
+        losses.append(Loss(
+            "graphic", "Grafik entfällt in RTF, ODT und DOCX; TXT enthält nur ihren Alternativtext.", limited,
+        ))
+    if losses:
+        losses.append(Loss(
+            "plain_unformatted",
+            "TXT enthält bewusst keine HTML-Auszeichnung, Schrift-, Ausrichtungs- oder Zeilenabstandsangaben.",
+            ("txt",),
+        ))
+    if any(run.audio_anchor_id for run in runs):
+        losses.append(Loss(
+            "html_anchors", "Audioanker bleiben nur im Webbundle erhalten.",
+            ("txt", "rtf", "odt", "docx", "html"),
+        ))
     return tuple(losses)
 
 
