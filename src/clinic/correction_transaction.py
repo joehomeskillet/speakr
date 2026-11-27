@@ -43,6 +43,7 @@ def save_correction_transaction(
     expected_text_revision_id: str | None = None,
     document: CanonicalDocument | None = None,
     expected_document_version: int | None = None,
+    force_new_revision: bool = False,
     now: datetime | None = None,
 ) -> tuple[ClinicTranscriptRevision, ClinicCorrectionState]:
     """Append a human transcript revision and save the correction position atomically.
@@ -107,7 +108,8 @@ def save_correction_transaction(
                 raise CorrectionOriginalError('ORIGINAL_MISSING' if not originals else 'ORIGINAL_AMBIGUOUS')
             original = originals[0]
         revision = add_human_revision(
-            dictation, parent_revision, text, user_id, original_version=original)
+            dictation, parent_revision, text, user_id, original_version=original,
+            force_new_revision=force_new_revision)
         if head_before is None or revision.id != head_before.id:
             _resubmit_accepted(dictation, user_id, revision.id)
 

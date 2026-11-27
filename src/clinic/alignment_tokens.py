@@ -192,15 +192,15 @@ def utf16_spans(document: dict) -> dict:
     return spans
 
 
-def tokens_for(dictation, revision) -> ClinicTranscriptTokens:
-    """Stored row of ``revision``; built (and flushed, never committed) on first use."""
+def tokens_for(dictation, revision, *, inherit: bool = True) -> ClinicTranscriptTokens:
+    """Build once; rich edits can opt out of plaintext-based token inheritance."""
     if revision.dictation_id != dictation.id:
         raise AlignmentTokensError("revision belongs to another dictation")
     row = db.session.get(ClinicTranscriptTokens, revision.id)
     if row is not None:
         return row
     parent_row = None
-    if revision.parent_revision_id is not None:
+    if inherit and revision.parent_revision_id is not None:
         parent_row = db.session.get(ClinicTranscriptTokens, revision.parent_revision_id)
     if parent_row is not None:
         document = carry(parent_row.document, revision.body, revision.id)
