@@ -71,6 +71,9 @@ ADMIN: tuple[str, ...] = (
     'clinic_admin_dictations.transcript',
     'clinic_admin_dictations.audio',
     'clinic_metadata_fields.save_field',
+    # Category set writes (PAR-CFG-003). The handler also requires an active site admin.
+    'clinic_categories.create_category_set',
+    'clinic_categories.update_category_set',
     'clinic_training.manifest',
     'clinic_training.schedule',
     'clinic_training.start',
