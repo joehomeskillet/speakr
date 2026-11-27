@@ -180,8 +180,7 @@ export function createRecorderPhases(options) {
     function pause() {
         const blocked = guard(['recording']);
         if (blocked) return blocked;
-        recorder.pauseRecording();
-        set({ phase: 'paused' });
+        pauseActiveMedia('recording');
         return { ok: true };
     }
 
@@ -254,8 +253,19 @@ export function createRecorderPhases(options) {
     function stopPlayback() {
         const blocked = guard(['review']);
         if (blocked) return blocked;
-        media?.pause?.();
+        pauseActiveMedia('review');
         return { ok: true };
+    }
+
+    // Releasing already running media must still work after authorization is lost.
+    function pauseActiveMedia(phase) {
+        if (state.phase !== phase) return;
+        if (phase === 'recording') {
+            recorder.pauseRecording();
+            set({ phase: 'paused' });
+        } else if (phase === 'review') {
+            media?.pause?.();
+        }
     }
 
     async function send() {
@@ -348,7 +358,7 @@ export function createRecorderPhases(options) {
             return () => listeners.delete(listener);
         },
         setTitle, start, pause, resume, stop, rewind, play, send, cancel, reset,
-        beginning: rewind, end, skip, stopPlayback, setPlayer, syncPlayback, playbackFailed,
+        beginning: rewind, end, skip, stopPlayback, pauseActiveMedia, isPlaying: playing, setPlayer, syncPlayback, playbackFailed,
         controls, announcement, surface,
     };
 }
