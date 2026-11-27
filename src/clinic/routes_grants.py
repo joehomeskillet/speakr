@@ -16,6 +16,9 @@ Rules:
   own id (identity-web contract, ``getClinicUserGrants``).
 * A change names its actions explicitly (no implicit "all actions") and must
   send the revision it last read. A stale or replayed change gets 409.
+* Optional ``author_ids`` limit that one allow (explicit authors) or deny
+  (deny exception, for example pool A except Beta) to those user ids. The
+  ids in the response are the stored user ids, not usernames.
 * A refused request writes nothing.
 
 All users share the pool service's stored grant revision.
@@ -44,12 +47,26 @@ from src.models import User
 logger = logging.getLogger(__name__)
 
 PATH = "/api/clinic/v1/identity/users/<int:user_id>/grants"
-WRITE_KEYS = frozenset({"expected_revision", "effect", "scope", "pool_id", "actions"})
+WRITE_KEYS = frozenset({"expected_revision", "effect", "scope", "pool_id", "actions", "author_ids"})
+
+
+def _author_links(user_id: int):
+    grant = pools.ClinicVisibilityGrant
+    link = pools.ClinicGrantAuthor
+    return (
+        db.session.query(link.grant_id, link.author_user_id)
+        .join(grant, grant.id == link.grant_id)
+        .filter(grant.user_id == user_id)
+        .order_by(link.author_user_id)
+    )
 
 
 def grant_list(user_id: int, *, include_ids: bool = False) -> dict[str, Any]:
     """GrantList of the identity-web contract."""
     revision = pools.grant_version()
+    author_ids: dict[Any, list[int]] = defaultdict(list)
+    for grant_id, author_user_id in _author_links(user_id):
+        author_ids[grant_id].append(author_user_id)
     authors = defaultdict(list)
     if include_ids:
         restrictions = (db.session.query(pools.ClinicGrantAuthor.grant_id, User.username)
@@ -72,6 +89,8 @@ def grant_list(user_id: int, *, include_ids: bool = False) -> dict[str, Any]:
             item["id"] = row.id
             if row.id in authors:
                 item["author_names"] = authors[row.id]
+        if row.id in author_ids:
+            item["author_ids"] = author_ids[row.id]
         if row.pool_id is not None:
             item["pool_id"] = row.pool_id
         items.append(item)
@@ -81,6 +100,13 @@ def grant_list(user_id: int, *, include_ids: bool = False) -> dict[str, Any]:
 def _is_active_identity_admin(user: User) -> bool:
     account = db.session.get(ClinicAccountPolicy, user.id)
     return account is not None and account.status == "active" and account.is_identity_admin
+
+
+def _author_ids(value: Any) -> list[int]:
+    if (not isinstance(value, list) or not value or any(type(item) is not int or item < 1 for item in value)
+            or len(value) != len(set(value))):
+        raise CommandProblem("INVALID_PAYLOAD")
+    return value
 
 
 def _parse_change(body: Any) -> dict[str, Any]:
@@ -94,7 +120,27 @@ def _parse_change(body: Any) -> dict[str, Any]:
         raise CommandProblem("INVALID_PAYLOAD")
     if body["scope"] == "pool" and body.get("pool_id") is None:
         raise CommandProblem("INVALID_PAYLOAD")
+    if "author_ids" in body:
+        _author_ids(body["author_ids"])
+        # Own recordings have one author, the subject. A pool id belongs only to scope pool.
+        if body["scope"] == "own" or (body["scope"] != "pool" and body.get("pool_id") is not None):
+            raise CommandProblem("INVALID_PAYLOAD")
     return body
+
+
+def _apply_change(user_id: int, body: dict[str, Any], actor_id: int) -> None:
+    """One versioned allow or deny. Author ids limit that row to those users."""
+    if "author_ids" not in body:
+        change = pools.allow if body["effect"] == "allow" else pools.deny
+        change(user_id, body.get("scope"), actor_id=actor_id,
+               pool_id=body.get("pool_id"), actions=body["actions"])
+        return
+    limited = {"explicit_users": body["author_ids"]} if body["effect"] == "allow" else {
+        "deny_user_ids": body["author_ids"]}
+    pools.set_author_scope(
+        user_id, actor_id=actor_id, actions=body["actions"],
+        pool_id=body.get("pool_id") if body["scope"] == "pool" else None, **limited,
+    )
 
 
 class GrantsApi:
@@ -163,9 +209,7 @@ class GrantsApi:
                     return _not_found()
                 pools.revoke(row.id, actor_id=actor.id)
             else:
-                change = pools.allow if body["effect"] == "allow" else pools.deny
-                change(user_id, body.get("scope"), actor_id=actor.id,
-                       pool_id=body.get("pool_id"), actions=body["actions"])
+                _apply_change(user_id, body, actor.id)
         except CommandProblem as error:
             db.session.rollback()
             return _problem(str(error))

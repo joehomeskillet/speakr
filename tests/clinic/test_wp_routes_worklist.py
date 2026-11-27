@@ -35,12 +35,14 @@ EXPECTED = {
 
 SCRIPT = r'''
 import json, sys, uuid
+from datetime import datetime, timezone
 from src.app import app, db
 from src.init_db import initialize_database
 from src.models import Recording, User
 from src.clinic import policy, workflow
-from src.clinic.models import (ClinicAudioRevision, ClinicContextRevision, ClinicDictation, ClinicOriginal,
-                               ClinicTranscriptRevision)
+from src.clinic.models import (ClinicAudioRevision, ClinicContextRevision, ClinicDelivery, ClinicDictation,
+                               ClinicOriginal, ClinicRelease, ClinicTranscriptRevision)
+from src.clinic.output import ClinicOutputReceipt
 from src.clinic.route_policy import ROUTE_POLICY
 
 out = {}
@@ -69,10 +71,23 @@ with app.app_context():
     orig = ClinicOriginal(dictation_id=dic.id, content_hash="h", size_bytes=1, storage_key="k", receipt="r", origin_ref="o")
     db.session.add(orig); db.session.flush()
     audio = ClinicAudioRevision(dictation_id=dic.id, content_hash="h")
-    text = ClinicTranscriptRevision(dictation_id=dic.id, kind="HUMAN", body="Text", normalised_text_hash="t" * 64,
-                                    original_version_id=orig.id)
+    text = ClinicTranscriptRevision(dictation_id=dic.id, kind="HUMAN", body="GEHEIMER-AUSGABETEXT-053",
+                                    normalised_text_hash="t" * 64, original_version_id=orig.id)
     context = ClinicContextRevision(dictation_id=dic.id)
-    db.session.add_all([audio, text, context]); db.session.commit()
+    db.session.add_all([audio, text, context]); db.session.flush()
+    db.session.add(ClinicOutputReceipt(
+        dictation_id=dic.id, transcript_revision_id=text.id, text_hash=text.normalised_text_hash,
+        actor_user_id=ids["a"], channel="CLIPBOARD", text_format="PLAIN", target="Zwischenablage",
+        output_at=datetime(2026, 11, 27, 8, 15, tzinfo=timezone.utc)))
+    rel = ClinicRelease(
+        dictation_id=dic.id, audio_revision_id=audio.id, transcript_revision_id=text.id,
+        context_revision_id=context.id, text_hash=text.normalised_text_hash, actor_user_id=ids["a"],
+        document_type="letter", release_type="history_probe", authorization_decision="{}")
+    db.session.add(rel); db.session.flush()
+    db.session.add(ClinicDelivery(
+        release_id=rel.id, target="kis", idempotency_key="p053-failed", payload_hash="p" * 64,
+        state="FAILED", created_at=datetime(2026, 11, 27, 8, 16, tzinfo=timezone.utc)))
+    db.session.commit()
     did, revs = dic.id, (audio.id, text.id, context.id)
 
 def login(uid):
@@ -95,6 +110,19 @@ ca, ha = login(ids["a"]); cb, hb = login(ids["b"])
 ra = ca.get(W + "/rows"); rb = cb.get(W + "/rows")
 out["rows"] = [ra.status_code, ra.json["total"], rb.status_code, rb.json["total"]]
 out["history"] = [ca.get(D + "/history").status_code, cb.get(D + "/history").status_code]
+shown = ca.get(D + "/history")
+reopened = ca.get(D + "/history")
+
+def _lines(payload):
+    return sorted((e for e in payload["events"] if e.get("kind") in ("output", "delivery")), key=lambda e: e["kind"])
+
+out["history_lines"] = _lines(shown.json)
+out["history_again"] = _lines(reopened.json)
+out["history_foreign_again"] = cb.get(D + "/history").status_code
+raw = shown.get_data(as_text=True)
+out["history_leaks"] = [name for name, secret in (
+    ("body", "GEHEIMER-AUSGABETEXT-053"), ("text_hash", "t" * 64), ("payload_hash", "p" * 64),
+) if secret in raw]
 
 spec = {"all": [{"field": "status", "op": "in", "value": ["zu_schreiben"]}]}
 out["filter_no_csrf"] = ca.post(W + "/filters", json={"name": "F", "spec": spec}).status_code
@@ -188,6 +216,21 @@ def test_anonymous_is_refused_before_any_handler(on):
 def test_worklist_and_history_are_scoped_to_the_actor(on):
     assert on["rows"] == [200, 1, 200, 0]
     assert on["history"] == [200, 404]
+
+
+def test_history_names_receipt_and_failed_delivery_without_text_or_hash(on):
+    lines = {row["kind"]: row for row in on["history_lines"]}
+    output, delivery = lines["output"], lines["delivery"]
+    assert output["channel"] == "CLIPBOARD"
+    assert output["target"] == "Zwischenablage"
+    assert output["at"].startswith("2026-11-27T08:15:00")
+    assert set(output) == {"kind", "id", "action", "at", "channel", "target"}
+    assert delivery["state"] == "FAILED"
+    assert delivery["at"].startswith("2026-11-27T08:16:00")
+    assert set(delivery) == {"kind", "id", "action", "at", "state"}
+    assert on["history_foreign_again"] == 404
+    assert on["history_again"] == on["history_lines"]
+    assert on["history_leaks"] == []
 
 
 def test_saved_filters_csrf_stale_version_and_cross_user(on):

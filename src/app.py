@@ -1389,11 +1389,12 @@ def register_clinic_audio(flask_app):
     no bundle persistence (503), no local TTS engine or declared capability
     (CAPABILITY_UNAVAILABLE), no live-draft coordinator (CAPABILITY_UNAVAILABLE). The derived
     rendering reads the stored originals (app_wiring.make_source_loader); the protection store is
-    durable (clinic_dictation_protection).
+    durable (clinic_dictation_protection). The mounted sdict export uses that same current
+    revision. A source that cannot be read stays empty and is never replaced by synthetic audio.
     """
-    from src.clinic import (app_wiring, config, local_tts, policy, pool_policy, revisions, routes_audio,
-                            routes_bundle, routes_clipboard, routes_correction, routes_dictation_properties,
-                            routes_live, routes_output, routes_tts, startup)
+    from src.clinic import (app_wiring, audio_render, audio_revisions, config, local_tts, policy, pool_policy,
+                            revisions, routes_audio, routes_bundle, routes_clipboard, routes_correction,
+                            routes_dictation_properties, routes_live, routes_output, routes_tts, startup)
     from src.clinic.admin_dictation_access import can_open_content
     from src.clinic.ingest import IngestService
     from src.clinic.models import ClinicDictation, ClinicTranscriptRevision
@@ -1428,14 +1429,26 @@ def register_clinic_audio(flask_app):
         lambda user_id, dictation_id: may(user_id, 'edit', db.session.get(ClinicDictation, dictation_id)),
         lambda dictation_id: db.session.get(ClinicDictation, dictation_id) is not None)
 
+    def bundle_audio(dictation):
+        # Missing source stays empty so the archive builder refuses it. Never invent audio.
+        revision = audio_revisions.current_audio_revision(dictation)
+        if revision is None:
+            return b''
+        try:
+            edl = audio_revisions.get_revision_edl(dictation, revision)
+            return audio_render.render_current_revision(
+                dictation, revision.id, load_sources(dictation, edl)).wav
+        except audio_revisions.AudioRevisionError:
+            return b''
+
     def bundle_load(actor, dictation_id):
         dictation = db.session.get(ClinicDictation, dictation_id)
         head = None if dictation is None else revisions.current_revision(dictation)
         if head is None:
             return None
         return routes_bundle.BundleSession(
-            doc=routes_bundle.text_to_document(head.body.encode('utf-8')), audio=b'',
-            version=text_version(dictation))
+            doc=routes_bundle.text_to_document(head.body.encode('utf-8')),
+            audio=bundle_audio(dictation), version=text_version(dictation))
 
     def bundle_persist(_actor, _dictation_id, _doc, _audio, _expected):
         raise OSError('no durable bundle store is wired yet')

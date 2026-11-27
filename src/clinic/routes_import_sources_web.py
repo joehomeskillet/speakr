@@ -21,7 +21,8 @@ from src.services import audit
 
 def _visible(config):
     return {key: config[key] for key in (
-        "id", "source_kind", "source_ref", "target_author_user_id", "target_pool_id", "policy_version"
+        "id", "source_kind", "source_ref", "target_author_user_id", "target_pool_id", "policy_version",
+        "autosend_enabled", "eol_filter_enabled",
     )}
 
 
@@ -79,27 +80,47 @@ def update_source(config_id):
     except ValueError:
         return _problem("INVALID_PAYLOAD")
     body = request.get_json(silent=True)
-    if not isinstance(body, dict) or set(body) != {"expected_version", "target_author_user_id", "target_pool_id"}:
+    allowed = {"expected_version", "target_author_user_id", "target_pool_id",
+               "autosend_enabled", "eol_filter_enabled"}
+    if not isinstance(body, dict) or not set(body) <= allowed or "expected_version" not in body:
         return _problem("INVALID_PAYLOAD")
-    version, author, pool = body["expected_version"], body["target_author_user_id"], body["target_pool_id"]
-    if (type(version) is not int or version < 1 or type(author) is not int or author < 1 or
-            (pool is not None and (not isinstance(pool, str) or not 1 <= len(pool) <= 36))):
+    routing = "target_author_user_id" in body or "target_pool_id" in body
+    if routing and {"target_author_user_id", "target_pool_id"} - set(body):
         return _problem("INVALID_PAYLOAD")
-    if author != actor and not current_user.is_admin:
-        return _problem("FORBIDDEN")
-    active = db.session.get(ClinicAccountPolicy, author)
-    if active is None or active.status != "active":
+    flags = [name for name in ("autosend_enabled", "eol_filter_enabled") if name in body]
+    if not routing and not flags:
         return _problem("INVALID_PAYLOAD")
-    if pool is not None and not ClinicAuthorPoolMember.query.filter_by(pool_id=pool, user_id=author).first():
+    version = body["expected_version"]
+    if type(version) is not int or version < 1 or any(type(body[name]) is not bool for name in flags):
         return _problem("INVALID_PAYLOAD")
+    author = pool = None
+    if routing:
+        author, pool = body["target_author_user_id"], body["target_pool_id"]
+        if (type(author) is not int or author < 1 or
+                (pool is not None and (not isinstance(pool, str) or not 1 <= len(pool) <= 36))):
+            return _problem("INVALID_PAYLOAD")
+        if author != actor and not current_user.is_admin:
+            return _problem("FORBIDDEN")
+        active = db.session.get(ClinicAccountPolicy, author)
+        if active is None or active.status != "active":
+            return _problem("INVALID_PAYLOAD")
+        if pool is not None and not ClinicAuthorPoolMember.query.filter_by(pool_id=pool, user_id=author).first():
+            return _problem("INVALID_PAYLOAD")
     scope = (actor, "route_import_source", config_id, key)
     digest = hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
 
     def write():
-        updated = sources.update_source_config(actor_user_id=actor, config_id=config_id, expected_version=version,
-            target_author_user_id=author, target_pool_id=pool, may_assign_author=lambda *_: current_user.is_admin,
-            commit=False)
-        event = audit.record_in_tx("admin.setting.changed", actor_user_id=actor, target_user_id=author, force=True,
+        changes = {}
+        if routing:
+            changes["target_author_user_id"] = author
+            changes["target_pool_id"] = pool
+        for name in flags:
+            changes[name] = body[name]
+        updated = sources.update_source_config(
+            actor_user_id=actor, config_id=config_id, expected_version=version, commit=False,
+            may_assign_author=lambda *_: current_user.is_admin, **changes)
+        audited = author if routing else config["target_author_user_id"]
+        event = audit.record_in_tx("admin.setting.changed", actor_user_id=actor, target_user_id=audited, force=True,
                                    details={"key": "clinic_import_routing:" + config_id})
         if event is None:
             raise CommandProblem("DEPENDENCY_UNAVAILABLE")
