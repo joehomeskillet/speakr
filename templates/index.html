@@ -244,7 +244,7 @@
                     </div>
                     <!-- end V8 menu views (v8-71) -->
                     <clinic-recording-view v-if="currentView === 'clinic-recording'" :client="clinicClient" :current-user="clinicUser"
-                                           :recorder="clinicRecorder" :upload-file="clinicUploadFile"
+                                           :recorder="clinicRecorder" :upload-file="clinicUploadFile" :microphone="clinicMicrophone"
                                            @open="openClinicMenuDictation" @worklist="goClinicView('clinic-worklist')"></clinic-recording-view>
                     <clinic-live-view v-else-if="currentView === 'clinic-live' && clinicLiveId" :client="clinicClient"
                                       :dictation-id="clinicLiveId"></clinic-live-view>
