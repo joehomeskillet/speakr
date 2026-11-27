@@ -10,13 +10,15 @@ from flask_login import current_user
 from flask_wtf.csrf import validate_csrf
 from wtforms.validators import ValidationError
 
+from src.clinic import agent_channel, agent_channel_ingest
 from src.clinic import import_source_config as sources
 from src.clinic import policy
 from src.clinic.admin_dictation_access import _is_active_site_admin
 from src.clinic.agent_channel import AgentChannelError
 from src.clinic.backup_retention_plan import BackupEntry, plan_cleanup
-from src.clinic.config import feature_locked
+from src.clinic.config import clinic_mode_enabled, dev_defaults, feature_locked
 from src.clinic.identity import ClinicAccountPolicy
+from src.clinic.models import ClinicDictation
 from src.clinic.parity_dispatch import CommandProblem, _problem
 from src.clinic.parity_receipts import ClinicParityReceipt, run_once, scope_key
 from src.clinic.pools import ClinicAuthorPool, ClinicAuthorPoolMember
@@ -103,6 +105,39 @@ def may_manage_source_deletion(actor, config):
     return bool(grants) and policy.decide(replace(subject, grants=grants), "release", facts).allowed
 
 
+def source_cleanup_enabled():
+    return clinic_mode_enabled() and not feature_locked("device_delete_runtime_enabled")
+
+
+def source_cleanup_policy_refusal(config):
+    if not source_cleanup_enabled() or config["allow_source_delete"] is not True:
+        return "SOURCE_DELETE_DISABLED"
+    try:
+        root = sources._clean_backup_root(config["backup_root"], config["approved_root"])
+        days = sources._clean_retention(config["backup_retention_days"])
+    except AgentChannelError:
+        return "BACKUP_RETENTION_NOT_READY"
+    if not (config["backup_enabled"] and root and days
+            and dev_defaults().get("privacy", {}).get("retention_policy_approved") is True):
+        return "BACKUP_RETENTION_NOT_READY"
+    return None
+
+
+def may_agent_remove_source(receipt):
+    """Apply the current source policy to an agent's durable receipt."""
+    item = agent_channel.inventory_row(receipt.agent_id, receipt.source_id, receipt.snapshot_version)
+    owners = agent_channel.unique_root_owners(agent_channel.registered_agent_roots())
+    if item is None or owners.get(item.root_id) != receipt.agent_id:
+        return False
+    try:
+        config = sources.delivery_config(item.root_id, item.relative_path)
+    except AgentChannelError:
+        return False
+    return (config is not None and source_cleanup_policy_refusal(config) is None
+            and receipt.dictation_id is not None and db.session.get(ClinicDictation, receipt.dictation_id) is not None
+            and agent_channel_ingest.source_cleanup_refusal(item, receipt.id) is None)
+
+
 def update_source(config_id):
     actor = current_user.id
     try:
@@ -153,7 +188,7 @@ def update_source(config_id):
     scope_config = config | {"target_author_user_id": author, "target_pool_id": pool} if routing else config
     if "allow_source_delete" in body and (
         not may_manage_source_deletion(actor, scope_config)
-        or (body["allow_source_delete"] and feature_locked("device_delete_runtime_enabled"))
+        or (body["allow_source_delete"] and not source_cleanup_enabled())
     ):
         return _problem("FORBIDDEN")
     scope = (actor, "route_import_source", config_id, key)
@@ -169,7 +204,7 @@ def update_source(config_id):
         updated = sources.update_source_config(
             actor_user_id=actor, config_id=config_id, expected_version=version, commit=False,
             may_assign_author=lambda *_: current_user.is_admin,
-            may_manage_deletion=lambda uid: not feature_locked("device_delete_runtime_enabled")
+            may_manage_deletion=lambda uid: source_cleanup_enabled()
             and may_manage_source_deletion(uid, scope_config), **changes)
         audited = author if routing else config["target_author_user_id"]
         event = audit.record_in_tx("admin.setting.changed", actor_user_id=actor, target_user_id=audited, force=True,

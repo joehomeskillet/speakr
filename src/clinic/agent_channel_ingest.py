@@ -45,11 +45,14 @@ def _chunks(ingest_id):
     return ClinicAgentChunk.query.filter_by(ingest_id=ingest_id).order_by(ClinicAgentChunk.sequence).all()
 
 
-def _receipt(row):
+def _receipt(row, policy=None):
     """Receipt bound to ingest id, source id, snapshot version, sha256, size and the stored original."""
     chunks = _chunks(row.id)
     stored = row.state == "STORED"
     permit = row.permitted_post_step if stored else "none"
+    if permit != "none" and policy is not None and policy.may_remove_source is not None and (
+            not policy.allow_post_import or not policy.may_remove_source(row)):
+        permit = "none"
     return {
         "ingest_id": row.id, "state": row.state,
         "received_chunks": [c.sequence for c in chunks],
@@ -79,7 +82,7 @@ def begin_ingest(principal, policy, *, intent_id, declared_size, declared_sha256
         if (existing.intent_id, existing.declared_size, existing.declared_sha256) != (
                 intent_id, declared_size, declared_sha256):
             raise AgentChannelError("conflict", "idempotency key reused with different content")
-        return _receipt(existing)
+        return _receipt(existing, policy)
     intent = db.session.get(ClinicAgentIntent, intent_id)
     if intent is None or intent.agent_id != agent.id:
         raise AgentChannelError("forbidden", "intent is not addressed to this agent")
@@ -176,14 +179,15 @@ def finalize_ingest(principal, policy, *, ingest_id, body, store_original, now=N
     agent = agent_of(principal)
     now = aware(now) or utcnow()
     row = _session(agent, ingest_id)
+    backup_verified = (body or {}).get("backup_verified") is True
     if row.state in ("STORED", "INVALID"):
-        return _receipt(row)
+        return _receipt(row, policy)
     if row.state == "ABORTED":
         raise AgentChannelError("conflict", "session was aborted")
     if row.state == "UNKNOWN" and recover_original is not None:
         result = recover_original()
         if result is not None:
-            return _finish_ingest(row, policy, result)
+            return _finish_ingest(row, policy, result, backup_verified=backup_verified)
     if aware(row.expires_at) <= now:
         raise AgentChannelError("expired", "ingest session")
     chunks = _chunks(row.id)
@@ -210,10 +214,10 @@ def finalize_ingest(principal, policy, *, ingest_id, body, store_original, now=N
         except Exception:  # any failure is ambiguous: the bytes may or may not be durable
             logger.warning("agent ingest %s: store_original failed, state UNKNOWN", row.id, exc_info=True)
             return _receipt(row)
-    return _finish_ingest(row, policy, result)
+    return _finish_ingest(row, policy, result, backup_verified=backup_verified)
 
 
-def _finish_ingest(row, policy, result):
+def _finish_ingest(row, policy, result, *, backup_verified):
     """Bind a durable original to its channel receipt and retire upload chunks."""
     get = result.get if isinstance(result, dict) else (lambda name: getattr(result, name, None))
     if not get("original_id"):
@@ -223,10 +227,13 @@ def _finish_ingest(row, policy, result):
     row.dictation_id = str(get("dictation_id")) if get("dictation_id") else None
     row.permitted_post_step = _removal_step(policy, intent, row.dictation_id)
     row.state = "STORED"
+    if row.permitted_post_step != "none" and policy.may_remove_source is not None and (
+            not backup_verified or not policy.may_remove_source(row)):
+        row.permitted_post_step = "none"
     intent.status = "STORED"
     ClinicAgentChunk.query.filter_by(ingest_id=row.id).delete()
     db.session.commit()
-    return _receipt(row)
+    return _receipt(row, policy)
 
 
 @transactional
@@ -246,8 +253,8 @@ def abort_ingest(principal, *, ingest_id):
     return _receipt(row)
 
 
-def get_receipt(principal, *, ingest_id):
-    return _receipt(_session(agent_of(principal), ingest_id))
+def get_receipt(principal, *, ingest_id, policy=None):
+    return _receipt(_session(agent_of(principal), ingest_id), policy)
 
 
 def source_cleanup_refusal(snapshot, receipt_id):

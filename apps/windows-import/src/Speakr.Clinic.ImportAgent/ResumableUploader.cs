@@ -35,7 +35,11 @@ public sealed class ResumableUploader
         return (int)Math.Min(AgentOptions.MaxChunkBytes, Math.Max(_options.ChunkSizeBytes, needed));
     }
 
-    public async Task<BoundReceipt> UploadAsync(InventoryItem item, ImportIntent intent, CancellationToken cancellationToken)
+    public Task<BoundReceipt> UploadAsync(InventoryItem item, ImportIntent intent, CancellationToken cancellationToken) =>
+        UploadAsync(item, intent, cancellationToken, backupVerified: false);
+
+    internal async Task<BoundReceipt> UploadAsync(InventoryItem item, ImportIntent intent, CancellationToken cancellationToken,
+        bool backupVerified)
     {
         var bytes = _spool.Read(item.SnapshotVersion);
         if (bytes.LongLength != item.Size || !string.Equals(Hashing.Sha256Hex(bytes), item.ContentSha256, StringComparison.Ordinal))
@@ -74,7 +78,8 @@ public sealed class ResumableUploader
             Chunks = digests,
             TotalBytes = bytes.LongLength,
             Sha256 = item.ContentSha256,
-            SourceFinishedReading = true
+            SourceFinishedReading = true,
+            BackupVerified = backupVerified
         };
         receipt = await _server.FinalizeAsync(ingestId, finalize, item.IdempotencyKey("finalize"), cancellationToken);
         ReceiptBinder.RequireSession(ingestId, receipt);

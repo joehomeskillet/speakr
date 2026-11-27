@@ -17,7 +17,7 @@ from src.clinic import (
 )
 from src.clinic import routes_import_sources_web as source_routing
 from src.clinic.admin_dictation_access import _is_active_site_admin
-from src.clinic.config import clinic_mode_enabled, dev_defaults, feature_locked
+from src.clinic.config import clinic_mode_enabled
 from src.clinic.identity import ClinicAccountPolicy
 from src.clinic.ingest import IngestError
 from src.clinic.migration_import_intent_metadata import interpret
@@ -276,17 +276,8 @@ def create_intents() -> Response | tuple[Response, int]:
 def _cleanup_refusal(item, receipt_id, config, expected_revision):
     if expected_revision is not None and expected_revision != config["policy_version"]:
         return "POLICY_CHANGED"
-    if feature_locked("device_delete_runtime_enabled") or not config["allow_source_delete"]:
-        return "SOURCE_DELETE_DISABLED"
-    try:
-        root = import_source_config._clean_backup_root(config["backup_root"], config["approved_root"])
-        days = import_source_config._clean_retention(config["backup_retention_days"])
-    except agent_channel.AgentChannelError:
-        return "BACKUP_RETENTION_NOT_READY"
-    if not (config["backup_enabled"] and root and days
-            and dev_defaults().get("privacy", {}).get("retention_policy_approved") is True):
-        return "BACKUP_RETENTION_NOT_READY"
-    return agent_channel_ingest.source_cleanup_refusal(item, receipt_id)
+    return (source_routing.source_cleanup_policy_refusal(config)
+            or agent_channel_ingest.source_cleanup_refusal(item, receipt_id))
 
 
 def _source_cleanup(*, preview):
