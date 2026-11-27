@@ -236,6 +236,8 @@ def _clean_options(options):
             ok = value is None or (
                 isinstance(value, int) and not isinstance(value, bool) and value > 0
             )
+        elif name == "wait_disabled":
+            ok = isinstance(value, bool)
         else:
             raise AsrProfileError("option_unknown")
         if not ok:
