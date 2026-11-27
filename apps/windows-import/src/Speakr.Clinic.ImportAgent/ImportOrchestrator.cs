@@ -102,7 +102,7 @@ public sealed class ImportOrchestrator
                     continue;
                 }
                 _log.Info("upload " + LogText.Clean(match.SourceId) + " bytes " + match.Size);
-                var receipt = await _uploader.UploadAsync(match, intent, cancellationToken);
+                var receipt = await UploadAsync(match, intent, cancellationToken);
                 receipts.Add(receipt);
                 // The spool copy is dropped at the start of the next collection pass.
                 _stored.Add(match.SnapshotVersion);
@@ -230,8 +230,15 @@ public sealed class ImportOrchestrator
     public Task<BoundReceipt> UploadAsync(InventoryItem item, CancellationToken cancellationToken = default) =>
         UploadAsync(item, SyntheticIntent(item), cancellationToken);
 
-    public Task<BoundReceipt> UploadAsync(InventoryItem item, ImportIntent intent, CancellationToken cancellationToken = default) =>
-        _uploader.UploadAsync(item, intent, cancellationToken);
+    public Task<BoundReceipt> UploadAsync(InventoryItem item, ImportIntent intent, CancellationToken cancellationToken = default)
+    {
+        if (_options.PreSendBackupEnabled)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            _post.BackupBeforeSend(item, _spool.Read(item.SnapshotVersion));
+        }
+        return _uploader.UploadAsync(item, intent, cancellationToken);
+    }
 
     private ImportIntent SyntheticIntent(InventoryItem item) => new()
     {
