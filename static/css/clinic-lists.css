@@ -58,17 +58,21 @@
     background: var(--v8-s2);
     border: 1px solid currentColor;
 }
-.v8-ui .clinic-recordings-view :is(.record-search, .record-select) { border-color: var(--v8-text-2) !important; }
+.v8-ui .clinic-recordings-view :is(.record-search, .record-select, .cl-id-value textarea) { border-color: var(--v8-text-2) !important; }
 .v8-ui .clinic-recordings-view .record-select:disabled {
     opacity: 1;
     background-color: var(--v8-s2);
     color: var(--v8-text-2);
 }
-.v8-ui .clinic-recordings-view :is(.record-search:focus-within, .record-select:focus-visible) { outline: 2px solid var(--v8-text); }
+.v8-ui .clinic-recordings-view :is(.record-search:focus-within, .record-select:focus-visible, .cl-id-value textarea:focus-visible) {
+    outline: 2px solid var(--v8-text);
+}
 .v8-ui .clinic-recordings-view .recording-row:focus-visible { outline-color: var(--v8-text); }
 .v8-ui .clinic-recordings-view :is(.record-search, .record-select:not(:disabled), .page-actions button, .cl-id-disclosure > summary) {
     min-height: 48px !important;
 }
+.v8-ui .clinic-recordings-view .cl-id-disclosure > summary { min-width: 48px; }
+.v8-ui .clinic-recordings-view .cl-id-disclosure > summary:focus-visible { outline-color: var(--v8-text); }
 @media (min-width: 701px) {
     .v8-ui .clinic-recordings-view .recording-row {
         grid-template-columns: 55px 36px minmax(0, 1fr) minmax(0, 24rem) 63px 18px;
