@@ -125,6 +125,8 @@ export const TEXT = Object.freeze({
     ctxClosed: 'Kontextbereich',
     find: 'Im Text suchen',
     replace: 'Suchen und Ersetzen',
+    upperCase: 'Auswahl in Grossbuchstaben',
+    lowerCase: 'Auswahl in Kleinbuchstaben',
     fontDown: 'Text kleiner anzeigen',
     fontUp: 'Text grösser anzeigen',
     focusOn: 'Vollbild öffnen',
@@ -655,6 +657,8 @@ const ICON_PATHS = Object.freeze({
     marker: '<path d="M6 21V4m0 0c4-4 8 4 12 0v10c-4 4-8-4-12 0"/>',
     search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
     replace: '<path d="M4 6h13l-3-3m3 3-3 3M20 18H7l3-3m-3 3 3 3M5 11v2m14-2v2"/>',
+    'upper-case': '<path d="m3 19 5-14 5 14M5 14h6m7 3V7m-3 3 3-3 3 3"/>',
+    'lower-case': '<path d="M11 11v8m0-4a4 4 0 1 0-8 0 4 4 0 0 0 8 0m7-8v10m-3-3 3 3 3-3"/>',
     'font-down': '<path d="m3 19 6-14 6 14M5 14h8m4-2h5"/>',
     'font-up': '<path d="m2 19 6-14 6 14M4 14h8m4-2h6m-3-3v6"/>',
     focus: '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>',
@@ -821,11 +825,12 @@ export const CorrectionBody = {
         const editorPort = {
             read() {
                 const el = textEl.value;
-                return { text: e.text.value, start: el ? el.selectionStart : 0, end: el ? el.selectionEnd : 0 };
+                return { text: e.text.value, start: el?.selectionStart ?? 0, end: el?.selectionEnd ?? 0, direction: el?.selectionDirection };
             },
             write(next) {
-                c.setText(next.text);
-                later(() => { const el = textEl.value; if (el) el.setSelectionRange(next.start, next.end); });
+                if (c.setText(next.text)) {
+                    later(() => textEl.value?.setSelectionRange(next.start, next.end, next.direction));
+                }
             },
             select(start, end) {
                 const el = textEl.value;
@@ -869,6 +874,7 @@ export const CorrectionBody = {
             }, { flush: 'post' });
         }
         const setTextEl = (node) => { textEl.value = node && typeof node === 'object' ? node : null; };
+        const onSelectionCase = (mode) => { if (tb.changeSelectionCase(mode)) textEl.value?.focus(); };
         const onTextInput = (event) => { c.onInput(event); tb.notifyChange(); };
         const onTextKeydown = (event) => {
             c.onKeydown(event);
@@ -915,7 +921,7 @@ export const CorrectionBody = {
             formatDictationReference,
             c, FOCUS, MODES, box, styleFor, TEXT, showDiff,
             tb, tbState, textEl, setTextEl, fontPx, focusMode, shortcutsOpen, highlightOn, inlineWord, editorScroll, followOn, onTextInput, onTextKeydown, onFindKeydown,
-            onQuery, onReplacement, onCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, drawerClose, closeDrawer, toggleDrawer, unsavedSuffix,
+            onQuery, onReplacement, onCase, onSelectionCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, drawerClose, closeDrawer, toggleDrawer, unsavedSuffix,
             repeatState: c.repeat.state, REPEAT_TEXT,
             text: e.text, canEdit: e.canEdit, dirty: e.dirty, textRevisionId: e.textRevisionId, loading: e.loading, error: e.error, manual: e.manual,
             lease: e.lease, audio: e.audio, template: e.template, templates: e.templates, templatesError: e.templatesError,
@@ -1041,6 +1047,12 @@ export const CorrectionBody = {
                     :aria-expanded="String(tbState.searchOpen)" data-tool="search" @click="tb.toggleSearch()"><UiIcon name="search" /></button></span>
             <span class="tool-wrap" v-tip="{ label: TEXT.replace }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.replace"
                     :aria-expanded="String(tbState.searchOpen)" data-tool="replace" @click="tb.openSearch()"><UiIcon name="replace" /></button></span>
+          </div>
+          <div class="toolbar-group">
+            <span class="tool-wrap" v-tip="{ label: TEXT.upperCase }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.upperCase"
+                    :disabled="!canEdit" data-tool="upper-case" @mousedown.left.prevent @click="onSelectionCase('upper')"><UiIcon name="upper-case" /></button></span>
+            <span class="tool-wrap" v-tip="{ label: TEXT.lowerCase }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.lowerCase"
+                    :disabled="!canEdit" data-tool="lower-case" @mousedown.left.prevent @click="onSelectionCase('lower')"><UiIcon name="lower-case" /></button></span>
           </div>
           <div class="toolbar-group font-group">
             <span class="tool-wrap" v-tip="{ label: TEXT.fontDown }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.fontDown"
