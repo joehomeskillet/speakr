@@ -177,6 +177,8 @@ def load_entries(actor: int) -> list[routes_worklist.WorklistEntry]:
     roles = project_roles(dictation for dictation, _row, _rec in found)
     sources = _sources([dictation.id for dictation, _row, _rec in found])
     outcomes = recognition_state.asr_outcomes(d for d, _, _ in found)
+    from src.clinic.routes_dictation_properties import content_unlocked
+
     entries = []
     for dictation, row, rec in found:
         queue_status = row.resume_status if row.status == workflow.IN_PROGRESS else row.status
@@ -185,7 +187,8 @@ def load_entries(actor: int) -> list[routes_worklist.WorklistEntry]:
             dictation_id=dictation.id, title=rec.title or "", status=row.status,
             author_user_id=dictation.author_user_id, priority=row.priority,
             deadline_at=stamp(row.deadline_at), assignee_user_id=row.assignee_user_id,
-            assigned_at=None, notes=rec.notes or "", created_at=stamp(row.created_at),
+            assigned_at=None, notes=(rec.notes or "") if content_unlocked(actor, dictation.id) else "",
+            created_at=stamp(row.created_at),
             duration_seconds=row.audio_seconds, recipient=None, source_kind=source_kind,
             open_mode=_open_mode(actor, dictation, queue_status), revision=dictation.version_counter,
             source_label=source_label, asr_state=_asr_state(dictation, queue_status, outcomes),

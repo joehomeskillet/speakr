@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createRecordingViewController } from '../../../static/js/clinic/compose-recording.js';
+import { RECORDING_TEMPLATE, createRecordingViewController } from '../../../static/js/clinic/compose-recording.js';
 
 const id = '636677e5-622e-4fa1-ba8e-18858971edc6';
 const path = '/dictations/' + id;
@@ -29,6 +29,9 @@ describe('P04 draft submission', () => {
         await controller.send();
         expect(controller.model().message).toContain('Gespeichert');
         expect(request).not.toHaveBeenCalled();
+        expect(controller.model()).toMatchObject({ canSubmit: true, created: { dictationId: id } });
+        expect(RECORDING_TEMPLATE).toContain(':dictation-id="m.created.dictationId"');
+        expect(RECORDING_TEMPLATE).toContain('v-if="m.canSubmit"');
 
         request.mockResolvedValueOnce(detail).mockResolvedValueOnce(sent);
         const pending = controller.submit();

@@ -26,6 +26,7 @@
  * dictation_id); it is supplied by the mount package together with the recorder.
  */
 
+import { DictationProtectionComponent } from './dictation-protection-ui.js';
 import { createRecorderPhases, isTitleEditable, LABELS, receiptDictationId } from './recorder-phases-ui.js';
 import { surfaceFor } from './tokens.js';
 
@@ -348,7 +349,7 @@ export function createRecordingViewController(options) {
         if (s.error === 'microphone_denied') return TEXT.microphoneDenied;
         if (s.error === 'start_failed') return TEXT.startFailed;
         if (s.error === 'discard_failed') return TEXT.discardFailed;
-        if (s.phase === 'sent') return opts.oneButton ? '' : TEXT.sent;
+        if (s.phase === 'sent') return TEXT.sent;
         if (opts.oneButton && s.phase === 'sending') return TEXT.submitting;
         return machine.announcement();
     }
@@ -437,7 +438,7 @@ export const RECORDING_TEMPLATE = `
       <template v-if="m.mode === 'record'">
         <div v-if="m.phase === 'title' || m.phase === 'ready'" style="display: grid; justify-items: center; gap: var(--ui-space-2)">
           <button type="button" class="button accent" data-testid="rec-start" :aria-keyshortcuts="shortcuts.start" :disabled="!enabled('start')" @click="c.start()"
-                  style="width: 10rem; height: 10rem; border-radius: 50%; flex-direction: column; gap: var(--ui-space-2); font-size: 1rem">
+                  style="width: 10rem; height: 10rem; border-radius: 50%; flex-direction: column; gap: var(--ui-space-2); font-size: 1rem; white-space: nowrap">
             <svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor" aria-hidden="true"><path :d="icons.start"></path></svg>
             Aufnahme starten
           </button>
@@ -457,7 +458,7 @@ export const RECORDING_TEMPLATE = `
             <button type="button" class="button accent" style="${TOUCH}" data-testid="rec-stop" :aria-keyshortcuts="shortcuts.stop" @click="c.stop()">Stopp</button>
           </div>
         </div>
-        <div v-else-if="m.phase === 'review' || m.phase === 'failed' || (m.created && m.canSubmit)"
+        <div v-else-if="m.phase === 'review' || m.phase === 'failed'"
              style="display: grid; justify-items: center; gap: var(--ui-space-3)">
           <audio v-if="!m.created && previewUrl" :ref="bindReview" controls preload="metadata" :src="previewUrl" aria-label="Aufnahme anhören"
                  @loadedmetadata="loadReview" @durationchange="c.machine.syncPlayback()" @seeked="finishDurationProbe"
@@ -466,9 +467,9 @@ export const RECORDING_TEMPLATE = `
           <button type="button" class="button primary" style="${TOUCH}; width: 100%; font-size: 1rem" data-testid="rec-send" @click="c.sendRecording()">
             {{ m.phase === 'review' ? 'Senden' : 'Erneut senden' }}
           </button>
-          <button v-if="!m.created" type="button" class="button quiet" style="${TOUCH}; font-size: .875rem"
+          <button type="button" class="button" style="${TOUCH}" data-testid="save-draft" @click="c.send()">Entwurf sichern</button>
+          <button type="button" class="button quiet" style="${TOUCH}; font-size: .875rem"
                   data-testid="rec-cancel" @click="discard">Neu aufnehmen</button>
-          <a v-else href="#/diktat" style="${LINK}" @click.prevent="c.openCreated()">Diktat öffnen</a>
         </div>
       </template>
       <div v-else-if="!m.created" style="display: grid; gap: var(--ui-space-3); text-align: left">
@@ -481,18 +482,22 @@ export const RECORDING_TEMPLATE = `
                   :disabled="!m.canSwitchMode" @click="backToRecorder">Zurück zur Aufnahme</button>
         </div>
       </div>
-      <div v-if="m.created && (m.phase === 'submitted' || m.phase === 'notDraft' || (m.mode === 'file' && m.phase !== 'submitting'))"
-           data-testid="created">
+    </template>
+    <div v-if="m.created && m.phase !== 'submitting'" data-testid="created">
+        <details v-if="m.canSubmit" style="margin-bottom: var(--ui-space-3); text-align: left">
+          <summary style="${TOUCH}; cursor: pointer; align-content: center">Diktat-Schutz (optional)</summary>
+          <component :is="Protection" ref="protection" :key="m.created.dictationId"
+                     :client="client" :dictation-id="m.created.dictationId" />
+        </details>
         <span class="sr-only" data-testid="created-id">{{ m.created.dictationId }}</span>
         <div class="actions" style="justify-content: center">
-          <button v-if="m.mode === 'file' && m.canSubmit" type="button" class="button primary" style="${TOUCH}"
-                  data-testid="submit-draft" @click="c.submit()">{{ c.text.submit }}</button>
+          <button v-if="m.canSubmit" type="button" class="button primary" style="${TOUCH}"
+                  data-testid="submit-draft" :disabled="protecting()" @click="c.submit()">{{ c.text.submit }}</button>
           <a href="#/diktat" data-testid="open-created" style="${LINK}" @click.prevent="c.openCreated()">{{ m.mode === 'file' ? c.text.open : 'Diktat öffnen' }}</a>
           <button v-if="m.mode === 'file'" type="button" class="button" style="${TOUCH}" data-testid="to-worklist" @click="c.toWorklist()">{{ c.text.toWorklist }}</button>
           <button type="button" class="button" style="${TOUCH}" data-testid="another" @click="c.another()">{{ c.text.title }}</button>
         </div>
-      </div>
-    </template>
+    </div>
   </div>
 </section>`;
 
@@ -529,6 +534,9 @@ export const RecordingView = {
         const off = c.subscribe(() => { tick.value += 1; });
         const m = V.computed(() => (tick.value, c.model()));
         const root = V.ref(null);
+        const protection = V.ref(null);
+        const Protection = { ...DictationProtectionComponent(V), mounted() { void this.model.load(); } };
+        const protecting = () => protection.value?.model.state.status === 'busy';
         const reviewSource = () => props.player ? null : props.recorder.reviewSource?.();
         let probingDuration = false;
         function bindReview(media) {
@@ -622,6 +630,7 @@ export const RecordingView = {
             c,
             m,
             root,
+            Protection, protection, protecting,
             reviewSource,
             bindReview,
             loadReview,

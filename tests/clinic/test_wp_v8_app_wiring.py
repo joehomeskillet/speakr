@@ -23,7 +23,7 @@ import hashlib, json, sys
 from src.app import app, db
 from src.init_db import initialize_database
 from src.models import Recording, User
-from src.clinic import audio_revisions, app_wiring
+from src.clinic import audio_revisions, app_wiring, revisions
 from src.clinic.models import ClinicDictation, ClinicOriginal
 from src.clinic.pools import ClinicAuthorPool, ClinicAuthorPoolMember
 
@@ -42,6 +42,7 @@ with app.app_context():
                               size_bytes=len(data), storage_key=storage_key, receipt="{}", origin_ref="synthetic")
     db.session.add(original); db.session.flush()
     audio_revisions.init_audio_revision(dic, original, 1000)
+    revisions.add_asr_revision(dic, original, 'Synthetic transcript.', 'test')
     pools = {}
     for name in ("Zeta", "Alpha", "Mid"):
         p = ClinicAuthorPool(name=name, created_by=u.id)
@@ -73,9 +74,20 @@ if phase == "one":
             out["wav"] = [w.getnchannels(), w.getsampwidth(), w.getframerate(), w.getnframes()]
     out["before"] = c.get(P).get_json()
     out["set"] = c.put(P, headers=h, json={"secret": "synthetic-secret", "version": 1}).get_json()
+    out["locked_audio"] = c.get(f"/api/clinic/v1/dictations/{did}/audio/derived").status_code
+    correction = f"/api/clinic/v1/dictations/{did}/correction"
+    wrong = c.post(P.removesuffix('/protection') + '/unlock', headers=h, json={'secret': 'wrong-code'})
+    assert wrong.status_code == 403
+    assert c.get(correction).status_code == 404
+    assert b'Synthetic transcript.' not in c.get(correction).data
+    assert c.post(P.removesuffix('/protection') + '/unlock', headers=h,
+                  json={'secret': 'synthetic-secret'}).status_code == 200
+    assert c.get(correction).json['text'] == 'Synthetic transcript.'
     out["stale"] = c.put(P, headers=h, json={"secret": "x", "version": 1}).get_json()
 else:
     out["after"] = c.get(P).get_json()
+    assert c.post(P.removesuffix('/protection') + '/unlock', headers=h,
+                  json={'secret': 'synthetic-secret'}).status_code == 200
     out["clear"] = c.put(P, headers=h, json={"secret": None, "version": 2}).get_json()
     out["cleared"] = c.get(P).get_json()
 print("RESULT" + json.dumps(out))
@@ -110,6 +122,7 @@ def result(tmp_path_factory):
 
 
 def test_derived_audio_renders_from_the_stored_original(result):
+    assert result["one"]["locked_audio"] == 404
     assert result["one"]["derived"] == 200
     assert result["one"]["wav"] == [1, 2, 16000, 16000]
 

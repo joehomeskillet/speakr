@@ -25,11 +25,23 @@ from src.clinic.route_policy import ADMIN, AUTH, DISABLED, PUBLIC, RECORDING, RO
 logger = logging.getLogger(__name__)
 
 SETTINGS_WRITE_ENDPOINT = 'admin.admin_update_setting'
+_LOCK_CONTROL_ENDPOINTS = {
+    'clinic_dictation_detail.get_detail', 'clinic_workflow.send',
+    'clinic_dictation_properties.protection_state', 'clinic_dictation_properties.set_protection',
+    'clinic_dictation_properties.unlock',
+}
+_ADMIN_CONTENT_ENDPOINTS = {'clinic_admin_dictations.audio', 'clinic_admin_dictations.transcript'}
 
 
 def _refuse(status: int, code: str, **extra: Any):
     response = jsonify({'error': code.replace('_', ' '), 'code': code, **extra})
     response.status_code = status
+    return response
+
+
+def _protected_not_found():
+    response = _refuse(404, 'not_found')
+    response.headers['Cache-Control'] = 'no-store'
     return response
 
 
@@ -176,6 +188,10 @@ def _check_recordings(rule: RouteRule):
             if decision.visible:
                 return _refuse(403, 'forbidden')
             return _refuse(404, 'not_found')
+    from src.clinic.routes_dictation_properties import recording_content_unlocked
+
+    if any(not recording_content_unlocked(subject.user_id, rid) for rid in ids):
+        return _protected_not_found()
     if action in ('edit', 'delete') and request.method != 'OPTIONS':
         return _check_edit_locks(ids, subject.user_id)
     return None
@@ -232,9 +248,21 @@ def clinic_guard():
 
     if not current_user.is_authenticated:
         return _unauthenticated()
+    args = request.view_args or {}
+    target = args.get('dictation_id')
+    if target is not None and request.endpoint not in _LOCK_CONTROL_ENDPOINTS:
+        from src.clinic.routes_dictation_properties import content_unlocked
+
+        if not content_unlocked(current_user.id, str(target)):
+            return _protected_not_found()
     if rule.kind == ADMIN:
         if not current_user.is_admin:
             return _refuse(403, 'forbidden')
+        if request.endpoint in _ADMIN_CONTENT_ENDPOINTS:
+            from src.clinic.routes_dictation_properties import recording_content_unlocked
+
+            if not recording_content_unlocked(current_user.id, args['dictation_ref']):
+                return _protected_not_found()
         if request.endpoint == SETTINGS_WRITE_ENDPOINT:
             refusal = _check_setting_write()
             if refusal is not None:

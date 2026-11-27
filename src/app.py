@@ -1470,7 +1470,9 @@ def register_clinic_audio(flask_app):
         dispatch, lambda actor, dictation_id: may(actor, 'edit', db.session.get(ClinicDictation, dictation_id)))
     flask_app.register_blueprint(routes_audio.create_blueprint(
         authorize=authorize, run_once=run_once, load_sources=load_sources))
-    flask_app.register_blueprint(routes_dictation_properties.DictationPropertyRoutes(protection_store).blueprint())
+    protection = routes_dictation_properties.DictationPropertyRoutes(protection_store)
+    flask_app.extensions['clinic_dictation_protection'] = protection
+    flask_app.register_blueprint(protection.blueprint())
     flask_app.register_blueprint(routes_bundle.create_blueprint(
         bundle_load, lambda actor, dictation_id, action: may(actor, action, db.session.get(ClinicDictation, dictation_id)),
         bundle_persist, run_once, managed_client))

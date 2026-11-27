@@ -187,8 +187,10 @@ def test_protect_unlock_and_grant_expiry(world):
     assert world["routes"].access_allowed(uid, "d1") is False
     ok = c.post(f"{PREFIX}/d1/unlock", headers=h, json={"secret": SECRET})
     assert (ok.status_code, ok.json["unlocked"]) == (200, True)
-    assert world["routes"].access_allowed(uid, "d1") is True
-    world["clock"].now += timedelta(seconds=601)
+    with c:
+        assert c.get(f"{PREFIX}/d1/protection").json['access'] is True
+        assert world["routes"].access_allowed(uid, "d1") is True
+        world["clock"].now += timedelta(seconds=601)
     assert world["routes"].access_allowed(uid, "d1") is False
     # A stored record never contains the secret.
     assert SECRET not in dictation_lock.record_to_json(world["store"].rows["d1"][0])
@@ -244,6 +246,7 @@ def test_set_protection_stale_version_and_unauthorized(world):
 def test_clear_protection_drops_grants(world):
     c, h = world["client"](world["author"])
     _protect(world, c, h)
+    assert _protect(world, c, h, secret=None, version=2).status_code == 403
     c.post(f"{PREFIX}/d1/unlock", headers=h, json={"secret": SECRET})
     cleared = _protect(world, c, h, secret=None, version=2)
     assert (cleared.status_code, cleared.json) == (200, {"protected": False, "version": 3})

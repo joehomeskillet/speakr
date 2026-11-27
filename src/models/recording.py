@@ -501,6 +501,12 @@ class Recording(db.Model):
         from src.clinic.config import clinic_mode_enabled
         if clinic_mode_enabled():
             from src.clinic import policy
+            from src.clinic.routes_dictation_properties import recording_content_unlocked
+
+            if viewer_user is not None and not recording_content_unlocked(viewer_user.id, self.id):
+                data.update(transcription=None, transcription_translation=None, summary=None, notes=None,
+                            notes_html='', summary_html='', audio_available=False, can_download_audio=False)
+                return data
             data['can_download_audio'] = bool(
                 viewer_user is not None and policy.decide(
                     policy.build_subject(viewer_user.id), 'audio_export',

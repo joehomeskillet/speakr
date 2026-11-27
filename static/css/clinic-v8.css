@@ -994,6 +994,9 @@
 .v8-ui :is(.clinic-jobs-panel,.clinic-workflow-actions,.clinic-dictation-protection) p{margin:0}
 .v8-ui :is(.clinic-jobs-panel,.clinic-dictation-protection,.clinic-pedal-capture) .button{justify-self:start;min-height:44px}
 .v8-ui .clinic-dictation-protection .protection-code label{display:grid;gap:6px;font-weight:650}
+.v8-ui .clinic-dictation-protection .protection-code input{border-color:var(--ui-text-muted);min-width:0}
+.v8-ui .clinic-dictation-protection :is(input,button):focus-visible{outline:2px solid var(--ui-text);outline-offset:2px}
+.v8-ui .clinic-dictation-protection .inline-label{min-height:44px}
 .v8-ui .clinic-dictation-protection .tag{white-space:normal;justify-self:start}
 .v8-ui :is(.clinic-jobs-panel,.clinic-dictation-protection) [role=status]:empty{padding:0;border:0;margin:0}
 .v8-ui .clinic-jobs-panel .table-wrap:focus-visible{outline:2px solid var(--border-focus);outline-offset:2px}
