@@ -73,7 +73,10 @@ def list_sources():
                 sources._clean_root(config["approved_root"])
             except AgentChannelError:
                 continue
-            items.append(_visible(config))
+            items.append(_visible(config) | {
+                "can_set_source_delete": (source_cleanup_enabled() or config["allow_source_delete"])
+                and may_manage_source_deletion(actor, config),
+            })
     except AgentChannelError as error:
         return _source_error(error)
     authors, pools = _targets() if items else ([], [])

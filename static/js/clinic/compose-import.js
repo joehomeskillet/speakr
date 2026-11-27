@@ -56,6 +56,7 @@ export const ENDPOINTS = Object.freeze({
     candidates: (id) => '/imports/unassigned/' + encodeURIComponent(id) + '/candidates',
     assign: (id) => '/imports/unassigned/' + encodeURIComponent(id) + '/assign',
     retry: (id) => '/imports/intents/' + encodeURIComponent(id) + '/retry',
+    cleanup: '/imports/source-cleanup',
 });
 
 // Keep the action column readable on narrow screens, even with long source IDs or error codes.
@@ -94,6 +95,13 @@ export const TEXT = Object.freeze({
     retryFailed: 'Der Versuch ist fehlgeschlagen. Ein erneuter Versuch verwendet denselben Schlüssel.',
     assignmentTarget: 'Autor und Pool',
     noTargets: 'Keine verfügbaren Zuordnungen',
+    cleanup: 'Von Quelle löschen',
+    cleanupTitle: 'Löschen von der Quelle bestätigen?',
+    cleanupHint: 'Die Kopie in Speakr bleibt erhalten. Die Bestätigung wird vermerkt, löst aber hier keine Löschung aus.',
+    cleanupConfirm: 'Löschen bestätigen',
+    cleanupAccepted: 'Bestätigung gespeichert. Die Datei wurde hier nicht gelöscht.',
+    cleanupFailed: 'Die Bestätigung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.',
+    cleanupChanged: 'Die Datei oder die Freigabe hat sich geändert. Bitte aktualisieren Sie die Liste.',
 });
 
 // Intent states of import_centre.py plus FAILED for a delivery that did not complete.
@@ -159,6 +167,7 @@ export function createImportController(deps) {
         pending: null, // delivery id awaiting confirmation
         busy: {}, // item id -> true while a write is in flight
         notice: null,
+        cleanupTarget: null,
     });
     const keys = new Map(); // item id -> Idempotency-Key reused until the write succeeds
     let disposed = false;
@@ -278,18 +287,65 @@ export function createImportController(deps) {
         return res;
     }
 
+    function canClean(row) {
+        return !state.inventoryError && Boolean(row?.agent_id && row.snapshot_id && row.cleanup?.receipt_id
+            && Number.isInteger(row.cleanup.policy_version) && row.cleanup.policy_version > 0);
+    }
+
+    function askCleanup(row) {
+        if (disposed || state.cleanupTarget || !canClean(row) || !state.inventory.includes(row)) return false;
+        state.cleanupTarget = row;
+        state.notice = null;
+        return true;
+    }
+
+    function cancelCleanup() {
+        if (state.busy.cleanup) return false;
+        state.cleanupTarget = null;
+        return true;
+    }
+
+    async function confirmCleanup() {
+        const row = state.cleanupTarget;
+        if (disposed || !row || state.busy.cleanup) return false;
+        if (!state.inventory.includes(row) || !canClean(row)) {
+            cancelCleanup();
+            state.notice = TEXT.cleanupChanged;
+            return true;
+        }
+        const body = { agent_id: row.agent_id, source_snapshot_id: row.snapshot_id,
+            receipt_id: row.cleanup.receipt_id, expected_revision: row.cleanup.policy_version, confirmation: true };
+        const binding = JSON.stringify(body);
+        state.busy.cleanup = true;
+        try {
+            const res = await write('cleanup', binding, ENDPOINTS.cleanup, body);
+            if (!res || disposed) return false;
+            const accepted = res.outcome === 'ok' && res.data?.status === 'ACCEPTED';
+            if (accepted || res.outcome === 'conflict' || res.outcome === 'permission') {
+                state.inventory = state.inventory.map((item) => item === row ? { ...item, cleanup: null } : item);
+            }
+            state.cleanupTarget = null;
+            state.notice = accepted ? TEXT.cleanupAccepted : res.outcome === 'conflict' ? TEXT.cleanupChanged
+                : res.outcome === 'permission' ? TEXT.denied : TEXT.cleanupFailed;
+            return true;
+        } finally {
+            delete state.busy.cleanup;
+        }
+    }
+
     function dispose() {
         if (disposed) return;
         disposed = true;
         keys.clear();
         state.intents = []; state.inventory = []; state.unassigned = []; state.pending = null;
-        state.candidates = null; state.target = null;
+        state.candidates = null; state.target = null; state.cleanupTarget = null;
         client.switchContext({ accountId: null, dictationId: null });
     }
 
     return {
         state, get canClarify() { return state.canClarify; }, load, loadIntents, loadInventory, loadUnassigned,
         askAssign, loadCandidates, cancelAssign, confirmAssign, retry, dispose,
+        canClean, askCleanup, cancelCleanup, confirmCleanup,
         isBusy: (action, id) => Boolean(state.busy[action + ':' + id]),
         retryable: (row) => RETRYABLE.has(String(row && row.status).toUpperCase()),
         statusView, text: TEXT, size: formatSize, when: formatWhen,
@@ -346,15 +402,32 @@ export const IMPORT_TEMPLATE = `
         <table aria-label="Geräteinventar" data-testid="inventory-list">
           <thead><tr><th scope="col">Quelle</th><th scope="col">Datei</th><th scope="col">Grösse</th><th scope="col">Aufnahmedatum</th><th scope="col">Stand</th></tr></thead>
           <tbody>
-            <tr v-for="(item, i) in c.state.inventory" :key="item.source_id + '|' + item.snapshot_version + '|' + i">
-              <td>{{ item.source_id }}</td><td><strong>{{ item.relative_path }}</strong></td><td :title="item.size">{{ c.size(item.size) }}</td>
-              <td>{{ c.when(item.mtime_utc) }}</td><td>{{ item.snapshot_version }}</td>
-            </tr>
+            <template v-for="(item, i) in c.state.inventory" :key="item.snapshot_id || i">
+              <tr>
+                <td>{{ item.source_id }}</td><td><strong>{{ item.relative_path }}</strong></td>
+                <td :title="item.size">{{ c.size(item.size) }}</td>
+                <td>{{ c.when(item.mtime_utc) }}</td><td>{{ item.snapshot_version }}</td>
+              </tr>
+              <tr v-if="c.canClean(item)"><td colspan="5">
+                <button type="button" class="min-h-12 focus-visible:outline-brand-accent" aria-haspopup="dialog" aria-controls="civ-cleanup"
+                        @click="openCleanup(item)">{{ c.text.cleanup }}</button>
+              </td></tr>
+            </template>
           </tbody>
         </table>
       </div>
     </section>
 
+    <dialog id="civ-cleanup" ref="cleanupDialog" class="panel pool-dialog m-auto" aria-labelledby="civ-cleanup-title"
+            aria-describedby="civ-cleanup-hint" @cancel.prevent="closeCleanup">
+      <h2 id="civ-cleanup-title">{{ c.text.cleanupTitle }}</h2>
+      <p v-if="c.state.cleanupTarget" class="my-3 break-words"><strong>{{ c.state.cleanupTarget.relative_path }}</strong><br>{{ c.state.cleanupTarget.source_id }}</p>
+      <p id="civ-cleanup-hint" class="my-3">{{ c.text.cleanupHint }}</p>
+      <div class="flex flex-wrap gap-2">
+        <button type="button" class="min-h-12 focus-visible:outline-brand-accent" autofocus :disabled="c.state.busy.cleanup" @click="closeCleanup">{{ c.text.cancel }}</button>
+        <button type="button" class="primary min-h-12 focus-visible:outline-brand-accent" :disabled="c.state.busy.cleanup" @click="submitCleanup">{{ c.text.cleanupConfirm }}</button>
+      </div>
+    </dialog>
     <import-source-routing :client="client"></import-source-routing>
     <details class="panel">
       <summary>Geräteautor am Philips LFH9600 oder LFH9620</summary>
@@ -418,7 +491,17 @@ export const ImportView = {
         const c = createImportController({ client: props.client, currentUser: props.currentUser, makeState: V.reactive });
         if (typeof V.onMounted === 'function') V.onMounted(() => c.load());
         if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => c.dispose());
-        return { c };
+        const cleanupDialog = V.ref(null);
+        function openCleanup(row) {
+            if (c.askCleanup(row)) cleanupDialog.value.showModal();
+        }
+        function closeCleanup() {
+            if (c.cancelCleanup()) cleanupDialog.value.close();
+        }
+        async function submitCleanup() {
+            if (await c.confirmCleanup()) cleanupDialog.value.close();
+        }
+        return { c, cleanupDialog, openCleanup, closeCleanup, submitCleanup };
     },
     template: IMPORT_TEMPLATE,
 };

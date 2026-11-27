@@ -5,5 +5,8 @@ Spezifikationen konsolidiert, 101 Funktionen und Original-BT übernommen, Web-on
 Keine Anwendung implementiert; kein Speakr-Build oder Windows-/Browser-/Geräte-/KIS-/ASR-Test ausgeführt. Alle 252 Produkttests stehen auf not_run. Keine Produktivfreigabe und keine Scopeausnahme.
 ## Nächste Codearbeit
 S00 Baseline prüfen; P00 Quell-/Paritätsvorrang; P03 Browserfähigkeit/Agentgrenze; lokales Identity-/ACL-Slice. Unabhängig P10 tatsächliche ASR-/Lexikon-/Trainingscapabilities prüfen.
+## P-263 – Quelllöschung im Web
+Die Importansicht zeigt die Löschfreigabe pro Quelle (standardmässig aus) und eine bestätigungspflichtige Löschanfrage für zulässige Dateien mit dauerhafter, gebundener Übernahmequittung. Synthetische API- und Browserprüfungen belegen Abbruch ohne Anfrage und Bestätigung mit Wiederholungsschutz. Die Webanfrage löscht keine Datei und löst keinen Agentenauftrag aus; die Geräteabnahme BT-IMP-005 bleibt `not_run`.
+
 ## Bei vorhandener Implementierung
 Bestehenden Fortschritt nicht durch diese Anfangsnotiz löschen; versioniert zusammenführen und bereits belegte Tests mit realen Artefakten übernehmen.

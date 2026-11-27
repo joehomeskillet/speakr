@@ -116,6 +116,20 @@ def test_manual_source_cleanup_is_a_bound_non_deleting_decision(env, monkeypatch
     assert preview(receipt_id=str(uuid4())).json["code"] == "STORED_RECEIPT_REQUIRED"
     eligible = preview()
     assert eligible.json["status"] == "ELIGIBLE", eligible.json
+    route = PREFIX + "inventory"
+    def get(client, path):
+        with app.app_context():
+            return client.get(path)
+
+    rows = get(admin_client, route).json["items"]
+    assert next(row for row in rows if row["snapshot_id"] == item.id)["cleanup"] == {
+        "receipt_id": ingest_id, "policy_version": 2,
+    }
+    assert get(outsider_client, route).status_code == 403
+    configs = get(admin_client, PREFIX + "sources").json["items"]
+    assert next(row for row in configs if row["id"] == config["id"])["can_set_source_delete"] is True
+    configs = get(outsider_client, PREFIX + "sources").json["items"]
+    assert next(row for row in configs if row["id"] == ordinary["id"])["can_set_source_delete"] is False
     key = str(uuid4())
     accepted = submit(key=key)
     assert accepted.status_code == 200
@@ -134,6 +148,7 @@ def test_manual_source_cleanup_is_a_bound_non_deleting_decision(env, monkeypatch
                   snapshot_version="new-version")
     agent_channel.report_inventory(env["principal"], env["policy"], {"items": [report]}, now=NOW + timedelta(seconds=1))
     assert preview().json["code"] == "SNAPSHOT_CHANGED"
+    assert all("cleanup" not in row for row in get(admin_client, route).json["items"])
     changed = submit()
     assert changed.status_code == 409 and changed.json["code"] == "SNAPSHOT_CHANGED"
     current = agent_channel.inventory_row(env["agent_id"], item.source_id, report["snapshot_version"])

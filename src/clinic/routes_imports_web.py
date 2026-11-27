@@ -414,11 +414,28 @@ def inventory():
     for agent_id in roots_by_agent:
         body = import_visibility.list_inventory(visibility, channel_policy, actor_user_id=actor, agent_id=agent_id)
         snapshots = {
-            (row.source_id, row.snapshot_version): row.id
+            (row.source_id, row.snapshot_version): row
             for row in agent_channel.ClinicAgentInventory.query.filter_by(agent_id=agent_id)
         }
-        items.extend(row | {"agent_id": agent_id, "snapshot_id": snapshots[row["source_id"], row["snapshot_version"]]}
-                     for row in body["items"] if (row["source_id"], row["snapshot_version"]) in snapshots)
+        receipts = {}
+        if source_routing.source_cleanup_enabled():
+            for receipt in agent_channel.ClinicAgentIngest.query.filter_by(agent_id=agent_id, state="STORED"):
+                receipts.setdefault((receipt.source_id, receipt.snapshot_version), []).append(receipt.id)
+        for row in body["items"]:
+            key = (row["source_id"], row["snapshot_version"])
+            snapshot = snapshots.get(key)
+            if snapshot is None:
+                continue
+            item = row | {"agent_id": agent_id, "snapshot_id": snapshot.id}
+            if key in receipts:
+                scope = import_visibility.ImportScope(agent_id, snapshot.root_id, *key)
+                config = _source_config(scope, snapshot.relative_path, owners)
+                if config and source_routing.may_manage_source_deletion(actor, config):
+                    for receipt_id in receipts[key]:
+                        if _cleanup_refusal(snapshot, receipt_id, config, None) is None:
+                            item["cleanup"] = {"receipt_id": receipt_id, "policy_version": config["policy_version"]}
+                            break
+            items.append(item)
     return jsonify(items=items, count=len(items), can_clarify=bool(admin or led_pools))
 
 
