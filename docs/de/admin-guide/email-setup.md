@@ -1,11 +1,22 @@
-# E-Mail, Kontowiederherstellung und interne Mitteilungen
+# E-Mail und Benachrichtigungen
 
 [English](../../admin-guide/email-setup.md)
 
-Eine Klinikinstallation startet ohne SMTP. Neue Konten werden lokal verwaltet. Selbstregistrierung, E-Mail-Verifikation und Passwortzurücksetzung per E-Mail stehen im Klinikmodus nicht zur Verfügung. Hat eine Person den Zugang verloren, wenden Sie sich für das vorgesehene Wiederherstellungsverfahren an die zuständige lokale Identitätsadministration.
+Der Klinik-Fork bietet keinerlei E-Mail-Funktion. Es gibt keine SMTP-Konfiguration, keine Verarbeitungs- oder Benachrichtigungsmails, keinen EML-Download und keinen Mailadapter. Konfigurieren Sie für den Klinik-Build keine `SMTP_*`-Variablen; sie haben hier keine unterstützte Funktion.
 
-Davon getrennt ist die optionale Transkriptionsbenachrichtigung aus dem Originalprojekt. Richtet der Betreiber SMTP ein und aktiviert ein Nutzer unter **Konto → Einstellungen** den Versand, kann eine abgeschlossene oder fehlgeschlagene Transkription eine E-Mail auslösen. Der Aufnahmetitel kann im Betreff stehen, bei einem Fehler auch eine gekürzte Fehlermeldung im Nachrichtentext. Berücksichtigen Sie diese Inhalte bei der Freigabe des Mailwegs und der Empfänger. Ein synthetischer Versandtest prüft den Mailtransport.
+Benachrichtigungen erscheinen ausschliesslich in der Anwendung. **Benachrichtigungen** werden im Benutzermenü geöffnet. Der Fork bietet ausserdem keine Selbstregistrierung, E-Mail-Verifizierung oder Passwort-Reset-Links per E-Mail. Wenden Sie sich zur Kontowiederherstellung an eine berechtigte lokale Identitätsadministration; [Benutzerverwaltung](user-management.md) beschreibt lokale Einmalcodes und die Wiederherstellung von Administratorkonten.
 
-Anforderung, Ablehnung, Abnahme und Fertigstellung lösen [interne Workflow-Mitteilungen](webhooks.md) aus. Diese benötigen kein SMTP. Den Nachweis einer formalen Zustellung prüfen Sie unter **Ausgabe** beim betreffenden Diktat.
+## Interne Workflow-Hinweise
 
-[Originalhandbuch von Speakr in der archivierten Fassung](https://github.com/murtaza-nasir/speakr/blob/039a19b1f1c7f0ddaeac0a49b806845626f48a6c/docs/admin-guide/email-setup.md)
+Workflow-Hinweise bleiben innerhalb der Anwendung. Ihre festen Texte enthalten kein Diktattranskript. Die vier Ereignisse und vorgesehenen Empfänger sind:
+
+| Hinweis | Empfänger |
+|---|---|
+| **Abnahme angefordert** | Konfigurierte Freigebende |
+| **Abnahme abgelehnt** | Zugewiesene Schreibkraft, falls vorhanden |
+| **Diktat abgenommen** | Autor und zugewiesene Schreibkraft |
+| **Diktat fertiggestellt** | Autor |
+
+Die handelnde Person wird ausgeschlossen. Die Zustellung prüft aktuelle Zuordnung und Sichtbarkeit erneut; Wiederholungen derselben Transition erzeugen keine doppelten Hinweise. Bei einem fehlenden Hinweis sind Workflow-Transition und Empfänger zu prüfen. Siehe [Pools und Rechte](group-management.md) und [Auditprotokoll](audit-log.md).
+
+Der Klinik-Fork bietet auch keine [Webhooks](webhooks.md). Hinweise werden an kein externes System gesendet.

@@ -7,14 +7,14 @@ the real ``asr_profiles`` service. Capability evidence rows are synthetic and pr
 import secrets
 
 import pytest
-from flask import Flask, jsonify
+from flask import Flask, g, jsonify
 from flask_login import LoginManager, login_user
 from flask_wtf.csrf import CSRFProtect, generate_csrf
 
 from src.app import app as real_app
 from src.clinic import asr_profiles
 from src.clinic.asr_capabilities import AsrCapability, AsrCapabilityRegistry, CapabilityEvidence
-from src.clinic.asr_job_profile import asr_capability_target
+from src.clinic.asr_job_profile import asr_capability_target, resolve_asr_job_profile
 from src.clinic.routes_asr_profiles import ENDPOINTS, PREFIX, create_asr_profiles_blueprint
 from src.database import db
 from src.models import User
@@ -46,6 +46,7 @@ def world(monkeypatch):
     @flask.get("/login/<int:uid>")
     def _login(uid):
         login_user(db.session.get(User, uid))
+        g.pop("csrf_token", None)
         return jsonify(csrf=generate_csrf())
 
     flask.register_blueprint(create_asr_profiles_blueprint(lambda: AsrCapabilityRegistry(evidence)))
@@ -192,6 +193,54 @@ def test_put_selection_stores_source_and_bumps_version(world):
     assert r.status_code == 200 and (r.json["version"], r.json["source"]) == (2, "recorder")
     assert asr_profiles.profile_history(world["a"])[-1].changes["options"][1] == {"source": "recorder"}
     assert c.get(PREFIX).json["source"] == "recorder"
+
+
+def test_versioned_source_mapping_and_save_rule_reload_and_resolve(world):
+    user = world["a"]
+    p = _profile(user)
+    c, h = world["client"](user)
+    second, second_headers = world["client"](user)
+    url = PREFIX + "/selection"
+    changes = {"source": "recorder", "batch_source": "headset", "profile_mode": "separate",
+               "save_rule": "ask", "expected_version": 1}
+    assert c.put(url, headers=h, json=changes).status_code == 200
+    loaded = second.get(PREFIX).json
+    assert (loaded["version"], loaded["source"], loaded["batch_source"], loaded["profile_mode"], loaded["save_rule"]) == (
+        2, "recorder", "headset", "separate", "ask")
+    assert loaded["live_profile_id"] == loaded["batch_profile_id"] == p.id
+    assert asr_profiles.profile_history(user)[-1].snapshot["options"] == {
+        "source": "recorder", "batch_source": "headset", "separate_offline_profile": True, "save_rule": "ask"}
+    assert second.put(url, headers=second_headers, json=changes).status_code == 409
+
+    registry = AsrCapabilityRegistry([_evidence(mode, LOCAL_URL) for mode in ("live", "batch")])
+    def resolve(mode):
+        return resolve_asr_job_profile(user, mode, ["audio/wav"], registry)
+
+    for mode, source in (("live", "recorder"), ("batch", "headset")):
+        resolved = resolve(mode)
+        assert (resolved.shared, resolved.source, resolved.profile_version) == (False, source, 2)
+        assert resolved.parameters["source"] == source
+        assert resolved.parameters["save_rule"] == "ask"
+
+    shared = {"expected_version": 2, "profile_mode": "shared", "source": "recorder"}
+    assert second.put(url, headers=second_headers, json=shared).status_code == 200
+    loaded = c.get(PREFIX).json
+    assert (loaded["version"], loaded["batch_source"], loaded["save_rule"]) == (3, "recorder", "ask")
+    assert all(r.shared and r.source == "recorder" for r in (resolve("live"), resolve("batch")))
+    assert "batch_source" not in asr_profiles.profile_history(user)[-1].snapshot["options"]
+
+
+@pytest.mark.parametrize("updates", [
+    {"save_rule": None}, {"save_rule": "sometimes"}, {"profile_mode": "unknown"},
+    {"profile_mode": "separate"}, {"profile_mode": "separate", "batch_source": "mic"},
+    {"profile_mode": "shared", "batch_source": "headset"}, {"batch_source": "headset"},
+])
+def test_invalid_mapping_and_save_rule_are_not_persisted(world, updates):
+    c, h = world["client"](world["a"])
+    result = c.put(PREFIX + "/selection", headers=h, json={
+        "source": "recorder", "expected_version": 0, **updates})
+    assert (result.status_code, result.json["code"]) == (400, "invalid_payload")
+    assert c.get(PREFIX).json["version"] == 0
 
 
 def test_put_creates_profile_when_none_exists(world):

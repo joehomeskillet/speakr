@@ -176,7 +176,7 @@ nav:
       - Vector Store: admin-guide/vector-store.md
       - Recording Sessions: admin-guide/recording-sessions.md
       - Webhooks: admin-guide/webhooks.md
-      - Email Setup: admin-guide/email-setup.md
+      - Mail and notifications: admin-guide/email-setup.md
       - SSO Setup: admin-guide/sso-setup.md
       - WhisperX Setup: admin-guide/whisperx-setup.md
       - Retention: admin-guide/retention.md
@@ -233,7 +233,7 @@ nav:
       - Vektorspeicher: de/admin-guide/vector-store.md
       - Aufnahmesitzungen: de/admin-guide/recording-sessions.md
       - Webhooks: de/admin-guide/webhooks.md
-      - E-Mail einrichten: de/admin-guide/email-setup.md
+      - E-Mail und Benachrichtigungen: de/admin-guide/email-setup.md
       - Single Sign-on: de/admin-guide/sso-setup.md
       - WhisperX einrichten: de/admin-guide/whisperx-setup.md
       - Aufbewahrung: de/admin-guide/retention.md

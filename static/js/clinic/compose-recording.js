@@ -6,8 +6,7 @@
  * recorder composable) and nothing from recorder-phases-ui is re-implemented.
  *
  * Rules applied:
- *   - The author is the logged-in user, shown read-only. There is no author or
- *     pool picker; none is provided by an approved module.
+ *   - The author is the logged-in user. A server check confirms a route before capture.
  *   - Audio and title stay in memory. This module never touches IndexedDB,
  *     localStorage or sessionStorage; a failed upload says so explicitly.
  *   - A dictation counts as created only when the upload resolves with a server
@@ -33,15 +32,8 @@ import { surfaceFor } from './tokens.js';
 export { receiptDictationId };
 export const COMPOSE_RECORDING_VERSION = 1;
 
-// clinic-v8.css states heading, button and form-control styles with zero-specificity element selectors; the Tailwind
-// base layer, loaded after it, resets those. These strings restate them where this page needs them.
-const H1 = 'font-size: clamp(26px, 4vw, 30px); line-height: 1.2; font-weight: 700; letter-spacing: -.8px; margin: 0 0 9px';
-const H2 = 'font-size: 16px; line-height: 1.35; font-weight: 700; letter-spacing: -.2px; margin: 0 0 14px';
-const FIELD = 'display: grid; gap: 6px; margin: 0 0 16px; min-width: 0';
-const LABEL = 'font-size: 12px; font-weight: 650';
-const PRIMARY = 'background: var(--ink); border-color: var(--ink); color: white';
-const HELP = 'font-size: 11px; color: var(--v8-muted)';
-const INPUT = 'width: 100%; min-height: 40px; padding: 10px 11px; border: 1px solid var(--line); border-radius: 7px; background-color: var(--surface); color: var(--v8-text); font: inherit';
+const TOUCH = 'min-height: 2.75rem; min-block-size: max(2.75rem, 48px)';
+const LINK = `${TOUCH}; display: inline-flex; align-items: center; text-decoration: underline`;
 
 export const TEXT = Object.freeze({
     title: 'Neue Aufnahme',
@@ -56,7 +48,11 @@ export const TEXT = Object.freeze({
     upload: LABELS.send,
     uploading: LABELS.sending,
     recordingControls: 'Aufnahmesteuerung',
-    startFailed: 'Die Aufnahme konnte nicht gestartet werden. Bitte die Mikrofonfreigabe im Browser prüfen oder eine Datei hochladen.',
+    startFailed: 'Prüfen Sie Ihr Mikrofon oder wählen Sie „oder Datei hochladen“.',
+    microphoneDenied: 'Erlauben Sie den Mikrofonzugriff in den Website-Einstellungen Ihres Browsers und starten Sie die Aufnahme erneut.',
+    routingPending: 'Berechtigung wird geprüft …',
+    routingMissing: 'Ihr Konto ist noch keinem Autorenpool zugeordnet. Bitte wenden Sie sich an die Verwaltung.',
+    routingError: 'Die Berechtigung konnte nicht geprüft werden. Bitte laden Sie die Seite neu.',
     recordFailed: 'Senden fehlgeschlagen. Der Entwurf wurde nicht gesendet. Die Aufnahme wird nicht lokal gespeichert.',
     fileFailed: 'Hochladen fehlgeschlagen. Der Entwurf wurde nicht gesendet. Die Audiodatei wird nicht lokal gespeichert.',
     sent: 'Gespeichert. Noch nicht an den Schreibdienst gesendet.',
@@ -149,19 +145,39 @@ export function createRecordingViewController(options) {
     const authorized = typeof opts.authorized === 'function' ? opts.authorized : () => true;
     const allowed = () => authorized() !== false;
 
-    const machine = createRecorderPhases({ recorder: opts.recorder, player: opts.player || null, api: client, authorized: allowed });
+    const machine = createRecorderPhases({
+        recorder: opts.recorder, player: opts.player || null, api: client,
+        authorized: allowed, automaticTitle: opts.oneButton,
+    });
     const listeners = new Set();
     const state = { mode: 'record', file: null, filePhase: 'idle', fileError: null, fileReceipt: null, disposed: false };
     let fileGeneration = 0;
     let submission = null;
     let submitError = '';
     let pendingSend = null;
+    // A host that calls checkRouting() right after mounting (RecordingView) starts without the pending state.
+    let routing = opts.oneButton && !opts.preflightOnMount ? 'routingPending' : null;
 
     const notify = () => { for (const listener of listeners) listener(); };
     machine.subscribe(notify);
 
     const denied = (code) => ({ ok: false, code: code });
     const recorderBusy = () => !['title', 'ready'].includes(machine.getState().phase);
+
+    async function checkRouting() {
+        routing = 'routingPending';
+        notify();
+        let available;
+        try {
+            const response = await (opts.fetchPreflight || globalThis.fetch)('/api/config?recording_preflight=1', { cache: 'no-store' });
+            if (response.ok) available = (await response.json()).routable;
+        } catch {
+            // A failed preflight must never enable capture.
+        }
+        if (state.disposed) return;
+        routing = available === true ? null : available === false ? 'routingMissing' : 'routingError';
+        notify();
+    }
 
     function setMode(mode) {
         if (!allowed()) return denied('unauthorized');
@@ -275,6 +291,15 @@ export function createRecordingViewController(options) {
         }
     }
 
+    async function sendRecording() {
+        if (state.mode !== 'record' || routing || state.disposed) return denied('invalid_phase');
+        if (!receipt()) {
+            const uploaded = await machine.send();
+            if (!uploaded.ok) return uploaded;
+        }
+        return submit();
+    }
+
     /** Opens the created dictation in the page; false when none was created. */
     function openCreated() {
         const done = created();
@@ -299,6 +324,7 @@ export function createRecordingViewController(options) {
         if (machine.getState().phase === 'sent') machine.reset();
         if (client && typeof client.switchContext === 'function') client.switchContext({});
         notify();
+        if (opts.oneButton && state.mode === 'record') void checkRouting();
         return { ok: true };
     }
 
@@ -308,6 +334,7 @@ export function createRecordingViewController(options) {
 
     function message() {
         if (!allowed()) return TEXT.denied;
+        if (routing) return TEXT[routing];
         if (submitError) return submitError;
         if (submission) return TEXT[submission];
         const s = machine.getState();
@@ -317,10 +344,12 @@ export function createRecordingViewController(options) {
             if (state.filePhase === 'failed') return TEXT.fileFailed;
             return state.fileError === 'invalid_file' ? TEXT.fileInvalid : '';
         }
-        if (s.phase === 'failed') return s.title.trim() ? TEXT.recordFailed : LABELS.titleHint;
+        if (s.phase === 'failed') return opts.oneButton || s.title.trim() ? TEXT.recordFailed : LABELS.titleHint;
+        if (s.error === 'microphone_denied') return TEXT.microphoneDenied;
         if (s.error === 'start_failed') return TEXT.startFailed;
         if (s.error === 'discard_failed') return TEXT.discardFailed;
-        if (s.phase === 'sent') return TEXT.sent;
+        if (s.phase === 'sent') return opts.oneButton ? '' : TEXT.sent;
+        if (opts.oneButton && s.phase === 'sending') return TEXT.submitting;
         return machine.announcement();
     }
 
@@ -339,6 +368,7 @@ export function createRecordingViewController(options) {
         return {
             mode: state.mode,
             phase: submission || phase(),
+            routing,
             canSubmit: canSubmit(),
             author: displayName(user),
             authorId: String(user.id),
@@ -382,108 +412,90 @@ export function createRecordingViewController(options) {
             return () => listeners.delete(listener);
         },
         setMode, setTitle: (value) => machine.setTitle(value),
-        start: () => machine.start(), pause: () => machine.pause(), resume: () => machine.resume(),
+        start: () => routing || state.mode !== 'record' || state.disposed ? denied('invalid_phase') : machine.start(),
+        pause: () => machine.pause(), resume: () => machine.resume(),
         stop: () => machine.stop(), rewind: () => machine.rewind(), play: () => machine.play(),
         beginning: machine.beginning, end: machine.end,
         send: () => machine.send(), cancel: () => machine.cancel(),
-        selectFile, sendFile, cancelFile, submit,
+        selectFile, sendFile, cancelFile, submit, sendRecording, checkRouting,
         openCreated, toWorklist, another, dispose,
     };
 }
 
 const RECORDER_ACTIONS = ['start', 'pause', 'resume', 'stop', 'rewind', 'play', 'beginning', 'end', 'send', 'cancel'];
 const REVIEW_SKIP_SECONDS = 5;
-const CAPTURE_TOGGLE = { ready: 'start', recording: 'pause', paused: 'resume' };
+const CAPTURE_TOGGLE = { title: 'start', ready: 'start', recording: 'pause', paused: 'resume' };
 
 export const RECORDING_TEMPLATE = `
-<section ref="root" class="clinic-recording-view v8-page" data-testid="clinic-recording-view" aria-labelledby="crv-title">
-  <nav class="breadcrumb" aria-label="Pfad"><span>Speakr</span><span aria-hidden="true">›</span><span>{{ c.text.eyebrow }}</span><span aria-hidden="true">›</span><span aria-current="page">{{ c.text.title }}</span></nav>
-  <div class="pagehead">
-    <div>
-      <div class="eyebrow">{{ c.text.eyebrow }}</div>
-      <h1 id="crv-title" style="${H1}">{{ c.text.title }}</h1>
-      <p class="subline">{{ c.text.subline }}</p>
-    </div>
-    <div class="head-actions"></div>
-  </div>
-  <div class="grid">
-    <section class="panel" :aria-label="c.text.info">
-      <h2 style="${H2}">{{ c.text.info }}</h2>
-      <div class="field-grid">
-        <div style="${FIELD}" data-testid="author"><span style="${LABEL}">{{ c.text.author }}</span><strong>{{ m.author || m.authorId }}</strong><small style="${HELP}">{{ c.text.authorHint }}</small></div>
-        <div style="${FIELD}">
-          <span style="${LABEL}">{{ c.text.modes }}</span>
-          <div role="group" :aria-label="c.text.modes" class="actions text-sm">
-            <button type="button" class="button" style="min-height: 2.75rem" data-testid="mode-record" :style="m.mode === 'record' ? '${PRIMARY}' : null"
-                    :aria-pressed="m.mode === 'record' ? 'true' : 'false'" :disabled="!m.canSwitchMode" @click="c.setMode('record')">{{ c.text.modeRecord }}</button>
-            <button type="button" class="button" style="min-height: 2.75rem" data-testid="mode-file" :style="m.mode === 'file' ? '${PRIMARY}' : null"
-                    :aria-pressed="m.mode === 'file' ? 'true' : 'false'" :disabled="!m.canSwitchMode" @click="c.setMode('file')">{{ c.text.modeFile }}</button>
+<section ref="root" class="clinic-recording-view v8-page" data-testid="clinic-recording-view" aria-labelledby="crv-title"
+         style="display: grid; place-items: center; min-height: min(56dvh, 30rem); padding: var(--ui-space-6) var(--ui-space-4); color: var(--ui-text)">
+  <h1 id="crv-title" class="sr-only">{{ c.text.title }}</h1>
+  <div style="width: 100%; max-width: 28rem; text-align: center">
+    <p v-show="m.message" role="status" aria-live="polite" data-testid="status" style="margin: 0 0 var(--ui-space-3)"
+       :style="m.phase === 'submitted' ? { fontSize: '1.25rem', fontWeight: 650 } : null">{{ m.message }}</p>
+    <template v-if="!m.routing">
+      <template v-if="m.mode === 'record'">
+        <div v-if="m.phase === 'title' || m.phase === 'ready'" style="display: grid; justify-items: center; gap: var(--ui-space-2)">
+          <button type="button" class="button accent" data-testid="rec-start" :aria-keyshortcuts="shortcuts.start" :disabled="!enabled('start')" @click="c.start()"
+                  style="width: 10rem; height: 10rem; border-radius: 50%; flex-direction: column; gap: var(--ui-space-2); font-size: 1rem">
+            <svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor" aria-hidden="true"><path :d="icons.start"></path></svg>
+            Aufnahme starten
+          </button>
+          <a href="#/neu" data-testid="mode-file" @click.prevent="c.setMode('file')" style="${LINK}; font-size: .875rem">oder Datei hochladen</a>
+        </div>
+        <div v-else-if="m.phase === 'recording' || m.phase === 'paused'" style="display: grid; justify-items: center; gap: var(--ui-space-4)">
+          <p v-if="m.phase === 'paused'" style="margin: 0">Pausiert</p>
+          <output aria-label="Aufnahmedauer" aria-live="off" data-testid="elapsed" style="font-size: 2.75rem; font-variant-numeric: tabular-nums">{{ elapsed }}</output>
+          <div role="meter" :aria-valuenow="Math.round(level * 100)" aria-valuemin="0" aria-valuemax="100" aria-label="Mikrofonpegel"
+               style="width: min(100%, 18rem); height: .5rem; border-radius: var(--ui-radius-sm); background: var(--ui-border); overflow: hidden">
+            <span style="display: block; height: 100%; background: var(--brand-accent); transform-origin: left"
+                  :style="{ transform: 'scaleX(' + level + ')' }"></span>
+          </div>
+          <div class="actions" style="justify-content: center">
+            <button v-if="m.phase === 'recording'" type="button" class="button" style="${TOUCH}" data-testid="rec-pause" :aria-keyshortcuts="shortcuts.pause" @click="c.pause()">Pause</button>
+            <button v-else type="button" class="button" style="${TOUCH}" data-testid="rec-resume" :aria-keyshortcuts="shortcuts.resume" @click="c.resume()">Fortsetzen</button>
+            <button type="button" class="button accent" style="${TOUCH}" data-testid="rec-stop" :aria-keyshortcuts="shortcuts.stop" @click="c.stop()">Stopp</button>
           </div>
         </div>
-        <template v-if="!m.created">
-          <div v-if="m.mode === 'record'" class="full" style="${FIELD}">
-            <label style="${LABEL}" for="crv-title-input">{{ c.text.dictationTitle }}</label>
-            <input style="${INPUT}" id="crv-title-input" type="text" required aria-required="true" :aria-invalid="!m.title.trim() ? 'true' : 'false'"
-                   :disabled="m.titleLocked" :value="m.title" @input="c.setTitle($event.target.value)" />
-            <small style="${HELP}">{{ c.text.titleHint }}</small>
-          </div>
-          <div v-else class="full" style="${FIELD}">
-            <label style="${LABEL}" for="crv-file">{{ c.text.file }}</label>
-            <input style="${INPUT}" id="crv-file" type="file" accept="audio/*" :disabled="!m.canSelectFile" @change="pick($event)" />
-            <small v-if="m.file" style="${HELP}" data-testid="file-name">{{ c.text.fileSelected }}: {{ m.file.name }}</small>
-          </div>
-        </template>
+        <div v-else-if="m.phase === 'review' || m.phase === 'failed' || (m.created && m.canSubmit)"
+             style="display: grid; justify-items: center; gap: var(--ui-space-3)">
+          <audio v-if="!m.created && previewUrl" :ref="bindReview" controls preload="metadata" :src="previewUrl" aria-label="Aufnahme anhören"
+                 @loadedmetadata="loadReview" @durationchange="c.machine.syncPlayback()" @seeked="finishDurationProbe"
+                 @play="c.machine.syncPlayback()" @pause="c.machine.syncPlayback()" @ended="c.machine.syncPlayback()"
+                 @error="c.machine.playbackFailed()" style="width: 100%; min-height: 3rem"></audio>
+          <button type="button" class="button primary" style="${TOUCH}; width: 100%; font-size: 1rem" data-testid="rec-send" @click="c.sendRecording()">
+            {{ m.phase === 'review' ? 'Senden' : 'Erneut senden' }}
+          </button>
+          <button v-if="!m.created" type="button" class="button quiet" style="${TOUCH}; font-size: .875rem"
+                  data-testid="rec-cancel" @click="discard">Neu aufnehmen</button>
+          <a v-else href="#/diktat" style="${LINK}" @click.prevent="c.openCreated()">Diktat öffnen</a>
+        </div>
+      </template>
+      <div v-else-if="!m.created" style="display: grid; gap: var(--ui-space-3); text-align: left">
+        <label for="crv-file">{{ c.text.file }}</label>
+        <input id="crv-file" type="file" accept="audio/*" :disabled="!m.canSelectFile" @change="pick" style="${TOUCH}; max-width: 100%" />
+        <div class="actions">
+          <button type="button" class="button primary" style="${TOUCH}" data-testid="file-upload"
+                  :disabled="!m.canUpload" @click="c.sendFile()">{{ m.uploadLabel }}</button>
+          <button type="button" class="button quiet" style="${TOUCH}" data-testid="file-cancel"
+                  :disabled="!m.canSwitchMode" @click="backToRecorder">Zurück zur Aufnahme</button>
+        </div>
       </div>
-      <div class="note">{{ c.text.storageNote }}</div>
-    </section>
-    <div class="stack">
-      <section class="panel" :aria-label="m.mode === 'record' ? c.text.recordingControls : c.text.modeFile">
-        <h2 style="${H2}">{{ m.mode === 'record' ? c.text.recordingControls : c.text.modeFile }}</h2>
-        <template v-if="!m.created">
-          <div v-if="m.mode === 'record'">
-            <div class="recorder compact-recorder" :class="{ recording: m.phase === 'recording' }">
-              <div role="group" :aria-label="c.text.recordingControls" class="recorder-controls">
-                <button v-for="b in iconControls(m.controls)" :key="b.id" type="button" class="icon-button" :class="{ 'record-button': b.id === 'start' }"
-                        :data-testid="'rec-' + b.id" :disabled="b.disabled" :aria-disabled="b.disabled ? 'true' : 'false'" :aria-label="b.label" :title="b.label" :aria-keyshortcuts="shortcuts[b.id]" @click="act(b.id)">
-                  <svg viewBox="0 0 24 24" width="19" height="19" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false"><path :d="icons[b.id]"></path></svg>
-                </button>
-              </div>
-              <div class="recorder-caption"><strong>{{ captions[m.phase] || m.phase }}</strong></div>
-            </div>
-            <audio v-if="m.phase === 'review' && reviewSource()" :ref="bindReview" hidden :src="reviewSource()" preload="auto"
-                   @loadedmetadata="loadReview" @durationchange="c.machine.syncPlayback()" @seeked="finishDurationProbe"
-                   @play="c.machine.syncPlayback()" @pause="c.machine.syncPlayback()" @ended="c.machine.syncPlayback()"
-                   @error="c.machine.playbackFailed()"></audio>
-            <div class="actions text-sm" style="margin-top: 12px">
-              <button v-for="b in textControls(m.controls)" :key="b.id" type="button" class="button" :style="b.id === 'send' ? '${PRIMARY}' : null" style="min-height: 2.75rem"
-                      :data-testid="'rec-' + b.id" :disabled="b.disabled" :aria-disabled="b.disabled ? 'true' : 'false'" @click="act(b.id)">{{ b.id === 'send' && m.phase === 'failed' ? c.text.retrySave : b.label }}</button>
-            </div>
-          </div>
-          <div v-else class="recorder compact-recorder" style="flex-wrap: wrap">
-            <div class="recorder-controls text-sm" style="flex-wrap: wrap; gap: 8px">
-              <button type="button" class="button" style="min-height: 2.75rem; ${PRIMARY}" data-testid="file-upload"
-                      :disabled="!m.canUpload" @click="c.sendFile()">{{ m.uploadLabel }}</button>
-              <button type="button" class="button" style="min-height: 2.75rem" data-testid="file-cancel"
-                      :disabled="!m.canCancelFile" @click="c.cancelFile()">{{ c.text.cancel }}</button>
-            </div>
-            <div class="recorder-caption" style="flex-basis: 100%"><strong>{{ captions[m.phase] || m.phase }}</strong></div>
-          </div>
-        </template>
-        <p role="status" aria-live="polite" class="text-status" :class="{ error: m.surface.status === 'error' }" style="margin-top: 12px" data-testid="status">{{ m.message }}</p>
-        <div v-if="m.created" data-testid="created">
-          <div class="note"><span class="tag neutral dot">{{ c.text.created }}</span> <strong class="break-all" data-testid="created-id">{{ m.created.dictationId }}</strong></div>
-          <hr class="separator">
-          <div class="actions text-sm">
-            <button v-if="m.phase !== 'submitted'" type="button" class="button" style="min-height: 2.75rem; ${PRIMARY}" data-testid="submit-draft" :disabled="!m.canSubmit" @click="c.submit()">{{ c.text.submit }}</button>
-            <button type="button" class="button" style="min-height: 2.75rem" data-testid="to-worklist" :disabled="m.phase === 'submitting'" @click="c.toWorklist()">{{ c.text.toWorklist }}</button>
-            <button type="button" class="button" style="min-height: 2.75rem" data-testid="open-created" :disabled="m.phase === 'submitting'" @click="c.openCreated()">{{ c.text.open }}</button>
-            <button type="button" class="button" style="min-height: 2.75rem" data-testid="another" :disabled="m.phase === 'submitting'" @click="c.another()">{{ c.text.another }}</button>
-          </div>
+      <div v-if="m.created && (m.phase === 'submitted' || m.phase === 'notDraft' || (m.mode === 'file' && m.phase !== 'submitting'))"
+           data-testid="created">
+        <span class="sr-only" data-testid="created-id">{{ m.created.dictationId }}</span>
+        <div class="actions" style="justify-content: center">
+          <button v-if="m.mode === 'file' && m.canSubmit" type="button" class="button primary" style="${TOUCH}"
+                  data-testid="submit-draft" @click="c.submit()">{{ c.text.submit }}</button>
+          <a href="#/diktat" data-testid="open-created" style="${LINK}" @click.prevent="c.openCreated()">{{ m.mode === 'file' ? c.text.open : 'Diktat öffnen' }}</a>
+          <button v-if="m.mode === 'file'" type="button" class="button" style="${TOUCH}" data-testid="to-worklist" @click="c.toWorklist()">{{ c.text.toWorklist }}</button>
+          <button type="button" class="button" style="${TOUCH}" data-testid="another" @click="c.another()">{{ c.text.title }}</button>
         </div>
-      </section>
-    </div>
+      </div>
+    </template>
   </div>
 </section>`;
+
 
 export const RecordingView = {
     name: 'ClinicRecordingView',
@@ -508,6 +520,8 @@ export const RecordingView = {
             uploadFile: props.uploadFile,
             player: props.player,
             authorized: props.authorized || undefined,
+            oneButton: true,
+            preflightOnMount: true,
             onOpen: (payload) => emit('open', payload),
             onWorklist: () => emit('worklist'),
         });
@@ -560,13 +574,47 @@ export const RecordingView = {
             event.preventDefault();
             if (!event.repeat) return action();
         }
+        const enabled = (id) => m.value.controls.some((control) => control.id === id && !control.disabled);
+        const level = V.ref(0);
+        const elapsed = V.computed(() => {
+            const seconds = props.recorder.elapsedSeconds || 0;
+            return [Math.floor(seconds / 60), seconds % 60].map((part) => String(part).padStart(2, '0')).join(':');
+        });
+        const previewUrl = V.computed(() => props.recorder.previewUrl);
+        V.watchEffect?.((cleanup) => {
+            if (m.value.phase !== 'recording') {
+                level.value = 0;
+                return;
+            }
+            let frame;
+            const sample = () => {
+                level.value = props.recorder.readLevel?.() || 0;
+                frame = requestAnimationFrame(sample);
+            };
+            sample();
+            cleanup(() => cancelAnimationFrame(frame));
+        });
+        const space = (event) => {
+            if (event.code !== 'Space' || event.repeat || event.defaultPrevented
+                || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey
+                || event.target?.isContentEditable
+                || event.target?.closest?.('a, button, input, select, textarea, audio, summary')) return;
+            if (m.value.routing || m.value.mode !== 'record') return;
+            const action = enabled('start') ? 'start' : enabled('stop') ? 'stop' : null;
+            if (!action) return;
+            event.preventDefault();
+            void c[action]();
+        };
         let doc;
         V.onMounted?.(() => {
-            doc = root.value.ownerDocument;
-            doc.addEventListener('keydown', onKeydown);
+            doc = root.value?.ownerDocument;
+            doc?.addEventListener('keydown', onKeydown);
+            globalThis.window?.addEventListener('keydown', space);
         });
+        V.onMounted?.(() => { void c.checkRouting(); });
         V.onBeforeUnmount?.(() => {
             doc?.removeEventListener('keydown', onKeydown);
+            globalThis.window?.removeEventListener('keydown', space);
             off();
             return c.dispose();
         });
@@ -579,11 +627,16 @@ export const RecordingView = {
             loadReview,
             finishDurationProbe,
             shortcuts,
-            captions: PHASE_CAPTIONS,
             icons: ICON_PATHS,
-            iconControls: (list) => list.filter((b) => ICON_PATHS[b.id]),
-            textControls: (list) => list.filter((b) => !ICON_PATHS[b.id]),
+            enabled, level, elapsed, previewUrl,
             act: (id) => { if (RECORDER_ACTIONS.includes(id)) c[id](); },
+            discard: () => {
+                if (window.confirm('Diese Aufnahme verwerfen und neu aufnehmen?')) void c.cancel();
+            },
+            backToRecorder: () => {
+                c.cancelFile();
+                c.setMode('record');
+            },
             pick: (event) => {
                 const files = event && event.target && event.target.files;
                 c.selectFile(files && files[0] ? files[0] : null);
