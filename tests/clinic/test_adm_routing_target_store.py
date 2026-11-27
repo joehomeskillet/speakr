@@ -3,24 +3,61 @@
 Pool and all targets do not assign a typist and do not grant content rights.
 """
 
+from collections.abc import Iterator
+
 import pytest
+from flask import Flask
 from sqlalchemy import create_engine, inspect, text
 
 from src.clinic import pools, recipient_defaults as rd, workflow, worklist_entries
 from src.clinic.models import ClinicDictation
 from src.database import db
-from src.models import GroupMembership, User
-
-from test_pools import _dictation, _user, pool_db as pool_db
-from test_wp_recipient_defaults import _world
+from src.models import GroupMembership, Recording, User
 
 
-def _load_user(user_id):
-    return db.session.get(User, user_id)
+@pytest.fixture
+def routing_db(monkeypatch) -> Iterator[None]:
+    monkeypatch.setenv("CLINIC_MODE", "1")
+    app = Flask(__name__)
+    app.config.update(TESTING=True, SQLALCHEMY_DATABASE_URI="sqlite://")
+    db.init_app(app)
+    with app.app_context():
+        db.create_all()
+        yield
+
+
+def _user(name, *, admin=False):
+    user = User(username=name, email=f"{name}@example.invalid", password="x", is_admin=admin)
+    db.session.add(user)
+    db.session.commit()
+    return user
+
+
+@pytest.fixture
+def world(routing_db):
+    actor = _user("admin", admin=True)
+    author = _user("author")
+    first = _user("first")
+    second = _user("second")
+    authors = pools.create_author_pool("Autoren", actor_id=actor.id)
+    staff = pools.create_staff_pool("Schreib", actor_id=actor.id)
+    pools.add_author_member(authors.id, author.id, actor_id=actor.id)
+    pools.link_staff_pool(authors.id, staff.id, actor_id=actor.id)
+    db.session.add_all([
+        GroupMembership(group_id=staff.group_id, user_id=user.id, role="member")
+        for user in (first, second)
+    ])
+    db.session.commit()
+    return actor, author, first, second, authors, staff
 
 
 def _open(author_id, pool_id, *, assignee=None):
-    dictation = _dictation(_load_user(author_id), pool_id)
+    recording = Recording(user_id=author_id, title="d", status="PENDING")
+    db.session.add(recording)
+    db.session.flush()
+    dictation = ClinicDictation(recording_id=recording.id, author_user_id=author_id, pool_id=pool_id)
+    db.session.add(dictation)
+    db.session.flush()
     db.session.add(workflow.ClinicWorkflowDictation(
         id=dictation.id, author_user_id=author_id, pool_id=pool_id,
         status=workflow.TO_WRITE, assignee_user_id=assignee,
@@ -29,8 +66,8 @@ def _open(author_id, pool_id, *, assignee=None):
     return dictation.id
 
 
-def test_default_person_pool_and_all_survive_reload():
-    _actor, author, first, second, authors, staff = _world()
+def test_default_person_pool_and_all_survive_reload(world):
+    _actor, author, first, second, authors, staff = world
     author_id, first_id, second_id = author.id, first.id, second.id
     pool_id, staff_id = authors.id, staff.id
     rd.set_default(
@@ -74,8 +111,8 @@ def test_default_person_pool_and_all_survive_reload():
     ) == kept
 
 
-def test_pool_and_all_grant_no_extra_content_and_stay_on_the_klaerliste():
-    _actor, author, first, second, authors, staff = _world()
+def test_pool_and_all_grant_no_extra_content_and_stay_on_the_klaerliste(world):
+    _actor, author, first, second, authors, staff = world
     author_id, first_id, second_id = author.id, first.id, second.id
     pool_id, staff_id = authors.id, staff.id
     dictation_id = _open(author_id, pool_id)
@@ -83,7 +120,8 @@ def test_pool_and_all_grant_no_extra_content_and_stay_on_the_klaerliste():
     watched = (author_id, first_id, second_id)
     before = {uid: pools.grants_for(uid, loaded) for uid in watched}
     grants = pools.ClinicVisibilityGrant.query.count()
-    GroupMembership.query.filter_by(user_id=first_id).one().role = "admin"
+    lead_membership = GroupMembership.query.filter_by(group_id=staff.group_id, user_id=first_id).one()
+    lead_membership.role = worklist_entries.LEAD_ROLE
     db.session.commit()
 
     for override in (
@@ -107,14 +145,15 @@ def test_pool_and_all_grant_no_extra_content_and_stay_on_the_klaerliste():
         assert shown["assignee_user_id"] is None
         assert workflow.routing_public(row)["mode"] == override["mode"]
 
-    outsider = _user()
+    outsider = _user("outsider")
     assert pools.grants_for(outsider.id, db.session.get(ClinicDictation, dictation_id)) == {
         "allowed": {}, "denies": [],
     }
 
 
-def test_foreign_actor_stores_nothing():
-    actor, author, _first, _second, authors, _staff = _world()
+def test_foreign_actor_stores_nothing(world):
+    _actor, author, _first, _second, authors, _staff = world
+    actor = _user("outsider")
     dictation_id = _open(author.id, authors.id)
     with pytest.raises(workflow.WorkflowError) as raised:
         workflow.store_routing_target(db.session, dictation_id, actor_id=actor.id)
