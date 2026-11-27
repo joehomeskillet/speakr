@@ -45,6 +45,7 @@ MODEL_MODULES = (
     "archive_policy",
     "worklist_layout",
     "worklist_filters",
+    "workstation_preferences",
     "correction_modes",
     "key_bindings",
     "app_wiring",
