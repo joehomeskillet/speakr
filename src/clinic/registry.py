@@ -51,6 +51,9 @@ MODEL_MODULES = (
     "app_wiring",
     "alignment_tokens", "alignment",
     "output_preferences",
+    "statistics_grants",
+    "notification_preferences",
+    "draft_store",
 )
 
 
