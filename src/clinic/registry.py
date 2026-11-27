@@ -45,6 +45,7 @@ MODEL_MODULES = (
     "correction_modes",
     "app_wiring",
     "alignment_tokens", "alignment",
+    "output_preferences",
 )
 
 
