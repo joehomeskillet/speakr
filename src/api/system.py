@@ -264,6 +264,18 @@ def get_config():
     Needs a signed-in user (#502): only pages behind sign-in read it, and it
     carries the administrator's default summary prompt.
     """
+    if request.args.get('recording_preflight') == '1':
+        from src.clinic.config import clinic_mode_enabled
+
+        if clinic_mode_enabled():
+            from flask_login import current_user as actor
+            from src.clinic import pools, web_ingest
+
+            pool_id = web_ingest.author_pool_for(actor.id)
+            response = jsonify(routable=bool(pool_id and pools.routable_staff_pool_ids(pool_id)))
+            response.headers['Cache-Control'] = 'no-store'
+            return response
+
     try:
         # Get configurable file size limit
         max_file_size_mb = SystemSetting.get_setting('max_file_size_mb', 250)

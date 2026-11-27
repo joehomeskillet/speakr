@@ -57,6 +57,8 @@ export function receiptDictationId(value) {
 
 /** Use the stock capture controls and send the finished microphone take through the clinic file upload. */
 export function createClinicRecorder(audio, state, uploadFile) {
+    let samples;
+
     async function stopRecording() {
         const recorder = state.mediaRecorder.value;
         if (!state.isRecording.value || !recorder) return;
@@ -70,6 +72,17 @@ export function createClinicRecorder(audio, state, uploadFile) {
         startRecording: audio.startRecording,
         pauseRecording: audio.pauseRecording,
         resumeRecording: audio.resumeRecording,
+        get elapsedSeconds() { return state.recordingTime?.value || 0; },
+        get previewUrl() { return state.audioBlobURL.value; },
+        readLevel() {
+            const analyser = state.analyser?.value;
+            if (!analyser) return 0;
+            samples ||= new Uint8Array(analyser.fftSize);
+            analyser.getByteTimeDomainData(samples);
+            let peak = 0;
+            for (const sample of samples) peak = Math.max(peak, Math.abs(sample - 128));
+            return peak / 128;
+        },
         stopRecording,
         reviewSource: () => state.audioBlobURL.value,
         async discardRecording() {
@@ -90,6 +103,13 @@ export function createClinicRecorder(audio, state, uploadFile) {
     };
 }
 
+function localDictationTitle() {
+    const now = new Date();
+    const twoDigits = (value) => String(value).padStart(2, '0');
+    return 'Diktat ' + [twoDigits(now.getDate()), twoDigits(now.getMonth() + 1), now.getFullYear()].join('.')
+        + ' ' + [twoDigits(now.getHours()), twoDigits(now.getMinutes())].join(':');
+}
+
 /**
  * @param {object} options
  * @param {object} options.recorder  startRecording, pauseRecording, resumeRecording,
@@ -99,7 +119,7 @@ export function createClinicRecorder(audio, state, uploadFile) {
  * @param {() => boolean} [options.authorized]
  */
 export function createRecorderPhases(options) {
-    const { recorder, player = null, api = null, authorized = () => true } = options;
+    const { recorder, player = null, api = null, authorized = () => true, automaticTitle = false } = options;
     let media = player;
     let capturePending = false;
     const listeners = new Set();
@@ -132,21 +152,29 @@ export function createRecorderPhases(options) {
     }
 
     async function start() {
-        const blocked = guard(['ready']);
+        const blocked = guard(automaticTitle ? ['title', 'ready'] : ['ready']);
         if (blocked) return blocked;
         if (capturePending) return denied('capture_pending');
-        if (!state.title.trim()) return denied('missing_title');
+        const title = state.title.trim() || localDictationTitle();
+        const mine = generation;
         capturePending = true;
+        set({ error: null });
         try {
-            await recorder.startRecording();
+            if (await recorder.startRecording() === false) return denied('start_cancelled');
+            if (mine !== generation) {
+                await recorder.discardRecording();
+                return denied('stale');
+            }
+            set({ phase: 'recording', title, error: null });
+            return { ok: true };
         } catch (e) {
-            set({ error: 'start_failed' });
-            return denied('start_failed');
+            const code = ['NotAllowedError', 'SecurityError'].includes(e?.name) ? 'microphone_denied' : 'start_failed';
+            if (mine === generation) set({ error: code });
+            return denied(code);
         } finally {
             capturePending = false;
+            set({});
         }
-        set({ phase: 'recording', error: null });
-        return { ok: true };
     }
 
     function pause() {
@@ -170,13 +198,15 @@ export function createRecorderPhases(options) {
         if (blocked) return blocked;
         if (capturePending) return denied('capture_pending');
         capturePending = true;
+        const mine = generation;
         try {
             await recorder.stopRecording();
+            if (mine !== generation) return denied('stale');
+            set({ phase: 'review' });
+            return { ok: true };
         } finally {
             capturePending = false;
         }
-        set({ phase: 'review' });
-        return { ok: true };
     }
 
     function setPlayer(element) {
@@ -231,13 +261,13 @@ export function createRecorderPhases(options) {
     async function send() {
         const blocked = guard(['review', 'failed']);
         if (blocked) return blocked;
-        if (!state.title.trim()) return denied('missing_title');
+        if (!automaticTitle && !state.title.trim()) return denied('missing_title');
         const mine = ++generation;
         media?.pause?.();
         set({ phase: 'sending', error: null });
         let receipt = null;
         try {
-            receipt = await recorder.uploadRecordedAudio({ title: state.title.trim() });
+            receipt = await recorder.uploadRecordedAudio({ title: state.title.trim() || localDictationTitle() });
         } catch (e) {
             receipt = null;
         }
@@ -278,10 +308,10 @@ export function createRecorderPhases(options) {
     function controls() {
         const p = state.phase;
         const on = authorized();
-        const hasTitle = Boolean(state.title.trim());
+        const hasTitle = automaticTitle || Boolean(state.title.trim());
         const row = (id, label, enabled) => ({ id: id, label: label, disabled: !on || !enabled });
         return [
-            row('start', LABELS.start, p === 'ready'),
+            row('start', LABELS.start, !capturePending && (p === 'ready' || (automaticTitle && p === 'title'))),
             row('pause', LABELS.pause, p === 'recording'),
             row('resume', LABELS.resume, p === 'paused'),
             row('stop', LABELS.stop, p === 'recording' || p === 'paused'),
@@ -301,7 +331,7 @@ export function createRecorderPhases(options) {
         if (!authorized()) return LABELS.unauthorized;
         if (p === 'sent') return LABELS.sent;
         if (p === 'sending') return LABELS.sending;
-        if (!state.title.trim() && isTitleEditable(p)) return LABELS.titleHint;
+        if (!automaticTitle && !state.title.trim() && isTitleEditable(p)) return LABELS.titleHint;
         if (p === 'failed') return LABELS.failed;
         if (state.error === 'playback_failed') return LABELS.playbackFailed;
         return '';
