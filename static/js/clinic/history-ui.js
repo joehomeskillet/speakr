@@ -70,6 +70,17 @@ export function translate(key, params) {
     return text;
 }
 
+const EDITABLE = /^(INPUT|TEXTAREA|SELECT)$/;
+
+/** Ctrl/Cmd+I opens the same Verlauf section as the menu. Typing targets are left alone. */
+export function isHistoryShortcut(event) {
+    if (!event || event.altKey || event.shiftKey || event.repeat || event.isComposing) return false;
+    if (!(event.ctrlKey || event.metaKey) || String(event.key).toLowerCase() !== 'i') return false;
+    const target = event.target;
+    if (target && (target.isContentEditable === true || EDITABLE.test(target.tagName || ''))) return false;
+    return true;
+}
+
 function surfaceName(event) {
     if (event.action === 'superseded') return 'warning';
     if (event.kind === 'release' || event.kind === 'acceptance' || event.kind === 'output') return 'success';

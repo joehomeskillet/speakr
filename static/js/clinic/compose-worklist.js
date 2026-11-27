@@ -27,7 +27,7 @@ import { WorklistLayoutControls, useWorklistLayout } from './worklist-layout-ui.
 import { DictationProtectionComponent } from './dictation-protection-ui.js';
 import { WORKFLOW_ACTIONS_TEMPLATE, createWorkflowActions } from './workflow-actions-ui.js';
 import { acceptancePolicyComponent } from './acceptance-policy-ui.js';
-import { createHistoryComponent } from './history-ui.js';
+import { createHistoryComponent, isHistoryShortcut } from './history-ui.js';
 import { createLeaseController, createLeaseStatusComponent } from './lease-ui.js';
 import { AssignmentPanel } from './assign-ui.js';
 
@@ -88,7 +88,7 @@ export const TEXT = Object.freeze({
     failed: 'Die Arbeitsliste konnte nicht geladen werden.',
     prev: 'Vorherige Seite',
     next: 'Nächste Seite',
-    keys: 'Tastatur: Pfeil hoch und runter wählt ein Diktat, Eingabetaste öffnet es, Esc schliesst die Details.',
+    keys: 'Tastatur: Pfeil hoch und runter wählt ein Diktat, Eingabetaste öffnet es, Strg+I zeigt den Verlauf, Esc schliesst die Details.',
     open: 'Öffnen',
     detail: 'Diktat',
     protection: 'Schutz',
@@ -626,8 +626,22 @@ export function createWorklistViewController(options) {
         if (row) open(row);
     }
 
+    /** Same Verlauf section as the menu. Without a selection there is nothing to open. */
+    function openHistory() {
+        if (disposed || !selectedId.value) return false;
+        panels.history = true;
+        return true;
+    }
+
+    function onHistoryKey(event) {
+        if (!isHistoryShortcut(event)) return false;
+        if (typeof event.preventDefault === 'function') event.preventDefault();
+        return openHistory();
+    }
+
     function onRowKey(event, row) {
         if (!event) return;
+        if (onHistoryKey(event)) return;
         const list = displayed.value.filter((i) => i.kind === 'row').map((i) => i.row);
         const stop = () => { if (typeof event.preventDefault === 'function') event.preventDefault(); };
         let target;
@@ -761,7 +775,7 @@ export function createWorklistViewController(options) {
         worklist, refresh, filters, layout, workflow, detailClient, displayed, columns, headerAttrs,
         detailRequest: (id) => id === detailId ? pendingDetail : null,
         refreshIfChanged: () => loadedRevision !== client.dictationChanges ? reload() : null,
-        start, dispose, reload, assignmentDone, select, open, canOpen, listenOnly, onRowKey,
+        start, dispose, reload, assignmentDone, select, open, canOpen, listenOnly, onRowKey, openHistory, onHistoryKey,
         rememberFirstClick, keepDoubleClickOnRow, goto, pages, hasNext, applyFilter,
         key: rowKey, cell: cellText, badge: statusBadge, dictationLabel, entryCount, text: TEXT,
         searchMetadata: (row) => searchMetadata(row, view.search),
@@ -828,7 +842,20 @@ export const WorklistView = {
         const V = c.vue;
         if (!V) throw new Error('Vue is required to mount the worklist view');
         const parts = buildParts(V, c.detailClient);
+        const root = V.ref(null);
+        // Ctrl+I is a page shortcut. A row click does not focus the row, so the section keydown never sees it.
+        const doc = typeof document !== 'undefined' ? document : null;
+        const onDocKey = (event) => {
+            if (!root.value || typeof root.value.contains !== 'function') return;
+            const active = doc.activeElement;
+            if (active && active !== doc.body && !root.value.contains(active)) return;
+            c.onHistoryKey(event);
+        };
         if (typeof V.onMounted === 'function' && props.autoStart) V.onMounted(() => c.start());
+        if (doc && typeof doc.addEventListener === 'function') {
+            doc.addEventListener('keydown', onDocKey);
+            if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => doc.removeEventListener('keydown', onDocKey));
+        }
         if (typeof V.onActivated === 'function' && props.autoStart) V.onActivated(() => c.refreshIfChanged());
         if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => c.dispose());
         function rowContext(id) {
@@ -848,10 +875,10 @@ export const WorklistView = {
             });
             return context;
         }
-        return { c, parts, rowContext };
+        return { c, parts, rowContext, root };
     },
     template: `
-<section class="v8-page clinic-worklist-view" data-testid="clinic-worklist-view" aria-labelledby="cwv-title">
+<section ref="root" class="v8-page clinic-worklist-view" data-testid="clinic-worklist-view" aria-labelledby="cwv-title" @keydown="c.onHistoryKey($event)">
   <div class="page-head">
     <div>
       <div class="eyebrow">{{ c.text.eyebrow }}</div>
@@ -1027,7 +1054,7 @@ export const WorklistView = {
                   <summary style="cursor: pointer; min-height: 38px; display: flex; align-items: center; font-size: 12px; font-weight: 750">{{ c.text.acceptance }}</summary>
                   <component :is="parts.Acceptance" v-if="c.panels.acceptance" :dictation-id="c.selectedId.value" />
                 </details>
-                <details :open="c.panels.history" @toggle="c.panels.history = $event.target.open" style="border-top: 1px solid var(--v8-line-2); padding-top: 4px">
+                <details :open="c.panels.history" data-testid="history-panel" @toggle="c.panels.history = $event.target.open" style="border-top: 1px solid var(--v8-line-2); padding-top: 4px">
                   <summary style="cursor: pointer; min-height: 38px; display: flex; align-items: center; font-size: 12px; font-weight: 750">{{ c.text.history }}</summary>
                   <component :is="parts.History" v-if="c.panels.history" :client="c.detailClient" :dictation-id="c.selectedId.value" />
                 </details>
