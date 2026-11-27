@@ -249,6 +249,7 @@ export function toViewRow(item) {
         processingActive: ['QUEUED', 'PENDING', 'PROCESSING', 'RUNNING'].includes(String(item.processing_status || '').toUpperCase()),
         duration: seconds === null ? TEXT.none : formatAudioDuration(seconds),
         caseDisplay: item.case_display || '',
+        ownTitle: typeof item.own_title === 'string' ? item.own_title.trim() : '',
         workflowStatus: item.workflow_status || null,
         heading: item.case_display ? TEXT.caseId + ' ' + item.case_display : TEXT.dictation,
         hasLease: nameOf(item.lease_holder) !== null,
