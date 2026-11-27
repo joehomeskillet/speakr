@@ -704,6 +704,8 @@ const LOCAL_CSS = `
 .v8-ui .audio-edit-fields .clinic-audio-edit p {flex-basis:100%;margin:0}
 .v8-ui .editor-page :is(.context-tools,.toolbar-group:last-child,.find-row,.word-sync-controls,.dialoghead,.popover-heading) .tooltip{left:auto;right:0;transform:none}
 .v8-ui .editor-page .alignment-text{max-height:8lh;overflow:auto;overflow-wrap:anywhere;white-space:pre-wrap;line-height:1.8;margin:0}
+.v8-ui .editor-page .alignment-panel .panel-header{flex-wrap:wrap}
+.v8-ui .editor-page .alignment-panel .panel-header>button{white-space:nowrap}
 .v8-ui .editor-page .editor-status{flex-wrap:wrap}
 .v8-ui .editor-page .editor-status>[role=status]{flex:1 1 220px;min-width:0}
 .v8-ui .editor-page .editor-status-right{flex-wrap:wrap;white-space:normal;min-width:0}
@@ -712,10 +714,11 @@ const LOCAL_CSS = `
 .v8-ui .editor-page .shortcut-list kbd{background:var(--v8-s2);color:var(--v8-text);border-color:var(--line)}
 .v8-ui .editor-page .live-inline-status .button{min-height:32px;padding:5px 12px;font-size:12px}
 .v8-ui .editor-page .live-inline-status .button:not(.primary){color:var(--v8-text)}
-.v8-ui .editor-page .live-inline-status .button:disabled{opacity:.55}
-.v8-ui .editor-page .context-drawer{background:var(--surface);color:var(--v8-text);border:1px solid var(--line);box-shadow:0 12px 40px rgb(0 0 0 / .22);z-index:120}
+.v8-ui .editor-page :is(.live-inline-status .button,.alignment-panel .panel-header>button):disabled{background:var(--v8-s2);border-color:var(--line);color:var(--v8-text);opacity:.55;cursor:not-allowed}
+.v8-ui .editor-page .context-drawer{background:var(--surface);color:var(--v8-text);border:1px solid var(--line);box-shadow:var(--shadow-lg,var(--shadow));z-index:120}
 .v8-ui .editor-page .context-drawer:not([data-open]){transform:translateX(calc(100% + 40px));pointer-events:none;box-shadow:none}
 .v8-ui .editor-page .context-drawer .dialoghead{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.v8-ui .editor-page .context-drawer :is(h2,h3){text-wrap:balance}
 .v8-ui .editor-page .context-drawer h2{font-size:16px;font-weight:700;letter-spacing:-.2px;color:var(--v8-text);margin:0}
 .v8-ui .editor-page .context-drawer h3{font-size:13px;font-weight:700;color:var(--v8-text);margin:0 0 6px}
 .v8-ui .editor-page .context-drawer .panel-header h2{font-size:14px}
@@ -734,10 +737,16 @@ const LOCAL_CSS = `
 .v8-ui .editor-page .sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 @media(max-width:767px){.v8-ui .editor-page .document-id{min-width:0;white-space:normal;overflow-wrap:anywhere}.v8-ui .editor-page .document-title h2{flex-shrink:0}}
 @media(max-width:700px){
+  .v8-ui .editor-page .context-tools .tooltip{max-width:160px}
+  .v8-ui .editor-page .context-tools>.tool-wrap:nth-child(-n+2) .tooltip{left:0;right:auto}
   .v8-ui .editor-page .editor-popover{position:static;width:auto;max-height:none;margin:8px 12px}
   .v8-ui .editor-page .find-row{display:grid;grid-template-columns:minmax(0,1fr) repeat(3,auto)}
   .v8-ui .editor-page .find-row>input{min-width:0;width:100%}
   .v8-ui .editor-page .find-count{grid-column:2 / -1;min-width:0}
+}
+@media(max-width:700px),(pointer:coarse){
+  .v8-ui .editor-page .editor-heading{flex-wrap:wrap}
+  .v8-ui .editor-page :is(.context-tools .icon-button,.context-drawer .dialoghead .icon-button,.live-inline-status .button,.alignment-panel .panel-header>button){min-width:48px;min-height:48px}
 }
 .v8-ui .editor-page[data-open-mode="player"] .compact-player{border:1px solid var(--line);background:var(--v8-s2);border-radius:8px;padding:8px 10px}
 `;
@@ -1120,7 +1129,7 @@ export const CorrectionBody = {
                     @keyup="c.onSelect($event)" @mouseup="c.onSelect($event)"></textarea>
         </div>
         <p v-if="!canEdit && !loading" id="ccv-readonly" class="template-meta" style="margin: 0">{{ lease.mayAcquire === false ? TEXT.readOnlyAccess : TEXT.readOnly }}</p>
-        <section class="panel" :aria-label="TEXT.alignment" :data-status="alignStatus" data-testid="alignment">
+        <section class="panel alignment-panel" :aria-label="TEXT.alignment" :data-status="alignStatus" data-testid="alignment">
           <div class="panel-header">
             <h2>{{ TEXT.alignment }}</h2>
             <button type="button" class="small" :style="FOCUS" :disabled="alignStatus !== 'ready'" data-testid="seek-selection" @click="c.alignment.seekToSelection()">{{ TEXT.seekSelection }}</button>
