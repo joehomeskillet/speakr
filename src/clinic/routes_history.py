@@ -13,7 +13,8 @@ from wtforms.validators import ValidationError
 
 from src.clinic import lease, live_session, revisions, workflow
 from src.clinic.config import clinic_mode_enabled
-from src.clinic.models import ClinicArchiveEvent, ClinicDictation, ClinicRelease
+from src.clinic.models import ClinicArchiveEvent, ClinicDelivery, ClinicDictation, ClinicRelease
+from src.clinic.output import list_outputs
 from src.clinic.parity_dispatch import JSON, CommandProblem, RunOnce
 from src.clinic.release import ClinicReleaseSupersession, ClinicWorkStateTransfer
 from src.database import db
@@ -93,6 +94,12 @@ def _history(dictation: ClinicDictation) -> list[JSON]:
     )
     timed.extend(dict(kind='release', id=row.id, action='superseded', at=_utc(row.superseded_at),
                       release_id=row.release_id) for row in supersessions)
+    # Channel, target and delivery state only. Output text and hashes are not history.
+    timed.extend(dict(kind='output', id=row.id, action='output', at=_utc(row.output_at),
+                      channel=row.channel, target=row.target) for row in list_outputs(dictation))
+    deliveries = ClinicDelivery.query.join(ClinicRelease).filter(ClinicRelease.dictation_id == dictation.id)
+    timed.extend(dict(kind='delivery', id=row.id, action='delivery', at=_utc(row.created_at),
+                      state=row.state) for row in deliveries)
     return events + sorted(timed, key=lambda row: (row['at'], row['action'] == 'superseded', row['id']))
 
 
