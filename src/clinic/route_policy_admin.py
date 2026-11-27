@@ -64,6 +64,7 @@ ADMIN: tuple[str, ...] = (
     'clinic_directory.capability',
     'clinic_directory.preview',
     'clinic_directory.apply',
+    'clinic_directory.link_new',
     'clinic_grants.change',
     'clinic_task_models.settings',
     # Admin dictation transcript and audio (w308): own blueprint, mounted by
