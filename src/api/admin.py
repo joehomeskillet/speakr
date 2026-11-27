@@ -16,6 +16,7 @@ from src.clinic import identity
 from src.clinic.config import clinic_mode_enabled, feature_locked
 from src.database import db
 from src.models import *
+from src.models.user import USERNAME_MAX_LENGTH
 from src.utils import *
 from src.utils.localization import translate, api_error, default_language
 from src.utils.search import contains_pattern, LIKE_ESCAPE
@@ -85,6 +86,7 @@ def admin():
                          global_retention_days=_self.GLOBAL_RETENTION_DAYS,
                          is_group_admin_only=False,
                          clinic_mode=clinic_mode_enabled(),
+                         clinic_username_max_length=USERNAME_MAX_LENGTH,
                          user_language=user_language)
 
 
@@ -563,8 +565,7 @@ def admin_add_user():
         if field not in data:
             return jsonify(api_error('missing_required_field', field=field)), 400
     
-    # The username column holds 20 characters; PostgreSQL refuses a longer
-    # value, which gave a 500 instead of this message
+    # The upstream admin flow retains its original 20-character limit.
     if not 2 <= len(str(data['username']).strip()) <= 20:
         return jsonify(api_error('invalid_username_length')), 400
 

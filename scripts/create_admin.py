@@ -25,6 +25,8 @@ except (RuntimeError, AttributeError, KeyError):
         print("Make sure create_admin.py is runnable and PYTHONPATH is set.")
         sys.exit(1)
 
+from src.models.user import USERNAME_MAX_LENGTH
+
 def create_admin_user():
     """
     Create an admin user interactively.
@@ -34,9 +36,9 @@ def create_admin_user():
     
     # Get username
     while True:
-        username = input("Enter username (min 3 characters): ").strip()
-        if len(username) < 3:
-            print("Username must be at least 3 characters long.")
+        username = input(f"Enter username (2-{USERNAME_MAX_LENGTH} characters): ").strip()
+        if not 2 <= len(username) <= USERNAME_MAX_LENGTH or '\x00' in username:
+            print(f"Username must contain 2 to {USERNAME_MAX_LENGTH} characters and no NUL.")
             continue
         
         # Check if username already exists

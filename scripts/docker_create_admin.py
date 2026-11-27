@@ -24,6 +24,8 @@ except (RuntimeError, AttributeError, KeyError):
         print("Make sure docker_create_admin.py is runnable and PYTHONPATH is set.")
         sys.exit(1)
 
+from src.models.user import USERNAME_MAX_LENGTH
+
 def create_admin_user_from_env():
     """
     Create an admin user from environment variables.
@@ -36,7 +38,7 @@ def create_admin_user_from_env():
     print("=================================================================")
     
     # Get values from environment variables
-    username = os.environ.get('ADMIN_USERNAME')
+    username = os.environ.get('ADMIN_USERNAME', '').strip()
     email = User.normalize_email(os.environ.get('ADMIN_EMAIL'))
     password = os.environ.get('ADMIN_PASSWORD')
     
@@ -46,8 +48,8 @@ def create_admin_user_from_env():
         sys.exit(1)
     
     # Validate username
-    if len(username) < 3:
-        print("Error: Username must be at least 3 characters long.")
+    if not 2 <= len(username) <= USERNAME_MAX_LENGTH:
+        print(f"Error: ADMIN_USERNAME must be 2 to {USERNAME_MAX_LENGTH} characters long.")
         sys.exit(1)
     
     # Validate the address format only. The administrator chose this address
@@ -60,11 +62,6 @@ def create_admin_user_from_env():
         print(f"Error: Invalid email: {str(e)}")
         sys.exit(1)
     
-    # The username column holds 20 characters
-    if not 2 <= len(username) <= 20:
-        print("Error: ADMIN_USERNAME must be 2 to 20 characters long.")
-        sys.exit(1)
-
     # Validate password
     if len(password) < 8:
         print("Error: Password must be at least 8 characters long.")

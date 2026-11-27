@@ -7,6 +7,7 @@ styled tables and buttons in the four identity panels, and no horizontal page ov
 
 from __future__ import annotations
 
+import pytest
 from playwright.sync_api import expect
 
 from test_wp_mount_admin import ADMIN_EMAIL, _login, browser, live_server  # noqa: F401  (fixtures of the earlier mount package)
@@ -101,6 +102,7 @@ def test_clinic_admin_lands_on_accounts_with_the_active_tab_visible_on_mobile(li
     assert tab.evaluate("el => el.getBoundingClientRect().left >= 0 && el.getBoundingClientRect().right <= innerWidth")
     assert not js_errors, js_errors
 
+@pytest.mark.parametrize("live_server", ["identity_admin"], indirect=True)
 def test_accounts_search_and_composed_create_action(live_server, browser):
     base, _ids = live_server
     page, js_errors = _open(browser, base, 1440, 900)
@@ -116,6 +118,14 @@ def test_accounts_search_and_composed_create_action(live_server, browser):
     view.get_by_text("Keine passenden Konten.").wait_for()
     view.get_by_role("button", name="Konto anlegen").click()
     expect(page.locator("#acc-username")).to_be_focused()
+    username = "persona-leitung_schreibdienst"
+    page.locator("#acc-username").press_sequentially(username)
+    expect(page.locator("#acc-username")).to_have_value(username)
+    page.locator("#acc-email").fill("username-length@example.invalid")
+    with page.expect_response(lambda r: r.url == base + "/admin/users" and r.request.method == "POST") as saved:
+        view.get_by_role("button", name="Speichern und schließen").click()
+    assert saved.value.status == 201, saved.value.json()
+    assert saved.value.json()["username"] == username
     assert not js_errors, js_errors
 
 
