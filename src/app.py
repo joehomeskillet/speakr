@@ -597,6 +597,31 @@ install_clinic_guard(app)
 
 
 @app.before_request
+def serve_clinic_manifest() -> Response | None:
+    if (request.endpoint != 'static' or request.view_args != {'filename': 'manifest.json'}
+            or request.method not in ('GET', 'HEAD') or not _clinic_mode_enabled()):
+        return None
+
+    with app.open_resource('../static/manifest.json', 'r', encoding='utf-8') as source:
+        manifest = json.load(source)
+    manifest['lang'] = 'de'
+    manifest['description'] = 'Speakr für Klinikdiktate'
+    manifest.pop('screenshots', None)
+    manifest['shortcuts'] = [
+        {'name': label, 'url': url}
+        for label, url in (
+            ('Neue Aufnahme', '/#/neu'),
+            ('Aufnahmen', '/#/aufnahmen'),
+            ('Arbeitsliste', '/#/arbeitsliste'),
+        )
+    ]
+    response = jsonify(manifest)
+    response.mimetype = 'application/manifest+json'
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+@app.before_request
 def record_last_active():
     """Note the time of this use of the signed-in account (admin user list).
 
