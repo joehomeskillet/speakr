@@ -17,6 +17,7 @@ AUTH: tuple[str, ...] = (
     'clinic_vocabulary.additions',
     'clinic_vocabulary.suppress',
     'clinic_vocabulary.reactivate',
+    'clinic_vocabulary.bulk',
     'clinic_vocabulary_review.list_resource_vocabulary_reviews',
     'clinic_vocabulary_review.undo_resource_vocabulary_review',
     'clinic_commands.list_commands',

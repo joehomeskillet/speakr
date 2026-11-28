@@ -2,19 +2,24 @@
 
 Thin HTTP layer over ``audio_invalidation`` (edit + anchor invalidation +
 release supersession in one transaction), ``audio_revisions`` (head, edit list)
-and ``audio_render`` (derived WAV). The original stays immutable: only the
-derived rendering of the current head is ever served.
+and ``audio_render`` (derived WAV). The original stays immutable. Derived
+playback serves the current head. Original-byte download is a separate route:
+it requires ``audio_export``, a client profile that may export, and a stored
+digest that matches the bytes. It does not build a mail draft or an ``.eml``.
 """
 
 from collections.abc import Callable, Mapping
+from contextlib import ExitStack
 from datetime import datetime, timezone
 from hashlib import sha256
+from hmac import compare_digest
 import json
 import os
 import tempfile
+from pathlib import Path
 from uuid import UUID, uuid4
 
-from flask import Blueprint, Response, abort, jsonify, request, session
+from flask import Blueprint, Response, abort, current_app, jsonify, request, send_file, session
 from flask_login import current_user
 from flask_wtf.csrf import CSRFError, validate_csrf
 from werkzeug.exceptions import HTTPException
@@ -22,12 +27,16 @@ from wtforms.validators import ValidationError
 
 from src.clinic import audio_invalidation, audio_render, audio_revisions, audio_segments, lease, live_session
 from src.clinic.audio_format_choice import FormatError, parse_mime
-from src.clinic.config import clinic_mode_enabled
-from src.clinic.models import ClinicDictation
+from src.clinic.config import client_profile, clinic_mode_enabled
+from src.clinic.decoder import detect_container
+from src.clinic.models import ClinicDictation, ClinicOriginal
+from src.clinic.original_audio_output import export_allowed
 from src.clinic.parity_dispatch import JSON, CommandProblem, RunOnce
+from src.clinic.startup import originals_root
 from src.database import db
 from src.models import User
 from src.services import audit
+from src.services.storage.locator import local_path_from_key
 from src.services.waveform_peaks import PeaksError, compute_peaks
 
 PATH = '/api/clinic/v1/dictations/<uuid:dictation_id>'
@@ -128,6 +137,7 @@ def create_blueprint(
     parity dispatcher transaction/receipt protocol (a failed edit leaves the
     head unchanged). `load_sources` returns the decoded WAV sources of the
     dictation for the given edit list and enforces that they belong to it.
+    Original download asks `authorize` for `audio_export`.
     """
     bp = Blueprint('clinic_audio', __name__)
 
@@ -390,5 +400,57 @@ def create_blueprint(
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['X-Audio-Revision'] = revision.id
         return response
+
+    @bp.get(f'{PATH}/audio/original')
+    def download_original(dictation_id: UUID) -> Response:
+        """Exact stored original. View, play and text export do not grant this."""
+        dictation = object_for(dictation_id, 'audio_export')
+        if request.args.get('format') not in (None, 'original'):
+            abort(400)
+        if not export_allowed(client_profile()):
+            abort(403)
+        originals = ClinicOriginal.query.filter(
+            ClinicOriginal.dictation_id == dictation.id,
+            ClinicOriginal.storage_key.startswith('clinic/originals/v1/')).limit(2).all()
+        if not originals:
+            abort(404)
+        if len(originals) != 1:
+            abort(409)
+        original, = originals
+        with ExitStack() as stack:
+            try:
+                path = Path(local_path_from_key(originals_root(current_app), original.storage_key))
+                copy = stack.enter_context(tempfile.TemporaryFile())
+                digest = sha256()
+                size = 0
+                with path.open('rb') as source:
+                    for chunk in iter(lambda: source.read(1024 * 1024), b''):
+                        size += len(chunk)
+                        if size > original.size_bytes:
+                            abort(409)
+                        digest.update(chunk)
+                        copy.write(chunk)
+                actual = digest.hexdigest()
+                if size != original.size_bytes or not compare_digest(actual, original.content_hash):
+                    abort(409)
+                copy.seek(0)
+                header = copy.read(16)
+                container = 'flac' if header.startswith(b'fLaC') else detect_container(header)
+                copy.seek(0)
+            except (OSError, ValueError):
+                abort(409)
+            extension = {'amr-nb': 'amr', 'amr-wb': 'awb', 'mp4': 'm4a'}.get(container, container or 'bin')
+            response = send_file(copy, as_attachment=True, mimetype=DERIVED_MIME if extension == 'wav' else None,
+                                 download_name=f'diktat-{dictation.id}.{extension}', conditional=False)
+            if request.method == 'GET':
+                audit.record(
+                    'recording.content.read', recording_id=dictation.recording_id, actor_kind='session',
+                    actor_user_id=current_user.id, details={'part': 'original_audio'})
+            response.content_length = size
+            response.headers['Cache-Control'] = 'no-store'
+            response.headers['X-Content-SHA256'] = actual
+            response.headers['X-Content-Type-Options'] = 'nosniff'
+            stack.pop_all()
+            return response
 
     return bp
