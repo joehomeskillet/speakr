@@ -51,7 +51,7 @@ def test_recorder_can_retry_and_opens_no_upload_modal(app_base):
         try:
             context = browser.new_context(storage_state=login(browser, app_base, ROLES["author"]))
             page = context.new_page()
-            page.goto(app_base + "/#/neu")
+            support._open_shell_view(page, app_base, '#/neu')
             view = page.get_by_test_id("clinic-recording-view")
             expect(view.get_by_test_id("rec-start")).to_be_enabled()
             expect(view.locator("input")).to_have_count(0)
@@ -110,7 +110,7 @@ def test_lost_confirmations_keep_one_take_and_offer_keyboard_retry(app_base, siz
                                           viewport={'width': width, 'height': height}, **theme_context_options(theme))
             context.add_init_script(theme_init_script(theme))
             page = context.new_page()
-            page.goto(app_base + '/#/neu')
+            support._open_shell_view(page, app_base, '#/neu')
             view = page.get_by_test_id('clinic-recording-view')
             expect(view.get_by_test_id('rec-start')).to_be_enabled()
             expect(page.locator('html')).to_have_class(re.compile(r'\bdark\b' if theme == 'dark' else r'^(?!.*\bdark\b)'))
@@ -239,7 +239,7 @@ def _check_offline_take(context, base, managed):
 
     attest(page)
     with page.expect_response(base + path) as checked:
-        page.goto(base + '/#/offline')
+        support._open_shell_view(page, base, '#/offline')
     assert checked.value.json()['available'] is managed
     if managed:
         unlock(page)
@@ -275,7 +275,7 @@ def _check_offline_take(context, base, managed):
     context.set_offline(False)
     recovery = context.new_page()
     attest(recovery)
-    recovery.goto(base + '/#/offline')
+    support._open_shell_view(recovery, base, '#/offline')
     unlock(recovery)
     with recovery.expect_download() as restored:
         recovery.get_by_test_id('restore').click()
@@ -330,7 +330,7 @@ def test_protected_draft_before_submission(app_base, browser, role_states):
     for size in support.VIEWPORTS if out else ('390x844',):
         for theme in support.THEMES if out else ('light',):
             author, page = open_page('author', size, theme)
-            page.goto(app_base + '/#/neu')
+            support._open_shell_view(page, app_base, '#/neu')
             view = page.get_by_test_id('clinic-recording-view')
             expect(view.get_by_test_id('rec-start')).to_be_enabled()
             capture(page, 'recording-empty', size, theme)
