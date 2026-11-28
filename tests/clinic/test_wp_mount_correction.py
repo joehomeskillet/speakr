@@ -189,6 +189,11 @@ def _open_from_worklist(page, base):
     return view
 
 
+def _dismiss_session_review(page):
+    review = page.get_by_test_id("session-vocabulary-review")
+    review.get_by_role("button", name="Schliessen", exact=True).click()
+
+
 def test_typist_opens_corrects_saves_and_returns(live_server):
     from playwright.sync_api import sync_playwright
 
@@ -209,6 +214,11 @@ def test_typist_opens_corrects_saves_and_returns(live_server):
             text.wait_for(state="visible", timeout=30000)
             assert text.input_value() == "Anamnese Husten seit drei Tagen."
             assert text.get_attribute("readonly") is not None
+            lease_url = f"{base}/api/clinic/v1/dictations/{dictation}/leases"
+            rows_url = f"{base}/api/clinic/v1/worklist/rows"
+            assert page.request.get(lease_url).json()["held"] is False
+            assert next(row for row in page.request.get(rows_url).json()["items"]
+                        if row["dictation_id"] == dictation)["status"] == "zu_schreiben"
             page.locator("[data-action=acquire]").click()
             try:
                 page.wait_for_function("!document.querySelector('[data-testid=text]').readOnly", timeout=20000)

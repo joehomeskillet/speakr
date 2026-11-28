@@ -245,6 +245,23 @@ def test_draft_metadata_is_only_returned_to_an_author_with_edit_access(api):
     assert 'draft_metadata' not in author.get(url).json
 
 
+@pytest.mark.parametrize('suffix, expected', [('', True), (':asr=off', False)])
+def test_draft_detail_returns_stored_speech_recognition_choice_to_author(api, suffix, expected):
+    login_as, allowed, _ = api
+    ids = _scene()
+    flow = db.session.get(workflow.ClinicWorkflowDictation, ids['dictation'])
+    flow.status = workflow.DRAFT
+    db.session.add(ClinicOriginal(
+        dictation_id=ids['dictation'], content_hash='0' * 64, size_bytes=1,
+        storage_key='synthetic/original', receipt='{}', origin_ref=f'upload:recording:42{suffix}:time=upload',
+    ))
+    db.session.commit()
+    allowed.update((ids['author'], ids['typist']))
+    url = URL.format(ids['dictation'])
+    assert login_as(ids['author']).get(url).json['use_speech_recognition'] is expected
+    assert 'use_speech_recognition' not in login_as(ids['typist']).get(url).json
+
+
 def test_foreign_and_unknown_dictations_look_the_same(api):
     login_as, allowed, _ = api
     ids = _scene()

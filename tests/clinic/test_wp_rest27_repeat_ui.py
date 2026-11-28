@@ -114,12 +114,17 @@ def test_author_normal_entry_repeat_uses_established_generation_and_rejection_is
             page.get_by_test_id('open-link').first.click()
             expect(page.get_by_test_id('clinic-correction-view')).to_be_visible()
             page.locator('[data-context-toggle=options]').click()
+            expect(page.get_by_test_id('text')).to_be_editable()
+            end_editing = page.get_by_test_id('lease-bar').locator('[data-action=release]')
+            end_editing.click()
             expect(page.get_by_test_id('repeat-open')).to_be_disabled()
+            mount._dismiss_session_review(page)
             # Establish two real generations through the existing edit controls.
             page.locator('[data-action=acquire]').click()
             expect(page.get_by_test_id('text')).to_be_editable()
-            page.locator('[data-action=release]').click()
+            end_editing.click()
             expect(page.get_by_test_id('text')).not_to_be_editable()
+            mount._dismiss_session_review(page)
             with page.expect_response(lambda r: r.url.endswith('/leases') and r.request.method == 'POST') as held:
                 page.locator('[data-action=acquire]').click()
             generation = held.value.json()['generation']
@@ -149,8 +154,8 @@ def test_author_normal_entry_repeat_uses_established_generation_and_rejection_is
             # Re-enter normally: an already queued recording is rejected by the registered route.
             page.get_by_test_id('drawer-close').click()
             page.get_by_test_id('clinic-correction-back').click()
+            mount._dismiss_session_review(page)
             page.get_by_test_id('open-link').first.click()
-            page.locator('[data-action=acquire]').click()
             expect(page.get_by_test_id('text')).to_be_editable()
             page.locator('[data-context-toggle=options]').click()
             page.get_by_test_id('repeat-open').click()
