@@ -248,6 +248,24 @@ describe('recording view controller', () => {
         expect(request.mock.calls).toEqual([['/categories']]);
     });
 
+    it('offers audio editing before the draft metadata is saved for submission', async () => {
+        const id = 'draft-7';
+        const request = vi.fn().mockResolvedValueOnce({
+            outcome: 'ok', data: {
+                dictation_id: id, etag: 'version', status_axes: { workflow: 'neu_angelegt' },
+                draft_metadata: { title: 'Bericht' }, draft_edit_actions: ['rename'], allowed_actions: ['send'],
+            },
+        }).mockResolvedValueOnce({ outcome: 'ok', data: { acceptance_required: false } });
+        const rec = recorder(async () => ({ id: 7, dictation_id: id }));
+        const { c } = make({ recorder: rec, options: { client: { request }, draftMetadata: true } });
+        await toReview(c);
+        expect(c.model()).toMatchObject({ recordActionLabel: 'Entwurf sichern', canSaveRecording: false, editableDraftId: null });
+        expect((await c.sendRecording()).ok).toBe(true);
+        expect(c.model()).toMatchObject({ editableDraftId: id, canEditDraft: true, canSubmit: false });
+        expect(rec.uploadRecordedAudio).toHaveBeenCalledOnce();
+        expect((await c.submit()).code).toBe('invalid_phase');
+    });
+
     it('does not open the audio editor with a legacy recording-only receipt', async () => {
         const { c } = make({ options: { client: { request: vi.fn() } } });
         await toReview(c);
