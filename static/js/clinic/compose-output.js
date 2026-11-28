@@ -57,7 +57,7 @@ export const TEXT = Object.freeze({
     defaultsSaveFailed: 'Die Standardziele konnten nicht gespeichert werden.',
     defaultsChanged: 'Die Standardziele wurden bereits geändert. Bitte laden Sie die Seite neu.',
     kisUnavailable: 'Ausgabe ans KIS nicht verfügbar.',
-    download: 'Laden',
+    download: 'Herunterladen',
     downloadStarted: 'Download gestartet',
     downloadHint: 'Ob die Datei auf diesem Gerät gespeichert wurde, bestätigt der Browser nicht.',
     status: 'Status prüfen',
