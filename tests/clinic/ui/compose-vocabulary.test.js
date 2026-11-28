@@ -4,6 +4,7 @@ import {
     createVocabularyViewController, registerVocabularyView, TABS, TEXT, VocabularyView, VOCABULARY_VIEW_TEMPLATE,
 } from '../../../static/js/clinic/compose-vocabulary.js';
 import { createVocabularyStore } from '../../../static/js/clinic/vocabulary-ui.js';
+import { ResourcesView } from '../../../static/js/clinic/compose-resources.js';
 
 const ok = (data) => ({ outcome: 'ok', data });
 const denied = { outcome: 'permission', status: 403, code: 'FORBIDDEN', message: 'Keine Berechtigung für diese Aktion.' };
@@ -155,6 +156,72 @@ describe('states', () => {
 });
 
 describe('mounted view', () => {
+    it.each([[VocabularyView, 'proposals'], [ResourcesView, 'review']])(
+        'switches the shared review tab between personal and authorized pool proposals',
+        async (component, tab) => {
+            const Vue = fakeVue();
+            const client = fakeClient((path) => {
+                if (path.endsWith('?catalog=author_pools')) return ok({ author_pools: [{ id: 'pool-1', name: 'Kardiologie' }] });
+                if (path.includes('scope_type=author_pool')) return ok({
+                    items: [
+                        { id: 'word-1', written_form: 'Alpha', operation: 'ADD', status: 'PENDING' },
+                        { id: 'word-2', written_form: 'Beta', operation: 'DELETE', status: 'PENDING' },
+                        { id: 'word-3', written_form: 'Gamma', operation: 'ADD', status: 'PENDING' },
+                    ],
+                });
+                return ok(entries);
+            });
+            const view = component.setup({ client, currentUser: { id: 7 }, vue: Vue });
+            await Vue.hooks.mounted[0]?.();
+            expect(view.select(tab)).toBe(true);
+            const beforePanel = Vue.hooks.mounted.length;
+            const panel = view.activeComponent.value.setup(view.activeProps.value);
+            await Promise.all(Vue.hooks.mounted.slice(beforePanel).map((mount) => mount()));
+            expect(panel.reviewPools.value).toEqual([{ id: 'pool-1', name: 'Kardiologie' }]);
+            expect(panel.selectedPool.value).toBe('');
+            await panel.selectReviewPool('foreign-pool');
+            expect(client.request.mock.calls.some(([path]) => path.includes('foreign-pool'))).toBe(false);
+            await panel.selectReviewPool('pool-1');
+            expect(client.request).toHaveBeenLastCalledWith(
+                '/resources/vocabulary/reviews?scope_type=author_pool&scope_id=pool-1&status=PENDING',
+            );
+            expect(panel.view.value.items.map((item) => item.operation)).toEqual(['ADD', 'DELETE', 'ADD']);
+            await panel.controller.acceptPool('word-1');
+            await panel.controller.acceptUser('word-2');
+            await panel.controller.reject('word-3');
+            expect(client.command.mock.calls.map(([command]) => command.payload)).toEqual([
+                { proposal_id: 'word-1', decision: 'pool' },
+                { proposal_id: 'word-2', decision: 'user' },
+                { proposal_id: 'word-3', decision: 'reject' },
+            ]);
+            await panel.selectReviewPool('');
+            expect(client.request).toHaveBeenLastCalledWith(
+                '/resources/vocabulary/reviews?scope_type=user&scope_id=7&status=PENDING',
+            );
+            expect(panel.view.value.items).toEqual([]);
+            expect(panel.view.value.history).toEqual([]);
+        },
+    );
+
+    it('keeps the personal review error separate from catalog failures and recovery', async () => {
+        const Vue = fakeVue();
+        const unavailable = { outcome: 'UNKNOWN', code: 'CAPABILITY_UNAVAILABLE', message: 'Das Ergebnis ist unbekannt.' };
+        let catalog = denied;
+        const client = fakeClient((path) => path.endsWith('?catalog=author_pools') ? catalog : unavailable);
+        const view = ResourcesView.setup({ client, currentUser: { id: 7 }, vue: Vue });
+        view.select('review');
+        const panel = view.activeComponent.value.setup(view.activeProps.value);
+        await Promise.all(Vue.hooks.mounted.map((mount) => mount()));
+        expect(panel.reviewPoolsFailed.value).toBe(true);
+        expect(panel.view.value.error).toMatchObject(unavailable);
+
+        catalog = ok({ author_pools: [{ id: 'pool-1', name: 'Kardiologie' }] });
+        await panel.loadReviewPools();
+        expect(panel.reviewPoolsFailed.value).toBe(false);
+        expect(panel.reviewPools.value).toEqual(catalog.data.author_pools);
+        expect(panel.view.value.error).toMatchObject(unavailable);
+    });
+
     it('mounts only the active existing child, built on first use', () => {
         const Vue = fakeVue();
         const client = fakeClient();
