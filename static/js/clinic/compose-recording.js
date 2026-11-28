@@ -7,8 +7,8 @@
  *
  * Rules applied:
  *   - The author is the logged-in user. A server check confirms a route before capture.
- *   - Audio and title stay in memory. This module never touches IndexedDB,
- *     localStorage or sessionStorage; a failed upload says so explicitly.
+ *   - Audio and title stay in memory. The recorder reports if a managed
+ *     staging browser retained an encrypted copy after a failed upload.
  *   - A dictation counts as created only when the upload resolves with a server
  *     receipt (an object carrying an id). The view shows the dictation id only
  *     (W16: no patient name, no title).
@@ -34,6 +34,7 @@ import { CATEGORIES, RequiredCategories } from './categories-ui.js';
 import { PRIORITY_OPTIONS } from './dictation-properties-ui.js';
 import { surfaceFor } from './tokens.js';
 import { CorrectionView } from './compose-correction.js';
+import { SessionTransportNotice } from './compose-settings.js';
 
 function microphoneChoices(microphone) {
     return (microphone?.inputs || []).filter(({ deviceId }) => deviceId && deviceId !== 'default')
@@ -67,6 +68,7 @@ export const TEXT = Object.freeze({
     routingMissing: 'Ihr Konto ist noch keinem Autorenpool zugeordnet. Bitte wenden Sie sich an die Verwaltung.',
     routingError: 'Die Berechtigung konnte nicht geprüft werden. Bitte laden Sie die Seite neu.',
     recordFailed: 'Senden fehlgeschlagen. Der Entwurf wurde nicht gesendet. Die Aufnahme wird nicht lokal gespeichert.',
+    recordRetained: 'Die Aufnahme liegt verschlüsselt unter „Offline und Wiederherstellung“. Der Server hat den Entwurf nicht bestätigt.',
     fileFailed: 'Hochladen fehlgeschlagen. Der Entwurf wurde nicht gesendet. Die Audiodatei wird nicht lokal gespeichert.',
     sent: 'Gespeichert. Noch nicht an den Schreibdienst gesendet.',
     submit: 'Einreichen',
@@ -718,7 +720,10 @@ export function createRecordingViewController(options) {
         if (!recorderBusy() && noCaptureFormat()) return TEXT.noCaptureFormat;
         if (canSwitchMicrophone() && microphoneNotice) return microphoneNotice;
         if (s.phase === 'sent' && editableDraftId()) return TEXT.sent;
-        if (s.phase === 'failed') return opts.oneButton || s.title.trim() ? TEXT.recordFailed : LABELS.titleHint;
+        if (s.phase === 'failed') {
+            if (s.error === 'offline_retained') return TEXT.recordRetained;
+            return opts.oneButton || s.title.trim() ? TEXT.recordFailed : LABELS.titleHint;
+        }
         if (s.error === 'microphone_unavailable' && attemptedMicrophone) {
             return `„${attemptedMicrophone}“ ist nicht verfügbar. Schliessen Sie es erneut an oder wählen Sie ein anderes Mikrofon.`;
         }
@@ -872,7 +877,7 @@ export function createRecordingViewController(options) {
             try {
                 await machine.cancel();
             } catch (e) {
-                // Nothing is persisted locally, so a failed discard leaves nothing behind.
+                // The managed offline view owns any encrypted copy.
             }
         }
     }
@@ -957,6 +962,7 @@ export const RECORDING_TEMPLATE = `
          style="display: grid; place-items: center; min-height: min(56dvh, 30rem); padding: var(--ui-space-6) var(--ui-space-4); color: var(--ui-text)">
   <h1 id="crv-title" class="sr-only">{{ c.text.title }}</h1>
   <div style="width: 100%; max-width: 28rem; text-align: center">
+    <component :is="SessionTransportNotice" :client="client" :vue="vue" class="mb-3" />
     <button v-if="m.canChangeSpeechRecognition" type="button" role="switch" data-testid="recognition-switch"
             class="button quiet focus-visible:outline focus-visible:outline-2 focus-visible:outline-ui-text"
             :aria-checked="m.useSpeechRecognition" @click="c.toggleSpeechRecognition()"
@@ -1049,7 +1055,8 @@ export const RECORDING_TEMPLATE = `
                style="display: grid; gap: var(--ui-space-2)">
             <span id="crv-active-microphone-label">Mikrofon</span>
             <button v-for="device in [{ deviceId: '', label: 'Standardmikrofon' }, ...m.microphoneOptions]" :key="device.deviceId"
-                    type="button" class="button" :aria-pressed="device.deviceId === m.selectedMicrophoneId"
+                    type="button" class="button" :class="{ accent: device.deviceId === m.selectedMicrophoneId }"
+                    :aria-pressed="device.deviceId === m.selectedMicrophoneId"
                     :disabled="m.microphoneSwitching" @click="c.chooseMicrophone(device.deviceId)"
                     style="${TOUCH}; white-space: normal; overflow-wrap: anywhere">
               {{ device.label }}
@@ -1073,7 +1080,7 @@ export const RECORDING_TEMPLATE = `
           <summary class="focus-visible:outline-ui-text" style="${TOUCH}; align-content: center; cursor: pointer">
             Aufnahmeformat ({{ microphone.formats.find(format => format.mimeType === microphone.mimeType)?.label || 'Automatisch' }})
           </summary>
-          <div class="actions" role="group" aria-label="Aufnahmeformat">
+          <div class="actions" role="group" aria-label="Aufnahmeformat" style="margin-top: var(--ui-space-2)">
             <button type="button" class="button" :aria-pressed="!microphone.mimeType" :disabled="!enabled('start')"
                     @click="microphone.selectFormat('')" style="${TOUCH}">Automatisch</button>
             <button v-for="format in microphone.formats" :key="format.mimeType" type="button" class="button"
@@ -1189,7 +1196,10 @@ export const RecordingView = {
         }
         const protection = V.ref(null);
         const Protection = { ...DictationProtectionComponent(V), mounted() { void this.model.load(); } };
-        const protecting = () => protection.value?.model.state.status === 'busy';
+        const protecting = () => {
+            const state = protection.value?.model.state;
+            return state?.status === 'busy' && (state.lastAction === 'enable' || state.lastAction === 'disable');
+        };
         const editingDraft = V.ref(null);
         const audioEditButton = V.ref(null);
         function openAudioEdits() {
@@ -1317,6 +1327,7 @@ export const RecordingView = {
             return c.dispose();
         });
         return {
+            SessionTransportNotice,
             c,
             m,
             root,
