@@ -1465,7 +1465,7 @@ def register_clinic_audio(flask_app):
     run_once = flask_app.extensions['clinic_run_once']
     # Handler action name -> central policy actions that must all be allowed.
     needs = {
-        'play': ('play',), 'edit': ('edit',), 'export': ('export',), 'import': ('edit',),
+        'play': ('play',), 'view': ('view',), 'edit': ('edit',), 'export': ('export',), 'import': ('edit',),
         'correction_read': ('view',), 'correction_edit': ('edit',), 'clipboard': ('export',),
         'audio_export': ('audio_export',),
     }
@@ -1528,6 +1528,8 @@ def register_clinic_audio(flask_app):
         managed_client))
     flask_app.register_blueprint(routes_live.create_blueprint(
         may_edit_live, IngestService(originals_root), drafts=drafts,
+        authorize_view=lambda actor, dictation_id: may(actor, 'view', db.session.get(ClinicDictation, dictation_id)),
+        authorize_play=lambda actor, dictation_id: may(actor, 'play', db.session.get(ClinicDictation, dictation_id)),
         stream_adapter=lambda: LiveAsrAdapter(get_live_asr_config())))
     flask_app.register_blueprint(routes_live_drafts.create_blueprint(drafts, may_edit_live))
     flask_app.register_blueprint(routes_correction.create_blueprint(

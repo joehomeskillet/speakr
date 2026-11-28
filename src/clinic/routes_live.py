@@ -18,24 +18,29 @@ from __future__ import annotations
 
 import base64
 import binascii
+import wave
 from collections.abc import Callable, Set
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from flask import Blueprint, abort, current_app, jsonify, request, session
+from flask import Blueprint, abort, current_app, jsonify, request, send_file, session, url_for
 from flask_login import current_user
 from flask_wtf.csrf import validate_csrf
+from sqlalchemy import tuple_
+from sqlalchemy.orm import aliased
 from wtforms.validators import ValidationError
 
 from src.clinic import live_phrases, live_session, vocabulary
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.draft_registry import DraftError
 from src.clinic.draft_store import ClinicDraft, DraftStore
-from src.clinic.ingest import IngestService
+from src.clinic.ingest import IngestError, IngestService, storage_key_for
 from src.clinic.live_drafts import HolderFence, LiveDrafts, select_draft
 from src.clinic.models import ClinicDictation, ClinicTranscriptRevision
 from src.clinic.parity_dispatch import MAX_BODY_BYTES, CommandProblem, ParityDispatch, _problem
 from src.database import db
+from src.services import audit
+from src.utils.mime import sandbox_media_response
 
 PREFIX = "/api/clinic/v1/live"
 MAX_EVENTS = 50
@@ -125,7 +130,7 @@ def _code(error: Exception) -> str:
 
 def _position(row: live_session.ClinicLiveSession) -> dict:
     """Generation and sequence the server has durably stored for this session."""
-    last = (live_phrases.ClinicLivePhrase.query.filter_by(session_id=row.id)
+    last = (live_phrases.ClinicLivePhrase.query.filter_by(session_id=row.id, dictation_id=row.dictation_id)
             .order_by(live_phrases.ClinicLivePhrase.sequence.desc()).first())
     return {"session_id": row.id, "dictation_id": row.dictation_id, "state": row.state,
             "generation": row.holder_generation or (last.generation if last else 1),
@@ -133,26 +138,48 @@ def _position(row: live_session.ClinicLiveSession) -> dict:
             "audio_offset_ms": row.audio_offset_ms}
 
 
-def _events(session_id: str, after: int) -> list[dict]:
-    rows = (live_phrases.ClinicLivePhrase.query
-            .filter(live_phrases.ClinicLivePhrase.session_id == session_id,
-                    live_phrases.ClinicLivePhrase.sequence > after)
-            .order_by(live_phrases.ClinicLivePhrase.sequence).limit(MAX_EVENTS).all())
+def _events(row: live_session.ClinicLiveSession, after: int, may_play: bool) -> dict:
     events = []
-    for row in rows:
-        event = {"phrase_id": row.id, "generation": row.generation, "sequence": row.sequence,
-                 "event_id": row.event_id, "audio_start_ms": row.audio_start_ms,
-                 "audio_end_ms": row.audio_end_ms, "transcript_revision_id": row.transcript_revision_id,
-                 "status": "server_saved"}
-        if row.event_id == f"asr:{row.generation}:{row.sequence}":
-            revision = db.session.get(ClinicTranscriptRevision, row.transcript_revision_id)
-            if revision is not None:
-                parent = db.session.get(ClinicTranscriptRevision, revision.parent_revision_id) if revision.parent_revision_id else None
-                prefix = parent.body + "\n" if parent and parent.body else ""
-                if revision.body.startswith(prefix):
-                    event["text"] = revision.body[len(prefix):]
-        events.append(event)
-    return events
+    cursor = None
+    if after < row.ack_seq:
+        phrase = live_phrases.ClinicLivePhrase
+        revision = ClinicTranscriptRevision
+        parent = aliased(revision)
+        rows = (db.session.query(phrase, revision.body, parent.body).select_from(phrase)
+                .join(revision, (revision.id == phrase.transcript_revision_id)
+                      & (revision.dictation_id == phrase.dictation_id))
+                .outerjoin(parent, (parent.id == revision.parent_revision_id)
+                           & (parent.dictation_id == revision.dictation_id))
+                .filter(phrase.session_id == row.id, phrase.dictation_id == row.dictation_id,
+                        phrase.sequence > after, phrase.sequence <= row.ack_seq)
+                .order_by(phrase.sequence).limit(MAX_EVENTS + 1).all())
+        for clip, text, prior_text in rows[:MAX_EVENTS]:
+            events.append({
+                "phrase_id": clip.id, "generation": clip.generation, "sequence": clip.sequence,
+                "event_id": clip.event_id, "audio_start_ms": clip.audio_start_ms,
+                "audio_end_ms": clip.audio_end_ms, "transcript_revision_id": clip.transcript_revision_id,
+                "audio_revision_id": clip.audio_revision_id, "status": "server_saved",
+                "text": text.removeprefix(prior_text + "\n") if prior_text else text,
+                "audio_url": url_for(".phrase_audio", dictation_id=row.dictation_id,
+                                     phrase_id=clip.id) if may_play else None,
+            })
+        if len(rows) > MAX_EVENTS:
+            cursor = {"session_id": row.id, "after_sequence": events[-1]["sequence"]}
+    return {"events": events, "next_cursor": cursor, "max_events": MAX_EVENTS}
+
+
+def _history(dictation_id: str):
+    row = live_session.ClinicLiveSession
+    return row.query.filter_by(dictation_id=dictation_id, state=live_session.ENDED)
+
+
+def _previous_session(row: live_session.ClinicLiveSession) -> str | None:
+    model = live_session.ClinicLiveSession
+    previous = (_history(row.dictation_id)
+                .filter(tuple_(model.started_at, model.created_at, model.id)
+                        < (row.started_at, row.created_at, row.id))
+                .order_by(model.started_at.desc(), model.created_at.desc(), model.id.desc()).first())
+    return previous.id if previous else None
 
 
 def _capture_session_review(row: live_session.ClinicLiveSession, ended_at: datetime) -> None:
@@ -254,12 +281,14 @@ def register_live_commands(
 
 def create_blueprint(
     authorize_dictation: Authorize, store: IngestService,
-    drafts: LiveDrafts | DraftStore | None = None, now: Clock = _utcnow, *, stream_adapter=None,
+    drafts: LiveDrafts | DraftStore | None = None, now: Clock = _utcnow, *,
+    authorize_view: Authorize | None = None, authorize_play: Authorize | None = None, stream_adapter=None,
 ) -> Blueprint:
     """Mount pause, continue, phrase append, resume and draft switch.
 
-    ``authorize_dictation(actor_id, dictation_id)`` is the caller's explicit
-    per-object policy. ``store`` is the durable audio root for final phrases.
+    ``authorize_dictation`` checks edit rights. Recovery reads use ``authorize_view``
+    (defaulting to the edit policy) and playback requires an explicit ``authorize_play``.
+    ``store`` is the durable audio root for final phrases.
     Pass a ``DraftStore`` to enable durable draft switching.
     Switch returns the selected session's position. The caller must use its new
     tab id and generation on subsequent live requests.
@@ -338,23 +367,121 @@ def create_blueprint(
 
     @blueprint.post("/dictations/<dictation_id>/resume")
     def resume(dictation_id):
-        data = _body(set(), {"client_id", "generation", "after_sequence"})
-        after = None if data is None else data.get("after_sequence", 0)
-        if (data is None or type(after) is not int or after < 0
+        data = _body(set(), {"client_id", "generation", "after_sequence", "session_id", "cursor"})
+        if data is None:
+            return _problem("INVALID_PAYLOAD")
+        if "cursor" in data:
+            cursor = data["cursor"]
+            if (data.keys() != {"cursor"} or not isinstance(cursor, dict)
+                    or cursor.keys() != {"session_id", "after_sequence"}):
+                return _problem("INVALID_PAYLOAD")
+            data = cursor
+        after = data.get("after_sequence", 0)
+        session_id = data.get("session_id")
+        if (type(after) is not int or after < 0
+                or ("session_id" in data and (not _client_id(session_id)
+                                              or data.keys() - {"session_id", "after_sequence"}))
                 or (data.get("client_id") is not None and not _client_id(data["client_id"]))
                 or ("generation" in data and not _valid_fence(data))):
             return _problem("INVALID_PAYLOAD")
-        if not authorize_dictation(current_user.id, dictation_id):
+        actor = current_user.id
+        if not (authorize_view or authorize_dictation)(actor, dictation_id):
             return _problem("POLICY_DENIED")
 
+        model = live_session.ClinicLiveSession
+
+        def page(row, read_only, **extra):
+            may_play = authorize_play is not None and authorize_play(actor, dictation_id)
+            result = dict(_position(row), **_events(row, after, may_play), read_only=read_only,
+                          previous_session_id=_previous_session(row), **extra)
+            if result["events"]:
+                record_read(dictation_id, "live_phrase_text")
+            return jsonify(result)
+
+        def latest_ended():
+            row = (_history(dictation_id)
+                   .order_by(model.started_at.desc(), model.created_at.desc(), model.id.desc()).first())
+            can_start = (authorize_dictation(actor, dictation_id)
+                         and not live_session.author_holders(actor, now()))
+            if row is None:
+                return jsonify(session_id=None, read_only=not can_start)
+            return page(row, True, can_start=bool(can_start))
+
+        def open_session():
+            return model.query.filter_by(active_key=dictation_id).first()
+
         def act():
-            row, _point = live_session.recover(
-                dictation_id, current_user.id, now(), client_id=data.get("client_id"),
-                generation=data.get("generation"))
             _require_undiscarded(dictation_id)
+            if session_id is not None:
+                row = model.query.filter_by(id=session_id, dictation_id=dictation_id).first()
+                return page(row, True) if row is not None else _problem("POLICY_DENIED")
+
+            active = open_session()
+            if active is None:
+                return latest_ended()
+            if not authorize_dictation(actor, dictation_id):
+                return page(active, True)
+
+            try:
+                row, _point = live_session.recover(
+                    dictation_id, actor, now(), client_id=data.get("client_id"),
+                    generation=data.get("generation"), allow_ended=False)
+            except live_session.LiveSessionError as error:
+                if error.reason not in (live_session.NOT_HOLDER, live_session.ACTIVE_SESSION,
+                                        live_session.NO_SESSION):
+                    raise
+                db.session.rollback()
+                if not (authorize_view or authorize_dictation)(actor, dictation_id):
+                    return _problem("POLICY_DENIED")
+                _require_undiscarded(dictation_id)
+                active = open_session()
+                if active is None:
+                    return latest_ended()
+                if error.reason == live_session.NOT_HOLDER and "generation" in data:
+                    return _problem("POLICY_DENIED")
+                return page(active, True)
+            _require_undiscarded(dictation_id)
+            response = page(row, False)
             db.session.commit()
-            return jsonify(dict(_position(row), events=_events(row.id, after), max_events=MAX_EVENTS))
+            return response
         return run(act)
+
+    def record_read(dictation_id: str, part: str) -> None:
+        dictation = db.session.get(ClinicDictation, dictation_id)
+        if dictation is None:
+            abort(404)
+        audit.record("recording.content.read", recording_id=dictation.recording_id,
+                     actor_kind="session", actor_user_id=current_user.id, details={"part": part})
+
+    @blueprint.get("/dictations/<dictation_id>/phrases/<phrase_id>/audio")
+    def phrase_audio(dictation_id, phrase_id):
+        if authorize_play is None or not authorize_play(current_user.id, dictation_id):
+            abort(404)
+        phrase = (live_phrases.ClinicLivePhrase.query.filter_by(id=phrase_id, dictation_id=dictation_id)
+                  .join(live_session.ClinicLiveSession,
+                        (live_session.ClinicLiveSession.id == live_phrases.ClinicLivePhrase.session_id)
+                        & (live_session.ClinicLiveSession.dictation_id == dictation_id)).first())
+        if phrase is None:
+            abort(404)
+        key = f"live:{phrase.session_id}:{phrase.sequence}"
+        if phrase.audio_storage_key != storage_key_for(key):
+            abort(404)
+        try:
+            path = store.stored_path(idempotency_key=key, declared_sha256=phrase.audio_sha256,
+                                     declared_size=phrase.audio_size)
+            if path is None:
+                abort(404)
+            with wave.open(str(path), "rb") as wav:
+                if not wav.getnframes():
+                    abort(415)
+            response = send_file(path, mimetype="audio/wav", conditional=True, etag=False)
+        except (wave.Error, EOFError):
+            abort(415)
+        except (IngestError, OSError):
+            abort(404)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        record_read(dictation_id, "live_phrase_audio")
+        return sandbox_media_response(response)
 
     @blueprint.post("/drafts/<draft_id>/switch")
     def switch_draft(draft_id):
