@@ -1355,9 +1355,10 @@ def register_clinic_identity(flask_app):
     these modules registers a parity command, so the stored ParityDispatch is only checked
     to be present (one dispatcher, mounted once). Identity providers stay disabled (default
     EntraConfig, IWA off): their routes answer the inert 422 and the exchange never runs.
-    The directory has no provider, so it answers its capability-unavailable problem.
+    Directory comparison is disabled unless an approved provider is configured.
     The last selection is durable (clinic user-preset row per user); workstation preferences are process-local.
     """
+    from src.clinic import directory_provider
     from src.clinic import (app_wiring, entra, pool_policy, routes_admin_dictations, routes_directory, routes_grants,
                             routes_identity_providers, routes_pool_admin, routes_pools, routes_preferences)
     from src.clinic.last_selection import Allowed, PresetUserPreferences, SelectionStore
@@ -1394,6 +1395,8 @@ def register_clinic_identity(flask_app):
 
     flask_app.register_blueprint(
         routes_identity_providers.IdentityProvidersApi(entra.EntraConfig(), disabled_exchange).blueprint)
+    flask_app.extensions[directory_provider.PROVIDER_EXTENSION] = directory_provider.select_provider(
+        os.environ.get("CLINIC_DIRECTORY_PROVIDER"), os.environ.get("CLINIC_DIRECTORY_SNAPSHOT_FILE"))
     flask_app.register_blueprint(routes_directory.blueprint)
     flask_app.register_blueprint(routes_admin_dictations.blueprint)
     flask_app.register_blueprint(routes_pools.blueprint)
