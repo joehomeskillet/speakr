@@ -99,7 +99,7 @@
                     <i class="fas" :class="n.level === 'error' ? 'fa-circle-exclamation' : (n.level === 'warning' ? 'fa-triangle-exclamation' : 'fa-circle-info')" aria-hidden="true"></i>
                     <div style="flex: 1; min-width: 0">
                         <p style="margin: 0; overflow-wrap: anywhere" v-text="notificationText(n)"></p>
-                        <a v-if="n.link" :href="n.link" style="padding: 0; min-height: 0" v-text="t('notifications.view')"></a>
+                        <a v-if="notificationLink(n)" :href="notificationLink(n)" data-notification-open style="padding: 0; min-height: 0" v-text="t('notifications.view')"></a>
                     </div>
                     <button type="button" @click.stop="dismissNotification(n.id)" :title="t('notifications.dismiss')"
                             style="border: 0; background: transparent; cursor: pointer; padding: 0">
@@ -232,7 +232,7 @@
                        :class="n.level === 'error' ? 'fa-circle-exclamation text-red-500' : (n.level === 'warning' ? 'fa-triangle-exclamation text-amber-500' : 'fa-circle-info text-[var(--text-accent)]')"></i>
                     <div class="flex-1 min-w-0">
                         <p class="text-xs text-[var(--text-primary)] break-words" v-text="notificationText(n)"></p>
-                        <a v-if="n.link" :href="n.link"
+                        <a v-if="notificationLink(n)" :href="notificationLink(n)" data-notification-open
                            class="text-[11px] text-[var(--text-accent)] hover:underline"
                            v-text="t('notifications.view')"></a>
                     </div>
