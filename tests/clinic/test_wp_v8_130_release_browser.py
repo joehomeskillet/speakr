@@ -299,7 +299,8 @@ def test_review_and_release_current_bound_versions(review_scene, tmp_path):
             expect(dialog.get_by_role("status").filter(has_text="Das Diktat ist fertiggestellt.")).to_be_visible()
             dialog.get_by_role("button", name="Schliessen", exact=True).click()
             expect(review).to_have_count(0)
-            expect(page.locator(f'[data-testid=open-link][data-id="{did}"]')).to_contain_text("Fertiggestellt")
+            finished_row = page.locator(f'[data-testid=open-link][data-id="{did}"]')
+            expect(finished_row.get_by_test_id("recording-next-step")).to_have_text("Fertig – Sie müssen nichts tun")
             assert _get(page, path + "/review")["status"] == "fertiggestellt"
             with Session(engine) as session:
                 row = session.query(ClinicRelease).filter_by(dictation_id=did).one()
