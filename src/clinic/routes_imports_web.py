@@ -337,7 +337,7 @@ def _visible_inventory(*, include_recipients: bool = False) -> tuple[list[dict],
     )
     visibility = import_visibility.ClarificationPolicy(may_access=may_read)
     items: list[dict] = []
-    recipients_by_pool = {None: ()}
+    recipients_by_pool: dict[int | None, tuple[int, ...]] = {None: ()}
     now = agent_channel.utcnow()
     for agent_id in roots_by_agent:
         body = import_visibility.list_inventory(visibility, channel_policy, actor_user_id=actor, agent_id=agent_id)
