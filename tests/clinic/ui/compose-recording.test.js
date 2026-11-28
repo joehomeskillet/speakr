@@ -5,6 +5,7 @@ import {
     registerRecordingView,
 } from '../../../static/js/clinic/compose-recording.js';
 import { acquireMicrophoneStream } from '../../../static/js/modules/composables/audio.js';
+import { RECORD_LEVEL_TEMPLATE } from '../../../static/js/clinic/record-level-ui.js';
 
 function recorder(upload) {
     return {
@@ -47,6 +48,42 @@ const source = () => readFileSync(new URL('../../../static/js/clinic/compose-rec
 afterEach(() => vi.unstubAllGlobals());
 
 describe('recording view controller', () => {
+    it('reports the saved recording separately from the confirmed destination', async () => {
+        const saved = { dictation_id: 'd-7', title: 'Diktat 27.11.2026 09:05', audio_duration: 65.8 };
+        const rec = recorder(async () => saved);
+        rec.uploadRecordedAudio.mockRejectedValueOnce(new Error('offline'));
+        const client = { request: vi.fn()
+            .mockResolvedValueOnce({ outcome: 'ok', data: { dictation_id: 'd-7', etag: 'draft' } })
+            .mockResolvedValueOnce({ outcome: 'conflict', code: 'NO_STAFF_POOL' })
+            .mockResolvedValueOnce({ outcome: 'ok', data: { dictation_id: 'd-7', etag: 'draft' } })
+            .mockResolvedValueOnce({ outcome: 'ok', data: {
+                dictation_id: 'd-7', status: 'zu_schreiben', staff_service_names: ['Nord'],
+            } }) };
+        const fetchPreflight = async () => ({ ok: true, json: async () => ({
+            routable: true, staff_service_names: ['Süd'],
+        }) });
+        const { c } = make({ recorder: rec, options: { client, fetchPreflight, oneButton: true } });
+        await c.checkRouting();
+        await toReview(c);
+        expect(c.model().plannedDestination).toBe('Wird gesendet an: Schreibdienst Süd');
+        expect(c.model().recordingReceipt).toBeNull();
+
+        expect(await c.sendRecording()).toEqual({ ok: false, code: 'no_receipt' });
+        expect(c.model().recordingReceipt).toBeNull();
+        expect(client.request).not.toHaveBeenCalled();
+
+        expect(await c.sendRecording()).toEqual({ ok: false, code: 'NO_STAFF_POOL' });
+        expect(c.model().recordingReceipt).toEqual({ title: saved.title, duration: '01:05', arrived: '' });
+
+        expect(await c.sendRecording()).toEqual({ ok: true });
+        expect(c.model().recordingReceipt).toEqual({
+            title: saved.title, duration: '01:05', arrived: 'Beim Schreibdienst Nord angekommen',
+        });
+        expect(rec.uploadRecordedAudio).toHaveBeenCalledTimes(2);
+        c.another();
+        expect(c.model().recordingReceipt).toBeNull();
+    });
+
     it('requires a user id, a recorder and an upload function', () => {
         expect(() => createRecordingViewController({ currentUser: {}, recorder: recorder(), uploadFile() {} })).toThrow('currentUser.id');
         expect(() => createRecordingViewController({ currentUser: { id: 1 }, uploadFile() {} })).toThrow('recorder');
@@ -577,6 +614,64 @@ describe('view registration and setup', () => {
         expect(RECORDING_TEMPLATE).toContain('c.text.open');
     });
 
+    it('expands the shared record level meter with its browser-only caption', () => {
+        expect(RECORDING_TEMPLATE).toContain(RECORD_LEVEL_TEMPLATE);
+        expect(RECORDING_TEMPLATE).toContain('role="meter"');
+        expect(RECORDING_TEMPLATE).toContain('Browser-Aufnahmepegel · nicht der Windows-Mixer');
+        expect(RECORDING_TEMPLATE).toContain('Standardmikrofon');
+    });
+
+    it('samples the injected recorder level only while recording and stops on unmount', async () => {
+        const vue = fakeVue();
+        const readLevel = vi.fn(() => 0.4);
+        const rec = { ...recorder(), readLevel };
+        const fetchSpy = vi.fn();
+        let frameCallback;
+        const requestFrame = vi.fn((callback) => { frameCallback = callback; return 23; });
+        const cancelFrame = vi.fn();
+        vi.stubGlobal('fetch', fetchSpy);
+        vi.stubGlobal('requestAnimationFrame', requestFrame);
+        vi.stubGlobal('cancelAnimationFrame', cancelFrame);
+        const view = RecordingView.setup({ currentUser: { id: 2 }, recorder: rec, uploadFile: vi.fn(), vue }, {});
+
+        view.c.setTitle('Bericht');
+        await view.c.start();
+        expect(view.m.value.phase).toBe('recording');
+        expect(readLevel).toHaveBeenCalled();
+        expect(view.level.value).toBe(0.4);
+        expect(requestFrame).toHaveBeenCalled();
+
+        readLevel.mockReturnValue(0.7);
+        frameCallback();
+        expect(view.level.value).toBe(0.7);
+        view.c.pause();
+        expect(view.m.value.phase).toBe('paused');
+        expect(view.level.value).toBe(0);
+        expect(cancelFrame).toHaveBeenCalledWith(23);
+
+        const pausedSamples = readLevel.mock.calls.length;
+        view.c.resume();
+        expect(view.m.value.phase).toBe('recording');
+        expect(readLevel.mock.calls.length).toBeGreaterThan(pausedSamples);
+        const pauses = cancelFrame.mock.calls.length;
+        await vue.hooks.unmount[0]();
+        expect(cancelFrame.mock.calls.length).toBeGreaterThan(pauses);
+        expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('keeps recorders without readLevel safe when Node has no RAF', async () => {
+        const vue = fakeVue();
+        vi.stubGlobal('requestAnimationFrame', undefined);
+        vi.stubGlobal('cancelAnimationFrame', undefined);
+        const view = RecordingView.setup({ currentUser: { id: 2 }, recorder: recorder(), uploadFile: vi.fn(), vue }, {});
+        view.c.setTitle('Bericht');
+        await view.c.start();
+        expect(view.m.value.phase).toBe('recording');
+        expect(view.level.value).toBe(0);
+        view.c.pause();
+        await vue.hooks.unmount[0]();
+    });
+
     it('emits open and worklist and disposes on unmount', async () => {
         const Vue = fakeVue();
         const emit = vi.fn();
@@ -633,6 +728,42 @@ describe('view registration and setup', () => {
         expect(media.pause).toHaveBeenCalledOnce();
         view.bindReview(null);
         expect(disabled('play')).toBe(true);
+    });
+
+    it('plays the review take on the chosen output device where setSinkId exists', async () => {
+        const devices = [
+            { kind: 'audiooutput', deviceId: 'default', label: 'Default' },
+            { kind: 'audiooutput', deviceId: 'spk-2', label: 'Lautsprecher 2' },
+            { kind: 'audioinput', deviceId: 'mic', label: 'Mikrofon' },
+        ];
+        vi.stubGlobal('navigator', { mediaDevices: { enumerateDevices: vi.fn(async () => devices) } });
+        const view = RecordingView.setup({ currentUser: { id: 2 }, recorder: recorder(), uploadFile: vi.fn(), vue: fakeVue() }, {});
+        const media = { sinkId: '', setSinkId: vi.fn(async (id) => { media.sinkId = id; }) };
+        view.bindReview(media);
+        expect(view.outputSupported.value).toBe(true);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(view.outputs.value.map((d) => d.deviceId)).toEqual(['spk-2']);
+        await view.chooseOutput('spk-2');
+        expect(media.setSinkId).toHaveBeenLastCalledWith('spk-2');
+        view.bindReview(media); // Vue calls function refs again on view updates.
+        expect(navigator.mediaDevices.enumerateDevices).toHaveBeenCalledTimes(1);
+        media.setSinkId.mockRejectedValueOnce(new Error('gone'));
+        await view.chooseOutput('spk-3');
+        expect(view.outputId.value).toBe('');
+        expect(media.sinkId).toBe('');
+        expect(RECORDING_TEMPLATE).toContain('data-testid="rec-output"');
+    });
+
+    it('disables the output control and says so where setSinkId is missing, without touching pedal chords', () => {
+        const view = RecordingView.setup({ currentUser: { id: 2 }, recorder: recorder(), uploadFile: vi.fn(), vue: fakeVue() }, {});
+        const shortcuts = { ...view.shortcuts };
+        view.bindReview({});
+        expect(view.outputSupported.value).toBe(false);
+        expect(RECORDING_TEMPLATE).toContain(':disabled="!outputSupported"');
+        expect(RECORDING_TEMPLATE).toContain('Systemausgang');
+        view.bindReview(null);
+        expect(view.shortcuts).toEqual(shortcuts);
     });
 
     it('dispatches only the enabled recorder chords in the mounted view', async () => {
