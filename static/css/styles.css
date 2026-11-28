@@ -6642,17 +6642,17 @@ code, kbd, samp, pre {
 }
 
 /* Visible focus states per WCAG AA */
-:where(body.v8-ui, body:has(> #app.v8-ui, > #global-header .v8-chrome)) {
+:where(body.v8-ui, body.v8-focus) {
     --work-surface-focus: var(--brand-primary);
     --border-focus: var(--work-surface-focus);
 }
-:is(.dark, [data-theme="dark"]) :where(body.v8-ui, body:has(> #app.v8-ui, > #global-header .v8-chrome)) {
+:is(.dark, [data-theme="dark"]) :where(body.v8-ui, body.v8-focus) {
     --work-surface-focus: var(--brand-accent-darkmode);
 }
 
 /* The petrol header stays dark in light mode. Its menus use the work surface. */
 .v8-ui .topbar,
-#global-header:has(.v8-chrome) {
+body:is(.v8-ui, .v8-focus) #global-header {
     --border-focus: var(--brand-accent-darkmode);
 }
 :is(.topbar, #global-header) :is(.v6-menu, .v8-usermenu) {
@@ -6665,12 +6665,12 @@ code, kbd, samp, pre {
 }
 
 /* Keep the keyboard outline on fields whose pointer-focus utility hides it. */
-:is(body.v8-ui, body:has(> #app.v8-ui, > #global-header .v8-chrome)) .focus\:outline-none:focus-visible {
+body:is(.v8-ui, .v8-focus) .focus\:outline-none:focus-visible {
     outline: 2px solid var(--border-focus);
     outline-offset: 2px;
 }
 /* The horizontally scrolling account tabs clip outlines outside the tab. */
-body:has(> #global-header .v8-chrome) #tabs-container .tab:focus-visible {
+body.v8-focus #tabs-container .tab:focus-visible {
     outline-offset: -2px;
 }
 :is(#app > header, #inquire-app > header, #global-header) .btn.header-action:focus-visible {
