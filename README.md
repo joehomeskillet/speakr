@@ -1,6 +1,17 @@
-**Deutsch** · [English](README.en.md)
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/brand/lockup-compact-dark.svg">
+    <img src="docs/assets/brand/lockup-compact-light.svg" alt="Ploudrli" width="400">
+  </picture>
+</h1>
 
-# Speakr – Web-Diktat für Kliniken
+**SWISS VOICE INTELLIGENCE**
+
+**Du redsch. Mir merke.**
+
+Ploudrli ist eine selbst gehostete Webanwendung für Klinikdiktate.
+
+**Deutsch** · [English](README.en.md)
 
 Dieser unabhängige Fork von [Speakr](https://github.com/murtaza-nasir/speakr) (Originalprojekt, Upstream) wird als webbasierte Ablösung für dns.comfort entwickelt, mit Fokus auf den Arbeitsablauf von dns.comfort.pro ([Hersteller](https://www.sonic-labs.net/produkte/dns-comfort-pro)). Er ist kein Produkt dieses Herstellers. Diktierende nehmen im Browser auf, die Spracherkennung läuft auf eigener Infrastruktur, und der Schreibdienst hört ab und korrigiert. Auch Prüfung und Freigabe erfolgen ausschliesslich im Webclient, ohne nativen Diktatclient.
 
