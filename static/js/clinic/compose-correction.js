@@ -333,6 +333,27 @@ export function createCorrectionViewController(options) {
         ...(opts.modesOptions || {}),
     });
 
+    let manuallyPaused = false;
+    function togglePlayback() {
+        const wasWaiting = modes.waiting.value;
+        modes.cancelResume();
+        if (modeAudio.isPlaying()) {
+            manuallyPaused = true;
+            modeAudio.pause();
+        } else {
+            const backstep = manuallyPaused || wasWaiting;
+            manuallyPaused = false;
+            if (backstep) modes.resumeWithBackstep();
+            else modeAudio.play();
+        }
+    }
+
+    function pedalPlayback(command) {
+        manuallyPaused = false;
+        modes.cancelResume();
+        command();
+    }
+
     const saver = useCorrectionSave({
         editor, client, dictationId, getPositionMs, vue: V || undefined,
         lease: createLeaseAdapter(editor, V),
@@ -374,6 +395,8 @@ export function createCorrectionViewController(options) {
 
     // --- audio wiring -------------------------------------------------------
     function unbindAudio() {
+        manuallyPaused = false;
+        modes.cancelResume();
         for (const [node, name, fn] of audioListeners.splice(0)) {
             if (typeof node.removeEventListener === 'function') node.removeEventListener(name, fn);
         }
@@ -410,7 +433,11 @@ export function createCorrectionViewController(options) {
             if (gain) gain.start();
         });
         listen('pause', () => { if (gain) gain.stop(); });
-        listen('ended', () => { if (gain) gain.stop(); });
+        listen('ended', () => {
+            manuallyPaused = false;
+            modes.cancelResume();
+            if (gain) gain.stop();
+        });
         // Same tempo controller the player buttons use (seek, rewind); the pedal calls it too.
         tempo = usePlaybackTempo({ audio: el, onSync });
         // Highlight follows the real media position (rAF while playing, events otherwise); it never touches focus or editor state.
@@ -549,8 +576,8 @@ export function createCorrectionViewController(options) {
     const leaseButtons = () => editor.availableLeaseActions().filter((a) => typeof leaseRun[a.id] === 'function');
 
     // --- foot pedal, keyboard mode (PAR-OPS-001) -----------------------------
-    // The pedal calls the same functions as the player controls: modeAudio (play, pause) and the tempo
-    // controller (rewind, skip). No playback action mutates data; `mutating` stays empty and canMutate
+    // Pedal commands bypass correction backstep: hold release already applies its own rewind.
+    // No playback action mutates data; `mutating` stays empty and canMutate
     // follows the lease so a future mutating command cannot bypass it. The module is loaded on demand.
     function startPedal() {
         if (opts.pedal === false) return Promise.resolve(null);
@@ -559,11 +586,11 @@ export function createCorrectionViewController(options) {
             pedal = mod.createPedalController({
                 vue: api,
                 commands: {
-                    play: () => modeAudio.play(),
-                    pause: () => modeAudio.pause(),
-                    playPause: () => (modeAudio.isPlaying() ? modeAudio.pause() : modeAudio.play()),
-                    rewind: (s) => { if (tempo) tempo.rewind(s); },
-                    skip: (s) => { if (tempo) tempo.skip(s); },
+                    play: () => pedalPlayback(modeAudio.play),
+                    pause: () => pedalPlayback(modeAudio.pause),
+                    playPause: () => pedalPlayback(modeAudio.isPlaying() ? modeAudio.pause : modeAudio.play),
+                    rewind: (s) => pedalPlayback(() => tempo?.rewind(s)),
+                    skip: (s) => pedalPlayback(() => tempo?.skip(s)),
                 },
                 mutating: [],
                 canMutate: () => Boolean(editor.canEdit.value),
@@ -640,7 +667,7 @@ export function createCorrectionViewController(options) {
         ready, loadGeneration, revisionGeneration, audioEl, gainState, closeMessage, resumeLabel,
         recordingId: () => opts.recordingId || editor.audio.value.recordingId || null,
         peaksKey, peaksFetch,
-        stepSeconds: v8 ? STEP_SECONDS_V8 : STEP_SECONDS,
+        stepSeconds: v8 ? STEP_SECONDS_V8 : STEP_SECONDS, togglePlayback,
         leaseRun, leaseButtons,
         pedalStatus, pedalReady: () => pedalReady, pedal: () => pedal, setPedalSettings,
         start, load, save, setText, reloadLatest, keepMine, takeServer, compare: () => saver.compare(), close, dispose, syncRevision,
@@ -735,6 +762,8 @@ const LOCAL_CSS = `
 .v8-ui .editor-page .clinic-audio-markers li{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:8px;border-radius:8px}
 .v8-ui .editor-page .clinic-correction-waveform-uncertain,.v8-ui .editor-page .clinic-correction-waveform-unaligned{font-size:12px}
 .v8-ui .editor-page .editor-aux{display:grid;gap:14px;margin-top:16px}
+.v8-ui .editor-page .correction-backstep{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-block:14px 0}
+.v8-ui .editor-page .correction-backstep input{width:7ch;min-height:44px;padding:6px 8px;border:1px solid var(--v8-input-line);border-radius:7px;color:var(--v8-text);background:var(--surface)}
 .v8-ui .editor-page :is(.panel-header h2,.clinic-correction-waveform h3){font-size:14px;font-weight:700;letter-spacing:-.1px;color:var(--v8-text)}
 .v8-ui .editor-page .sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 @media(max-width:767px){.v8-ui .editor-page .document-id{min-width:0;white-space:normal;overflow-wrap:anywhere}.v8-ui .editor-page .document-title h2{flex-shrink:0}}
@@ -964,6 +993,7 @@ export const CorrectionBody = {
             alignStatus: a.status, alignError: a.error, segments: a.segments, currentWord: a.currentWord, alignAnnouncement: a.announcement,
             saveState: s.state, saveMessage: s.message,
             mode: m.mode, modeStatus: m.status, modeError: m.error, modeAnnouncement: m.announcement,
+            backstepSeconds: m.backstepSeconds,
             ready: c.ready, loadGeneration: c.loadGeneration, revisionGeneration: c.revisionGeneration,
             audioEl: c.audioEl, gainState: c.gainState, closeMessage: c.closeMessage, resumeLabel: c.resumeLabel,
             pedalStatus: c.pedalStatus, alignmentNotice: c.alignmentNotice,
@@ -1061,7 +1091,7 @@ export const CorrectionBody = {
           </span>
         </span>
         <audio preload="metadata" hidden :ref="c.bindAudio" :src="audio.status === 'ready' ? audio.src : null" :aria-label="TEXT.audio"></audio>
-        <PlaybackTempo v-if="audioEl" :audio="audioEl" :step-seconds="c.stepSeconds" :on-sync="c.onSync" />
+        <PlaybackTempo v-if="audioEl" :audio="audioEl" :step-seconds="c.stepSeconds" :on-sync="c.onSync" :on-toggle="c.togglePlayback" />
         <span class="word-sync-controls">
           <span class="tool-wrap" v-tip="{ label: highlightOn ? TEXT.highlightOn : TEXT.highlightOff }">
             <button type="button" class="icon-button" :style="FOCUS" :aria-pressed="String(highlightOn)" :aria-label="highlightOn ? TEXT.highlightOn : TEXT.highlightOff"
@@ -1241,6 +1271,12 @@ export const CorrectionBody = {
             <small :id="'ccv-mode-' + opt.id" class="hint" style="grid-column: 2; margin: 0">{{ opt.hint }}</small>
           </label>
         </div>
+        <label class="correction-backstep">
+          <span>Rücksprung in Sekunden</span>
+          <input type="number" min="0" step="1" required :value="backstepSeconds" :style="FOCUS"
+                 aria-describedby="ccv-backstep-hint" @input="c.modes.setBackstepSeconds" @change="c.modes.setBackstepSeconds">
+        </label>
+        <p id="ccv-backstep-hint" class="hint">Gilt nach einer Tipp-Pause und beim erneuten Starten. 0 bedeutet kein Rücksprung.</p>
         <div v-if="modeStatus === 'error'" role="alert" class="note" :style="box('error')">
           {{ modeError && modeError.message }}
           <button type="button" class="small" :style="FOCUS" @click="c.modes.setMode(mode)">{{ TEXT.modeRetry }}</button>
