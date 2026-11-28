@@ -28,9 +28,40 @@ import { surfaceFor } from './tokens.js';
 import {
     CONFIGURABLE_ACTIONS as ACTIONS, TEXT as PEDAL_TEXT, createKeyCapture, loadSettings, normalizeSettings, saveSettings,
 } from './pedal-ui.js';
+import { getPedalWebHid } from './pedal-webhid.js';
 import { createSampleRecorder, createVoiceConsentController } from './voice-consent-ui.js';
 
 const WORKSTATION_PATH = /^\/preferences\/workstations\/[^/]+$/;
+
+export const SessionTransportNotice = {
+    props: { client: { type: Object, default: null }, vue: { type: Object, default: null } },
+    setup(props) {
+        const V = props.vue || globalThis.Vue;
+        const message = V.ref('');
+        const blocked = V.ref(false);
+        V.onMounted(async () => {
+            if (!props.client) return;
+            const response = await props.client.request('/preferences/workstations');
+            const policy = response?.outcome === 'ok' ? response.data : null;
+            const mode = policy?.transport_mode;
+            if (mode === 'local') {
+                message.value = 'An diesem Arbeitsplatz: Angeschlossene Geräte werden hier nicht geprüft.';
+            } else if (mode === 'rdp' || mode === 'ica') {
+                const session = mode === 'rdp' ? 'Remotedesktop (RDP)' : 'Citrix (ICA)';
+                blocked.value = policy.device_redirection_verified !== true;
+                message.value = blocked.value
+                    ? `${session}: Geräteweiterleitung nicht geprüft. Die Nutzung weitergeleiteter Geräte wird nicht unterstützt.`
+                    : `${session}: Geräteweiterleitung geprüft.`;
+            } else if (response?.outcome !== 'cancelled') {
+                blocked.value = true;
+                message.value = 'Der Gerätestatus dieser Sitzung konnte nicht geprüft werden.';
+            }
+        });
+        return { message, blocked };
+    },
+    template: `<div role="status" aria-live="polite"><p v-if="message" class="note"
+        :class="{ warning: blocked }" data-testid="session-transport-status">{{ message }}</p></div>`,
+};
 
 export const ORIGIN_LABELS = WORKSTATION_ORIGINS;
 
@@ -64,6 +95,17 @@ export const PEDAL_LABELS = Object.freeze({
         recordToggle: 'Aufnahme starten / pausieren',
         stop: 'Stopp in der Aufnahmeansicht',
     }),
+});
+
+const PEDAL_WEBHID_MESSAGES = Object.freeze({
+    unavailable: 'Dieser Browser kann das Fußpedal nicht direkt verbinden. Sie können den Tastaturmodus verwenden.',
+    idle: 'Kein Fußpedal direkt verbunden.',
+    connecting: 'Das Fußpedal wird verbunden …',
+    connected: 'Fußpedal verbunden.',
+    disconnecting: 'Das Fußpedal wird getrennt …',
+    disconnected: 'Fußpedal wurde getrennt. Sie können es erneut verbinden.',
+    unsupported: 'Dieses Fußpedal wird nicht direkt unterstützt. Sie können den Tastaturmodus verwenden.',
+    error: 'Die Verbindung ist fehlgeschlagen. Versuchen Sie es erneut oder verwenden Sie den Tastaturmodus.',
 });
 
 export const CONSENT_LABELS = Object.freeze({
@@ -182,6 +224,14 @@ export function createPedalSettingsComponent(Vue, options = {}) {
         setup() {
             const settings = Vue.ref(loadSettings(store));
             const saveError = Vue.ref(false);
+            const webHid = options.webHid || getPedalWebHid();
+            const webHidStatus = Vue.ref('unavailable');
+            const unsubscribeHid = webHid.subscribe({ onStatus: (status) => { webHidStatus.value = status; } });
+
+            function toggleWebHid(event) {
+                if (!event.isTrusted) return;
+                return webHidStatus.value === 'connected' ? webHid.disconnect() : webHid.connect();
+            }
 
             function persist(next) {
                 const clean = normalizeSettings(next);
@@ -214,10 +264,11 @@ export function createPedalSettingsComponent(Vue, options = {}) {
                 persist(Object.assign({}, settings.value, { [field]: raw === '' ? NaN : Number(raw) }));
                 if (input) input.value = settings.value[field]; // a refused value shows the kept one
             }
-            Vue.onBeforeUnmount(() => capture.stop());
+            Vue.onBeforeUnmount(() => { capture.stop(); unsubscribeHid(); });
             return {
                 settings, saveError, rows, capture, capturing: capture.capturing, message: capture.message,
                 setAction, removeKey, setSeconds, labels: PEDAL_LABELS, actions: ACTIONS, text: PEDAL_TEXT,
+                webHidStatus, toggleWebHid, webHidMessages: PEDAL_WEBHID_MESSAGES,
             };
         },
     };
@@ -276,6 +327,21 @@ const CHOICES = '[&_legend]:mb-2 [&_legend]:text-[12px] [&_legend]:font-bold [&_
     + '[&_label.block]:flex [&_label.block]:items-center [&_label.block]:gap-2 [&_label.block]:text-[13px] [&_label.block]:font-medium';
 
 const PEDAL_TEMPLATE = `
+<section class="panel col-span-full" aria-labelledby="clinic-settings-webhid-title">
+  <h2 id="clinic-settings-webhid-title">Direkte Pedalverbindung</h2>
+  <div class="actions">
+    <button v-if="webHidStatus !== 'unavailable'" type="button" class="!min-h-12"
+            :disabled="webHidStatus === 'connecting' || webHidStatus === 'disconnecting'"
+            data-testid="clinic-settings-pedal-webhid" @click="toggleWebHid">
+      {{ webHidStatus === 'connected' || webHidStatus === 'disconnecting' ? 'Fußpedal trennen' : 'Fußpedal verbinden' }}
+    </button>
+    <span role="status" data-testid="clinic-settings-pedal-webhid-status">{{ webHidMessages[webHidStatus] }}</span>
+  </div>
+  <p v-if="webHidStatus === 'connected'" class="hint mt-3 mb-0">
+    Halten Sie die mittlere Pedaltaste zum Aufnehmen oder Abspielen.
+    Links spulen Sie zurück, rechts springen Sie bei der Wiedergabe vor.
+  </p>
+</section>
 <section class="panel col-span-full" role="region" :aria-label="labels.title" data-testid="clinic-settings-pedal"
          style="--v8-input-line: var(--ui-text-muted)">
   <h2>{{ labels.title }}</h2>
@@ -538,6 +604,7 @@ export const SETTINGS_TEMPLATE = `
   <p v-if="state.denied" class="${NOTE_WARNING}" role="alert">{{ labels.denied }}</p>
   <p v-else-if="state.forbidden" class="${NOTE_BURGUNDY}" role="alert" :style="errorStyle" data-testid="clinic-settings-forbidden">{{ labels.forbidden }}</p>
   <template v-else>
+    <SessionTransportNotice :key="state.epoch" :client="client" :vue="vue" />
     <div class="grid equal">
       <div class="space-y-5 min-w-0">
         <section class="panel clinic-settings-prefs ${CHILD_BUTTONS} ${CHOICES}"><component :is="preferences" :key="'p:' + state.epoch"></component></section>
@@ -565,6 +632,7 @@ export const SETTINGS_TEMPLATE = `
 
 export const SettingsView = {
     name: 'ClinicSettingsView',
+    components: { SessionTransportNotice },
     props: {
         client: { type: Object, required: true },
         currentUser: { type: Object, default: null },

@@ -37,7 +37,7 @@ def cases(clinic_on, monkeypatch, tmp_path):
         return row
 
     with app.app_context():
-        name = uuid4().hex
+        name = uuid4().hex[:20]
         user = add(User(username=name, email=f'{name}@example.invalid', password='synthetic'))
 
         def make(status=workflow.DONE, released_at=NOW - timedelta(days=31), *,

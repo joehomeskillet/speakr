@@ -219,6 +219,12 @@ def test_workstation_reuse_preserves_overrides_and_account_defaults(world):
         legacy_ids.add(legacy.json["workstation_id"])
     assert len(legacy_ids) == 2 and wid not in legacy_ids
     assert client.post(url, headers=headers, json={"reuse": True, "workstation_id": wid}).status_code == 400
+    status = client.get(url)
+    assert (status.status_code, status.json) == (200, {
+        "transport_mode": "local", "device_redirection_verified": False,
+    })
+    status_head = client.head(url, headers=headers)
+    assert (status_head.status_code, status_head.data) == (200, b"")
     reloaded = client.post(url, headers=headers, json={"reuse": True})
     assert (reloaded.status_code, reloaded.json) == (200, issued.json)
     assert client.get(f"{url}/{wid}").json["values"]["audio_player_position"] == "bottom"

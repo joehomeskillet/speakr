@@ -19,7 +19,7 @@ def scene():
     with app.app_context():
         create_clinic_tables()
         tag = uuid.uuid4().hex
-        user = User(username=tag, email=tag + "@example.invalid", password="x")
+        user = User(username=tag[:20], email=tag + "@example.invalid", password="x")
         db.session.add(user)
         db.session.flush()
         recording = Recording(user_id=user.id, title="Synthetic recognition evidence")

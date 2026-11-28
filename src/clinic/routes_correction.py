@@ -43,7 +43,7 @@ from src.clinic.audio_invalidation import get_compatible_links
 from src.clinic.audio_revisions import current_audio_revision
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.correction_document_links import carry_document_links, plan_document_links
-from src.clinic.correction_recognition_marks import current_marks
+from src.clinic.correction_recognition_marks import MARK_KINDS, current_marks
 from src.clinic.correction_transaction import CorrectionOriginalError, save_correction_transaction
 from src.clinic.models import ClinicDictation, ClinicTranscriptRevision
 from src.clinic.parity_dispatch import JSON, CommandProblem, RunOnce
@@ -312,7 +312,7 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
     @bp.get(PATH)
     def get_correction(dictation_id: UUID) -> Response:
         dictation = object_for(dictation_id, 'correction_read')
-        head = revisions.current_revision(dictation)
+        head, bundle_version = revisions.current_revision_with_count(dictation)
         state = corr.get_state(dictation, current_user.id)
         body = head.body if head else ''
         held = lease.current(dictation.id)
@@ -333,10 +333,18 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
         if clinic_mode_enabled():
             from src.clinic.bundle_store import ClinicBundleDocument, audio_synced
 
+            out['bundle_version'] = bundle_version
             saved = db.session.get(ClinicBundleDocument, head.id) if head else None
             if saved is not None:
                 out['audio_synced'] = audio_synced(saved, audio)
             evidence = current_marks(dictation.id, audio.id, head.id) if head and audio else []
+            evidence = [row for row in evidence if row.kind in MARK_KINDS and row.source]
+            out['recognition_evidence'] = [
+                dict(id=row.id, kind=row.kind, start_ms=row.start_ms, end_ms=row.end_ms,
+                     source=row.source, run_id=row.run_id, confidence=row.confidence,
+                     text_revision_id=row.transcript_revision_id, audio_revision_id=row.audio_revision_id)
+                for row in evidence
+            ]
             out['recognition_spans'] = [
                 dict(id=row.id, kind=row.kind, start_ms=row.start_ms, end_ms=row.end_ms)
                 for row in evidence if row.kind in ('uncertain', 'unrecognized')
