@@ -73,6 +73,7 @@ export function useWorklistRefresh(options = {}) {
         || ((init) => { let v = init; return { get value() { return v; }, set value(n) { v = n; } }; });
     const lastUpdate = make(null);
     const lastUpdateLabel = make(formatLastUpdate(null));
+    const hasLoaded = make(false);
     const isRefreshing = make(false);
     const refreshError = make(null);
     const isRunning = make(false);
@@ -101,6 +102,7 @@ export function useWorklistRefresh(options = {}) {
 
     const dropToPermissionLoss = (message) => {
         worklist.clearClinicalData();
+        hasLoaded.value = false;
         worklist.isPermissionLost.value = true;
         worklist.errorMessage.value = message || MESSAGE_DENIED;
         stop();
@@ -161,6 +163,7 @@ export function useWorklistRefresh(options = {}) {
                 invalidated = false;
                 touch();
                 onSnapshot?.(response.data);
+                hasLoaded.value = true;
                 return response;
             }
             if (response.outcome === 'cancelled') return response;
@@ -279,13 +282,14 @@ export function useWorklistRefresh(options = {}) {
         cursor = null;
         invalidated = false;
         worklist.clearClinicalData();
+        hasLoaded.value = false;
         worklist.errorMessage.value = null;
         client.switchContext({ accountId: null, dictationId: null });
     };
 
     return {
         ...worklist,
-        lastUpdate, lastUpdateLabel, isRefreshing, refreshError, isRunning,
+        lastUpdate, lastUpdateLabel, hasLoaded, isRefreshing, refreshError, isRunning,
         refresh, pollChanges, start, stop, logout,
     };
 }

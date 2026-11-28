@@ -52,6 +52,14 @@ export const HOSTED_CSS = [
     '.v8-ui .viewcontrols select,.v8-ui .toolbar-right select{font-weight:600;min-height:34px}',
     '@media (min-width:641px){.v8-ui .viewcontrols select,.v8-ui .toolbar-right select{font-size:12px}}',
     '.v8-ui .searchwrap input{font-weight:400}',
+    '.v8-ui .clinic-worklist-view :is(.page-actions > .icon-btn,.cl-load-action){min-width:48px;min-height:48px}',
+    '.v8-ui .clinic-worklist-view .page-actions > .icon-btn:not(:disabled){cursor:pointer;color:var(--v8-text);border-color:var(--v8-muted)}',
+    '.v8-ui .clinic-worklist-view .page-actions > .icon-btn:hover:not(:disabled){background:var(--v8-s1)}',
+    '.v8-ui .clinic-worklist-view .page-actions > .icon-btn:disabled{opacity:.55;cursor:not-allowed}',
+    '.v8-ui .clinic-worklist-view [data-testid="load-error"]{color:var(--v8-text)}',
+    '.v8-ui .cl-empty-notice{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--sp-3);margin:0 0 var(--sp-4);color:var(--v8-text);overflow-wrap:anywhere}',
+    '.v8-ui .cl-empty-notice h2{margin:0;font-size:var(--fs-body);font-weight:750}',
+    '.v8-ui .cl-empty-notice p{margin:0}',
     '.v8-ui .clinic-worklist-view .filter-pill.active:hover{background:var(--v8-s1);color:var(--v8-text)}',
     '.v8-ui .clinic-worklist-view .status{white-space:normal;overflow-wrap:anywhere;max-width:100%}',
     '.v8-ui .worktable .prio{max-width:100%;vertical-align:middle}',
@@ -89,8 +97,11 @@ export const TEXT = Object.freeze({
     title: 'Arbeitsliste',
     refresh: 'Aktualisieren',
     retry: 'Erneut versuchen',
-    loading: 'Laden …',
+    loading: 'Wird geladen …',
+    loadFailed: 'Laden fehlgeschlagen',
     empty: 'Keine Diktate vorhanden.',
+    emptyInTeams: 'Keine offenen Diktate in deinen Schreibteams',
+    recordings: 'Aufnahmen',
     noMatch: 'Keine Treffer für den gewählten Filter oder die Suche.',
     denied: 'Keine Berechtigung für diese Aktion.',
     prev: 'Vorherige Seite',
@@ -494,6 +505,10 @@ export function createWorklistViewController(options) {
 
     // --- display ------------------------------------------------------------
     const counts = computed(() => countBuckets(worklist.rows.value));
+    const loadFailed = computed(() => !refresh.isRefreshing.value && !worklist.isPermissionLost.value
+        && Boolean(refresh.refreshError.value || worklist.errorMessage.value));
+    const emptyWorklist = computed(() => view.page === 1 && !view.filterId && !view.search
+        && !worklist.rows.value.length && !(view.total > 0));
     // The status chips narrow the loaded page of rows; the KPI cards always count all loaded rows.
     const chipRows = computed(() => (view.chip === 'all'
         ? worklist.rows.value
@@ -767,7 +782,7 @@ export function createWorklistViewController(options) {
         pageLabel: () => 'Seite ' + view.page + (pages() === null ? '' : ' von ' + pages()),
         errorStyle: surfaceStyle('error', (s) => ({ border: '1px solid ' + s.border })),
         selectedStyle: surfaceStyle('normal', () => ({ borderLeft: '4px solid var(--border-focus)' })),
-        counts, chipRows, setChip, isChecked, toggleChecked, allChecked, toggleAll, clearChecked, checkedCount,
+        counts, loadFailed, emptyWorklist, chipRows, setChip, isChecked, toggleChecked, allChecked, toggleAll, clearChecked, checkedCount,
         sortChoices: SORT_CHOICES, sortValue, setSort, sortNote, sortMark, shownRows,
         colClass: (key) => COL_CLASS[key] || '',
         // Columns the stylesheet has no width class for (Frist, Übernommen von, ...) keep the layout width.
@@ -831,6 +846,21 @@ export const WorklistView = {
         const V = c.vue;
         if (!V) throw new Error('Vue is required to mount the worklist view');
         const parts = buildParts(V, c.detailClient);
+        const teamNames = V.ref('');
+        const showEmptyNotice = V.computed(() => !props.caseView && c.refresh.hasLoaded.value && !c.loadFailed.value
+            && c.emptyWorklist.value);
+        V.watch?.(showEmptyNotice,
+            async (showTeams, _previous, onCleanup) => {
+                teamNames.value = '';
+                if (!showTeams) return;
+                let active = true;
+                onCleanup(() => { active = false; });
+                const response = await client.request('/pools').catch(() => null);
+                if (!active || response?.outcome !== 'ok' || !Array.isArray(response.data?.staff_pools)) return;
+                teamNames.value = response.data.staff_pools
+                    .filter((pool) => pool.member_user_ids?.some((id) => String(id) === String(props.currentUser.id)))
+                    .map((pool) => pool.name).filter(Boolean).join(', ');
+            });
         if (typeof V.onMounted === 'function' && props.autoStart) V.onMounted(() => c.start());
         if (typeof V.onActivated === 'function' && props.autoStart) V.onActivated(() => c.refreshIfChanged());
         if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => c.dispose());
@@ -851,7 +881,7 @@ export const WorklistView = {
             });
             return context;
         }
-        return { c, parts, rowContext };
+        return { c, parts, rowContext, showEmptyNotice, teamNames };
     },
     template: `
 <section class="v8-page clinic-worklist-view" data-testid="clinic-worklist-view" aria-labelledby="cwv-title"
@@ -861,30 +891,37 @@ export const WorklistView = {
       <div class="eyebrow">{{ c.text.eyebrow }}</div>
       <div class="hline">
         <h1 id="cwv-title" tabindex="-1">{{ caseView ? 'Diktate zum Fall' : c.text.title }}</h1>
-        <span class="count-pill" data-testid="result-count">{{ c.entryCount(c.view.total ?? c.counts.value.all) }}</span>
+        <span v-if="c.refresh.hasLoaded.value" class="count-pill" data-testid="result-count">{{ c.entryCount(c.view.total ?? c.counts.value.all) }}</span>
       </div>
       <a v-if="caseView" class="subtitle underline" :href="worklistUrl">Alle Diktate</a>
       <p v-else class="subtitle">{{ c.text.subline }}</p>
     </div>
     <div class="page-actions">
-      <span role="status" aria-live="polite" class="last-update" data-testid="last-update">{{ c.updatedLabel() }}</span>
-      <button type="button" class="icon-btn" data-testid="refresh-button" aria-keyshortcuts="F5"
+      <span v-if="c.refresh.hasLoaded.value" role="status" aria-live="polite" class="last-update" data-testid="last-update">{{ c.updatedLabel() }}</span>
+      <button v-if="!c.loadFailed.value" type="button" class="icon-btn" data-testid="refresh-button" aria-keyshortcuts="F5"
               :aria-label="c.text.refresh" :title="c.text.refresh"
               :disabled="c.refresh.isRefreshing.value" :aria-busy="c.refresh.isRefreshing.value ? 'true' : 'false'"
               @click="c.reload()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.6-4.5M4 4v5h5M4 13a8 8 0 0 0 14.6 4.5M20 20v-5h-5"/></svg>{{ c.text.refresh }}</button>
     </div>
   </div>
-  <div v-if="c.refresh.refreshError.value || (c.worklist.errorMessage.value && !c.worklist.isPermissionLost.value)"
-       role="alert" class="note burgundy" data-testid="load-error" style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 16px">
-    <span>{{ c.refresh.refreshError.value || c.worklist.errorMessage.value }}</span>
-    <button type="button" class="secondary" @click="c.reload()">{{ c.text.retry }}</button>
+  <div v-if="c.loadFailed.value" class="note burgundy" data-testid="load-error"
+       style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 16px">
+    <span role="alert">{{ c.text.loadFailed }}</span>
+    <button type="button" class="btn primary cl-load-action" @click="c.reload()">{{ c.text.retry }}</button>
+  </div>
+  <div v-if="showEmptyNotice" class="note cl-empty-notice" data-testid="empty-state">
+    <div role="status">
+      <h2>{{ teamNames ? c.text.emptyInTeams : c.text.empty }}</h2>
+      <p v-if="teamNames">{{ teamNames }}</p>
+    </div>
+    <a href="/#/aufnahmen" class="btn primary cl-load-action">{{ c.text.recordings }}</a>
   </div>
   <div v-if="c.worklist.isPermissionLost.value" role="alert" class="note burgundy" data-testid="permission-loss-state" style="margin: 0 0 16px">
     {{ c.worklist.errorMessage.value || c.text.denied }}
   </div>
   <template v-else>
     <p v-if="c.view.assignmentNotice && !c.selectedId.value" role="status" aria-live="polite">{{ c.view.assignmentNotice }}</p>
-    <section class="metrics" :aria-label="c.text.summary" data-testid="status-totals">
+    <section v-if="c.refresh.hasLoaded.value" class="metrics" :aria-label="c.text.summary" data-testid="status-totals">
       <div class="metric"><div><div class="metric-label">{{ c.text.kpiAll }}</div><div class="metric-number" data-kpi="all">{{ c.counts.value.all }}</div></div>
         <div class="metric-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16M4 12h16M4 19h16"/></svg></div></div>
       <div class="metric"><div><div class="metric-label">{{ c.text.kpiOpen }}</div><div class="metric-number" data-kpi="open">{{ c.counts.value.open }}</div></div>
@@ -894,7 +931,7 @@ export const WorklistView = {
       <div class="metric"><div><div class="metric-label">{{ c.text.kpiDone }}</div><div class="metric-number" data-kpi="done">{{ c.counts.value.done }}</div></div>
         <div class="metric-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></div></div>
     </section>
-    <section class="workspace" :aria-label="c.text.title" style="overflow: visible">
+    <section v-if="!c.loadFailed.value || c.refresh.hasLoaded.value" class="workspace" :aria-label="c.text.title" style="overflow: visible">
       <WorklistFiltersPanel :controller="c.filters">
         <template #start>
           <span class="viewtitle">{{ c.text.listTitle }}</span>
@@ -905,10 +942,10 @@ export const WorklistView = {
         </template>
         <template #toolbar>
           <div class="chiprow" role="group" :aria-label="c.text.chips" style="display: contents">
-            <button type="button" class="filter-pill" :class="c.view.chip === 'all' ? 'active' : ''" data-chip="all" :aria-pressed="c.view.chip === 'all' ? 'true' : 'false'" @click="c.setChip('all')">Alle <span class="num-circle">{{ c.counts.value.all }}</span></button>
-            <button type="button" class="filter-pill" :class="c.view.chip === 'open' ? 'active' : ''" data-chip="open" :aria-pressed="c.view.chip === 'open' ? 'true' : 'false'" @click="c.setChip('open')">{{ c.text.kpiOpen }} <span class="num-circle">{{ c.counts.value.open }}</span></button>
-            <button type="button" class="filter-pill" :class="c.view.chip === 'working' ? 'active' : ''" data-chip="working" :aria-pressed="c.view.chip === 'working' ? 'true' : 'false'" @click="c.setChip('working')">{{ c.text.kpiWorking }} <span class="num-circle">{{ c.counts.value.working }}</span></button>
-            <button type="button" class="filter-pill" :class="c.view.chip === 'done' ? 'active' : ''" data-chip="done" :aria-pressed="c.view.chip === 'done' ? 'true' : 'false'" @click="c.setChip('done')">{{ c.text.kpiDone }} <span class="num-circle">{{ c.counts.value.done }}</span></button>
+            <button type="button" class="filter-pill" :class="c.view.chip === 'all' ? 'active' : ''" data-chip="all" :aria-pressed="c.view.chip === 'all' ? 'true' : 'false'" @click="c.setChip('all')">Alle <span v-if="c.refresh.hasLoaded.value" class="num-circle">{{ c.counts.value.all }}</span></button>
+            <button type="button" class="filter-pill" :class="c.view.chip === 'open' ? 'active' : ''" data-chip="open" :aria-pressed="c.view.chip === 'open' ? 'true' : 'false'" @click="c.setChip('open')">{{ c.text.kpiOpen }} <span v-if="c.refresh.hasLoaded.value" class="num-circle">{{ c.counts.value.open }}</span></button>
+            <button type="button" class="filter-pill" :class="c.view.chip === 'working' ? 'active' : ''" data-chip="working" :aria-pressed="c.view.chip === 'working' ? 'true' : 'false'" @click="c.setChip('working')">{{ c.text.kpiWorking }} <span v-if="c.refresh.hasLoaded.value" class="num-circle">{{ c.counts.value.working }}</span></button>
+            <button type="button" class="filter-pill" :class="c.view.chip === 'done' ? 'active' : ''" data-chip="done" :aria-pressed="c.view.chip === 'done' ? 'true' : 'false'" @click="c.setChip('done')">{{ c.text.kpiDone }} <span v-if="c.refresh.hasLoaded.value" class="num-circle">{{ c.counts.value.done }}</span></button>
           </div>
           <span class="toolbar-right">
             <select class="select" style="width: auto; height: auto; min-height: 34px; appearance: auto" :aria-label="c.text.sortLabel" :disabled="!c.layout.state.canEdit" :value="c.sortValue()" @change="c.setSort($event.target.value)">
@@ -925,12 +962,12 @@ export const WorklistView = {
       <p class="sr-only cl-sr-only" id="cwv-keys">{{ c.text.keys }}</p>
       <div class="cl-body" :class="c.selectedId.value ? 'lg:grid-cols-2' : ''" style="display: block">
         <div class="listbody" :class="c.selectedId.value ? 'has-detail' : ''">
-          <div class="table-container">
-            <div v-if="c.worklist.isLoading.value" class="empty v8-empty" data-layout="cl-state" role="status" aria-live="polite" data-testid="loading-state">
+          <div v-if="!showEmptyNotice" class="table-container">
+            <div v-if="!c.refresh.hasLoaded.value" class="empty v8-empty" data-layout="cl-state" role="status" aria-live="polite" data-testid="loading-state">
               <div class="empty-icon" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 3a9 9 0 1 0 9 9"/></svg></div>
               <h2>{{ c.text.loading }}</h2>
             </div>
-            <div v-else-if="!c.chipRows.value.length" class="empty v8-empty" data-layout="cl-state" data-testid="empty-state">
+            <div v-else-if="!c.chipRows.value.length" v-show="!c.loadFailed.value" class="empty v8-empty" data-layout="cl-state" data-testid="empty-state">
               <div class="empty-icon" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div>
               <h2>{{ c.view.filterId || c.view.search || c.worklist.rows.value.length ? c.text.noMatch : c.text.empty }}</h2>
             </div>
@@ -1047,7 +1084,7 @@ export const WorklistView = {
         <strong>{{ c.checkedCount() }} {{ c.text.selected }}</strong>
         <button type="button" class="secondary" @click="c.clearChecked()">{{ c.text.clearSelection }}</button>
       </div>
-      <nav class="tablefooter" data-layout="cl-pager" aria-label="Seiten">
+      <nav v-if="c.refresh.hasLoaded.value" class="tablefooter" data-layout="cl-pager" aria-label="Seiten">
         <span aria-live="polite">{{ c.pagerInfo() }}</span>
         <div class="pagination">
           <button type="button" class="icon-button page-icon" :aria-label="c.text.prev" :title="c.text.prev" :disabled="c.view.page <= 1" @click="c.goto(c.view.page - 1)"><svg class="ui-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m15 5-7 7 7 7"/></svg></button>
