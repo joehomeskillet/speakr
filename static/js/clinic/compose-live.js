@@ -137,6 +137,7 @@ export function createLiveViewController(options) {
     const base = opts.client || createClinicApiClient();
     if (!base || typeof base.request !== 'function' || typeof base.command !== 'function') throw new Error('client is required');
     const newKey = opts.newKey || defaultKey;
+    const draftSession = opts.draftSession;
     const canWriteOuter = opts.canWrite || (() => true);
     const listeners = new Set();
 
@@ -160,7 +161,8 @@ export function createLiveViewController(options) {
 
     const session = createLiveSessionController({
         client, dictationId, newKey, fullRecovery: true,
-        canWrite: () => phase === 'live' && canWriteOuter(),
+        clientId: draftSession?.tabId,
+        canWrite: () => (phase === 'live' || (draftSession && phase === 'paused')) && canWriteOuter(),
     });
 
     function snapshot() {
@@ -212,13 +214,17 @@ export function createLiveViewController(options) {
 
     async function adoptSession() {
         recovering = true;
-        const snap = await session.resume();
+        const snap = await session.resume(draftSession?.tabId, draftSession?.position?.generation);
         recovering = false;
         if (disposed) return state();
         if (snap.recovery === 'failed') setPhase('reconnecting', NOTES.recoveryFailed);
         else if (snap.status === 'stale') setPhase('stale', snap.message);
         else setPhase(snap.status, snap.phrases.some((p) => p.state === 'server_saved') ? NOTES.restored : '');
         return state();
+    }
+
+    function fence() {
+        return draftSession ? { client_id: draftSession.tabId, generation: session.getState().generation } : {};
     }
 
     return {
@@ -235,6 +241,11 @@ export function createLiveViewController(options) {
         async start() {
             if (phase !== 'idle' && phase !== 'stopped' && phase !== 'error') return state();
             setPhase('starting');
+            if (draftSession) {
+                if (await draftSession.claim()) return adoptSession();
+                if (!disposed) setPhase('error');
+                return state();
+            }
             const res = await client.command({
                 command: 'start_live_session', request_id: newKey(), expected_revision: 0,
                 payload: { dictation_id: dictationId },
@@ -252,7 +263,7 @@ export function createLiveViewController(options) {
             const id = session.getState().sessionId;
             session.setPartial(null); // a partial is never durable and is dropped
             const res = await client.request(LIVE + '/sessions/' + encodeURIComponent(id) + '/pause', {
-                method: 'POST', idempotencyKey: newKey(), body: {},
+                method: 'POST', idempotencyKey: newKey(), body: fence(),
             });
             if (disposed || res.outcome === 'cancelled') return state();
             if (res.outcome === 'ok') {
@@ -268,7 +279,7 @@ export function createLiveViewController(options) {
             if (phase !== 'paused') return state();
             const id = session.getState().sessionId;
             const res = await client.request(LIVE + '/sessions/' + encodeURIComponent(id) + '/continue', {
-                method: 'POST', idempotencyKey: newKey(), body: {},
+                method: 'POST', idempotencyKey: newKey(), body: fence(),
             });
             if (disposed || res.outcome === 'cancelled') return state();
             // Phase stays paused until this answer. PAUSED is not recording.
@@ -310,10 +321,12 @@ export function createLiveViewController(options) {
             const res = await client.command({
                 command: 'stop_live_session', request_id: newKey(), expected_revision: s.revision,
                 payload: { session_id: s.sessionId, generation: s.generation, last_sequence: s.checkpoint },
-            }, { idempotencyKey: newKey() });
+            }, { idempotencyKey: newKey(), ...(draftSession ? { liveClientId: draftSession.tabId } : {}) });
             if (disposed || res.outcome === 'cancelled') return state();
-            if (res.outcome === 'ok') setPhase('stopped');
-            else if (res.outcome === 'conflict') setPhase(back, NOTES.stopFailed);
+            if (res.outcome === 'ok') {
+                draftSession?.ended(s.sessionId);
+                setPhase('stopped');
+            } else if (res.outcome === 'conflict') setPhase(back, NOTES.stopFailed);
             else failed(res, back);
             return state();
         },
@@ -366,6 +379,9 @@ const BODY_PROPS = {
     vue: { type: Object, default: null },
     canWrite: { type: Function, default: null },
     onReady: { type: Function, default: null },
+    draftTitle: { type: String, default: '' },
+    draftSession: { type: Object, default: null },
+    draftBusy: Boolean,
 };
 
 /** Inner body: one instance per dictation. */
@@ -379,6 +395,7 @@ const LiveBody = {
             client: props.client || undefined,
             dictationId: props.dictationId,
             canWrite: props.canWrite || undefined,
+            draftSession: props.draftSession,
         });
         const state = V.shallowRef(c.getState());
         const stop = c.subscribe((snap) => { state.value = snap; });
@@ -393,8 +410,8 @@ const LiveBody = {
     },
     template: `
 <section class="clinic-live-view v8-page" data-testid="clinic-live-view" aria-labelledby="clv-title" :data-phase="state.phase">
-  <nav class="breadcrumb" aria-label="Pfad"><span>Speakr</span><span aria-hidden="true">›</span><span>{{ TEXT.eyebrow }}</span><span aria-hidden="true">›</span><span aria-current="page">{{ TEXT.title }}</span></nav>
-  <div class="pagehead">
+  <nav v-if="!draftTitle" class="breadcrumb" aria-label="Pfad"><span>Speakr</span><span aria-hidden="true">›</span><span>{{ TEXT.eyebrow }}</span><span aria-hidden="true">›</span><span aria-current="page">{{ TEXT.title }}</span></nav>
+  <div v-if="!draftTitle" class="pagehead">
     <div>
       <div class="eyebrow">{{ TEXT.eyebrow }}</div>
       <h1 id="clv-title" style="${H1}">{{ TEXT.title }}</h1>
@@ -402,11 +419,15 @@ const LiveBody = {
     </div>
     <div class="head-actions"></div>
   </div>
+  <div v-else class="pagehead" style="flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px">
+    <h2 id="clv-title" tabindex="-1" style="overflow-wrap: anywhere; min-width: 0; margin: 0">{{ draftTitle }}</h2>
+    <div class="actions"><slot name="draft-actions" /></div>
+  </div>
   <section class="editor-workspace" :aria-label="TEXT.transcript">
     <div class="editor-heading" style="flex-wrap: wrap; gap: 8px 16px">
       <div class="document-title" style="flex-wrap: wrap; gap: 4px 12px">
         <h2 style="${H2}; margin: 0; white-space: normal">{{ TEXT.transcript }}</h2>
-        <span class="document-id" style="white-space: normal; overflow-wrap: anywhere">{{ TEXT.dictation }} {{ state.dictationId }}</span>
+        <span v-if="!draftTitle" class="document-id" style="white-space: normal; overflow-wrap: anywhere">{{ TEXT.dictation }} {{ state.dictationId }}</span>
       </div>
       <span class="tag neutral dot">{{ TEXT.count(confirmed.length) }} · {{ TEXT.saved }}</span>
     </div>
@@ -414,10 +435,10 @@ const LiveBody = {
       <div class="recorder-controls" role="group" :aria-label="TEXT.controls" data-testid="live-controls">
         <template v-for="a in state.actions" :key="a.id">
           <button v-if="ICON_PATHS[a.id]" type="button" class="icon-button" style="width: 48px; height: 48px" :class="{ 'record-button': a.id === 'start' }" :style="FOCUS"
-                  :disabled="a.disabled" :data-action="a.id" :aria-label="a.label" :title="a.label" @click="c[a.id]()">
+                  :disabled="a.disabled || draftBusy" :data-action="a.id" :aria-label="a.label" :title="a.label" @click="c[a.id]()">
             <svg viewBox="0 0 24 24" width="19" height="19" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false"><path :d="ICON_PATHS[a.id]"></path></svg>
           </button>
-          <button v-else type="button" class="button" style="min-height: 48px" :style="FOCUS" :disabled="a.disabled" :data-action="a.id" @click="c[a.id]()">{{ a.label }}</button>
+          <button v-else type="button" class="button" style="min-height: 48px" :style="FOCUS" :disabled="a.disabled || draftBusy" :data-action="a.id" @click="c[a.id]()">{{ a.label }}</button>
         </template>
       </div>
       <div class="recorder-caption">
@@ -426,7 +447,8 @@ const LiveBody = {
         <small v-if="state.note" role="note" data-testid="live-note" style="font-size: 13px">{{ state.note }}</small>
       </div>
     </div>
-    <div class="writing-surface" style="min-height: clamp(360px, calc(100dvh - 370px), 760px)">
+    <slot name="draft-text" />
+    <div class="writing-surface" :style="draftTitle ? null : 'min-height: clamp(360px, calc(100dvh - 370px), 760px)'">
       <div style="width: 100%; min-width: 0">
         <ol class="live-phrases" :aria-label="TEXT.phrases" aria-live="off" data-testid="live-phrases"
             style="list-style: none; margin: 0; display: grid; gap: 4px; font-size: 16px; line-height: 1.75; align-content: start"
@@ -462,7 +484,10 @@ export const LiveView = {
     name: 'ClinicLiveView',
     components: { LiveBody },
     props: BODY_PROPS,
-    template: `<LiveBody :key="dictationId" :client="client" :dictation-id="dictationId" :vue="vue" :can-write="canWrite" :on-ready="onReady" />`,
+    template: `<LiveBody :key="dictationId" v-bind="$props">
+      <template #draft-actions><slot name="draft-actions" /></template>
+      <template #draft-text><slot name="draft-text" /></template>
+    </LiveBody>`,
 };
 
 export function registerLiveView(app) {
