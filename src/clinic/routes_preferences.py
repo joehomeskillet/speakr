@@ -20,7 +20,6 @@ from typing import Any
 from flask import Blueprint, abort, jsonify, request, session
 from flask_login import current_user
 from flask_wtf.csrf import CSRFError, validate_csrf
-from sqlalchemy.exc import SQLAlchemyError
 from wtforms.validators import ValidationError
 
 from src.clinic import correction_modes, pools, recipient_defaults as rd
@@ -32,13 +31,12 @@ from src.clinic.last_selection import (
     SelectionStore,
     restore,
 )
-from src.clinic import app_wiring
-from src.database import db
 from src.clinic.workstation_preferences import (
     PreferenceError,
     StaleVersion,
     WorkstationPreferences,
 )
+from src.database import db
 
 PREFIX = "/api/clinic/v1/preferences"
 # Identity and authority come from the session, never from the request.
@@ -136,6 +134,10 @@ class PreferenceRoutes:
 
     # -- active author pool (PAR-ADM-002) ----------------------------------
     def _active_pool(self):
+        from sqlalchemy.exc import SQLAlchemyError
+
+        from src.clinic import app_wiring
+
         actor = current_user.id
         is_write = request.method == "PUT"
         try:
