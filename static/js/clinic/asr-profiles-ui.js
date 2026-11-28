@@ -80,6 +80,16 @@ const LABELS = Object.freeze({
     'clinic.asr.removed': 'Die gewählte Auswahl ist nicht mehr verfügbar.',
 });
 
+const ADMIN_LABELS = Object.freeze({
+    'clinic.asr.profile': 'Gespeichertes Sprachprofil',
+    'clinic.asr.source': 'Gerät zum Diktieren',
+    'clinic.asr.live': 'Profil beim Diktieren (live)',
+    'clinic.asr.batch': 'Profil für nachträgliche Erkennung',
+    'clinic.asr.wait': 'Wartezeit bis zum manuellen Schreiben (Minuten)',
+    'clinic.asr.save': 'Profilvorgabe übernehmen',
+    'clinic.asr.saved': 'Profilvorgabe gespeichert.',
+});
+
 const SERVER_MESSAGES = Object.freeze({
     stale_version: 'Der Stand ist veraltet. Bitte neu laden.',
     profile_not_found: 'Das Profil ist nicht mehr verfügbar.',
@@ -100,7 +110,7 @@ function minutesOf(wait) {
 
 /**
  * @param {{client: {request: Function, switchContext: Function},
- *          t?: (key: string) => string}} deps
+ *          t?: (key: string) => string, adminLayout?: boolean}} deps
  */
 export function createAsrProfilesController(deps) {
     const client = deps.client;
@@ -109,7 +119,7 @@ export function createAsrProfilesController(deps) {
 
     function label(key) {
         const text = translate ? translate(key) : key;
-        return text && text !== key ? text : (LABELS[key] || key);
+        return text && text !== key ? text : ((deps.adminLayout && ADMIN_LABELS[key]) || LABELS[key] || key);
     }
 
     function emptyServer() {
@@ -193,6 +203,7 @@ export function createAsrProfilesController(deps) {
             profile: d.profile && typeof d.profile === 'object' ? d.profile : null,
             source: SOURCES.includes(d.source) ? d.source : base.source,
             saveRule: SAVE_RULES.includes(d.save_rule) ? d.save_rule : base.saveRule,
+            supportsSaveRule: SAVE_RULES.includes(d.save_rule),
             profileMode: PROFILE_MODES.includes(d.profile_mode) ? d.profile_mode : null,
             batchSource: d.profile_mode === 'separate' && SOURCES.includes(d.batch_source) ? d.batch_source : null,
             liveProfileId: d.live_profile_id == null ? null : String(d.live_profile_id),
@@ -341,6 +352,7 @@ export function createAsrProfilesController(deps) {
             || d.skipWaitMinutes !== s.skipWaitMinutes || d.saveRule !== s.saveRule
             || d.profileMode !== s.profileMode || d.batchSource !== s.batchSource;
         const complete = d.profileMode !== 'separate' || SOURCES.includes(d.batchSource);
+        const notice = deps.adminLayout && dirty && state.notice === label('clinic.asr.saved') ? null : state.notice;
         const choices = (mode) => offered(mode).map((id) => ({
             value: id,
             label: (s.profiles.find((p) => p.id === id) || {}).name || id,
@@ -349,11 +361,13 @@ export function createAsrProfilesController(deps) {
         return {
             title: label('clinic.asr.title'),
             ready: state.ready, loading: state.loading, busy: state.busy,
-            canSave: state.ready && !state.loading && !state.busy && dirty && complete,
+            canSave: state.ready && !state.loading && !state.busy && complete
+                && (dirty || (deps.adminLayout === true && !s.profile)),
             profileMode: d.profileMode,
             profileModes: PROFILE_MODES.map((v) => ({ value: v, label: label('clinic.asr.profileMode.' + v) })),
             batchSource: d.batchSource,
             saveRule: d.saveRule,
+            supportsSaveRule: s.supportsSaveRule,
             saveRules: SAVE_RULES.map((v) => ({ value: v, label: label('clinic.asr.saveRule.' + v) })),
             dirty,
             profile: s.profile ? { id: str(s.profile.id), name: str(s.profile.name), version: s.profile.version } : null,
@@ -379,10 +393,11 @@ export function createAsrProfilesController(deps) {
                 label: provenSet.has(name) ? label('clinic.asr.proven') : label('clinic.asr.unproven'),
             })),
             skipWaitMinutes: d.skipWaitMinutes,
+            waitDisabled: s.waitDisabled,
             manual: manualAction(asrStatus, waitedS),
             error: state.error,
             errorSurface: state.error ? surfaceFor('error') : null,
-            notice: state.notice,
+            notice,
             a11y: {
                 role: 'form',
                 sourceGroup: { role: 'radiogroup', label: label('clinic.asr.source') },

@@ -25,7 +25,7 @@ def scene():
     with app.app_context():
         create_tables()
         create_tables()
-        suffix = uuid.uuid4().hex
+        suffix = uuid.uuid4().hex[:14]
         owner = User(username="draft-" + suffix, email=suffix + "@example.invalid", password="x")
         other = User(username="other-" + suffix, email="other-" + suffix + "@example.invalid", password="x")
         db.session.add_all([owner, other])

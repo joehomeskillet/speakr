@@ -88,7 +88,7 @@ def add_human_revision(
     original_version: ClinicOriginal | None = None,
     force_new: bool = False,
 ) -> ClinicTranscriptRevision:
-    """Append a human correction, or keep the tip for unchanged text and provenance.
+    """Append a human correction, or return the tip when the text is unchanged.
 
     A new row is flushed, so its ID is available to other writes in the same
     session. The caller owns the commit or rollback. Use ``force_new`` when
@@ -115,6 +115,15 @@ def current_revision(dictation: ClinicDictation) -> ClinicTranscriptRevision | N
     """The head: latest human correction, or the latest ASR row if no human exists."""
     _check_dictation(dictation)
     return _select_head(_load(dictation.id))
+
+
+def current_revision_with_count(
+    dictation: ClinicDictation,
+) -> tuple[ClinicTranscriptRevision | None, int]:
+    """Return the correction head and bundle version from the same row snapshot."""
+    _check_dictation(dictation)
+    rows = _load(dictation.id)
+    return _select_head(rows), len(rows)
 
 
 def history(dictation: ClinicDictation) -> list[ClinicTranscriptRevision]:

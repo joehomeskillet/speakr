@@ -1,10 +1,10 @@
-const { createApp, ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } = Vue;
+const { createApp, ref, shallowRef, reactive, computed, onMounted, onUnmounted, watch, nextTick } = Vue;
 
 // Import composables
 import { useRecordings } from './modules/composables/recordings.js';
 import { resolveInitialSort } from './modules/utils/sort-preference.js';
 import { useUpload } from './modules/composables/upload.js';
-import { useAudio } from './modules/composables/audio.js';
+import { clinicRecordingFormats, useAudio } from './modules/composables/audio.js';
 import { useUI } from './modules/composables/ui.js';
 import { useUiTheme } from './modules/composables/ui-theme.js';
 import { useModals } from './modules/composables/modals.js';
@@ -278,14 +278,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     const clinicMode = appRootElement?.dataset?.clinicMode === 'True';
     if (clinicMode) {
         try {
-            const [{ createClinicApiClient }, { registerWorklistView }, { registerResourcesView }, { registerCorrectionView, resolveClinicOpenTarget }, { registerRecordingsView }, { createDictationChoices }] = await Promise.all([
+            const [{ createClinicApiClient }, { registerWorklistView }, { registerResourcesView }, { registerCorrectionView, resolveClinicOpenTarget }, { registerRecordingsView }, { createDictationChoices }, { readStartSelection }] = await Promise.all([
                 import('./clinic/api-client.js'),
                 import('./clinic/compose-worklist.js'),
                 import('./clinic/compose-resources.js'),
                 import('./clinic/compose-correction.js'),
                 import('./clinic/compose-recordings.js'),
                 import('./clinic/dictation-choices.js'),
+                import('./clinic/selection-ui.js'),
             ]);
+            const client = createClinicApiClient();
             clinicWorklist = {
                 registerWorklistView,
                 registerResourcesView,
@@ -293,7 +295,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 resolveClinicOpenTarget,
                 registerRecordingsView,
                 createDictationChoices,
-                client: createClinicApiClient(),
+                client,
+                startSelection: readStartSelection(client, !appRootElement.dataset.clinicCaseView
+                    && ['', '#/aufnahmen'].includes(window.location.hash)),
                 user: { id: appRootElement.dataset.currentUserId, name: appRootElement.dataset.currentUserName, role: appRootElement.dataset.clinicRole || 'author' },
             };
             // V8 dictation views (v8-70)
@@ -324,7 +328,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             const [{ registerRecordingView }, { registerLiveView }, { registerArchiveView }, { registerImportView },
                 { registerSettingsView }, { registerOfflineView }, { createTooltip }, { getUploadCsrfToken },
                 { registerAdminPoolsView }, { registerAuthorsView }, { registerUsersView }, { registerVocabularyView },
-                { registerCommandsTemplatesView }, { registerAsrProfilesView }, { createClinicRecorder }] = await Promise.all([
+                { registerCommandsTemplatesView }, { registerAsrProfilesView }, { createClinicRecorder },
+                { createManagedRecorderDrafts }] = await Promise.all([
                 import('./clinic/compose-recording.js'),
                 import('./clinic/compose-live.js'),
                 import('./clinic/compose-archive.js'),
@@ -341,6 +346,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 import('./clinic/compose-commands-templates.js'),
                 import('./clinic/compose-asr-profiles.js'),
                 import('./clinic/recorder-phases-ui.js'),
+                import('./clinic/managed-recorder-drafts.js'),
             ]);
             clinicMenu = {
                 register: [registerRecordingView, registerLiveView, registerArchiveView, registerImportView, registerSettingsView, registerOfflineView,
@@ -348,6 +354,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 createTooltip,
                 getUploadCsrfToken,
                 createClinicRecorder,
+                createManagedRecorderDrafts,
             };
         } catch (error) {
             console.error('[Clinic] Menu views could not be loaded:', error);
@@ -526,20 +533,26 @@ document.addEventListener('DOMContentLoaded', async () => {
             // The correction view gets the user's permissions from the server.
             // Worklist double-click: author → case details, typist → player or correction.
             // A denied row stays on the list. Aufnahmen keeps the editor (see resolveClinicOpenTarget).
-            const openClinicDictation = (payload, source) => {
+            let clinicOpenAttempt = 0;
+            const openClinicDictation = async (payload, source) => {
                 if (!clinicWorklist || typeof clinicWorklist.resolveClinicOpenTarget !== 'function') return;
                 // Lists are mounted only on their own view, so currentView is the source.
                 // The template stays @open="openClinicDictation"; the mount test matches that text.
                 const view = typeof source === 'string' ? source : currentView.value;
                 const target = clinicWorklist.resolveClinicOpenTarget(payload, { view, user: clinicWorklist.user });
                 if (!target) return;
+                const id = target.dictationId;
+                const from = currentView.value;
+                const attempt = ++clinicOpenAttempt;
+                const protection = await clinicWorklist.client.request('/dictations/' + encodeURIComponent(id) + '/protection');
+                if (attempt !== clinicOpenAttempt || currentView.value !== from) return;
+                const locked = protection.outcome === 'ok' && protection.data?.protected && !protection.data.access;
                 const onDictation = currentView.value === 'clinic-correction' || currentView.value in CLINIC_DICTATION_HASH;
                 if (!onDictation) clinicOrigin.value = (view === 'clinic-worklist' || currentView.value === 'clinic-worklist') ? 'clinic-worklist' : 'clinic-recordings';
-                const id = target.dictationId;
                 const context = clinicListMount.value?.rowContext?.(id);
                 if (context) clinicOpenedRows.set(id, context);
                 else clinicOpenedRows.delete(id);
-                if (target.surface === 'details') {
+                if (locked || target.surface === 'details') {
                     clinicCorrectionId.value = null;
                     clinicOpenMode.value = 'correction';
                     clinicDictationId.value = id;
@@ -846,6 +859,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const selectedMicDeviceId = ref(
                 (typeof localStorage !== 'undefined' && localStorage.getItem('selectedMicDeviceId')) || ''
             );
+            const clinicRecordingMime = ref('');
             const selectedSecondaryDeviceId = ref(
                 (typeof localStorage !== 'undefined' && localStorage.getItem('selectedSecondaryDeviceId')) || ''
             );
@@ -2297,7 +2311,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 canRecordAudio, canRecordSystemAudio, systemAudioSupported, systemAudioError,
                 recordingNotes, showSystemAudioHelp, showSystemAudioHelpModal, disableAudioProcessing,
                 recordSystemVideo, recordingVideoActive,
-                inputAudioDevices, selectedMicDeviceId, selectedSecondaryDeviceId, refreshInputAudioDevices,
+                inputAudioDevices, selectedMicDeviceId, selectedSecondaryDeviceId, refreshInputAudioDevices, clinicRecordingMime,
                 platformInfo, audioCaps, helpModalOsTab, virtualAudioDevices, refreshVirtualAudioDevices,
                 asrLanguage, asrMinSpeakers, asrMaxSpeakers, asrTranscriptionModel,
                 asrInitialPrompt, asrHotwords, applyInitialPromptTemplateToRecording,
@@ -3114,11 +3128,21 @@ document.addEventListener('DOMContentLoaded', async () => {
                 { view: 'clinic-archive', testid: 'menu-archive', label: 'Archiv' },
             ];
             const clinicMenuToolbarVisible = computed(() => clinicMenuActions.some((entry) => entry.view === currentView.value));
+            const clinicFormats = clinicMenu ? clinicRecordingFormats() : [];
             // Recorded takes and selected files share the same upload and server receipt.
-            const clinicUploadFile = async (file, recordingTitle) => {
+            const clinicUploadFile = async (file, recordingTitle, { useSpeechRecognition = true, clientUploadId } = {}) => {
                 const body = new FormData();
-                body.append('file', file);
-                if (recordingTitle !== undefined) {
+                body.append('use_speech_recognition', String(useSpeechRecognition));
+                if (clientUploadId) body.append('client_upload_id', clientUploadId);
+                if (recordingTitle === undefined) {
+                    body.append('file', file);
+                } else {
+                    const format = file.type === 'audio/wav'
+                        ? { mimeType: 'audio/wav', extension: 'wav' }
+                        : clinicFormats.find(({ mimeType }) => mimeType.split(';')[0] === file.type);
+                    if (!format) throw new Error('unsupported_recording_format');
+                    body.append('file', file, 'aufnahme.' + format.extension);
+                    body.append('audio_mime', format.mimeType);
                     body.append('title', recordingTitle);
                     body.append('from_recorder', 'true');
                 }
@@ -3127,12 +3151,36 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (!response.ok) throw new Error('upload_failed');
                 return response.json();
             };
-            const clinicRecorder = clinicMenu?.createClinicRecorder(audioComposable, state, clinicUploadFile);
+            const clinicOffline = shallowRef(null);
+            if (clinicMenu) {
+                let disposed = false;
+                onMounted(async () => {
+                    try {
+                        const drafts = await clinicMenu.createManagedRecorderDrafts({
+                            client: clinicWorklist.client, userId: clinicWorklist.user.id, vue: Vue,
+                            onLoggedOut: () => document.querySelector('form[action="/logout"]')?.requestSubmit(),
+                        });
+                        if (disposed) drafts?.dispose();
+                        else clinicOffline.value = drafts;
+                    } catch (e) { /* keep local persistence unavailable if storage cannot be opened */ }
+                });
+                onUnmounted(() => {
+                    disposed = true;
+                    clinicOffline.value?.dispose();
+                });
+            }
+            const clinicRecorder = clinicMenu?.createClinicRecorder(audioComposable, state, clinicUploadFile, () => clinicOffline.value);
             const clinicMicrophone = clinicRecorder ? {
                 get inputs() { return inputAudioDevices.value; },
                 get deviceId() { return selectedMicDeviceId.value; },
                 select: (deviceId) => { selectedMicDeviceId.value = deviceId; },
                 requestAccess: audioComposable.requestMicrophonePermission,
+                switchInput: audioComposable.switchClinicMicrophone,
+                formats: clinicFormats,
+                get mimeType() { return clinicRecordingMime.value; },
+                selectFormat(mimeType) {
+                    if (!mimeType || clinicFormats.some(format => format.mimeType === mimeType)) clinicRecordingMime.value = mimeType;
+                },
             } : null;
             // Live-Diktat runs on an existing dictation: ?dictation=<id> or the id typed into the picker.
             const clinicLiveChoices = clinicWorklist ? clinicWorklist.createDictationChoices({ client: clinicWorklist.client, makeState: reactive, authorId: clinicWorklist.user.id }) : null;
@@ -5484,6 +5532,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 clinicWorklistEnabled: !!clinicWorklist,
                 clinicClient: clinicWorklist ? clinicWorklist.client : null,
                 clinicUser: clinicWorklist ? clinicWorklist.user : null,
+                clinicStartSelection: clinicWorklist?.startSelection || null,
                 clinicCorrectionId, clinicOpenMode, clinicCorrectionRow, clinicListMount, clinicCorrectionMount, clinicViewMount, clinicOrigin, clinicActiveTab, goClinicView,
                 openClinicDictation, closeClinicCorrection,
                 requestClinicCorrectionClose, clinicAudioContextFactory,
@@ -5492,7 +5541,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 openClinicDictationView, closeClinicDictationView, openClinicEditorFromView,
                 // end V8 dictation views (v8-70)
                 // V8 menu views (v8-71)
-                clinicMenuViews, clinicMenuActions, clinicMenuToolbarVisible, clinicRecorder, clinicUploadFile, clinicMicrophone,
+                clinicMenuViews, clinicMenuActions, clinicMenuToolbarVisible, clinicRecorder, clinicUploadFile, clinicMicrophone, clinicOffline,
                 clinicLiveId, clinicLiveDraft, clinicLiveChoices, openClinicLive, openClinicMenuDictation,
                 // end V8 menu views (v8-71)
                 // V8 Verwaltung views (v8-114)
