@@ -555,6 +555,48 @@ const RECORDER_ACTIONS = ['start', 'pause', 'resume', 'stop', 'rewind', 'play', 
 const REVIEW_SKIP_SECONDS = 5;
 const CAPTURE_TOGGLE = { title: 'start', ready: 'start', recording: 'pause', paused: 'resume' };
 
+const DRAFT_FIELD = 'display: grid; gap: var(--ui-space-1); margin-bottom: var(--ui-space-3); min-width: 0';
+
+const DraftSendFields = {
+    props: ['m', 'c'],
+    emits: ['reload'],
+    setup: () => ({ priorities: PRIORITY_OPTIONS }),
+    template: `
+  <div>
+    <h2 style="margin: 0 0 var(--ui-space-3); font-size: 1.25rem">Versanddaten</h2>
+    <p role="status" v-if="m.draft.loading">Entwurfsdaten werden geladen …</p>
+    <button v-else-if="!m.draft.fields" type="button" class="button" style="${TOUCH}" @click="c.loadDraft()">Erneut laden</button>
+    <form v-else data-testid="draft-metadata" style="text-align: left" @submit.prevent="c.saveDraft()">
+      <fieldset :disabled="!m.canEditDraft" style="min-width: 0">
+        <legend class="sr-only">Versanddaten bearbeiten</legend>
+        <label style="${DRAFT_FIELD}"><span>Titel</span>
+          <input required maxlength="200" :disabled="!m.draft.editActions.includes('rename')" :value="m.draft.fields.title" @input="c.setDraftField('title', $event.target.value)" />
+        </label>
+        <label style="${DRAFT_FIELD}"><span>Anmerkung</span>
+          <textarea maxlength="4000" rows="2" :disabled="!m.draft.editActions.includes('rename')" :value="m.draft.fields.notes" @input="c.setDraftField('notes', $event.target.value)"></textarea>
+        </label>
+        <div class="field-grid">
+          <label style="${DRAFT_FIELD}"><span>Priorität</span>
+            <select :disabled="!m.draft.editActions.includes('priority')" :value="m.draft.fields.priority" @change="c.setDraftField('priority', Number($event.target.value))">
+              <option v-for="p in priorities" :key="p.value" :value="p.value">{{ p.label }}</option>
+            </select>
+          </label>
+          <label style="${DRAFT_FIELD}"><span>Frist</span>
+            <input type="date" :disabled="!m.draft.editActions.includes('priority')" :value="m.draft.fields.deadline_date" @input="c.setDraftField('deadline_date', $event.target.value)" />
+            <small>Tagesende (Europe/Zurich)</small>
+          </label>
+        </div>
+        <button v-if="m.draft.editActions.length" type="submit" class="button" style="${TOUCH}"
+                :disabled="m.draft.editActions.includes('rename') && !m.draft.fields.title.trim()" data-testid="save-draft">Versanddaten speichern</button>
+      </fieldset>
+      <p role="status" style="margin: var(--ui-space-2) 0">{{ m.draft.saving ? 'Versanddaten werden gespeichert …' : m.draft.saved ? 'Versanddaten gespeichert.' : '' }}</p>
+      <p data-testid="draft-acceptance" style="margin: var(--ui-space-2) 0 var(--ui-space-3)">Abnahme: {{ m.draft.acceptanceRequired === null ? 'Nicht verfügbar' : m.draft.acceptanceRequired ? 'Erforderlich' : 'Nicht erforderlich' }}</p>
+    </form>
+    <button v-if="m.draft.stale && !m.draft.loading" type="button" class="button" style="${TOUCH}"
+            @click="$emit('reload')">Gespeicherten Stand laden</button>
+  </div>`,
+};
+
 export const RECORDING_TEMPLATE = `
 <section ref="root" class="clinic-recording-view v8-page" data-testid="clinic-recording-view" aria-labelledby="crv-title"
          style="display: grid; place-items: center; min-height: min(56dvh, 30rem); padding: var(--ui-space-6) var(--ui-space-4); color: var(--ui-text)">
@@ -610,39 +652,7 @@ export const RECORDING_TEMPLATE = `
         </div>
       </div>
       <div v-if="m.created" data-testid="created">
-        <template v-if="m.draft && !['submitted', 'notDraft'].includes(m.phase)">
-          <h2 style="margin: 0 0 var(--ui-space-3); font-size: 1.25rem">Versanddaten</h2>
-          <p role="status" v-if="m.draft.loading">Entwurfsdaten werden geladen …</p>
-          <button v-else-if="!m.draft.fields" type="button" class="button" style="${TOUCH}" @click="c.loadDraft()">Erneut laden</button>
-          <form v-else data-testid="draft-metadata" style="text-align: left" @submit.prevent="c.saveDraft()">
-            <fieldset :disabled="!m.canEditDraft" style="min-width: 0">
-              <legend class="sr-only">Versanddaten bearbeiten</legend>
-              <label class="field"><span>Titel</span>
-                <input required maxlength="200" :disabled="!m.draft.editActions.includes('rename')" :value="m.draft.fields.title" @input="c.setDraftField('title', $event.target.value)" />
-              </label>
-              <label class="field"><span>Anmerkung</span>
-                <textarea maxlength="4000" rows="2" :disabled="!m.draft.editActions.includes('rename')" :value="m.draft.fields.notes" @input="c.setDraftField('notes', $event.target.value)"></textarea>
-              </label>
-              <div class="field-grid">
-                <label class="field"><span>Priorität</span>
-                  <select :disabled="!m.draft.editActions.includes('priority')" :value="m.draft.fields.priority" @change="c.setDraftField('priority', Number($event.target.value))">
-                    <option v-for="p in priorities" :key="p.value" :value="p.value">{{ p.label }}</option>
-                  </select>
-                </label>
-                <label class="field"><span>Frist</span>
-                  <input type="date" :disabled="!m.draft.editActions.includes('priority')" :value="m.draft.fields.deadline_date" @input="c.setDraftField('deadline_date', $event.target.value)" />
-                  <small>Tagesende (Europe/Zurich)</small>
-                </label>
-              </div>
-              <button v-if="m.draft.editActions.length" type="submit" class="button" style="${TOUCH}"
-                      :disabled="m.draft.editActions.includes('rename') && !m.draft.fields.title.trim()" data-testid="save-draft">Versanddaten speichern</button>
-            </fieldset>
-            <p role="status" style="margin: var(--ui-space-2) 0">{{ m.draft.saving ? 'Versanddaten werden gespeichert …' : m.draft.saved ? 'Versanddaten gespeichert.' : '' }}</p>
-            <p data-testid="draft-acceptance" style="margin: var(--ui-space-2) 0 var(--ui-space-3)">Abnahme: {{ m.draft.acceptanceRequired === null ? 'Nicht verfügbar' : m.draft.acceptanceRequired ? 'Erforderlich' : 'Nicht erforderlich' }}</p>
-          </form>
-          <button v-if="m.draft.stale && !m.draft.loading" type="button" class="button" style="${TOUCH}"
-                  @click="reloadDraft">Gespeicherten Stand laden</button>
-        </template>
+        <draft-send-fields v-if="m.draft && !['submitted', 'notDraft'].includes(m.phase)" :m="m" :c="c" @reload="reloadDraft" />
         <span class="sr-only" data-testid="created-id">{{ m.created.dictationId }}</span>
         <div class="actions" style="justify-content: center">
           <button v-if="!['submitted', 'notDraft'].includes(m.phase)" type="button" class="button primary" style="${TOUCH}"
@@ -659,6 +669,7 @@ export const RECORDING_TEMPLATE = `
 
 export const RecordingView = {
     name: 'ClinicRecordingView',
+    components: { DraftSendFields },
     emits: ['open', 'worklist'],
     props: {
         client: { type: Object, default: null },
@@ -795,7 +806,6 @@ export const RecordingView = {
             finishDurationProbe,
             shortcuts,
             icons: ICON_PATHS,
-            priorities: PRIORITY_OPTIONS,
             reloadDraft: () => {
                 if (window.confirm('Ungespeicherte Änderungen verwerfen und den gespeicherten Stand laden?')) void c.loadDraft();
             },
