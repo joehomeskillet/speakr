@@ -186,6 +186,7 @@ export function createClinicApiClient() {
         const method = String(opts.method || 'GET').toUpperCase();
         const seen = generation;
         const controller = new AbortController();
+        const signal = opts.timeoutMs ? AbortSignal.any([controller.signal, AbortSignal.timeout(opts.timeoutMs)]) : controller.signal;
         inflight.add(controller);
         const unsafe = method !== 'GET' && method !== 'HEAD';
         try {
@@ -204,7 +205,7 @@ export function createClinicApiClient() {
                 credentials: 'same-origin',
                 cache: 'no-store',
                 headers: headersFor(method, token, opts),
-                signal: controller.signal,
+                signal,
             };
             if (body !== undefined) init.body = body;
             let sent = await exchange(url, init, !unsafe, seen);

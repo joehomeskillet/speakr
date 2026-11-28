@@ -31,7 +31,7 @@ export function createContextBinding({ client, dictationId, reactive = (v) => v,
         if (!writable() || state.busy) return false;
         state.error = true;
         if (!isSyntheticCase(state.input)) {
-            state.message = 'Synthetische Fall-ID eingeben: SYN- und 4 bis 8 Ziffern.';
+            state.message = 'Bitte geben Sie eine synthetische Fallnummer ein: SYN- gefolgt von 4 bis 8 Ziffern.';
             return false;
         }
         state.busy = true;
@@ -45,14 +45,14 @@ export function createContextBinding({ client, dictationId, reactive = (v) => v,
             await onBound();
             if (disposed) return false;
             state.error = false;
-            state.message = 'Fall-ID verknüpft.';
+            state.message = 'Fallnummer verknüpft.';
             return true;
         }
         if ([401, 403, 404, 503].includes(res.status)) state.available = false;
         state.blocked = true; // An uncertain write must be reconciled, never automatically repeated.
         state.message = res.status === 423 ? 'Bearbeitung zuerst anfordern.'
             : res.status === 409 ? 'Der Stand wurde geändert. Aktuellen Stand laden.'
-                : 'Fall-ID nicht bestätigt. Aktuellen Stand laden, bevor Sie erneut verknüpfen.';
+                : 'Fallnummer nicht bestätigt. Aktuellen Stand laden, bevor Sie erneut verknüpfen.';
         return false;
     }
 
@@ -61,18 +61,18 @@ export function createContextBinding({ client, dictationId, reactive = (v) => v,
 
 export const CONTEXT_BIND_TEMPLATE = `
 <div>
-<section v-if="binding.state.available" aria-label="Fall-ID verknüpfen" data-testid="context-bind">
+<section v-if="binding.state.available" aria-label="Fallnummer verknüpfen" data-testid="context-bind">
   <p class="hint">Simulation (MockKIS, nur Staging)</p>
   <p v-if="!binding.writable()" role="status">Bearbeitung zuerst anfordern.</p>
   <form @submit.prevent="binding.bind()" :aria-busy="binding.state.busy">
     <label style="display: grid; gap: 6px">
-      <span>Synthetische Fall-ID</span>
-      <input v-model="binding.state.input" aria-label="Synthetische Fall-ID" autocomplete="off"
+      <span>Synthetische Fallnummer</span>
+      <input v-model="binding.state.input" aria-label="Synthetische Fallnummer" autocomplete="off"
         placeholder="SYN-0001" pattern="SYN-[0-9]{4,8}" maxlength="12" required
         :disabled="!binding.writable() || binding.state.busy" style="width: 100%; min-width: 0; box-sizing: border-box">
     </label>
     <button type="submit" class="secondary" style="margin-top: 10px"
-      :disabled="!binding.writable() || binding.state.busy">Fall-ID verknüpfen</button>
+      :disabled="!binding.writable() || binding.state.busy">Fallnummer verknüpfen</button>
   </form>
 </section>
 <p v-if="binding.state.message" :role="binding.state.error ? 'alert' : 'status'">{{ binding.state.message }}</p>

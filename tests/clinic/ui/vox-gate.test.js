@@ -113,7 +113,7 @@ describe('clinic recorder take snapshot', () => {
         await recorder.uploadRecordedAudio({ title: 'Zweite Aufnahme', ...uploadOptions });
         const [file, title, options] = upload.mock.calls[0];
         expect(title).toBe('Zweite Aufnahme');
-        expect(options).toEqual(uploadOptions);
+        expect(options).toEqual({ ...uploadOptions, id: expect.any(String), retry: false });
         expect(file.name).toBe('aufnahme.wav');
         expect(file.type).toBe('audio/wav');
         expect(await file.arrayBuffer()).toEqual(await preview.arrayBuffer());

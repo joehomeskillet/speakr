@@ -24,7 +24,7 @@ describe('Neue Aufnahme', () => {
         expect((await controller.start()).ok).toBe(false);
         await controller.checkRouting();
         expect(fetchPreflight).toHaveBeenCalledWith('/api/config?recording_preflight=1', { cache: 'no-store' });
-        expect(controller.model().message).toBe('Ihr Konto ist noch keinem Autorenpool zugeordnet. Bitte wenden Sie sich an die Verwaltung.');
+        expect(controller.model().message).toBe('Ihr Konto ist noch nicht für Diktate freigeschaltet. Bitte wenden Sie sich an die Verwaltung.');
         expect((await controller.start()).ok).toBe(false);
         expect(recorder.startRecording).not.toHaveBeenCalled();
     });
@@ -47,6 +47,7 @@ describe('Neue Aufnahme', () => {
             title: 'Diktat 27.11.2026 09:03',
             useSpeechRecognition: true,
             clientUploadId: expect.stringMatching(/^[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/i),
+            onUploadProgress: expect.any(Function),
         }]]);
         expect(request.mock.calls[1]).toEqual([path + '/send', {
             method: 'POST', body: {}, ifMatch: '"1"', idempotencyKey: expect.any(String),

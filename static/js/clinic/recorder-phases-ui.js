@@ -9,6 +9,8 @@
  * nothing is written to browser storage. Colours come from tokens.js.
  */
 
+import { fetchFreshCsrfToken, getUploadCsrfToken, isCsrfRejection } from '../modules/csrf.js';
+import { computeUploadTimeout } from '../modules/utils/upload-timeout.js';
 import { surfaceFor } from './tokens.js';
 import { gateAudioBlob } from './vox-gate.js';
 
@@ -56,9 +58,60 @@ export function receiptDictationId(value) {
     return Number.isInteger(id) && id >= 0 ? String(id) : null;
 }
 
+export function formatRecordingDuration(seconds) {
+    if (!Number.isFinite(seconds) || seconds < 0) return '';
+    const whole = Math.floor(seconds);
+    return [Math.floor(whole / 60), whole % 60].map((part) => String(part).padStart(2, '0')).join(':');
+}
+
+/** Recorded takes and selected files share the same upload and server receipt. */
+export async function uploadClinicFile(file, recordingTitle, {
+    id: takeId, retry, useSpeechRecognition = true, clientUploadId,
+} = {}, onUploadProgress) {
+    if (retry) {
+        const saved = await fetch('/api/clinic/v1/recording-takes/' + encodeURIComponent(takeId), {
+            cache: 'no-store', signal: AbortSignal.timeout(120_000),
+        });
+        if (saved.ok) return saved.json();
+        if (saved.status !== 404) throw new Error('take_lookup_failed');
+    }
+    const body = new FormData();
+    body.append('file', file);
+    body.append('use_speech_recognition', String(useSpeechRecognition));
+    if (clientUploadId) body.append('client_upload_id', clientUploadId);
+    if (recordingTitle !== undefined) {
+        body.append('title', recordingTitle);
+        body.append('from_recorder', 'true');
+    }
+    if (takeId) body.append('clinic_take_id', takeId);
+
+    const post = (token) => new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        if (onUploadProgress) {
+            xhr.upload.onloadstart = xhr.upload.onprogress = xhr.upload.onload = onUploadProgress;
+        }
+        xhr.open('POST', '/upload');
+        xhr.timeout = computeUploadTimeout(file.size);
+        if (token) xhr.setRequestHeader('X-CSRFToken', token);
+        xhr.onload = () => resolve(xhr);
+        xhr.onerror = xhr.onabort = xhr.ontimeout = () => reject(new Error('upload_failed'));
+        xhr.send(body);
+    });
+    let response = await post(await getUploadCsrfToken());
+    if (isCsrfRejection(response.status, response.responseText)) {
+        response = await post(await fetchFreshCsrfToken());
+    }
+    globalThis.window?.sessionHint?.inspect('/upload', {
+        status: response.status, redirected: Boolean(response.responseURL), url: response.responseURL,
+    });
+    if (response.status < 200 || response.status >= 300) throw new Error('upload_failed');
+    return JSON.parse(response.responseText);
+}
+
 /** Use the stock capture controls and send the finished microphone take through the clinic file upload. */
 export function createClinicRecorder(audio, state, uploadFile) {
     let samples;
+    const takes = new WeakMap();
     let takeVoxEnabled = false;
     let gatedTake = null;
 
@@ -112,14 +165,19 @@ export function createClinicRecorder(audio, state, uploadFile) {
             gatedTake = null;
             await audio.clearRecording();
         },
-        async uploadRecordedAudio({ title, ...uploadOptions }) {
+        async uploadRecordedAudio({ title, onUploadProgress, ...uploadOptions }) {
             const chunks = state.audioChunks.value;
             if (!state.audioBlobURL.value || !chunks.length) throw new Error('no_recorded_audio');
+            const previous = takes.get(chunks);
+            const take = previous || { id: globalThis.crypto.randomUUID(), title, uploadOptions };
+            takes.set(chunks, take);
             const gated = gatedTake?.chunks === chunks ? gatedTake.blob : null;
             const file = gated
                 ? new File([gated], 'aufnahme.wav', { type: gated.type })
                 : new File(chunks, 'aufnahme.webm', { type: state.mediaRecorder.value.mimeType.split(';')[0] });
-            const receipt = await uploadFile(file, title, uploadOptions);
+            const receipt = await uploadFile(file, take.title, {
+                ...take.uploadOptions, id: take.id, retry: Boolean(previous),
+            }, onUploadProgress);
             if (receiptDictationId(receipt) === null) throw new Error('no_receipt');
             // A new take gets its own chunk array as soon as capture starts.
             if (state.audioChunks.value === chunks) {

@@ -324,7 +324,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const [{ registerRecordingView }, { registerLiveView }, { registerArchiveView }, { registerImportView },
                 { registerSettingsView }, { registerOfflineView }, { createTooltip }, { getUploadCsrfToken },
                 { registerAdminPoolsView }, { registerAuthorsView }, { registerUsersView }, { registerVocabularyView },
-                { registerCommandsTemplatesView }, { registerAsrProfilesView }, { createClinicRecorder }] = await Promise.all([
+                { registerCommandsTemplatesView }, { registerAsrProfilesView }, { createClinicRecorder, uploadClinicFile }] = await Promise.all([
                 import('./clinic/compose-recording.js'),
                 import('./clinic/compose-live.js'),
                 import('./clinic/compose-archive.js'),
@@ -348,6 +348,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 createTooltip,
                 getUploadCsrfToken,
                 createClinicRecorder,
+                uploadClinicFile,
             };
         } catch (error) {
             console.error('[Clinic] Menu views could not be loaded:', error);
@@ -3120,21 +3121,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 { view: 'clinic-archive', testid: 'menu-archive', label: 'Archiv' },
             ];
             const clinicMenuToolbarVisible = computed(() => clinicMenuActions.some((entry) => entry.view === currentView.value));
-            // Recorded takes and selected files share the same upload and server receipt.
-            const clinicUploadFile = async (file, recordingTitle, { useSpeechRecognition = true, clientUploadId } = {}) => {
-                const body = new FormData();
-                body.append('file', file);
-                body.append('use_speech_recognition', String(useSpeechRecognition));
-                if (clientUploadId) body.append('client_upload_id', clientUploadId);
-                if (recordingTitle !== undefined) {
-                    body.append('title', recordingTitle);
-                    body.append('from_recorder', 'true');
-                }
-                const token = clinicMenu ? await clinicMenu.getUploadCsrfToken() : null;
-                const response = await fetch('/upload', { method: 'POST', headers: token ? { 'X-CSRFToken': token } : {}, body });
-                if (!response.ok) throw new Error('upload_failed');
-                return response.json();
-            };
+            const clinicUploadFile = clinicMenu?.uploadClinicFile;
             const clinicRecorder = clinicMenu?.createClinicRecorder(audioComposable, state, clinicUploadFile);
             const clinicMicrophone = clinicRecorder ? {
                 get inputs() { return inputAudioDevices.value; },
