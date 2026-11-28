@@ -1,15 +1,31 @@
-/* DUSS / Appcadabra shared design tokens | v1.0 | 2026-11-18 */
+/* Ploudrli shared design tokens | Brand kit v1.0 */
 :root {
   color-scheme: light;
   --brand-primary: #1C3D42;
-  --brand-accent: #7A1C3E;
-  --brand-canvas: #F7F6F2;
-  --brand-accent-darkmode: #E4A6BE;
+  --brand-burgundy: #7A1C3E;
+  --brand-cream: #F7F6F2;
+  --brand-dark: #101C1F;
+  --brand-accent-darkmode: #D18BA3;
+  --brand-accent: var(--brand-burgundy);
+  --ui-on-accent: var(--ui-on-primary);
+  --brand-canvas: var(--brand-cream);
   --ui-surface: #FFFFFF;
-  --ui-text: #203438;
-  --ui-text-muted: #52666A;
-  --ui-border: #D9DFDC;
-  --ui-hover: #E9EEEB;
+  --ui-text: #183237;
+  --ui-text-muted: #53666A;
+  --ui-border: #D5DDDA;
+  --ui-hover: #EDF0ED;
+  --ui-primary: var(--brand-primary);
+  --ui-on-primary: #FFFFFF;
+  --ui-focus: var(--brand-accent);
+  --ui-success: #286345;
+  --ui-success-bg: #E7F3EB;
+  --ui-warning: #80530B;
+  --ui-warning-bg: #FFF2D8;
+  --ui-danger: #A12A3A;
+  --ui-danger-bg: #FCE8EB;
+  --ui-info: #285B84;
+  --ui-info-bg: #E7F1FA;
+  --ui-shadow: 0 2px 10px #1C3D420A;
   --ui-radius-sm: 8px;
   --ui-radius-md: 12px;
   --ui-space-1: 4px;
@@ -23,11 +39,24 @@
 }
 .dark, [data-theme="dark"] {
   color-scheme: dark;
-  --brand-canvas: #142C30;
-  --ui-surface: #1C3D42;
-  --ui-text: #F7F6F2;
-  --ui-text-muted: #D0DCDA;
-  --ui-border: #426166;
-  --ui-hover: #315158;
-  --brand-accent: #E4A6BE;
+  --brand-accent: var(--brand-accent-darkmode);
+  --ui-on-accent: var(--brand-dark);
+  --brand-canvas: var(--brand-dark);
+  --ui-surface: #17282C;
+  --ui-text: var(--brand-cream);
+  --ui-text-muted: #A8BBBD;
+  --ui-border: #344B4F;
+  --ui-hover: #20363A;
+  --ui-primary: var(--brand-cream);
+  --ui-on-primary: var(--brand-primary);
+  --ui-focus: var(--brand-accent);
+  --ui-success: #9AD7B0;
+  --ui-success-bg: #203B30;
+  --ui-warning: #F1CD85;
+  --ui-warning-bg: #43371F;
+  --ui-danger: #FFABB5;
+  --ui-danger-bg: #472932;
+  --ui-info: #A3D0FF;
+  --ui-info-bg: #263D50;
+  --ui-shadow: none;
 }

@@ -110,7 +110,7 @@
 
                     {% if sso_enabled %}
                     <form method="GET" action="{{ url_for('auth.sso_login') }}" class="mb-4">
-                        <button type="submit" class="primary !text-white !bg-[var(--ink)] !border-[color:var(--ink)] !text-[13px] !font-semibold hover:!bg-[var(--brand2)] w-full"><i class="fas fa-cloud" aria-hidden="true"></i> {{ t('authPages.signInWith', provider=sso_provider_name) }}</button>
+                        <button type="submit" class="primary !text-[color:var(--v8-on-ink)] !bg-[var(--ink)] !border-[color:var(--ink)] !text-[13px] !font-semibold hover:!bg-[var(--brand2)] w-full"><i class="fas fa-cloud" aria-hidden="true"></i> {{ t('authPages.signInWith', provider=sso_provider_name) }}</button>
                     </form>
                     {% if not password_login_disabled %}
                     <p class="hint text-center" style="margin-bottom:16px">{{ t('common.or') }}</p>
@@ -129,7 +129,7 @@
                             {{ form.password.label(text=t('account.password')) }}
                             {{ form.password(placeholder=t('account.password')) }}
                         </div>
-                        <div class="actions"><button type="submit" class="primary !text-white !bg-[var(--ink)] !border-[color:var(--ink)] !text-[13px] !font-semibold hover:!bg-[var(--brand2)] w-full">{{ t('authPages.signIn') }}</button></div>
+                        <div class="actions"><button type="submit" class="primary !text-[color:var(--v8-on-ink)] !bg-[var(--ink)] !border-[color:var(--ink)] !text-[13px] !font-semibold hover:!bg-[var(--brand2)] w-full">{{ t('authPages.signIn') }}</button></div>
                     </form>
                     {% else %}
                     {% set case_next = request.script_root ~ '/fall' %}
@@ -148,7 +148,7 @@
                             </div>
                             {% for error in form.password.errors %}<span class="text-status error">{{ error }}</span>{% endfor %}
                         </div>
-                        <div class="actions">{{ form.submit(value=t('authPages.loginTitle'), class="primary !text-white !bg-[var(--ink)] !border-[color:var(--ink)] !text-[13px] !font-semibold hover:!bg-[var(--brand2)] w-full") }}</div>
+                        <div class="actions">{{ form.submit(value=t('authPages.loginTitle'), class="primary !text-[color:var(--v8-on-ink)] !bg-[var(--ink)] !border-[color:var(--ink)] !text-[13px] !font-semibold hover:!bg-[var(--brand2)] w-full") }}</div>
                     </form>
                     {% endif %}
                 </section>
