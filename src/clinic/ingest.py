@@ -178,6 +178,7 @@ class ImportDefaults:
     recipient_user_id: int | None = None
     pool_id: str | None = None
     use_asr: bool = True
+    asr_profile_id: str | None = None
 
 
 def resolve_import_metadata(metadata: Mapping, defaults: ImportDefaults) -> ImportDefaults:
@@ -447,7 +448,7 @@ def _lock_import(storage_key: str) -> None:
 
 
 def _queue_import(path: Path, author_user_id: int, size: int, language_id: int | None,
-                  *, title: str | None = None) -> str:
+                  *, title: str | None = None, asr_profile_id: str | None = None) -> str:
     """Stage a worker-owned copy. Queue cleanup must never remove the clinic original."""
     try:
         with path.open('rb') as stream:
@@ -468,7 +469,8 @@ def _queue_import(path: Path, author_user_id: int, size: int, language_id: int |
     db.session.flush()
     # JobQueue.enqueue uses a separate transaction. Publish the stock job with its link instead.
     language = locale.windows_locale.get(language_id or 0, '').partition('_')[0]
-    params = resolve_transcription_params(source, overrides={'language': language})
+    params = resolve_transcription_params(source, overrides={'language': language},
+                                          clinic_asr_profile_id=asr_profile_id)
     job = ProcessingJob(user_id=author_user_id, recording_id=source.id,
                         job_type='transcribe', params=json.dumps(params))
     if extension is None:
@@ -517,7 +519,10 @@ def _insert_row(author_user_id, storage_key, digest, size, origin, origin_ref, k
         if metadata is not None and not metadata.use_asr:
             link = f'upload:recording:{recording.id}:asr=off:time=upload'
         elif import_path is not None:
-            link = _queue_import(import_path, author_user_id, size, language_id, title=recording.title)
+            link = _queue_import(
+                import_path, author_user_id, size, language_id, title=recording.title,
+                asr_profile_id=metadata.asr_profile_id if metadata is not None else None,
+            )
         original = ClinicOriginal(
             dictation_id=dictation.id,
             content_hash=digest,

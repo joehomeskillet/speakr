@@ -81,6 +81,7 @@ class ClinicImportIntent(db.Model):
     target_author_user_id = db.Column(db.Integer, ForeignKey("user.id"), nullable=False)
     target_pool_id = db.Column(db.String(36), nullable=True)
     language_id = db.Column(db.Integer, nullable=False, default=DEFAULT_LANG_ID)
+    asr_profile_id = db.Column(db.String(36), nullable=True)
     # NULL version: intent created before explicit keep/set metadata. See migration_import_intent_metadata.
     metadata_version = db.Column(db.Integer, nullable=True)
     metadata_json = db.Column(db.Text, nullable=True)
@@ -93,6 +94,15 @@ class ClinicImportIntent(db.Model):
             "status IN ('OPEN','FULFILLED','EXPIRED','CANCELLED')", name="ck_clinic_import_intent_status",
         ),
     )
+
+
+class ClinicAutosendIntent(db.Model):
+    """One automatic intent pair for the lifetime of a uniquely identified inventory snapshot."""
+
+    __tablename__ = "clinic_autosend_intent"
+    inventory_id = db.Column(db.String(36), ForeignKey("clinic_agent_inventory.id"), primary_key=True)
+    agent_intent_id = db.Column(db.String(36), ForeignKey("clinic_agent_intent.id"), nullable=False, unique=True)
+    import_intent_id = db.Column(db.String(36), ForeignKey("clinic_import_intent.id"), nullable=False, unique=True)
 
 
 class ClinicImportDelivery(db.Model):
@@ -135,7 +145,7 @@ class ClinicImportOriginal(db.Model):
     )
 
 
-IMPORT_TABLES = (ClinicImportIntent, ClinicImportDelivery, ClinicImportOriginal)
+IMPORT_TABLES = (ClinicImportIntent, ClinicAutosendIntent, ClinicImportDelivery, ClinicImportOriginal)
 
 
 def create_tables(bind=None):
@@ -226,23 +236,35 @@ def create_import_intent(
         raise AgentChannelError("invalid", "source_kind")
     if not isinstance(source_ref, str) or not _REF.match(source_ref):
         raise AgentChannelError("invalid", "source_ref")
-    metadata_version, metadata_json = _stored_metadata(overrides, approved_recipients)
+    metadata = _stored_metadata(overrides, approved_recipients)
     author = actor_user_id if target_author_user_id is None else target_author_user_id
     if author != actor_user_id:
         if may_assign_author is None or not may_assign_author(actor_user_id, author):
             raise AgentChannelError("forbidden", "user may not import for this author")
         if db.session.get(User, author) is None:
             raise AgentChannelError("invalid", "target author")
+    intent = _stage_import_intent(
+        actor_user_id=actor_user_id, source_kind=source_kind, source_ref=source_ref, expected_files=expected_files,
+        author=author, target_pool_id=target_pool_id, language_id=language_id, metadata=metadata, now=now,
+    )
+    db.session.commit()
+    return _view(intent)
+
+
+def _stage_import_intent(*, actor_user_id, source_kind, source_ref, expected_files, author,
+                         target_pool_id, language_id, metadata, now, asr_profile_id=None):
+    """Stage an already-authorized import in the caller's transaction."""
+    metadata_version, metadata_json = metadata
     intent = ClinicImportIntent(
         created_by_user_id=actor_user_id, source_kind=source_kind, source_ref=source_ref,
         expected_files=json.dumps(_clean_files(expected_files)), target_author_user_id=author,
         target_pool_id=target_pool_id, language_id=resolve_language(language_id),
+        asr_profile_id=asr_profile_id,
         metadata_version=metadata_version, metadata_json=metadata_json,
         created_at=now, expires_at=now + INTENT_TTL,
     )
     db.session.add(intent)
-    db.session.commit()
-    return _view(intent)
+    return intent
 
 
 def _stored_metadata(overrides, approved_recipients) -> tuple[int | None, str | None]:
@@ -347,7 +369,9 @@ def _find_intent(item, now, author_user_id=None, *, target_pool_id=None, source_
     """Oldest open, unexpired intent that fits the reported file; ``None`` if there is none."""
     if item is None:
         return None
-    query = ClinicImportIntent.query.filter_by(status="OPEN")
+    query = ClinicImportIntent.query.filter_by(status="OPEN").filter(
+        ~ClinicImportIntent.id.in_(db.select(ClinicAutosendIntent.import_intent_id)),
+    )
     if clinic_mode_enabled():
         query = query.filter(~agent_channel.ClinicAgentIntent.query.filter_by(id=ClinicImportIntent.id).exists())
     if author_user_id is not None:
@@ -474,13 +498,15 @@ def _verified_author(item, session_row, stream, read_header, lookup, configured_
     finally:
         stream.seek(0)
     device = lookup(device_id=item.root_id)
-    if device.reason != "no_input":
+    if configured_author is not None or device.reason != "no_input":
         owners = agent_channel.unique_root_owners({
             agent_id: (enabled, {root.upper() for root in roots})
             for agent_id, (enabled, roots) in agent_channel.registered_agent_roots().items()
         })
-        if owners.get(item.root_id.upper()) != session_row.agent_id or device.author_user_id is None:
+        if owners.get(item.root_id.upper()) != session_row.agent_id:
             return None
+    if device.reason != "no_input" and device.author_user_id is None:
+        return None
     device_author = device.author_user_id
     if configured_author is not None:
         if device_author is not None and device_author != configured_author:
@@ -506,7 +532,15 @@ def _clinic_delivery_intent(item, session_row, now, device_map, alias_map, embed
         owners = agent_channel.unique_root_owners(agent_channel.registered_agent_roots())
         if owners.get(item.root_id) != session_row.agent_id:
             return None
+    automatic = ClinicAutosendIntent.query.filter_by(agent_intent_id=session_row.intent_id).first()
     configured_author = config.get("target_author_user_id") if config.get("source_kind") == "device" else None
+    if automatic is not None and config.get("source_kind") == "folder":
+        from .identity import ClinicAccountPolicy
+
+        configured_author = config["target_author_user_id"]
+        account = db.session.get(ClinicAccountPolicy, configured_author, populate_existing=True)
+        if account is not None and account.status != "active":
+            return None
     if resolve_verified is not None:
         author = resolve_verified(item, configured_author)
     else:
@@ -517,6 +551,15 @@ def _clinic_delivery_intent(item, session_row, now, device_map, alias_map, embed
             device_map = {**device_map, device: configured_author}
         author = _resolved_author(item, session_row, device_map, alias_map, embedded_author_for)
     if author is None or (config and author != config["target_author_user_id"]):
+        return None
+    if automatic is not None:
+        if not config or resolve_verified is None or automatic.inventory_id != item.id:
+            return None
+        intent = db.session.get(ClinicImportIntent, automatic.import_intent_id)
+        if (intent is not None and intent.status == "OPEN" and aware(intent.expires_at) > now
+                and (intent.target_author_user_id, intent.target_pool_id, intent.source_kind)
+                == (author, config["target_pool_id"], config["source_kind"])):
+            return intent
         return None
     paired = db.session.get(ClinicImportIntent, session_row.intent_id)
     if paired is not None:
@@ -600,6 +643,7 @@ def _ingest_metadata(intent: ClinicImportIntent | None, delivery: ClinicImportDe
     title = filename.rsplit(".", 1)[0].strip()[:200] or None
     return {"intent_metadata": interpret(intent), "import_defaults": ImportDefaults(
         title=title, priority=source.get("priority", ImportDefaults.priority), pool_id=intent.target_pool_id,
+        asr_profile_id=intent.asr_profile_id,
     )}
 
 

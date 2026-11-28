@@ -99,7 +99,6 @@ export const TEXT = Object.freeze({
     playerPage: 'Wiedergabe',
     playerSubline: 'Aufnahme anhören. Der Text bleibt sichtbar und wird hier nicht umgeschrieben.',
     subline: 'Diktat prüfen, Text korrigieren und mit der Aufnahme abgleichen.',
-    eyebrow: 'Arbeitsliste',
     toWorklist: 'Zur Arbeitsliste',
     workspace: 'Editorarbeitsbereich',
     dictatedBy: 'Diktiert von',
@@ -1183,7 +1182,6 @@ export const CorrectionBody = {
          @keydown.f5.exact.capture="onFinishKeydown" @keydown="c.onShortcut($event)">
   <div class="pagehead">
     <div>
-      <div class="eyebrow">{{ TEXT.eyebrow }}</div>
       <div class="hline">
         <h1 id="ccv-title" style="font-weight: 700; letter-spacing: -.8px; color: var(--v8-text)">{{ openMode === 'player' ? TEXT.playerPage : TEXT.page }}</h1>
         <FinishOptions v-if="finishWorkflow.state.allowed.includes('release')"
@@ -1413,7 +1411,7 @@ export const CorrectionBody = {
           </ul>
           <p v-if="reviewMessage" role="alert" class="hint" data-testid="review-message">{{ reviewMessage }}</p>
         </section>
-        <p v-if="!canEdit && !loading" id="ccv-readonly" class="template-meta" style="margin: 0">{{ lease.mayAcquire === false ? TEXT.readOnlyAccess : TEXT.readOnly }}</p>
+        <p v-if="!canEdit && !loading" id="ccv-readonly" class="template-meta" role="status" style="margin: 0">{{ lease.mayAcquire === false ? TEXT.readOnlyAccess : TEXT.readOnly }}</p>
         <section class="panel alignment-panel" :aria-label="TEXT.alignment" :data-status="alignStatus" data-testid="alignment">
           <div class="panel-header">
             <h2>{{ TEXT.alignment }}</h2>

@@ -28,8 +28,13 @@ from functools import wraps
 from typing import Callable, Optional
 
 from sqlalchemy import CheckConstraint, ForeignKey, UniqueConstraint
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-from src.clinic.migration_inventory_hints import provenance, replay_hints, upgrade as upgrade_inventory_hints
+from src.clinic.firmware_catalog import normalize_device_type, normalize_version
+from src.clinic.migration_inventory_hints import (
+    provenance, replay_hints, upgrade as upgrade_inventory_hints, upgrade_firmware_claims,
+)
 from src.database import db
 from src.models import User  # noqa: F401  (resolves the user.id foreign key)
 
@@ -42,6 +47,9 @@ _SHA = re.compile(r"^[a-f0-9]{64}$")
 _ID = re.compile(r"^[A-Za-z0-9._:@-]{1,128}$")
 _FINGERPRINT = re.compile(r"^[a-z0-9._-]{16,128}$")
 _SEAL = object()
+_MAX_DEVICE_REPORTS = 128
+_MAX_DEVICES_PER_ROOT = 128
+_DEVICE_CAPABILITIES = {"author_list", "recording_encryption", "pin_lock", "power_saving"}
 
 
 class AgentChannelError(Exception):
@@ -126,10 +134,20 @@ class ClinicAgentInventory(db.Model):
     claimed_author_code = db.Column(db.String(128), nullable=True)
     completion_source = db.Column(db.String(32), nullable=True, default="unknown")
     evidence_level = db.Column(db.String(32), nullable=True, default="unverified")
+    device_type = db.Column(db.String(56), nullable=True)
+    firmware_version = db.Column(db.String(64), nullable=True)
     reported_at = _ts(nullable=False, default=utcnow)
     __table_args__ = (
         UniqueConstraint("agent_id", "source_id", "snapshot_version", name="uq_clinic_agent_inventory"),
     )
+
+
+class ClinicAgentDeviceReport(db.Model):
+    __tablename__ = "clinic_agent_device_report"
+    agent_id = _fk("clinic_agent", primary_key=True)
+    root_id = db.Column(db.String(128), primary_key=True)
+    reported_at = _ts(nullable=False)
+    devices = db.Column(db.JSON, nullable=False)
 
 
 class ClinicAgentIntent(db.Model):
@@ -210,18 +228,19 @@ class ClinicAgentOutcome(db.Model):
 
 
 AGENT_TABLES = (
-    ClinicAgent, ClinicAgentInventory, ClinicAgentIntent,
+    ClinicAgent, ClinicAgentInventory, ClinicAgentDeviceReport, ClinicAgentIntent,
     ClinicAgentIngest, ClinicAgentChunk, ClinicAgentOutcome,
 )
 
 
 def create_tables(bind=None):
-    """Create the channel tables if they are missing, then add hint columns on older ones."""
+    """Create missing channel tables and add optional columns to older inventory tables."""
     target = bind or db.engine
     db.metadata.create_all(
         bind=target, tables=[m.__table__ for m in AGENT_TABLES], checkfirst=True
     )
     upgrade_inventory_hints(target)
+    upgrade_firmware_claims(target)
 
 
 def transactional(fn):
@@ -414,18 +433,79 @@ def _clean_item(policy, raw):
         source_id=clean_id(raw.get("source_id"), "source_id"), root_id=clean_id(raw.get("root_id"), "root_id"),
         relative_path=path, size=size, sha256=digest, mtime_utc=_parse_mtime(raw.get("mtime_utc")),
         snapshot_version=clean_id(raw.get("snapshot_version"), "snapshot_version"),
+        device_type=normalize_device_type(raw.get("device_type")),
+        firmware_version=normalize_version(raw.get("firmware_version")),
     )
 
 
+def _lock_intent_updates(agent_id):
+    # An UPDATE takes the write lock on both PostgreSQL and SQLite, even for a new snapshot.
+    locked = ClinicAgent.query.filter_by(id=agent_id, enabled=True).update(
+        {ClinicAgent.enabled: ClinicAgent.enabled}, synchronize_session=False,
+    )
+    if locked != 1:
+        raise AgentChannelError("forbidden", "agent disabled")
+
+
+def _clean_device_reports(raw_reports, allowed):
+    if not isinstance(raw_reports, list) or len(raw_reports) > _MAX_DEVICE_REPORTS:
+        raise AgentChannelError("invalid", "device_reports")
+    reports = {}
+    for raw in raw_reports:
+        if not isinstance(raw, dict) or raw.keys() != {"root_id", "devices"}:
+            raise AgentChannelError("invalid", "device report")
+        root_id = clean_id(raw["root_id"], "root_id")
+        if root_id not in allowed:
+            raise AgentChannelError("forbidden", "device report root is not registered for this agent")
+        devices = raw["devices"]
+        if root_id in reports or not isinstance(devices, list) or len(devices) > _MAX_DEVICES_PER_ROOT:
+            raise AgentChannelError("invalid", "device report devices")
+        by_id = {}
+        for device in devices:
+            if not isinstance(device, dict) or device.keys() - {"device_id", "capabilities", "driver_status"}:
+                raise AgentChannelError("invalid", "device observation")
+            device_id = clean_id(device.get("device_id"), "device_id")
+            capabilities = device.get("capabilities")
+            driver_status = device.get("driver_status", "unknown")
+            if device_id in by_id or driver_status not in ("unknown", "available", "missing"):
+                raise AgentChannelError("invalid", "device observation")
+            if capabilities is not None and (
+                not isinstance(capabilities, dict) or not capabilities.keys() <= _DEVICE_CAPABILITIES
+                or any(type(value) is not bool for value in capabilities.values())
+            ):
+                raise AgentChannelError("invalid", "device capabilities")
+            by_id[device_id] = dict(device_id=device_id, capabilities=capabilities or None, driver_status=driver_status)
+        reports[root_id] = [by_id[device_id] for device_id in sorted(by_id)]
+    return reports
+
+
+def _store_device_reports(agent_id, reports, now):
+    table = ClinicAgentDeviceReport.__table__
+    insert = pg_insert if db.engine.dialect.name == "postgresql" else sqlite_insert
+    stmt = insert(table).values([
+        dict(agent_id=agent_id, root_id=root_id, reported_at=now, devices=reports[root_id])
+        for root_id in sorted(reports)
+    ])
+    db.session.execute(stmt.on_conflict_do_update(
+        index_elements=[table.c.agent_id, table.c.root_id],
+        set_={"reported_at": stmt.excluded.reported_at, "devices": stmt.excluded.devices},
+        where=stmt.excluded.reported_at >= table.c.reported_at,
+    ))
+
+
 @transactional
-def report_inventory(principal, policy, body, *, now=None):
+def report_inventory(principal, policy, body, *, now=None, evaluate=None):
     """Store the reported snapshot inventory. ``body['agent_id']`` is ignored on purpose.
 
     Every item is checked before anything is stored; one item outside the
     registered sources refuses the whole report. No author, patient or
     dictation right is derived from an inventory. Optional hint fields are
     stored as claims: a missing or unknown mark stays unknown, and file
-    stability is not recorded as Philips EOL.
+    stability is not recorded as Philips EOL. Optional device observations
+    replace the latest report for each included root in the same transaction.
+
+    An optional server-side evaluator stages policy-authorized imports in the
+    same transaction as the accepted inventory.
     """
     agent = agent_of(principal)
     now = aware(now) or utcnow()
@@ -435,8 +515,23 @@ def report_inventory(principal, policy, body, *, now=None):
     outside = sorted({i["root_id"] for i in items} - allowed)
     if outside:
         raise AgentChannelError("forbidden", "source root not registered for this agent: " + outside[0])
-    for raw, item in zip(raw_items, items):
+    device_reports = _clean_device_reports((body or {}).get("device_reports", []), allowed)
+    entries = zip(raw_items, items)
+    if evaluate is not None and items:
+        _lock_intent_updates(agent.id)
+        unique = {}
+        for raw, item in entries:
+            key = (item["source_id"], item["snapshot_version"])
+            if key in unique and unique[key][1] != item:
+                raise AgentChannelError("conflict", "different files share a snapshot version")
+            unique[key] = (raw, item)
+        entries = unique.values()
+    evaluated_rows = []
+    for raw, item in entries:
         row = inventory_row(agent.id, item["source_id"], item["snapshot_version"])
+        changed = evaluate is not None and row is not None and any(
+            getattr(row, field) != item[field] for field in ("root_id", "relative_path", "size", "sha256")
+        )
         if row is None:
             row = ClinicAgentInventory(agent_id=agent.id)
             db.session.add(row)
@@ -447,6 +542,13 @@ def report_inventory(principal, policy, body, *, now=None):
         for name, value in item.items():
             setattr(row, name, value)
         row.reported_at = now
+        if evaluate is not None:
+            evaluated_rows.append((row, raw, changed))
+    if evaluated_rows:
+        db.session.flush()
+        evaluate(policy, evaluated_rows, now=now)
+    if device_reports:
+        _store_device_reports(agent.id, device_reports, now)
     db.session.commit()
     return {"accepted": len(items)}
 
@@ -464,10 +566,31 @@ def list_inventory(policy, *, actor_user_id, agent_id):
     return [{"source_id": r.source_id, "root_id": r.root_id, "relative_path": r.relative_path,
              "size": r.size, "mtime_utc": stamp(r.mtime_utc), "sha256": r.sha256,
              "snapshot_version": r.snapshot_version,
+             **({"device_type": r.device_type} if r.device_type is not None else {}),
+             **({"firmware_version": r.firmware_version} if r.firmware_version is not None else {}),
              **provenance(r.claimed_author_code, r.completion_source, r.evidence_level)} for r in rows]
 
 
 # --- intents ---------------------------------------------------------------------
+
+def live_intent_exists(agent_id, source_id, snapshot_version, now):
+    return ClinicAgentIntent.query.filter_by(
+        agent_id=agent_id, source_id=source_id, snapshot_version=snapshot_version,
+    ).filter(
+        ClinicAgentIntent.status.in_(("OPEN", "IN_PROGRESS", "STORED")), ClinicAgentIntent.expires_at > now,
+    ).first() is not None
+
+
+def stage_snapshot_intent(policy, *, actor_user_id, agent_id, source_id, snapshot_version, post_step="none", now):
+    """Stage an already-authorized snapshot intent in the caller's transaction."""
+    intent = ClinicAgentIntent(
+        agent_id=agent_id, source_id=source_id, snapshot_version=snapshot_version, post_step=post_step,
+        created_by_user_id=actor_user_id, created_at=now,
+        expires_at=(now + policy.intent_ttl).replace(microsecond=0),
+    )
+    db.session.add(intent)
+    return intent
+
 
 @transactional
 def create_intent(policy, *, actor_user_id, agent_id, source_id, snapshot_version, post_step="none", now=None):
@@ -481,20 +604,15 @@ def create_intent(policy, *, actor_user_id, agent_id, source_id, snapshot_versio
         raise AgentChannelError("invalid", "post_step")
     if post_step != "none" and not policy.allow_post_import:
         raise AgentChannelError("forbidden", "post-import step is disabled by server policy")
+    _lock_intent_updates(agent.id)
     if inventory_row(agent.id, source_id, snapshot_version) is None:
         raise AgentChannelError("not_found", "snapshot not in the agent inventory")
-    for other in ClinicAgentIntent.query.filter(
-            ClinicAgentIntent.agent_id == agent.id, ClinicAgentIntent.source_id == source_id,
-            ClinicAgentIntent.snapshot_version == snapshot_version,
-            ClinicAgentIntent.status.in_(("OPEN", "IN_PROGRESS", "STORED"))):
-        if aware(other.expires_at) > now:
-            raise AgentChannelError("conflict", "an open intent exists for this snapshot")
-    intent = ClinicAgentIntent(
+    if live_intent_exists(agent.id, source_id, snapshot_version, now):
+        raise AgentChannelError("conflict", "an open intent exists for this snapshot")
+    intent = stage_snapshot_intent(
+        policy, actor_user_id=actor_user_id, now=now,
         agent_id=agent.id, source_id=source_id, snapshot_version=snapshot_version, post_step=post_step,
-        created_by_user_id=actor_user_id, created_at=now,
-        expires_at=(now + policy.intent_ttl).replace(microsecond=0),
     )
-    db.session.add(intent)
     db.session.commit()
     return _intent_wire(policy, agent, intent)
 
