@@ -22,6 +22,13 @@ from src.clinic import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
+LIVE_DRAFT_ENDPOINTS = frozenset({
+    "clinic_live_drafts.create_draft",
+    "clinic_live_drafts.list_drafts",
+    "clinic_live_drafts.get_draft",
+    "clinic_live_drafts.save_draft",
+    "clinic_live_drafts.discard_draft",
+})
 CATALOGS = (
     route_policy_output,
     route_policy_editor,
@@ -125,6 +132,10 @@ def test_catalog_endpoints_match_built_clinic_table(monkeypatch):
     off_table = route_policy._build()
     monkeypatch.setenv("CLINIC_MODE", "1")
     on_table = route_policy._build()
+    assert LIVE_DRAFT_ENDPOINTS.isdisjoint(off_table)
+    for endpoint in LIVE_DRAFT_ENDPOINTS:
+        assert on_table.pop(endpoint) == route_policy.RouteRule(route_policy.AUTH)
+    assert LIVE_DRAFT_ENDPOINTS <= set(route_policy_editor.AUTH)
 
     catalog_entries: dict[str, str] = {}
     expected_kinds = {
@@ -135,7 +146,8 @@ def test_catalog_endpoints_match_built_clinic_table(monkeypatch):
     for module in CATALOGS:
         for attr, kind in expected_kinds.items():
             for endpoint in getattr(module, attr):
-                catalog_entries[endpoint] = kind
+                if endpoint not in LIVE_DRAFT_ENDPOINTS:
+                    catalog_entries[endpoint] = kind
 
     assert len(catalog_entries) == 152
     assert not (set(catalog_entries) & set(off_table))
@@ -187,7 +199,9 @@ def test_inventory_missing_stale_and_recording_scope(clinic, clinic_off_snapshot
 @pytest.mark.parametrize("clinic", [False, True])
 def test_complete_table_matches_before_partition(clinic, clinic_off_snapshot, clinic_on_snapshot):
     snapshot = clinic_on_snapshot if clinic else clinic_off_snapshot
-    serialized = json.dumps(snapshot["table"], sort_keys=True).encode()
+    table = {key: rule for key, rule in snapshot["table"].items()
+             if not clinic or key not in LIVE_DRAFT_ENDPOINTS}
+    serialized = json.dumps(table, sort_keys=True).encode()
     assert hashlib.sha256(serialized).hexdigest() == BASELINE_TABLE_SHA256[clinic]
 
 

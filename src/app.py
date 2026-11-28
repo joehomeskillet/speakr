@@ -1382,14 +1382,17 @@ def register_clinic_identity(flask_app):
 def register_clinic_audio(flask_app):
     """Mount the audio, dictation-property, bundle, live, correction and TTS handlers.
 
+    Live draft switching and the draft API share one durable store; the capability
+    notes below describe the earlier wiring.
+
     Called at startup only in clinic mode, after register_clinic_worklist, and reuses the one
     ParityDispatch (start/stop live session are registered on it). Object decisions go through
     pool_policy.decide; an active site admin may open audio of any user (W12, audited by the
     audio handler). Capabilities that do not exist yet answer "unavailable" and are never faked:
     no bundle persistence (503), no local TTS engine or declared capability
-    (CAPABILITY_UNAVAILABLE). Derived rendering reads the stored originals
-    (app_wiring.make_source_loader); the protection store is durable
-    (clinic_dictation_protection). The mounted sdict export uses that same current
+    (CAPABILITY_UNAVAILABLE), no live-draft coordinator (CAPABILITY_UNAVAILABLE). The derived
+    rendering reads the stored originals (app_wiring.make_source_loader); the protection store is
+    durable (clinic_dictation_protection). The mounted sdict export uses that same current
     revision. A source that cannot be read stays empty and is never replaced by synthetic audio.
     """
     from src.clinic import (app_wiring, audio_render, audio_revisions, config, local_tts, policy, pool_policy,

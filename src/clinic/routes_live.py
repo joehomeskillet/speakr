@@ -33,7 +33,7 @@ from src.clinic.draft_registry import DraftError
 from src.clinic.draft_store import ClinicDraft, DraftStore
 from src.clinic.ingest import IngestService
 from src.clinic.live_drafts import HolderFence, LiveDrafts, select_draft
-from src.clinic.parity_dispatch import MAX_BODY_BYTES, CommandProblem, ParityDispatch, _problem, _unique_object
+from src.clinic.parity_dispatch import MAX_BODY_BYTES, CommandProblem, ParityDispatch, _problem
 from src.database import db
 
 PREFIX = "/api/clinic/v1/live"
@@ -82,6 +82,8 @@ def _no_store(response):
 
 
 def _body(required: Set[str], optional: Set[str] = frozenset()) -> dict | None:
+    from src.clinic.parity_dispatch import _unique_object
+
     if not request.is_json or request.content_length is None or request.content_length > MAX_BODY_BYTES:
         return None
     try:
