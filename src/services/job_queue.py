@@ -139,17 +139,14 @@ def clinic_notify_handler(can_see):
         if not transition_id:
             raise ClinicJobRefused(f"[{correlation_id}] notify job has no transition_id")
         try:
-            acceptor_ids = params.get('acceptor_ids') or ()
-            if params['event'] == 'acceptance_requested' and _notify_transition_id(params):
-                from src.clinic.notify_enqueue import acceptors
-                acceptor_ids = set(acceptor_ids).intersection(acceptors(params['dictation_id']))
             result = workflow_notifications.emit(
                 params['event'], params['dictation_id'],
                 transition_id=transition_id,
                 actor_user_id=params['actor_user_id'],
                 expected_version=params['expected_version'],
-                acceptor_ids=acceptor_ids,
-                can_see=can_see, context=params.get('context'))
+                acceptor_ids=params.get('acceptor_ids') or (),
+                can_see=can_see, context=params.get('context'),
+                require_receipt=bool(_notify_transition_id(params)))
         except workflow.WorkflowError as error:
             raise ClinicJobRefused(f"[{correlation_id}] {error}") from error
         if result.failed:

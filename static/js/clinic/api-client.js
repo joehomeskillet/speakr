@@ -192,7 +192,7 @@ export function createClinicApiClient() {
         const dictationRequest = url.startsWith(ROOT + '/dictations/');
         const sending = method === 'POST' && dictationRequest && url.endsWith('/send');
         const finish = (response) => {
-            if ((unsafe && response.outcome === 'ok' && (dictationRequest || url === PARITY_COMMANDS))
+            if ((unsafe && response.outcome === 'ok' && (dictationRequest || url === PARITY_COMMANDS || url.startsWith(ROOT + '/bundles/')))
                 || (sending && ['network', 'UNKNOWN'].includes(response.outcome))) markDictationChanged();
             return response;
         };
@@ -204,7 +204,7 @@ export function createClinicApiClient() {
         try {
             const token = unsafe ? await getUploadCsrfToken() : null;
             if (seen !== generation || controller.signal.aborted) return result('cancelled', { code: 'CANCELLED' });
-            let body = unsafe ? opts.formData : undefined;
+            let body = unsafe ? (opts.rawBody ?? opts.formData) : undefined;
             if (unsafe && opts.body !== undefined) {
                 try {
                     body = JSON.stringify(opts.body);
@@ -225,6 +225,16 @@ export function createClinicApiClient() {
             if (sent.cancelled) return result('cancelled', { code: 'CANCELLED' });
             if (sent.network) return finish(result('network', { code: 'NETWORK' }));
             if (seen !== generation) return result('cancelled', { code: 'CANCELLED' });
+            if (!unsafe && opts.responseType === 'blob' && sent.response.ok) {
+                try {
+                    const blob = await sent.response.blob();
+                    if (seen !== generation) return result('cancelled', { code: 'CANCELLED' });
+                    return result('ok', { status: sent.response.status, data: blob });
+                } catch (e) {
+                    return seen !== generation ? result('cancelled', { code: 'CANCELLED' })
+                        : result('network', { code: 'NETWORK' });
+                }
+            }
             let text = await readText(sent.response);
             if (seen !== generation) return result('cancelled', { code: 'CANCELLED' });
             if (unsafe && text !== null && isCsrfRejection(sent.response.status, text)) {
