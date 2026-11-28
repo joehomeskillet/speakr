@@ -120,6 +120,7 @@ def process_auto_deletion():
         ).all()
         stats["checked"] = len(candidates)
         current_time = datetime.utcnow()
+        project_workflow = clinic_mode_enabled()
         for (recording_id,) in candidates:
             try:
                 recording = db.session.get(Recording, recording_id)
@@ -139,7 +140,7 @@ def process_auto_deletion():
                 if not retention_days:
                     stats["skipped_no_retention"] += 1
                     continue
-                if clinic_mode_enabled():
+                if project_workflow:
                     if not eligible_for_retention(recording, now=current_time, retention_days=retention_days):
                         continue
                 elif recording.created_at is None or recording.created_at >= current_time - timedelta(days=retention_days):
@@ -149,6 +150,7 @@ def process_auto_deletion():
                 changed = archive_for_retention(
                     recording, now=current_time, retention_days=retention_days,
                     tag_id=min(matching_tags) if matching_tags else None,
+                    project_workflow=project_workflow,
                 )
                 db.session.commit()
                 stats["archived"] += int(changed)
