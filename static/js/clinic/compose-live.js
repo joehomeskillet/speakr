@@ -17,7 +17,7 @@
  *   phrases and reconnect  handled by the live-session controller.
  *
  * Phases: idle, starting, live, paused, reconnecting, stopping, stopped, stale, error.
- * The only live region announces the phase, never a word, a partial or a phrase.
+ * The recorder announces the phase, never a word, a partial or a phrase.
  *
  * Persistence: none in the browser. Phrases, partial text and audio references
  * stay in memory and are cleared on dispose. Durable draft state is server-side
@@ -34,6 +34,9 @@
  */
 
 import { createClinicApiClient } from './api-client.js';
+import { scopedClient } from './compose-correction.js';
+import { createLeaseController } from './lease-ui.js';
+import { RichTextEditor } from './richtext-editor-ui.js';
 import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
 import { createLiveSessionController, liveActions } from './live-session-ui.js';
 
@@ -525,16 +528,129 @@ export function createLiveViewController(options) {
 const BODY_PROPS = {
     client: { type: Object, default: null },
     dictationId: { type: String, required: true },
+    currentUser: { type: Object, default: null },
     vue: { type: Object, default: null },
     canWrite: { type: Function, default: null },
     onReady: { type: Function, default: null },
     captureModule: { type: Object, default: null },
 };
 
+function useLiveDocument(V, props, state) {
+    const client = scopedClient(props.client || createClinicApiClient());
+    const scope = '/dictations/' + encodeURIComponent(props.dictationId);
+    const path = scope + '/correction';
+    const graphicsPath = scope + '/graphics';
+    const editor = V.shallowRef(null);
+    const document = V.shallowRef(null);
+    const loading = V.ref(false);
+    const loadFailed = V.ref(false);
+    let base;
+    let pending;
+    let acquiring;
+    let disposed = false;
+
+    client.switchContext({ accountId: props.currentUser.id, dictationId: props.dictationId });
+    const lease = createLeaseController({ client, dictationId: props.dictationId });
+    const held = V.shallowRef(lease.getState());
+    const unsubscribe = lease.subscribe((next) => { held.value = next; });
+    const writable = V.computed(() => held.value.writable && document.value !== null && !loading.value
+        && (!props.canWrite || props.canWrite()));
+
+    async function load(discard = false) {
+        if (disposed || loading.value || (!discard && editor.value?.dirty)) return false;
+        loading.value = true;
+        const res = await client.request(path);
+        if (disposed) return false;
+        loading.value = false;
+        const data = res.outcome === 'ok' ? res.data : null;
+        if (!data || typeof data.text !== 'string' || typeof data.etag !== 'string') {
+            loadFailed.value = true;
+            return false;
+        }
+        loadFailed.value = false;
+        base = data;
+        pending = null;
+        // Old revisions have no snapshot. An empty document still needs a place to type.
+        const lines = data.text.split('\n', 2049);
+        document.value = data.document?.nodes.length ? data.document : {
+            schema_version: 1,
+            nodes: (lines.length > 2048 ? [data.text] : lines).map((text) => ({
+                id: defaultKey(), kind: 'paragraph', level: 0,
+                runs: [{ id: defaultKey(), text, audio_anchor_id: null }],
+            })),
+        };
+        return true;
+    }
+
+    async function save(sent) {
+        if (disposed || !writable.value || !lease.canWrite()) return { outcome: 'permission' };
+        const { generation } = held.value;
+        if (!pending || pending.body.lease_generation !== generation) {
+            // Keep the exact key, validator and payload until an uncertain save is settled.
+            const text = sent.nodes.map((node) => node.kind === 'graphic'
+                ? '[graphic: ' + node.alt_text + ']' : node.runs.map((run) => run.text).join('')).join('\n');
+            pending = { sent, method: 'POST', idempotencyKey: defaultKey(),
+                ifMatch: base.etag.replace(/\.g\d+"$/, '.g' + generation + '"'),
+                body: { text, document: sent, lease_generation: generation,
+                    expected_text_revision_id: base.text_revision_id,
+                    expected_document_version: base.document_version ?? 0,
+                    expected_state_version: base.state?.version,
+                    audio_position_ms: base.state?.audio_position_ms ?? 0 } };
+        }
+        const request = pending;
+        const res = await client.request(path + '/save', request);
+        if (disposed) return { outcome: 'cancelled' };
+        if (res.status === 423 || res.code === 'LEASE_STALE' || res.outcome === 'permission') {
+            if (held.value.generation === generation) lease.notifyGeneration(-1);
+            pending = null;
+            return { outcome: 'permission' };
+        }
+        if (res.outcome === 'network' || res.outcome === 'UNKNOWN') return res;
+        if (res.outcome !== 'ok') { pending = null; return res; }
+        const data = res.data;
+        if (!data?.document || !Number.isInteger(data.document_version) || typeof data.etag !== 'string'
+            || typeof data.text_revision_id !== 'string') return { outcome: 'UNKNOWN' };
+        pending = null;
+        base = { ...data, state: { version: data.state_version, audio_position_ms: data.audio_position_ms } };
+        return { ...res, sent: request.sent };
+    }
+
+    async function addGraphic(file) {
+        if (!writable.value || !lease.canWrite() || file.type !== 'image/png' || file.size > 2 * 1024 * 1024) return null;
+        const generation = held.value.generation;
+        const res = await client.request(graphicsPath, { method: 'POST', png: file });
+        if (disposed || !writable.value || !lease.canWrite() || generation !== held.value.generation) return null;
+        return res.status === 201 && res.data?.dictation_id === props.dictationId ? res.data.object_id : null;
+    }
+
+    V.watch(() => state.value.session.checkpoint, () => { void load(); });
+    function warnOnLeave(event) {
+        if (editor.value?.dirty) { event.preventDefault(); event.returnValue = ''; }
+    }
+    V.onMounted(() => { void load(); globalThis.addEventListener('beforeunload', warnOnLeave); });
+    V.onBeforeUnmount(() => {
+        disposed = true;
+        globalThis.removeEventListener('beforeunload', warnOnLeave);
+        unsubscribe();
+        const release = () => Promise.resolve(lease.release()).finally(lease.dispose);
+        if (acquiring) void acquiring.finally(release);
+        else void release();
+    });
+    return { client, editor, document, loading, loadFailed, held, writable, load, save, addGraphic,
+        graphicsPath: '/api/clinic/v1' + graphicsPath,
+        acquire: () => {
+            acquiring = lease.acquire().then((lock) => {
+                if (lock.writable) return load();
+            }).finally(() => { acquiring = null; });
+        },
+        release: () => lease.release() };
+}
+
 /** Inner body: one instance per dictation. */
 const LiveBody = {
     name: 'ClinicLiveBody',
     props: BODY_PROPS,
+    components: { RichTextEditor },
     setup(props) {
         const V = props.vue || globalThis.Vue;
         if (!V) throw new Error('Vue is required to mount the live view');
@@ -578,7 +694,11 @@ const LiveBody = {
         });
         const confirmed = V.computed(() => state.value.session.phrases.filter((p) => p.state === 'server_saved'));
         const local = V.computed(() => state.value.session.phrases.filter((p) => p.state !== 'server_saved'));
-        return { c, state, pending, confirmed, local, FOCUS, DISABLED, box, TEXT, ICON_PATHS };
+        const writing = props.currentUser?.id != null ? useLiveDocument(V, props, state) : null;
+        const richEditor = writing?.editor;
+        const canLeave = () => !richEditor?.value?.dirty
+            || globalThis.confirm('Ungespeicherte Änderungen gehen verloren. Live-Diktat verlassen?');
+        return { c, state, pending, confirmed, local, writing, richEditor, canLeave, FOCUS, DISABLED, box, TEXT, ICON_PATHS };
     },
     template: `
 <section class="clinic-live-view v8-page" data-testid="clinic-live-view" aria-labelledby="clv-title" :data-phase="state.phase" style="width: 100%; max-width: 1440px; margin-inline: auto">
@@ -617,7 +737,8 @@ const LiveBody = {
         <small v-if="state.note" role="note" data-testid="live-note" style="font-size: 13px">{{ state.note }}</small>
       </div>
     </div>
-    <div class="writing-surface" style="min-height: clamp(360px, calc(100dvh - 370px), 760px)">
+    <div class="writing-surface" style="min-height: clamp(360px, calc(100dvh - 370px), 760px)"
+      :style="writing ? { minHeight: 'clamp(360px, calc(100dvh - 430px), 760px)' } : null">
       <div style="width: 100%; min-width: 0">
         <ol class="live-phrases" :aria-label="TEXT.phrases" aria-live="off" data-testid="live-phrases"
             style="list-style: none; margin: 0; display: grid; gap: 4px; font-size: 16px; line-height: 1.75; align-content: start"
@@ -630,7 +751,7 @@ const LiveBody = {
                    style="width: 100%; max-width: 300px; height: 54px; color-scheme: light dark"></audio>
           </li>
         </ol>
-        <p v-if="!confirmed.length && !local.length && !state.session.partial && (state.phase === 'idle' || state.phase === 'read_only' || state.phase === 'stopped')"
+        <p v-if="!writing && !confirmed.length && !local.length && !state.session.partial && (state.phase === 'idle' || state.phase === 'read_only' || state.phase === 'stopped')"
            role="note" class="hint" style="margin: 0; padding: 22px 28px">{{ state.phase === 'idle' ? TEXT.empty : 'Keine gespeicherten Sätze.' }}</p>
         <section v-if="local.length || state.session.partial" aria-labelledby="clv-local" style="padding: 12px 28px">
           <h3 id="clv-local" style="${H2}">{{ TEXT.unsaved }}</h3>
@@ -641,6 +762,21 @@ const LiveBody = {
             <li v-if="state.session.partial" data-state="partial"><em>{{ state.session.partial }}</em> <small class="tag neutral">{{ TEXT.partial }}</small></li>
           </ul>
         </section>
+        <div v-if="writing" style="display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;padding:8px 16px;border-bottom:1px solid var(--v8-line-2)">
+          <p role="status" style="margin:0">{{ writing.held.value.message }}</p>
+          <p v-if="writing.loading.value && !writing.document.value" role="status">Text wird geladen …</p>
+          <button v-if="writing.document.value && ['idle', 'lost', 'error'].includes(writing.held.value.status) && writing.held.value.mayAcquire !== false"
+            type="button" class="button" style="min-height:48px" @click="writing.acquire">Bearbeiten</button>
+          <button v-if="writing.held.value.status === 'held'"
+            type="button" class="button" style="min-height:48px" @click="writing.release">Bearbeitung beenden</button>
+          <p v-if="writing.loadFailed.value" role="alert">Der Text konnte nicht geladen werden.</p>
+          <button v-if="writing.loadFailed.value && !writing.document.value" type="button" class="button"
+            style="min-height:48px" @click="writing.load()">Erneut laden</button>
+        </div>
+        <RichTextEditor v-if="writing?.document.value" ref="richEditor"
+          :client="writing.client" :document="writing.document.value" :can-edit="writing.writable.value"
+          :save-document="writing.save" :reload-document="() => writing.load(true)"
+          :add-graphic="writing.addGraphic" :graphics-path="writing.graphicsPath" />
       </div>
     </div>
     <div class="editor-status"><span>{{ TEXT.saved }}: {{ confirmed.length }}</span><span class="editor-status-right"><span>{{ state.announcement }}</span></span></div>
@@ -661,7 +797,9 @@ export const LiveView = {
         V.onBeforeUnmount(() => globalThis.removeEventListener('pageshow', restore));
         return { visit };
     },
-    template: `<LiveBody :key="dictationId + ':' + visit" :client="client" :dictation-id="dictationId" :vue="vue" :can-write="canWrite" :on-ready="onReady" :capture-module="captureModule" />`,
+    methods: { canLeave() { return this.$refs.body?.canLeave() !== false; } },
+    template: `<LiveBody ref="body" :key="dictationId + ':' + visit" :client="client" :dictation-id="dictationId" :current-user="currentUser"
+      :vue="vue" :can-write="canWrite" :on-ready="onReady" :capture-module="captureModule" />`,
 };
 
 export function registerLiveView(app) {
