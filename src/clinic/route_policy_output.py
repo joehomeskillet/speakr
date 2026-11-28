@@ -28,6 +28,7 @@ AUTH: tuple[str, ...] = (
     'clinic_dictation_detail.summary',
     'clinic_context.get_context',
     'clinic_context.post_context',
+    'clinic_case.view',
     'clinic_templates.list_templates',
     'clinic_templates.get_template',
     'clinic_templates.get_template_content',
