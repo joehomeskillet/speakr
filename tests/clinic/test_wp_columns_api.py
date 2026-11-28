@@ -14,6 +14,8 @@ Covers:
 
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 import pytest
@@ -730,3 +732,133 @@ def test_http_routes_disabled_when_clinic_mode_off(http_app, monkeypatch):
     _, client, _, _ = http_app
     resp = client.get(PREFIX)
     assert resp.status_code == 404
+
+
+@pytest.fixture
+def mounted_worklist(clinic_env):
+    from src.app import app, register_clinic_resources, register_clinic_worklist
+    from src.clinic import workflow
+    from src.clinic.identity import ClinicAccountPolicy
+    from src.clinic.models import ClinicDictation, ClinicOriginal
+    from src.clinic.routes_metadata_fields import create_metadata_fields_blueprint
+    from src.database import db
+    from src.models import Recording, User
+
+    mounted = Flask(__name__)
+    mounted.config.update(TESTING=True, SECRET_KEY="synthetic-worklist-test-key",
+                          SQLALCHEMY_DATABASE_URI=app.config["SQLALCHEMY_DATABASE_URI"])
+    db.init_app(mounted)
+    LoginManager(mounted).user_loader(lambda uid: db.session.get(User, int(uid.partition(":")[0])))
+    policy.install_pool_policy(mounted)
+    register_clinic_resources(mounted)
+    register_clinic_worklist(mounted)
+    mounted.register_blueprint(create_metadata_fields_blueprint())
+    mounted.add_url_rule("/test-csrf", view_func=lambda: jsonify(csrf=generate_csrf()))
+
+    with mounted.app_context():
+        users = [User(username=kind, email=f"p245-{kind}@example.invalid", password="x", is_admin=admin)
+                 for kind, admin in (("admin", True), ("author", False), ("other", False))]
+        db.session.add_all(users)
+        db.session.flush()
+        admin, author, other = users
+        db.session.add(ClinicAccountPolicy(user_id=admin.id, status="active", login_policy="local_only"))
+        originals = {
+            "XML": (author, "<meta><patient><station>Lab-A</station><name>Private</name></patient></meta>"),
+            "Legacy": (author, None),
+            "Malformed": (author, "<meta><patient>"),
+            "Foreign": (other, "<meta><patient><station>Foreign</station></patient></meta>"),
+        }
+        ids = {}
+        for title, (owner, xml) in originals.items():
+            rec = Recording(user_id=owner.id, title=title, status="COMPLETED", original_filename="test.wav")
+            db.session.add(rec)
+            db.session.flush()
+            item = ClinicDictation(recording_id=rec.id, author_user_id=owner.id)
+            db.session.add(item)
+            db.session.flush()
+            db.session.add(workflow.ClinicWorkflowDictation(
+                id=item.id, author_user_id=owner.id, pool_id=str(uuid4()), status=workflow.DRAFT,
+                created_at=datetime(2026, 11, 27, 8, 30, tzinfo=timezone.utc), audio_seconds=10))
+            if xml is not None:
+                db.session.add(ClinicOriginal(
+                    dictation_id=item.id, content_hash="hash", size_bytes=1, storage_key="synthetic",
+                    receipt=json.dumps({"origin": "web-upload", "metadata_xml": xml}), origin_ref="test"))
+            ids[title] = item.id
+        admin_id, author_id = admin.get_id(), author.get_id()
+        db.session.commit()
+
+    def login(user_id):
+        client = mounted.test_client()
+        with client.session_transaction() as browser:
+            browser["_user_id"] = user_id
+        return client, {"X-CSRFToken": client.get("/test-csrf").json["csrf"]}
+
+    return login(admin_id), login(author_id), ids
+
+
+def test_mounted_rows_project_only_active_xml_for_visible_dictations(mounted_worklist):
+    (admin, csrf), (author, _), ids = mounted_worklist
+    fields = "/api/clinic/v1/metadata-fields"
+    for name, properties in (("Station", {"xml_path": "patient/station"}),
+                             ("Inactive", {"xml_path": "patient/name", "is_active": False}),
+                             ("FormOnly", {}),
+                             ("title", {"xml_path": "patient/name"})):
+        saved = admin.put(f"{fields}/{name}", json={"label": name, **properties}, headers=csrf)
+        assert saved.status_code == 201
+
+    response = author.get("/api/clinic/v1/worklist/rows")
+    assert response.status_code == 200
+    assert response.json["total"] == 3
+    rows = {row["title"]: row for row in response.json["items"]}
+    assert {title: row["Station"] for title, row in rows.items()} == {
+        "XML": "Lab-A", "Legacy": None, "Malformed": None,
+    }
+    assert rows["XML"]["dictation_id"] == ids["XML"]
+    assert rows["XML"]["created_at"] == "2026-11-27T08:30:00Z"
+    assert all({"Inactive", "FormOnly", "metadata_xml"}.isdisjoint(row) for row in rows.values())
+    assert "Private" not in response.get_data(as_text=True)
+
+
+def test_mounted_layout_accepts_and_retires_xml_column(mounted_worklist):
+    (admin, csrf), (author, author_csrf), ids = mounted_worklist
+    field = "/api/clinic/v1/metadata-fields/Station"
+    created = admin.put(field, json={"label": "Station", "xml_path": "patient/station"}, headers=csrf)
+    assert created.status_code == 201
+    default = author.get(PREFIX).json
+    layout = default["layout"]
+    layout["columns"].append({"key": "Station", "width": 140, "visible": True})
+    layout["sort"], layout["group_by"] = [["Station", "asc"]], ["Station"]
+    headers = {**author_csrf, "If-Match": '"0"', "Idempotency-Key": str(uuid4())}
+    saved = author.put(PREFIX, json=layout, headers=headers)
+    assert saved.status_code == 200
+    assert author.get(PREFIX).json == saved.json
+
+    url = "/api/clinic/v1/worklist/rows?page_size=1"
+    first = author.get(url)
+    assert first.status_code == 200
+    assert first.json["items"][0]["dictation_id"] == ids["XML"]
+    retired = admin.put(field, json={"is_active": False, "expected_version": created.json["version"]},
+                        headers=csrf)
+    assert retired.status_code == 200
+    updated = author.get(url, headers={"If-None-Match": first.headers["ETag"]})
+    assert updated.status_code == 200
+    assert "Station" not in updated.json["items"][0]
+    assert "Station" not in {column["key"] for column in author.get(PREFIX).json["layout"]["columns"]}
+
+
+def test_mounted_layout_loads_after_saving_more_than_fifteen_xml_columns(mounted_worklist):
+    (admin, csrf), (author, author_csrf), _ = mounted_worklist
+    columns = []
+    for index in range(16):
+        name = f"Station{index}"
+        saved = admin.put(f"/api/clinic/v1/metadata-fields/{name}",
+                          json={"label": name, "xml_path": "patient/station"}, headers=csrf)
+        assert saved.status_code == 201
+        columns.append({"key": name, "width": 140, "visible": True})
+    layout = {"version": 1, "columns": columns, "sort": [], "group_by": []}
+    headers = {**author_csrf, "If-Match": '"0"', "Idempotency-Key": str(uuid4())}
+    assert author.put(PREFIX, json=layout, headers=headers).status_code == 200
+    loaded = author.get(PREFIX)
+    assert loaded.status_code == 200
+    assert loaded.json["layout"]["columns"][:16] == columns
+    assert len(loaded.json["layout"]["columns"]) == 30

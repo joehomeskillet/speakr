@@ -31,6 +31,8 @@ SEED = r'''
         actor.name = "Eva Diktat"
         db.session.commit()
         pools.add_author_member(own_pool.id if mode == "own" else pool.id, actor.id, actor_id=admin.id)
+        if mode == "retry":
+            pools.allow(actor.id, "own", actor_id=admin.id, actions=("rename", "priority"))
         target_mode, target_ids, policy = settings
         rd.set_default(actor.id, target_mode, target_ids=target_ids, actor_id=actor.id, expected_version=0)
         db.session.add(rd.ClinicRecipientChoiceGrant(user_id=actor.id, choice=policy))
@@ -137,6 +139,17 @@ def test_send_and_reload_routing_target(browser, recipient_server, audio, size, 
             capture(draft_page, target, stem, "detail-empty")
             draft_page.close()
         stage = view.get_by_test_id("submit-draft")
+        expect(view.get_by_test_id("draft-metadata")).to_be_visible()
+        metadata_etag = None
+        if scenario == "retry":
+            expect(stage).to_be_disabled()
+            view.get_by_label("Anmerkung").fill("Synthetische Versandnotiz")
+            with page.expect_response(path + "/metadata") as saved:
+                view.get_by_test_id("save-draft").click()
+            assert saved.value.ok, saved.value.text()
+            metadata_etag = saved.value.json()["etag"]
+        expect(stage).to_be_enabled()
+        capture(page, view, stem, "draft")
         stage.click()
         preview = view.get_by_test_id("send-preview")
         default_label, label, mode = {
@@ -195,6 +208,7 @@ def test_send_and_reload_routing_target(browser, recipient_server, audio, size, 
         }
         if scenario == "retry":
             assert len(sent) == 2 and sent[0] == sent[1]
+            assert sent[0][1] == metadata_etag
         expect(view.get_by_test_id("send-receipt")).to_have_text("Ziel: " + label)
         capture(page, view, stem, "receipt")
         view.get_by_test_id("open-created").click()

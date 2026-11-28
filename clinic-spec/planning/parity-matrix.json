@@ -2678,9 +2678,9 @@
       "tests": [
         "BT-COR-005"
       ],
-      "implementation_status": "not_started",
+      "implementation_status": "partial",
       "reference_evidence": [],
-      "target_evidence": [],
+      "target_evidence": ["P-145: tests/clinic/test_cor_backstep_browser.py (lokaler Chromium-Test mit synthetischem Audio für zeitbasierten Rücksprung)"],
       "parity_result": "not_run",
       "automatic_waiver_allowed": false,
       "web_feasibility": "dependency_validation",

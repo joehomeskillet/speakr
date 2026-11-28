@@ -67,6 +67,7 @@ from src.services import audit
 PATH = '/api/clinic/v1/dictations/<uuid:dictation_id>'
 PERM_METADATA = 'clinic.metadata'
 PERM_ARCHIVE = 'clinic.archive'
+PERM_SKIP_ASR = 'review'
 # Shared permission name whose policy actions are exactly ('view',) in the app's table.
 PERM_VIEW = 'history'
 Authorize = Callable[[int, str, ClinicDictation], bool]
@@ -367,12 +368,14 @@ def create_blueprint(
                 apply: Callable[[ClinicDictation, int, str, datetime], JSON], *, created: int = 200,
                 author_only: bool = False):
         target, actor = str(dictation_id), current_user.id
-        # Serialize first archive registration and author sends with their receipts on SQLite.
-        if author_only or name == 'archive':
+        lock_before_receipt = author_only or name == 'skip_asr'
+        # Serialize first archive registration and guarded workflow writes with their receipts on SQLite.
+        if lock_before_receipt or name == 'archive':
             connection = db.session.connection()
             if connection.dialect.name == 'sqlite' and not connection.connection.driver_connection.in_transaction:
                 connection.exec_driver_sql('BEGIN IMMEDIATE')
-        row = db.session.get(ClinicDictation, target, with_for_update=author_only, populate_existing=author_only)
+        row = db.session.get(ClinicDictation, target, with_for_update=lock_before_receipt,
+                             populate_existing=lock_before_receipt)
         if author_only and (row is None or row.author_user_id != actor):
             abort(403)
         if row is None or authorize(actor, permission, row) is not True:
@@ -391,7 +394,7 @@ def create_blueprint(
         digest = sha256(json.dumps([name, expected, body], sort_keys=True, default=str).encode()).hexdigest()
 
         def operation() -> JSON:
-            if author_only:
+            if lock_before_receipt:
                 return apply(row, expected, key, datetime.now(timezone.utc))
             locked = db.session.get(ClinicDictation, target, populate_existing=True, with_for_update=True)
             return apply(locked, expected, key, datetime.now(timezone.utc))
@@ -624,6 +627,27 @@ def create_blueprint(
             return result
 
         return command(dictation_id, 'send', 'clinic.dictate', body, apply, author_only=True)
+
+    @bp.post(f'{PATH}/asr/skip')
+    def skip_asr(dictation_id: UUID) -> Response:
+        body = request.get_json(silent=True)
+        if body != {}:
+            abort(400)
+
+        def apply(row, expected, _key, now):
+            if row.version_counter != expected:
+                raise workflow.WorkflowError('stale_version')
+            item = recognition_state.skip_wait(db.session(), row, now)
+            row.version_counter += 1
+            if audit.record_in_tx('recording.edited', recording_id=row.recording_id,
+                                  recording_owner_id=row.author_user_id, actor_kind='session',
+                                  actor_user_id=current_user.id, force=True,
+                                  details={'fields': ['workflow_status', 'asr_skip']}) is None:
+                raise workflow.WorkflowError('audit_unavailable')
+            return {'dictation_id': row.id, 'status': item.status,
+                    'version': row.version_counter, 'etag': _etag(row)}
+
+        return command(dictation_id, 'skip_asr', PERM_SKIP_ASR, body, apply)
 
     @bp.post(f'{PATH}/archive')
     def archive(dictation_id: UUID):
