@@ -24,12 +24,16 @@ import json
 import logging
 import re
 import uuid
+from functools import partial
+from typing import BinaryIO
 
 from flask import Blueprint, g, jsonify, request
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.clinic import agent_channel, agent_channel_ingest, import_centre
+from src.clinic import agent_channel, agent_channel_ingest, autosend_evaluator, import_centre
 from src.clinic.agent_channel import AgentChannelError, ChannelPolicy
+from src.clinic.author_resolution import AuthorResolutionError
+from src.clinic.config import clinic_mode_enabled
 from src.clinic.ingest import IngestError, IngestService
 from src.database import db
 
@@ -119,14 +123,39 @@ def _ingest_id(value):
     return value
 
 
+def read_embedded_author(stream: BinaryIO) -> str | None:
+    """Read the fixed-width DSS author ID or the corroborated DS2 AUTHOR field."""
+    header = stream.read(1536)
+    magic = header[:4]
+    size = {b'\x02dss': 1024, b'\x03dss': 1536, b'\x03ds2': 1536}.get(magic)
+    if size is None:
+        return None
+    if len(header) < size:
+        raise AuthorResolutionError('truncated_header')
+
+    def field(offset: int, width: int) -> bytes:
+        return header[offset:offset + width].partition(b'\0')[0].rstrip(b' ')
+
+    author = field(0x0c, 16)
+    if magic == b'\x03ds2':
+        label, keyword = field(0x240, 30).lower(), field(0x25e, 30)
+        if (author or label == b'author') and (not author or label != b'author' or author != keyword):
+            raise AuthorResolutionError('contradictory_header')
+    if not author:
+        return None
+    if re.fullmatch(rb'[A-Za-z0-9_.-]+', author) is None:
+        raise AuthorResolutionError('invalid_header_author')
+    return author.decode('ascii')
+
+
 def create_agent_blueprint(
     policy: ChannelPolicy, ingest_service: IngestService, proxy_secret: str | bytes, *,
-    device_map=None, alias_map=None, embedded_author_for=None,
+    device_map=None, alias_map=None, embedded_author_for=None, author_lookup=None,
 ) -> Blueprint:
     """Blueprint with the agent routes. ``proxy_secret`` is the secret shared with the trusted ingress.
 
-    ``device_map``, ``alias_map`` and ``embedded_author_for`` are server-owned inputs of
-    ``import_centre.finalize_delivery``; nothing of them is read from a request.
+    Author evidence providers are server-owned. The production lookup consumes
+    embedded evidence from the verified upload stream, never inventory or finalize hints.
     """
     secret = proxy_secret.encode('utf-8') if isinstance(proxy_secret, str) else bytes(proxy_secret)
     if len(secret) < MIN_PROXY_SECRET_BYTES:
@@ -174,6 +203,9 @@ def create_agent_blueprint(
         items = body.get('items', [])
         if not isinstance(items, list) or not all(isinstance(item, dict) for item in items):
             raise _Refusal(400, 'invalid')
+        if clinic_mode_enabled() and author_lookup is not None:
+            evaluate = partial(autosend_evaluator.evaluate_inventory, author_lookup=author_lookup)
+            return _ok(agent_channel.report_inventory(g.clinic_agent, policy, body, evaluate=evaluate))
         return _ok(agent_channel.report_inventory(g.clinic_agent, policy, body))
 
     @bp.get('/intents')
@@ -219,7 +251,8 @@ def create_agent_blueprint(
             raise _Refusal(400, 'invalid')
         return _ok(import_centre.finalize_delivery(
             g.clinic_agent, policy, ingest_id=ingest_id, body=body, ingest_service=ingest_service,
-            device_map=device_map, alias_map=alias_map, embedded_author_for=embedded_author_for))
+            device_map=device_map, alias_map=alias_map, embedded_author_for=embedded_author_for,
+            verified_author=(read_embedded_author, author_lookup) if author_lookup is not None else None))
 
     @bp.get('/ingests/<ingest_id>')
     @handled
