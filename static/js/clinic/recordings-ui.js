@@ -82,6 +82,8 @@ export const TEXT = Object.freeze({
     poolId: 'Schreibdienst',
     authorAny: 'Alle Diktierenden',
     poolAny: 'Alle Schreibdienste',
+    startGroup: 'Gruppe',
+    startGroupAny: 'Alle Gruppen',
     statusAny: 'Alle Status',
     range: 'Zeitraum',
     activeFilters: 'Aktive Filter',
@@ -403,7 +405,7 @@ export function createRecordingsController(options) {
 
     const state = reactive({
         rows: [], nextCursor: null, loaded: false, loading: false, loadingMore: false,
-        error: null, denied: false, stale: false,
+        error: null, denied: false, stale: false, startNotice: '',
         filters: { ...emptyFilters() }, draft: { ...emptyFilters() }, query: '',
     });
     const registry = { authors: new Map(), pools: new Map() };
@@ -516,6 +518,7 @@ export function createRecordingsController(options) {
     }
 
     function applyFilters() {
+        state.startNotice = '';
         state.filters = { ...state.draft };
         refreshPickers();
         state.nextCursor = null;
@@ -585,6 +588,19 @@ export function createRecordingsController(options) {
             loadedRevision = snap.loadedRevision;
             loadedPages = snap.loadedPages || 1;
             return refreshIfChanged();
+        }
+        if (options.startSelection) {
+            const selection = await options.startSelection;
+            if (disposed || sequence) return null;
+            if (selection && !hasDraftChanges()) {
+                state.startNotice = selection.notice;
+                if (selection.pool) {
+                    const { id, name } = selection.pool;
+                    registry.pools.set(id, name);
+                    state.filters.pool_id = state.draft.pool_id = id;
+                    refreshPickers();
+                }
+            }
         }
         return load();
     }
