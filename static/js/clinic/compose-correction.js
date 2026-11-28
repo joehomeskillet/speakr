@@ -167,6 +167,15 @@ export const TEXT = Object.freeze({
     wordAria: 'Wort abspielen',
     unalignedMark: 'ohne Audio',
     markers: 'Marken im Audio',
+    reviewTitle: 'Zu prüfende Wörter',
+    reviewHint: 'Pfeiltasten wechseln den Treffer. Eingabe bestätigt, Esc wählt die Textstelle aus.',
+    reviewConfirm: 'Bestätigen',
+    reviewConfirmed: 'Bestätigt',
+    reviewOpen: 'Offen',
+    reviewNone: 'Keine offenen Treffer',
+    reviewFailed: 'Bestätigung nicht möglich. Bitte erneut versuchen.',
+    reviewLoadFailed: 'Treffer konnten nicht geladen werden.',
+    reviewDraft: 'Geänderte Stelle zuerst speichern.',
     lease: 'Bearbeitungsstatus',
     save: 'Speichern',
     saveSection: 'Speicherstand',
@@ -471,7 +480,7 @@ export function createCorrectionViewController(options) {
             knownRevision = editor.textRevisionId.value;
             ready.value = true;
             loadGeneration.value += 1;
-            await Promise.all([alignment.refresh(), saver.loadResume(), modes.load()]);
+            await Promise.all([alignment.refresh(), saver.loadResume(), modes.load(), loadReview()]);
         }
         return res;
     }
@@ -483,7 +492,7 @@ export function createCorrectionViewController(options) {
         if (revision === knownRevision) return null;
         knownRevision = revision;
         revisionGeneration.value += 1;
-        return alignment.refresh();
+        return Promise.all([alignment.refresh(), loadReview()]);
     }
 
     if (api.watch) stops.push(api.watch(editor.textRevisionId, () => { syncRevision(); }));
@@ -511,7 +520,7 @@ export function createCorrectionViewController(options) {
         if (res && res.ok) {
             knownRevision = editor.textRevisionId.value;
             loadGeneration.value += 1;
-            await alignment.refresh();
+            await Promise.all([alignment.refresh(), loadReview()]);
         }
         return res;
     }
@@ -527,7 +536,7 @@ export function createCorrectionViewController(options) {
         if (res && res.ok) {
             knownRevision = editor.textRevisionId.value;
             loadGeneration.value += 1;
-            await alignment.refresh();
+            await Promise.all([alignment.refresh(), loadReview()]);
         }
         return res;
     }
@@ -570,6 +579,118 @@ export function createCorrectionViewController(options) {
         seek(ms / 1000);
         return true;
     }
+
+    // --- review markers at the affected span (PAR-VOC-004) ---------------------------
+    // Server offsets and confirmations belong to the saved text revision (UTF-16 units).
+    const reviewHits = ref([]);
+    const reviewActive = ref(0);
+    const reviewMessage = ref('');
+    let reviewBase = '';
+    const reviewRevision = ref(null);
+    const reviewLoaded = ref(false);
+    let reviewSeq = 0;
+    const reviewPath = () => '/dictations/' + encodeURIComponent(dictationId) + '/correction/review-markers';
+    const reviewKeys = new Map();
+    const newReviewKey = () => (globalThis.crypto && globalThis.crypto.randomUUID ? globalThis.crypto.randomUUID() : 'rk-' + Date.now() + '-' + Math.random().toString(16).slice(2));
+
+    /** Changed range in the saved and draft texts, excluding their common prefix and suffix. */
+    function reviewEdit(current) {
+        if (current === reviewBase) return null;
+        let p = 0;
+        const max = Math.min(current.length, reviewBase.length);
+        while (p < max && current[p] === reviewBase[p]) p += 1;
+        let s = 0;
+        while (s < max - p && current[current.length - 1 - s] === reviewBase[reviewBase.length - 1 - s]) s += 1;
+        return { start: p, end: reviewBase.length - s, draftEnd: current.length - s };
+    }
+
+    /** Hits with their state: 'confirmed' only while the confirmed span is untouched in the editor text. */
+    const reviewList = api.computed(() => {
+        if (reviewRevision.value !== editor.textRevisionId.value) return [];
+        const text = editor.text.value;
+        const edit = reviewEdit(text);
+        // A word also changes when an adjacent edit joins it to another word or extends it.
+        const joinedBefore = edit && text.slice(0, edit.draftEnd).match(/[\p{L}\p{N}_]+$/u)?.[0];
+        const joinedAfter = edit && text.slice(edit.start).match(/^[\p{L}\p{N}_]+/u)?.[0];
+        return reviewHits.value.map((h) => {
+            const savedEnd = h.offset + h.label.length;
+            const shift = edit ? edit.draftEnd - edit.end : 0;
+            const start = !edit || h.offset < edit.start ? h.offset : h.offset >= edit.end ? h.offset + shift : edit.start;
+            const end = !edit || savedEnd <= edit.start ? savedEnd : savedEnd >= edit.end ? savedEnd + shift : edit.draftEnd;
+            const before = edit && h.offset === edit.end && joinedBefore ? joinedBefore.length : 0;
+            const after = edit && savedEnd === edit.start && joinedAfter ? joinedAfter.length : 0;
+            const touched = Boolean(before || after || (edit && h.offset < edit.end && savedEnd > edit.start));
+            return {
+                ...h, start: start - before, end: end + after, touched, state: h.confirmed && !touched ? 'confirmed' : 'open',
+                context: reviewBase.slice(Math.max(0, h.offset - 20), savedEnd + 20).replace(/\s+/g, ' '),
+            };
+        });
+    });
+    const reviewOutstanding = api.computed(() => reviewList.value.filter((h) => h.state === 'open').length);
+
+    async function loadReview() {
+        if (disposed) return { ok: false, code: 'cancelled', message: '' };
+        const mine = ++reviewSeq;
+        const revision = editor.textRevisionId.value;
+        const text = editor.text.value;
+        if (reviewRevision.value !== revision) reviewLoaded.value = false;
+        const [res, base] = await Promise.all([
+            client.request(reviewPath()),
+            editor.dirty.value ? client.request('/dictations/' + encodeURIComponent(dictationId) + '/correction') : null,
+        ]);
+        if (mine !== reviewSeq || disposed || revision !== editor.textRevisionId.value || res?.outcome === 'cancelled') {
+            return { ok: false, code: 'cancelled', message: '' };
+        }
+        const data = res?.data;
+        if (res?.outcome !== 'ok' || data?.text_revision_id !== revision || !Array.isArray(data?.review_markers)
+            || (base && (base.outcome !== 'ok' || base.data?.text_revision_id !== revision || typeof base.data.text !== 'string'))) {
+            reviewMessage.value = TEXT.reviewLoadFailed;
+            return { ok: false, code: 'failed', message: TEXT.reviewLoadFailed };
+        }
+        reviewBase = base ? base.data.text : text;
+        reviewRevision.value = revision;
+        const list = data.review_markers;
+        reviewHits.value = list.filter((h) => h && typeof h.id === 'string' && typeof h.label === 'string' && Number.isInteger(h.anchor_offset))
+            .map((h) => ({ id: h.id, label: h.label, offset: h.anchor_offset, confirmed: false }));
+        reviewActive.value = 0;
+        reviewMessage.value = '';
+        reviewLoaded.value = true;
+        return { ok: true };
+    }
+
+    function moveReview(step) {
+        const n = reviewHits.value.length;
+        if (!n) return null;
+        reviewActive.value = (reviewActive.value + step + n) % n;
+        return reviewActive.value;
+    }
+
+    /** Confirm one open hit (server: lease generation and expected text revision). */
+    async function confirmReview(id) {
+        const hit = reviewList.value.find((h) => h.id === id);
+        const snap = editor.lease && editor.lease.value;
+        const generation = snap && Number.isInteger(snap.generation) ? snap.generation : null;
+        if (disposed || !hit || hit.touched || hit.state !== 'open') return { ok: false, code: 'noop', message: '' };
+        const revision = reviewRevision.value;
+        if (!editor.canEdit.value || generation === null || !revision) return { ok: false, code: 'readOnly', message: TEXT.readOnly };
+        const body = { expected_text_revision_id: revision, lease_generation: generation };
+        const digest = id + JSON.stringify(body);
+        if (!reviewKeys.has(digest)) reviewKeys.set(digest, newReviewKey());
+        const res = await client.request(reviewPath() + '/' + encodeURIComponent(id) + '/confirm',
+            { method: 'POST', idempotencyKey: reviewKeys.get(digest), body });
+        if (disposed || revision !== editor.textRevisionId.value || res?.outcome === 'cancelled') {
+            return { ok: false, code: 'cancelled', message: '' };
+        }
+        if (res && res.outcome === 'ok') {
+            reviewKeys.delete(digest);
+            reviewHits.value = reviewHits.value.map((h) => (h.id === id ? { ...h, confirmed: true } : h));
+            reviewMessage.value = '';
+            return { ok: true };
+        }
+        reviewMessage.value = TEXT.reviewFailed;
+        return { ok: false, code: 'failed', message: TEXT.reviewFailed };
+    }
+
 
     // --- lifecycle ------------------------------------------------------------
     const leaseRun = { acquire: editor.acquire, release: editor.release, takeOver: editor.takeOver };
@@ -665,6 +786,7 @@ export function createCorrectionViewController(options) {
     return {
         vue: V, api, editor, alignment, modes, saver, repeat, gain: () => gain,
         ready, loadGeneration, revisionGeneration, audioEl, gainState, closeMessage, resumeLabel,
+        reviewList, reviewOutstanding, reviewActive, reviewMessage, reviewLoaded, loadReview, moveReview, confirmReview,
         recordingId: () => opts.recordingId || editor.audio.value.recordingId || null,
         peaksKey, peaksFetch,
         stepSeconds: v8 ? STEP_SECONDS_V8 : STEP_SECONDS, togglePlayback,
@@ -736,6 +858,10 @@ const LOCAL_CSS = `
 .v8-ui .audio-edit-fields .clinic-audio-edit p {flex-basis:100%;margin:0}
 .v8-ui .editor-page :is(.context-tools,.toolbar-group:last-child,.find-row,.word-sync-controls,.dialoghead,.popover-heading) .tooltip{left:auto;right:0;transform:none}
 .v8-ui .editor-page .alignment-text{max-height:8lh;overflow:auto;overflow-wrap:anywhere;white-space:pre-wrap;line-height:1.8;margin:0}
+.v8-ui .editor-page .alignment-panel .panel-header{flex-wrap:wrap}
+.v8-ui .editor-page .alignment-panel .panel-header>button{white-space:nowrap}
+.v8-ui .editor-page .review-hits button:focus-visible{outline:2px solid var(--brand-accent);outline-offset:2px}
+.v8-ui .editor-page .review-hits button[aria-disabled=true]{cursor:default}
 .v8-ui .editor-page .editor-status{flex-wrap:wrap}
 .v8-ui .editor-page .editor-status>[role=status]{flex:1 1 220px;min-width:0}
 .v8-ui .editor-page .editor-status-right{flex-wrap:wrap;white-space:normal;min-width:0}
@@ -744,10 +870,11 @@ const LOCAL_CSS = `
 .v8-ui .editor-page .shortcut-list kbd{background:var(--v8-s2);color:var(--v8-text);border-color:var(--line)}
 .v8-ui .editor-page .live-inline-status .button{min-height:32px;padding:5px 12px;font-size:12px}
 .v8-ui .editor-page .live-inline-status .button:not(.primary){color:var(--v8-text)}
-.v8-ui .editor-page .live-inline-status .button:disabled{opacity:.55}
-.v8-ui .editor-page .context-drawer{background:var(--surface);color:var(--v8-text);border:1px solid var(--line);box-shadow:0 12px 40px rgb(0 0 0 / .22);z-index:120}
+.v8-ui .editor-page :is(.live-inline-status .button,.alignment-panel .panel-header>button):disabled{background:var(--v8-s2);border-color:var(--line);color:var(--v8-text);opacity:.55;cursor:not-allowed}
+.v8-ui .editor-page .context-drawer{background:var(--surface);color:var(--v8-text);border:1px solid var(--line);box-shadow:var(--shadow-lg,var(--shadow));z-index:120}
 .v8-ui .editor-page .context-drawer:not([data-open]){transform:translateX(calc(100% + 40px));pointer-events:none;box-shadow:none}
 .v8-ui .editor-page .context-drawer .dialoghead{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.v8-ui .editor-page .context-drawer :is(h2,h3){text-wrap:balance}
 .v8-ui .editor-page .context-drawer h2{font-size:16px;font-weight:700;letter-spacing:-.2px;color:var(--v8-text);margin:0}
 .v8-ui .editor-page .context-drawer h3{font-size:13px;font-weight:700;color:var(--v8-text);margin:0 0 6px}
 .v8-ui .editor-page .context-drawer .panel-header h2{font-size:14px}
@@ -768,10 +895,17 @@ const LOCAL_CSS = `
 .v8-ui .editor-page .sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 @media(max-width:767px){.v8-ui .editor-page .document-id{min-width:0;white-space:normal;overflow-wrap:anywhere}.v8-ui .editor-page .document-title h2{flex-shrink:0}}
 @media(max-width:700px){
+  .v8-ui .editor-page .context-tools .tooltip{max-width:160px}
+  .v8-ui .editor-page .context-tools>.tool-wrap:nth-child(-n+2) .tooltip{left:0;right:auto}
   .v8-ui .editor-page .editor-popover{position:static;width:auto;max-height:none;margin:8px 12px}
   .v8-ui .editor-page .find-row{display:grid;grid-template-columns:minmax(0,1fr) repeat(3,auto)}
   .v8-ui .editor-page .find-row>input{min-width:0;width:100%}
   .v8-ui .editor-page .find-count{grid-column:2 / -1;min-width:0}
+  .v8-ui .editor-page .review-hits button{min-height:44px}
+}
+@media(max-width:700px),(pointer:coarse){
+  .v8-ui .editor-page .editor-heading{flex-wrap:wrap}
+  .v8-ui .editor-page :is(.context-tools .icon-button,.context-drawer .dialoghead .icon-button,.live-inline-status .button,.alignment-panel .panel-header>button){min-width:48px;min-height:48px}
 }
 .v8-ui .editor-page[data-open-mode="player"] .compact-player{border:1px solid var(--line);background:var(--v8-s2);border-radius:8px;padding:8px 10px}
 .v8-ui .editor-page .player-dock .compact-player{box-sizing:border-box;flex-wrap:wrap}
@@ -804,6 +938,7 @@ const BODY_PROPS = {
     dictator: { type: String, default: null },
     pool: { type: String, default: null },
     openMode: { type: String, default: '' },
+    openAudioEdits: { type: Boolean, default: false },
 };
 
 /** Inner body: one instance per dictation. The outer view re-keys it, which disposes everything. */
@@ -864,7 +999,11 @@ export const CorrectionBody = {
         }
         const highlightOn = V.ref(true);
         const editorScroll = V.ref(0);
+        const reviewFocused = V.ref(false);
+        const reviewMark = V.shallowRef(null);
+        const reviewSpan = V.computed(() => reviewFocused.value ? c.reviewList.value[c.reviewActive.value] : null);
         const inlineWord = V.computed(() => {
+            if (reviewSpan.value) return reviewSpan.value;
             if (!highlightOn.value || e.dirty.value || a.activeGranularity.value !== 'word') return null;
             const state = a.alignmentState.value;
             return state === 'succeeded' || state === 'partial' ? a.currentWord.value : null;
@@ -975,12 +1114,52 @@ export const CorrectionBody = {
             drawer.value = id;
             later(() => { if (drawer.value === id) drawerClose.value?.focus(); });
         };
+        if (props.openAudioEdits) {
+            const stop = V.watch([c.ready, e.canEdit, e.audio], ([ready, canEdit, audio]) => {
+                if (!ready || !canEdit || audio.status !== 'ready') return;
+                if (drawer.value !== 'options') toggleDrawer('options');
+                stop();
+            });
+        }
         // saveMessage already says "Nicht gespeicherte Änderungen." while dirty; do not repeat it.
         const unsavedSuffix = () => Boolean(e.dirty.value) && !/nicht gespeicherte/i.test(String(s.message.value || ''));
         const pickTemplate = (id) => { templatesOpen.value = false; if (id) e.applyTemplate(id); };
         const toolStatus = () => tbState.value.readOnlyReason || tbState.value.message || '';
+        const reviewRefs = new Map();
+        const setReviewRef = (id, node) => { if (node) reviewRefs.set(id, node); else reviewRefs.delete(id); };
+        const activateReview = (index) => {
+            c.reviewActive.value = index;
+            reviewFocused.value = true;
+            const hit = c.reviewList.value[index];
+            textEl.value?.setSelectionRange(hit.start, hit.end);
+            later(() => {
+                const el = textEl.value;
+                if (!reviewFocused.value || c.reviewActive.value !== index || !el || !reviewMark.value) return;
+                const editorBounds = el.getBoundingClientRect();
+                const markBounds = reviewMark.value.getBoundingClientRect();
+                if (markBounds.top < editorBounds.top || markBounds.bottom > editorBounds.bottom) {
+                    el.scrollTop += markBounds.top - editorBounds.top - el.clientHeight / 2;
+                }
+            });
+        };
+        const onReviewKeydown = (event, index) => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                const hit = c.reviewList.value[index];
+                editorPort.select(hit.start, hit.end);
+                return;
+            }
+            const n = c.reviewList.value.length;
+            const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1, Home: -index, End: n - 1 - index }[event.key];
+            if (typeof step !== 'number') return;
+            event.preventDefault();
+            const next = c.reviewList.value[c.moveReview(step)];
+            if (next) reviewRefs.get(next.id)?.focus();
+        };
         return {
             ...useCorrectionPlayerPosition(V),
+            reviewList: c.reviewList, reviewOutstanding: c.reviewOutstanding, reviewActive: c.reviewActive, reviewMessage: c.reviewMessage,
+            reviewLoaded: c.reviewLoaded, reviewFocused, reviewSpan, reviewMark, setReviewRef, activateReview, onReviewKeydown,
             formatDictationReference,
             c, FOCUS, MODES, box, styleFor, TEXT, showDiff, finishOptions, finishWorkflow, onFinishKeydown,
             tb, tbState, textEl, setTextEl, fontPx, focusMode, shortcutsOpen, highlightOn, inlineWord, editorScroll, followOn, onTextInput, onTextKeydown, onFindKeydown,
@@ -1203,15 +1382,39 @@ export const CorrectionBody = {
 
         <div class="writing-surface" :class="{ 'has-word-sync': inlineWord }">
           <div v-if="inlineWord" class="word-backdrop" aria-hidden="true">
-            <div class="word-backdrop-content" :style="{ fontSize: fontPx + 'px', transform: 'translateY(' + (-editorScroll) + 'px)' }">{{ text.slice(0, inlineWord.start) }}<mark data-active-word>{{ text.slice(inlineWord.start, inlineWord.end) }}</mark>{{ text.slice(inlineWord.end) }}</div>
+            <div class="word-backdrop-content" :style="{ fontSize: fontPx + 'px', transform: 'translateY(' + (-editorScroll) + 'px)' }">{{ text.slice(0, inlineWord.start) }}<mark ref="reviewMark" data-active-word :data-review-span="reviewSpan ? '' : null" :style="reviewSpan ? { background: 'var(--ui-hover)', boxShadow: 'inset 0 -2px 0 var(--brand-accent)' } : null">{{ text.slice(inlineWord.start, inlineWord.end) }}</mark>{{ text.slice(inlineWord.end) }}</div>
           </div>
           <textarea class="editor" :ref="setTextEl" :style="{ ...FOCUS, fontSize: fontPx + 'px' }" :value="text" :readonly="!canEdit" :aria-readonly="String(!canEdit)"
                     :aria-label="TEXT.text" :aria-describedby="canEdit ? 'ccv-keys' : 'ccv-keys ccv-readonly'" data-testid="text"
                     @scroll.passive="editorScroll = $event.target.scrollTop" @input="onTextInput($event)" @keydown="onTextKeydown($event)" @select="followOn = false; c.onSelect($event)"
                     @keyup="c.onSelect($event)" @mouseup="c.onSelect($event)"></textarea>
         </div>
+        <section v-if="reviewLoaded || reviewMessage" class="panel review-hits" :aria-label="TEXT.reviewTitle" data-testid="review-hits">
+          <div class="panel-header" style="flex-wrap: wrap; margin-bottom: 0">
+            <h2>{{ TEXT.reviewTitle }}</h2>
+            <span v-if="reviewLoaded" class="hint" role="status" data-testid="review-outstanding">{{ reviewOutstanding ? reviewOutstanding + ' ' + TEXT.reviewOpen.toLowerCase() : TEXT.reviewNone }}</span>
+          </div>
+          <p v-if="reviewList.length" id="ccv-review-keys" class="hint" style="margin: var(--ui-space-2) 0">{{ TEXT.reviewHint }}</p>
+          <ul v-if="reviewList.length" role="list" style="list-style: none; margin: 0; padding: 0; display: grid; gap: var(--ui-space-2)">
+            <li v-for="(hit, i) in reviewList" :key="hit.id" class="review-hit" :data-state="hit.state" :data-testid="'review-hit-' + hit.id"
+                style="display: flex; flex-wrap: wrap; align-items: center; gap: var(--ui-space-2); min-width: 0; overflow-wrap: anywhere">
+              <button type="button" class="button small" :ref="node => setReviewRef(hit.id, node)" :style="FOCUS" :tabindex="i === reviewActive ? 0 : -1"
+                      :aria-disabled="!canEdit || hit.touched || hit.state !== 'open' ? 'true' : null"
+                      :aria-label="(hit.state === 'confirmed' ? TEXT.reviewConfirmed : TEXT.reviewConfirm) + ': ' + hit.label"
+                      :aria-describedby="hit.touched ? 'ccv-review-keys ccv-review-draft-' + i : 'ccv-review-keys'"
+                      @focus="activateReview(i)" @blur="reviewFocused = false" @keydown="onReviewKeydown($event, i)" @click="c.confirmReview(hit.id)">
+                {{ hit.state === 'confirmed' ? TEXT.reviewConfirmed : TEXT.reviewConfirm }}
+              </button>
+              <strong>{{ hit.label }}</strong>
+              <span class="hint" style="min-width: 0">{{ hit.context }}</span>
+              <span class="sr-only">{{ hit.state === 'confirmed' ? TEXT.reviewConfirmed : TEXT.reviewOpen }}</span>
+              <span v-if="hit.touched" :id="'ccv-review-draft-' + i" class="hint">{{ TEXT.reviewDraft }}</span>
+            </li>
+          </ul>
+          <p v-if="reviewMessage" role="alert" class="hint" data-testid="review-message">{{ reviewMessage }}</p>
+        </section>
         <p v-if="!canEdit && !loading" id="ccv-readonly" class="template-meta" style="margin: 0">{{ lease.mayAcquire === false ? TEXT.readOnlyAccess : TEXT.readOnly }}</p>
-        <section class="panel" :aria-label="TEXT.alignment" :data-status="alignStatus" data-testid="alignment">
+        <section class="panel alignment-panel" :aria-label="TEXT.alignment" :data-status="alignStatus" data-testid="alignment">
           <div class="panel-header">
             <h2>{{ TEXT.alignment }}</h2>
             <button type="button" class="small" :style="FOCUS" :disabled="alignStatus !== 'ready'" data-testid="seek-selection" @click="c.alignment.seekToSelection()">{{ TEXT.seekSelection }}</button>
@@ -1319,7 +1522,7 @@ export const CorrectionBody = {
         <div class="panel-header"><h2>{{ TEXT.options }}</h2></div>
         <PlaybackGain v-if="gainState" :state="gainState.value" :controller="c.gain()" />
         <CorrectionAudioPanel v-if="canEdit && audio.status === 'ready'" :client="c.client" :dictation-id="dictationId"
-            :lease="c.editor.leaseController" :position="c.getPositionMs" :visible="drawer === 'options'"
+            :lease="c.editor.leaseController" :position="c.getPositionMs" :visible="drawer === 'options'" :open-on-mount="openAudioEdits"
             @revision="c.adoptAudioRevision" />
         <div data-testid="repeat-transcription">
           <button type="button" class="button small" :style="FOCUS" :disabled="!c.repeat.eligible()"
@@ -1349,7 +1552,7 @@ export const CorrectionView = {
     emits: ['close'],
     template: `<CorrectionBody :key="dictationId" :client="client" :dictation-id="dictationId" :current-user="currentUser"
                               :vue="vue" :recording-id="recordingId" :create-audio-context="createAudioContext"
-        :dictator="dictator" :pool="pool" :open-mode="openMode" @close="$emit('close')">
+        :dictator="dictator" :pool="pool" :open-mode="openMode" :open-audio-edits="openAudioEdits" @close="$emit('close')">
           <template v-if="$slots['back-action']" #back-action="scope"><slot name="back-action" v-bind="scope"></slot></template>
         </CorrectionBody>`,
 };

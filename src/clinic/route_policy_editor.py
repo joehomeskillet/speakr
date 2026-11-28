@@ -54,12 +54,19 @@ AUTH: tuple[str, ...] = (
     'clinic_live.switch_draft',
     'clinic_richtext_graphics.upload',
     'clinic_richtext_graphics.get_graphic',
+    # Durable live drafts additionally require ownership of the underlying dictation.
+    'clinic_live_drafts.list_drafts',
+    'clinic_live_drafts.create_draft',
+    'clinic_live_drafts.get_draft',
+    'clinic_live_drafts.save_draft',
+    'clinic_live_drafts.discard_draft',
     'clinic_correction.get_correction',
     'clinic_correction.save',
     'clinic_correction.add_marker',
     'clinic_correction.change_marker',
     'clinic_correction.get_review_markers',
     'clinic_correction.confirm_review_marker',
+    'clinic_correction.propose_vocabulary',
     # Read-only document and template preview. The handler checks correction_read
     # and never stores the upload or replaces the saved revision.
     'clinic_correction_documents.preview_document',
