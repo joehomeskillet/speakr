@@ -250,7 +250,7 @@ const LiveDraftPicker = {
     template: `
     <div class="v8-page" data-testid="clinic-live-picker">
         <div class="pagehead">
-            <div><div class="eyebrow">Aufnahmen</div><h1 ref="heading" tabindex="-1">Live-Diktat</h1></div>
+            <h1 ref="heading" tabindex="-1">Live-Diktat</h1>
         </div>
         <section class="panel" aria-labelledby="clinic-live-picker-title" style="margin-bottom: 16px">
             <h2 id="clinic-live-picker-title">Meine Entwürfe</h2>
@@ -267,17 +267,17 @@ const LiveDraftPicker = {
                 </li>
             </ul>
             <form v-if="loaded && !active" class="actions" style="align-items: end" @submit.prevent="create">
-                <label class="field" style="flex: 1 1 220px; min-width: 0; margin: 0; display: grid; gap: 4px">
+                <label style="flex: 1 1 220px; min-width: 0; display: grid; gap: 4px; font-weight: 650">
                     <span>Eigene Aufnahme</span>
                     <input v-model="dictation" type="text" list="clinic-live-choices" data-testid="clinic-live-id" autocomplete="off"
-                           :style="minTarget + '; border-color: var(--v8-input-outline)'" :disabled="busy">
+                           :style="minTarget + '; border-color: var(--v8-text-2)'" :disabled="busy">
                 </label>
-                <label class="field" style="flex: 1 1 180px; min-width: 0; margin: 0; display: grid; gap: 4px">
+                <label style="flex: 1 1 180px; min-width: 0; display: grid; gap: 4px; font-weight: 650">
                     <span>Name des Entwurfs</span>
                     <input v-model="title" type="text" data-testid="clinic-live-title" maxlength="200" autocomplete="off"
-                           :style="minTarget + '; border-color: var(--v8-input-outline)'" :disabled="busy">
+                           :style="minTarget + '; border-color: var(--v8-text-2)'" :disabled="busy">
                 </label>
-                <button type="submit" data-testid="clinic-live-open" class="button primary" :style="minTarget"
+                <button type="submit" data-testid="clinic-live-open" class="button" :class="{ primary: readyToCreate && !busy }" :style="minTarget"
                         :disabled="busy || !readyToCreate">Entwurf anlegen</button>
             </form>
             <datalist id="clinic-live-choices"><option v-for="row in available" :key="row.id" :value="row.label"></option></datalist>
@@ -297,7 +297,7 @@ const LiveDraftPicker = {
             <template #draft-text>
                 <label for="clinic-live-draft-text" style="display: block; margin: 12px 16px 4px; font-weight: 650">Entwurfstext</label>
                 <textarea id="clinic-live-draft-text" v-model="text" data-testid="live-draft-text" :readonly="busy" rows="6"
-                          style="display: block; width: calc(100% - 32px); margin: 0 16px 12px; font-size: 16px; border-color: var(--v8-input-outline)"></textarea>
+                          style="display: block; width: calc(100% - 32px); margin: 0 16px 12px; font-size: 16px; border-color: var(--v8-text-2)"></textarea>
             </template>
         </clinic-live-view>
         <dialog ref="dialog" class="panel" aria-labelledby="clinic-live-dialog-title" style="width: min(460px, calc(100% - 32px)); max-height: calc(100% - 32px); color: var(--v8-text)"
