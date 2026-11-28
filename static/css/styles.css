@@ -6643,11 +6643,8 @@ code, kbd, samp, pre {
 
 /* Visible focus states per WCAG AA */
 :where(body.v8-ui, body.v8-focus) {
-    --work-surface-focus: var(--brand-primary);
+    --work-surface-focus: var(--ui-focus);
     --border-focus: var(--work-surface-focus);
-}
-:is(.dark, [data-theme="dark"]) :where(body.v8-ui, body.v8-focus) {
-    --work-surface-focus: var(--brand-accent-darkmode);
 }
 
 /* The petrol header stays dark in light mode. Its menus use the work surface. */
