@@ -108,6 +108,11 @@
 .v8-ui :where(:is(.v8-page,.v8-chrome) td small){display:block;font-size:10px;color:var(--v8-muted);margin-top:3px}
 .v8-ui .wrap{white-space:normal;min-width:200px;max-width:380px}
 @media(max-width:760px){
+  .v8-ui .clinic-output-view table{table-layout:fixed}
+  .v8-ui .clinic-output-view :is(th,td){padding:var(--sp-2) var(--sp-1)}
+  .v8-ui .clinic-output-view th:first-child{width:34%}
+  .v8-ui .clinic-output-view th:nth-child(2){width:30%}
+  .v8-ui .clinic-output-view .tag{overflow-wrap:anywhere}
   .v8-ui .vocabulary-ui .wrap{min-width:0;overflow-wrap:anywhere}
   .v8-ui .vocabulary-ui :is(th,td){padding-inline:var(--sp-1);white-space:normal;overflow-wrap:anywhere}
   .v8-ui .vocabulary-ui td button{white-space:nowrap;padding-inline:var(--sp-1)}

@@ -1,5 +1,6 @@
 """Send a synthetic microphone take through the mounted clinic view and the real upload route."""
 import os
+import re
 
 from playwright.sync_api import expect, sync_playwright
 
@@ -17,7 +18,8 @@ def test_recorder_can_retry_and_opens_no_upload_modal(app_base):
             page = context.new_page()
             page.goto(app_base + "/#/neu")
             view = page.get_by_test_id("clinic-recording-view")
-            view.locator("#crv-title-input").fill("Synthetische Aufnahme")
+            expect(view.get_by_test_id("rec-start")).to_be_enabled()
+            expect(view.locator("input")).to_have_count(0)
             posts = []
             page.on("request", lambda req: posts.append(req.url)
                     if req.method == "POST" and req.url.startswith(app_base + "/upload") else None)
@@ -40,13 +42,15 @@ def test_recorder_can_retry_and_opens_no_upload_modal(app_base):
                 view.get_by_test_id("rec-send").click()
             assert upload.value.status == 202, upload.value.text()
             receipt = upload.value.json()
-            assert receipt["title"] == "Synthetische Aufnahme"
+            assert re.fullmatch(r"Diktat \d{2}\.\d{2}\.\d{4} \d{2}:\d{2}", receipt["title"]), receipt
             expect(view.get_by_test_id("created-id")).to_have_text(receipt["dictation_id"])
-            expect(view.get_by_test_id("status")).to_contain_text("gesendet")
+            expect(view.get_by_test_id("status")).to_have_text("Eingereicht.")
             assert page.url.endswith("/#/neu")
             assert page.evaluate("window.stockUploadUsed") is False
             assert posts == [app_base + "/upload"] * 2
             page.get_by_test_id("nav-recordings").click()
-            expect(page.locator(f'[data-row][data-id="{receipt["dictation_id"]}"]')).to_be_visible()
+            row = page.locator(f'[data-row][data-id="{receipt["dictation_id"]}"]')
+            expect(row).to_be_visible()
+            expect(row).to_contain_text(receipt["title"])
         finally:
             browser.close()

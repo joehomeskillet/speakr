@@ -24,7 +24,7 @@ FIXED_KEYS = ('recording_id', 'recording_ids', 'filter_recording_ids', 'recordin
 
 # Keys that contain "recording" but are not ids (read from result rows).
 NON_ID_KEYS = frozenset({'recording_title', 'recording_meeting_date', 'max_recordings',
-                         'recording', 'default_recording_sort'})
+                         'recording', 'default_recording_sort', 'recording_preflight'})
 
 ROUTES = sorted(e for e, r in ROUTE_POLICY.items() if r.kind != PUBLIC)
 
