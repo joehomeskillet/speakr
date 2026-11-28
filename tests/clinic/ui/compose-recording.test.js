@@ -67,6 +67,7 @@ describe('recording view controller', () => {
     });
 
     it.each(recordingTypes)('transfers the chosen %s type and submits only Bericht', async (type) => {
+        vi.useFakeTimers();
         const rec = recorder(async () => ({ dictation_id: 'd-7', recording_type: type }));
         const request = vi.fn()
             .mockResolvedValueOnce({ outcome: 'ok', data: { dictation_id: 'd-7', etag: 'draft' } })
@@ -79,6 +80,7 @@ describe('recording view controller', () => {
         await c.checkRouting();
         await toReview(c, type);
         expect(c.model()).toMatchObject({ phase: 'review', recordingType: type, isPrivate, privateSaved: false,
+            recordActionLabel: isPrivate ? 'Speichern' : 'Senden',
             plannedDestination: isPrivate ? '' : 'Wird gesendet an: Schreibdienst Süd' });
         expect((await c.submit()).ok).toBe(false);
         expect((await c.sendRecording()).ok).toBe(true);
@@ -87,6 +89,7 @@ describe('recording view controller', () => {
         if (isPrivate) {
             expect(c.model()).toMatchObject({ canSubmit: false, privateSaved: true, plannedDestination: '', submittedVisibility: '' });
             expect((await c.submit()).ok).toBe(false);
+            await vi.runAllTimersAsync();
             expect(request).not.toHaveBeenCalled();
         } else {
             expect(c.model().phase).toBe('submitted');
