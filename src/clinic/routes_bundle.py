@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Callable
+from contextlib import AbstractContextManager, ExitStack
 from dataclasses import dataclass
 from hashlib import sha256
 from uuid import UUID, uuid4
@@ -53,11 +54,12 @@ class BundleSession:
     doc: CanonicalDocument
     audio: bytes
     version: int
+    audio_synced: bool | None = None
 
 
 Load = Callable[[int, str], BundleSession | None]
 Authorize = Callable[[int, str, str], bool]  # (actor, dictation_id, 'export' | 'import')
-Persist = Callable[[int, str, CanonicalDocument, bytes | None, int], int]
+Persist = Callable[[int, str, CanonicalDocument, bytes | None, int], AbstractContextManager[int]]
 LoadGraphic = Callable[[int, str, str], bytes]
 
 
@@ -115,7 +117,7 @@ def create_blueprint(
         response.headers['Cache-Control'] = 'private, no-store'
         return response
 
-    def target(dictation_id: str, action: str) -> BundleSession:
+    def target(dictation_id: str, action: str) -> str:
         try:
             dictation_id = str(UUID(dictation_id))
         except ValueError:
@@ -125,14 +127,18 @@ def create_blueprint(
         # Object policy first; an unreadable object looks like a missing one.
         if not authorize(current_user.id, dictation_id, action):
             abort(404)
-        loaded = load(current_user.id, dictation_id)
-        if loaded is None:
-            abort(404)
-        return loaded
+        return dictation_id
 
     @blueprint.get('/<dictation_id>/export')
     def export(dictation_id: str):
-        current = target(dictation_id, 'export')
+        try:
+            current = load(current_user.id, target(dictation_id, 'export'))
+        except StaleVersion:
+            return problem(409, 'REVISION_CONFLICT')
+        except RichTextError:
+            abort(409)
+        if current is None:
+            abort(404)
         wanted = request.args.get('version')
         if wanted is not None and (not wanted.isdigit() or int(wanted) != current.version):
             return problem(409, 'REVISION_CONFLICT')
@@ -173,6 +179,8 @@ def create_blueprint(
         ], separators=(',', ':'))
         if kind == 'html':
             response.headers['Content-Security-Policy'] = formats.WEB_CSP
+        if current.audio_synced is not None:
+            response.headers['X-Audio-Synced'] = 'true' if current.audio_synced else 'false'
         return response
 
     @blueprint.post('/<dictation_id>/import')
@@ -185,14 +193,13 @@ def create_blueprint(
             return problem(413, 'TOO_LARGE')
         match = request.headers.get('If-Match', '').strip('"')
         key = request.headers.get('Idempotency-Key', '')
-        if not match.isdigit() or int(match) < 1:
+        if not match.isascii() or not match.isdecimal() or len(match) > 10:
             return problem(428, 'VERSION_REQUIRED')
         if not 8 <= len(key) <= 128 or not key.strip():
             return problem(400, 'INVALID_PAYLOAD')
         expected = int(match)
-        current = target(dictation_id, 'import')
-        if current.version != expected:
-            return problem(409, 'REVISION_CONFLICT')
+        dictation = target(dictation_id, 'import')
+        request.max_content_length = min(limit, request.max_content_length or limit)
         data = request.get_data(cache=False)
         if len(data) > limit or not data:
             return problem(413 if data else 400, 'TOO_LARGE' if data else 'INVALID_PAYLOAD')
@@ -203,29 +210,36 @@ def create_blueprint(
             if kind == 'txt':
                 doc, audio = text_to_document(data), None
             else:
-                files = read_bundle(data).files
-                doc = formats.reload_bundle(data, expected_version=SCHEMA_VERSION, allowed=True)
-                audio = files['audio/a.wav'] if 'audio/a.wav' in files else None
-                if audio is None:
+                bundle = read_bundle(data)
+                if (set(bundle.files) != {'audio/a.wav', 'text/body.txt', 'text/document.json'}
+                        or [source['path'] for source in bundle.manifest['audio_sources']] != ['audio/a.wav']
+                        or bundle.manifest.get('edit_list')):
                     return problem(400, 'INVALID_PAYLOAD')
+                doc = formats.document_from_bundle(bundle)
+                audio = bundle.files['audio/a.wav']
         except (formats.FormatError, BundleError):
             return problem(400, 'INVALID_PAYLOAD')
 
-        actor, dictation = current_user.id, str(UUID(dictation_id))
+        actor = current_user.id
 
-        def apply() -> JSON:
+        def apply(staged: ExitStack) -> JSON:
             try:
-                revision = persist(actor, dictation, doc, audio, expected)
+                revision = staged.enter_context(persist(actor, dictation, doc, audio, expected))
             except StaleVersion as error:
                 raise CommandProblem('REVISION_CONFLICT') from error
             except OSError as error:
                 raise CommandProblem('DEPENDENCY_UNAVAILABLE') from error
             return {'status': 'committed', 'revision': revision,
-                    'text_identity': formats.text_hash(formats.to_plain_text(doc))}
+                    'text_identity': formats.text_hash(formats.to_plain_text(doc)),
+                    'audio_synced': audio is not None}
 
-        digest = hashlib.sha256(f'{kind}:{expected}:'.encode() + data).hexdigest()
+        digest = hashlib.sha256(f'{kind}:{expected}:'.encode())
+        digest.update(data)
         try:
-            return jsonify(run_once((actor, 'import_bundle', dictation, key), digest, apply))
+            with ExitStack() as staged:
+                result = run_once((actor, 'import_bundle', dictation, key), digest.hexdigest(),
+                                  lambda: apply(staged))
+            return jsonify(result)
         except CommandProblem as error:
             status, _title = _PROBLEMS[str(error)]
             return problem(status, str(error))

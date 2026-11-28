@@ -96,6 +96,16 @@ def test_bundle_uses_latest_snapshot_and_preserves_binary_audio(output_case, cli
     assert b'\\b ' in client.get(url, query_string={'format': 'rtf'}).data
 
 
+def test_web_export_uses_the_latest_editor_snapshot(output_case, client_for, world):
+    dictation_id, _, _, _ = output_case
+    client, _ = client_for(world['user_a'])
+    response = client.get(f'/api/clinic/v1/bundles/{dictation_id}/export?format=html')
+    assert response.status_code == 200
+    assert '<p style="text-align:center;line-height:1.5">' in response.text
+    assert 'font-family:serif;font-size:14pt' in response.text
+    assert '<strong>Befund &amp; Verlauf</strong>' in response.text
+
+
 def test_clipboard_copies_both_formats_and_records_them_across_workers(output_case, client_for, world):
     dictation_id, revision_id, _, _ = output_case
     url = f'/api/clinic/v1/dictations/{dictation_id}/clipboard/{revision_id}'
