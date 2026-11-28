@@ -107,6 +107,13 @@
 .v8-ui :where(:is(.v8-page,.v8-chrome) td strong){display:block;color:var(--v8-text);font-weight:650}
 .v8-ui :where(:is(.v8-page,.v8-chrome) td small){display:block;font-size:10px;color:var(--v8-muted);margin-top:3px}
 .v8-ui .wrap{white-space:normal;min-width:200px;max-width:380px}
+@media(max-width:760px){
+  .v8-ui .clinic-output-view table{table-layout:fixed}
+  .v8-ui .clinic-output-view :is(th,td){padding:var(--sp-2) var(--sp-1)}
+  .v8-ui .clinic-output-view th:first-child{width:34%}
+  .v8-ui .clinic-output-view th:nth-child(2){width:30%}
+  .v8-ui .clinic-output-view .tag{overflow-wrap:anywhere}
+}
 :where(.v8-ui) :where(.v8-page *,.v8-chrome *).tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:18px;overflow:auto}
 :where(.v8-ui) :where(.v8-page *,.v8-chrome *).tabs button{white-space:nowrap;border:0;border-bottom:3px solid transparent;border-radius:0;background:transparent;padding:10px 14px;font-weight:600;color:var(--v8-text-2)}
 :where(.v8-ui) :where(.v8-page *,.v8-chrome *).tabs button[aria-selected=true]{color:var(--v8-text);border-bottom-color:var(--burgundy)}

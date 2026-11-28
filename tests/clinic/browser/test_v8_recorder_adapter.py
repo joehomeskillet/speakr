@@ -67,6 +67,7 @@ def test_protected_draft_before_submission(app_base, browser, role_states):
         audio.writeframes(b'\x00\x01' * 16000)
     code = 'synthetic-draft-code'
     out = Path(os.environ['P165_ARTIFACTS']) if 'P165_ARTIFACTS' in os.environ else None
+    static_root = os.path.relpath(support.ROOT / 'static', out) if out is not None else None
 
     def capture(page, state, size, theme):
         assert page.evaluate("document.documentElement.classList.contains('dark')") == (theme == 'dark')
@@ -74,16 +75,16 @@ def test_protected_draft_before_submission(app_base, browser, role_states):
         if out is not None:
             stem = out / f'{state}-{size}-{theme}'
             page.screenshot(path=stem.with_suffix('.png'), animations='disabled', caret='hide')
-            stem.with_suffix('.html').write_text(page.evaluate("""async () => {
+            stem.with_suffix('.html').write_text(page.evaluate("""staticRoot => {
                 const copy = document.documentElement.cloneNode(true);
                 copy.querySelectorAll('script, meta[http-equiv], meta[name=csrf-token]').forEach(el => el.remove());
                 copy.querySelectorAll('link[rel=stylesheet]').forEach(link => {
                     const url = new URL(link.getAttribute('href'), location.href);
                     if (url.origin !== location.origin) { link.remove(); return; }
-                    link.href = '../../../static' + url.pathname.split('/static')[1];
+                    link.href = staticRoot + url.pathname.split('/static')[1];
                 });
                 return '<!doctype html>' + copy.outerHTML;
-            }"""), encoding='utf-8')
+            }""", static_root), encoding='utf-8')
 
     def open_page(role, size, theme):
         width, height = support.VIEWPORTS[size]

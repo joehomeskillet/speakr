@@ -51,8 +51,10 @@ export const TEXT = Object.freeze({
     author: 'Diktiert von',
     pool: 'Schreibkräfte-Pool',
     takeover: 'Übernahme',
+    target: 'Versandziel',
     noPool: 'Kein Pool zugeordnet',
     noTakeover: 'Nicht übernommen',
+    noTarget: 'Kein Versandziel',
     unknownPerson: 'Unbekannt',
     metadata: 'Metadaten',
     recordingTime: 'Aufnahmezeit',
@@ -79,6 +81,11 @@ export const TEXT = Object.freeze({
     lease: 'Bearbeitungsstatus',
     notAvailable: '–',
 });
+
+export function routingLabel(target) {
+    if (!target || typeof target.label !== 'string' || !target.label) return TEXT.noTarget;
+    return target.label;
+}
 
 const AXIS_LABELS = Object.freeze({
     processing: Object.freeze({
@@ -293,6 +300,7 @@ export function createDetailViewController(options) {
             author: personText(d.author) || TEXT.unknownPerson,
             pool: pools.length ? pools.join(', ') : TEXT.noPool,
             takeover: personText(d.takeover) || TEXT.noTakeover,
+            target: routingLabel(d.routing_target),
             recordingTime: time.text,
             recordingFallback: time.fallback,
             duration: d.duration_seconds === null || d.duration_seconds === undefined ? TEXT.notAvailable : formatAudioDuration(d.duration_seconds),
@@ -495,6 +503,7 @@ const DetailBody = {
           <div class="metadata-pair"><dt>{{ TEXT.author }}</dt><dd data-testid="author">{{ c.header().author }}</dd></div>
           <div class="metadata-pair"><dt>{{ TEXT.pool }}</dt><dd data-testid="pool">{{ c.header().pool }}</dd></div>
           <div class="metadata-pair"><dt>{{ TEXT.takeover }}</dt><dd data-testid="takeover">{{ c.header().takeover }}</dd></div>
+          <div class="metadata-pair"><dt>{{ TEXT.target }}</dt><dd data-testid="routing-target">{{ c.header().target }}</dd></div>
           <div class="metadata-pair">
             <dt>{{ TEXT.recordingTime }}</dt>
             <dd data-testid="recording-time" style="min-width: 0; max-width: 100%">{{ c.header().recordingTime }}

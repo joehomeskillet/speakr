@@ -8,6 +8,7 @@ from __future__ import annotations
 import inspect
 import json
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -15,7 +16,7 @@ from sqlalchemy import func, select
 
 import src.app as app_module
 from src.app import app, db
-from src.clinic import workflow, worklist_entries
+from src.clinic import routes_dictation_properties, workflow, worklist_entries
 from src.clinic.identity import ClinicAccountPolicy, create_tables as _create_identity_tables
 from src.clinic.models import (
     ClinicAudioRevision,
@@ -127,6 +128,55 @@ def test_pool_lead_sees_the_klaerliste_of_the_routed_pool_only(scene):
         assert _ids(scene["lead"]) == {scene["unassigned"]}
         entries = worklist_entries.load_entries(scene["lead"])
         assert entries[0].pool_id == scene["pool"]
+
+
+def test_row_carries_the_typist_and_assignment_time(scene):
+    with app.app_context():
+        typist = db.session.get(User, scene["typist"])
+        typist.name = "Tina Schreibkraft"
+        db.session.commit()
+        rows = {entry.row["dictation_id"]: entry.row
+                for entry in worklist_entries.load_entries(scene["author"])}
+        assigned = rows[scene["own"]]
+        assert assigned["assignee_user_id"] == scene["typist"]
+        assert assigned["recipient"] == "Tina Schreibkraft"
+        assert assigned["assigned_at"] is None
+        empty = rows[scene["unassigned"]]
+        assert empty["assignee_user_id"] is None
+        assert empty["recipient"] is None and empty["assigned_at"] is None
+
+        flow = db.session.get(workflow.ClinicWorkflowDictation, scene["own"])
+        flow.assigned_at = datetime(2026, 11, 27, 8, 30, tzinfo=timezone.utc)
+        stale = db.session.get(workflow.ClinicWorkflowDictation, scene["unassigned"])
+        stale.assigned_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        db.session.commit()
+        again = {entry.row["dictation_id"]: entry.row
+                 for entry in worklist_entries.load_entries(scene["author"])}
+        assert again[scene["own"]]["assigned_at"] == "2026-11-27T08:30:00Z"
+        assert again[scene["own"]]["recipient"] == "Tina Schreibkraft"
+        assert again[scene["unassigned"]]["recipient"] is None
+        assert again[scene["unassigned"]]["assigned_at"] is None
+
+
+def test_locked_row_keeps_assignment_and_hides_notes(scene, monkeypatch):
+    with app.app_context():
+        typist = db.session.get(User, scene["typist"])
+        typist.name = "Tina Schreibkraft"
+        dictation = db.session.get(ClinicDictation, scene["own"])
+        db.session.get(Recording, dictation.recording_id).notes = "Synthetic protected notes"
+        flow = db.session.get(workflow.ClinicWorkflowDictation, dictation.id)
+        flow.assigned_at = datetime(2026, 11, 27, 8, 30, tzinfo=timezone.utc)
+        db.session.commit()
+
+        monkeypatch.setattr(routes_dictation_properties, "content_unlocked",
+                            lambda actor, did: (actor, did) != (scene["typist"], scene["own"]))
+        locked, = worklist_entries.load_entries(scene["typist"])
+        assert locked.row["notes"] == ""
+        assert locked.row["recipient"] == "Tina Schreibkraft"
+        assert locked.row["assigned_at"] == "2026-11-27T08:30:00Z"
+        unlocked = next(entry for entry in worklist_entries.load_entries(scene["author"])
+                        if entry.row["dictation_id"] == scene["own"])
+        assert unlocked.row["notes"] == "Synthetic protected notes"
 
 
 def test_pool_lead_loses_access_when_dictation_is_assigned(scene):
