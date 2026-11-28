@@ -1540,12 +1540,27 @@ def _actual_engine(connector, record, ran=None):
     return None
 
 
-def _record_actual_engine(connector, record, ran=None):
-    """Write ``engine.actual`` into the job's ``clinic_asr`` record (display only)."""
+def _record_actual_engine(connector, record, ran, attempt):
+    """Persist the successful request's engine and observation status for display."""
+    from src.clinic.asr_fallback import FallbackTranscriptionConnector
+    from src.clinic.task_models import asr_is_local
+
     job_id = job_control.current().job_id
-    actual = _actual_engine(connector, record, ran)
-    if job_id is None or actual is None:
+    if job_id is None or attempt is None:
         return
+    actual = _actual_engine(connector, record, ran)
+    observation = 'unavailable'
+    if connector.PROVIDER_NAME == 'clinic_stub':
+        actual, observation = None, 'synthetic'
+    elif connector.PROVIDER_NAME in ('openai_whisper', 'asr_endpoint'):
+        # Wrapped requests must report one engine across all chunks. A saved
+        # thread-local last_engine may only describe the final chunk.
+        if isinstance(connector, FallbackTranscriptionConnector):
+            actual = ran
+        if actual == 'gpu' or (actual == 'cpu' and asr_is_local(connector.config.get('base_url'))):
+            observation = 'runtime'
+        else:
+            actual = None
     try:
         from sqlalchemy import update
         from src.clinic.asr_job_profile import CLINIC_ASR_PARAM
@@ -1555,10 +1570,14 @@ def _record_actual_engine(connector, record, ran=None):
         if not isinstance(stored, dict):
             return
         engine = stored.get('engine') if isinstance(stored.get('engine'), dict) else {}
-        engine['actual'] = actual
+        engine.update(actual=actual, observation=observation)
         stored['engine'] = engine
+        retry_count, started_at = attempt
         with db.engine.begin() as conn:
-            conn.execute(update(ProcessingJob).where(ProcessingJob.id == job_id).values(
+            conn.execute(update(ProcessingJob).where(
+                ProcessingJob.id == job_id, ProcessingJob.status == 'processing',
+                ProcessingJob.retry_count == retry_count, ProcessingJob.started_at == started_at,
+            ).values(
                 params=json.dumps(params, sort_keys=True, ensure_ascii=False)))
     except Exception as err:
         current_app.logger.warning(f"Could not record the ASR engine of job {job_id}: {type(err).__name__}")
@@ -1577,8 +1596,8 @@ def _response_model_ref(response):
 
 def _single_engine(engines):
     """The one engine all calls of a run reported; None when none or mixed."""
-    found = {engine for engine in engines if engine in ('gpu', 'cpu')}
-    return next(iter(found)) if len(found) == 1 else None
+    found = set(engines)
+    return next(iter(found)) if found in ({'gpu'}, {'cpu'}) else None
 
 
 def _plain_transcript_text(stored):
@@ -1750,7 +1769,6 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
             # (off by default, one 55-word cap). Its values stay as they are,
             # None included; the admin defaults are not added back.
             clinic_asr = _clinic_asr_record()
-            ran_engines = []
 
             from src.clinic.config import clinic_mode_enabled as _clinic_on
             if clinic_asr is None and _clinic_on():
@@ -2042,6 +2060,7 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
                 clinic_attempt = attempt_identity(job.job_id)
                 clinic_prior = {field: getattr(recording, field) for field in _TRANSCRIPT_STATE_FIELDS}
             for attempt in range(max_attempts):
+                ran_engines = []
                 model_refs = set() if clinic_prior is not None else None
                 try:
                     # A safe point: nothing was sent to the service yet.
@@ -2320,7 +2339,7 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
             # A run that reached this point succeeded: record the engine that ran
             # (after the commit above, so the short write does not wait on this session).
             if clinic_asr is not None:
-                _record_actual_engine(connector, clinic_asr, _single_engine(ran_engines))
+                _record_actual_engine(connector, clinic_asr, _single_engine(ran_engines), clinic_attempt)
 
             # Record transcription usage for billing/budgeting
             try:
