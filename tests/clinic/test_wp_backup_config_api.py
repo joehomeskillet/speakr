@@ -4,10 +4,14 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 import pytest
+from flask import Flask
+from flask_login import LoginManager
+from flask_wtf.csrf import CSRFProtect
 from sqlalchemy import create_engine, text
 
-from src.app import app, db
-from src.clinic import import_source_config as sources
+from src.api.system import get_csrf_token
+from src.app import app as main_app, db, load_user
+from src.clinic import guard, import_source_config as sources, route_policy, routes_imports_web
 from src.clinic.identity import ClinicAccountPolicy
 from src.clinic.output import OutputNameContext
 from src.models import User
@@ -15,7 +19,18 @@ from src.models import User
 
 @pytest.fixture
 def source(monkeypatch):
+    monkeypatch.setenv("CLINIC_MODE", "1")
     monkeypatch.setenv("CLINIC_IMPORT_ROOT_ALLOWLIST", "/synthetic")
+    monkeypatch.setattr(guard, "ROUTE_POLICY", route_policy._build())
+    app = Flask(__name__)
+    app.config.update(TESTING=True, SECRET_KEY="synthetic-backup-config-test",
+                      SQLALCHEMY_DATABASE_URI=main_app.config["SQLALCHEMY_DATABASE_URI"])
+    db.init_app(app)
+    LoginManager(app).user_loader(load_user)
+    CSRFProtect(app)
+    guard.ensure_guard_first(app)
+    app.add_url_rule("/api/csrf-token", endpoint="system.get_csrf_token", view_func=get_csrf_token)
+    app.register_blueprint(routes_imports_web.blueprint)
     clients = []
     with app.app_context():
         for is_admin in (True, True, False):

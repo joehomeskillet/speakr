@@ -92,7 +92,7 @@ def create_tables(bind=None):
 
 
 def _clean_ref(value, what):
-    if not isinstance(value, str) or not _REF.match(value):
+    if not isinstance(value, str) or not _REF.fullmatch(value):
         raise AgentChannelError("invalid", what)
     return value
 
@@ -120,13 +120,16 @@ def _clean_root(value: str, what="approved_root") -> str:
     if not isinstance(value, str):
         raise AgentChannelError("invalid", what)
     root = _root_path(value, what)
+    canonical = root.as_posix()
+    if len(canonical) > 1024:
+        raise AgentChannelError("invalid", what)
     for entry in os.environ.get("CLINIC_IMPORT_ROOT_ALLOWLIST", "").split(";"):
         try:
             base = _root_path(entry.strip())
         except AgentChannelError:
             continue
         if type(root) is type(base) and root.is_relative_to(base):
-            return root.as_posix()
+            return canonical
     raise AgentChannelError("forbidden", what + " outside allowlist")
 
 
@@ -261,7 +264,7 @@ def create_source_config(
     priority=None, language_id=None, asr_profile_id=None, allow_source_delete=False,
     backup_name="", backup_retention_days=None, cleanup_enabled=False, backup_root=None, backup_enabled=None,
     may_assign_author: Optional[Callable[[int, int], bool]] = None,
-    may_manage_deletion: Optional[Callable[[int], bool]] = None, now=None,
+    may_manage_deletion: Optional[Callable[[int], bool]] = None, now=None, commit=True,
 ):
     """Approve one import source. Source deletion rights require explicit authorization."""
     now = aware(now) or _now()
@@ -294,7 +297,10 @@ def create_source_config(
         created_by_user_id=actor_user_id, created_at=now, updated_at=now,
     )
     db.session.add(row)
-    db.session.commit()
+    if commit:
+        db.session.commit()
+    else:
+        db.session.flush()
     return _view(row)
 
 
@@ -365,7 +371,7 @@ def update_source_config(
 
 
 @transactional
-def delete_source_config(*, actor_user_id, config_id):
+def delete_source_config(*, actor_user_id, config_id, expected_version=None, commit=True):
     """Remove an owned import-source configuration with source management authority."""
     _may_manage(actor_user_id)
     row = db.session.get(ClinicImportSourceConfig, config_id)
@@ -373,8 +379,14 @@ def delete_source_config(*, actor_user_id, config_id):
         raise AgentChannelError("not_found", "import source config")
     if row.allow_source_delete:
         raise AgentChannelError("forbidden", "source deletion is enabled; disable before removing config")
-    db.session.delete(row)
-    db.session.commit()
+    version = row.policy_version if expected_version is None else expected_version
+    removed = ClinicImportSourceConfig.query.filter_by(
+        id=config_id, created_by_user_id=actor_user_id, policy_version=version, allow_source_delete=False,
+    ).delete(synchronize_session="fetch")
+    if removed != 1:
+        raise AgentChannelError("conflict", "stale policy version")
+    if commit:
+        db.session.commit()
 
 
 def get_source_config(*, actor_user_id, config_id):

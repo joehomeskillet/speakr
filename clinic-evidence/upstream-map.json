@@ -3,6 +3,12 @@
   "sources_read": [
     "clinic-spec/CLAUDE.md",
     "clinic-spec/README.md",
+    "clinic-spec/docs/00_Entscheidungen.md",
+    "clinic-spec/docs/11_Paritaet_und_Webgrenze.md",
+    "clinic-spec/docs/12_Webclient_und_Importagent.md",
+    "clinic-spec/docs/10_Local_Entra.md",
+    "clinic-spec/planning/conflicts-resolved.json",
+    "clinic-spec/tests/acceptance.json",
     "AGENTS.md",
     "conftest.py",
     ".github/workflows/test.yml",
@@ -10,6 +16,7 @@
     "clinic-spec/planning/backlog.json",
     "clinic-spec/planning/requirements.json",
     "clinic-spec/planning/parity-matrix.json",
+    "clinic-spec/tests/acceptance.json",
     "clinic-spec/planning/web-parity-gaps.json",
     "clinic-spec/evidence/upstream-lock.json",
     "clinic-spec/evidence/build-manifest.json",
@@ -35,6 +42,7 @@
     "src/services/document.py",
     "src/file_exporter.py",
     "src/services/job_queue.py",
+    "src/tasks/processing.py",
     "src/services/audit.py",
     "src/auth/permissions.py",
     "src/auth/sso.py",
@@ -162,14 +170,20 @@
         "static/js/modules/composables/audioPlayer.js"
       ],
       "description": "HTML5 audio player composable managing playback state, rate control, scrubbing, and position tracking.",
-      "reuse_for": "Audio playback in the web review and correction views; foot pedal integration hooks attach to its playback APIs."
+      "reuse_for": "Audio playback in the web review and correction views; foot pedal integration hooks attach to its playback APIs.",
+      "p133_clinic_integration": [
+        "static/js/clinic/compose-correction.js",
+        "static/js/clinic/playback-tempo-ui.js",
+        "static/js/clinic/correction-player-position.js"
+      ]
     },
     "processing_job_and_queue": {
       "paths": [
         "src/models/processing_job.py",
         "src/services/job_queue.py",
         "src/services/job_cancel.py",
-        "src/services/job_control.py"
+        "src/services/job_control.py",
+        "src/tasks/processing.py"
       ],
       "description": "FairJobQueue asynchronous multi-threaded task runner with database-backed job states, priority, and retry tracking.",
       "reuse_for": "Sole async processing pipeline for ASR transcription, alignment, and clinic background operations; no new queue framework."

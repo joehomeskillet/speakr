@@ -3136,10 +3136,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             const clinicRecorder = clinicMenu?.createClinicRecorder(audioComposable, state, clinicUploadFile);
             let clinicLeaving = false;
             if (clinicMode) {
-                let draft = null;
+                const drafts = new Set();
+                const activeDraft = () => Array.from(drafts).at(-1);
                 registerSwitchDraft = (adapter) => {
-                    draft = adapter;
-                    return () => { if (draft === adapter) draft = null; };
+                    drafts.add(adapter);
+                    return () => drafts.delete(adapter);
                 };
                 const clearClinicContext = () => {
                     clinicWorklist?.client.switchContext({ accountId: 'signed-out' });
@@ -3184,7 +3185,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                         choices[0].focus();
                     });
                     window.SpeakrServiceWorker.setClinicSwitch(async (copies) => {
-                        const active = draft;
+                        const active = activeDraft();
                         const looseAudio = !active && !!audioComposable.hasUnsavedRecording();
                         const unsaved = !!active?.hasDraft();
                         const uploadsBusy = () => uploadQueue.value.some(({ status }) => ['queued', 'ready', 'uploading'].includes(status));
@@ -3210,7 +3211,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                             if (!['save', 'discard', 'leave'].includes(action)) return false;
                             message.textContent = action === 'save' ? 'Speichern läuft …' : 'Abmeldung wird vorbereitet …';
                             for (const button of choices) button.disabled = true;
-                            if (uploadsBusy() || active !== draft || (active && !(await active.prepare(action)))) {
+                            if (uploadsBusy() || active !== activeDraft() || (active && !(await active.prepare(action)))) {
                                 throw new Error('switch_not_ready');
                             }
                             if (looseAudio) await audioComposable.discardRecording();
@@ -3249,6 +3250,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                     });
                 });
             }
+            const clinicMicrophone = clinicRecorder ? {
+                get inputs() { return inputAudioDevices.value; },
+                get deviceId() { return selectedMicDeviceId.value; },
+                select: (deviceId) => { selectedMicDeviceId.value = deviceId; },
+                requestAccess: audioComposable.requestMicrophonePermission,
+            } : null;
             // Live-Diktat runs on an existing dictation: ?dictation=<id> or the id typed into the picker.
             const clinicLiveChoices = clinicWorklist ? clinicWorklist.createDictationChoices({ client: clinicWorklist.client, makeState: reactive, authorId: clinicWorklist.user.id }) : null;
             const clinicInitialLiveId = new URLSearchParams(window.location.search).get('dictation');
@@ -5520,6 +5527,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 getStatusClass,
                 formatTime,
                 formatDuration,
+                globalError,
                 setGlobalError,
                 showToast,
                 loadTokenBudget,
@@ -5608,7 +5616,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 openClinicDictationView, closeClinicDictationView, openClinicEditorFromView,
                 // end V8 dictation views (v8-70)
                 // V8 menu views (v8-71)
-                clinicMenuViews, clinicMenuActions, clinicMenuToolbarVisible, clinicRecorder, clinicUploadFile,
+                clinicMenuViews, clinicMenuActions, clinicMenuToolbarVisible, clinicRecorder, clinicUploadFile, clinicMicrophone,
                 clinicLiveId, clinicLiveDraft, clinicLiveChoices, openClinicLive, openClinicMenuDictation,
                 // end V8 menu views (v8-71)
                 // V8 Verwaltung views (v8-114)

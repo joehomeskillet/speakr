@@ -137,6 +137,9 @@ def test_send_and_reload_routing_target(browser, recipient_server, audio, size, 
             capture(draft_page, target, stem, "detail-empty")
             draft_page.close()
         stage = view.get_by_test_id("submit-draft")
+        expect(stage).to_be_disabled()
+        view.get_by_test_id("save-draft").click()
+        expect(stage).to_be_enabled()
         stage.click()
         preview = view.get_by_test_id("send-preview")
         default_label, label, mode = {
