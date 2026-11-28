@@ -77,9 +77,26 @@ assert alice.put(first, headers=auth, json={"text": "Invalid", "base_version": 2
 assert alice.get(first).json["text"] == "First saved"
 assert alice.get(second).json["text"] == "Second saved"
 
+protection = f"/api/clinic/v1/dictations/{ids[0]}"
+code = "synthetic-draft-code"
+assert alice.put(protection + "/protection", headers=auth,
+                 json={"version": 1, "secret": code}).status_code == 200
+locked_owner, locked_auth = log_in(owner_id)
+assert locked_owner.get(first).status_code == 403
+assert [row["draft_id"] for row in locked_owner.get(base).json["drafts"]] == [ids[1]]
+assert locked_owner.post(protection + "/unlock", headers=locked_auth,
+                         json={"secret": code}).status_code == 200
+assert locked_owner.get(first).json["text"] == "First saved"
+
 selection = alice.post(first + "/switch", headers=auth, json={"tab_id": "tab-a"})
 assert selection.status_code == 200
 assert (selection.json["draft_id"], selection.json["state"]) == (ids[0], "PAUSED")
+resume = f"/api/clinic/v1/live/dictations/{ids[0]}/resume"
+history = {"session_id": selection.json["session_id"]}
+fresh_owner, fresh_auth = log_in(owner_id)
+assert fresh_owner.post(resume, headers=fresh_auth, json=history).status_code == 403
+recovered = locked_owner.post(resume, headers=locked_auth, json=history)
+assert recovered.status_code == 200 and recovered.json["read_only"]
 for path in (first, f"{base}/{uuid4()}"):
     assert bob.get(path).status_code == 403
     foreign = bob.put(path, headers=bob_auth, json={"text": "Other account", "base_version": 1})
