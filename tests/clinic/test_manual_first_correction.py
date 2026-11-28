@@ -293,9 +293,8 @@ def test_signed_in_owner_types_saves_and_reopens(manual_server):
             _open_from_worklist(page, base)
             text = page.locator('[data-testid=text]')
             expect(text).to_have_value('')
-            _asr_wait_artifacts(page, 'baseline')
-            page.locator('[data-action=acquire]').click()
             expect(text).to_be_editable()
+            _asr_wait_artifacts(page, 'baseline')
             text.press_sequentially(TEXT)
             with page.expect_response(lambda r: r.url.endswith('/correction/save') and r.request.method == 'POST') as response:
                 page.locator('[data-testid=save]').click()
