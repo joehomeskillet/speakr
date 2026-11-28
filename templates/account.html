@@ -468,6 +468,11 @@
             text-wrap: balance;
         }
 
+        .v8-focus .ui-theme-picker__head .t-label {
+            text-transform: none;
+            letter-spacing: normal;
+        }
+
         :is(.tab-content-wrapper, .modal-overlay) :is(input, select, textarea):not([type="hidden"], [type="range"], .sr-only, [disabled]) {
             border-color: var(--text-muted);
             min-width: 0;
@@ -1165,8 +1170,8 @@
                              applied at once and saved with the account. The colour
                              scheme and light/dark mode stay in the appearance
                              dialog of the main page. -->
-                        <section id="account-appearance" class="mb-6 space-y-3">
-                            <h3 class="text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wide">{{ ui_theme_labels.appearance }}</h3>
+                        <section id="account-appearance" class="mb-6 space-y-3" aria-labelledby="account-appearance-title">
+                            <header><h3 id="account-appearance-title" class="text-sm font-semibold text-[var(--text-secondary)]{% if not clinic_mode %} uppercase tracking-wide{% endif %}">{{ ui_theme_labels.appearance }}</h3></header>
                             {% include 'includes/ui_theme_picker.html' %}
                             <a href="{{ url_for('recordings.index') }}?open=appearance" class="btn btn--ghost btn--sm">
                                 <i class="fas fa-palette" aria-hidden="true"></i><span>{{ ui_theme_labels.colorSchemeLink }}</span>
@@ -1180,7 +1185,7 @@
 
                             <!-- Left column: Language Preferences -->
                             <div class="space-y-4">
-                                <h3 class="text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wide" data-i18n="account.languagePreferences">Language preferences</h3>
+                                <h3 class="text-sm font-semibold text-[var(--text-secondary)]{% if not clinic_mode %} uppercase tracking-wide{% endif %}" data-i18n="account.languagePreferences">Language preferences</h3>
                                 <div class="space-y-4 p-3 bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded-md">
                                     <div>
                                         <label for="ui_language" class="block text-sm font-medium text-[var(--text-muted)]" data-i18n="account.interfaceLanguage">Interface language</label>
@@ -1238,7 +1243,7 @@
                                 <!-- The assistant's name (src/utils/assistant_name.py),
                                      shown in the recording chat and on the Ask
                                      page; empty means Ambrose. -->
-                                <h3 class="text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wide pt-4" data-i18n="preferences.assistantSection">Assistant</h3>
+                                <h3 class="text-sm font-semibold text-[var(--text-secondary)]{% if not clinic_mode %} uppercase tracking-wide{% endif %} pt-4" data-i18n="preferences.assistantSection">Assistant</h3>
                                 <div class="space-y-4 p-3 bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded-md">
                                     <div>
                                         <label for="assistant_name" class="block text-sm font-medium text-[var(--text-muted)]" data-i18n="preferences.assistantName">Assistant's name</label>
@@ -1249,7 +1254,7 @@
                                     </div>
                                 </div>
 
-                                <h3 class="text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wide pt-4" data-i18n="preferences.filenameDatesSection">Meeting date from filename</h3>
+                                <h3 class="text-sm font-semibold text-[var(--text-secondary)]{% if not clinic_mode %} uppercase tracking-wide{% endif %} pt-4" data-i18n="preferences.filenameDatesSection">Meeting date from filename</h3>
                                 <div class="space-y-4 p-3 bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded-md">
                                     <label class="flex items-start gap-3 cursor-pointer">
                                         <input type="checkbox" id="prefParseFilenameDates" name="parse_filename_dates" {% if current_user.parse_filename_dates %}checked{% endif %} class="mt-1 h-4 w-4 text-[var(--text-accent)] border-[var(--border-secondary)] rounded focus:ring-[var(--border-focus)] bg-[var(--bg-input)]">
@@ -1285,7 +1290,7 @@
 
                             <!-- Right column: Display + Editor toggles -->
                             <div class="space-y-4">
-                                <h3 class="text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wide" data-i18n="preferences.transcriptDisplay">Transcript display</h3>
+                                <h3 class="text-sm font-semibold text-[var(--text-secondary)]{% if not clinic_mode %} uppercase tracking-wide{% endif %}" data-i18n="preferences.transcriptDisplay">Transcript display</h3>
                                 <label class="flex items-start gap-3 p-3 bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded-md cursor-pointer hover:bg-[var(--bg-accent-hover)]">
                                     <input type="checkbox" id="prefShowTimestampsSimpleView" name="show_timestamps_simple_view" {% if current_user.show_timestamps_simple_view %}checked{% endif %} class="mt-1 h-4 w-4 text-[var(--text-accent)] border-[var(--border-secondary)] rounded focus:ring-[var(--border-focus)] bg-[var(--bg-input)]">
                                     <span class="flex-1">
@@ -1295,7 +1300,7 @@
                                 </label>
 
                                 {% if email_notifications_available %}
-                                <h3 class="text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wide pt-4" data-i18n="preferences.notifications">Notifications</h3>
+                                <h3 class="text-sm font-semibold text-[var(--text-secondary)]{% if not clinic_mode %} uppercase tracking-wide{% endif %} pt-4" data-i18n="preferences.notifications">Notifications</h3>
                                 <input type="hidden" name="email_notifications_shown" value="1">
                                 <label class="flex items-start gap-3 p-3 bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded-md cursor-pointer hover:bg-[var(--bg-accent-hover)]">
                                     <input type="checkbox" id="prefNotifyEmailOnCompletion" name="notify_email_on_completion" {% if current_user.notify_email_on_completion %}checked{% endif %} class="mt-1 h-4 w-4 text-[var(--text-accent)] border-[var(--border-secondary)] rounded focus:ring-[var(--border-focus)] bg-[var(--bg-input)]">
@@ -1306,7 +1311,7 @@
                                 </label>
                                 {% endif %}
 
-                                <h3 class="text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wide pt-4" data-i18n="preferences.transcriptEditor">Transcript editor</h3>
+                                <h3 class="text-sm font-semibold text-[var(--text-secondary)]{% if not clinic_mode %} uppercase tracking-wide{% endif %} pt-4" data-i18n="preferences.transcriptEditor">Transcript editor</h3>
                                 <label class="flex items-start gap-3 p-3 bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded-md cursor-pointer hover:bg-[var(--bg-accent-hover)]">
                                     <input type="checkbox" id="prefEditorAutosave" name="editor_autosave" {% if current_user.editor_autosave %}checked{% endif %} class="mt-1 h-4 w-4 text-[var(--text-accent)] border-[var(--border-secondary)] rounded focus:ring-[var(--border-focus)] bg-[var(--bg-input)]">
                                     <span class="flex-1">
@@ -1315,7 +1320,7 @@
                                     </span>
                                 </label>
 
-                                <h3 class="text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wide pt-4" data-i18n="preferences.keyboard">Keyboard</h3>
+                                <h3 class="text-sm font-semibold text-[var(--text-secondary)]{% if not clinic_mode %} uppercase tracking-wide{% endif %} pt-4" data-i18n="preferences.keyboard">Keyboard</h3>
                                 <input type="hidden" name="keyboard_shortcuts_shown" value="1">
                                 <label class="flex items-start gap-3 p-3 bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded-md cursor-pointer hover:bg-[var(--bg-accent-hover)]">
                                     <input type="checkbox" id="prefKeyboardShortcuts" name="keyboard_shortcuts" {% if current_user.keyboard_shortcuts is not sameas false %}checked{% endif %} class="mt-1 h-4 w-4 text-[var(--text-accent)] border-[var(--border-secondary)] rounded focus:ring-[var(--border-focus)] bg-[var(--bg-input)]">
@@ -1325,7 +1330,7 @@
                                     </span>
                                 </label>
 
-                                <h3 class="text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wide pt-4" data-i18n="preferences.translation">Translation</h3>
+                                <h3 class="text-sm font-semibold text-[var(--text-secondary)]{% if not clinic_mode %} uppercase tracking-wide{% endif %} pt-4" data-i18n="preferences.translation">Translation</h3>
                                 {% if auto_translation_available %}
                                 <input type="hidden" name="auto_translation_shown" value="1">
                                 <label class="flex items-start gap-3 p-3 bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded-md cursor-pointer hover:bg-[var(--bg-accent-hover)]">
@@ -1344,7 +1349,7 @@
                                      it controlled was a display preference
                                      and the dedicated tab was hard to find
                                      for one setting). -->
-                                <h3 class="text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wide pt-4" data-i18n="display.audioPlayerSection">Audio player</h3>
+                                <h3 class="text-sm font-semibold text-[var(--text-secondary)]{% if not clinic_mode %} uppercase tracking-wide{% endif %} pt-4" data-i18n="display.audioPlayerSection">Audio player</h3>
                                 <p class="text-xs text-[var(--text-muted)]" data-i18n="display.audioPlayerPositionHelp">Where the player sits on a recording's page</p>
                                 {% set apos = current_user.audio_player_position or 'bottom' %}
                                 <div class="grid grid-cols-2 gap-2">
@@ -1367,7 +1372,7 @@
                                 <!-- Which sort the recordings list opens with in a browser
                                      that has not saved its own choice. The Sort menu in the
                                      list still overrides it per browser. -->
-                                <h3 class="text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wide pt-4" data-i18n="display.recordingsListSection">Recordings list</h3>
+                                <h3 class="text-sm font-semibold text-[var(--text-secondary)]{% if not clinic_mode %} uppercase tracking-wide{% endif %} pt-4" data-i18n="display.recordingsListSection">Recordings list</h3>
                                 <p class="text-xs text-[var(--text-muted)]" data-i18n="display.defaultSortHelp">Order of the list in a browser where you haven't picked a sort. A sort picked from the list's Sort menu takes priority there.</p>
                                 {% set dsort = current_user.default_recording_sort or 'created_at' %}
                                 <div class="grid grid-cols-2 gap-2">
@@ -2318,8 +2323,8 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
                             </div>
 
                             <!-- System Configuration -->
-                            <div class="bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-lg p-5">
-                                <h3 class="text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wide mb-4" data-i18n="aboutPage.systemConfiguration">System configuration</h3>
+                            <section class="bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-lg p-5" aria-labelledby="account-system-title">
+                                <header><h3 id="account-system-title" class="text-sm font-semibold text-[var(--text-secondary)]{% if not clinic_mode %} uppercase tracking-wide{% endif %} mb-4" data-i18n="aboutPage.systemConfiguration">System configuration</h3></header>
                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
                                     <div>
                                         <h4 class="text-sm font-medium text-[var(--text-primary)] mb-2" data-i18n="aboutPage.largeLanguageModel">Large language model</h4>
@@ -2348,11 +2353,11 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
                                         </dl>
                                     </div>
                                 </div>
-                            </div>
+                            </section>
 
                             <!-- Project Links -->
                             <div class="bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-lg p-5">
-                                <h3 class="text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wide mb-4" data-i18n="aboutPage.projectLinks">Project links</h3>
+                                <h3 class="text-sm font-semibold text-[var(--text-secondary)]{% if not clinic_mode %} uppercase tracking-wide{% endif %} mb-4" data-i18n="aboutPage.projectLinks">Project links</h3>
                                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
                                     <a href="https://github.com/murtaza-nasir/speakr" target="_blank" rel="noopener noreferrer"
                                        class="flex items-center gap-2 px-3 py-2 border border-[var(--border-secondary)] rounded-md hover:bg-[var(--bg-tertiary)] hover:border-[var(--border-accent)] transition-colors text-sm">

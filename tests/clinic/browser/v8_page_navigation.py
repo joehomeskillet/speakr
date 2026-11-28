@@ -10,10 +10,18 @@ import v8_browser_support as support
 # Only the matrix needs a processing row. Keep other browser scenarios' seed unchanged.
 MATRIX_SEED = '''
 with app.app_context():
+    from src.clinic import alignment, alignment_job
+    from src.clinic.audio_revisions import current_audio_revision
+    from src.clinic.revisions import current_revision
     from src.models import ProcessingJob
     rec = Recording.query.filter_by(title="Synthetisch").one()
     db.session.add(ProcessingJob(recording_id=rec.id, user_id=rec.user_id,
                                 job_type="transcribe", status="completed"))
+    # Complete the synthetic alignment before opening the editor so the queue has one job.
+    dictation = ClinicDictation.query.filter_by(recording_id=rec.id).one()
+    row = alignment.create_pending(dictation, current_audio_revision(dictation), current_revision(dictation),
+                                   source_kind="asr", engine="none", model_revision="none")
+    alignment_job.handle({"dictation_id": dictation.id, "alignment_revision_id": row.id}, "matrix-seed")
     db.session.commit()
 '''
 
@@ -35,6 +43,12 @@ def show_dictation_tab(page, tab, endpoint):
     with page.expect_response(lambda r: r.request.method == "GET" and
                              r.url.endswith(f"/dictations/{page.v8_dictation_id}/{endpoint}")) as response:
         support._click_noting(page, page.get_by_test_id("clinic-dictation-link-" + tab), tab)
+        if tab == "detail":
+            review_close = page.get_by_test_id("session-review-close")
+            detail = page.get_by_test_id("clinic-detail-view")
+            expect(review_close.or_(detail).first).to_be_visible(timeout=support.SHOW_TIMEOUT_MS)
+            if review_close.is_visible():
+                review_close.click()
     assert response.value.status == 200, f"{endpoint}: HTTP {response.value.status}"
     return response.value.url
 

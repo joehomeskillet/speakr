@@ -12,9 +12,10 @@ const item = (id, extra) => ({
 });
 
 describe('recordings prototype look (V8 P01)', () => {
-    it('renders the prototype structure: eyebrow, count pill, filter card, day groups and record rows', () => {
+    it('renders the prototype structure: count pill, filter card, day groups and record rows', () => {
         const tpl = RecordingsView.template;
-        for (const part of ['class="eyebrow"', 'count-pill', 'record-toolbar', 'record-search', 'record-select', 'record-role-filters',
+        expect(tpl).not.toContain('class="eyebrow"');
+        for (const part of ['count-pill', 'record-toolbar', 'record-search', 'record-select', 'record-role-filters',
             'record-list-meta', 'date-group', 'date-heading', 'group-count', 'record-group-list', 'recording-row', 'record-icon',
             'record-roles', 'record-subtitle', 'class="status"', 'record-source', 'record-duration', 'record-chevron']) {
             expect(tpl).toContain(part);

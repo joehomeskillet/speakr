@@ -9,7 +9,9 @@ from tempfile import TemporaryDirectory
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.clinic import audio_render, audio_revisions, audio_segments, decoder, lease, live_session, release, revisions, workflow
+from src.clinic import (
+    audio_render, audio_revisions, audio_segments, decoder, lease, live_session, release, revisions, richtext, workflow,
+)
 from src.clinic.models import ClinicDictation, ClinicOriginal, ClinicTranscriptRevision
 from src.clinic.parity_dispatch import CommandProblem
 from src.clinic.richtext import CanonicalDocument, to_plain_text
@@ -62,8 +64,10 @@ def load(dictation, root, load_sources):
         return None
     saved = db.session.get(ClinicBundleDocument, head.id) if head else None
     synced = audio_synced(saved, audio)
-    document = (CanonicalDocument.from_payload(saved.payload) if saved else
-                text_to_document((head.body if head else '').encode('utf-8')))
+    _, document = richtext.load_latest_document(head.id) if head else (0, None)
+    if document is None:
+        document = (CanonicalDocument.from_payload(saved.payload) if saved else
+                    text_to_document((head.body if head else '').encode('utf-8')))
     if saved and saved.audio_revision_id and not synced:
         document = CanonicalDocument(tuple(replace(node, runs=tuple(
             replace(run, audio_anchor_id=None) for run in node.runs)) for node in document.nodes))

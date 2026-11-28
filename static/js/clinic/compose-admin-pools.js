@@ -88,7 +88,6 @@ export const TEXT = Object.freeze({
     nameRequired: 'Bitte einen Namen eingeben.',
     validityOrder: 'Das Ende der Gültigkeit muss nach dem Beginn liegen.',
     keys: 'Tastatur: Esc bricht eine offene Rückfrage ab.',
-    eyebrow: 'Verwaltung',
     subline: 'Zuständige Gruppen und ihre Mitglieder verwalten. Die Zuweisung eines Diktats bezieht sich auf einen Schreibkräfte-Pool.',
     addPool: 'Gruppe hinzufügen',
     listTitle: 'Pools und Mitglieder',
@@ -530,7 +529,6 @@ export const ADMIN_POOLS_TEMPLATE = `
 <section class="clinic-admin-pools-view v8-page v8-admin-page" data-testid="clinic-admin-pools-view" aria-labelledby="cap-title" @keydown="c.onKey($event)">
   <div class="pagehead">
     <div>
-      <div class="eyebrow">{{ c.text.eyebrow }}</div>
       <h1 id="cap-title">{{ c.text.title }}</h1>
       <p class="subline">{{ c.text.subline }}</p>
     </div>

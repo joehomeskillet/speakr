@@ -23,7 +23,11 @@ AUTH: tuple[str, ...] = (
     'clinic_imports_web.create_intents',
     'clinic_imports_web.device_send',
     'clinic_imports_web.retry_intent',
+    'clinic_imports_web.source_cleanup_preview',
+    'clinic_imports_web.request_source_cleanup',
     'clinic_imports_web.inventory',
+    'clinic_imports_web.devices',
+    'clinic_imports_web.firmware',
     'clinic_imports_web.unassigned',
     'clinic_imports_web.assignment_candidates',
     'clinic_imports_web.author_suggestion_view',
@@ -41,4 +45,5 @@ ADMIN: tuple[str, ...] = (
     'clinic_agent_admin.enroll',
     'clinic_agent_admin.set_enabled',
     'clinic_agent_admin.rotate_key',
+    'clinic_imports_web.update_firmware',
 )

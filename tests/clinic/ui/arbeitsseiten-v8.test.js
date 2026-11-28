@@ -27,7 +27,7 @@ describe('V8 work pages: prototype structure', () => {
             } else {
                 expect(template).toContain('class="breadcrumb"');
                 expect(template).toContain('class="pagehead"');
-                expect(template).toContain('class="eyebrow"');
+                expect(template).not.toContain('class="eyebrow"');
                 expect(template).toContain('class="subline"');
                 expect(template).toContain('class="head-actions"');
                 expect(template).toMatch(/class="(panel|editor-workspace)"/);

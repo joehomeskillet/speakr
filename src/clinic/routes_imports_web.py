@@ -13,12 +13,14 @@ from werkzeug.exceptions import BadRequest, RequestEntityTooLarge
 from wtforms.validators import ValidationError
 
 from src.clinic import (
-    agent_channel, author_suggestion, decoder, import_centre, import_source_config, import_visibility,
-    pools, recipient_defaults, speaker_client, speaker_pipeline, worklist_entries,
+    agent_channel, agent_channel_ingest, author_suggestion, decoder, device_inventory_view, firmware_catalog,
+    import_centre, import_source_config, import_visibility, pools, recipient_defaults, speaker_client, speaker_pipeline,
+    worklist_entries,
 )
 from src.clinic import routes_import_sources_web as source_routing
 from src.clinic.admin_dictation_access import _is_active_site_admin
-from src.clinic.config import clinic_mode_enabled
+from src.clinic.config import clinic_mode_enabled, dev_defaults, feature_locked
+from src.clinic.dictation_roles import display_name
 from src.clinic.identity import ClinicAccountPolicy
 from src.clinic.ingest import IngestError
 from src.clinic.migration_import_intent_metadata import interpret
@@ -26,7 +28,7 @@ from src.clinic.parity_dispatch import MAX_BODY_BYTES, CommandProblem, _problem,
 from src.clinic.parity_receipts import ClinicParityReceipt, run_once, scope_key
 from src.clinic.pool_policy import author_pool_ids
 from src.database import db
-from src.models import VoiceEmbeddingSpace
+from src.models import User, VoiceEmbeddingSpace
 from src.services import audit
 from src.services.storage.locator import local_path_from_key
 
@@ -103,25 +105,42 @@ def intents():
     return jsonify(items=items, count=len(items))
 
 
+def _import_payload():
+    try:
+        validate_csrf(request.headers.get("X-CSRF-Token") or request.headers.get("X-CSRFToken"))
+    except ValidationError:
+        raise CommandProblem("FORBIDDEN") from None
+    request.max_content_length = min(MAX_BODY_BYTES, request.max_content_length or MAX_BODY_BYTES)
+    try:
+        body = json.loads(request.get_data().decode("utf-8"), object_pairs_hook=_unique_object) if request.is_json else None
+    except (BadRequest, RequestEntityTooLarge, ValueError, RecursionError):
+        raise CommandProblem("INVALID_PAYLOAD") from None
+    if not isinstance(body, dict):
+        raise CommandProblem("INVALID_PAYLOAD")
+    return body
+
+
+def _import_key():
+    key = request.headers.get("Idempotency-Key", "")
+    if not 8 <= len(key) <= 128 or any(not 33 <= ord(char) <= 126 for char in key):
+        raise CommandProblem("INVALID_PAYLOAD")
+    return key
+
+
+def _payload_digest(body):
+    return sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
 def _import_write(target, operation):
     actor = current_user.id
     if not _can_import(actor):
         return _problem("FORBIDDEN")
     try:
-        validate_csrf(request.headers.get("X-CSRF-Token") or request.headers.get("X-CSRFToken"))
-    except ValidationError:
-        return _problem("FORBIDDEN")
-    key = request.headers.get("Idempotency-Key", "")
-    if not 8 <= len(key) <= 128 or any(not 33 <= ord(char) <= 126 for char in key):
-        return _problem("INVALID_PAYLOAD")
-    request.max_content_length = min(MAX_BODY_BYTES, request.max_content_length or MAX_BODY_BYTES)
-    try:
-        body = json.loads(request.get_data().decode("utf-8"), object_pairs_hook=_unique_object) if request.is_json else None
-    except (BadRequest, RequestEntityTooLarge, ValueError, RecursionError):
-        return _problem("INVALID_PAYLOAD")
-    if not isinstance(body, dict):
-        return _problem("INVALID_PAYLOAD")
-    digest = sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        body = _import_payload()
+        key = _import_key()
+    except CommandProblem as error:
+        return _problem(str(error))
+    digest = _payload_digest(body)
     scope = (actor, request.endpoint, target, key)
 
     connection = db.session.connection()
@@ -165,13 +184,17 @@ def _route_snapshot(item, actor, owners, now):
     return config, eligible_pools
 
 
+def _effective_pool(pool_id, eligible_pools):
+    return pool_id or (next(iter(eligible_pools)) if len(eligible_pools) == 1 else None)
+
+
 def _metadata(overrides, pool_id, eligible_pools):
     pool_override = overrides.get("pool_id")
     if isinstance(pool_override, dict) and pool_override.get("op") == "set":
         pool_id = pool_override.get("value")
         if not isinstance(pool_id, str) or pool_id not in eligible_pools:
             raise agent_channel.AgentChannelError("forbidden", "ineligible pool")
-    pool_id = pool_id or (next(iter(eligible_pools)) if len(eligible_pools) == 1 else None)
+    pool_id = _effective_pool(pool_id, eligible_pools)
     approved = recipient_defaults.eligible_user_ids(pool_id) if pool_id else ()
     return import_centre._stored_metadata(overrides, approved)
 
@@ -262,6 +285,82 @@ def create_intents() -> Response | tuple[Response, int]:
     return _import_write("batch", lambda actor, body: _queue(actor, body, device_only=False))
 
 
+def _cleanup_refusal(item, receipt_id, config, expected_revision):
+    if expected_revision is not None and expected_revision != config["policy_version"]:
+        return "POLICY_CHANGED"
+    if feature_locked("device_delete_runtime_enabled") or not config["allow_source_delete"]:
+        return "SOURCE_DELETE_DISABLED"
+    try:
+        root = import_source_config._clean_backup_root(config["backup_root"], config["approved_root"])
+        days = import_source_config._clean_retention(config["backup_retention_days"])
+    except agent_channel.AgentChannelError:
+        return "BACKUP_RETENTION_NOT_READY"
+    if not (config["backup_enabled"] and root and days
+            and dev_defaults().get("privacy", {}).get("retention_policy_approved") is True):
+        return "BACKUP_RETENTION_NOT_READY"
+    return agent_channel_ingest.source_cleanup_refusal(item, receipt_id)
+
+
+def _source_cleanup(*, preview):
+    fields = ("agent_id", "source_snapshot_id", "receipt_id")
+    try:
+        body = _import_payload()
+        required = set(fields) if preview else set(fields) | {"expected_revision", "confirmation"}
+        if not required <= body.keys() or body.keys() - required - {"expected_revision"}:
+            raise CommandProblem("INVALID_PAYLOAD")
+        revision = body.get("expected_revision")
+        if ("expected_revision" in body and (type(revision) is not int or revision < 0)
+                or (not preview and body["confirmation"] is not True)):
+            raise CommandProblem("INVALID_PAYLOAD")
+        key = None if preview else _import_key()
+        agent_id, snapshot_id, receipt_id = (str(UUID(body[field])) for field in fields)
+    except (TypeError, ValueError, AttributeError):
+        return _problem("INVALID_PAYLOAD")
+    except CommandProblem as error:
+        return _problem(str(error))
+
+    actor = current_user.id
+    item = agent_channel.ClinicAgentInventory.query.filter_by(id=snapshot_id, agent_id=agent_id).first()
+    if item is None:
+        return _assignment_error(agent_channel.AgentChannelError("not_found", "snapshot"))
+    owners = agent_channel.unique_root_owners(agent_channel.registered_agent_roots())
+    scope = import_visibility.ImportScope(agent_id, item.root_id, item.source_id, item.snapshot_version)
+    config = _source_config(scope, item.relative_path, owners)
+    if config is None:
+        return _assignment_error(agent_channel.AgentChannelError("not_found", "snapshot"))
+    if not source_routing.may_manage_source_deletion(actor, config):
+        return _problem("FORBIDDEN")
+
+    def decision():
+        code = _cleanup_refusal(item, receipt_id, config, revision)
+        return dict(
+            agent_id=agent_id, source_snapshot_id=snapshot_id, snapshot_version=item.snapshot_version,
+            receipt_id=receipt_id, policy_version=config["policy_version"], requested_by_user_id=actor,
+            action="none" if code else "delete", code=code,
+            status="DENIED" if code else ("ELIGIBLE" if preview else "ACCEPTED"),
+        )
+
+    if preview:
+        return jsonify(decision())
+    try:
+        result = run_once((actor, request.endpoint, snapshot_id, key), _payload_digest(body),
+                          lambda: decision() | {"id": str(uuid4())})
+    except CommandProblem as error:
+        return _problem(str(error))
+    return jsonify(result), 409 if result["status"] == "DENIED" else 200
+
+
+@blueprint.post("/source-cleanup/preview")
+def source_cleanup_preview():
+    return _source_cleanup(preview=True)
+
+
+@blueprint.post("/source-cleanup")
+def request_source_cleanup():
+    """Record the operator's decision. This route never schedules an agent operation."""
+    return _source_cleanup(preview=False)
+
+
 @blueprint.post("/intents/<uuid:intent_id>/retry")
 def retry_intent(intent_id: UUID) -> Response | tuple[Response, int]:
     def retry(actor, body):
@@ -303,14 +402,13 @@ def retry_intent(intent_id: UUID) -> Response | tuple[Response, int]:
     return _import_write(str(intent_id), retry)
 
 
-@blueprint.get("/inventory")
-def inventory():
+def _visible_inventory(*, include_recipients: bool = False) -> tuple[list[dict], bool, list[dict]] | None:
     actor = current_user.id
-    admin = _is_active_site_admin(db.session, current_user)
+    admin = _is_active_site_admin(db.session(), current_user)
     led_pools = () if admin else worklist_entries._led_author_pools(actor)
     can_import = admin or _can_import(actor)
     if not (can_import or led_pools):
-        return _problem("FORBIDDEN")
+        return None
 
     registry = agent_channel.registered_agent_roots()
     owners = agent_channel.unique_root_owners(registry)
@@ -332,16 +430,98 @@ def inventory():
         master_secret=b"", authorise=lambda uid, action: uid == actor and action == "read_inventory",
     )
     visibility = import_visibility.ClarificationPolicy(may_access=may_read)
-    items = []
+    items: list[dict] = []
+    recipients_by_pool: dict[int | None, tuple[int, ...]] = {None: ()}
+    now = agent_channel.utcnow()
     for agent_id in roots_by_agent:
         body = import_visibility.list_inventory(visibility, channel_policy, actor_user_id=actor, agent_id=agent_id)
         snapshots = {
-            (row.source_id, row.snapshot_version): row.id
+            (row.source_id, row.snapshot_version): row
             for row in agent_channel.ClinicAgentInventory.query.filter_by(agent_id=agent_id)
         }
-        items.extend(row | {"agent_id": agent_id, "snapshot_id": snapshots[row["source_id"], row["snapshot_version"]]}
-                     for row in body["items"] if (row["source_id"], row["snapshot_version"]) in snapshots)
-    return jsonify(items=items, count=len(items), can_clarify=bool(admin or led_pools))
+        for row in body["items"]:
+            snapshot = snapshots.get((row["source_id"], row["snapshot_version"]))
+            if snapshot is None:
+                continue
+            item = row | {"agent_id": agent_id, "snapshot_id": snapshot.id}
+            items.append(item)
+            if not include_recipients or not can_import or snapshot.size <= 0:
+                continue
+            try:
+                config, eligible_pools = _route_snapshot(snapshot, actor, owners, now)
+            except agent_channel.AgentChannelError:
+                continue
+            if config["source_kind"] == "device":
+                pool_id = _effective_pool(config["target_pool_id"], eligible_pools)
+                if pool_id not in recipients_by_pool:
+                    recipients_by_pool[pool_id] = recipient_defaults.eligible_user_ids(pool_id)
+                item["device_recipient_ids"] = recipients_by_pool[pool_id]
+    recipient_ids = {uid for pool_recipients in recipients_by_pool.values() for uid in pool_recipients}
+    users = User.query.filter(User.id.in_(recipient_ids)).order_by(User.name, User.username, User.id) if recipient_ids else ()
+    recipients = [{"id": user.id, "name": display_name(user)} for user in users]
+    return items, bool(admin or led_pools), recipients
+
+
+@blueprint.get("/inventory")
+def inventory():
+    visible = _visible_inventory(include_recipients=True)
+    if visible is None:
+        return _problem("FORBIDDEN")
+    items, can_clarify, recipients = visible
+    return jsonify(items=items, count=len(items), can_clarify=can_clarify, recipients=recipients)
+
+
+@blueprint.get("/devices")
+def devices():
+    actor = current_user.id
+    admin = _is_active_site_admin(db.session(), current_user)
+    led_pools = () if admin else worklist_entries._led_author_pools(actor)
+    can_import = admin or _can_import(actor)
+    if not (can_import or led_pools):
+        return _problem("FORBIDDEN")
+    return jsonify(device_inventory_view.get_device_report_view(
+        site_admin=admin, own_author_id=actor if can_import else None, led_pools=led_pools,
+    ))
+
+
+@blueprint.get("/firmware")
+def firmware() -> Response | tuple[Response, int]:
+    visible = _visible_inventory()
+    if visible is None:
+        return _problem("FORBIDDEN")
+    targets = firmware_catalog.list_targets()
+    items = [firmware_catalog.compare(row, targets) for row in visible[0]]
+    return jsonify(catalog=[targets[key] for key in sorted(targets)], items=items, count=len(items),
+                   firmware_action=device_inventory_view.get_firmware_action_status())
+
+
+@blueprint.put("/firmware/<device_type>")
+def update_firmware(device_type: str) -> Response | tuple[Response, int]:
+    if not _is_active_site_admin(db.session(), current_user):
+        return _problem("FORBIDDEN")
+    try:
+        validate_csrf(request.headers.get("X-CSRFToken") or request.headers.get("X-CSRF-Token"))
+    except ValidationError:
+        return _problem("FORBIDDEN")
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or body.keys() - {"target_version", "expected_version"}:
+        return _problem("INVALID_PAYLOAD")
+    try:
+        entry = firmware_catalog.set_target(device_type, body.get("target_version"), body.get("expected_version", 0))
+    except ValueError:
+        return _problem("INVALID_PAYLOAD")
+    except firmware_catalog.RevisionConflict:
+        db.session.rollback()
+        return _problem("REVISION_CONFLICT")
+    event = audit.record_in_tx(
+        "admin.setting.changed", actor_kind="session", actor_user_id=current_user.id, force=True,
+        details={"key": f"firmware:{entry['device_type']}", "new": entry},
+    )
+    if event is None:
+        db.session.rollback()
+        return _problem("DEPENDENCY_UNAVAILABLE")
+    db.session.commit()
+    return jsonify(entry)
 
 
 def _clarification_policy():

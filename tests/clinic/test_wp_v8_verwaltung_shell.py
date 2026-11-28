@@ -115,7 +115,8 @@ def test_pools_authors_users_use_the_prototype_page_structure(live_server, brows
         page.goto(base + "/" + PAGES[view][0])
         _mounted(page)
         shell = _wait_page(page, view)
-        assert shell.locator(".pagehead .eyebrow").text_content().strip() == "Verwaltung"
+        assert shell.locator(".pagehead .eyebrow").count() == 0
+        assert shell.get_by_test_id("clinic-admin-breadcrumb").get_by_text("Verwaltung", exact=True).is_visible()
         assert shell.locator(".pagehead h1").count() == 1
         assert shell.locator(".pagehead .subline").count() == 1
         shell.locator(".stats .stat").first.wait_for(state="visible", timeout=30000)

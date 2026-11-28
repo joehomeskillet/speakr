@@ -13,6 +13,7 @@ def test_return_to_recordings_keeps_the_users_keyboard_focus(browser, app_base, 
         editor = page.get_by_test_id("clinic-correction-view")
         expect(editor).to_be_visible()
         page.get_by_test_id("clinic-correction-back").click()
+        page.get_by_test_id("session-review-close").click()
         row.focus()
         # A physical space press activates a button on keyup, provided focus stays on it.
         page.keyboard.press("Space", delay=150)
