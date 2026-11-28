@@ -88,7 +88,7 @@ def add_human_revision(
     original_version: ClinicOriginal | None = None,
     force_new: bool = False,
 ) -> ClinicTranscriptRevision:
-    """Append a human correction, or keep the tip for unchanged text and provenance.
+    """Append a human correction, or return the tip when the text is unchanged.
 
     A new row is flushed, so its ID is available to other writes in the same
     session. The caller owns the commit or rollback. Bundle imports use
