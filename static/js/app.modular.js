@@ -3125,6 +3125,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             // Recorded takes and selected files share the same upload and server receipt.
             const clinicUploadFile = async (file, recordingTitle, { useSpeechRecognition = true, clientUploadId } = {}) => {
                 const body = new FormData();
+                body.append('use_speech_recognition', String(useSpeechRecognition));
+                if (clientUploadId) body.append('client_upload_id', clientUploadId);
                 if (recordingTitle === undefined) {
                     body.append('file', file);
                 } else {
@@ -3137,8 +3139,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     body.append('title', recordingTitle);
                     body.append('from_recorder', 'true');
                 }
-                body.append('use_speech_recognition', String(useSpeechRecognition));
-                if (clientUploadId) body.append('client_upload_id', clientUploadId);
                 const token = clinicMenu ? await clinicMenu.getUploadCsrfToken() : null;
                 const response = await fetch('/upload', { method: 'POST', headers: token ? { 'X-CSRFToken': token } : {}, body });
                 if (!response.ok) throw new Error('upload_failed');

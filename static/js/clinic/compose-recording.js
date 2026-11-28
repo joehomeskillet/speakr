@@ -1049,7 +1049,8 @@ export const RECORDING_TEMPLATE = `
                style="display: grid; gap: var(--ui-space-2)">
             <span id="crv-active-microphone-label">Mikrofon</span>
             <button v-for="device in [{ deviceId: '', label: 'Standardmikrofon' }, ...m.microphoneOptions]" :key="device.deviceId"
-                    type="button" class="button" :aria-pressed="device.deviceId === m.selectedMicrophoneId"
+                    type="button" class="button" :class="{ accent: device.deviceId === m.selectedMicrophoneId }"
+                    :aria-pressed="device.deviceId === m.selectedMicrophoneId"
                     :disabled="m.microphoneSwitching" @click="c.chooseMicrophone(device.deviceId)"
                     style="${TOUCH}; white-space: normal; overflow-wrap: anywhere">
               {{ device.label }}
@@ -1073,7 +1074,7 @@ export const RECORDING_TEMPLATE = `
           <summary class="focus-visible:outline-ui-text" style="${TOUCH}; align-content: center; cursor: pointer">
             Aufnahmeformat ({{ microphone.formats.find(format => format.mimeType === microphone.mimeType)?.label || 'Automatisch' }})
           </summary>
-          <div class="actions" role="group" aria-label="Aufnahmeformat">
+          <div class="actions" role="group" aria-label="Aufnahmeformat" style="margin-top: var(--ui-space-2)">
             <button type="button" class="button" :aria-pressed="!microphone.mimeType" :disabled="!enabled('start')"
                     @click="microphone.selectFormat('')" style="${TOUCH}">Automatisch</button>
             <button v-for="format in microphone.formats" :key="format.mimeType" type="button" class="button"
