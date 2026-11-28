@@ -1277,7 +1277,7 @@ def register_clinic_worklist(flask_app):
             raise CommandProblem('REVISION_CONFLICT') from error
         except ChangeError as error:
             db.session.rollback()
-            code = str(error)
+            code = error.code
             raise CommandProblem('POLICY_DENIED' if code == 'forbidden'
                                  else 'REVISION_CONFLICT' if code == 'stale_version' or code.startswith('lease_')
                                  else 'INVALID_PAYLOAD') from error

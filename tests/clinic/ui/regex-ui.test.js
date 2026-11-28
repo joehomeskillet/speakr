@@ -134,6 +134,88 @@ describe('regex ui model', () => {
     });
 });
 
+describe('central regex rules', () => {
+    const savedRule = {
+        id: 'central-1', name: 'Titel übernehmen', pattern: 'Bericht (\\w+)', target_field: 'title',
+        priority_order: 100, replacement: null, max_input_length: 5,
+    };
+
+    it('loads and saves without a dictation, and preserves the saved rule if an invalid edit is refused', async () => {
+        const request = vi.fn()
+            .mockResolvedValueOnce(ok({ rules: [] }))
+            .mockResolvedValueOnce(ok(savedRule))
+            .mockResolvedValueOnce(bad('validation', 'INVALID_PAYLOAD'))
+            .mockResolvedValueOnce(ok({ rules: [savedRule] }));
+        const create = () => createRegexRulesModel({ request }, { manageRules: true, dictationId: '' });
+        const m = create();
+        await m.loadRules();
+        expect(m.state.rules).toEqual([]);
+        m.addRule();
+        for (const key of ['name', 'pattern', 'target_field']) m.setRule(0, key, savedRule[key]);
+        m.setRule(0, 'max_input_length', '0');
+        expect(m.canSave(0)).toBe(false);
+        m.setRule(0, 'max_input_length', '5');
+        await m.saveRule(0);
+        const { id, ...body } = savedRule;
+        expect(request).toHaveBeenNthCalledWith(2, '/regex/rules', { method: 'POST', body });
+        expect(m.state.notice).toBe('Regel gespeichert.');
+        expect(m.canSave(0)).toBe(false);
+        m.setRule(0, 'pattern', '(');
+        await m.saveRule(0);
+        expect(request).toHaveBeenNthCalledWith(3, '/regex/rules', { method: 'POST', body: { ...savedRule, pattern: '(' } });
+        expect(m.state.failure.message).toBe(LABELS.invalidRule);
+        expect(m.state.rules[0].pattern).toBe('(');
+        expect(m.state.savedRules[0].pattern).toBe(savedRule.pattern);
+        const reopened = create();
+        await reopened.loadRules();
+        expect(reopened.state.rules[0]).toMatchObject({ id, pattern: savedRule.pattern, max_input_length: 5 });
+    });
+
+    it('tests an unsaved limit inline but only applies a preview of saved rules', async () => {
+        const truncated = { ...PREVIEW, resulting_fields: {}, truncated: true };
+        const request = vi.fn()
+            .mockResolvedValueOnce(ok({ rules: [savedRule] }))
+            .mockResolvedValueOnce(ok(truncated))
+            .mockResolvedValueOnce(ok(PREVIEW))
+            .mockResolvedValueOnce(ok({ applied_fields: PREVIEW.resulting_fields }));
+        const m = createRegexRulesModel({ request }, { manageRules: true, dictationId: 'd-2' });
+        await m.loadRules();
+        m.setRule(0, 'max_input_length', '3');
+        m.setText('Vorher: Bericht A');
+        await m.preview();
+        expect(request.mock.calls[1][1].body).toMatchObject({ dictation_id: 'd-2', rules: [{ max_input_length: 3 }] });
+        expect(m.state.preview).toMatchObject({ truncated: true, rows: [] });
+        expect(await m.apply()).toBeNull();
+        m.setRule(0, 'max_input_length', '5');
+        await m.preview();
+        const previewBody = { dictation_id: 'd-2', rule_ids: [savedRule.id], text: 'Vorher: Bericht A' };
+        expect(request.mock.calls[2][1].body).toEqual(previewBody);
+        expect(m.canApply()).toBe(true);
+        await m.apply();
+        expect(request.mock.calls[3]).toEqual(['/regex/apply', { method: 'POST', body: {
+            ...previewBody, rule_version: PREVIEW.rule_version, input_digest: PREVIEW.input_digest,
+        } }]);
+    });
+
+    it('does not repeat an unconfirmed creation or discard its warning on edit', async () => {
+        const request = vi.fn()
+            .mockResolvedValueOnce(ok({ rules: [] }))
+            .mockResolvedValueOnce(bad('network', 'NETWORK'));
+        const m = createRegexRulesModel({ request }, { manageRules: true });
+        await m.loadRules();
+        m.addRule();
+        m.setRule(0, 'name', 'Beispiel');
+        m.setRule(0, 'pattern', 'Bericht');
+        m.setRule(0, 'target_field', 'title');
+        await m.saveRule(0);
+        m.setText('Anderer Text');
+        await m.retry();
+        await m.saveRule(0);
+        expect(m.state.failure.message).toContain('Laden Sie die Seite neu');
+        expect(request).toHaveBeenCalledTimes(2);
+    });
+});
+
 describe('regex ui component', () => {
     it('exports an accessible template without hard-coded colours', () => {
         const component = createRegexRulesComponent({ reactive: (x) => x });
