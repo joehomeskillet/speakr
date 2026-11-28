@@ -77,7 +77,11 @@ describe('sourced recognition marks', () => {
 
 describe('marked passage playback', () => {
     it('plays only on the active media and stops at the end of the passage', async () => {
-        const c = createCorrectionViewController({ dictationId: 'd1', currentUser: { id: 1 } });
+        let now = 0;
+        const c = createCorrectionViewController({
+            dictationId: 'd1', currentUser: { id: 1 },
+            modesOptions: { now: () => now, resumeIdleMs: 10, rewindMs: 2000 },
+        });
         const audio = Object.assign(new EventTarget(), {
             nodeType: 1, currentSrc: 'https://fixture.test/old-audio', ownerDocument: { baseURI: 'https://fixture.test/' },
             currentTime: 0, duration: 4, paused: true,
@@ -90,7 +94,11 @@ describe('marked passage playback', () => {
         expect(await c.playRange(0.5, 0.825)).toBe(false);
         audio.currentSrc = 'https://fixture.test' + SOURCE;
         expect(await c.playRange(0.5, 9)).toBe(false);
+        c.togglePlayback();
+        expect(c.modes.onKey()).toEqual({ kind: 'pause' });
         expect(await c.playRange(0.5, 0.825)).toBe(true);
+        now = 20;
+        expect(c.modes.tick()).toEqual({ kind: 'none' });
         expect(audio.currentTime).toBe(0.5);
         expect(audio.paused).toBe(false);
         audio.currentTime = 0.8;

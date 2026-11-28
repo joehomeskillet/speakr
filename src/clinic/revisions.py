@@ -91,8 +91,8 @@ def add_human_revision(
     """Append a human correction, or return the tip when the text is unchanged.
 
     A new row is flushed, so its ID is available to other writes in the same
-    session. The caller owns the commit or rollback. Bundle imports use
-    ``force_new`` because audio and formatting can differ with identical text.
+    session. The caller owns the commit or rollback. Use ``force_new`` when
+    audio, formatting or provenance changes with identical text.
 
     ``author_user_id`` must be an existing user. It is stored as
     ``revision_author_user_id``, separate from the dictating person.
