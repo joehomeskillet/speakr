@@ -10,3 +10,6 @@ Die Importansicht zeigt die Löschfreigabe pro Quelle (standardmässig aus) und 
 
 ## Bei vorhandener Implementierung
 Bestehenden Fortschritt nicht durch diese Anfangsnotiz löschen; versioniert zusammenführen und bereits belegte Tests mit realen Artefakten übernehmen.
+
+## P-145 – PAR-COR-005
+Zeitbasierter Rücksprung im Schreibplatz (Standard 2 s, 0 s ohne Rücksprung) lokal in Chromium mit synthetischem Audio geprüft: Tipp-Pause, Weiterlaufmodus, manuelle Pause/Neustart und Tastaturemulation der Pedalsteuerung. Referenzvergleich, Wortzahl-Rücksprung und physisches Pedal bleiben `not_run`.

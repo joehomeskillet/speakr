@@ -23,7 +23,7 @@ from collections.abc import Collection, Mapping
 from contextvars import ContextVar
 from dataclasses import replace
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING, BinaryIO, Callable, Optional
 
 from sqlalchemy import CheckConstraint, ForeignKey
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -36,7 +36,7 @@ from .agent_channel import (
     AgentChannelError, ClinicAgentIngest, agent_of, aware, inventory_row, transactional, utcnow,
 )
 from .agent_channel_ingest import finalize_ingest, get_receipt
-from .author_resolution import AuthorResolutionError, resolve_author
+from .author_resolution import AuthorResolutionError, Resolution, resolve_author
 from .config import clinic_mode_enabled
 from .ingest import ImportDefaults, IngestError, IngestService, storage_key_for
 from .migration_import_intent_metadata import IntentMetadataError, encode_metadata, interpret, upgrade
@@ -464,7 +464,36 @@ def _resolved_author(item, session_row, device_map, alias_map, embedded_author_f
         return None
 
 
-def _clinic_delivery_intent(item, session_row, now, device_map, alias_map, embedded_author_for):
+def _verified_author(item, session_row, stream, read_header, lookup, configured_author):
+    if (item.sha256, item.size) != (session_row.declared_sha256, session_row.declared_size):
+        return None
+    try:
+        embedded = read_header(stream)
+    except AuthorResolutionError:
+        return None
+    finally:
+        stream.seek(0)
+    device = lookup(device_id=item.root_id)
+    if device.reason != "no_input":
+        owners = agent_channel.unique_root_owners({
+            agent_id: (enabled, {root.upper() for root in roots})
+            for agent_id, (enabled, roots) in agent_channel.registered_agent_roots().items()
+        })
+        if owners.get(item.root_id.upper()) != session_row.agent_id or device.author_user_id is None:
+            return None
+    device_author = device.author_user_id
+    if configured_author is not None:
+        if device_author is not None and device_author != configured_author:
+            return None
+        device_author = configured_author
+    if embedded is None:
+        return device_author
+    header_author = lookup(embedded_author=embedded).author_user_id
+    return header_author if device_author in (None, header_author) else None
+
+
+def _clinic_delivery_intent(item, session_row, now, device_map, alias_map, embedded_author_for,
+                            resolve_verified=None):
     from . import import_source_config
 
     if item is None:
@@ -477,13 +506,16 @@ def _clinic_delivery_intent(item, session_row, now, device_map, alias_map, embed
         owners = agent_channel.unique_root_owners(agent_channel.registered_agent_roots())
         if owners.get(item.root_id) != session_row.agent_id:
             return None
-    if config.get("source_kind") == "device":
-        device = item.root_id.strip().upper()
-        configured_author = config["target_author_user_id"]
-        if device_map.get(device, configured_author) != configured_author:
-            return None
-        device_map = {**device_map, device: configured_author}
-    author = _resolved_author(item, session_row, device_map, alias_map, embedded_author_for)
+    configured_author = config.get("target_author_user_id") if config.get("source_kind") == "device" else None
+    if resolve_verified is not None:
+        author = resolve_verified(item, configured_author)
+    else:
+        if configured_author is not None:
+            device = item.root_id.strip().upper()
+            if device_map.get(device, configured_author) != configured_author:
+                return None
+            device_map = {**device_map, device: configured_author}
+        author = _resolved_author(item, session_row, device_map, alias_map, embedded_author_for)
     if author is None or (config and author != config["target_author_user_id"]):
         return None
     paired = db.session.get(ClinicImportIntent, session_row.intent_id)
@@ -501,13 +533,15 @@ def _clinic_delivery_intent(item, session_row, now, device_map, alias_map, embed
                         source_kind=config.get("source_kind"))
 
 
-def _record_delivery(agent, session_row, now, *, device_map, alias_map, embedded_author_for):
+def _record_delivery(agent, session_row, now, *, device_map, alias_map, embedded_author_for,
+                     resolve_verified=None):
     delivery = ClinicImportDelivery.query.filter_by(ingest_id=session_row.id).first()
     if delivery is not None:
         return delivery
     item = inventory_row(agent.id, session_row.source_id, session_row.snapshot_version)
     if clinic_mode_enabled():
-        intent = _clinic_delivery_intent(item, session_row, now, device_map, alias_map, embedded_author_for)
+        intent = _clinic_delivery_intent(item, session_row, now, device_map, alias_map, embedded_author_for,
+                                         resolve_verified)
     else:
         intent = _find_intent(item, now)
     delivery = ClinicImportDelivery(
@@ -651,6 +685,7 @@ def finalize_delivery(
     now: datetime | None = None, device_map: Mapping[str, int] | None = None,
     alias_map: Mapping[str, Collection[int]] | None = None,
     embedded_author_for: Callable[[str, str, str, str], str | None] | None = None,
+    verified_author: tuple[Callable[[BinaryIO], str | None], Callable[..., Resolution]] | None = None,
 ) -> dict:
     """Finalize one agent upload through the import centre.
 
@@ -658,6 +693,8 @@ def finalize_delivery(
     header aliases (normalized as in ``resolve_author``). ``embedded_author_for`` looks
     up validated header evidence by (agent id, source id, snapshot version, sha256).
     None of these inputs should be taken from the agent's finalize body.
+    When supplied, ``verified_author`` reads and resolves the header only after
+    channel verification and before the first delivery decision is persisted.
 
     A matching intent must target the resolved author. Otherwise, keep the permanent
     original and leave the session UNKNOWN until an explicit assignment. A retry
@@ -668,14 +705,31 @@ def finalize_delivery(
     session_row = db.session.get(ClinicAgentIngest, ingest_id)
     if session_row is None or session_row.agent_id != agent.id:
         raise AgentChannelError("not_found", "ingest session")
-    delivery = None
-    if session_row.state in ("RECEIVING", "UNKNOWN", "STORED"):
+    can_record = session_row.state in ("RECEIVING", "UNKNOWN", "STORED")
+    delivery = ClinicImportDelivery.query.filter_by(ingest_id=ingest_id).first() if can_record else None
+    intent = db.session.get(ClinicImportIntent, delivery.intent_id) if delivery and delivery.intent_id else None
+    use_verified = verified_author is not None and clinic_mode_enabled()
+
+    def record_delivery(resolve_verified=None):
+        nonlocal delivery, intent
         delivery = _record_delivery(
             agent, session_row, now, device_map=device_map or {}, alias_map=alias_map or {},
-            embedded_author_for=embedded_author_for,
+            embedded_author_for=embedded_author_for, resolve_verified=resolve_verified,
         )
-    intent = db.session.get(ClinicImportIntent, delivery.intent_id) if delivery and delivery.intent_id else None
-    author = intent.target_author_user_id if intent else None
+        intent = db.session.get(ClinicImportIntent, delivery.intent_id) if delivery.intent_id else None
+
+    if can_record and not use_verified and delivery is None:
+        record_delivery()
+
+    def store_original(stream, **fields):
+        if delivery is None and verified_author is not None and use_verified:
+            read_header, lookup = verified_author
+            record_delivery(lambda item, configured: _verified_author(
+                item, session_row, stream, read_header, lookup, configured,
+            ))
+        author = intent.target_author_user_id if intent else None
+        return _author_injecting(ingest_service, author, delivery, intent)(stream, **fields)
+
     original = None
     if delivery is not None and session_row.state == "UNKNOWN":
         original = _recover_original(delivery, session_row, ingest_service, now)
@@ -684,7 +738,7 @@ def finalize_delivery(
     else:
         receipt = finalize_ingest(
             principal, policy, ingest_id=ingest_id, body=body, now=now,
-            store_original=_author_injecting(ingest_service, author, delivery, intent),
+            store_original=store_original,
             recover_original=(lambda: _heal_original(original, intent)) if original and intent else None,
         )
     if delivery is not None and intent is not None:
