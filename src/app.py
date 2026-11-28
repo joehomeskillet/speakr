@@ -1179,22 +1179,38 @@ def register_clinic_worklist(flask_app):
     dispatch = flask_app.extensions['clinic_parity_dispatch']
     run_once = flask_app.extensions['clinic_run_once']
     # Permission or action name -> central policy actions that must all be allowed.
+    # rename, priority, reassign and reopen are not implied by edit or release.
     needs = {
-        'clinic.metadata': ('edit',), 'clinic.archive': ('archive',), 'clinic.delete': ('edit', 'delete'),
+        'clinic.archive': ('archive',), 'clinic.delete': ('edit', 'delete'),
         'clinic.release': ('release',),
         'clinic.review': ('edit', 'release'), 'clinic.accept': ('release',),
-        'clinic.reopen': ('release',), 'clinic.dictate': ('edit',), 'history': ('view',),
-        'review': ('edit',), 'listen': ('play',), 'regex_preview': ('edit',), 'regex_apply': ('edit',),
-        'rename': ('edit',), 'priority': ('edit',), 'reassign': ('edit', 'release'),
+        'clinic.reopen': ('reopen',), 'clinic.dictate': ('edit',), 'history': ('view',),
+        'listen': ('play',), 'regex_preview': ('edit',), 'regex_apply': ('edit',),
+        'rename': ('rename',), 'priority': ('priority',), 'reassign': ('reassign',),
+    }
+    # One door, any listed grant. Field writes still use the exact name in ``needs``.
+    # ``edit`` keeps a denied field as a refusal and still holds the write lease.
+    # ``reopen`` holds that lease only on a finished dictation, which is when reopen needs it.
+    any_of = {
+        'clinic.metadata': ('edit', 'rename', 'priority', 'reassign'),
+        'review': ('edit', 'rename', 'priority', 'reassign'),
     }
 
     def may(user_id, name, dictation):
-        actions = needs.get(name)
-        if not actions or dictation is None:
+        if dictation is None:
             return False
         subject = policy.build_subject(user_id)
-        return (all(pool_policy.decide(subject, action, dictation).allowed for action in actions)
-                and (name != 'clinic.archive' or archive_available(dictation)))
+        choices = any_of.get(name)
+        if name == 'review':
+            item = db.session.get(workflow.ClinicWorkflowDictation, dictation.id)
+            if item is not None and item.status == workflow.DONE:
+                choices = choices + ('reopen',)
+        actions = choices if choices is not None else needs.get(name)
+        if not actions:
+            return False
+        combine = any if choices is not None else all
+        allowed = combine(pool_policy.decide(subject, action, dictation).allowed for action in actions)
+        return allowed and (name != 'clinic.archive' or archive_available(dictation))
 
     def allowed_actions(user_id, dictation):
         return {name for name in ('rename', 'priority', 'reassign') if may(user_id, name, dictation)}
@@ -1594,6 +1610,14 @@ _session_policy.init_app(app)
 # init_app puts its idle hook at index 0: put the clinic guard back in front.
 from src.clinic.guard import ensure_guard_first as _ensure_guard_first
 _ensure_guard_first(app)
+if _clinic_mode_enabled():
+    from src.clinic import case_handoff
+
+    app.register_blueprint(case_handoff.create_blueprint(app.view_functions['recordings.index']))
+    # The guard and idle-session checks occupy the first two positions.
+    app.before_request_funcs[None].insert(2, case_handoff.capture)
+    for _access_logger in ('werkzeug', 'gunicorn.access'):
+        logging.getLogger(_access_logger).addFilter(case_handoff.CaseAccessLogFilter())
 from src.config.outbound_warnings import log_plain_http_warnings as _log_plain_http_warnings
 _log_plain_http_warnings(app)
 
