@@ -51,6 +51,28 @@ describe('import view composition', () => {
         expect(IMPORT_TEMPLATE).toContain('data-testid="inventory-list"');
     });
 
+    it.each([
+        ['Philips EOL', { completion_source: 'philips_eol' }, 'EOL', true],
+        ['file stability', { completion_source: 'file_stability' }, 'EOL nicht belegt', false],
+        ['explicit unknown', { completion_source: 'unknown' }, 'EOL unbekannt', false],
+        ['absent field', {}, 'EOL unbekannt', false],
+        ['null field', { completion_source: null }, 'EOL unbekannt', false],
+        ['unexpected value', { completion_source: 'PHILIPS_EOL' }, 'EOL unbekannt', false],
+    ])('shows the expected inventory badge for %s', async (_name, fields, label, positive) => {
+        const client = fakeClient({ [ENDPOINTS.inventory]: () => ok({ items: [{ ...INVENTORY[0], ...fields }] }) });
+        const c = createImportController({ client, currentUser: { id: 5 } });
+        await c.loadInventory();
+        expect(c.completionView(c.state.inventory[0].completion_source)).toEqual({
+            label,
+            tag: positive ? '' : 'neutral',
+            style: {
+                background: positive ? 'var(--bg-success-light)' : 'var(--bg-secondary)',
+                color: positive ? 'var(--text-success-strong)' : 'var(--text-primary)',
+                border: '1px solid var(--border-primary)',
+            },
+        });
+    });
+
     it('shows no device detection without an agent report', async () => {
         const c = createImportController({ client: fakeClient({ [ENDPOINTS.inventory]: () => ok({ items: [] }) }), currentUser: { id: 5 } });
         await c.load();
