@@ -196,7 +196,6 @@ const ASR_TEMPLATE = `
         </select>
       </div>
     </div>
-    <p v-if="adminLayout && view.profileMode" class="hint">Getrennte Quellen verwenden dasselbe Erkennungsmodell. Getrennte Akustikprofile werden nicht unterstützt.</p>
   </component>
   <div class="field-grid">
     <div v-if="!view.profileMode && (!adminLayout || view.profile || view.live.length)" class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
