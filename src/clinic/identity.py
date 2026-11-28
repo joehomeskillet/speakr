@@ -47,6 +47,8 @@ MAX_CONCURRENT_HASHES = 2
 HASH_WAIT_SECONDS = 5.0
 BLOCKLIST_FILE_ENV = "CLINIC_PASSWORD_BLOCKLIST_FILE"
 LOCAL_POLICIES = ("local_only", "local_and_entra")
+DIRECTORY_SOURCE = "synthetic"
+DIRECTORY_ISSUER = "urn:speakr:directory:synthetic"
 
 # Common passwords of >= 15 characters (shorter ones fail the length rule),
 # normalised with NFKC/casefold. A site list can be added through
@@ -337,6 +339,17 @@ def _new_user(username, email, name, password_hash, is_admin):
 
 # --- user lifecycle ---
 
+def _stage_local_user(username, email, name, *, actor_id, now):
+    user = _new_user(username, _checked_email(username, email), name, None, False)
+    db.session.add(ClinicAccountPolicy(
+        user_id=user.id, status="pending_activation", login_policy="local_only",
+        created_at=now, updated_at=now,
+    ))
+    audit.record_in_tx('admin.user.created', actor_user_id=actor_id, target_user_id=user.id,
+                       details={'username': user.username, 'is_admin': False})
+    return user
+
+
 def create_local_user(username, email, *, name=None, actor_id=None, now=None, profile=None,
                       actor_security_version=None):
     """Administrator creates a user: pending_activation, local_only, no password.
@@ -348,23 +361,44 @@ def create_local_user(username, email, *, name=None, actor_id=None, now=None, pr
     if actor_security_version is not None:
         _locked_account(actor_id)
         _authorize_admin(actor_id, actor_security_version)
-    email = _checked_email(username, email)
     try:
-        user = _new_user(username, email, name, None, False)
+        user = _stage_local_user(username, email, name, actor_id=actor_id, now=now)
         for field, value in (profile or {}).items():
             if field in _PROFILE_FIELDS:
                 setattr(user, field, value)
-        db.session.add(ClinicAccountPolicy(
-            user_id=user.id, status="pending_activation", login_policy="local_only",
-            created_at=now, updated_at=now,
-        ))
-        audit.record_in_tx('admin.user.created', actor_user_id=actor_id, target_user_id=user.id,
-                           details={'username': user.username, 'is_admin': False})
         db.session.commit()
     except IntegrityError:
         db.session.rollback()
         raise IdentityConflict("duplicate") from None
     logger.info("clinic identity: user %s created by %s", user.id, actor_id)
+    return user
+
+
+def create_directory_user(subject, name, *, actor_id, actor_security_version):
+    """Create one pending local account and its synthetic directory binding atomically."""
+    from src.clinic.entra import ClinicExternalIdentity
+
+    _locked_account(actor_id)
+    _authorize_admin(actor_id, actor_security_version)
+    if (not 1 <= len(subject) <= 255 or subject != subject.strip()
+            or not subject.isprintable() or "@" in subject):
+        raise IdentityConflict("invalid_directory_subject")
+    if not name.strip() or len(name) > 100:
+        raise IdentityConflict("invalid_directory_name")
+    binding = {"issuer": DIRECTORY_ISSUER, "tenant_id": DIRECTORY_SOURCE, "subject": subject}
+    if ClinicExternalIdentity.query.filter_by(**binding).first() is not None:
+        raise IdentityConflict("directory_already_linked")
+
+    # Local accounts require a unique username and address even without directory e-mail.
+    digest = hashlib.sha256(subject.encode()).hexdigest()
+    try:
+        user = _stage_local_user(f"dir-{digest[:16]}", f"{digest}@directory.invalid", name,
+                                 actor_id=actor_id, now=_utcnow())
+        db.session.add(ClinicExternalIdentity(user_id=user.id, created_by=actor_id, **binding))
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        raise IdentityConflict("directory_link_conflict") from None
     return user
 
 

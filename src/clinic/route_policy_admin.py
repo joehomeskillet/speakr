@@ -77,6 +77,7 @@ ADMIN: tuple[str, ...] = (
     'clinic_directory.capability',
     'clinic_directory.preview',
     'clinic_directory.apply',
+    'clinic_directory.link_new',
     'clinic_grants.change',
     'clinic_statistics.list_grants',
     'clinic_statistics.change_grant',
