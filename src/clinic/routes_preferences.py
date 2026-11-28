@@ -9,13 +9,14 @@ role. Every write checks CSRF and the session. Output saves also require
 author pool (``author_pool_for``) come from the caller's central policy, are
 read on every request, and so apply at save and at use time.
 
-The app mounts these routes in clinic mode. Central writes are system-wide
-and require an active site administrator. Effective workflow presets use
-the session user and their server-selected author pool.
+The app mounts these routes in clinic mode. Central settings are system-wide
+and require an active site administrator to manage them. Effective workflow
+presets use the session user and their server-selected author pool.
 """
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable
 from typing import Any
@@ -52,9 +53,11 @@ from src.clinic.workstation_preferences import (
     WorkstationPreferences,
     session_transport_status,
 )
+from src.config.ui_themes import DEFAULT_AUDIO_PLAYER_POSITION, DEFAULT_COLOR_SCHEME, DEFAULT_THEME
 from src.database import db
 
 PREFIX = "/api/clinic/v1/preferences"
+_SESSION_WORKSTATION = "clinic_preferences_workstation"
 # Identity and authority come from the session, never from the request.
 _FORBIDDEN_KEYS = frozenset({
     "actor", "actor_id", "user", "user_id", "author_user_id", "role", "roles",
@@ -124,6 +127,19 @@ def _valid_preset_value(key: str, value: Any) -> bool:
     if key == "typist" and (value is None or type(value) is int):
         return value is None or value > 0
     return isinstance(value, str) and len(value) <= 128 and bool(value.strip())
+
+
+def _account_workstation_defaults() -> dict[str, Any]:
+    return {
+        "ui_theme": current_user.ui_theme or DEFAULT_THEME,
+        "theme_color_scheme": current_user.theme_color_scheme or DEFAULT_COLOR_SCHEME,
+        "theme_dark_mode": bool(current_user.theme_dark_mode),
+        "ui_language": current_user.ui_language or "en",
+        "audio_player_position": current_user.audio_player_position or DEFAULT_AUDIO_PLAYER_POSITION,
+        "keyboard_shortcuts": current_user.keyboard_shortcuts is not False,
+        "show_timestamps_simple_view": bool(current_user.show_timestamps_simple_view),
+        "editor_autosave": bool(current_user.editor_autosave),
+    }
 
 
 def _if_match_version() -> int | tuple:
@@ -215,6 +231,7 @@ class PreferenceRoutes:
             ("/workstations", "workstation_issue", self._workstation_issue, ("GET", "POST")),
             ("/workstations/<workstation_id>", "workstation", self._workstation, ("GET", "PUT")),
             ("/workstation-locks/<key>", "workstation_lock", self._workstation_lock, ("PUT", "DELETE")),
+            ("/central", "central", self._central, ("GET",)),
             ("/presets", "presets", self._resolved_presets, ("GET",)),
             ("/presets/<key>", "system_preset", self._system_preset, ("PUT", "DELETE")),
             ("/correction-mode", "correction_mode", self._correction_mode, ("GET", "PUT")),
@@ -375,7 +392,30 @@ class PreferenceRoutes:
     def _workstation_issue(self):
         if request.method in {"GET", "HEAD"}:
             return jsonify(session_transport_status())
-        return jsonify(workstation_id=self._workstations.issue(current_user)), 201
+
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict) or body.get("reuse") is not True:
+            return jsonify(workstation_id=self._workstations.issue(current_user)), 201
+        if body.keys() != {"reuse"}:
+            raise PreferenceError("invalid_payload")
+
+        account_id = current_user.get_id()
+        cached = session.get(_SESSION_WORKSTATION)
+        defaults = _account_workstation_defaults()
+        if isinstance(cached, dict) and cached.get("account_id") == account_id:
+            workstation_id = cached.get("workstation_id")
+            if isinstance(workstation_id, str):
+                try:
+                    self._workstations._bind(current_user, workstation_id)
+                except PreferenceError as error:
+                    if error.code != "untrusted_workstation":
+                        raise
+                else:
+                    return jsonify(workstation_id=workstation_id, defaults=defaults), 200
+
+        workstation_id = self._workstations.issue(current_user)
+        session[_SESSION_WORKSTATION] = {"account_id": account_id, "workstation_id": workstation_id}
+        return jsonify(workstation_id=workstation_id, defaults=defaults), 201
 
     def _workstation(self, workstation_id: str):
         if request.method == "GET":
@@ -403,6 +443,21 @@ class PreferenceRoutes:
                 raise PreferenceError("invalid_payload")
             self._workstations.lock(key, body["value"])
         return "", 204
+
+    def _central(self):
+        _require_central_admin()
+        rows = presets.ClinicPreset.query.filter_by(
+            scope="system", scope_id=presets.SYSTEM_SCOPE_ID,
+        ).filter(presets.ClinicPreset.key.in_(presets.SYSTEM_DEFAULTS.keys()))
+        return jsonify(
+            workstation_locks={
+                key: value for key, value in self._workstations._lock_map().items() if key in ALLOWLIST
+            },
+            presets={
+                row.key: {"value": json.loads(row.value_json), "is_locked": row.is_locked} for row in rows
+            },
+            preset_defaults=presets.SYSTEM_DEFAULTS,
+        )
 
     def _resolved_presets(self):
         actor = current_user.id

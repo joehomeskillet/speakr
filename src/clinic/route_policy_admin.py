@@ -81,6 +81,7 @@ ADMIN: tuple[str, ...] = (
     'clinic_directory.preview',
     'clinic_directory.apply',
     'clinic_grants.change',
+    'clinic_preferences.central',
     'clinic_preferences.system_preset',
     'clinic_preferences.workstation_lock',
     'clinic_statistics.list_grants',
