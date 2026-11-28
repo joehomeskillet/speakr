@@ -21,6 +21,7 @@ AUTH: tuple[str, ...] = (
     'clinic_offline.capability',
     'clinic_imports_web.intents',
     'clinic_imports_web.inventory',
+    'clinic_imports_web.firmware',
     'clinic_imports_web.unassigned',
     'clinic_imports_web.assignment_candidates',
     'clinic_imports_web.author_suggestion_view',
@@ -34,4 +35,5 @@ ADMIN: tuple[str, ...] = (
     'clinic_agent_admin.enroll',
     'clinic_agent_admin.set_enabled',
     'clinic_agent_admin.rotate_key',
+    'clinic_imports_web.update_firmware',
 )
