@@ -55,7 +55,7 @@ def show_review(page, base):
 
 def show_output(page, base):
     show_detail(page, base)
-    show_dictation_tab(page, "output", "output-targets")
+    show_dictation_tab(page, "output", "output-targets?file_formats=all")
     view = page.get_by_test_id("output-view")
     expect(view.get_by_test_id("not-released")).to_be_visible()
     expect(view.locator("[data-target]").first).to_be_visible()
@@ -85,7 +85,8 @@ def show_recording(page, base):
     support._open_shell_view(page, base, "#/neu")
     view = page.get_by_test_id("clinic-recording-view")
     expect(view.get_by_role("heading", name="Neue Aufnahme", exact=True)).to_be_visible()
-    expect(view.get_by_test_id("author")).to_contain_text("author-v860")
+    expect(view.get_by_test_id("author")).to_have_count(0)
+    expect(view.get_by_role("link", name="oder Datei hochladen", exact=True)).to_be_visible()
     expect(view.get_by_test_id("rec-start")).to_be_visible()
 
 
