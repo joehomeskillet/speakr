@@ -258,6 +258,16 @@ export function createCorrectionToolbar(options) {
         /** Call from the text area input handler and when the lease changes. */
         notifyChange() { sync(); recount(); emit(); },
         refresh() { emit(); },
+        insertText(value, range = editor.read(), offset = value.length) {
+            if (blocked()) return false;
+            sync();
+            const start = Math.min(range.start, range.end);
+            const end = Math.max(range.start, range.end);
+            history.syncSelection(start, end, range.direction);
+            const caret = start + offset;
+            commit(range.text.slice(0, start) + value + range.text.slice(end), caret, caret);
+            return true;
+        },
         undo() {
             if (blocked()) return false;
             sync();
@@ -272,16 +282,6 @@ export function createCorrectionToolbar(options) {
             const e = history.redo();
             if (!e) { state.message = TEXT.nothingToRedo; emit(); return false; }
             applyEntry(e); recount(); state.message = ''; emit();
-            return true;
-        },
-        insertText(value, range = editor.read(), offset = value.length) {
-            if (blocked()) return false;
-            sync();
-            const start = Math.min(range.start, range.end);
-            const end = Math.max(range.start, range.end);
-            history.syncSelection(start, end);
-            const caret = start + offset;
-            commit(range.text.slice(0, start) + value + range.text.slice(end), caret, caret);
             return true;
         },
         insertParagraph() { return api.insertText(PARAGRAPH_BREAK); },

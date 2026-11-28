@@ -322,6 +322,7 @@ describe('document preview', () => {
         let finishOld;
         const old = new Promise((resolve) => { finishOld = resolve; });
         const client = fakeClient(base({
+            'GET /dictations/d1/correction': ok(correction({ links: [] })),
             'GET /templates/old/preview': () => old,
             'GET /templates/current/preview': ok({ text: 'Aktuelle Vorlage', text_revision_id: 'r1' }),
             'GET /templates/stale/preview': ok({ text: 'Veraltete Vorlage', text_revision_id: 'r2' }),
@@ -333,13 +334,15 @@ describe('document preview', () => {
         const view = CorrectionView.components.CorrectionBody.setup(
             { client, dictationId: 'd1', currentUser: user, vue }, { emit() {} },
         );
+        const field = { value: 'Hallo Welt heute', selectionStart: 0, selectionEnd: 0, selectionDirection: 'none' };
+        const opener = { closest: () => ({ querySelector: () => field }) };
         try {
             await view.c.start();
             await view.c.editor.acquire();
-            await view.toggleChoice();
+            await view.toggleChoice(opener);
             const pending = view.chooseSource({ templateId: 'old' });
             view.closeChoice();
-            await view.toggleChoice();
+            await view.toggleChoice(opener);
             await view.chooseSource({ templateId: 'current' });
             finishOld(ok({ text: 'Überholte Antwort', text_revision_id: 'r1' }));
             await pending;
