@@ -90,6 +90,30 @@ describe('review markers in the editor (PAR-VOC-004)', () => {
         c.dispose();
     });
 
+    it('moves the span with preceding text edits and refuses to confirm an edited draft span', async () => {
+        const client = fakeClient();
+        const c = await open(client);
+        c.setText('😀 ' + TEXT);
+        expect(c.reviewList.value[1]).toMatchObject({ start: 13, end: 19, touched: false });
+        c.setText(TEXT.replace('rechts', 'rechte'));
+        expect(c.reviewList.value[1]).toMatchObject({ start: 10, end: 16, touched: true });
+        expect(await c.confirmReview('m2')).toMatchObject({ ok: false, code: 'noop' });
+        expect(client.calls.some((call) => call.path.endsWith('/m2/confirm'))).toBe(false);
+        c.setText(TEXT.replace('rechts', 'rechtsseitig'));
+        expect(c.reviewList.value[1]).toMatchObject({ start: 10, end: 22, touched: true });
+        c.dispose();
+    });
+
+    it('does not attach marker offsets from a different server revision to the open text', async () => {
+        const c = await open(fakeClient({
+            'GET /dictations/d1/correction/review-markers': ok({ text_revision_id: 'r2', review_markers: HITS }),
+        }));
+        expect(c.reviewList.value).toEqual([]);
+        expect(c.reviewMessage.value).not.toBe('');
+        expect(c.reviewLoaded.value).toBe(false);
+        c.dispose();
+    });
+
     it('keeps the hit open and reports a failed confirmation; no confirm without lease', async () => {
         const client = fakeClient({ 'POST /dictations/d1/correction/review-markers/m1/confirm': fail(409) });
         const c = await open(client);
