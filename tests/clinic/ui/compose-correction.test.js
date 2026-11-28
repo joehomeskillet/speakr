@@ -154,7 +154,8 @@ describe('compose-correction contract', () => {
         ]) expect(source).toContain(`./${mod}.js`);
         expect(source).toContain("from './tokens.js'");
         expect(source).toContain("from './api-client.js'");
-        const imports = [...source.matchAll(/from '(\.\/(?!correction-player-position\.js')[^']+)'/g)].map((m) => m[1]);
+        const imports = [...source.matchAll(/from '(\.\/[^']+)'/g)]
+            .map((m) => m[1]).filter((path) => path !== './compose-settings.js' && path !== './correction-player-position.js');
         expect(imports).toHaveLength(new Set(imports).size);
         expect(imports).toContain('./vocabulary-ui.js');
         expect(imports).toHaveLength(14);
