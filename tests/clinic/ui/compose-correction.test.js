@@ -262,6 +262,29 @@ describe('compose-correction contract', () => {
 });
 
 describe('session-end review', () => {
+    it('waits for an opening edit lease before releasing it and reviewing', async () => {
+        let allowOpen;
+        const opening = new Promise((resolve) => { allowOpen = resolve; });
+        const onSessionEnd = vi.fn();
+        const onClose = vi.fn();
+        const client = fakeClient(base({ 'GET /dictations/d1/leases': () => opening }));
+        const c = controllerFor(client, { openMode: 'correction', contract: 'v8', onSessionEnd, onClose, pedal: false });
+        try {
+            const started = c.start();
+            const closed = c.close();
+            expect(onClose).not.toHaveBeenCalled();
+            allowOpen(ok({ may_acquire: true }));
+            await started;
+            expect(await closed).toBe(true);
+            const writes = client.calls.filter((call) => call.method === 'POST');
+            expect(writes.map((call) => call.path)).toEqual(['/dictations/d1/leases', '/dictations/d1/leases/release']);
+            expect(onSessionEnd.mock.calls).toEqual([[true]]);
+            expect(onSessionEnd.mock.invocationCallOrder[0]).toBeLessThan(onClose.mock.invocationCallOrder[0]);
+        } finally {
+            c.dispose();
+        }
+    });
+
     it('waits for save and verified release, replays an unknown release, then waits for dismissal', async () => {
         let dismiss;
         const dialog = new Promise((resolve) => { dismiss = resolve; });

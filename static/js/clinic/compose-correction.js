@@ -1090,19 +1090,15 @@ export function createCorrectionViewController(options) {
                     return false;
                 }
             }
-            if ((!navigate || reviewOnClose) &&
-                (editor.lease.value.status === 'held' || editor.lease.value.releaseUnconfirmed)) {
+            if (editor.lease.value.status === 'held' || editor.lease.value.releaseUnconfirmed) {
                 const result = await editor.release({ confirm: reviewOnClose }).catch(() => null);
                 if (disposed) return false;
-                if (!result?.released) {
+                if ((!navigate || reviewOnClose) && !result?.released) {
                     closeMessage.value = TEXT.closeReleaseFailed;
                     return false;
                 }
                 closeMessage.value = '';
                 if (reviewOnClose) await opts.onSessionEnd(navigate);
-                if (disposed) return false;
-            } else if (navigate && editor.lease.value.status === 'held') {
-                await editor.release();
                 if (disposed) return false;
             }
             if (!navigate) return true;
