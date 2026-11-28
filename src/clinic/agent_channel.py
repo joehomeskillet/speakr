@@ -67,6 +67,8 @@ class ChannelPolicy:
     # authorise(user_id, action) -> bool; None denies everything. Actions: register_agent,
     # manage_agent, create_intent, read_inventory, read_outcomes.
     authorise: Optional[Callable[[int, str], bool]] = field(default=None, repr=False)
+    # The deployed policy checks the current source rules and requires verified backup evidence.
+    may_remove_source: Optional[Callable[["ClinicAgentIngest"], bool]] = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
