@@ -1420,11 +1420,6 @@ def register_clinic_identity(flask_app):
     def disabled_exchange(_pending, _code):
         raise entra.EntraDisabled()
 
-    def author_pool_for(user_id):
-        # One author pool per user is the clinic rule; a user in none has no author recipient default.
-        # The model has no active-pool flag: first pool by name, then id (app_wiring.choose_author_pool).
-        return app_wiring.choose_author_pool(user_id)
-
     def allowed_for(user_id):
         # Current roles only: author = member of an author pool; typist = member of a staff pool linked
         # to an author pool. A typist gets no own author (no author context by default).
@@ -1456,7 +1451,7 @@ def register_clinic_identity(flask_app):
     flask_app.register_blueprint(routes_grants.GrantsApi().blueprint)
     flask_app.register_blueprint(create_metadata_fields_blueprint())
     flask_app.register_blueprint(routes_preferences.PreferenceRoutes(
-        allowed_for=allowed_for, author_pool_for=author_pool_for,
+        allowed_for=allowed_for, author_pool_for=app_wiring.choose_author_pool,
         selections=SelectionStore(preferences=PresetUserPreferences()), workstations=WorkstationPreferences()).blueprint)
 
 
@@ -1515,9 +1510,10 @@ def register_clinic_audio(flask_app):
         lambda user_id, dictation_id: may(user_id, 'edit', db.session.get(ClinicDictation, dictation_id)),
         lambda dictation_id: db.session.get(ClinicDictation, dictation_id) is not None)
 
-    def bundle_load(_actor, dictation_id):
+    def bundle_load(_actor, dictation_id, include_audio):
         dictation = db.session.get(ClinicDictation, dictation_id)
-        return None if dictation is None else bundle_store.load(dictation, originals_root, load_sources)
+        return None if dictation is None else bundle_store.load(
+            dictation, originals_root, load_sources, include_audio=include_audio)
 
     def bundle_persist(actor, dictation_id, doc, audio, expected):
         return bundle_store.persist(db.session.get(ClinicDictation, dictation_id), actor, doc, audio,
@@ -1655,6 +1651,7 @@ if _clinic_mode_enabled():
     register_clinic_voice_consent(app)  # v8-75
     # --- v8-152: managed offline capability ---
     from src.clinic import routes_offline
+    app.extensions[routes_offline.GRANT_PROVIDER] = routes_offline.staging_grant
     app.register_blueprint(routes_offline.blueprint)
     # --- end v8-152 ---
 

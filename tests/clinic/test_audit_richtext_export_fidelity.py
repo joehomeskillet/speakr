@@ -67,7 +67,7 @@ def export_client(monkeypatch):
         raise AssertionError("not used by export")
 
     app.register_blueprint(create_blueprint(
-        lambda actor, did: state["session"] if actor == 7 and did == DID else None,
+        lambda actor, did, _include_audio: state["session"] if actor == 7 and did == DID else None,
         lambda actor, did, action: actor == 7 and did == DID and action == "export",
         unused, unused, lambda: True, load_graphic,
     ))

@@ -10,7 +10,7 @@
  * Colours: ink #1C3D42, burgundy #7A1C3E, canvas #F7F6F2 come from tokens.css where it has them.
  * Dark mode: .dark .v8-ui below (neutral surfaces, borders and text follow the variables). */
 /* Muted labels use the mapped text token on canvas and panel surfaces in both themes. */
-.v8-ui{color-scheme:light;--v8-input-line:var(--ui-text-muted);--v8-menu-hover-text:var(--brand-accent);--ink:var(--brand-primary,#1C3D42);--ink2:#355158;--muted:var(--ui-text-muted);--brand:var(--brand-primary,#1C3D42);--brand2:#2f5e62;--burgundy:var(--brand-accent,#7A1C3E);--cream:#F7F6F2;--canvas:var(--brand-canvas,#F7F6F2);--surface:var(--ui-surface,#fff);--line:#dfe6e4;--soft:#eef3f1;--warning:#876326;--danger:#9a354a;--radius:12px;--shadow:0 2px 10px #18363a08;--v8-text:#254046;--v8-text-2:#46616a;--v8-muted:var(--ui-text-muted);--v8-s1:#f6f9f8;--v8-s2:#eef3f1;--v8-line-2:#e9eeec}
+.v8-ui{color-scheme:light;--v8-input-outline:#ccd8d3;--v8-input-line:var(--ui-text-muted);--v8-menu-hover-text:var(--brand-accent);--ink:var(--brand-primary,#1C3D42);--ink2:#355158;--muted:var(--ui-text-muted);--brand:var(--brand-primary,#1C3D42);--brand2:#2f5e62;--burgundy:var(--brand-accent,#7A1C3E);--cream:#F7F6F2;--canvas:var(--brand-canvas,#F7F6F2);--surface:var(--ui-surface,#fff);--line:#dfe6e4;--soft:#eef3f1;--warning:#876326;--danger:#9a354a;--radius:12px;--shadow:0 2px 10px #18363a08;--v8-text:#254046;--v8-text-2:#46616a;--v8-muted:var(--ui-text-muted);--v8-s1:#f6f9f8;--v8-s2:#eef3f1;--v8-line-2:#e9eeec}
 :where(.v8-ui):is(.dark .v8-ui,[data-theme="dark"] .v8-ui){color-scheme:dark;--v8-menu-hover-text:var(--v8-text);--v8-on-ink:var(--v8-text);--ink:#2f5e62;--ink2:#D0DCDA;--muted:var(--ui-text-muted);--burgundy:#9B2F55;--line:var(--ui-border,#426166);--soft:#315158;--shadow:0 2px 10px #0006;--v8-text:var(--ui-text,#F7F6F2);--v8-text-2:var(--ui-text-muted,#D0DCDA);--v8-muted:var(--ui-text-muted);--v8-s1:#21474D;--v8-s2:#315158;--v8-line-2:#335257}
 :where(.v8-ui) :where(.v8-page *,.v8-chrome *){box-sizing:border-box}
 .v8-ui{background:var(--canvas);color:var(--v8-text)}
@@ -182,7 +182,7 @@
 .v8-ui .clinic-audio-markers button{font-size:12px}
 .v8-ui .clinic-correction-alignment-text{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.9;padding:18px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
 .v8-ui .clinic-correction-alignment-text [role=button]{cursor:pointer;border-radius:3px}
-.v8-ui .clinic-correction-alignment-text [role=button]:focus-visible{outline:2px solid var(--brand-accent);outline-offset:2px}
+.v8-ui .clinic-correction-alignment-text [role=button]:focus-visible{outline:2px solid var(--border-focus);outline-offset:2px}
 .v8-ui .clinic-correction-alignment-text [data-unaligned=true]{text-decoration:underline dotted;text-underline-offset:4px}
 .v8-ui .clinic-constituent-status{font-size:12px;line-height:1.6;color:var(--v8-text-2);margin-top:12px}
 .v8-ui .clinic-constituent-status:empty{margin:0}
@@ -300,7 +300,6 @@
 .v8-ui .font-size{font-size:10px;color:var(--v8-muted);min-width:34px;text-align:center;font-variant-numeric:tabular-nums}
 .v8-ui .writing-surface{background:var(--surface);display:flex;min-height:0}
 .v8-ui .editor-workspace .editor{display:block;width:100%;height:clamp(360px,calc(100dvh - 370px),760px);min-height:320px;padding:30px 40px!important;border:0!important;border-radius:0!important;background:var(--surface);font-family:"Segoe UI",Arial,sans-serif;font-size:16px;font-weight:400;line-height:1.85;letter-spacing:.04px;resize:vertical;box-shadow:none;color:var(--v8-text)}
-.v8-ui .editor-workspace .editor{box-shadow:inset 0 0 0 1px var(--v8-input-line)}
 .v8-ui .editor-workspace .editor:focus:not(:focus-visible){outline:none}
 .v8-ui .editor-workspace .editor:focus-visible{outline:3px solid var(--border-focus);outline-offset:-3px}
 .v8-ui .editor-workspace .writing-surface:focus-within{box-shadow:inset 3px 0 #9db7a7}
@@ -893,8 +892,7 @@
 .v8-ui .v6-admin summary{cursor:pointer;list-style:none;padding:8px 11px;border:1px solid #b2c7c55b;border-radius:8px;background:#31575a;font-size:12px;font-weight:650;white-space:nowrap}
 .v8-ui .v6-admin summary::-webkit-details-marker{display:none}
 .v8-ui .v6-admin summary:after{content:"⌄";margin-left:8px}
-.v8-ui .v6-admin summary:focus-visible{outline:3px solid var(--border-focus);outline-offset:3px}
-.v8-ui .v6-menu a:focus-visible{outline:3px solid var(--border-focus);outline-offset:-2px}
+.v8-ui .v6-admin summary:focus-visible,.v8-ui .v6-menu a:focus-visible{outline:3px solid var(--border-focus);outline-offset:3px}
 .v8-ui .v6-menu{position:absolute;right:0;top:43px;width:520px;max-width:calc(100vw - 30px);max-height:74vh;overflow:auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--v8-text);padding:18px;box-shadow:0 12px 40px #1c3d4228;z-index:90}
 /* The standalone header applies its text color through an ID selector. */
 .v8-ui:is(*,#global-header *) .v6-menu h2{color:var(--v8-text-2)}
@@ -984,7 +982,11 @@
 .v8-ui :is(.v8-page,.cadm) :where(h1,h2,h3){min-width:0;overflow-wrap:break-word}
 .v8-ui :is(.pagehead,.page-head,.record-detail-heading,.hline)>div{min-width:0}
 .v8-ui .v6-menu :is(h2,a){min-width:0;overflow-wrap:break-word}
+.v8-ui .v6-menu a:focus-visible{outline-offset:-2px}
+/* Standalone admin views set a header-wide outline colour. Keep menu links on their surface token. */
+.v8-ui:is(#global-header *) :is(.v6-menu,.v8-usermenu) a:focus-visible{outline-color:var(--border-focus)!important}
 
+:where(.v8-ui):is(.dark .v8-ui,[data-theme="dark"] .v8-ui) :is(.wf-panel,[aria-labelledby="login-panel-title"]){--v8-input-line:var(--v8-input-outline)}
 .v8-ui :is(.v8-page,.v8-chrome) :where(input:not([type=hidden],[type=checkbox],[type=radio],[type=range],[type=button],[type=submit],[type=reset]),select,textarea){border-color:var(--v8-input-line)}
 /* These views carry inline field borders from their component styles. */
 .v8-ui .record-role-filters input[list],
@@ -992,9 +994,12 @@
   border-color:var(--v8-input-line)!important
 }
 .v8-ui .clinic-asr-profiles-view button.primary{color:var(--v8-on-ink,var(--surface))!important}
-.v8-ui :is(.v8-page,.v8-chrome) :where(input,select,textarea):focus-visible{outline:3px solid var(--brand-accent);outline-offset:2px}
+.v8-ui .editor-workspace .editor{box-shadow:inset 0 0 0 1px var(--v8-input-line)}
+.v8-ui .editor-workspace .writing-surface:focus-within{box-shadow:none}
+.v8-ui :is(.v8-page,.v8-chrome) :where(input,select,textarea):focus-visible{outline:3px solid var(--border-focus);outline-offset:2px}
 .v8-ui :is(.searchwrap,.record-search){border-color:var(--v8-input-line)}
-.v8-ui :is(.searchwrap,.record-search):has(input:focus-visible){outline:3px solid var(--brand-accent);outline-offset:2px}
+.v8-ui .searchwrap:focus-within{border-color:var(--v8-input-line);box-shadow:none}
+.v8-ui :is(.searchwrap,.record-search):has(input:focus-visible){outline:3px solid var(--border-focus);outline-offset:2px}
 .v8-ui :is(.searchwrap,.record-search) input:focus-visible{outline:none}
 
 @media(width < 1024px){
@@ -1044,7 +1049,7 @@
 .v8-ui .clinic-dictation-protection .inline-label{min-height:44px}
 .v8-ui .clinic-dictation-protection .tag{white-space:normal;justify-self:start}
 .v8-ui :is(.clinic-jobs-panel,.clinic-dictation-protection) [role=status]:empty{padding:0;border:0;margin:0}
-.v8-ui .clinic-jobs-panel .table-wrap:focus-visible{outline:2px solid var(--brand-accent);outline-offset:2px}
+.v8-ui .clinic-jobs-panel .table-wrap:focus-visible{outline:2px solid var(--border-focus);outline-offset:2px}
 
 .v8-ui .clinic-admin-pools-view .cap-phone-label{display:none}
 .v8-ui .clinic-admin-pools-view .cap-list :is(td, .tag){white-space:normal;overflow-wrap:anywhere}

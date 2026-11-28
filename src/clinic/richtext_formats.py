@@ -20,6 +20,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Mapping
 from dataclasses import dataclass
 from io import BytesIO
+from typing import cast
 
 from src.clinic import odt_export, output_rtf, rtf_text
 from src.clinic.odt_export import render_odt
@@ -27,8 +28,8 @@ from src.clinic.revisions import normalise_text, text_hash
 from src.clinic.rich_text_doc import (
     Document, Node, RichTextError, from_html, to_html, to_plain_text,
 )
-from src.clinic.richtext import SCHEMA_VERSION, CanonicalDocument, Segment
-from src.clinic.rtf_text import rtf_to_text, text_to_rtf
+from src.clinic.richtext import MAX_NODES, MAX_SEGMENTS, SCHEMA_VERSION, CanonicalDocument, Segment
+from src.clinic.rtf_text import text_to_rtf
 from src.clinic.sdict_bundle import FORMAT_VERSION, Bundle, BundleError, build_bundle, read_bundle
 from src.clinic.unicode_anchor_map import map_through_normalisation, to_utf16_offset
 
@@ -110,10 +111,10 @@ def export_document(
     plain = to_plain_text(doc)
     html = to_html(doc)
     try:
-        rtf = output_rtf.text_to_rtf(_rtf_source(doc))
+        rtf = render_rtf(doc)
         plain_rtf = text_to_rtf(plain)
         odt = render_odt(["".join(run.text for run in node.runs) for node in doc.nodes])
-    except (output_rtf.RTFValidationError, rtf_text.RtfError, odt_export.OdtExportError) as exc:
+    except (rtf_text.RtfError, odt_export.OdtExportError) as exc:
         raise FormatError("export_failed") from exc
     anchors = _anchors(doc)
     return Export(
@@ -140,15 +141,18 @@ def web_html(doc: CanonicalDocument, graphics: Mapping[str, bytes]) -> str:
     for node in doc.nodes:
         if node.kind != "graphic":
             continue
-        data = graphics.get(node.object_id)
+        object_id = node.object_id
+        if object_id is None:
+            raise FormatError("graphic_not_found")
+        data = graphics.get(object_id)
         if data is None:
             raise FormatError("graphic_not_found")
         if (not isinstance(data, bytes) or not data.startswith(_PNG_SIGNATURE)
-                or hashlib.sha256(data).hexdigest() != node.object_id):
+                or hashlib.sha256(data).hexdigest() != object_id):
             raise FormatError("graphic_integrity_error")
         encoded = base64.b64encode(data).decode("ascii")
         body = body.replace(
-            f'src="local:{node.object_id}"', f'src="data:image/png;base64,{encoded}"',
+            f'src="local:{object_id}"', f'src="data:image/png;base64,{encoded}"',
         )
     return (
         '<!doctype html><html lang="de"><head><meta charset="utf-8">'
@@ -165,6 +169,31 @@ def export_losses(doc: CanonicalDocument, kind: str) -> tuple[Loss, ...]:
     if kind not in {"txt", "rtf", "odt", "docx", "html", "sdict"}:
         raise FormatError("invalid_format")
     return tuple(loss for loss in _export_losses(doc) if kind in loss.channels)
+
+
+def render_rtf(doc: CanonicalDocument) -> bytes:
+    """Render formatted text without building a session bundle."""
+    try:
+        return output_rtf.text_to_rtf(_rtf_source(doc))
+    except output_rtf.RTFValidationError as exc:
+        raise FormatError("export_failed") from exc
+
+
+def import_rtf(raw: bytes) -> CanonicalDocument:
+    """Read only supported text and inline styles; never copy RTF attachments or links."""
+    try:
+        parsed = output_rtf.validate_rtf(raw, import_limits=(MAX_NODES, MAX_SEGMENTS))
+        return CanonicalDocument(tuple(
+            Node(id=f'n{i}', kind='paragraph', runs=tuple(
+                Segment(id=f's{i}_{j}',
+                        text=span.text.encode('utf-16-le', 'surrogatepass').decode('utf-16-le'),
+                        bold=span.bold, italic=span.italic, underline=span.underline)
+                for j, span in enumerate(spans, 1)
+            ) or (Segment(id=f's{i}_0', text=''),))
+            for i, spans in enumerate(parsed.styled_paragraphs, 1)
+        ))
+    except (output_rtf.RTFValidationError, RichTextError, UnicodeError) as exc:
+        raise FormatError("malformed") from exc
 
 
 def import_html(raw: str, *, expected_version: int, allowed: bool) -> Import:
@@ -349,9 +378,10 @@ def _anchors(doc: CanonicalDocument) -> tuple[tuple[str, int, int], ...]:
     rows = []
     for node in doc.nodes:
         for run in node.runs:
-            start, end = spans[run.id]
+            segment = cast(Segment, run)
+            start, end = spans[segment.id]
             rows.append((
-                run.id,
+                segment.id,
                 to_utf16_offset(normalised, map_through_normalisation(plain, start)),
                 to_utf16_offset(normalised, map_through_normalisation(plain, end)),
             ))
@@ -392,7 +422,7 @@ def _export_losses(doc: CanonicalDocument) -> tuple[Loss, ...]:
             "TXT enthält bewusst keine HTML-Auszeichnung, Schrift-, Ausrichtungs- oder Zeilenabstandsangaben.",
             ("txt",),
         ))
-    if any(run.audio_anchor_id for run in runs):
+    if any(cast(Segment, run).audio_anchor_id for run in runs):
         losses.append(Loss(
             "html_anchors", "Audioanker bleiben nur im Webbundle erhalten.",
             ("txt", "rtf", "odt", "docx", "html"),
