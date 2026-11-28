@@ -32,6 +32,7 @@
 import { useCorrectionPlayerPosition } from './correction-player-position.js';
 import { formatDictationReference } from './worklist-ui.js';
 import { createClinicApiClient } from './api-client.js';
+import { SessionTransportNotice } from './compose-settings.js';
 import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
 import { CorrectionAudioPanel, DictationSummary, createCorrectionToolbar, useCorrectionEditor, vTip, createRepeatTranscription, REPEAT_TEXT } from './correction-editor-ui.js';
 import { LABELS as ALIGN_LABELS, createPlaybackHighlighter, useCorrectionAlignment } from './correction-alignment-ui.js';
@@ -39,7 +40,7 @@ import { CorrectionWaveform } from './correction-waveform-ui.js';
 import { PlaybackTempo, usePlaybackTempo } from './playback-tempo-ui.js';
 import { MODES, useCorrectionModes } from './correction-modes-ui.js';
 import { useCorrectionSave } from './correction-save-ui.js';
-import { applyReplacements, findMatches } from './correction-toolbar-ui.js';
+import { applyReplacements, findMatches, transformSelectionCase } from './correction-toolbar-ui.js';
 import { FORMATS, label as richTextLabel, sanitizePaste } from './richtext-editor-ui.js';
 import { AudioMarkers } from './audio-markers-ui.js';
 import { PlaybackGain, usePlaybackGain } from './playback-gain-ui.js';
@@ -49,6 +50,20 @@ import { createWorkflowActions } from './workflow-actions-ui.js';
 export const COMPOSE_CORRECTION_VERSION = 1;
 
 const CLINIC_OPEN_MODES = Object.freeze(['author_case', 'player', 'correction']);
+const SESSION_FORMATS = Object.freeze([
+    { id: 'sdict', label: 'Diktatdatei (.sdict)', mime: 'application/zip' },
+    { id: 'rtf', label: 'Formatierter Text (.rtf)', mime: 'application/rtf' },
+    { id: 'txt', label: 'Reiner Text (.txt)', mime: 'text/plain' },
+]);
+
+function downloadSession(blob, format) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'diktat.' + format;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 /**
  * Where a list open event lands.
@@ -134,6 +149,8 @@ export const TEXT = Object.freeze({
     ctxClosed: 'Kontextbereich',
     find: 'Im Text suchen',
     replace: 'Suchen und Ersetzen',
+    upperCase: 'Auswahl in Grossbuchstaben',
+    lowerCase: 'Auswahl in Kleinbuchstaben',
     fontDown: 'Text kleiner anzeigen',
     fontUp: 'Text grösser anzeigen',
     focusOn: 'Vollbild öffnen',
@@ -309,6 +326,9 @@ export function createCorrectionViewController(options) {
     const gainState = shallowRef(null);
     const documentLoading = ref(false);
     const closeMessage = ref('');
+    const fileAction = ref('');
+    const fileMessage = ref('');
+    const fileError = ref(false);
     let gain = null;
     let gainContext = null;
     let highlighter = null;
@@ -429,6 +449,7 @@ export function createCorrectionViewController(options) {
     const saver = useCorrectionSave({
         editor, client, dictationId, getPositionMs, vue: V || undefined,
         lease: createLeaseAdapter(editor, V),
+        canSave: () => fileAction.value !== 'open',
         ...(opts.autosaveMs !== undefined ? { autosaveMs: opts.autosaveMs } : {}),
         ...(v8 ? { reconcileFirst: true } : {}),
         ...(opts.document === true ? { document: true, seek } : {}),
@@ -617,6 +638,99 @@ export function createCorrectionViewController(options) {
         return res;
     }
 
+    const bundlePath = '/bundles/' + encodeURIComponent(dictationId);
+
+    async function sessionVersion() {
+        const res = await client.request('/dictations/' + encodeURIComponent(dictationId) + '/correction');
+        if (res.outcome !== 'ok' || !Number.isSafeInteger(res.data?.bundle_version)) {
+            throw new Error('Der aktuelle Stand konnte nicht geprüft werden.');
+        }
+        if (res.data.text_revision_id !== editor.textRevisionId.value
+            || (res.data.audio_revision_id ?? null) !== editor.audio.value.revisionId) {
+            throw new Error('Das Diktat wurde in der Zwischenzeit geändert. Laden Sie es zuerst neu.');
+        }
+        return res.data.bundle_version;
+    }
+
+    async function withFileAction(action, work) {
+        if (disposed || closing || !ready.value || fileAction.value || editor.loading.value || documentLoading.value
+            || saver.state.value === 'saving') return false;
+        fileAction.value = action;
+        fileError.value = false;
+        fileMessage.value = action === 'open' ? 'Datei wird geöffnet …' : 'Datei wird vorbereitet …';
+        try {
+            const message = await work();
+            if (disposed) return false;
+            fileMessage.value = message;
+            return true;
+        } catch (error) {
+            if (disposed) return false;
+            fileError.value = true;
+            fileMessage.value = error instanceof Error ? error.message : 'Die Datei konnte nicht verarbeitet werden.';
+            return false;
+        } finally {
+            fileAction.value = '';
+            if (!disposed && editor.dirty.value) saver.touch();
+        }
+    }
+
+    function saveSession(format) {
+        const kind = SESSION_FORMATS.find((row) => row.id === format);
+        if (!kind) return false;
+        return withFileAction('save', async () => {
+            if (editor.dirty.value) {
+                const res = await save();
+                if (!res.ok || editor.dirty.value) throw new Error('Speichern Sie zuerst Ihre Änderungen am Diktat.');
+            }
+            if (disposed) return '';
+            const version = await sessionVersion();
+            if (disposed) return '';
+            const res = await client.request(bundlePath + '/export?format=' + format + '&version=' + version,
+                { responseType: 'blob' });
+            if (disposed) return '';
+            if (res.outcome !== 'ok' || res.data?.type?.split(';')[0] !== kind.mime) {
+                const reason = res.status === 404 ? 'Keine Berechtigung zum Speichern dieser Datei.' : res.message;
+                throw new Error('Die Datei konnte nicht gespeichert werden. ' + (reason || ''));
+            }
+            (opts.downloadSession || downloadSession)(res.data, format);
+            return 'Download gestartet: diktat.' + format + ' Prüfen Sie die Datei in den Downloads Ihres Browsers.';
+        });
+    }
+
+    function openSession(file) {
+        if (!file || !editor.canEdit.value) return false;
+        const format = /\.(sdict|rtf|txt)$/i.exec(file.name)?.[1].toLowerCase();
+        return withFileAction('open', async () => {
+            if (!format) throw new Error('Wählen Sie eine Datei mit der Endung .sdict, .rtf oder .txt.');
+            const replacement = format === 'sdict' ? 'Text und Ton' : 'den Text (der bisherige Ton bleibt)';
+            const warning = editor.dirty.value ? ' Nicht gespeicherte Änderungen gehen verloren.' : '';
+            if (!(opts.confirm || globalThis.confirm)('Diese Datei ersetzt ' + replacement + ' im offenen Diktat.' + warning + ' Datei öffnen?')) {
+                return 'Öffnen abgebrochen.';
+            }
+            const version = await sessionVersion();
+            if (disposed) return '';
+            if (!editor.canEdit.value) throw new Error('Das Diktat kann gerade nicht bearbeitet werden.');
+            const res = await client.request(bundlePath + '/import?format=' + format, {
+                method: 'POST', rawBody: file, ifMatch: '"' + version + '"', idempotencyKey: globalThis.crypto.randomUUID(),
+            });
+            if (disposed) return '';
+            if (res.outcome !== 'ok' || res.data?.status !== 'committed') {
+                if (res.status === 404) throw new Error('Die Datei wurde nicht geöffnet. Keine Berechtigung für dieses Diktat.');
+                if (res.status === 413) throw new Error('Die Datei wurde nicht geöffnet. Sie ist zu gross.');
+                if (res.outcome === 'network' || res.outcome === 'UNKNOWN' || res.outcome === 'ok') {
+                    throw new Error('Ob die Datei übernommen wurde, ist unklar. Prüfen Sie den Stand, bevor Sie es erneut versuchen.');
+                }
+                throw new Error('Die Datei wurde nicht geöffnet. ' + (res.message || ''));
+            }
+            const loaded = await reloadLatest();
+            if (!loaded.ok || editor.audio.value.status !== 'ready') {
+                throw new Error('Die Datei wurde übernommen, aber das Diktat konnte nicht vollständig geladen werden. Laden Sie es neu.');
+            }
+            return res.data.audio_synced === true ? 'Diktatdatei mit Text und Ton geöffnet.'
+                : 'Text geöffnet. Die Datei enthielt keinen Ton. Der bisherige Ton bleibt. Beim Abspielen folgt die Markierung dem neuen Text nicht.';
+        });
+    }
+
     function adoptAudioRevision(id) {
         if (disposed || !id || editor.audio.value.revisionId === id) return;
         editor.audio.value = { status: 'ready', revisionId: id, etag: '"' + id + '"', src: editor.audioSource(id), message: '' };
@@ -640,7 +754,7 @@ export function createCorrectionViewController(options) {
     }
 
     function setText(next) {
-        if (doc?.available.value || documentLoading.value) return false;
+        if (fileAction.value || doc?.available.value || documentLoading.value) return false;
         const accepted = editor.setText(next);
         if (accepted) saver.touch();
         return accepted;
@@ -671,7 +785,7 @@ export function createCorrectionViewController(options) {
     function onShortcut(event) {
         if (!event || !(event.ctrlKey || event.metaKey) || String(event.key).toLowerCase() !== 's') return false;
         if (typeof event.preventDefault === 'function') event.preventDefault();
-        save();
+        if (!fileAction.value) save();
         return true;
     }
 
@@ -795,7 +909,7 @@ export function createCorrectionViewController(options) {
         const generation = snap && Number.isInteger(snap.generation) ? snap.generation : null;
         if (disposed || !hit || hit.touched || hit.state !== 'open') return { ok: false, code: 'noop', message: '' };
         const revision = reviewRevision.value;
-        if (!editor.canEdit.value || generation === null || !revision) return { ok: false, code: 'readOnly', message: TEXT.readOnly };
+        if (fileAction.value || !editor.canEdit.value || generation === null || !revision) return { ok: false, code: 'readOnly', message: TEXT.readOnly };
         const body = { expected_text_revision_id: revision, lease_generation: generation };
         const digest = id + JSON.stringify(body);
         if (!reviewKeys.has(digest)) reviewKeys.set(digest, newReviewKey());
@@ -877,7 +991,7 @@ export function createCorrectionViewController(options) {
 
     /** Unsaved edits are saved before the page is told to close; a failed save keeps the view open. */
     async function close() {
-        if (disposed || closing) return false;
+        if (disposed || closing || fileAction.value) return false;
         closing = true;
         try {
             if (opening) await opening;
@@ -947,6 +1061,7 @@ export function createCorrectionViewController(options) {
         leaseRun, leaseButtons,
         pedalStatus, pedalReady: () => pedalReady, pedal: () => pedal, setPedalSettings,
         start, load, save, setText, reloadLatest, keepMine, takeServer, compare: () => saver.compare(), close, dispose, syncRevision,
+        fileAction, fileMessage, fileError, saveSession, openSession,
         client: scoped, adoptAudioRevision, bindAudio, bindAlignmentRoot, alignmentRootEl: () => alignmentRoot, alignmentNotice, onSync, onShortcut, onKeydown, onInput, onSelect, onTemplate, seekToResume, getPositionMs, seek,
         text: TEXT,
     };
@@ -962,6 +1077,8 @@ const ICON_PATHS = Object.freeze({
     marker: '<path d="M6 21V4m0 0c4-4 8 4 12 0v10c-4 4-8-4-12 0"/>',
     search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
     replace: '<path d="M4 6h13l-3-3m3 3-3 3M20 18H7l3-3m-3 3 3 3M5 11v2m14-2v2"/>',
+    'upper-case': '<path d="m3 19 5-14 5 14M5 14h6m7 3V7m-3 3 3-3 3 3"/>',
+    'lower-case': '<path d="M11 11v8m0-4a4 4 0 1 0-8 0 4 4 0 0 0 8 0m7-8v10m-3-3 3 3 3-3"/>',
     'font-down': '<path d="m3 19 6-14 6 14M5 14h8m4-2h5"/>',
     'font-up': '<path d="m2 19 6-14 6 14M4 14h8m4-2h6m-3-3v6"/>',
     focus: '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>',
@@ -1023,6 +1140,15 @@ const LOCAL_CSS = `
 .v8-ui .editor-page .review-hits button:focus-visible{outline:2px solid var(--brand-accent);outline-offset:2px}
 .v8-ui .editor-page .review-hits button[aria-disabled=true]{cursor:default}
 .v8-ui .editor-page .editor-status{flex-wrap:wrap}
+.v8-ui .editor-page .session-files{padding-inline:16px;margin-bottom:8px}
+.v8-ui .editor-page .session-files summary{display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600}
+.v8-ui .editor-page .session-files summary::before{content:'▸'}
+.v8-ui .editor-page .session-files[open] summary::before{content:'▾'}
+.v8-ui .editor-page .session-file-actions{display:flex;flex-wrap:wrap;gap:8px;margin-block:8px}
+.v8-ui .editor-page .session-files :is(summary,button){min-height:48px}
+.v8-ui .editor-page .session-files button{max-width:100%;padding:8px 12px;white-space:normal;text-align:start}
+.v8-ui .editor-page .session-files .template-meta{margin:0 0 8px}
+.v8-ui .editor-page .session-files :is(summary,button):focus-visible{outline:var(--focus-outline);outline-offset:var(--focus-offset)}
 .v8-ui .editor-page .editor-status>[role=status]{flex:1 1 220px;min-width:0}
 .v8-ui .editor-page .editor-status-right{flex-wrap:wrap;white-space:normal;min-width:0}
 .v8-ui .editor-page .editor-workspace[data-dirty=true] .editor-status>[role=status]{color:var(--v8-text);font-weight:650}
@@ -1057,6 +1183,8 @@ const LOCAL_CSS = `
 @media(max-width:700px){
   .v8-ui .editor-page .context-tools .tooltip{max-width:160px}
   .v8-ui .editor-page .context-tools>.tool-wrap:nth-child(-n+2) .tooltip{left:0;right:auto}
+  .v8-ui .editor-page .symbol-toolbar .tooltip:not([data-visible=true]){display:none}
+  .v8-ui .editor-page .symbol-toolbar :is(.document-tools,.font-group)>.tool-wrap:last-child .tooltip{left:auto;right:0;transform:none}
   .v8-ui .editor-page .editor-popover{position:static;width:auto;max-height:none;margin:8px 12px}
   .v8-ui .editor-page .find-row{display:grid;grid-template-columns:minmax(0,1fr) repeat(3,auto)}
   .v8-ui .editor-page .find-row>input{min-width:0;width:100%}
@@ -1137,7 +1265,7 @@ export const CorrectionBody = {
         const s = c.saver;
         const doc = s.document;
         const documentMode = V.computed(() => Boolean(doc?.available.value));
-        const canEdit = V.computed(() => e.canEdit.value && !c.documentLoading.value);
+        const canEdit = V.computed(() => e.canEdit.value && !c.documentLoading.value && !c.fileAction.value);
         const m = c.modes;
         const finishOptions = V.shallowRef(null);
         const finishWorkflow = createWorkflowActions({ client: c.client, reactive: V.reactive });
@@ -1159,7 +1287,7 @@ export const CorrectionBody = {
         function onFinishKeydown(event) {
             // Handle F5 before the nested dialog's own shortcut listener.
             event.stopPropagation();
-            finishOptions.value?.onKeydown(event);
+            if (!c.fileAction.value) finishOptions.value?.onKeydown(event);
             if (!event.defaultPrevented) event.preventDefault();
         }
         const highlightOn = V.ref(true);
@@ -1244,12 +1372,13 @@ export const CorrectionBody = {
                         start: el ? selected.start + el.selectionStart : 0, end: el ? selected.start + el.selectionEnd : 0 };
                 }
                 const el = textEl.value;
-                return { text: e.text.value, start: el ? el.selectionStart : 0, end: el ? el.selectionEnd : 0 };
+                return { text: e.text.value, start: el?.selectionStart ?? 0, end: el?.selectionEnd ?? 0, direction: el?.selectionDirection };
             },
             write(next) {
                 if (documentMode.value) return;
-                c.setText(next.text);
-                later(() => { const el = textEl.value; if (el) el.setSelectionRange(next.start, next.end); });
+                if (c.setText(next.text)) {
+                    later(() => textEl.value?.setSelectionRange(next.start, next.end, next.direction));
+                }
             },
             select(start, end) {
                 const range = documentMode.value && (runRanges.value.find((r) => r.end > start) || runRanges.value.at(-1));
@@ -1275,12 +1404,20 @@ export const CorrectionBody = {
             canUndo: canEdit.value && doc.historyState.value.canUndo,
             canRedo: canEdit.value && doc.historyState.value.canRedo,
         } : tbState.value);
+        function restoreRunSelection({ runId, start, end, direction }) {
+            later(() => {
+                const field = runField(runId);
+                field?.focus();
+                if (start !== undefined) field?.setSelectionRange(start, end, direction);
+            });
+        }
         function historyAction(action) {
             if (!documentMode.value) return tb[action]();
-            if (!canEdit.value || !doc[action]()) return false;
+            let selection;
+            if (!canEdit.value || !doc[action]((entry) => { selection = entry; })) return false;
             const { nodeId, runId } = doc.selection.value;
             const target = runId || doc.doc.value.nodes.find((node) => node.id === nodeId)?.runs[0]?.id;
-            if (target) later(() => runField(target)?.focus());
+            if (selection || target) restoreRunSelection(selection || { runId: target });
             return true;
         }
         function editSelection(text) {
@@ -1382,6 +1519,22 @@ export const CorrectionBody = {
             }, { flush: 'post' });
         }
         const setTextEl = (node) => { textEl.value = node && typeof node === 'object' ? node : null; };
+        function onSelectionCase(mode) {
+            if (!documentMode.value) {
+                if (tb.changeSelectionCase(mode)) textEl.value?.focus();
+                return;
+            }
+            if (!canEdit.value || !currentRun.value) return;
+            const { node, run } = currentRun.value;
+            const field = runField(run.id);
+            if (!field || field.value !== run.text) return;
+            const before = { runId: run.id, start: field.selectionStart, end: field.selectionEnd, direction: field.selectionDirection };
+            const next = transformSelectionCase({ text: run.text, ...before }, mode);
+            // Reject edits that the run sanitizer would truncate or change outside the selection.
+            if (!next || sanitizePaste(next.text).text !== next.text) return;
+            const after = { ...before, end: next.end };
+            if (doc.editRun(node.id, run.id, next.text, { before, after })) restoreRunSelection(after);
+        }
         const setRunRoot = (node) => { runRoot.value = node; };
         const onTextInput = (event) => { c.onInput(event); tb.notifyChange(); };
         const onTextKeydown = (event) => {
@@ -1468,6 +1621,12 @@ export const CorrectionBody = {
         const unsavedSuffix = () => Boolean(e.dirty.value) && !/nicht gespeicherte/i.test(String(s.message.value || ''));
         const pickTemplate = (id) => { templatesOpen.value = false; if (id) e.applyTemplate(id); };
         const toolStatus = () => tbState.value.readOnlyReason || tbState.value.message || '';
+        const fileInput = V.shallowRef(null);
+        const onSessionFile = (event) => {
+            const file = event.currentTarget.files[0];
+            event.currentTarget.value = '';
+            c.openSession(file);
+        };
         const reviewRefs = new Map();
         const setReviewRef = (id, node) => { if (node) reviewRefs.set(id, node); else reviewRefs.delete(id); };
         const activateReview = (index) => {
@@ -1505,12 +1664,14 @@ export const CorrectionBody = {
             reviewLoaded: c.reviewLoaded, reviewFocused, reviewSpan, reviewMark, setReviewRef, activateReview, onReviewKeydown,
             formatDictationReference,
             c, FOCUS, MODES, box, styleFor, TEXT, showDiff, finishOptions, finishWorkflow, onFinishKeydown,
+            SESSION_FORMATS, fileInput, onSessionFile, fileAction: c.fileAction, fileMessage: c.fileMessage, fileError: c.fileError,
             tb, tbState, textEl, setTextEl, fontPx, focusMode, shortcutsOpen, highlightOn, inlineWord, editorScroll, followOn, onTextInput, onTextKeydown, onFindKeydown,
-            onQuery, onReplacement, onCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, drawerClose, closeDrawer, toggleDrawer, unsavedSuffix,
+            onQuery, onReplacement, onCase, onSelectionCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, drawerClose, closeDrawer, toggleDrawer, unsavedSuffix,
             repeatState: c.repeat.state, REPEAT_TEXT,
+            SessionTransportNotice,
             documentMode, doc, setRunRoot, currentRun, selectedNodeIndex, canSeekRun, currentLink, historyState, historyAction,
             FORMATS, formatName, runLabel, insertParagraph, insertManualRun, moveParagraph, documentFeedback, replaceMatches, onRunSelection, onRunInput, onRunPaste, activatePassage,
-            text: e.text, canEdit, dirty: e.dirty, textRevisionId: e.textRevisionId,
+            text: e.text, canEdit, editAllowed: e.canEdit, dirty: e.dirty, textRevisionId: e.textRevisionId,
             loading: V.computed(() => e.loading.value || c.documentLoading.value), error: e.error, manual: e.manual,
             lease: e.lease, audio: e.audio, audioSynced: e.audioSynced,
             template: e.template, templates: e.templates, templatesError: e.templatesError,
@@ -1533,9 +1694,9 @@ export const CorrectionBody = {
       <div class="eyebrow">{{ TEXT.eyebrow }}</div>
       <div class="hline">
         <h1 id="ccv-title" style="font-weight: 700; letter-spacing: -.8px; color: var(--v8-text)">{{ openMode === 'player' ? TEXT.playerPage : TEXT.page }}</h1>
-        <FinishOptions v-if="finishWorkflow.state.allowed.includes('release')"
+        <FinishOptions v-if="finishWorkflow.state.allowed.includes('release')" :inert="Boolean(fileAction)"
                        ref="finishOptions" :workflow="finishWorkflow" :client="c.client" :vue="vue"
-                       :disabled="dirty || loading || !!error" @finished="c.close()" />
+                       :disabled="!ready || !lease.writable || dirty || loading || !!error" @finished="c.close()" />
       </div>
       <p class="subline">{{ openMode === 'player' ? TEXT.playerSubline : TEXT.subline }}</p>
     </div>
@@ -1547,6 +1708,7 @@ export const CorrectionBody = {
       </slot>
     </div>
   </div>
+  <component :is="SessionTransportNotice" :client="c.client" :vue="vue" />
   <p v-if="closeMessage" role="alert" class="note" :style="box('error')">{{ closeMessage }}</p>
   <p class="sr-only" id="ccv-keys">{{ TEXT.keys }}</p>
 
@@ -1582,7 +1744,7 @@ export const CorrectionBody = {
                   aria-haspopup="dialog" aria-controls="ccv-drawer" data-context-toggle="options" @click="toggleDrawer('options', $event.currentTarget)"><UiIcon name="settings" /></button>
         </span>
         <span class="tool-wrap" v-tip="{ label: TEXT.reload }">
-          <button type="button" class="icon-button" :style="FOCUS" :disabled="loading || dirty" :aria-label="TEXT.reload"
+          <button type="button" class="icon-button" :style="FOCUS" :disabled="loading || dirty || Boolean(fileAction)" :aria-label="TEXT.reload"
                   data-testid="reload" @click="c.load()"><UiIcon name="refresh" /></button>
         </span>
       </div>
@@ -1597,11 +1759,26 @@ export const CorrectionBody = {
     <div class="live-inline-status" role="group" :aria-label="TEXT.lease" data-testid="lease-bar"
          style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
       <span role="status" aria-live="polite" :style="{ color: lease.surface.color }">{{ lease.message }}</span>
-      <button v-for="b in c.leaseButtons()" :key="b.id" type="button"                    :class="['button', 'small', b.id === 'acquire' ? 'primary' : '']" :style="FOCUS" :disabled="b.disabled"
+      <button v-for="b in c.leaseButtons()" :key="b.id" type="button" :class="['button', 'small', b.id === 'acquire' ? 'primary' : '']" :style="FOCUS" :disabled="b.disabled || Boolean(fileAction)"
               :data-action="b.id" @click="c.leaseRun[b.id]()">{{ b.label }}</button>
     </div>
 
     <template v-if="ready">
+      <details class="session-files" data-testid="session-files">
+        <summary :style="FOCUS">Diktatdateien</summary>
+        <div class="session-file-actions" role="group" aria-label="Diktatdateien speichern oder öffnen">
+          <button v-for="format in SESSION_FORMATS" :key="format.id" type="button" class="button" :style="FOCUS"
+                  :disabled="loading || Boolean(fileAction) || saveState === 'saving'" :data-session-format="format.id"
+                  :aria-describedby="format.id === 'txt' ? 'ccv-session-hint' : null"
+                  @click="c.saveSession(format.id)">{{ format.label }} speichern</button>
+          <button type="button" class="button" :style="FOCUS" :disabled="!canEdit || saveState === 'saving'"
+                  @click="fileInput.click()">Datei ins Diktat laden …</button>
+          <input ref="fileInput" type="file" accept=".sdict,.rtf,.txt" hidden data-testid="session-file-input" @change="onSessionFile">
+        </div>
+        <p id="ccv-session-hint" class="template-meta">Diktatdatei: Text und Ton, hier wieder zu öffnen. TXT: nur Text, ohne Ton und Wortmarkierung beim Abspielen.</p>
+        <p v-if="!canEdit && !fileAction" class="template-meta">Wählen Sie zuerst «Bearbeiten», um eine Datei zu laden.</p>
+      </details>
+      <p role="status" :class="{ note: fileMessage }" :style="fileError ? box('error') : {}" data-testid="session-file-status">{{ fileMessage }}</p>
       <div class="player-dock" ref="playerDock">
       <div class="player compact-player" data-testid="player-bar">
         <span class="player-placement">
@@ -1659,6 +1836,12 @@ export const CorrectionBody = {
             <span class="tool-wrap" v-tip="{ label: TEXT.replace }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.replace"
                     :aria-expanded="String(tbState.searchOpen)" data-tool="replace" @click="tb.openSearch()"><UiIcon name="replace" /></button></span>
           </div>
+          <div class="toolbar-group">
+            <span class="tool-wrap" v-tip="{ label: TEXT.upperCase }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.upperCase"
+                    :disabled="!canEdit" data-tool="upper-case" @mousedown.left.prevent @click="onSelectionCase('upper')"><UiIcon name="upper-case" /></button></span>
+            <span class="tool-wrap" v-tip="{ label: TEXT.lowerCase }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.lowerCase"
+                    :disabled="!canEdit" data-tool="lower-case" @mousedown.left.prevent @click="onSelectionCase('lower')"><UiIcon name="lower-case" /></button></span>
+          </div>
           <div v-if="documentMode" class="toolbar-group document-tools">
             <span v-for="format in FORMATS" :key="format" class="tool-wrap" v-tip="{ label: formatName(format) }">
               <button type="button" class="icon-button" :style="{ ...FOCUS, fontWeight: format === 'bold' ? 'bold' : null, fontStyle: format === 'italic' ? 'italic' : null, textDecoration: format === 'underline' ? 'underline' : null }"
@@ -1689,7 +1872,7 @@ export const CorrectionBody = {
                     :aria-expanded="String(shortcutsOpen)" data-tool="shortcuts" @click="shortcutsOpen = !shortcutsOpen; templatesOpen = false"><UiIcon name="keyboard" /></button></span>
             <span class="tool-wrap" v-tip="{ label: TEXT.save, keys: 'Strg/Cmd+S' }"><button type="button" class="icon-button save-button" :class="{ 'has-changes': dirty }" :style="FOCUS"
                     :aria-label="dirty ? TEXT.saveDirty : TEXT.save"
-                    :disabled="saveState === 'saving' || saveState === 'saved'" data-testid="save" @click="c.save()"><UiIcon name="save" /></button></span>
+                    :disabled="saveState === 'saving' || saveState === 'saved' || Boolean(fileAction)" data-testid="save" @click="c.save()"><UiIcon name="save" /></button></span>
           </div>
         </div>
 
@@ -1789,7 +1972,7 @@ export const CorrectionBody = {
           </ul>
           <p v-if="reviewMessage" role="alert" class="hint" data-testid="review-message">{{ reviewMessage }}</p>
         </section>
-        <p v-if="!canEdit && !loading" id="ccv-readonly" class="template-meta" style="margin: 0">{{ lease.mayAcquire === false ? TEXT.readOnlyAccess : TEXT.readOnly }}</p>
+        <p v-if="!canEdit && !loading" id="ccv-readonly" class="template-meta" style="margin: 0">{{ editAllowed ? fileMessage : (lease.mayAcquire === false ? TEXT.readOnlyAccess : TEXT.readOnly) }}</p>
         <section class="panel alignment-panel" :aria-label="TEXT.alignment" :data-status="alignStatus" data-testid="alignment">
           <div class="panel-header">
             <h2>{{ TEXT.alignment }}</h2>
