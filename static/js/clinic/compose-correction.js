@@ -30,7 +30,7 @@
  */
 
 import { useCorrectionPlayerPosition } from './correction-player-position.js';
-import { formatDictationReference } from './worklist-ui.js';
+import { formatDictationReference, STATUS_LABELS } from './worklist-ui.js';
 import { createClinicApiClient } from './api-client.js';
 import { SessionTransportNotice } from './compose-settings.js';
 import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
@@ -347,6 +347,14 @@ export function createCorrectionViewController(options) {
 
     // contract 'v8': shared lease controller, reconcile before a new key, +-5 s step. Without it the pre-V8 behaviour stays.
     const v8 = opts.contract === 'v8';
+    const dictationPath = '/dictations/' + encodeURIComponent(dictationId);
+    const asrWait = shallowRef(null);
+    const asrSkipBusy = ref(false);
+    const asrSkipError = ref('');
+    const asrSkipStatus = ref('');
+    let waitTimer;
+    let waitGeneration = 0;
+    let pendingSkip;
     const editor = useCorrectionEditor({
         client, dictationId, currentUser: user, vue: V || undefined, exposeLeaseController: v8,
     });
@@ -617,6 +625,54 @@ export function createCorrectionViewController(options) {
         return res;
     }
 
+    async function refreshAsrWait() {
+        const generation = ++waitGeneration;
+        const res = await client.request(dictationPath + '/detail');
+        if (disposed || generation !== waitGeneration) return;
+        if (res.outcome === 'ok') {
+            asrWait.value = res.data?.asr_wait_message ? res.data : null;
+        } else if (res.outcome === 'network') {
+            if (asrWait.value) asrWait.value = { ...asrWait.value, can_start_manual: false };
+        } else {
+            asrWait.value = null;
+        }
+        if (asrWait.value || res.outcome === 'network') waitTimer = setTimeout(refreshAsrWait, 5000);
+    }
+
+    async function skipAsr() {
+        const wait = asrWait.value;
+        if (disposed || asrSkipBusy.value || fileAction.value || wait?.can_start_manual !== true || !wait.etag) return false;
+        clearTimeout(waitTimer);
+        waitGeneration += 1;
+        pendingSkip ||= { ifMatch: wait.etag, idempotencyKey: globalThis.crypto.randomUUID() };
+        asrSkipBusy.value = true;
+        asrSkipError.value = '';
+        try {
+            const res = await client.request(dictationPath + '/asr/skip', { method: 'POST', body: {}, ...pendingSkip });
+            if (disposed) return false;
+            if (res.outcome === 'ok' && res.data?.status === 'zu_schreiben') {
+                pendingSkip = null;
+                asrSkipStatus.value = STATUS_LABELS[res.data.status];
+                const lease = await editor.acquire();
+                if (disposed) return false;
+                asrWait.value = null;
+                if (lease.status !== 'held') return false;
+                return (await load()).ok;
+            }
+            if (res.outcome === 'network' || (res.outcome === 'UNKNOWN' && res.status !== 404) || res.outcome === 'ok') {
+                asrSkipError.value = 'Der Wechsel konnte nicht bestätigt werden. Bitte erneut versuchen.';
+            } else {
+                asrSkipError.value = 'Manuelles Schreiben konnte nicht gestartet werden.';
+                pendingSkip = null;
+                asrWait.value = null;
+                await refreshAsrWait();
+            }
+            return false;
+        } finally {
+            asrSkipBusy.value = false;
+        }
+    }
+
     /** After a save produced a new text revision, text and audio are linked again by the server; adopt the new links. */
     function syncRevision() {
         if (disposed || !ready.value || documentLoading.value) return null;
@@ -654,7 +710,7 @@ export function createCorrectionViewController(options) {
     }
 
     async function withFileAction(action, work) {
-        if (disposed || closing || !ready.value || fileAction.value || editor.loading.value || documentLoading.value
+        if (disposed || closing || !ready.value || fileAction.value || asrSkipBusy.value || editor.loading.value || documentLoading.value
             || saver.state.value === 'saving') return false;
         fileAction.value = action;
         fileError.value = false;
@@ -699,7 +755,7 @@ export function createCorrectionViewController(options) {
     }
 
     function openSession(file) {
-        if (!file || !editor.canEdit.value) return false;
+        if (!file || asrWait.value || !editor.canEdit.value) return false;
         const format = /\.(sdict|rtf|txt)$/i.exec(file.name)?.[1].toLowerCase();
         return withFileAction('open', async () => {
             if (!format) throw new Error('Wählen Sie eine Datei mit der Endung .sdict, .rtf oder .txt.');
@@ -710,7 +766,7 @@ export function createCorrectionViewController(options) {
             }
             const version = await sessionVersion();
             if (disposed) return '';
-            if (!editor.canEdit.value) throw new Error('Das Diktat kann gerade nicht bearbeitet werden.');
+            if (asrWait.value || !editor.canEdit.value) throw new Error('Das Diktat kann gerade nicht bearbeitet werden.');
             const res = await client.request(bundlePath + '/import?format=' + format, {
                 method: 'POST', rawBody: file, ifMatch: '"' + version + '"', idempotencyKey: globalThis.crypto.randomUUID(),
             });
@@ -755,7 +811,7 @@ export function createCorrectionViewController(options) {
     }
 
     function setText(next) {
-        if (fileAction.value || doc?.available.value || documentLoading.value) return false;
+        if (asrWait.value || fileAction.value || doc?.available.value || documentLoading.value) return false;
         const accepted = editor.setText(next);
         if (accepted) saver.touch();
         return accepted;
@@ -932,7 +988,8 @@ export function createCorrectionViewController(options) {
 
     // --- lifecycle ------------------------------------------------------------
     const leaseRun = { acquire: editor.acquire, release: editor.release, takeOver: editor.takeOver };
-    const leaseButtons = () => editor.availableLeaseActions().filter((a) => typeof leaseRun[a.id] === 'function');
+    const leaseButtons = () => editor.availableLeaseActions().filter((a) =>
+        typeof leaseRun[a.id] === 'function' && (!asrWait.value || a.id !== 'acquire'));
 
     // --- foot pedal, keyboard mode (PAR-OPS-001) -----------------------------
     // Pedal commands bypass correction backstep: hold release already applies its own rewind.
@@ -970,7 +1027,9 @@ export function createCorrectionViewController(options) {
     }
 
     async function open() {
-        if (opts.openMode === 'correction') {
+        if (v8) await refreshAsrWait();
+        if (disposed) return null;
+        if (opts.openMode === 'correction' && !asrWait.value) {
             const res = await client.request('/dictations/' + encodeURIComponent(dictationId) + '/leases');
             if (!disposed && res.outcome === 'ok' && res.data?.may_acquire === true) await editor.acquire();
         }
@@ -1033,6 +1092,9 @@ export function createCorrectionViewController(options) {
         if (disposed) return;
         const holdsLease = editor.lease.value && editor.lease.value.status === 'held';
         disposed = true;
+        clearTimeout(waitTimer);
+        asrWait.value = null;
+        pendingSkip = null;
         repeat.dispose();
         for (const stop of stops.splice(0)) if (typeof stop === 'function') stop();
         if (pedal) { pedal.detach(); pedal = null; }
@@ -1061,6 +1123,7 @@ export function createCorrectionViewController(options) {
         peaksKey, peaksFetch, playRange,
         stepSeconds: v8 ? STEP_SECONDS_V8 : STEP_SECONDS, togglePlayback,
         leaseRun, leaseButtons,
+        asrWait, asrSkipBusy, asrSkipError, asrSkipStatus, skipAsr,
         pedalStatus, pedalReady: () => pedalReady, pedal: () => pedal, setPedalSettings,
         start, load, save, setText, reloadLatest, keepMine, takeServer, compare: () => saver.compare(), close, dispose, syncRevision,
         fileAction, fileMessage, fileError, saveSession, openSession,
@@ -1159,6 +1222,9 @@ const LOCAL_CSS = `
 .v8-ui .editor-page .live-inline-status .button{min-height:32px;padding:5px 12px;font-size:12px}
 .v8-ui .editor-page .live-inline-status .button:not(.primary){color:var(--v8-text)}
 .v8-ui .editor-page :is(.live-inline-status .button,.alignment-panel .panel-header>button):disabled{background:var(--v8-s2);border-color:var(--line);color:var(--v8-text);opacity:.55;cursor:not-allowed}
+.v8-ui .editor-page .asr-wait-status{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;font-size:14px;color:var(--v8-text)}
+.v8-ui .editor-page .asr-wait-status .button{min-height:48px;font-size:14px}
+.v8-ui .editor-page .live-inline-status.asr-wait-status .button:disabled{background:var(--v8-s2);color:var(--v8-text-2);border-color:var(--line);opacity:1;cursor:not-allowed}
 .v8-ui .editor-page .context-drawer{background:var(--surface);color:var(--v8-text);border:1px solid var(--line);box-shadow:var(--shadow-lg,var(--shadow));z-index:120}
 .v8-ui .editor-page .context-drawer:not([data-open]){transform:translateX(calc(100% + 40px));pointer-events:none;box-shadow:none}
 .v8-ui .editor-page .context-drawer .dialoghead{display:flex;align-items:center;justify-content:space-between;gap:12px}
@@ -1267,7 +1333,7 @@ export const CorrectionBody = {
         const s = c.saver;
         const doc = s.document;
         const documentMode = V.computed(() => Boolean(doc?.available.value));
-        const canEdit = V.computed(() => e.canEdit.value && !c.documentLoading.value && !c.fileAction.value);
+        const canEdit = V.computed(() => e.canEdit.value && !c.asrWait.value && !c.documentLoading.value && !c.fileAction.value);
         const m = c.modes;
         const finishOptions = V.shallowRef(null);
         const finishWorkflow = createWorkflowActions({ client: c.client, reactive: V.reactive });
@@ -1622,7 +1688,13 @@ export const CorrectionBody = {
         // saveMessage already says "Nicht gespeicherte Änderungen." while dirty; do not repeat it.
         const unsavedSuffix = () => Boolean(e.dirty.value) && !/nicht gespeicherte/i.test(String(s.message.value || ''));
         const pickTemplate = (id) => { templatesOpen.value = false; if (id) e.applyTemplate(id); };
-        const toolStatus = () => tbState.value.readOnlyReason || tbState.value.message || '';
+        const toolStatus = () => (!c.asrWait.value && tbState.value.readOnlyReason) || tbState.value.message || '';
+        async function startManualWriting() {
+            if (!await c.skipAsr()) return;
+            await V.nextTick();
+            const field = documentMode.value ? runRoot.value?.querySelector('textarea') : textEl.value;
+            field?.focus();
+        }
         const fileInput = V.shallowRef(null);
         const onSessionFile = (event) => {
             const file = event.currentTarget.files[0];
@@ -1686,6 +1758,8 @@ export const CorrectionBody = {
             ready: c.ready, loadGeneration: c.loadGeneration, revisionGeneration: c.revisionGeneration,
             audioEl: c.audioEl, gainState: c.gainState, closeMessage: c.closeMessage, resumeLabel: c.resumeLabel,
             pedalStatus: c.pedalStatus, alignmentNotice: c.alignmentNotice,
+            asrWait: c.asrWait, asrSkipBusy: c.asrSkipBusy, asrSkipError: c.asrSkipError, asrSkipStatus: c.asrSkipStatus,
+            startManualWriting,
         };
     },
     template: `
@@ -1758,6 +1832,13 @@ export const CorrectionBody = {
       <div><dt>{{ TEXT.editing }}</dt><dd data-worker-name>{{ workerLabel() }}</dd></div>
     </dl>
 
+    <div v-if="asrWait || asrSkipStatus" class="live-inline-status asr-wait-status">
+      <span id="ccv-asr-status" role="status">{{ asrSkipStatus || asrWait.asr_wait_message }}</span>
+      <button v-if="asrWait?.can_start_manual === true && asrWait.etag && !asrSkipStatus" type="button"
+              class="button primary" :style="FOCUS" :disabled="asrSkipBusy || loading || Boolean(fileAction)"
+              @click="startManualWriting">Manuell schreiben</button>
+    </div>
+    <p v-if="asrSkipError" role="alert" class="note" :style="box('error')">{{ asrSkipError }}</p>
     <div class="live-inline-status" role="group" :aria-label="TEXT.lease" data-testid="lease-bar"
          style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
       <span role="status" aria-live="polite" :style="{ color: lease.surface.color }">{{ lease.message }}</span>
@@ -1770,7 +1851,7 @@ export const CorrectionBody = {
         <summary :style="FOCUS">Diktatdateien</summary>
         <div class="session-file-actions" role="group" aria-label="Diktatdateien speichern oder öffnen">
           <button v-for="format in SESSION_FORMATS" :key="format.id" type="button" class="button" :style="FOCUS"
-                  :disabled="loading || Boolean(fileAction) || saveState === 'saving'" :data-session-format="format.id"
+                  :disabled="loading || Boolean(fileAction) || asrSkipBusy || saveState === 'saving'" :data-session-format="format.id"
                   :aria-describedby="format.id === 'txt' ? 'ccv-session-hint' : null"
                   @click="c.saveSession(format.id)">{{ format.label }} speichern</button>
           <button type="button" class="button" :style="FOCUS" :disabled="!canEdit || saveState === 'saving'"
@@ -1778,7 +1859,7 @@ export const CorrectionBody = {
           <input ref="fileInput" type="file" accept=".sdict,.rtf,.txt" hidden data-testid="session-file-input" @change="onSessionFile">
         </div>
         <p id="ccv-session-hint" class="template-meta">Diktatdatei: Text und Ton, hier wieder zu öffnen. TXT: nur Text, ohne Ton und Wortmarkierung beim Abspielen.</p>
-        <p v-if="!canEdit && !fileAction" class="template-meta">Wählen Sie zuerst «Bearbeiten», um eine Datei zu laden.</p>
+        <p v-if="!canEdit && !fileAction && !asrWait" class="template-meta">Wählen Sie zuerst «Bearbeiten», um eine Datei zu laden.</p>
       </details>
       <p role="status" :class="{ note: fileMessage }" :style="fileError ? box('error') : {}" data-testid="session-file-status">{{ fileMessage }}</p>
       <div class="player-dock" ref="playerDock">
@@ -1924,7 +2005,7 @@ export const CorrectionBody = {
         <ul v-if="template && template.issues.length" class="template-meta" role="note" aria-label="Hinweise zur Vorlage" style="margin: 0; list-style: none">
           <li v-for="issue in template.issues" :key="issue.code">{{ issue.message }}</li>
         </ul>
-        <p v-if="manual" class="template-meta" role="note">{{ TEXT.manual }}</p>
+        <p v-if="manual && !asrWait && !asrSkipStatus" class="template-meta" role="note">{{ TEXT.manual }}</p>
         <p v-if="toolStatus()" class="template-meta" role="status" data-testid="toolbar-reason">{{ toolStatus() }}</p>
 
         <div class="writing-surface" :class="{ 'has-word-sync': inlineWord }">
@@ -1934,7 +2015,7 @@ export const CorrectionBody = {
             <div v-for="(node, nodeIndex) in doc.doc.value.nodes" :key="node.id" :data-node-id="node.id" class="document-paragraph" role="group" :aria-label="'Absatz ' + (nodeIndex + 1)">
               <textarea v-for="(run, runIndex) in node.runs" :key="run.id" class="document-run" :data-run-id="run.id" :rows="Math.min(6, run.text.split('\\n').length)"
                         :data-testid="nodeIndex === 0 && runIndex === 0 ? 'text' : null" :value="run.text" :readonly="!canEdit" :aria-readonly="String(!canEdit)"
-                        :placeholder="!text && canEdit ? TEXT.startTyping : null" :aria-label="runLabel(run, nodeIndex, runIndex)" :aria-describedby="canEdit ? 'ccv-keys' : 'ccv-keys ccv-readonly'"
+                        :placeholder="!text && canEdit ? TEXT.startTyping : null" :aria-label="runLabel(run, nodeIndex, runIndex)" :aria-describedby="canEdit ? 'ccv-keys' : asrWait ? 'ccv-keys ccv-asr-status' : 'ccv-keys ccv-readonly'"
                         :data-playing="highlightOn && run.id === currentLink ? 'true' : null"
                         :style="{ ...FOCUS, fontSize: fontPx + 'px', fontWeight: run.bold ? 'bold' : null, fontStyle: run.italic ? 'italic' : null, textDecoration: run.underline ? 'underline' : null }"
                         @focus="onRunSelection($event, node.id, run.id)" @pointerdown="onRunSelection($event, node.id, run.id)" @select="onRunSelection($event, node.id, run.id)"
@@ -1946,7 +2027,7 @@ export const CorrectionBody = {
             <div class="word-backdrop-content" :style="{ fontSize: fontPx + 'px', transform: 'translateY(' + (-editorScroll) + 'px)' }">{{ text.slice(0, inlineWord.start) }}<mark ref="reviewMark" data-active-word :data-review-span="reviewSpan ? '' : null" :style="reviewSpan ? { background: 'var(--ui-hover)', boxShadow: 'inset 0 -2px 0 var(--brand-accent)' } : null">{{ text.slice(inlineWord.start, inlineWord.end) }}</mark>{{ text.slice(inlineWord.end) }}</div>
           </div>
           <textarea v-if="!documentMode" class="editor" :ref="setTextEl" :style="{ ...FOCUS, fontSize: fontPx + 'px' }" :value="text" :readonly="!canEdit" :aria-readonly="String(!canEdit)"
-                    :aria-label="TEXT.text" :aria-describedby="canEdit ? 'ccv-keys' : 'ccv-keys ccv-readonly'" data-testid="text"
+                    :aria-label="TEXT.text" :aria-describedby="canEdit ? 'ccv-keys' : asrWait ? 'ccv-keys ccv-asr-status' : 'ccv-keys ccv-readonly'" data-testid="text"
                     @scroll.passive="editorScroll = $event.target.scrollTop" @input="onTextInput($event)" @keydown="onTextKeydown($event)" @select="followOn = false; c.onSelect($event)"
                     @keyup="c.onSelect($event)" @mouseup="c.onSelect($event)"></textarea>
         </div>
@@ -1974,7 +2055,7 @@ export const CorrectionBody = {
           </ul>
           <p v-if="reviewMessage" role="alert" class="hint" data-testid="review-message">{{ reviewMessage }}</p>
         </section>
-        <p v-if="!canEdit && !loading" id="ccv-readonly" class="template-meta" style="margin: 0">{{ editAllowed ? fileMessage : (lease.mayAcquire === false ? TEXT.readOnlyAccess : TEXT.readOnly) }}</p>
+        <p v-if="!canEdit && !loading && !asrWait" id="ccv-readonly" class="template-meta" style="margin: 0">{{ editAllowed ? fileMessage : (lease.mayAcquire === false ? TEXT.readOnlyAccess : TEXT.readOnly) }}</p>
         <section class="panel alignment-panel" :aria-label="TEXT.alignment" :data-status="alignStatus" data-testid="alignment">
           <div class="panel-header">
             <h2>{{ TEXT.alignment }}</h2>
