@@ -434,6 +434,15 @@ export const RichTextEditor = {
             ...targetSize, backgroundColor: 'var(--v8-s2)', borderColor: 'var(--v8-text-2)',
         } : targetSize;
         function runStyle(node, run) {
+            if (correction) {
+                const active = correction.activeRunId.value === run.id;
+                return { ...focusStyle, ...targetStyle, maxWidth: '100%', width: '100%',
+                    fontWeight: run.bold ? 'bold' : undefined, fontStyle: run.italic ? 'italic' : undefined,
+                    textDecoration: run.underline ? 'underline' : undefined,
+                    backgroundColor: active ? 'var(--ui-hover)' : undefined,
+                    borderColor: active ? 'var(--brand-accent)' : 'var(--ui-text-muted)' };
+            }
+            if (!props.saveDocument) return focusStyle;
             // The V8 phone input reset otherwise overrides the document's font size.
             const size = run.font_size_pt ? run.font_size_pt + 'pt' : (node.kind === 'heading' ? '1.25rem' : '1rem');
             return { ...focusStyle, minHeight: '48px', fieldSizing: 'content', overflowWrap: 'anywhere',
