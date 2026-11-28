@@ -47,6 +47,7 @@ describe('Neue Aufnahme', () => {
             title: 'Diktat 27.11.2026 09:03',
             useSpeechRecognition: true,
             clientUploadId: expect.stringMatching(/^[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/i),
+            onUploadProgress: expect.any(Function),
         }]]);
         expect(request.mock.calls[1]).toEqual([path + '/send', {
             method: 'POST', body: {}, ifMatch: '"1"', idempotencyKey: expect.any(String),

@@ -44,8 +44,12 @@ describe('P04 speech recognition choice', () => {
 
         expect(uploadFile).toHaveBeenCalledTimes(2);
         const [, , firstOptions] = uploadFile.mock.calls[0];
-        expect(firstOptions).toEqual({ useSpeechRecognition: false, clientUploadId: expect.any(String) });
-        expect(uploadFile.mock.calls[1][2]).toEqual(firstOptions);
+        expect(firstOptions).toEqual({
+            useSpeechRecognition: false, clientUploadId: expect.any(String), id: expect.any(String), retry: false,
+        });
+        expect(uploadFile.mock.calls[1][2]).toEqual({ ...firstOptions, retry: true });
+        expect(uploadFile.mock.calls[0][3]).toEqual(expect.any(Function));
+        expect(uploadFile.mock.calls[1][3]).toEqual(expect.any(Function));
         expect(client.request).toHaveBeenNthCalledWith(2, '/dictations/synthetic-draft/send', {
             method: 'POST', body: {}, ifMatch: '"v1"', idempotencyKey: expect.any(String),
         });
@@ -71,11 +75,11 @@ describe('P04 speech recognition choice', () => {
         expect((await c.sendFile()).ok).toBe(true);
         expect(uploadFile).toHaveBeenNthCalledWith(1, audio, undefined, {
             useSpeechRecognition: false, clientUploadId: expect.any(String),
-        });
-        expect(uploadFile.mock.calls[1]).toEqual(uploadFile.mock.calls[0]);
+        }, expect.any(Function));
+        expect(uploadFile).toHaveBeenNthCalledWith(2, audio, undefined, uploadFile.mock.calls[0][2], expect.any(Function));
         expect(uploadFile).toHaveBeenNthCalledWith(3, audio, undefined, {
             useSpeechRecognition: true, clientUploadId: expect.any(String),
-        });
+        }, expect.any(Function));
         expect(uploadFile.mock.calls[2][2].clientUploadId).not.toBe(uploadFile.mock.calls[0][2].clientUploadId);
     });
 });

@@ -44,10 +44,68 @@ const source = () => readFileSync(new URL('../../../static/js/clinic/compose-rec
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/^\s*\/\/.*$/gm, '');
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+});
 
 describe('recording view controller', () => {
-    it('reports the saved recording separately from the confirmed destination', async () => {
+    it.each([
+        ['Schreibdienst Süd', { staff_service_names: ['Süd'] }, { staff_service_names: ['Nord'] }, 'Beim Schreibdienst Nord angekommen'],
+        ['Eigene Korrektur', { direct_destination: 'Eigene Korrektur' }, { direct_destination: 'Eigene Korrektur' }, 'Eigene Korrektur'],
+    ])('retries only an explicitly sent take once automatically before offering a manual retry for %s', async (target, planned, confirmed, arrived) => {
+        vi.useFakeTimers();
+        const takeId = '05d0e36d-64bb-41ec-bfd3-52c278e75ca5';
+        const rec = recorder(async () => ({ dictation_id: 'd-7', take_id: takeId }));
+        const client = { request: vi.fn()
+            .mockResolvedValueOnce({ outcome: 'ok', data: { dictation_id: 'd-7', etag: 'draft' } })
+            .mockResolvedValueOnce({ outcome: 'network' })
+            .mockResolvedValueOnce({ outcome: 'UNKNOWN' })
+            .mockResolvedValueOnce({ outcome: 'ok', data: { dictation_id: 'd-7', status: 'zu_schreiben', ...confirmed } }) };
+        const fetchPreflight = async () => ({ ok: true, json: async () => ({
+            routable: true, ...planned,
+        }) });
+        const { c } = make({ recorder: rec, options: { client, fetchPreflight, oneButton: true } });
+        await c.checkRouting();
+        await toReview(c);
+        await vi.runAllTimersAsync();
+        expect(client.request).not.toHaveBeenCalled();
+        expect(rec.uploadRecordedAudio).not.toHaveBeenCalled();
+
+        await c.sendRecording();
+        expect(c.model().message).toBe('Sie müssen nichts tun – es wird automatisch erneut gesendet.');
+        expect((await c.sendRecording()).ok).toBe(false);
+        expect(c.another().code).toBe('invalid_phase');
+        await vi.runAllTimersAsync();
+        expect(c.model()).toMatchObject({ phase: 'sent', canSubmit: true,
+            message: 'Aufnahme gespeichert. Senden hat nicht geklappt.', plannedDestination: 'Vorgesehen: ' + target });
+        expect(await c.sendRecording()).toEqual({ ok: true });
+        expect(c.model()).toMatchObject({ plannedDestination: '', recordingReceipt: { arrived } });
+        expect(rec.uploadRecordedAudio).toHaveBeenCalledOnce();
+        expect(client.request.mock.calls.slice(1)).toEqual(Array(3).fill([
+            '/dictations/d-7/send',
+            { method: 'POST', body: { take_id: takeId }, idempotencyKey: takeId, ifMatch: 'draft', timeoutMs: 20_000 },
+        ]));
+    });
+
+    it('cancels a pending automatic retry when the view is left', async () => {
+        vi.useFakeTimers();
+        const rec = recorder(async () => ({ dictation_id: 'd-7', take_id: 'test-take' }));
+        const client = { request: vi.fn()
+            .mockResolvedValueOnce({ outcome: 'ok', data: { dictation_id: 'd-7', etag: 'draft' } })
+            .mockResolvedValueOnce({ outcome: 'network' }) };
+        const fetchPreflight = async () => ({ ok: true, json: async () => ({ routable: true }) });
+        const { c } = make({ recorder: rec, options: { client, fetchPreflight, oneButton: true } });
+        await c.checkRouting();
+        await toReview(c);
+        await c.sendRecording();
+        expect(c.model().phase).toBe('retryPending');
+        await c.dispose();
+        await vi.runAllTimersAsync();
+        expect(client.request).toHaveBeenCalledTimes(2);
+    });
+
+    it('reports the saved recording separately from the confirmed destination and visibility', async () => {
         const saved = { dictation_id: 'd-7', title: 'Diktat 27.11.2026 09:05', audio_duration: 65.8 };
         const rec = recorder(async () => saved);
         rec.uploadRecordedAudio.mockRejectedValueOnce(new Error('offline'));
@@ -63,13 +121,26 @@ describe('recording view controller', () => {
         }) });
         const { c } = make({ recorder: rec, options: { client, fetchPreflight, oneButton: true } });
         await c.checkRouting();
-        await toReview(c);
+        expect(c.model()).toMatchObject({ localVisibility: '', submittedVisibility: '' });
+        c.setTitle('Bericht');
+        await c.start();
+        expect(c.model()).toMatchObject({ phase: 'recording', localVisibility: '', submittedVisibility: '' });
+        c.pause();
+        c.resume();
+        await c.stop();
         expect(c.model().plannedDestination).toBe('Wird gesendet an: Schreibdienst Süd');
         expect(c.model().recordingReceipt).toBeNull();
+        expect(c.model()).toMatchObject({
+            localVisibility: 'Noch nicht gesendet. Die Aufnahme ist nur in diesem Browser auf diesem Gerät.',
+            submittedVisibility: '',
+        });
 
-        expect(await c.sendRecording()).toEqual({ ok: false, code: 'no_receipt' });
+        const sending = c.sendRecording();
+        expect(c.model()).toMatchObject({ phase: 'sending', localVisibility: '', submittedVisibility: '' });
+        expect(await sending).toEqual({ ok: false, code: 'no_receipt' });
         expect(c.model().recordingReceipt).toBeNull();
         expect(client.request).not.toHaveBeenCalled();
+        expect(c.model()).toMatchObject({ phase: 'failed', localVisibility: '', submittedVisibility: '' });
 
         expect(await c.sendRecording()).toEqual({ ok: false, code: 'NO_STAFF_POOL' });
         expect(c.model().recordingReceipt).toEqual({ title: saved.title, duration: '01:05', arrived: '' });
@@ -77,15 +148,36 @@ describe('recording view controller', () => {
             showStatusBySend: true,
             plannedDestination: '',
         });
+        expect(c.model()).toMatchObject({ localVisibility: '', submittedVisibility: '' });
 
-        expect(await c.sendRecording()).toEqual({ ok: true });
+        const retry = c.sendRecording();
+        expect(c.model()).toMatchObject({ phase: 'submitting', localVisibility: '', submittedVisibility: '' });
+        expect(await retry).toEqual({ ok: true });
         expect(c.model().recordingReceipt).toEqual({
             title: saved.title, duration: '01:05', arrived: 'Beim Schreibdienst Nord angekommen',
         });
         expect(c.model()).toMatchObject({ showStatusBySend: false, plannedDestination: '' });
+        expect(c.model()).toMatchObject({
+            localVisibility: '',
+            submittedVisibility: 'Die Standortverwaltung kann die Aufnahme anhören und den Text lesen, sobald er vorliegt. Für alle anderen gelten getrennte Zugriffsrechte für Aufnahme und Text.',
+        });
         expect(rec.uploadRecordedAudio).toHaveBeenCalledTimes(2);
         c.another();
         expect(c.model().recordingReceipt).toBeNull();
+        expect(c.model()).toMatchObject({ localVisibility: '', submittedVisibility: '' });
+    });
+
+    it('does not claim confirmed visibility when sending returns NOT_DRAFT', async () => {
+        const rec = recorder(async () => ({ dictation_id: 'd-7' }));
+        const client = { request: vi.fn()
+            .mockResolvedValueOnce({ outcome: 'ok', data: { dictation_id: 'd-7', etag: 'draft' } })
+            .mockResolvedValueOnce({ outcome: 'conflict', code: 'NOT_DRAFT' }) };
+        const fetchPreflight = async () => ({ ok: true, json: async () => ({ routable: true }) });
+        const { c } = make({ recorder: rec, options: { client, fetchPreflight, oneButton: true } });
+        await c.checkRouting();
+        await toReview(c);
+        expect(await c.sendRecording()).toEqual({ ok: false, code: 'NOT_DRAFT' });
+        expect(c.model()).toMatchObject({ phase: 'notDraft', localVisibility: '', submittedVisibility: '' });
     });
 
     it('requires a user id, a recorder and an upload function', () => {
@@ -454,12 +546,14 @@ describe('file upload path', () => {
         expect(c.selectFile(audio()).ok).toBe(true);
         expect(c.model().file).toEqual({ name: 'diktat.wav', size: 1200 });
         expect(c.model().canUpload).toBe(true);
+        expect(c.model()).toMatchObject({ localVisibility: '', submittedVisibility: '' });
         const out = await c.sendFile();
         expect(out.ok).toBe(true);
         expect(uploadFile).toHaveBeenCalledOnce();
         expect(c.model().phase).toBe('sent');
         expect(c.model().created).toEqual({ dictationId: 'd-9' });
         expect(c.model().message).toBe(TEXT.sent);
+        expect(c.model()).toMatchObject({ localVisibility: '', submittedVisibility: '' });
         c.openCreated();
         expect(onOpen).toHaveBeenCalledWith({ dictationId: 'd-9' });
         expect(c.another().ok).toBe(true);
@@ -481,6 +575,41 @@ describe('file upload path', () => {
         release({ id: 11 });
         expect((await first).ok).toBe(true);
         expect(uploadFile).toHaveBeenCalledOnce();
+    });
+
+    it('counts only new bytes, restarts on retry and drops progress after leaving', async () => {
+        vi.useFakeTimers();
+        const attempts = [];
+        const uploadFile = (_file, _title, _take, report) => new Promise((_resolve, reject) => {
+            attempts.push({ emit: (event) => report?.(event), reject });
+        });
+        const { c } = make({ uploadFile });
+        c.setMode('file');
+        c.selectFile(audio());
+        const first = c.sendFile();
+        attempts[0].emit({ type: 'loadstart' });
+        attempts[0].emit({ type: 'progress', loaded: 10, lengthComputable: false });
+        expect(c.model()).toMatchObject({ message: 'Wird gesendet …', uploadPercent: null, slowUpload: '' });
+        vi.advanceTimersByTime(9_999);
+        attempts[0].emit({ type: 'progress', loaded: 10, lengthComputable: false });
+        expect(c.model().slowUpload).toBe('');
+        vi.advanceTimersByTime(1);
+        expect(c.model().slowUpload).toContain('Die Verbindung ist langsam.');
+
+        attempts[0].reject(new Error('abort'));
+        expect((await first).code).toBe('no_receipt');
+        expect(c.model().slowUpload).toBe('');
+        const retry = c.sendFile();
+        attempts[1].emit({ type: 'loadstart' });
+        attempts[0].emit({ type: 'progress', loaded: 99, total: 100, lengthComputable: true });
+        expect(c.model()).toMatchObject({ uploadPercent: null, slowUpload: '' });
+        await c.dispose();
+        attempts[1].emit({ type: 'progress', loaded: 75, total: 100, lengthComputable: true });
+        vi.advanceTimersByTime(10_000);
+        expect(c.model()).toMatchObject({ uploadPercent: null, slowUpload: '' });
+        expect(vi.getTimerCount()).toBe(0);
+        attempts[1].reject(new Error('timeout'));
+        expect((await retry).code).toBe('stale');
     });
 
     it('says the audio is not stored locally when the upload fails, and allows a retry', async () => {
@@ -616,6 +745,13 @@ describe('view registration and setup', () => {
         expect(RECORDING_TEMPLATE).toContain('min-height: 2.75rem');
         expect(RECORDING_TEMPLATE).toContain('c.text.toWorklist');
         expect(RECORDING_TEMPLATE).toContain('c.text.open');
+    });
+
+    it('binds the local and submitted visibility notes in the template', () => {
+        expect(RECORDING_TEMPLATE).toContain('data-testid="local-visibility"');
+        expect(RECORDING_TEMPLATE).toContain('{{ m.localVisibility }}');
+        expect(RECORDING_TEMPLATE).toContain('data-testid="submitted-visibility"');
+        expect(RECORDING_TEMPLATE).toContain('{{ m.submittedVisibility }}');
     });
 
     it('emits open and worklist and disposes on unmount', async () => {
