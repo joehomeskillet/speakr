@@ -203,10 +203,10 @@ export function createPanels(Vue) {
         return { background: s.background, color: s.color, borderColor: s.border };
     }
 
-    function usePanel(controller) {
+    function usePanel(controller, load = () => controller.load()) {
         const view = Vue.shallowRef(controller.view());
         const off = controller.subscribe(() => { view.value = controller.view(); });
-        Vue.onMounted(() => controller.load());
+        Vue.onMounted(load);
         Vue.onBeforeUnmount(off);
         return { view, errorStyle: style('error'), surfaceStyle, enumLabel, errorMessage };
     }
@@ -217,7 +217,6 @@ export function createPanels(Vue) {
         template: REVIEW_TEMPLATE,
         setup(props) {
             const controller = createVocabularyReviewController({ client: props.client, scope: props.scope });
-            const panel = usePanel(controller);
             const reviewPools = Vue.ref([]);
             const reviewPoolsFailed = Vue.ref(false);
             const selectedPool = Vue.ref('');
@@ -233,7 +232,7 @@ export function createPanels(Vue) {
                 selectedPool.value = id;
                 return controller.setScope(id ? { type: 'author_pool', id } : props.scope);
             }
-            Vue.onMounted(loadReviewPools);
+            const panel = usePanel(controller, () => Promise.all([controller.load(), loadReviewPools()]));
             function onKey(e) {
                 const el = e.target && e.target.closest ? e.target.closest('[data-id]') : null;
                 if (!el) return;

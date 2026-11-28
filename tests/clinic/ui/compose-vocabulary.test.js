@@ -203,6 +203,25 @@ describe('mounted view', () => {
         },
     );
 
+    it('keeps the personal review error separate from catalog failures and recovery', async () => {
+        const Vue = fakeVue();
+        const unavailable = { outcome: 'UNKNOWN', code: 'CAPABILITY_UNAVAILABLE', message: 'Das Ergebnis ist unbekannt.' };
+        let catalog = denied;
+        const client = fakeClient((path) => path.endsWith('?catalog=author_pools') ? catalog : unavailable);
+        const view = ResourcesView.setup({ client, currentUser: { id: 7 }, vue: Vue });
+        view.select('review');
+        const panel = view.activeComponent.value.setup(view.activeProps.value);
+        await Promise.all(Vue.hooks.mounted.map((mount) => mount()));
+        expect(panel.reviewPoolsFailed.value).toBe(true);
+        expect(panel.view.value.error).toMatchObject(unavailable);
+
+        catalog = ok({ author_pools: [{ id: 'pool-1', name: 'Kardiologie' }] });
+        await panel.loadReviewPools();
+        expect(panel.reviewPoolsFailed.value).toBe(false);
+        expect(panel.reviewPools.value).toEqual(catalog.data.author_pools);
+        expect(panel.view.value.error).toMatchObject(unavailable);
+    });
+
     it('mounts only the active existing child, built on first use', () => {
         const Vue = fakeVue();
         const client = fakeClient();
