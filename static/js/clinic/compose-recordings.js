@@ -147,7 +147,7 @@ export const RecordingsView = {
         <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>
         <input type="search" style="border: 0; padding: 0; min-height: 0; height: auto; background: transparent; box-shadow: none; font-size: 13px" data-testid="filter-search" :aria-label="t.searchLabel" :placeholder="t.searchPlaceholder" autocomplete="off" v-model="c.state.query">
       </label>
-      <select class="record-select" style="appearance: auto; width: auto; font-size: 12px; cursor: default"
+      <select class="record-select" style="appearance: auto; width: auto; font-size: 12px"
               data-testid="filter-scope" disabled :aria-label="t.scopeLabel" :title="t.scopeHint">
         <option value="">{{ t.scopeAll }}</option>
       </select>
@@ -198,7 +198,7 @@ export const RecordingsView = {
     <div v-if="c.state.loaded && !c.state.error" class="record-list-meta">
       <p role="status" aria-live="polite" data-testid="result-count">{{ c.countLabel() }}</p>
       <div class="record-order"><span class="sort-label">{{ t.sortLabel }}</span>
-        <select class="record-select sort-select" style="appearance: auto; width: auto; cursor: default" data-testid="sort-select" disabled :aria-label="t.sortSelect" :title="t.sortHint"><option value="newest">{{ t.sortNewest }}</option></select></div>
+        <select class="record-select sort-select" style="appearance: auto; width: auto" data-testid="sort-select" disabled :aria-label="t.sortSelect" :title="t.sortHint"><option value="newest">{{ t.sortNewest }}</option></select></div>
     </div>
     <p v-if="c.searchPartial()" class="sort-label" role="status" data-testid="search-hint">{{ t.searchLoadedHint }}</p>
     <div v-if="c.state.loading" class="record-empty" role="status" aria-live="polite" data-testid="loading-state">
