@@ -31,12 +31,19 @@ AUTH: tuple[str, ...] = (
     'clinic_pool_admin.usage',
     'clinic_pool_admin.set_member_role',
     'clinic_grants.read',
+    # Versioned command export/import (PAR-VOC-008). Handlers check scope ownership and CSRF.
+    'clinic_commands.export_commands',
+    'clinic_commands.import_commands',
     'clinic_preferences.recipient_default',
     'clinic_preferences.recipient_resolve',
     'clinic_preferences.last_selection',
     'clinic_preferences.workstation_issue',
     'clinic_preferences.workstation',
     'clinic_preferences.correction_mode',
+    # Own-user focused key and pedal bindings (PAR-OPS-003). The handler reads current_user only.
+    'clinic_preferences.key_bindings',
+    'clinic_preferences.notifications',
+    'clinic_vocabulary.edit_entry',
     # Metadata field definitions (x28), mounted by register_clinic_identity in clinic mode only.
     # Reading is for any signed-in user; the handler lists inactive fields to admins only.
     'clinic_metadata_fields.list_fields',
@@ -65,6 +72,8 @@ ADMIN: tuple[str, ...] = (
     'clinic_directory.preview',
     'clinic_directory.apply',
     'clinic_grants.change',
+    'clinic_statistics.list_grants',
+    'clinic_statistics.change_grant',
     'clinic_task_models.settings',
     # Admin dictation transcript and audio (w308): own blueprint, mounted by
     # register_clinic_identity in clinic mode only.
@@ -79,4 +88,7 @@ ADMIN: tuple[str, ...] = (
     'clinic_training.start',
     'clinic_training.status',
     'clinic_training.cancel',
+    'clinic_statistics.collection_policy',
+    'clinic_statistics.collection_period',
+    'clinic_statistics.collection_retention',
 )
