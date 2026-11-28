@@ -269,6 +269,11 @@ def _body() -> dict:
 @blueprint.get(PREFIX + "/capability")
 def capability():
     available = _read_snapshot() is not None
+    payload = {"directory_available": available, "local_accounts": True,
+               "local_windows_accounts": "unavailable", "gap": "WG-ADM-009"}
+    if request.args.get("include") != "pool_options":
+        return jsonify(payload)
+
     options = []
     if available:
         author = pools.ClinicAuthorPool
@@ -277,8 +282,7 @@ def capability():
                    for pool_id, name in db.session.query(author.id, author.name).order_by(author.name)]
         options += [{"kind": "staff", "id": pool_id, "name": name}
                     for pool_id, name in db.session.query(staff.id, Group.name).join(Group).order_by(Group.name)]
-    return jsonify(directory_available=available, local_accounts=True, pool_options=options,
-                   local_windows_accounts="unavailable", gap="WG-ADM-009")
+    return jsonify({**payload, "pool_options": options})
 
 
 @blueprint.post(PREFIX + "/preview")

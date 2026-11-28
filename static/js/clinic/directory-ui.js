@@ -137,7 +137,7 @@ export function createDirectoryReview(options) {
         state.preview = null;
         state.message = '';
         state.success = '';
-        const cap = await client.request(BASE + '/capability');
+        const cap = await client.request(BASE + '/capability?include=pool_options');
         if (cap.outcome === 'ok') state.capability = cap.data;
         const row = await client.request(BASE + '/preview', { method: 'POST', body: { managed_pools: state.managedPools } });
         // A failed reload leaves no usable preview.

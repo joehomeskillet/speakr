@@ -25,7 +25,10 @@ function problem(outcome, code, status) {
 function fakeClient(apply, preview = PREVIEW) {
     return {
         request: vi.fn(async (path) => {
-            if (path.endsWith('/capability')) return ok({ directory_available: true, local_windows_accounts: 'unavailable' });
+            if (path === '/directory/capability?include=pool_options') return ok({
+                directory_available: true, local_windows_accounts: 'unavailable',
+                pool_options: [{ kind: 'author', id: 'p1', name: 'Autorengruppe' }],
+            });
             if (path.endsWith('/preview')) return ok(preview);
             return apply ? apply() : ok({ ok: true, applied_actions: 2, applied_memberships: 1 });
         }),
@@ -50,6 +53,7 @@ describe('directory ui', () => {
         expect(g.memberships).toHaveLength(1);
         expect(review.state.status).toBe('success');
         expect(review.state.capability.local_windows_accounts).toBe('unavailable');
+        expect(review.state.capability.pool_options).toEqual([{ kind: 'author', id: 'p1', name: 'Autorengruppe' }]);
     });
 
     it('requires explicit confirmation bound to version and hash, and never selects links', async () => {
