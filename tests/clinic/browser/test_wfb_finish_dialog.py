@@ -19,6 +19,7 @@ TXT = "Textdatei (TXT)"
 DOCX = "Word-Dokument (DOCX)"
 READY = "Datei erzeugt"
 FAILED = "Datei konnte nicht erzeugt werden."
+DOWNLOAD = "Laden"
 SEED = """
 from datetime import datetime, timezone
 from src.clinic import export, revisions
@@ -82,16 +83,22 @@ def _open(page: Page, base: str, mount: str) -> str:
 
 def _open_dialog(page: Page, mount: str, path: str) -> Locator:
     view = page.get_by_test_id(f"clinic-{mount}-view")
+    start = view.get_by_role("button", name=TITLE, exact=True)
     if mount == "review":
         expect(view.get_by_test_id("review-text")).to_contain_text(TEXT)
         acquire = view.get_by_test_id("begin-review")
     else:
-        expect(view.get_by_test_id("text")).to_have_value(TEXT)
-        acquire = view.get_by_test_id("lease-bar").locator('[data-action="acquire"]')
+        text = view.get_by_test_id("text")
+        expect(text).to_have_value(TEXT)
+        expect(text).to_be_editable()
+        lease_bar = view.get_by_test_id("lease-bar")
+        lease_bar.locator('[data-action="release"]').click()
+        expect(text).not_to_be_editable()
+        expect(start).to_be_disabled()
+        acquire = lease_bar.locator('[data-action="acquire"]')
     with page.expect_response(lambda r: r.url == path + "/leases" and r.request.method == "POST") as lease:
         acquire.click()
     assert lease.value.ok, lease.value.text()
-    start = view.get_by_role("button", name=TITLE, exact=True)
     expect(start).to_be_enabled()
     start.click()
     dialog = page.get_by_role("dialog", name=TITLE, exact=True)
@@ -210,9 +217,11 @@ def test_finish_dialog(browser: Browser, staging: str, mount: str, output: bool)
         expect(docx).to_contain_text(DOCX)
         if output:
             expect(txt.get_by_role("status")).to_have_text(READY)
-            expect(txt.get_by_role("link", name="Herunterladen")).to_be_visible()
+            download = txt.get_by_role("link", name=DOWNLOAD, exact=True)
+            expect(download).to_be_visible()
+            expect(download).to_have_attribute("href", re.compile(r"/exports/[^/]+/download$"))
             expect(docx.get_by_role("status")).to_have_text(FAILED)
-            expect(docx.get_by_role("link", name="Herunterladen")).to_have_count(0)
+            expect(docx.get_by_role("link", name=DOWNLOAD, exact=True)).to_have_count(0)
         else:
             expect(txt.get_by_role("status")).to_have_count(0)
             expect(docx.get_by_role("status")).to_have_count(0)

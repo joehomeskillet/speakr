@@ -902,8 +902,10 @@
     .v8-ui .vocabulary-ui .voc-filters > :is(.voc-search-field, .search, .voc-add-word) { grid-column: span 3; }
     .v8-ui .vocabulary-ui .voc-filters > .voc-list { grid-column: 1 / -1; }
     .v8-ui .vocabulary-ui .voc-filters-can-add > .voc-list { grid-column: span 3; }
+    .v8-ui .vocabulary-ui .voc-add-word { white-space: normal; }
     .v8-ui .vocabulary-ui .voc-filters #voc-pool { min-height: 48px; }
     .cadm .clinic-vocabulary-view .vocabulary-ui { gap: var(--sp-1); }
+    .cadm .clinic-vocabulary-view .panel > .vocabulary-ui > .voc-filters { margin-block: 0; }
     .cadm .clinic-vocabulary-view .voc-filters .field { gap: var(--sp-1); }
     .cadm .clinic-vocabulary-view .voc-filters select { padding-inline: var(--sp-2) !important; }
 }
