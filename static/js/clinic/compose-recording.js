@@ -27,6 +27,7 @@
  */
 
 import { createRecorderPhases, isTitleEditable, LABELS, receiptDictationId } from './recorder-phases-ui.js';
+import { createPedalController } from './pedal-ui.js';
 import { CATEGORIES, RequiredCategories } from './categories-ui.js';
 import { PRIORITY_OPTIONS } from './dictation-properties-ui.js';
 import { surfaceFor } from './tokens.js';
@@ -179,6 +180,9 @@ export function createRecordingViewController(options) {
     let draft = null;
     let resumedDraftId = opts.draftId || null;
     let pendingMetadata = null;
+    let pedal;
+    let releasePedalCapture;
+    let pedalPlayback = false;
     let categoryLoad = null;
     let categorySets = [];
     let categoryValues = {};
@@ -188,7 +192,11 @@ export function createRecordingViewController(options) {
     let takeVoxEnabled = false;
 
     const notify = () => { for (const listener of listeners) listener(); };
-    machine.subscribe(notify);
+    machine.subscribe(({ phase }) => {
+        if (!['title', 'ready', 'recording'].includes(phase)) releasePedalCapture = null;
+        if (phase !== 'review' || !machine.isPlaying()) pedalPlayback = false;
+        notify();
+    });
 
     const denied = (code) => ({ ok: false, code: code });
     const recorderBusy = () => !['title', 'ready'].includes(machine.getState().phase);
@@ -666,10 +674,59 @@ export function createRecordingViewController(options) {
         };
     }
 
+    function attachPedal(target) {
+        if (pedal || state.disposed) return;
+        const inRecorder = () => !routing && state.mode === 'record' && !state.disposed;
+        const enabled = (id) => inRecorder()
+            && machine.controls().some((control) => control.id === id && !control.disabled);
+        function hold() {
+            const action = machine.getState().phase === 'paused' ? 'resume' : 'start';
+            if (!enabled(action)) return;
+            const release = () => {
+                if (releasePedalCapture !== release) return;
+                releasePedalCapture = null;
+                machine.pauseActiveMedia('recording');
+            };
+            releasePedalCapture = release;
+            if (action === 'resume') controller.resume();
+            else void controller.start().then(({ ok }) => {
+                // Keyup or blur can arrive while the browser is still asking for microphone access.
+                if (ok && (releasePedalCapture !== release || !inRecorder() || !allowed())) {
+                    if (releasePedalCapture === release) releasePedalCapture = null;
+                    machine.pauseActiveMedia('recording');
+                }
+                if (!ok && releasePedalCapture === release) releasePedalCapture = null;
+            });
+            return release;
+        }
+
+        pedal = createPedalController({
+            ...opts.pedalOptions, target, context: 'recording',
+            commands: {
+                recordToggle: () => enabled('pause') ? controller.pause() : hold(),
+                hold,
+                stop: () => enabled('stop') ? controller.stop() : enabled('play') && machine.stopPlayback(),
+                playPause: () => {
+                    if (!enabled('play')) return;
+                    pedalPlayback = !machine.isPlaying();
+                    return controller.play();
+                },
+                rewind: (seconds) => { if (enabled('rewind')) machine.skip(-seconds); },
+            },
+            onFocusLost: () => {
+                releasePedalCapture?.();
+                if (pedalPlayback) machine.pauseActiveMedia('review');
+                pedalPlayback = false;
+            },
+        });
+        pedal.attach();
+    }
+
     /** Leaves the view: discards an unsent recording and drops late upload results. */
     async function dispose() {
         if (state.disposed) return;
         state.disposed = true;
+        pedal?.detach();
         fileGeneration += 1;
         listeners.clear();
         const p = machine.getState().phase;
@@ -682,7 +739,7 @@ export function createRecordingViewController(options) {
         }
     }
 
-    return {
+    const controller = {
         text: TEXT,
         machine,
         model,
@@ -700,7 +757,9 @@ export function createRecordingViewController(options) {
         send: () => machine.send(), cancel: () => machine.cancel(),
         selectFile, sendFile, cancelFile, submit, sendRecording, checkRouting, loadCategories, selectCategory,
         loadDraft, setDraftField, saveDraft, openCreated, toWorklist, another, dispose,
+        attachPedal,
     };
+    return controller;
 }
 
 const RECORDER_ACTIONS = ['start', 'pause', 'resume', 'stop', 'rewind', 'play', 'beginning', 'end', 'send', 'cancel'];
@@ -774,7 +833,7 @@ export const RECORDING_TEMPLATE = `
         </div>
         <div v-if="m.phase === 'title' || m.phase === 'ready'" style="display: grid; justify-items: center; gap: var(--ui-space-2)">
           <button type="button" class="button accent" data-testid="rec-start" :aria-keyshortcuts="shortcuts.start" :disabled="!enabled('start')" @click="c.start()"
-                  style="width: 10rem; height: 10rem; border-radius: 50%; flex-direction: column; gap: var(--ui-space-2); font-size: 1rem">
+                  style="width: 10rem; height: 10rem; border-radius: 50%; flex-direction: column; gap: var(--ui-space-2); font-size: 1rem; white-space: nowrap">
             <svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor" aria-hidden="true"><path :d="icons.start"></path></svg>
             Aufnahme starten
           </button>
@@ -795,7 +854,7 @@ export const RECORDING_TEMPLATE = `
           <a href="#/neu" data-testid="mode-file" @click.prevent="c.setMode('file')" style="${LINK}; font-size: .875rem">oder Datei hochladen</a>
         </div>
         <div v-else-if="m.phase === 'recording' || m.phase === 'paused'" style="display: grid; justify-items: center; gap: var(--ui-space-4)">
-          <p v-if="m.phase === 'paused'" style="margin: 0">Pausiert</p>
+          <p role="status" data-testid="capture-status" style="margin: 0">{{ captureCaption[m.phase] }}</p>
           <output aria-label="Aufnahmedauer" aria-live="off" data-testid="elapsed" style="font-size: 2.75rem; font-variant-numeric: tabular-nums">{{ elapsed }}</output>
           <div role="meter" :aria-valuenow="Math.round(level * 100)" aria-valuemin="0" aria-valuemax="100" aria-label="Mikrofonpegel"
                style="width: min(100%, 18rem); height: .5rem; border-radius: var(--ui-radius-sm); background: var(--ui-border); overflow: hidden">
@@ -987,6 +1046,7 @@ export const RecordingView = {
         V.onMounted?.(() => {
             doc = root.value?.ownerDocument;
             doc?.addEventListener('keydown', onKeydown);
+            if (doc) c.attachPedal(doc);
             globalThis.window?.addEventListener('keydown', space);
         });
         V.onMounted?.(() => {
@@ -1010,6 +1070,7 @@ export const RecordingView = {
             loadReview,
             finishDurationProbe,
             shortcuts,
+            captureCaption: PHASE_CAPTIONS,
             icons: ICON_PATHS,
             reloadDraft: () => {
                 if (window.confirm('Ungespeicherte Änderungen verwerfen und den gespeicherten Stand laden?')) void c.loadDraft();
