@@ -260,6 +260,8 @@ def test_mounted_preferences_reapply_policy_on_fresh_app(world, monkeypatch):
         "values": {"ui_theme": "desk", "theme_dark_mode": True},
         "origins": {"ui_theme": "central", "theme_dark_mode": "workstation"},
         "version": 1,
+        "transport_mode": "local",
+        "device_redirection_verified": False,
     })
     resolved = user.get(PREFIX + "/presets").json
     assert (resolved["values"]["language"], resolved["origins"]["language"], resolved["locked"]) == (
