@@ -427,6 +427,7 @@ on clinic_correction.change_marker {"action":null,"arg":"recording_id","batch_al
 on clinic_correction.confirm_review_marker {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_correction.get_correction {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_correction.get_review_markers {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
+on clinic_correction.propose_vocabulary {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_correction.save {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_correction_documents.preview_document {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_correction_documents.preview_template {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
@@ -457,6 +458,8 @@ on clinic_imports_web.author_suggestion_view {"action":null,"arg":"recording_id"
 on clinic_imports_web.create_intents {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_imports_web.device_send {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_imports_web.get_source {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
+on clinic_imports_web.create_source {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
+on clinic_imports_web.delete_source {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_imports_web.intents {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_imports_web.inventory {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_imports_web.list_sources {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
@@ -490,6 +493,7 @@ on clinic_pool_admin.usage {"action":null,"arg":"recording_id","batch_all":false
 on clinic_pools.list_pools {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_pools.put_pool {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_preferences.correction_mode {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
+on clinic_preferences.key_bindings {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_preferences.last_selection {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_preferences.output {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_preferences.notifications {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
@@ -501,9 +505,11 @@ on clinic_recordings.list_recordings {"action":null,"arg":"recording_id","batch_
 on clinic_regex.apply {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_regex.preview {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_statistics.aggregates {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
+on clinic_statistics.change_grant {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"admin"}
 on clinic_statistics.collection_period {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"admin"}
 on clinic_statistics.collection_policy {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"admin"}
 on clinic_statistics.collection_retention {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"admin"}
+on clinic_statistics.list_grants {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"admin"}
 on clinic_task_models.settings {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"admin"}
 on clinic_templates.assign_template_route {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_templates.delete_template {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
@@ -520,6 +526,7 @@ on clinic_tts.capability {"action":null,"arg":"recording_id","batch_all":false,"
 on clinic_tts.speak {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_vocabulary.additions {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_vocabulary.bulk {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
+on clinic_vocabulary.edit_entry {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_vocabulary.export {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_vocabulary.import_text {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_vocabulary.reactivate {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
