@@ -179,6 +179,8 @@ def test_lost_confirmations_keep_one_take_and_offer_keyboard_retry(app_base, siz
             expect(view.get_by_role('button', name='Erneut senden', exact=True)).to_have_count(1)
             expect(view.get_by_test_id('send-destination')).to_have_text('Vorgesehen: Schreibdienst V860')
             assert send.bounding_box()['height'] >= 48
+            send.evaluate("button => button.scrollIntoView({block: 'center', behavior: 'instant'})")
+            expect(send).to_be_in_viewport(ratio=1)
             _capture(page, 'pb-01', 'failure', size, theme)
 
             page.evaluate('document.activeElement.blur()')
@@ -193,6 +195,7 @@ def test_lost_confirmations_keep_one_take_and_offer_keyboard_retry(app_base, siz
             assert sends == [{'take_id': uploads[0]['take_id']}] * 2
             page.get_by_test_id('nav-recordings').click()
             expect(page.locator(f'[data-row][data-id="{uploads[0]["dictation_id"]}"]')).to_have_count(1)
+            _capture(page, 'pb-02', 'recordings-row', size, theme)
         finally:
             browser.close()
 
@@ -218,6 +221,8 @@ def test_send_shows_real_progress_stall_and_receipt(app_base, size, theme):
             _capture(page, 'pb-02', 'empty', size, theme)
             view.get_by_test_id('rec-start').click()
             page.wait_for_function("document.querySelector('#app').__vue_app__._instance.proxy.recordingTime >= 2")
+            expect(view.get_by_role('meter')).to_be_visible()
+            _capture(page, 'pb-02', 'recording', size, theme)
             view.get_by_test_id('rec-stop').click()
             send = view.get_by_test_id('rec-send')
             expect(send).to_be_enabled()
