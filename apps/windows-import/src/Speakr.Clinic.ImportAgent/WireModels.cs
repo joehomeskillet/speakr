@@ -141,6 +141,11 @@ public sealed class WireFinalizeIngest
     // Reading the snapshot finished. This is not a clinical end-of-letter mark.
     [JsonPropertyName("source_finished_reading")]
     public bool SourceFinishedReading { get; set; }
+
+    // The authenticated agent verified its local backup of this exact snapshot.
+    [JsonPropertyName("backup_verified")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool BackupVerified { get; set; }
 }
 
 public sealed class IngestReceipt

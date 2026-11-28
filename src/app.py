@@ -1555,7 +1555,8 @@ def register_clinic_operations(flask_app):
     import secrets
 
     from src.clinic import (
-        routes_agent, routes_agent_admin, routes_jobs, routes_recordings, routes_statistics, routes_training, startup,
+        routes_agent, routes_agent_admin, routes_import_sources_web, routes_jobs, routes_recordings,
+        routes_statistics, routes_training, startup,
     )
     from src.clinic.agent_channel import ChannelPolicy
     from src.clinic.author_aliases import resolve_stored_author
@@ -1574,7 +1575,11 @@ def register_clinic_operations(flask_app):
     master_secret = secret_from_env('CLINIC_AGENT_MASTER_SECRET')
     proxy_secret = secret_from_env('CLINIC_AGENT_PROXY_SECRET')
     agent_bp = routes_agent.create_agent_blueprint(
-        ChannelPolicy(master_secret=master_secret or secrets.token_bytes(routes_agent.MIN_PROXY_SECRET_BYTES)),
+        ChannelPolicy(
+            master_secret=master_secret or secrets.token_bytes(routes_agent.MIN_PROXY_SECRET_BYTES),
+            allow_post_import=routes_import_sources_web.source_cleanup_enabled(),
+            may_remove_source=routes_import_sources_web.may_agent_remove_source,
+        ),
         IngestService(startup.originals_root(flask_app)),
         proxy_secret or secrets.token_bytes(routes_agent.MIN_PROXY_SECRET_BYTES),
         author_lookup=resolve_stored_author)

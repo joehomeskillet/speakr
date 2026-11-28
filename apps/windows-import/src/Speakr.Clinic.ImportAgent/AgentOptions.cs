@@ -1,3 +1,6 @@
+using System.Globalization;
+using System.Text.RegularExpressions;
+
 namespace Speakr.Clinic.ImportAgent;
 
 public sealed class AgentOptions
@@ -12,6 +15,8 @@ public sealed class AgentOptions
     public string ServerBaseUrl { get; set; } = "";
     public string SecretFilePath { get; set; } = "";
     public string BackupFolder { get; set; } = "";
+    public bool PreSendBackupEnabled { get; set; }
+    public string BackupFileNameTemplate { get; set; } = "{name}{ext}";
     public string SpoolDirectory { get; set; } = "";
     public long SpoolMaxBytes { get; set; } = 268435456;
     public bool PostImportEnabled { get; set; }
@@ -58,6 +63,24 @@ public sealed class AgentOptions
 
     public bool SimulatorMode => string.Equals(Mode, "simulator", StringComparison.Ordinal);
 
+    internal string FormatBackupName(string name, string ext, string rootId, DateTimeOffset mtime)
+    {
+        var filename = Regex.Replace(BackupFileNameTemplate ?? "", @"\{[^{}]*\}|[{}]", token => token.Value switch
+        {
+            "{name}" => name,
+            "{ext}" => ext,
+            "{rootId}" => rootId,
+            "{date}" => mtime.UtcDateTime.ToString("yyyyMMdd", CultureInfo.InvariantCulture),
+            _ => throw new InvalidOperationException("BackupFileNameTemplate contains an unknown placeholder.")
+        });
+        if (string.IsNullOrWhiteSpace(filename) || filename.EndsWith('.') || filename.EndsWith(' ')
+            || filename.Any(ch => char.IsControl(ch) || "<>:\"/\\|?*".Contains(ch))
+            || Regex.IsMatch(filename, @"\A(?:CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|COM[1-9¹²³]|LPT[1-9¹²³]) *(?:\.|\z)",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            throw new InvalidOperationException("BackupFileNameTemplate must produce a valid Windows filename.");
+        return filename;
+    }
+
     public void Validate()
     {
         if (string.IsNullOrWhiteSpace(AgentId))
@@ -80,6 +103,12 @@ public sealed class AgentOptions
             throw new InvalidOperationException("BackupRetentionMaxBatch is outside the allowed range.");
         if ((BackupRetentionEnabled || BackupRetentionDays > 0) && BackupFolder.Length == 0)
             throw new InvalidOperationException("BackupFolder must be configured when backup retention is enabled.");
+        if (PreSendBackupEnabled)
+        {
+            if (!Path.IsPathFullyQualified(BackupFolder))
+                throw new InvalidOperationException("BackupFolder must be an absolute path when pre-send backup is enabled.");
+            FormatBackupName("recording", ".dss", "root", DateTimeOffset.UnixEpoch);
+        }
         if (ServerBaseUrl.Length > 0)
             RequireHttpsServer();
         var ids = new HashSet<string>(StringComparer.Ordinal);
