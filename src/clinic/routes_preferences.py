@@ -50,6 +50,7 @@ from src.clinic.workstation_preferences import (
     PreferenceError,
     StaleVersion,
     WorkstationPreferences,
+    session_transport_status,
 )
 from src.database import db
 
@@ -209,14 +210,14 @@ class PreferenceRoutes:
         for rule, name, view, methods in (
             ("/recipient-default", "recipient_default", self._recipient_default, ("GET", "PUT")),
             ("/recipient-default/resolve", "recipient_resolve", self._recipient_resolve, ("POST",)),
+            ("/active-pool", "active_pool", self._active_pool, ("GET", "PUT")),
             ("/last-selection", "last_selection", self._last_selection, ("GET", "PUT")),
-            ("/workstations", "workstation_issue", self._workstation_issue, ("POST",)),
+            ("/workstations", "workstation_issue", self._workstation_issue, ("GET", "POST")),
             ("/workstations/<workstation_id>", "workstation", self._workstation, ("GET", "PUT")),
             ("/workstation-locks/<key>", "workstation_lock", self._workstation_lock, ("PUT", "DELETE")),
             ("/presets", "presets", self._resolved_presets, ("GET",)),
             ("/presets/<key>", "system_preset", self._system_preset, ("PUT", "DELETE")),
             ("/correction-mode", "correction_mode", self._correction_mode, ("GET", "PUT")),
-            ("/active-pool", "active_pool", self._active_pool, ("GET", "PUT")),
             ("/key-bindings", "key_bindings", self._key_bindings, ("GET", "PUT", "DELETE")),
             ("/output", "output", self._output, ("GET", "PUT")),
             ("/notifications", "notifications", self._notifications, ("GET", "PUT")),
@@ -261,6 +262,31 @@ class PreferenceRoutes:
 
         run.__name__ = view.__name__
         return run
+
+    # -- active author pool (PAR-ADM-002) ----------------------------------
+    def _active_pool(self):
+        actor = current_user.id
+        is_write = request.method == "PUT"
+        try:
+            if is_write:
+                body = _body()
+                pool_id = body.get("pool_id")
+                if (body.keys() != {"pool_id"} or not isinstance(pool_id, str)
+                        or not 1 <= len(pool_id) <= 36):
+                    return _problem("invalid_payload")
+                result = app_wiring.set_active_author_pool(actor, pool_id)
+            else:
+                result = app_wiring.active_author_pool(actor)
+            return jsonify(
+                pool_id=result.pool_id,
+                reselection_required=result.reselection_required,
+                pools=[{"id": pool.id, "name": pool.name} for pool in result.pools],
+            )
+        except app_wiring.ActivePoolNotAllowed:
+            return _problem("author_pool_not_allowed", 403)
+        except SQLAlchemyError:
+            db.session.rollback()
+            return _problem("preference_write_failed" if is_write else "preference_read_failed")
 
     # -- recipient default --------------------------------------------------
     def _checked_default_targets(self, actor: int, mode: str, ids: list[str]) -> None:
@@ -323,6 +349,8 @@ class PreferenceRoutes:
         actor = current_user.id
         allowed = self._allowed_for(actor)
         if request.method == "GET":
+            if "start_pool" in request.args:
+                return self._start_pool(actor, allowed)
             result = self._selections.start_context(actor, allowed)
             return jsonify(selection=_selection_json(result.selection), fallback=list(result.fallback))
         raw = _body().get("selection")
@@ -334,8 +362,19 @@ class PreferenceRoutes:
         self._selections.remember(actor, selection)
         return jsonify(selection=_selection_json(selection))
 
+    def _start_pool(self, actor: int, allowed: Allowed):
+        """Check the link against the session's current allowances without saving it."""
+        requested = request.args.get("start_pool")
+        accepted = requested in allowed.pool_ids
+        saved = self._selections.start_context(actor, allowed).selection if allowed.roles and not accepted else None
+        pool_id = requested if accepted else (saved.pool_id if saved else None)
+        pool = db.session.get(pools.ClinicAuthorPool, pool_id) if pool_id else None
+        return jsonify(pool={"id": pool.id, "name": pool.name} if pool else None, accepted=accepted and pool is not None)
+
     # -- workstation --------------------------------------------------------
     def _workstation_issue(self):
+        if request.method in {"GET", "HEAD"}:
+            return jsonify(session_transport_status())
         return jsonify(workstation_id=self._workstations.issue(current_user)), 201
 
     def _workstation(self, workstation_id: str):
@@ -405,31 +444,6 @@ class PreferenceRoutes:
         body = _body()
         mode, version = correction_modes.set_mode(actor, body.get("mode"), body.get("expected_version"))
         return jsonify(mode=mode, version=version)
-
-    # -- active author pool (PAR-ADM-002) -----------------------------------
-    def _active_pool(self):
-        actor = current_user.id
-        is_write = request.method == "PUT"
-        try:
-            if is_write:
-                body = _body()
-                pool_id = body.get("pool_id")
-                if (body.keys() != {"pool_id"} or not isinstance(pool_id, str)
-                        or not 1 <= len(pool_id) <= 36):
-                    return _problem("invalid_payload")
-                result = app_wiring.set_active_author_pool(actor, pool_id)
-            else:
-                result = app_wiring.active_author_pool(actor)
-            return jsonify(
-                pool_id=result.pool_id,
-                reselection_required=result.reselection_required,
-                pools=[{"id": pool.id, "name": pool.name} for pool in result.pools],
-            )
-        except app_wiring.ActivePoolNotAllowed:
-            return _problem("author_pool_not_allowed", 403)
-        except SQLAlchemyError:
-            db.session.rollback()
-            return _problem("preference_write_failed" if is_write else "preference_read_failed")
 
     # -- output formats (PAR-EXP-001) ---------------------------------------
     def _output(self):

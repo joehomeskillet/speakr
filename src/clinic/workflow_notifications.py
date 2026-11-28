@@ -20,8 +20,6 @@ from __future__ import annotations
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 
-from sqlalchemy import select
-
 from src.clinic import notification_preferences, notification_rules, workflow
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.models import ClinicDictation
@@ -59,6 +57,8 @@ def event_key(event: str, dictation_id: str, transition_id: str) -> str:
 
 
 def _committed_params(session, dictation, event, transition_id, actor_user_id, expected_version):
+    from sqlalchemy import select
+
     intent = ClinicParityReceipt.result["_workflow_notice"]
     params = intent["params"]
     return session.execute(select(params).where(
