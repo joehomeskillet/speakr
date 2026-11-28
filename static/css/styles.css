@@ -1,5 +1,3 @@
-@import './tokens.css';
-
 /* Clinic tables and drawers keep their own scroll containers. */
 @scope (html:has(> body:is(.v8-ui, .v8-focus))) {
     :scope, body { overflow-x: clip; }

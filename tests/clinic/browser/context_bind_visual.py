@@ -16,6 +16,7 @@ PROTOTYPE = Path('/root/work/wp-backlog/ui-v8/03_Prototyp')
 HTML = '''<!doctype html><html lang="de"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>P03 synthetic context proof</title>
+<link rel="stylesheet" href="/static/css/tokens.css">
 <link rel="stylesheet" href="/static/css/styles.css">
 <link rel="stylesheet" href="/static/css/clinic-v8.css">
 <link rel="stylesheet" href="/static/css/clinic-lists.css">
