@@ -29,12 +29,12 @@ CATALOGS = (
     route_policy_admin,
 )
 
-# Full tables from 7acabaf4 plus the P-189, P-036, P-083, P-042 and P-130 clinic endpoints,
+# Full tables from 7acabaf4 plus the P-189, P-036, P-083, P-042, P-174 and P-130 clinic endpoints,
 # serialized with json.dumps(sort_keys=True).
 # Intentional route changes must update the snapshot together with their registration tests.
 BASELINE_TABLE_SHA256 = {
     False: "88f25130a4c4514b82b166e06829ec5427fb26343a2cba42f37b0614fb03502e",
-    True: "156702dfab5b24066a9fdfc56c4c64b00558a0b539b89d72e7218620a6ae0d38",
+    True: "5ed03baeafa0e7107d2c8e02fe055e4ffb44316cd99bfb1196a1c39e5056666c",
 }
 DROPFOLDER_ENDPOINTS = ("clinic_imports_web.create_source", "clinic_imports_web.delete_source")
 
@@ -140,7 +140,7 @@ def test_catalog_endpoints_match_built_clinic_table(monkeypatch):
 
     added = {endpoint: catalog_entries.pop(endpoint) for endpoint in DROPFOLDER_ENDPOINTS}
     assert added == dict.fromkeys(DROPFOLDER_ENDPOINTS, route_policy.AUTH)
-    assert len(catalog_entries) == 151
+    assert len(catalog_entries) == 153
     catalog_entries.update(added)
     assert not (set(catalog_entries) & set(off_table))
     assert set(on_table) - set(off_table) == set(catalog_entries)

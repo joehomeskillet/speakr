@@ -1,16 +1,23 @@
 """Session-authenticated import centre and clarification routes."""
 
+from tempfile import TemporaryDirectory
+
 from flask import Blueprint, abort, jsonify, request, session
 from flask_login import current_user
 
+from src.clinic import (
+    agent_channel, author_suggestion, decoder, import_centre, import_source_config, import_visibility,
+    pools, speaker_client, speaker_pipeline, worklist_entries,
+)
 from src.clinic import routes_import_sources_web as source_routing
-from src.clinic import agent_channel, import_centre, import_source_config, import_visibility, worklist_entries
 from src.clinic.admin_dictation_access import _is_active_site_admin
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.identity import ClinicAccountPolicy
 from src.clinic.ingest import IngestError
 from src.clinic.parity_dispatch import _problem
 from src.database import db
+from src.models import VoiceEmbeddingSpace
+from src.services.storage.locator import local_path_from_key
 
 
 blueprint = Blueprint("clinic_imports_web", __name__, url_prefix="/api/clinic/v1/imports")
@@ -123,7 +130,7 @@ def _clarification_policy():
     owners = {} if admin else agent_channel.unique_root_owners(agent_channel.registered_agent_roots())
 
     def may_access(uid, action, scope):
-        if uid != actor or action not in ("list_unassigned", "assign_unassigned"):
+        if uid != actor or action not in ("list_unassigned", "assign_unassigned", "suggest_author"):
             return False
         if admin:
             return True
@@ -164,6 +171,83 @@ def assignment_candidates(delivery_id):
     except agent_channel.AgentChannelError as error:
         return _assignment_error(error)
     return jsonify(items=items, count=len(items))
+
+
+def _require_unassigned_for_suggestion(actor, delivery_id):
+    visibility = _clarification_policy()
+    if visibility is None:
+        raise agent_channel.AgentChannelError("forbidden")
+    delivery, _ = import_visibility._require_delivery(visibility, actor, "suggest_author", delivery_id)
+    if delivery.status != "UNASSIGNED" or delivery.intent_id is not None:
+        raise agent_channel.AgentChannelError("not_found", "delivery")
+
+
+def _speech_seconds(segments, duration):
+    # The client sorts by start time. Count overlapping speech only once.
+    seconds = end = 0.0
+    for segment in segments:
+        stop = min(segment["end_time"], duration)
+        seconds += max(0.0, stop - max(end, segment["start_time"]))
+        end = max(end, stop)
+    return seconds
+
+
+def _suggestion_evidence(delivery_id):
+    original = db.session.get(import_centre.ClinicImportOriginal, delivery_id)
+    if original is None:
+        raise agent_channel.AgentChannelError("not_found", "delivery original")
+    try:
+        path = local_path_from_key(original.storage_root, original.storage_key)
+    except ValueError as error:
+        raise IngestError("original_read_failed") from error
+
+    with TemporaryDirectory(prefix="clinic-import-speaker-") as tmp:
+        audio = decoder.decode_to_wav(path, tmp)
+        if audio.status != decoder.OK or audio.input_sha256 != original.content_hash:
+            raise IngestError("original_read_failed")
+        if audio.duration_s < author_suggestion.MIN_SPEECH_SECONDS:
+            return audio.duration_s, None
+        seconds = _speech_seconds(speaker_client.diarize(audio.output_path), audio.duration_s)
+        if seconds < author_suggestion.MIN_SPEECH_SECONDS:
+            return seconds, None
+
+        model = speaker_client.health()
+        # The normal embed helper registers or touches a space. Here we only read it.
+        space = (db.session.query(VoiceEmbeddingSpace.id, VoiceEmbeddingSpace.dimension)
+                 .filter_by(backend_fingerprint=speaker_client.model_fingerprint(model))
+                 .order_by(VoiceEmbeddingSpace.id).first())
+        if space is None:
+            return seconds, None
+        vector = speaker_client.embed(audio.output_path)
+        if space.dimension is not None and space.dimension != len(vector):
+            raise speaker_client.SpeakerServiceBadResponse("embedding dimension does not match the model space")
+        return seconds, speaker_client.EmbeddingResult(space.id, model, vector)
+
+
+@blueprint.get("/unassigned/<uuid:delivery_id>/suggestion")
+def author_suggestion_view(delivery_id):
+    actor, delivery_id = current_user.id, str(delivery_id)
+    try:
+        _require_unassigned_for_suggestion(actor, delivery_id)
+        seconds, embedding = _suggestion_evidence(delivery_id)
+        _require_unassigned_for_suggestion(actor, delivery_id)
+        if embedding is None:
+            reason = (author_suggestion.REASON_SHORT_SPEECH if seconds < author_suggestion.MIN_SPEECH_SECONDS
+                      else author_suggestion.REASON_NO_CANDIDATES)
+            return jsonify(candidates=[], band=author_suggestion.BAND_NONE, reasons=[reason])
+
+        targets = import_visibility._targets()
+        if not _is_active_site_admin(db.session, current_user):
+            targets = targets.filter(pools.ClinicAuthorPool.id.in_(worklist_entries._led_author_pools(actor)))
+        now = agent_channel.utcnow()
+        candidate_ids = {uid for uid, _, _, pool in targets if pools.is_routable(pool, now)}
+        result = speaker_pipeline.suggest_for_embedding(embedding, seconds, candidate_user_ids=candidate_ids)
+    except agent_channel.AgentChannelError as error:
+        return _assignment_error(error)
+    except (IngestError, OSError, speaker_client.SpeakerServiceError, author_suggestion.AuthorSuggestionError):
+        return _problem("DEPENDENCY_UNAVAILABLE")
+    return jsonify(candidates=[candidate.user_id for candidate in result.suggestions],
+                   band=result.band, reasons=[result.reason])
 
 
 @blueprint.post("/unassigned/<uuid:delivery_id>/assign")
