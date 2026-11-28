@@ -26,7 +26,7 @@ import { createHandmicController } from './handmic-webhid.js';
 import { CorrectionModes } from './correction-modes-ui.js';
 import { surfaceFor } from './tokens.js';
 import {
-    ACTIONS, TEXT as PEDAL_TEXT, createKeyCapture, loadSettings, normalizeSettings, saveSettings,
+    CONFIGURABLE_ACTIONS as ACTIONS, TEXT as PEDAL_TEXT, createKeyCapture, loadSettings, normalizeSettings, saveSettings,
 } from './pedal-ui.js';
 import { createSampleRecorder, createVoiceConsentController } from './voice-consent-ui.js';
 
@@ -62,9 +62,11 @@ export const PEDAL_LABELS = Object.freeze({
     notSaved: 'Nicht gespeichert: Der Browser-Speicher ist nicht verfügbar.',
     actions: Object.freeze({
         playPause: 'Wiedergabe / Pause',
-        hold: 'Halten zum Abspielen',
+        hold: 'Halten für Aufnahme oder Wiedergabe',
         rewind: 'Zurückspulen',
         skip: 'Vorspringen',
+        recordToggle: 'Aufnahme starten / pausieren',
+        stop: 'Stopp in der Aufnahmeansicht',
     }),
 });
 
@@ -171,7 +173,7 @@ const TAG = Object.freeze({ granted: 'neutral', revoked: 'wait', none: 'neutral'
 const PILL = Object.freeze({ granted: 'pill-status--success', revoked: 'pill-status--warn', none: 'pill-status--pending' });
 
 /**
- * Pedal section: capture a key through pedal-ui, map it to a playback action, set the step seconds. Every change
+ * Pedal section: capture a key through pedal-ui, map it to a recording or playback action, set the step seconds. Every change
  * is stored through saveSettings of pedal-ui, which drops printable keys. No key is stored when capture was refused.
  */
 export function createPedalSettingsComponent(Vue, options = {}) {
@@ -270,13 +272,14 @@ const NOTE_BURGUNDY = 'note burgundy [.dark_&]:!text-[color:var(--v8-text)] [[da
 const NOTE_WARNING = 'note warning [.dark_&]:!bg-[var(--v8-s2)] [.dark_&]:!border-[color:var(--line)] [.dark_&]:!text-[color:var(--v8-text)] '
     + '[[data-theme=dark]_&]:!bg-[var(--v8-s2)] [[data-theme=dark]_&]:!border-[color:var(--line)] [[data-theme=dark]_&]:!text-[color:var(--v8-text)]';
 const PRIMARY = 'primary max-[760px]:min-h-11 !bg-[var(--ink)] !border-[color:var(--ink)] !text-[13px] !font-semibold !px-[13px] hover:!bg-[var(--brand2)]';
-const CHILD_BUTTONS = '[&_.btn]:!min-h-[38px] [&_.btn]:rounded-lg [&_.btn]:border [&_.btn]:border-[color:var(--line)] [&_.btn]:bg-[var(--surface)] [&_.btn]:px-[13px] [&_.btn]:text-[13px] [&_.btn]:font-semibold [&_.btn]:text-[color:var(--v8-text)] [&_.btn:disabled]:opacity-50 '
+const CHILD_BUTTONS = '[&_.btn]:!min-h-[38px] [&_.btn]:rounded-lg [&_.btn]:border [&_.btn]:border-[color:var(--line)] [&_.btn]:bg-[var(--surface)] [&_.btn]:px-[13px] [&_.btn]:text-[13px] [&_.btn]:font-semibold [&_.btn]:text-[color:var(--v8-text)] '
     + '[&_button[type=submit]]:!bg-[var(--ink)] [&_button[type=submit]]:!border-[color:var(--ink)] [&_button[type=submit]]:!text-[color:var(--v8-on-ink,var(--ui-surface))]';
 const CHOICES = '[&_legend]:mb-2 [&_legend]:text-[12px] [&_legend]:font-bold [&_fieldset]:m-0 [&_fieldset]:mb-4 [&_fieldset]:min-w-0 [&_fieldset]:border-0 [&_fieldset]:p-0 '
     + '[&_label.block]:flex [&_label.block]:items-center [&_label.block]:gap-2 [&_label.block]:text-[13px] [&_label.block]:font-medium';
 
 const PEDAL_TEMPLATE = `
-<section class="panel col-span-full" role="region" :aria-label="labels.title" data-testid="clinic-settings-pedal">
+<section class="panel col-span-full" role="region" :aria-label="labels.title" data-testid="clinic-settings-pedal"
+         style="--v8-input-line: var(--ui-text-muted)">
   <h2>{{ labels.title }}</h2>
   <p class="hint mb-3">{{ labels.hint }}</p>
   <div class="actions">
@@ -296,7 +299,8 @@ const PEDAL_TEMPLATE = `
           <td><span class="hidden max-[760px]:inline">{{ labels.key }} </span><kbd class="tag neutral">{{ r.code }}</kbd></td>
           <td>
             <span class="hidden max-[760px]:block">{{ labels.action }}</span>
-            <select class="w-full min-w-0 !pl-3 !pr-8 !text-[13px] !border-[color:var(--v8-muted)]" :value="r.action" :aria-label="labels.action + ' ' + r.code" @change="setAction(r.code, $event.target.value)">
+            <select class="w-full min-w-0 !pl-3 !pr-8 !text-[13px]" style="border-color: var(--v8-input-line)"
+                    :value="r.action" :aria-label="labels.action + ' ' + r.code" @change="setAction(r.code, $event.target.value)">
               <option v-for="a in actions" :key="a" :value="a">{{ labels.actions[a] }}</option>
             </select>
           </td>
@@ -305,7 +309,7 @@ const PEDAL_TEMPLATE = `
       </tbody>
     </table>
   </div>
-  <div class="grid three mt-4 [&_input]:min-w-0 [&_input]:!border-[color:var(--v8-muted)]">
+  <div class="grid three mt-4 [&_input]:min-w-0">
     <div class="flex flex-col gap-1.5 mb-4 [&_label]:text-xs [&_label]:font-bold">
       <label for="clinic-settings-pedal-rewind">{{ labels.rewindSeconds }}</label>
       <input id="clinic-settings-pedal-rewind" type="number" min="0" max="60" step="1" :value="settings.rewindSeconds"
