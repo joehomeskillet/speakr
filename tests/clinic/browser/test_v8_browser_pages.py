@@ -275,6 +275,24 @@ def test_p15_first_profile_uses_existing_save_and_vocabulary_link(browser, app_b
         assert response.value.ok
         assert response.value.request.post_data_json["source"] == "recorder"
         expect(page.get_by_role("status").filter(has_text="Profilvorgabe gespeichert.")).to_be_visible()
+
+        config = page.get_by_role("region", name="Profilkonfiguration")
+        config.get_by_text("Quellen und Speichern einstellen", exact=True).click()
+        mode = config.get_by_label("Quellenzuordnung", exact=True)
+        expect(mode).to_have_value("shared")
+        mode.select_option("separate")
+        config.get_by_label("Quelle für Hintergrund-Erkennung", exact=True).select_option("headset")
+        config.get_by_label("Speicherregel", exact=True).select_option("ask")
+        feedback = config.locator('.asr-save-feedback[role="status"]')
+        expect(feedback).not_to_contain_text("Profilvorgabe gespeichert.")
+        with page.expect_response(lambda res: res.url.endswith("/asr-profiles/selection")) as response:
+            primary.click()
+        assert response.value.ok
+        updates = response.value.request.post_data_json
+        assert (updates["profile_mode"], updates["batch_source"], updates["save_rule"]) == ("separate", "headset", "ask")
+        expect(feedback).to_contain_text("Profilvorgabe gespeichert.")
+        expect(mode).to_have_value("separate")
+
         page.get_by_role("link", name="Wortschatz prüfen", exact=True).click()
         expect(page).to_have_url(app_base + "/admin#/wortschatz")
         expect(page.get_by_role("heading", name="Wortschatz", exact=True)).to_be_visible()

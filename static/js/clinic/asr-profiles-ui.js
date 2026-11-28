@@ -25,6 +25,8 @@ import { surfaceFor } from './tokens.js';
 const BASE = '/asr-profiles';
 
 export const SOURCES = Object.freeze(['headset', 'recorder']);
+const SAVE_RULES = Object.freeze(['never', 'ask', 'always']);
+const PROFILE_MODES = Object.freeze(['shared', 'separate']);
 export const ENGINES = Object.freeze(['gpu', 'cpu']);
 const DEFAULT_OFFER_MANUAL_AFTER_S = 120;
 const CAPABILITIES = Object.freeze({
@@ -47,6 +49,14 @@ const LABELS = Object.freeze({
     'clinic.asr.source.recorder': 'Recorder',
     'clinic.asr.live': 'Live-Profil',
     'clinic.asr.batch': 'Batch-Profil',
+    'clinic.asr.batchSource': 'Quelle für Hintergrund-Erkennung',
+    'clinic.asr.profileMode': 'Quellenzuordnung',
+    'clinic.asr.profileMode.shared': 'Gemeinsam',
+    'clinic.asr.profileMode.separate': 'Getrennt',
+    'clinic.asr.saveRule': 'Speicherregel',
+    'clinic.asr.saveRule.never': 'Nie',
+    'clinic.asr.saveRule.ask': 'Nach Rückfrage',
+    'clinic.asr.saveRule.always': 'Immer',
     'clinic.asr.format': 'Ausgabeformat',
     'clinic.asr.engine': 'Verwendete Erkennung',
     'clinic.asr.engine.unknown': 'Nicht ermittelt',
@@ -114,11 +124,16 @@ export function createAsrProfilesController(deps) {
     function emptyServer() {
         return {
             version: 0, profile: null, source: 'headset', liveProfileId: null, batchProfileId: null,
+            saveRule: 'never', profileMode: null, batchSource: null,
             profiles: [], output: null, engine: { configured: 'gpu', actual: 'gpu', reason: '' },
             promptsEnabled: false, offerManualAfterS: DEFAULT_OFFER_MANUAL_AFTER_S,
             waitDisabled: false, skipWaitMinutes: DEFAULT_OFFER_MANUAL_AFTER_S / 60,
             configured: [], proven: [],
         };
+    }
+
+    function draftOf({ source, liveProfileId, batchProfileId, skipWaitMinutes, saveRule, profileMode, batchSource }) {
+        return { source, liveProfileId, batchProfileId, skipWaitMinutes, saveRule, profileMode, batchSource };
     }
 
     const state = {
@@ -128,7 +143,7 @@ export function createAsrProfilesController(deps) {
         error: null, // { outcome, code, message, retryable }
         notice: null,
         server: emptyServer(),
-        draft: { source: 'headset', liveProfileId: null, batchProfileId: null, skipWaitMinutes: 2 },
+        draft: draftOf(emptyServer()),
     };
 
     function emit() {
@@ -186,6 +201,9 @@ export function createAsrProfilesController(deps) {
             version: d.version || 0,
             profile: d.profile && typeof d.profile === 'object' ? d.profile : null,
             source: SOURCES.includes(d.source) ? d.source : base.source,
+            saveRule: SAVE_RULES.includes(d.save_rule) ? d.save_rule : base.saveRule,
+            profileMode: PROFILE_MODES.includes(d.profile_mode) ? d.profile_mode : null,
+            batchSource: d.profile_mode === 'separate' && SOURCES.includes(d.batch_source) ? d.batch_source : null,
             liveProfileId: d.live_profile_id == null ? null : String(d.live_profile_id),
             batchProfileId: d.batch_profile_id == null ? null : String(d.batch_profile_id),
             profiles: Array.isArray(d.profiles)
@@ -205,12 +223,7 @@ export function createAsrProfilesController(deps) {
             configured: Array.isArray(caps.configured) ? caps.configured.map(String) : [],
             proven: Array.isArray(caps.proven) ? caps.proven.map(String) : [],
         };
-        state.draft = {
-            source: state.server.source,
-            liveProfileId: state.server.liveProfileId,
-            batchProfileId: state.server.batchProfileId,
-            skipWaitMinutes: state.server.skipWaitMinutes,
-        };
+        state.draft = draftOf(state.server);
         state.ready = true;
         revalidate();
         emit();
@@ -220,6 +233,29 @@ export function createAsrProfilesController(deps) {
     function setSource(source) {
         if (!SOURCES.includes(source)) return false;
         state.draft.source = source;
+        emit();
+        return true;
+    }
+
+    function setSaveRule(value) {
+        if (!SAVE_RULES.includes(value)) return false;
+        state.draft.saveRule = value;
+        emit();
+        return true;
+    }
+
+    function setProfileMode(value) {
+        if (!PROFILE_MODES.includes(value)) return false;
+        const d = state.draft;
+        d.profileMode = value;
+        d.batchSource = value === 'separate' ? (d.batchSource ?? d.source) : null;
+        emit();
+        return true;
+    }
+
+    function setBatchSource(value) {
+        if (!SOURCES.includes(value) || state.draft.profileMode !== 'separate') return false;
+        state.draft.batchSource = value;
         emit();
         return true;
     }
@@ -253,6 +289,11 @@ export function createAsrProfilesController(deps) {
             expected_version: state.server.version,
         };
         if (d.skipWaitMinutes !== state.server.skipWaitMinutes) body.skip_wait_minutes = d.skipWaitMinutes;
+        if (d.saveRule !== state.server.saveRule) body.save_rule = d.saveRule;
+        if (d.profileMode !== state.server.profileMode || d.batchSource !== state.server.batchSource) {
+            body.profile_mode = d.profileMode;
+            if (d.profileMode === 'separate') body.batch_source = d.batchSource;
+        }
         const res = await client.request(BASE + '/selection', {
             method: 'PUT',
             body,
@@ -269,11 +310,7 @@ export function createAsrProfilesController(deps) {
     }
 
     function cancel() {
-        const s = state.server;
-        state.draft = {
-            source: s.source, liveProfileId: s.liveProfileId, batchProfileId: s.batchProfileId,
-            skipWaitMinutes: s.skipWaitMinutes,
-        };
+        state.draft = draftOf(state.server);
         state.error = null;
         emit();
     }
@@ -283,7 +320,7 @@ export function createAsrProfilesController(deps) {
         const n = next || {};
         client.switchContext({ accountId: n.accountId, dictationId: n.dictationId });
         state.server = emptyServer();
-        state.draft = { source: 'headset', liveProfileId: null, batchProfileId: null, skipWaitMinutes: 2 };
+        state.draft = draftOf(emptyServer());
         return load();
     }
 
@@ -306,7 +343,9 @@ export function createAsrProfilesController(deps) {
         const provenSet = new Set(s.proven);
         const verifiedEngine = ['batch', 'live'].some((name) => provenSet.has(name)) || fallback;
         const dirty = d.source !== s.source || d.liveProfileId !== s.liveProfileId || d.batchProfileId !== s.batchProfileId
-            || d.skipWaitMinutes !== s.skipWaitMinutes;
+            || d.skipWaitMinutes !== s.skipWaitMinutes || d.saveRule !== s.saveRule
+            || d.profileMode !== s.profileMode || d.batchSource !== s.batchSource;
+        const complete = d.profileMode !== 'separate' || SOURCES.includes(d.batchSource);
         const notice = deps.adminLayout && dirty && state.notice === label('clinic.asr.saved') ? null : state.notice;
         const choices = (mode) => offered(mode).map((id) => ({
             value: id,
@@ -316,7 +355,12 @@ export function createAsrProfilesController(deps) {
         return {
             title: label('clinic.asr.title'),
             ready: state.ready, loading: state.loading, busy: state.busy,
-            canSave: state.ready && !state.loading && !state.busy && (dirty || (deps.adminLayout === true && !s.profile)),
+            canSave: state.ready && !state.loading && !state.busy && complete && (dirty || (deps.adminLayout === true && !s.profile)),
+            profileMode: d.profileMode,
+            profileModes: PROFILE_MODES.map((v) => ({ value: v, label: label('clinic.asr.profileMode.' + v) })),
+            batchSource: d.batchSource,
+            saveRule: d.saveRule,
+            saveRules: SAVE_RULES.map((v) => ({ value: v, label: label('clinic.asr.saveRule.' + v) })),
             dirty,
             profile: s.profile ? { id: str(s.profile.id), name: str(s.profile.name), version: s.profile.version } : null,
             sources: SOURCES.map((v) => ({ value: v, label: label('clinic.asr.source.' + v), selected: d.source === v })),
@@ -356,6 +400,8 @@ export function createAsrProfilesController(deps) {
             labels: {
                 profile: label('clinic.asr.profile'), source: label('clinic.asr.source'),
                 live: label('clinic.asr.live'), batch: label('clinic.asr.batch'),
+                profileMode: label('clinic.asr.profileMode'), batchSource: label('clinic.asr.batchSource'),
+                saveRule: label('clinic.asr.saveRule'),
                 format: label('clinic.asr.format'), engine: label('clinic.asr.engine'),
                 prompts: label('clinic.asr.prompts'), wait: label('clinic.asr.wait'),
                 configured: label('clinic.asr.configured'), proven: label('clinic.asr.proven'),
@@ -379,7 +425,8 @@ export function createAsrProfilesController(deps) {
     }
 
     return {
-        state, view, load, setSource, setProfile, setSkipWaitMinutes, save, cancel, switchContext, onKeydown,
+        state, view, load, setSource, setProfile, setProfileMode, setBatchSource, setSaveRule,
+        setSkipWaitMinutes, save, cancel, switchContext, onKeydown,
         subscribe(fn) {
             listeners.add(fn);
             return () => listeners.delete(fn);
