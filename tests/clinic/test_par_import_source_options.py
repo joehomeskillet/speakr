@@ -114,6 +114,7 @@ def test_backup_root_must_be_approved_and_disjoint(admin):
 def test_approved_backup_keeps_cleanup_off_until_requested(admin):
     cfg = _create(admin, backup_root=BACKUP_ROOT, backup_name="%A - %T.ds2", backup_retention_days=30)
     assert cfg["backup_root"] == BACKUP_ROOT
+    assert cfg["backup_enabled"] is True
     assert cfg["backup_name"] == "%A - %T.ds2"
     assert cfg["backup_retention_days"] == 30
     assert cfg["cleanup_enabled"] is False
@@ -146,7 +147,7 @@ def test_upgrade_old_source_then_open_settings(tmp_path):
         _insert(connection, "keep-off", eol=0, pattern="*.wav", priority=0, language=1031)
         _insert(connection, "blank", eol=None, pattern="", priority=None, language=None)
     ran = migration.upgrade(engine)
-    assert len(ran) == 4 + 4  # four new columns, then EOL, pattern, priority and language
+    assert len(ran) == 5 + 4  # five new columns, then EOL, pattern, priority and language
     assert migration.upgrade(engine) == []
     with Session(engine) as session:
         kept = isc._view(session.get(isc.ClinicImportSourceConfig, "keep-on"))
@@ -155,6 +156,7 @@ def test_upgrade_old_source_then_open_settings(tmp_path):
     assert kept["eol_filter_enabled"] is True
     assert kept["cleanup_enabled"] is False
     assert kept["backup_root"] is None
+    assert kept["backup_enabled"] is False
     assert kept["backup_name"] == ""
     assert kept["file_pattern"] == "*.ds2"
     assert kept["priority"] == 128
@@ -166,10 +168,10 @@ def test_upgrade_old_source_then_open_settings(tmp_path):
     assert blank["file_pattern"] == "*"
     assert blank["priority"] == 1
     assert blank["language_id"] == 1031
-    assert {"backup_name", "backup_retention_days", "cleanup_enabled", "backup_root"} <= {
+    assert {"backup_name", "backup_retention_days", "cleanup_enabled", "backup_root", "backup_enabled"} <= {
         column["name"] for column in inspect(engine).get_columns(migration.TABLE)
     }
-    assert len(migration.downgrade(engine)) == 4
+    assert len(migration.downgrade(engine)) == 5
     left = {column["name"] for column in inspect(engine).get_columns(migration.TABLE)}
     assert not set(migration.COLUMNS) & left
     assert "eol_filter_enabled" in left and "file_pattern" in left
