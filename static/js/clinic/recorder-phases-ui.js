@@ -65,6 +65,7 @@ export function formatRecordingDuration(seconds) {
 /** Use the stock capture controls and send the finished microphone take through the clinic file upload. */
 export function createClinicRecorder(audio, state, uploadFile) {
     let samples;
+    const takes = new WeakMap();
     let takeVoxEnabled = false;
     let gatedTake = null;
 
@@ -121,11 +122,14 @@ export function createClinicRecorder(audio, state, uploadFile) {
         async uploadRecordedAudio({ title }) {
             const chunks = state.audioChunks.value;
             if (!state.audioBlobURL.value || !chunks.length) throw new Error('no_recorded_audio');
+            const previous = takes.get(chunks);
+            const take = previous || { id: globalThis.crypto.randomUUID(), title };
+            takes.set(chunks, take);
             const gated = gatedTake?.chunks === chunks ? gatedTake.blob : null;
             const file = gated
                 ? new File([gated], 'aufnahme.wav', { type: gated.type })
                 : new File(chunks, 'aufnahme.webm', { type: state.mediaRecorder.value.mimeType.split(';')[0] });
-            const receipt = await uploadFile(file, title);
+            const receipt = await uploadFile(file, take.title, { id: take.id, retry: Boolean(previous) });
             if (receiptDictationId(receipt) === null) throw new Error('no_receipt');
             // A new take gets its own chunk array as soon as capture starts.
             if (state.audioChunks.value === chunks) {
