@@ -65,9 +65,9 @@ export function formatRecordingDuration(seconds) {
 }
 
 /** Recorded takes and selected files share the same upload and server receipt. */
-export async function uploadClinicFile(file, recordingTitle, take, onUploadProgress) {
-    if (take?.retry) {
-        const saved = await fetch('/api/clinic/v1/recording-takes/' + encodeURIComponent(take.id), {
+export async function uploadClinicFile(file, recordingTitle, { id, retry, useSpeechRecognition = true, clientUploadId } = {}, onUploadProgress) {
+    if (id && retry) {
+        const saved = await fetch('/api/clinic/v1/recording-takes/' + encodeURIComponent(id), {
             cache: 'no-store', signal: AbortSignal.timeout(120_000),
         });
         if (saved.ok) return saved.json();
@@ -79,7 +79,9 @@ export async function uploadClinicFile(file, recordingTitle, take, onUploadProgr
         body.append('title', recordingTitle);
         body.append('from_recorder', 'true');
     }
-    if (take) body.append('clinic_take_id', take.id);
+    if (id) body.append('clinic_take_id', id);
+    body.append('use_speech_recognition', String(useSpeechRecognition));
+    if (clientUploadId) body.append('client_upload_id', clientUploadId);
 
     const post = (token) => new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
@@ -161,7 +163,7 @@ export function createClinicRecorder(audio, state, uploadFile) {
             gatedTake = null;
             await audio.clearRecording();
         },
-        async uploadRecordedAudio({ title, onUploadProgress }) {
+        async uploadRecordedAudio({ title, onUploadProgress, ...uploadOptions }) {
             const chunks = state.audioChunks.value;
             if (!state.audioBlobURL.value || !chunks.length) throw new Error('no_recorded_audio');
             const previous = takes.get(chunks);
@@ -171,7 +173,7 @@ export function createClinicRecorder(audio, state, uploadFile) {
             const file = gated
                 ? new File([gated], 'aufnahme.wav', { type: gated.type })
                 : new File(chunks, 'aufnahme.webm', { type: state.mediaRecorder.value.mimeType.split(';')[0] });
-            const receipt = await uploadFile(file, take.title, { id: take.id, retry: Boolean(previous) }, onUploadProgress);
+            const receipt = await uploadFile(file, take.title, { ...uploadOptions, id: take.id, retry: Boolean(previous) }, onUploadProgress);
             if (receiptDictationId(receipt) === null) throw new Error('no_receipt');
             // A new take gets its own chunk array as soon as capture starts.
             if (state.audioChunks.value === chunks) {
@@ -349,7 +351,7 @@ export function createRecorderPhases(options) {
         }
     }
 
-    async function send(onUploadProgress) {
+    async function send(uploadOptions) {
         const blocked = guard(['review', 'failed']);
         if (blocked) return blocked;
         if (!automaticTitle && !state.title.trim()) return denied('missing_title');
@@ -358,9 +360,10 @@ export function createRecorderPhases(options) {
         set({ phase: 'sending', error: null });
         let receipt = null;
         try {
-            const upload = { title: state.title.trim() || localDictationTitle() };
-            if (onUploadProgress) upload.onUploadProgress = onUploadProgress;
-            receipt = await recorder.uploadRecordedAudio(upload);
+            receipt = await recorder.uploadRecordedAudio({
+                title: state.title.trim() || localDictationTitle(),
+                ...uploadOptions,
+            });
         } catch (e) {
             receipt = null;
         }

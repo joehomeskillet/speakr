@@ -109,8 +109,13 @@ describe('clinic recorder take snapshot', () => {
         expect(previewUrl).not.toBe(originalUrl);
         const preview = await (await fetch(previewUrl)).blob();
         expect(preview.size).toBeLessThan(source.size);
-        await recorder.uploadRecordedAudio({ title: 'Zweite Aufnahme' });
-        const [file] = upload.mock.calls[0];
+        const uploadOptions = { useSpeechRecognition: false, clientUploadId: 'vox-draft' };
+        await recorder.uploadRecordedAudio({ title: 'Zweite Aufnahme', ...uploadOptions });
+        const [file, title, { id, retry, ...options }] = upload.mock.calls[0];
+        expect(title).toBe('Zweite Aufnahme');
+        expect(options).toEqual(uploadOptions);
+        expect(id).toEqual(expect.any(String));
+        expect(retry).toBe(false);
         expect(file.name).toBe('aufnahme.wav');
         expect(file.type).toBe('audio/wav');
         expect(await file.arrayBuffer()).toEqual(await preview.arrayBuffer());

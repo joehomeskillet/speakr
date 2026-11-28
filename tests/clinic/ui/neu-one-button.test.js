@@ -18,6 +18,12 @@ function setup(routable = true) {
 
 afterEach(() => vi.useRealTimers());
 
+function expectUploadWithProgress(recorder) {
+    expect(recorder.uploadRecordedAudio.mock.calls).toEqual([[{
+        title: 'Diktat 27.11.2026 09:03', onUploadProgress: expect.any(Function),
+    }]]);
+}
+
 describe('Neue Aufnahme', () => {
     it('waits for the routing check and refuses capture without a route', async () => {
         const { controller, fetchPreflight, recorder } = setup(false);
@@ -32,7 +38,14 @@ describe('Neue Aufnahme', () => {
     it('generates a local title, sends in one action and retries submission without re-uploading', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date(2026, 10, 27, 9, 3));
-        const { controller, request, recorder } = setup();
+        const { controller, request, recorder: mountedRecorder } = setup();
+        const recorder = { uploadRecordedAudio: vi.fn() };
+        const progressRecorder = { uploadRecordedAudio: vi.fn() };
+        mountedRecorder.uploadRecordedAudio.mockImplementation(async ({ onUploadProgress, useSpeechRecognition, clientUploadId, ...options }, ...rest) => {
+            recorder.uploadRecordedAudio({ ...options, useSpeechRecognition, clientUploadId }, ...rest);
+            progressRecorder.uploadRecordedAudio({ ...options, onUploadProgress }, ...rest);
+            return { dictation_id: id };
+        });
         request.mockResolvedValueOnce({ outcome: 'ok', data: { dictation_id: id, etag: '"1"' } })
             .mockResolvedValueOnce({ outcome: 'network' })
             .mockResolvedValueOnce({ outcome: 'ok', data: { dictation_id: id, status: 'vorbereitung_online' } });
@@ -44,8 +57,11 @@ describe('Neue Aufnahme', () => {
         expect((await controller.sendRecording()).ok).toBe(true);
         expect(controller.model().phase).toBe('submitted');
         expect(recorder.uploadRecordedAudio.mock.calls).toEqual([[{
-            title: 'Diktat 27.11.2026 09:03', onUploadProgress: expect.any(Function),
+            title: 'Diktat 27.11.2026 09:03',
+            useSpeechRecognition: true,
+            clientUploadId: expect.stringMatching(/^[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/i),
         }]]);
+        expectUploadWithProgress(progressRecorder);
         expect(request.mock.calls[1]).toEqual([path + '/send', {
             method: 'POST', body: {}, ifMatch: '"1"', idempotencyKey: expect.any(String),
         }]);
