@@ -391,12 +391,24 @@ def _render_rtf(paragraphs: list[Paragraph], *, title: str | None = None) -> byt
 
 # --- Structural RTF Reader & Validator -------------------------------------
 
+_RTF_START = re.compile(r"\{\\rtf1(?![A-Za-z0-9])")
+_RTF_WORD = re.compile(r"([a-zA-Z]+)(-?[0-9]+)? ?")
+_RTF_HEX = re.compile(r"[0-9a-fA-F]{2}")
+_RTF_FALLBACK = re.compile(r"\\(?:'[0-9a-fA-F]{2}|[^a-zA-Z'])|[^{}\\\r\n]")
+_RTF_METADATA = frozenset({"fonttbl", "colortbl", "stylesheet", "info", "generator"})
+_RTF_UNSAFE = frozenset({
+    "bin", "pict", "shppict", "nonshppict",
+    "field", "fldinst", "fldrslt", "filetbl", "file", "datafield", "datastore", "macro", "macros",
+})
+
+
 class RTFDocument:
     """Represents a validated RTF document with parsed content."""
 
-    def __init__(self, raw: str | bytes):
+    def __init__(self, raw: str | bytes, *, import_limits: tuple[int, int] | None = None):
         if isinstance(raw, bytes):
-            self.raw_text = raw.decode("ascii", errors="replace")
+            self.raw_text = (raw.decode("cp1252") if import_limits is not None
+                             else raw.decode("ascii", errors="replace"))
         else:
             self.raw_text = raw
 
@@ -404,27 +416,34 @@ class RTFDocument:
         self.styled_paragraphs: list[list[Span]] = []
         self.is_valid: bool = False
         self.groups_balanced: bool = False
-        self._parse()
+        self._parse(import_limits)
 
     @property
     def full_text(self) -> str:
         return "\n".join(self.paragraphs)
 
-    def _parse(self) -> None:
+    def _parse(self, import_limits: tuple[int, int] | None) -> None:
         raw = self.raw_text.strip()
-        if not raw.startswith(r"{\rtf1"):
+        if not _RTF_START.match(raw):
             raise RTFValidationError(r"Document does not start with {\rtf1")
 
-        state_stack: list[dict[str, Any]] = [{"bold": False, "italic": False, "underline": False, "skip": False}]
+        state_stack: list[dict[str, Any]] = [
+            {"bold": False, "italic": False, "underline": False, "skip": False, "uc": 1}
+        ]
         paragraphs: list[str] = []
         styled_paras: list[list[Span]] = []
-        cur_para_text: list[str] = []
         cur_styled_spans: list[Span] = []
         cur_span_chars: list[str] = []
         cur_span_state = {"bold": False, "italic": False, "underline": False}
 
+        span_count = 0
+
         def _flush_span():
+            nonlocal span_count
             if cur_span_chars:
+                span_count += 1
+                if import_limits and span_count > import_limits[1]:
+                    raise RTFValidationError("Too many RTF text runs")
                 text = "".join(cur_span_chars)
                 cur_styled_spans.append(
                     Span(
@@ -436,18 +455,31 @@ class RTFDocument:
                 )
                 cur_span_chars.clear()
 
+        def _flush_paragraph():
+            if import_limits and len(paragraphs) >= import_limits[0]:
+                raise RTFValidationError("Too many RTF paragraphs")
+            _flush_span()
+            paragraphs.append("".join(span.text for span in cur_styled_spans))
+            styled_paras.append(cur_styled_spans.copy())
+            cur_styled_spans.clear()
+
         i = 0
         n = len(raw)
-        uc = 1
-
         while i < n:
             c = raw[i]
+            if i and len(state_stack) == 1 and c != "}":
+                raise RTFValidationError("Content after the RTF document")
             if c == "{":
+                if len(state_stack) > 128:
+                    raise RTFValidationError("Too many nested RTF groups")
                 _flush_span()
                 top = state_stack[-1].copy()
-                rest = raw[i + 1 : i + 30]
-                if rest.startswith(r"\fonttbl") or rest.startswith(r"\colortbl") or rest.startswith(r"\*"):
+                if raw.startswith(r"\*", i + 1):
                     top["skip"] = True
+                elif raw.startswith("\\", i + 1):
+                    dest = _RTF_WORD.match(raw, i + 2)
+                    if dest and dest[1].lower() in _RTF_METADATA:
+                        top["skip"] = True
                 state_stack.append(top)
                 cur_span_state = {
                     "bold": top["bold"],
@@ -472,47 +504,50 @@ class RTFDocument:
                 continue
 
             cur_state = state_stack[-1]
-            if cur_state["skip"]:
-                i += 1
-                continue
-
             if c == "\\":
                 i += 1
                 if i >= n:
                     raise RTFValidationError("Trailing backslash in RTF stream")
                 c2 = raw[i]
                 if c2 in ("{", "}", "\\"):
-                    cur_para_text.append(c2)
-                    cur_span_chars.append(c2)
+                    if not cur_state["skip"]:
+                        cur_span_chars.append(c2)
                     i += 1
                 elif c2 == "'":
-                    hex_str = raw[i + 1 : i + 3]
-                    ch = chr(int(hex_str, 16))
-                    cur_para_text.append(ch)
-                    cur_span_chars.append(ch)
-                    i += 3
+                    hex_value = _RTF_HEX.match(raw, i + 1)
+                    if not hex_value:
+                        raise RTFValidationError("Invalid RTF hex escape")
+                    if not cur_state["skip"]:
+                        ch = bytes.fromhex(hex_value[0]).decode(
+                            "cp1252", errors="strict" if import_limits else "replace")
+                        cur_span_chars.append(ch)
+                    i = hex_value.end()
                 else:
-                    m = re.match(r"([a-zA-Z]+)(-?[0-9]+)? ?", raw[i:])
+                    m = _RTF_WORD.match(raw, i)
                     if not m:
-                        cur_para_text.append(c2)
-                        cur_span_chars.append(c2)
+                        if not cur_state["skip"]:
+                            symbol = {"~": "\u00a0", "-": "\u00ad", "_": "\u2011"}.get(c2, c2)
+                            cur_span_chars.append(symbol)
                         i += 1
                         continue
-                    cmd = m.group(1)
-                    param = int(m.group(2)) if m.group(2) else None
-                    i += len(m.group(0))
+                    if m.end(1) - m.start(1) > 32 or m.end(2) - m.start(2) > 11:
+                        raise RTFValidationError("Invalid RTF control word")
+                    cmd, number = m.groups()
+                    control = cmd.lower()
+                    if import_limits and (control in _RTF_UNSAFE or control.startswith("obj")):
+                        raise RTFValidationError("Unsupported RTF embedded content")
+                    if cmd == "rtf" and i != 2:
+                        raise RTFValidationError("Nested RTF document")
+                    i = m.end()
+                    if cur_state["skip"]:
+                        continue
+                    param = int(number) if number is not None else None
 
                     if cmd == "par":
-                        _flush_span()
-                        paragraphs.append("".join(cur_para_text))
-                        styled_paras.append(list(cur_styled_spans))
-                        cur_para_text.clear()
-                        cur_styled_spans.clear()
+                        _flush_paragraph()
                     elif cmd == "line":
-                        cur_para_text.append("\n")
                         cur_span_chars.append("\n")
                     elif cmd == "tab":
-                        cur_para_text.append("\t")
                         cur_span_chars.append("\t")
                     elif cmd == "b":
                         _flush_span()
@@ -529,31 +564,37 @@ class RTFDocument:
                         is_on = True if param is None else (param != 0)
                         cur_state["underline"] = is_on
                         cur_span_state["underline"] = is_on
+                    elif cmd in ("ulnone", "plain"):
+                        _flush_span()
+                        for style in (("underline",) if cmd == "ulnone" else cur_span_state):
+                            cur_state[style] = cur_span_state[style] = False
+                    elif cmd == "ansicpg" and import_limits and param != 1252:
+                        raise RTFValidationError("Unsupported RTF code page")
                     elif cmd == "uc":
-                        uc = param if param is not None else 1
-                    elif cmd == "u" and param is not None:
-                        cp = param if param >= 0 else param + 65536
-                        ch = chr(cp)
-                        cur_para_text.append(ch)
+                        if param is None or not 0 <= param <= 16:
+                            raise RTFValidationError("Invalid RTF Unicode fallback length")
+                        cur_state["uc"] = param
+                    elif cmd == "u":
+                        if param is None or not -32768 <= param <= 65535:
+                            raise RTFValidationError("Invalid RTF Unicode code unit")
+                        ch = chr(param & 0xffff)
                         cur_span_chars.append(ch)
-                        # Skip uc fallback characters
-                        for _ in range(uc):
-                            if i < n and raw[i] not in ("{", "}", "\\"):
-                                i += 1
-            elif c in ("\r", "\n"):
+                        for _ in range(cur_state["uc"]):
+                            fallback = _RTF_FALLBACK.match(raw, i)
+                            if not fallback:
+                                break
+                            i = fallback.end()
+            elif cur_state["skip"] or c in ("\r", "\n"):
                 i += 1
             else:
-                cur_para_text.append(c)
                 cur_span_chars.append(c)
                 i += 1
 
         if len(state_stack) != 1:
             raise RTFValidationError(f"Unbalanced braces at end of stream (depth={len(state_stack) - 1})")
 
-        _flush_span()
-        if cur_para_text:
-            paragraphs.append("".join(cur_para_text))
-            styled_paras.append(list(cur_styled_spans))
+        if cur_styled_spans or cur_span_chars:
+            _flush_paragraph()
 
         self.paragraphs = paragraphs
         self.styled_paragraphs = styled_paras
@@ -561,9 +602,9 @@ class RTFDocument:
         self.is_valid = True
 
 
-def validate_rtf(data: bytes | str) -> RTFDocument:
-    """Validate that RTF data has balanced groups and standard RTF 1.x syntax."""
-    return RTFDocument(data)
+def validate_rtf(data: bytes | str, *, import_limits: tuple[int, int] | None = None) -> RTFDocument:
+    """Validate RTF structure; untrusted imports also limit paragraphs/runs and reject embedded content."""
+    return RTFDocument(data, import_limits=import_limits)
 
 
 # --- Public Entry Points ---------------------------------------------------
