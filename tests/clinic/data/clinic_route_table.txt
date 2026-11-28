@@ -477,6 +477,7 @@ on clinic_live.switch_draft {"action":null,"arg":"recording_id","batch_all":fals
 on clinic_metadata_fields.list_fields {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_metadata_fields.save_field {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"admin"}
 on clinic_offline.capability {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
+on clinic_output.destinations {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_output.download_export {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_output.export_status {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_output.request_export {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
