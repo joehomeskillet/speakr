@@ -355,7 +355,7 @@ export const ImportSourceRouting = {
         </div>
       </form>
 
-      <p v-if="!sources.length && !creating" class="empty" data-testid="source-routing-empty">Keine Geräte oder Ordner eingerichtet.</p>
+      <p v-if="!sources.length && !creating" class="empty" data-testid="source-routing-empty">Keine lokal freigegebene Quelle zur Verwaltung vorhanden.</p>
 
       <div v-for="source in sources" :key="source.id" class="state-box mt-3" :data-source-id="source.id">
         <div class="actions justify-between">
