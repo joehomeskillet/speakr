@@ -70,8 +70,10 @@ _WORD = re.compile(r'\S+')
 _IF_MATCH = re.compile(r'^"([0-9A-Za-z-]{1,64})(?:\.g(\d{1,9}))?"$')
 LEASE_STALE = 'LEASE_STALE'
 _DOCUMENT_KEYS = frozenset({'schema_version', 'nodes'})
-_NODE_KEYS = frozenset({'id', 'kind', 'level', 'runs'})
-_RUN_KEYS = frozenset({'id', 'text', 'bold', 'italic', 'underline', 'audio_anchor_id'})
+_NODE_LAYOUT = ('text_align', 'line_spacing', 'object_id', 'alt_text')
+_RUN_LAYOUT = ('font_family', 'font_size_pt')
+_NODE_KEYS = frozenset(('id', 'kind', 'level', 'runs', *_NODE_LAYOUT))
+_RUN_KEYS = frozenset(('id', 'text', 'bold', 'italic', 'underline', 'audio_anchor_id', *_RUN_LAYOUT))
 
 
 def etag_for(head: ClinicTranscriptRevision | None, generation: int | None) -> str:
@@ -156,15 +158,16 @@ def derive_links(dictation: ClinicDictation, old: ClinicTranscriptRevision | Non
 
 def _api_document(document: CanonicalDocument) -> JSON:
     """Correction-API projection: only the fields this save contract accepts."""
+    def layout(fields: JSON, keys: tuple[str, ...]) -> JSON:
+        return {key: value for key, value in fields.items() if key not in keys or value is not None}
+
+    payload = document.to_payload()
     return {
         'schema_version': 1,
         'nodes': [{
-            'id': node.id, 'kind': node.kind, 'level': node.level,
-            'runs': [{
-                'id': run.id, 'text': run.text, 'bold': run.bold, 'italic': run.italic,
-                'underline': run.underline, 'audio_anchor_id': run.audio_anchor_id,
-            } for run in node.runs],
-        } for node in document.nodes],
+            **layout(node, _NODE_LAYOUT),
+            'runs': [layout(run, _RUN_LAYOUT) for run in node['runs']],
+        } for node in payload['nodes']],
     }
 
 

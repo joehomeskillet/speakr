@@ -13,6 +13,17 @@ export const FORMATS = Object.freeze(['bold', 'italic', 'underline']);
 
 const MAX_TEXT = 1000000;
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+const GRAPHIC_ID = /^[a-f0-9]{64}$/;
+const LAYOUT = [
+    { key: 'font_family', label: 'Schriftart', run: true,
+        choices: [['', 'Standard'], ['serif', 'Serifenschrift'], ['sans-serif', 'Schlichte Schrift'], ['monospace', 'Feste Zeichenbreite']] },
+    { key: 'text_align', label: 'Ausrichtung',
+        choices: [['', 'Standard'], ['left', 'Links'], ['center', 'Mittig'], ['right', 'Rechts'], ['justify', 'Blocksatz']] },
+    { key: 'line_spacing', label: 'Zeilenabstand',
+        choices: [['', 'Standard'], [1, 'Einfach'], [1.15, '1,15'], [1.5, '1,5'], [2, 'Doppelt'], [2.5, '2,5'], [3, 'Dreifach']] },
+];
+const targetSize = { minWidth: '48px', minHeight: '48px' };
+const fieldStyle = { ...targetSize, border: '1px solid var(--v8-text-2)' };
 
 const DEFAULTS = {
     'clinic.richtext.toolbar': 'Textformatierung',
@@ -115,6 +126,8 @@ export function useRichTextEditor(options) {
     const losses = makeRef(exportLosses(doc.value));
     let pendingKey = null;
 
+    if (opts.saveDocument) selectFirst();
+
     function say(key) {
         announcement.value = label(key);
     }
@@ -123,8 +136,11 @@ export function useRichTextEditor(options) {
         doc.value = next;
         dirty.value = true;
         losses.value = exportLosses(next);
-        if (status.value !== 'denied') status.value = 'idle';
+        if (opts.saveDocument ? !['saving', 'stale', 'failed'].includes(status.value) : status.value !== 'denied') {
+            status.value = 'idle';
+        }
         pendingKey = null;
+        if (opts.saveDocument && status.value !== 'stale') announcement.value = 'Änderungen sind noch nicht gespeichert.';
     }
 
     function mapNode(nodeId, fn) {
@@ -141,6 +157,44 @@ export function useRichTextEditor(options) {
         const node = doc.value.nodes.find((n) => n.id === nodeId);
         if (!node || (runId != null && !node.runs.some((r) => r.id === runId))) return false;
         selection.value = { nodeId, runId: runId == null ? null : runId };
+        return true;
+    }
+
+    function selectFirst() {
+        const node = doc.value.nodes.find((n) => n.runs.length);
+        if (node) select(node.id, node.runs[0].id);
+    }
+
+    function applyLayout(key, value, onRun) {
+        if (readOnly.value) return;
+        const { nodeId, runId } = selection.value;
+        const next = mapNode(nodeId, (n) => onRun
+            ? { ...n, runs: n.runs.map((r) => r.id === runId ? { ...r, [key]: value } : r) }
+            : { ...n, [key]: value });
+        if (!next) return;
+        commit(next);
+        announcement.value = 'Formatierung geändert.';
+    }
+
+    function toggleHeading() {
+        if (readOnly.value) return;
+        const next = mapNode(selection.value.nodeId, (n) => n.kind === 'heading'
+            ? { ...n, kind: 'paragraph', level: 0 }
+            : { ...n, kind: 'heading', level: 2 });
+        if (!next) return;
+        commit(next);
+        announcement.value = 'Absatzformat geändert.';
+    }
+
+    function insertGraphic(objectId, altText, afterNode) {
+        if (readOnly.value || !GRAPHIC_ID.test(objectId)) return;
+        const node = { id: crypto.randomUUID(), kind: 'graphic', level: 0,
+            runs: [], object_id: objectId, alt_text: altText };
+        const nodes = [...doc.value.nodes];
+        const at = nodes.findIndex((n) => n.id === afterNode);
+        nodes.splice(at === -1 ? nodes.length : at + 1, 0, node);
+        commit({ ...doc.value, nodes });
+        announcement.value = 'Grafik eingefügt. Bitte speichern.';
         return true;
     }
 
@@ -198,6 +252,28 @@ export function useRichTextEditor(options) {
 
     async function save() {
         if (readOnly.value || !dirty.value || status.value === 'saving') return status.value;
+        if (opts.saveDocument) {
+            if (status.value === 'stale') return status.value;
+            status.value = 'saving';
+            const sent = doc.value;
+            const res = await opts.saveDocument(sent);
+            if (res.outcome === 'ok') {
+                version.value = res.data.document_version;
+                if (doc.value === res.sent) {
+                    doc.value = res.data.document;
+                    dirty.value = false;
+                    status.value = 'saved';
+                    say('clinic.richtext.saved');
+                } else {
+                    status.value = 'idle';
+                    announcement.value = 'Weitere Änderungen sind noch nicht gespeichert.';
+                }
+            } else {
+                status.value = res.outcome === 'conflict' ? 'stale' : 'failed';
+                say(status.value === 'stale' ? 'clinic.richtext.stale' : 'clinic.richtext.failed');
+            }
+            return status.value;
+        }
         if (!opts.client || !opts.savePath) { status.value = 'failed'; return status.value; }
         pendingKey = pendingKey || `richtext-${newId()}-${newId()}`.slice(0, 128);
         status.value = 'saving';
@@ -240,13 +316,15 @@ export function useRichTextEditor(options) {
         status.value = 'idle';
         losses.value = exportLosses(nextDoc);
         selection.value = { nodeId: null, runId: null };
+        if (opts.saveDocument) selectFirst();
+        announcement.value = '';
         pendingKey = null;
         return true;
     }
 
     return {
         doc, version, selection, status, dirty, readOnly, announcement, losses,
-        select, editRun, insertRun, toggleFormat, paste, save, replace,
+        select, editRun, insertRun, toggleFormat, applyLayout, toggleHeading, insertGraphic, paste, save, replace,
     };
 }
 
@@ -257,15 +335,19 @@ export const RichTextEditor = {
     name: 'ClinicRichTextEditor',
     props: {
         client: { type: Object, required: true },
-        savePath: { type: String, required: true },
+        savePath: { type: String, default: '' },
         document: { type: Object, required: true },
         version: { type: Number, default: 0 },
         canEdit: { type: Boolean, default: true },
+        saveDocument: { type: Function, default: null },
+        addGraphic: { type: Function, default: null },
+        graphicsPath: { type: String, default: '' },
+        reloadDocument: { type: Function, default: null },
     },
     setup(props) {
         const editor = useRichTextEditor({
             client: props.client, savePath: props.savePath, document: props.document,
-            version: props.version, canEdit: props.canEdit,
+            version: props.version, canEdit: props.canEdit, saveDocument: props.saveDocument,
         });
         const warning = surfaceFor('warning');
         const lossStyle = { background: warning.background, color: warning.color, border: `1px solid ${warning.border}` };
@@ -280,35 +362,149 @@ export const RichTextEditor = {
         function onPaste(event, node, run) {
             event.preventDefault();
             const data = event.clipboardData && event.clipboardData.getData('text/plain');
+            if (props.saveDocument) {
+                const { selectionStart, selectionEnd } = event.target;
+                const pasted = sanitizePaste(data);
+                if (editor.editRun(node.id, run.id, run.text.slice(0, selectionStart)
+                    + pasted.text + run.text.slice(selectionEnd))) {
+                    if (pasted.changed) editor.announcement.value = label('clinic.richtext.pasteCleaned');
+                    const cursor = selectionStart + pasted.text.length;
+                    Vue.nextTick(() => event.target.setSelectionRange(cursor, cursor));
+                }
+                return;
+            }
             editor.paste(node.id, run.id, data || '');
         }
         function format(node, run) {
             return FORMATS.filter((f) => run[f]).map((f) => label('clinic.richtext.' + f)).join(', ');
         }
-        return { ...editor, label, lossStyle, focusStyle, onKey, onPaste, format, FORMATS };
+        const selectedNode = Vue.computed(() => editor.doc.value.nodes.find((n) => n.id === editor.selection.value.nodeId));
+        const selectedRun = Vue.computed(() => selectedNode.value?.runs.find((r) => r.id === editor.selection.value.runId));
+        const showLayout = Vue.ref(false);
+        const showGraphic = Vue.ref(false);
+        const uploading = Vue.ref(false);
+        const alt = Vue.ref('');
+        const file = Vue.shallowRef(null);
+        if (props.saveDocument) {
+            Vue.watch(() => props.canEdit, (writable) => { editor.readOnly.value = !writable; }, { flush: 'sync' });
+            Vue.watch(() => props.document, (doc) => editor.replace(doc, props.version));
+        }
+        async function addPicture() {
+            if (editor.readOnly.value || uploading.value || !file.value) return;
+            const description = alt.value.trim();
+            if (!description || /[<>\x00-\x1f]/.test(description)) {
+                editor.announcement.value = 'Bitte eine kurze Bildbeschreibung ohne Sonderzeichen < und > eingeben.';
+                return;
+            }
+            uploading.value = true;
+            const afterNode = editor.selection.value.nodeId;
+            const objectId = await props.addGraphic(file.value);
+            uploading.value = false;
+            if (!objectId || !editor.insertGraphic(objectId, description, afterNode)) {
+                editor.announcement.value = 'Grafik konnte nicht eingefügt werden. Bitte eine PNG-Datei bis 2 MB wählen und die Bearbeitung prüfen.';
+                return;
+            }
+            showGraphic.value = false;
+            alt.value = '';
+            file.value = null;
+            await Vue.nextTick();
+            graphicButton.value?.focus();
+        }
+        const graphicButton = Vue.ref(null);
+        const pressedStyle = (pressed) => pressed ? {
+            ...targetSize, backgroundColor: 'var(--v8-s2)', borderColor: 'var(--v8-text-2)',
+        } : targetSize;
+        function runStyle(node, run) {
+            // The V8 phone input reset otherwise overrides the document's font size.
+            const size = run.font_size_pt ? run.font_size_pt + 'pt' : (node.kind === 'heading' ? '1.25rem' : '1rem');
+            return { ...focusStyle, minHeight: '48px', fieldSizing: 'content', overflowWrap: 'anywhere',
+                width: '100%', background: 'var(--surface)', color: 'var(--v8-text)',
+                border: '1px solid var(--v8-text-2)', borderRadius: '7px', padding: '10px 11px',
+                backgroundColor: !editor.readOnly.value && selectedRun.value?.id === run.id ? 'var(--v8-s1)' : null,
+                fontFamily: run.font_family, fontSize: size + ' !important',
+                fontWeight: run.bold || node.kind === 'heading' ? 700 : 400,
+                fontStyle: run.italic ? 'italic' : 'normal', textDecoration: run.underline ? 'underline' : 'none',
+                textAlign: node.text_align, lineHeight: node.line_spacing };
+        }
+        async function reload() {
+            if (editor.dirty.value && !globalThis.confirm('Ungespeicherte Änderungen verwerfen und den aktuellen Stand laden?')) return;
+            const loaded = await props.reloadDocument();
+            await Vue.nextTick();
+            editor.announcement.value = loaded ? 'Aktueller Stand geladen.' : 'Der aktuelle Stand konnte nicht geladen werden.';
+        }
+        return { ...editor, label, lossStyle, focusStyle, onKey, onPaste, format, FORMATS, LAYOUT,
+            selectedNode, selectedRun, targetSize, fieldStyle, pressedStyle, showLayout, graphicButton,
+            showGraphic, uploading, alt, file, addPicture,
+            runStyle, reload, isGraphicId: (id) => GRAPHIC_ID.test(id) };
     },
     template: `
-<section class="clinic-richtext" :aria-label="label('clinic.richtext.toolbar')">
-  <div role="toolbar" :aria-label="label('clinic.richtext.toolbar')">
-    <button v-for="f in FORMATS" :key="f" type="button" :aria-pressed="String(!!(selection.runId && doc.nodes.some(n => n.runs.some(r => r.id === selection.runId && r[f]))))"
-      :disabled="readOnly || !selection.runId" :style="focusStyle" @click="toggleFormat(f)">{{ label('clinic.richtext.' + f) }}</button>
-    <button type="button" :disabled="readOnly || !selection.nodeId" :style="focusStyle"
-      @click="insertRun(selection.nodeId, undefined, '')">{{ label('clinic.richtext.insert') }}</button>
-    <button type="button" :disabled="readOnly || !dirty || status === 'saving'" :aria-busy="status === 'saving'"
-      :style="focusStyle" @click="save">{{ status === 'failed' ? label('clinic.richtext.retry') : label('clinic.richtext.save') }}</button>
+<section class="clinic-richtext" :aria-label="label('clinic.richtext.toolbar')" :style="saveDocument ? 'display:grid;gap:12px;padding:16px' : null">
+  <div role="toolbar" :aria-label="label('clinic.richtext.toolbar')"
+    :style="saveDocument ? 'display:flex;flex-wrap:wrap;gap:8px;align-items:end' : null">
+    <template v-if="saveDocument">
+      <button type="button" class="button" :style="targetSize" :disabled="readOnly" :aria-expanded="showLayout"
+        @click="showLayout = !showLayout">Formatieren</button>
+      <button v-if="addGraphic" ref="graphicButton" type="button" class="button" :style="targetSize" :disabled="readOnly"
+        :aria-expanded="showGraphic" @click="showGraphic = !showGraphic">Grafik einfügen</button>
+      <button type="button" class="button primary"
+        :disabled="readOnly || !dirty || status === 'saving' || status === 'stale'" :aria-busy="status === 'saving'"
+        :style="targetSize" @click="save">{{ status === 'failed' ? label('clinic.richtext.retry') : label('clinic.richtext.save') }}</button>
+    </template>
+    <div v-if="saveDocument && showLayout" style="display:flex;flex:1 1 100%;flex-wrap:wrap;gap:8px;align-items:end;min-width:0">
+      <label v-for="field in LAYOUT" :key="field.key" style="display:grid;gap:4px;flex:1 1 132px;min-width:0">
+        {{ field.label }}
+        <select :disabled="readOnly || !selectedRun" :style="fieldStyle"
+          :value="(field.run ? selectedRun : selectedNode)?.[field.key] ?? ''"
+          @change="applyLayout(field.key, field.key === 'line_spacing' ? Number($event.target.value) || null : $event.target.value || null, field.run)">
+          <option v-for="[value, title] in field.choices" :key="value" :value="value">{{ title }}</option>
+        </select>
+      </label>
+      <label style="display:grid;gap:4px;flex:1 1 104px;min-width:0">Schriftgrösse
+        <input type="number" min="8" max="72" step="1" placeholder="Standard"
+          :style="fieldStyle" :disabled="readOnly || !selectedRun" :value="selectedRun?.font_size_pt ?? ''"
+          @change="$event.target.validity.valid && applyLayout('font_size_pt', $event.target.valueAsNumber || null, true)">
+      </label>
+      <button type="button" class="button" :style="pressedStyle(selectedNode?.kind === 'heading')" :disabled="readOnly || !selectedNode"
+        :aria-pressed="selectedNode?.kind === 'heading'" @click="toggleHeading">Überschrift</button>
+      <button v-for="f in FORMATS" :key="f" type="button" class="button" :aria-pressed="String(!!selectedRun?.[f])"
+        :disabled="readOnly || !selectedRun" :style="pressedStyle(selectedRun?.[f])"
+        @click="toggleFormat(f)">{{ label('clinic.richtext.' + f) }}</button>
+    </div>
+    <template v-if="!saveDocument">
+      <button v-for="f in FORMATS" :key="f" type="button" :aria-pressed="String(!!selectedRun?.[f])"
+        :disabled="readOnly || !selection.runId" :style="focusStyle" @click="toggleFormat(f)">{{ label('clinic.richtext.' + f) }}</button>
+      <button type="button" :disabled="readOnly || !selection.nodeId" :style="focusStyle"
+        @click="insertRun(selection.nodeId, undefined, '')">{{ label('clinic.richtext.insert') }}</button>
+      <button type="button" :disabled="readOnly || !dirty || status === 'saving'" :aria-busy="status === 'saving'"
+        :style="focusStyle" @click="save">{{ status === 'failed' ? label('clinic.richtext.retry') : label('clinic.richtext.save') }}</button>
+    </template>
   </div>
-  <div v-for="(node, ni) in doc.nodes" :key="node.id" :data-node-id="node.id" role="group">
-    <input v-for="(run, ri) in node.runs" :key="run.id" type="text" :data-run-id="run.id" :value="run.text"
-      :readonly="readOnly" :style="focusStyle"
+  <form v-if="showGraphic && !readOnly" aria-label="Grafik einfügen" @submit.prevent="addPicture">
+    <label class="field"><span>Bildbeschreibung</span><input type="text" maxlength="200" required v-model="alt" :style="fieldStyle"></label>
+    <label class="field"><span>PNG-Datei</span><input type="file" accept="image/png" required
+      :style="fieldStyle" @change="file = $event.target.files[0]"></label>
+    <button class="button" :style="targetSize" type="submit" :disabled="uploading">{{ uploading ? 'Grafik wird eingefügt …' : 'Einfügen' }}</button>
+  </form>
+  <div v-for="(node, ni) in doc.nodes" :key="node.id" :data-node-id="node.id" role="group"
+    :style="saveDocument ? 'display:grid;gap:4px;min-width:0' : null">
+    <img v-if="graphicsPath && node.kind === 'graphic' && isGraphicId(node.object_id)"
+      :src="graphicsPath + '/' + node.object_id" :alt="node.alt_text" style="max-width:100%;height:auto">
+    <component :is="saveDocument ? 'textarea' : 'input'" v-for="(run, ri) in node.runs" :key="run.id"
+      :rows="saveDocument ? 1 : undefined" :type="saveDocument ? undefined : 'text'" :data-run-id="run.id" :value="run.text"
+      :readonly="readOnly" :style="saveDocument ? runStyle(node, run) : focusStyle"
       :aria-label="label('clinic.richtext.run', { run: ri + 1, node: ni + 1 }) + (format(node, run) ? ', ' + format(node, run) : '') + (run.audio_anchor_id ? '' : ', ' + label('clinic.richtext.unaligned'))"
       @focus="select(node.id, run.id)" @input="editRun(node.id, run.id, $event.target.value)"
       @keydown="onKey($event, node, run)" @paste="onPaste($event, node, run)">
   </div>
-  <div v-if="losses.length" role="note" :style="lossStyle">
+  <div v-if="!saveDocument && losses.length" role="note" :style="lossStyle">
     <strong>{{ label('clinic.richtext.losses') }}</strong>
     <ul><li v-for="l in losses" :key="l.code">{{ l.message }}</li></ul>
   </div>
-  <p v-if="status === 'stale'" role="alert">{{ label('clinic.richtext.stale') }}</p>
+  <button v-if="reloadDocument && status === 'stale'" type="button" class="button" :style="targetSize" @click="reload">
+    {{ label('clinic.richtext.reload') }}
+  </button>
+  <p v-else-if="status === 'stale'" role="alert">{{ label('clinic.richtext.stale') }}</p>
+  <p v-if="saveDocument && dirty && !announcement" role="note">Änderungen sind noch nicht gespeichert.</p>
   <div role="status" aria-live="polite">{{ announcement }}</div>
 </section>`,
 };
