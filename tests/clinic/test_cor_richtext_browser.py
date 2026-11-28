@@ -85,6 +85,17 @@ def test_typist_edits_moves_and_reopens_annotated_document(rich_server):
         if not runs.first.is_editable():
             page.locator('[data-action=acquire]').click()
         expect(runs.first).to_be_editable()
+
+        second_run = runs.nth(1)
+        second_run.focus()
+        second_run.evaluate('field => field.setSelectionRange(4, 10)')
+        second_run.press('Control+Alt+p')
+        vocabulary = page.get_by_role('dialog', name='Wort hinzufügen')
+        expect(vocabulary.get_by_label('Schreibweise')).to_have_value('Stimme')
+        page.keyboard.press('Escape')
+        expect(vocabulary).to_have_count(0)
+        expect(second_run).to_be_focused()
+
         page.wait_for_function("document.querySelector('.clinic-correction-view audio')?.readyState >= 2")
         _play_passage(page, LINES[0], TIMES[0])
 

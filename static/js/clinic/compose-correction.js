@@ -37,6 +37,7 @@ import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
 import { CorrectionAudioPanel, DictationSummary, createCorrectionToolbar, useCorrectionEditor, vTip, createRepeatTranscription, REPEAT_TEXT } from './correction-editor-ui.js';
 import { LABELS as ALIGN_LABELS, createPlaybackHighlighter, useCorrectionAlignment } from './correction-alignment-ui.js';
 import { CorrectionWaveform } from './correction-waveform-ui.js';
+import { createHandmicView } from './handmic-webhid.js';
 import { PlaybackTempo, usePlaybackTempo } from './playback-tempo-ui.js';
 import { MODES, useCorrectionModes } from './correction-modes-ui.js';
 import { useCorrectionSave } from './correction-save-ui.js';
@@ -44,6 +45,7 @@ import { applyReplacements, findMatches, transformSelectionCase } from './correc
 import { FORMATS, label as richTextLabel, sanitizePaste } from './richtext-editor-ui.js';
 import { AudioMarkers } from './audio-markers-ui.js';
 import { PlaybackGain, usePlaybackGain } from './playback-gain-ui.js';
+import { createVocabularyStore, useVocabularyEntryDialog, VOCABULARY_ENTRY_DIALOG } from './vocabulary-ui.js';
 import { FinishOptions } from './finish-options-ui.js';
 import { createWorkflowActions } from './workflow-actions-ui.js';
 
@@ -322,6 +324,7 @@ export function createCorrectionViewController(options) {
     let closing = false;
     const stops = [];
     const audioListeners = [];
+    let activeRange = null;
     let tempo = null;
     let pedal = null;
     let pedalReady = Promise.resolve(null);
@@ -329,9 +332,11 @@ export function createCorrectionViewController(options) {
 
     // contract 'v8': shared lease controller, reconcile before a new key, +-5 s step. Without it the pre-V8 behaviour stays.
     const v8 = opts.contract === 'v8';
+    const stepSeconds = v8 ? STEP_SECONDS_V8 : STEP_SECONDS;
     const editor = useCorrectionEditor({
         client, dictationId, currentUser: user, vue: V || undefined, exposeLeaseController: v8,
     });
+    const lease = createLeaseAdapter(editor, V);
 
     const position = () => {
         const el = audioEl.value;
@@ -339,6 +344,58 @@ export function createCorrectionViewController(options) {
     };
     const getPositionMs = () => (audioEl.value ? Math.round(position() * 1000) : null);
     const seek = (seconds) => { if (audioEl.value) audioEl.value.currentTime = seconds; };
+
+    function clearRange() {
+        const range = activeRange;
+        activeRange = null;
+        if (range?.frame != null) range.view.cancelAnimationFrame(range.frame);
+        return range;
+    }
+
+    function stopRange() {
+        clearRange()?.el.pause();
+    }
+
+    function checkRange() {
+        const range = activeRange;
+        if (!range) return;
+        if (editor.textRevisionId.value !== range.textRevision || editor.audio.value !== range.audio) {
+            stopRange();
+        } else if (range.el.currentTime >= range.end) {
+            stopRange();
+            range.el.currentTime = range.end;
+        }
+    }
+
+    async function playRange(start, end) {
+        const el = audioEl.value;
+        const audio = editor.audio.value;
+        if (!el || audio.status !== 'ready' || !audio.src || !el.currentSrc
+            || el.currentSrc !== new URL(audio.src, el.ownerDocument.baseURI).href
+            || !Number.isFinite(el.duration) || !Number.isFinite(start) || !Number.isFinite(end)
+            || start < 0 || start >= end || start >= el.duration || end > el.duration + 0.001) return false;
+        manuallyPaused = false;
+        modes.cancelResume();
+        clearRange();
+        const range = { el, start, end: Math.min(end, el.duration), audio,
+            textRevision: editor.textRevisionId.value, view: el.ownerDocument.defaultView };
+        activeRange = range;
+        try {
+            el.currentTime = start;
+            await el.play();
+        } catch {
+            if (activeRange === range) clearRange();
+            return false;
+        }
+        if (activeRange !== range) return false;
+        // Keep short marks bounded between the media element's timeupdate events.
+        const tick = () => {
+            checkRange();
+            if (activeRange === range) range.frame = range.view.requestAnimationFrame(tick);
+        };
+        if (range.view?.requestAnimationFrame) range.frame = range.view.requestAnimationFrame(tick);
+        return true;
+    }
 
     const alignment = useCorrectionAlignment({ editor, client, dictationId, seek, vue: V || undefined });
 
@@ -378,7 +435,7 @@ export function createCorrectionViewController(options) {
 
     const saver = useCorrectionSave({
         editor, client, dictationId, getPositionMs, vue: V || undefined,
-        lease: createLeaseAdapter(editor, V),
+        lease,
         ...(opts.autosaveMs !== undefined ? { autosaveMs: opts.autosaveMs } : {}),
         ...(v8 ? { reconcileFirst: true } : {}),
         ...(opts.document === true ? { document: true, seek } : {}),
@@ -404,6 +461,39 @@ export function createCorrectionViewController(options) {
         granularityOf: (id) => doc.available.value ? 'segment' : alignment.granularityOf(id),
     } : alignment;
     if (doc && api.watch) stops.push(api.watch([doc.doc, doc.version, editor.audio], () => highlighter?.refresh()));
+
+    const handmicWritable = () => !disposed && opts.openMode !== 'player'
+        && editor.canEdit.value && lease.getState().writable;
+    const handmicVersion = ref(0);
+    const handmic = opts.openMode === 'player' ? null : createHandmicView(opts.hid, {
+        feedback() {
+            return handmicWritable()
+                ? { message: 'Handmikrofon bereit.', led: 'standby' }
+                : { message: 'Handmikrofon gesperrt. Bearbeitung nicht möglich.', led: 'off' };
+        },
+        onCommand(command) {
+            if (!handmicWritable()) {
+                handmic.sync();
+                return;
+            }
+            switch (command) {
+            case 'play': return togglePlayback();
+            case 'stop': return modeAudio.pause();
+            case 'rewind': return tempo?.rewind(stepSeconds);
+            case 'forward': return tempo?.skip(stepSeconds);
+            case 'eol': return editor.dirty.value ? save() : undefined;
+            }
+        },
+        onChange() { handmicVersion.value += 1; },
+    });
+    const handmicModel = api.computed(() => {
+        handmicVersion.value;
+        return handmic?.model() ?? null;
+    });
+    if (handmic) {
+        if (editor.leaseController) stops.push(lease.subscribe(() => handmic.sync()));
+        if (api.watch) stops.push(api.watch(handmicWritable, () => handmic.sync(), { flush: 'sync' }));
+    }
 
     const repeat = createRepeatTranscription({ editor, ref });
     const resumeLabel = (api.computed)(() => {
@@ -438,6 +528,7 @@ export function createCorrectionViewController(options) {
 
     // --- audio wiring -------------------------------------------------------
     function unbindAudio() {
+        stopRange();
         manuallyPaused = false;
         modes.cancelResume();
         for (const [node, name, fn] of audioListeners.splice(0)) {
@@ -475,12 +566,19 @@ export function createCorrectionViewController(options) {
             if (gainContext && typeof gainContext.resume === 'function') Promise.resolve(gainContext.resume()).catch(() => {});
             if (gain) gain.start();
         });
-        listen('pause', () => { if (gain) gain.stop(); });
+        const onPlaybackStop = () => {
+            if (el.paused) clearRange();
+            if (gain) gain.stop();
+        };
+        listen('pause', onPlaybackStop);
         listen('ended', () => {
             manuallyPaused = false;
             modes.cancelResume();
-            if (gain) gain.stop();
+            onPlaybackStop();
         });
+        listen('timeupdate', checkRange);
+        listen('seeking', () => { if (activeRange && Math.abs(el.currentTime - activeRange.start) > 0.001) clearRange(); });
+        listen('emptied', clearRange);
         // Same tempo controller the player buttons use (seek, rewind); the pedal calls it too.
         tempo = usePlaybackTempo({ audio: el, onSync });
         // Highlight follows the real media position (rAF while playing, events otherwise); it never touches focus or editor state.
@@ -547,7 +645,10 @@ export function createCorrectionViewController(options) {
         return Promise.all([alignment.refresh(), loadReview()]);
     }
 
-    if (api.watch) stops.push(api.watch(editor.textRevisionId, () => { syncRevision(); }));
+    if (api.watch) {
+        stops.push(api.watch(editor.textRevisionId, () => { checkRange(); syncRevision(); }));
+        stops.push(api.watch(editor.audio, checkRange));
+    }
 
     async function save() {
         if (doc && (!ready.value || documentLoading.value)) return { ok: false, state: saver.state.value };
@@ -858,6 +959,7 @@ export function createCorrectionViewController(options) {
         disposed = true;
         repeat.dispose();
         for (const stop of stops.splice(0)) if (typeof stop === 'function') stop();
+        const handmicClosed = handmic?.dispose().catch((error) => console.warn('WebHID close failed', error));
         if (pedal) { pedal.detach(); pedal = null; }
         pedalStatus.value = '';
         unbindAudio();
@@ -874,6 +976,7 @@ export function createCorrectionViewController(options) {
             doc.available.value = false;
         }
         Promise.resolve(released).catch(() => {});
+        return handmicClosed;
     }
 
     return {
@@ -881,12 +984,13 @@ export function createCorrectionViewController(options) {
         ready, loadGeneration, revisionGeneration, audioEl, gainState, closeMessage, resumeLabel, documentLoading, seekDocument,
         reviewList, reviewOutstanding, reviewActive, reviewMessage, reviewLoaded, loadReview, moveReview, confirmReview,
         recordingId: () => opts.recordingId || editor.audio.value.recordingId || null,
-        peaksKey, peaksFetch,
+        peaksKey, peaksFetch, playRange,
         stepSeconds: v8 ? STEP_SECONDS_V8 : STEP_SECONDS, togglePlayback,
         leaseRun, leaseButtons,
         pedalStatus, pedalReady: () => pedalReady, pedal: () => pedal, setPedalSettings,
         start, load, save, setText, reloadLatest, keepMine, takeServer, compare: () => saver.compare(), close, dispose, syncRevision,
         client: scoped, adoptAudioRevision, bindAudio, bindAlignmentRoot, alignmentRootEl: () => alignmentRoot, alignmentNotice, onSync, onShortcut, onKeydown, onInput, onSelect, onTemplate, seekToResume, getPositionMs, seek,
+        handmic, handmicModel,
         text: TEXT,
     };
 }
@@ -1059,10 +1163,11 @@ export const CorrectionBody = {
             dictationId: props.dictationId,
             currentUser: props.currentUser,
             vue: props.vue || undefined,
-            contract: 'v8',
+            contract: 'v8', // the mounted view runs the V8 save contract: lease controller, reconcile first, +-5 s step
             document: props.openMode !== 'player',
-            openMode: props.openMode,
             recordingId: props.recordingId || undefined,
+            get openMode() { return props.openMode; },
+            hid: props.openMode === 'player' ? undefined : globalThis.navigator?.hid,
             createAudioContext: props.createAudioContext || undefined,
             onClose: () => { if (ctx && typeof ctx.emit === 'function') ctx.emit('close'); },
         });
@@ -1203,6 +1308,19 @@ export const CorrectionBody = {
                 const offset = range ? range.start : 0;
                 el.setSelectionRange(Math.max(0, start - offset), end - offset);
             },
+        };
+        const vocabulary = createVocabularyStore(c.client);
+        const canAddPhrase = V.computed(() => canEdit.value && props.openMode !== 'player');
+        const entryModal = useVocabularyEntryDialog(V, (draft) => canAddPhrase.value
+            ? vocabulary.saveEntry(draft)
+            : { message: 'Zum Hinzufügen muss das Diktat bearbeitbar sein.' }, 'ccv-voc', () => {
+            const selected = currentRun.value;
+            (selected ? runField(selected.run.id) : textEl.value)?.focus();
+        });
+        const addSelectedPhrase = () => {
+            if (!canAddPhrase.value) return;
+            const { text, start, end } = editorPort.read();
+            return entryModal.openSelectedEntry(text.slice(start, end));
         };
         const tb = createCorrectionToolbar({
             editor: editorPort,
@@ -1353,6 +1471,13 @@ export const CorrectionBody = {
         const setRunRoot = (node) => { runRoot.value = node; };
         const onTextInput = (event) => { c.onInput(event); tb.notifyChange(); };
         const onTextKeydown = (event) => {
+            if (canAddPhrase.value && !event.defaultPrevented && !event.isComposing && !event.shiftKey && event.altKey
+                && (event.ctrlKey || event.metaKey) && !event.getModifierState?.('AltGraph')
+                && (event.key?.toLowerCase() === 'p' || (event.metaKey && event.code === 'KeyP'))) {
+                event.preventDefault();
+                if (!event.repeat) addSelectedPhrase();
+                return;
+            }
             c.onKeydown(event);
             if (event.isComposing) return;
             if (documentMode.value && (event.ctrlKey || event.metaKey) && !event.altKey) {
@@ -1405,6 +1530,7 @@ export const CorrectionBody = {
         const SHORTCUTS = V.computed(() => [
             ['Speichern', 'Strg/Cmd+S'], [TEXT.undo, 'Strg/Cmd+Z'], [TEXT.redo, 'Strg/Cmd+Umschalt+Z'],
             [TEXT.paragraph, 'Strg/Cmd+Enter'], [TEXT.marker, 'Strg/Cmd+Umschalt+M'], [TEXT.find, 'Strg/Cmd+F'],
+            ['Markierten Text hinzufügen', 'Strg/Cmd+Alt+P'],
             ['Vollbild', 'Strg/Cmd+Umschalt+F'], [TEXT.shortcuts, 'F1'], ['Fertigstellen (wenn verfügbar)', 'F5'],
             ...(documentMode.value ? Object.entries(FORMAT_KEYS).map(([key, format]) => [formatName(format), 'Strg/Cmd+' + key.toUpperCase()]) : []),
         ]);
@@ -1474,6 +1600,7 @@ export const CorrectionBody = {
             formatDictationReference,
             c, FOCUS, MODES, box, styleFor, TEXT, showDiff, finishOptions, finishWorkflow, onFinishKeydown,
             tb, tbState, textEl, setTextEl, fontPx, focusMode, shortcutsOpen, highlightOn, inlineWord, editorScroll, followOn, onTextInput, onTextKeydown, onFindKeydown,
+            ...entryModal, entryListName: 'Eigene Liste', addSelectedPhrase, canAddPhrase,
             onQuery, onReplacement, onCase, onSelectionCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, drawerClose, closeDrawer, toggleDrawer, unsavedSuffix,
             repeatState: c.repeat.state, REPEAT_TEXT,
             SessionTransportNotice,
@@ -1491,7 +1618,7 @@ export const CorrectionBody = {
             backstepSeconds: m.backstepSeconds,
             ready: c.ready, loadGeneration: c.loadGeneration, revisionGeneration: c.revisionGeneration,
             audioEl: c.audioEl, gainState: c.gainState, closeMessage: c.closeMessage, resumeLabel: c.resumeLabel,
-            pedalStatus: c.pedalStatus, alignmentNotice: c.alignmentNotice,
+            pedalStatus: c.pedalStatus, alignmentNotice: c.alignmentNotice, handmicModel: c.handmicModel,
         };
     },
     template: `
@@ -1567,9 +1694,14 @@ export const CorrectionBody = {
     <div class="live-inline-status" role="group" :aria-label="TEXT.lease" data-testid="lease-bar"
          style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
       <span role="status" aria-live="polite" :style="{ color: lease.surface.color }">{{ lease.message }}</span>
-      <button v-for="b in c.leaseButtons()" :key="b.id" type="button"                    :class="['button', 'small', b.id === 'acquire' ? 'primary' : '']" :style="FOCUS" :disabled="b.disabled"
+      <button v-for="b in c.leaseButtons()" :key="b.id" type="button" :class="['button', 'small', b.id === 'acquire' ? 'primary' : '']" :style="FOCUS" style="min-height: 48px" :disabled="b.disabled"
               :data-action="b.id" @click="c.leaseRun[b.id]()">{{ b.label }}</button>
+      <button v-if="openMode !== 'player' && handmicModel?.available" type="button" class="button" :style="FOCUS"
+              style="min-height: 48px" :disabled="!handmicModel.canPair" data-testid="handmic-pair"
+              @click="c.handmic.pair()">Handmikrofon koppeln</button>
     </div>
+    <p v-if="openMode !== 'player' && handmicModel" role="status" aria-live="polite" data-testid="handmic-status"
+       style="margin: 0 0 var(--ui-space-2); color: var(--v8-text)">{{ handmicModel.message }}</p>
 
     <template v-if="ready">
       <div class="player-dock" ref="playerDock">
@@ -1741,6 +1873,11 @@ export const CorrectionBody = {
                     @scroll.passive="editorScroll = $event.target.scrollTop" @input="onTextInput($event)" @keydown="onTextKeydown($event)" @select="followOn = false; c.onSelect($event)"
                     @keyup="c.onSelect($event)" @mouseup="c.onSelect($event)"></textarea>
         </div>
+        <div v-if="canAddPhrase" class="actions" style="padding-inline:var(--sp-3)">
+          <button type="button" class="small" style="min-height:48px" :style="FOCUS" aria-haspopup="dialog"
+            aria-keyshortcuts="Control+Alt+P Meta+Alt+P" @click="addSelectedPhrase()">Markierten Text hinzufügen</button>
+          <span role="status">{{ entryNotice }}</span>
+        </div>
         <section v-if="reviewLoaded || reviewMessage" class="panel review-hits" :aria-label="TEXT.reviewTitle" data-testid="review-hits">
           <div class="panel-header" style="flex-wrap: wrap; margin-bottom: 0">
             <h2>{{ TEXT.reviewTitle }}</h2>
@@ -1844,8 +1981,8 @@ export const CorrectionBody = {
       </fieldset>
     </section>
     <section class="panel">
-      <CorrectionWaveform :key="'w' + loadGeneration + audio.revisionId" :editor="c.editor" :alignment="revisionAlignment" :client="c.client"
-                          :dictation-id="dictationId" :recording-id="c.peaksKey()" :fetch-fn="c.peaksFetch" :seek="c.seek" :vue="c.vue" />
+      <CorrectionWaveform :key="'w' + loadGeneration + '-' + revisionGeneration + audio.revisionId" :editor="c.editor" :alignment="revisionAlignment" :client="c.client"
+                          :dictation-id="dictationId" :recording-id="c.peaksKey()" :fetch-fn="c.peaksFetch" :play-range="c.playRange" :vue="c.vue" />
     </section>
 
   </div>
@@ -1897,6 +2034,7 @@ export const CorrectionBody = {
     </div>
   </div>
   <div role="status" aria-live="polite" class="sr-only">{{ editorAnnouncement }}</div>
+  ${VOCABULARY_ENTRY_DIALOG}
 </section>`,
 };
 
