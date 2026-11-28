@@ -1,6 +1,6 @@
-"""HTTP surface for recipient, selection, workstation, key-binding and output preferences.
+"""HTTP surface for recipient, selection, workstation, active-pool, key-binding and output preferences.
 
-PAR-ADM-006, PAR-ADM-007, PAR-ADM-011, PAR-CFG-001, PAR-OPS-003, PAR-EXP-001.
+PAR-ADM-002, PAR-ADM-006, PAR-ADM-007, PAR-ADM-011, PAR-CFG-001, PAR-OPS-003, PAR-EXP-001.
 A thin layer over ``recipient_defaults``, ``last_selection``,
 ``workstation_preferences``, ``key_bindings`` and ``output_preferences``.
 The actor is always ``current_user``. A body never names an actor, user or
@@ -23,9 +23,11 @@ from typing import Any
 from flask import Blueprint, abort, jsonify, request, session
 from flask_login import current_user
 from flask_wtf.csrf import CSRFError, validate_csrf
+from sqlalchemy.exc import SQLAlchemyError
 from wtforms.validators import ValidationError
 
 from src.clinic import (
+    app_wiring,
     correction_modes,
     key_bindings,
     notification_preferences,
@@ -189,6 +191,7 @@ class PreferenceRoutes:
             ("/workstations", "workstation_issue", self._workstation_issue, ("POST",)),
             ("/workstations/<workstation_id>", "workstation", self._workstation, ("GET", "PUT")),
             ("/correction-mode", "correction_mode", self._correction_mode, ("GET", "PUT")),
+            ("/active-pool", "active_pool", self._active_pool, ("GET", "PUT")),
             ("/key-bindings", "key_bindings", self._key_bindings, ("GET", "PUT", "DELETE")),
             ("/output", "output", self._output, ("GET", "PUT")),
             ("/notifications", "notifications", self._notifications, ("GET", "PUT")),
@@ -331,6 +334,31 @@ class PreferenceRoutes:
         body = _body()
         mode, version = correction_modes.set_mode(actor, body.get("mode"), body.get("expected_version"))
         return jsonify(mode=mode, version=version)
+
+    # -- active author pool (PAR-ADM-002) -----------------------------------
+    def _active_pool(self):
+        actor = current_user.id
+        is_write = request.method == "PUT"
+        try:
+            if is_write:
+                body = _body()
+                pool_id = body.get("pool_id")
+                if (body.keys() != {"pool_id"} or not isinstance(pool_id, str)
+                        or not 1 <= len(pool_id) <= 36):
+                    return _problem("invalid_payload")
+                result = app_wiring.set_active_author_pool(actor, pool_id)
+            else:
+                result = app_wiring.active_author_pool(actor)
+            return jsonify(
+                pool_id=result.pool_id,
+                reselection_required=result.reselection_required,
+                pools=[{"id": pool.id, "name": pool.name} for pool in result.pools],
+            )
+        except app_wiring.ActivePoolNotAllowed:
+            return _problem("author_pool_not_allowed", 403)
+        except SQLAlchemyError:
+            db.session.rollback()
+            return _problem("preference_write_failed" if is_write else "preference_read_failed")
 
     # -- output formats (PAR-EXP-001) ---------------------------------------
     def _output(self):
