@@ -18,7 +18,7 @@ describe('display-only list references', () => {
 
     it('retains verified case display and ignores title and notes', () => {
         const row = toViewRow({ ...items[0], case_display: 'F-77', title: 'Hidden title', notes: 'Hidden note' });
-        expect(row.heading).toBe('Fall-ID F-77');
+        expect(row.heading).toBe('Fallnummer F-77');
         expect(row.reference).toBe('#12345678…9abc');
         expect(JSON.stringify(row)).not.toMatch(/Hidden title|Hidden note/);
         expect(row.dictationId).toBe(ids[0]);

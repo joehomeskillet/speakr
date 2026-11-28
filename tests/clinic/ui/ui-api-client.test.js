@@ -221,6 +221,31 @@ describe('clinic api client', () => {
         expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
+    it('aborts a stalled recordings request at its deadline', async () => {
+        vi.useFakeTimers();
+        try {
+            fetchMock.mockImplementation((url, { signal }) => new Promise((resolve, reject) => {
+                signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+            }));
+            const client = createClinicApiClient();
+            const pending = client.request('/recordings', { timeoutMs: 12000 });
+            await vi.advanceTimersByTimeAsync(12000);
+            expect(await pending).toMatchObject({ outcome: 'network', message: 'Die Verbindung ist fehlgeschlagen.' });
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('invalidates the lists after an uncertain send without retrying the send', async () => {
+        fetchMock.mockRejectedValueOnce(new TypeError('response lost'));
+        const client = createClinicApiClient();
+        const response = await client.request('/dictations/d1/send', { method: 'POST', body: {} });
+        expect(response.outcome).toBe('network');
+        expect(client.dictationChanges).toBe(1);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
     it('returns UNKNOWN for a capability refusal and drops unsafe codes', async () => {
         fetchMock.mockResolvedValue(problem(422, 'CAPABILITY_UNAVAILABLE', { code: 'CAPABILITY_UNAVAILABLE' }));
         const client = createClinicApiClient();

@@ -15,10 +15,12 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import CheckConstraint, UniqueConstraint, event
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import joinedload
 
 from src.database import db
 from src.models import Group, GroupMembership, User
@@ -534,19 +536,27 @@ def ensure_routable(pool, now=None) -> None:
         raise PoolError("pool_inactive")
 
 
-def routable_staff_pool_ids(author_pool_id: str, now=None) -> list[str]:
-    """Ids of the staff pools linked to the author pool that are routable now (active, inside validity).
-
-    For consumers that pick recipients of NEW dictations. Existing dictations, history and read
-    rights are unaffected by this filter.
-    """
+def routable_staff_pools(author_pool_id: str, now: datetime | None = None) -> list[ClinicStaffPool]:
+    """Staff pools linked to this author pool that are active and within their validity window."""
+    now = now or datetime.now(timezone.utc)
     rows = (
         db.session.query(ClinicStaffPool)
         .join(ClinicPoolRoute, ClinicPoolRoute.staff_pool_id == ClinicStaffPool.id)
+        .options(joinedload(ClinicStaffPool.group))
         .filter(ClinicPoolRoute.author_pool_id == author_pool_id)
         .order_by(ClinicStaffPool.id)
     )
-    return [pool.id for pool in rows if is_routable(pool, now)]
+    return [pool for pool in rows if is_routable(pool, now)]
+
+
+def routable_staff_pool_ids(author_pool_id: str, now=None) -> list[str]:
+    """Ids for new routing; existing dictations, history and read rights are unaffected."""
+    return [pool.id for pool in routable_staff_pools(author_pool_id, now)]
+
+
+def staff_service_names(staff_pools: Iterable[ClinicStaffPool]) -> list[str]:
+    """Sorted display names for the supplied pools, not individual recipients."""
+    return sorted(name for pool in staff_pools if (name := pool.name) is not None)
 
 
 def _stamp(value):

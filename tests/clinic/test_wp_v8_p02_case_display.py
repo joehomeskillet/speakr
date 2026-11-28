@@ -21,7 +21,7 @@ def test_bound_case_in_worklist_heading(review_scene):
             assert page.request.get(path + "/detail").json()["case_display"] == "SYN-0492"
             page.goto(base + "/#/arbeitsliste")
             heading = page.locator(f'tr[data-row][data-id="{did}"] .titletext strong')
-            expect(heading).to_have_text("Fall-ID SYN-0492")
+            expect(heading).to_have_text("Fallnummer SYN-0492")
             page.set_viewport_size({"width": 390, "height": 844})
             expect(heading).to_be_visible()
             stranger = mount._login(browser, base, mount.STRANGER)

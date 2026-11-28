@@ -1,6 +1,6 @@
 /**
  * Composed clinic recordings view (V8 P01 Aufnahmen): one responsive list of
- * record rows in day groups (the grid of .recording-row changes at the
+ * record rows in a pending section and day groups (the grid of .recording-row changes at the
  * prototype breakpoints). The server filters and sorts; only the free-text
  * search runs client-side over the loaded rows. Mounting into the page and the shared api-client
  * come from the page (package v8-03). Opening a row emits `open` with
@@ -39,6 +39,7 @@ export const RecordingsView = {
             currentUser: props.currentUser,
             vue: props.vue || undefined,
             memory: props.memory || undefined,
+            pendingFirst: true,
             onOpen: (payload) => { if (ctx && typeof ctx.emit === 'function') ctx.emit('open', payload); },
         });
         const V = props.vue || (typeof window !== 'undefined' ? window.Vue : null);
@@ -119,7 +120,12 @@ export const RecordingsView = {
             const row = c.state.rows.find((entry) => entry.dictationId === id);
             return row && { dictator: row.author, pool: row.poolText };
         }
-        return { c, rowContext, recordingLabel, scroller, root, onScroll, filtersOpen, t: TEXT, periods: PERIODS };
+        function jumpToPending() {
+            const heading = root.value?.querySelector('#crv-pending-title');
+            heading?.focus({ preventScroll: true });
+            heading?.scrollIntoView({ block: 'start' });
+        }
+        return { c, rowContext, recordingLabel, jumpToPending, scroller, root, onScroll, filtersOpen, t: TEXT, periods: PERIODS };
     },
     template: `
 <section ref="root" class="clinic-recordings-view cl-view content-inner v8-page" data-testid="clinic-recordings-view" aria-labelledby="crv-title">
@@ -139,6 +145,11 @@ export const RecordingsView = {
       </button>
     </div>
   </div>
+  <button v-if="c.pendingLabel()" type="button" class="btn btn--ghost"
+          style="min-height: 48px; margin-bottom: var(--ui-space-4); white-space: normal"
+          data-testid="pending-shortcut" aria-controls="crv-pending" @click="jumpToPending">
+    {{ c.pendingLabel() }} <i class="fa-solid fa-arrow-down" aria-hidden="true"></i>
+  </button>
   <!-- Filter card (prototype record-toolbar). The server filters by author, pool, status and period; the search runs over the loaded rows. -->
   <form id="crv-filters" role="search" :aria-label="t.filters" data-testid="filters"
         @submit.prevent="c.hasDraftChanges() && c.applyFilters()">
@@ -193,7 +204,7 @@ export const RecordingsView = {
   <template v-else>
     <div v-if="c.state.error" role="alert" class="cl-alert" :style="c.errorStyle" data-testid="load-error">
       <span><span v-if="c.state.stale">{{ t.stale }} </span>{{ c.state.error }}</span>
-      <button type="button" class="btn btn--ghost btn--sm" @click="c.load()">{{ t.retry }}</button>
+      <button type="button" class="btn btn--ghost btn--sm" style="min-height: 48px" @click="c.load()">{{ t.retry }}</button>
     </div>
     <div v-if="c.state.loaded && !c.state.error" class="record-list-meta">
       <p role="status" aria-live="polite" data-testid="result-count">{{ c.countLabel() }}</p>
@@ -214,16 +225,20 @@ export const RecordingsView = {
     <!-- One responsive list for desktop and phone: the grid of .recording-row changes at the prototype breakpoints.
          The former copies (table "hidden md:table" and cards) are gone; the role cells keep their data-cell markers. -->
     <div v-if="c.visibleRows().length" ref="scroller" class="record-timeline" data-testid="scroller">
-      <section v-for="g in c.groups()" :key="'d:' + g.day" class="date-group" :aria-label="g.caption ? g.title + ', ' + g.caption : g.title">
+      <section v-for="g in c.groups()" :key="g.key || 'd:' + g.day" class="date-group"
+               :id="g.pending ? 'crv-pending' : null" :aria-labelledby="g.pending ? 'crv-pending-title' : null"
+               :aria-label="g.pending ? null : (g.caption ? g.title + ', ' + g.caption : g.title)">
         <div class="date-heading">
-          <h2 data-testid="day-heading">{{ g.title }}</h2>
+          <h2 :id="g.pending ? 'crv-pending-title' : null" :tabindex="g.pending ? -1 : null"
+              :data-testid="g.pending ? 'pending-heading' : 'day-heading'">{{ g.title }}</h2>
           <span v-if="g.caption" class="date-caption">{{ g.caption }}</span>
-          <span class="group-count">{{ g.countText }}</span>
+          <span v-if="g.countText" class="group-count">{{ g.countText }}</span>
         </div>
+        <p v-if="g.pending" class="subtitle" style="margin: 0 0 var(--ui-space-3)">{{ t.pendingSaved }}</p>
         <div class="record-group-list" data-testid="cards">
           <div v-for="r in g.rows" :key="r.key" class="cl-reference-row">
           <button type="button" class="recording-row" data-row data-card :data-id="r.dictationId" data-testid="open-link"
-             :disabled="!r.dictationId" :aria-label="r.ariaLabel" :aria-describedby="'crv-workflow-' + r.key + (r.processing ? ' crv-processing-' + r.key : '')" @click.prevent="c.open(r)">
+             :disabled="!r.dictationId" :aria-label="r.ariaLabel" :aria-describedby="'crv-next-' + r.key + (r.processing ? ' crv-processing-' + r.key : '')" @click.prevent="c.open(r)">
             <time class="record-time" :datetime="r.datetime || null">{{ r.time }}</time>
             <span class="record-icon" aria-hidden="true">
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h10l4 4v14H5zM15 3v6h5M9 12h6M9 16h6"/></svg>
@@ -237,10 +252,11 @@ export const RecordingsView = {
                 <span v-if="r.hasLease" class="record-role"><span class="record-role-label">{{ t.lease }}:</span> <span class="dictator-name" data-cell="lease">{{ r.leaseHolder }}</span></span>
               </span>
               <span class="record-subtitle" :class="r.isFallback ? 'date-fallback' : ''"><span>Diktat {{ r.reference }}</span><span v-if="r.fallbackText" data-testid="fallback" :title="r.fallbackTip" :aria-label="r.fallbackTip"> · {{ r.fallbackText }}</span><span v-else-if="r.isFallback" data-testid="fallback" :title="r.fallbackTip" :aria-label="r.fallbackTip"> · {{ r.fallbackLabel }}</span></span>
-              <span v-if="r.processing" :id="'crv-processing-' + r.key" class="cl-processing">Spracherkennung: {{ r.processing }}</span>
+              <span v-if="r.processing" :id="'crv-processing-' + r.key" class="cl-processing" data-testid="recording-text-state">{{ r.processing }}</span>
             </span>
-            <span class="status" :id="'crv-workflow-' + r.key" :class="r.statusClass">Arbeitsstand: {{ r.status }}</span>
-            <span class="record-source" aria-hidden="true"></span>
+            <span class="status" :id="'crv-next-' + r.key" :class="r.needsAction ? 'wartet' : r.statusClass"
+                   data-testid="recording-next-step" :data-action-needed="r.needsAction ? 'true' : 'false'"><span>{{ r.nextStep }}</span></span>
+            <span class="record-source" hidden></span>
             <span class="record-duration">{{ r.duration }}</span>
             <span class="record-chevron" aria-hidden="true">›</span>
           </button>
