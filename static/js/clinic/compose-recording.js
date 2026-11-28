@@ -628,6 +628,8 @@ export function createRecordingViewController(options) {
             title: s.title,
             titleLocked: !isTitleEditable(s.phase),
             microphoneOptions: microphoneOptions(),
+            selectedMicrophoneId: opts.microphone?.deviceId === 'default' ? '' : opts.microphone?.deviceId || '',
+            needsMicrophoneAccess: !opts.microphone?.inputs?.some(({ deviceId, label }) => deviceId && deviceId !== 'default' && label),
             voxEnabled,
             voxStatus: ['recording', 'paused', 'review', 'failed'].includes(s.phase) && takeVoxEnabled
                 ? (voxEnabled ? TEXT.voxActive : TEXT.voxActiveNextOff)
@@ -751,15 +753,17 @@ export const RECORDING_TEMPLATE = `
             <svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor" aria-hidden="true"><path :d="icons.start"></path></svg>
             Aufnahme starten
           </button>
-          <div v-if="microphone" style="display: grid; gap: var(--ui-space-2); width: 100%; max-width: 20rem; text-align: left">
-            <label for="crv-microphone">Mikrofon</label>
-            <select id="crv-microphone" :value="microphone.deviceId === 'default' ? '' : microphone.deviceId"
-                    :disabled="!enabled('start')" @change="microphone.select($event.target.value)" style="${TOUCH}">
-              <option value="">Standardmikrofon</option>
-              <option v-for="device in m.microphoneOptions" :key="device.deviceId" :value="device.deviceId">{{ device.label }}</option>
-            </select>
-            <button v-if="!microphone.inputs.some(device => device.deviceId && device.deviceId !== 'default' && device.label)"
-                    type="button" class="button quiet" :disabled="!enabled('start')" @click="microphone.requestAccess()" style="${TOUCH}">
+          <div v-if="microphone" role="group" aria-labelledby="crv-microphone-label"
+               style="display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--ui-space-2); width: 100%; max-width: 20rem; text-align: left">
+            <span id="crv-microphone-label">Mikrofon</span>
+            <button v-for="device in [{ deviceId: '', label: 'Standardmikrofon' }, ...m.microphoneOptions]" :key="device.deviceId"
+                    type="button" class="button" :class="{ accent: device.deviceId === m.selectedMicrophoneId }"
+                    :aria-pressed="device.deviceId === m.selectedMicrophoneId" :disabled="!enabled('start')"
+                    @click="microphone.select(device.deviceId)" style="${TOUCH}; white-space: normal; overflow-wrap: anywhere">
+              {{ device.label }}
+            </button>
+            <button v-if="m.needsMicrophoneAccess" type="button" class="button quiet"
+                    :disabled="!enabled('start')" @click="microphone.requestAccess()" style="${TOUCH}">
               Mikrofonzugriff erlauben
             </button>
           </div>
