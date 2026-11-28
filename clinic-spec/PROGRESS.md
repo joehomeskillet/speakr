@@ -10,3 +10,6 @@ Bestehenden Fortschritt nicht durch diese Anfangsnotiz löschen; versioniert zus
 
 ## P-145 – PAR-COR-005
 Zeitbasierter Rücksprung im Schreibplatz (Standard 2 s, 0 s ohne Rücksprung) lokal in Chromium mit synthetischem Audio geprüft: Tipp-Pause, Weiterlaufmodus, manuelle Pause/Neustart und Tastaturemulation der Pedalsteuerung. Referenzvergleich, Wortzahl-Rücksprung und physisches Pedal bleiben `not_run`.
+
+## FX-ede3d7 – Browserregression P17
+Die V8-Browsermatrix verwendet für das synthetische Diktat eine abgeschlossene Transkription mit gespeicherter Wortzuordnung. Alle sechs P17-Varianten und 32 benachbarte Prüfungen bestanden lokal; keine Änderung am Produktverhalten oder am Paritätsstatus.
