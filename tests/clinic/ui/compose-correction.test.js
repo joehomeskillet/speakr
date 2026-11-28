@@ -190,7 +190,7 @@ describe('compose-correction contract', () => {
         expect(CorrectionView.emits).toContain('close');
     });
 
-    it('composes the editor and finish building blocks and reuses tokens and api-client', () => {
+    it('composes the editor and finish building blocks and reuses tokens, api-client and key bindings', () => {
         for (const mod of [
             'correction-editor-ui', 'correction-alignment-ui', 'correction-waveform-ui', 'playback-tempo-ui',
             'correction-modes-ui', 'correction-save-ui', 'audio-markers-ui', 'playback-gain-ui',
@@ -204,7 +204,30 @@ describe('compose-correction contract', () => {
         const imports = allImports.filter((path) => !additions.includes(path));
         expect(imports).toHaveLength(new Set(imports).size);
         expect(imports).toContain('./vocabulary-ui.js');
-        expect(imports).toHaveLength(14);
+        expect(imports).toContain('./key-bindings-ui.js');
+        expect(imports).toHaveLength(15);
+    });
+
+    it('keeps the fixed finish command in the focused section alongside personal shortcuts', () => {
+        const ref = (value) => ({ value });
+        const vue = { ref, shallowRef: ref, reactive: (value) => value, computed: (fn) => ({ get value() { return fn(); } }) };
+        const view = CorrectionBody.setup({ client: fakeClient(), dictationId: 'd1', currentUser: user, vue });
+        const finish = vi.fn();
+        view.finishOptions.value = { onKeydown: finish };
+        const hasFocus = vi.fn(() => false);
+        const event = { key: 'F5', currentTarget: { ownerDocument: { hasFocus } },
+            stopPropagation: vi.fn(), preventDefault: vi.fn() };
+
+        view.onSectionKeydown(event);
+        expect(finish).not.toHaveBeenCalled();
+        hasFocus.mockReturnValue(true);
+        view.onSectionKeydown(event);
+        expect(finish).toHaveBeenCalledOnce();
+        expect(finish).toHaveBeenCalledWith(event);
+        expect(event.stopPropagation).toHaveBeenCalledOnce();
+        expect(event.preventDefault).toHaveBeenCalledOnce();
+        expect(view.SHORTCUTS.value).toContainEqual(['Fertigstellen (wenn verfügbar)', 'F5']);
+        view.c.dispose();
     });
 
     it('uses German labels, tokens only, keyboard-operable native controls and no browser storage', () => {

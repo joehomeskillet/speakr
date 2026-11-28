@@ -55,7 +55,7 @@ it('mounts the shared status in settings', () => {
 });
 
 it('mounts the shared status in recording through its setup binding', () => {
-    const setup = RecordingView.setup({ vue: { ref: Vue.ref, computed: Vue.computed }, currentUser: { id: 7 }, recorder: {}, uploadFile: vi.fn() }, {});
+    const setup = RecordingView.setup({ vue: { ref: Vue.ref, computed: Vue.computed, reactive: Vue.reactive }, currentUser: { id: 7 }, recorder: {}, uploadFile: vi.fn() }, {});
     expect(setup.SessionTransportNotice).toBe(SessionTransportNotice);
     expect(RecordingView.template).toContain('<component :is="SessionTransportNotice" ');
 });

@@ -26,8 +26,10 @@
  * dictation_id); it is supplied by the mount package together with the recorder.
  */
 
+import { isControlTarget, isTypingTarget } from '../modules/utils/keyboard-shortcuts.js';
 import { SessionTransportNotice } from './compose-settings.js';
 import { createHandmicView } from './handmic-webhid.js';
+import { dispatchBinding, scopedKeyEvent, useKeyBindings } from './key-bindings-ui.js';
 import { createRecorderPhases, isTitleEditable, LABELS, receiptDictationId } from './recorder-phases-ui.js';
 import { createPedalController } from './pedal-ui.js';
 import { CATEGORIES, RequiredCategories } from './categories-ui.js';
@@ -985,7 +987,7 @@ export const RECORDING_TEMPLATE = `
                  @loadedmetadata="loadReview" @durationchange="c.machine.syncPlayback()" @seeked="finishDurationProbe"
                  @play="c.machine.syncPlayback()" @pause="c.machine.syncPlayback()" @ended="c.machine.syncPlayback()"
                  @error="c.machine.playbackFailed()" style="width: 100%; min-height: 3rem"></audio>
-          <button type="button" class="button primary" style="${TOUCH}; width: 100%; font-size: 1rem" data-testid="rec-send" :disabled="!!m.routing" @click="c.sendRecording()">
+          <button type="button" class="button primary" style="${TOUCH}; width: 100%; font-size: 1rem" data-testid="rec-send" :disabled="!!m.routing" :aria-keyshortcuts="shortcuts.send" @click="c.sendRecording()">
             {{ m.recordActionLabel }}
           </button>
           <button type="button" class="button quiet" style="${TOUCH}; font-size: .875rem"
@@ -1017,7 +1019,7 @@ export const RECORDING_TEMPLATE = `
         <span class="sr-only" data-testid="created-id">{{ m.created.dictationId }}</span>
         <div class="actions" style="justify-content: center">
           <button v-if="!['submitted', 'notDraft'].includes(m.phase)" type="button" class="button primary" style="${TOUCH}"
-                  :disabled="!m.canSubmit || m.categoriesLoading" data-testid="submit-draft" @click="c.submit()">{{ c.text.submit }}</button>
+                  :disabled="!m.canSubmit || m.categoriesLoading" data-testid="submit-draft" :aria-keyshortcuts="shortcuts.send" @click="c.submit()">{{ c.text.submit }}</button>
           <a href="#/diktat" data-testid="open-created" style="${LINK}" @click.prevent="c.openCreated()">{{ m.mode === 'file' ? c.text.open : 'Diktat öffnen' }}</a>
           <button v-if="m.mode === 'file'" type="button" class="button" style="${TOUCH}" data-testid="to-worklist" @click="c.toWorklist()">{{ c.text.toWorklist }}</button>
           <button type="button" class="button" style="${TOUCH}" data-testid="another" :disabled="m.draft?.saving || m.draft?.loading || m.phase === 'submitting'" @click="c.another()">{{ c.text.title }}</button>
@@ -1115,30 +1117,51 @@ export const RecordingView = {
             media.currentTime = 0;
             c.machine.setPlayer(media);
         }
-        const shortcuts = {
-            start: 'Alt+Shift+R', pause: 'Alt+Shift+R', resume: 'Alt+Shift+R',
-            play: 'Alt+Shift+Space', stop: 'Alt+Shift+S',
-        };
-        function onKeydown(event) {
-            const doc = root.value?.ownerDocument;
-            if (!doc || editingDraft.value || event.defaultPrevented || event.isComposing || event.ctrlKey || event.metaKey || !event.altKey || !event.shiftKey) return;
-            if (event.target !== doc.body && !root.value.contains(event.target)) return;
-            const { mode, phase, controls, created } = m.value;
-            if (created || mode !== 'record' || props.authorized?.() === false) return;
-            const review = phase === 'review' && controls.some(b => b.id === 'play' && !b.disabled);
-            let action;
-            switch (event.key.toLowerCase()) {
-                case 'r': action = c[CAPTURE_TOGGLE[phase]]; break;
-                case 's': action = phase === 'recording' || phase === 'paused' ? c.stop : review ? c.machine.stopPlayback : null; break;
-                case ' ': action = review && c.play; break;
-                case 'arrowleft': action = review && (() => c.machine.skip(-REVIEW_SKIP_SECONDS)); break;
-                case 'arrowright': action = review && (() => c.machine.skip(REVIEW_SKIP_SECONDS)); break;
-            }
-            if (!action) return;
-            event.preventDefault();
-            if (!event.repeat) return action();
-        }
+        const { state: keyBindings } = useKeyBindings(V, props.client, () => props.currentUser.id);
         const enabled = (id) => m.value.controls.some((control) => control.id === id && !control.disabled);
+        const canUseShortcuts = () => !editingDraft.value && !m.value.routing
+            && m.value.mode === 'record' && props.authorized?.() !== false;
+        const finishAction = () => {
+            const { phase, created, canSubmit, categoriesLoading } = m.value;
+            if (created) return canSubmit && !categoriesLoading && phase !== 'notDraft' ? c.submit : null;
+            return (phase === 'review' || phase === 'failed') && enabled('send') ? c.sendRecording : null;
+        };
+        const hasSpaceFallback = () => !Object.values(keyBindings.bindings).includes('Space');
+        const shortcuts = V.computed(() => {
+            if (!canUseShortcuts()) return {};
+            const ariaChord = (id) => {
+                const chord = keyBindings.bindings[id];
+                return chord && !chord.startsWith('Pedal:') ? chord.replace(/^Ctrl\+/, 'Control+') : null;
+            };
+            const withSpace = (chord) => [chord, hasSpaceFallback() ? 'Space' : null].filter(Boolean).join(' ') || null;
+            const toggle = ariaChord('record_toggle');
+            return {
+                start: enabled('start') ? withSpace(toggle) : null,
+                pause: toggle, resume: toggle,
+                stop: withSpace(ariaChord('stop')),
+                send: finishAction() ? ariaChord('finish') : null,
+            };
+        });
+        function onKeydown(event) {
+            if (!canUseShortcuts()) return;
+            const { phase, created } = m.value;
+            const toggle = !created && CAPTURE_TOGGLE[phase];
+            const review = !created && phase === 'review' && enabled('play');
+            const actions = {};
+            let result;
+            const bind = (id, action) => { actions[id] = () => { result = action(); }; };
+            if (toggle && enabled(toggle)) bind('record_toggle', c[toggle]);
+            if (!created && enabled('stop')) bind('stop', c.stop);
+            else if (review) bind('stop', c.machine.stopPlayback);
+            if (review) {
+                bind('play_pause', c.play);
+                bind('rewind', () => c.machine.skip(-REVIEW_SKIP_SECONDS));
+                bind('forward', () => c.machine.skip(REVIEW_SKIP_SECONDS));
+            }
+            const finish = finishAction();
+            if (finish) bind('finish', finish);
+            return dispatchBinding(event, root.value, keyBindings.bindings, actions) ? result : space(event);
+        }
         const level = V.ref(0);
         const elapsed = V.computed(() => {
             const seconds = props.recorder.elapsedSeconds || 0;
@@ -1162,22 +1185,22 @@ export const RecordingView = {
             cleanup(() => cancelAnimationFrame(frame));
         });
         const space = (event) => {
-            if (event.code !== 'Space' || event.repeat || event.defaultPrevented
+            if (event.code !== 'Space' || event.repeat || event.defaultPrevented || event.isComposing
                 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey
-                || event.target?.isContentEditable
+                || !hasSpaceFallback() || !scopedKeyEvent(event, root.value)
+                || isTypingTarget(event.target) || isControlTarget(event.target)
                 || event.target?.closest?.('a, button, input, select, textarea, audio, summary')) return;
-            if (editingDraft.value || m.value.routing || m.value.created || m.value.mode !== 'record') return;
+            if (m.value.created) return;
             const action = enabled('start') ? 'start' : enabled('stop') ? 'stop' : null;
             if (!action) return;
             event.preventDefault();
-            void c[action]();
+            return c[action]();
         };
         let doc;
         V.onMounted?.(() => {
             doc = root.value?.ownerDocument;
             doc?.addEventListener('keydown', onKeydown);
             if (doc) c.attachPedal(doc);
-            globalThis.window?.addEventListener('keydown', space);
             globalThis.window?.addEventListener('online', recheckRouting);
         });
         V.onMounted?.(() => {
@@ -1187,7 +1210,6 @@ export const RecordingView = {
         });
         V.onBeforeUnmount?.(() => {
             doc?.removeEventListener('keydown', onKeydown);
-            globalThis.window?.removeEventListener('keydown', space);
             globalThis.window?.removeEventListener('online', recheckRouting);
             off();
             return c.dispose();
