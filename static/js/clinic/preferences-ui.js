@@ -131,7 +131,7 @@ export function createPreferencesController(deps) {
 
     function modeAllowed(mode) {
         return state.recipientChoiceGrant !== 'default_only'
-            && !(mode === 'person' && state.recipientChoiceGrant === 'staff_pools_only');
+            && (state.recipientChoiceGrant !== 'staff_pools_only' || mode === 'staff_pool');
     }
 
     function targetOptions(mode) {

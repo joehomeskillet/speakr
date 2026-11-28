@@ -65,7 +65,9 @@ def set_rule(page, view, endpoint, value):
 
 def open_settings(page, base):
     page.goto(base + "/#/einstellungen")
-    return page.get_by_test_id("clinic-preferences")
+    panel = page.get_by_test_id("clinic-preferences")
+    expect(panel.get_by_test_id("clinic-preferences-recipient-limit")).to_be_visible(timeout=30_000)
+    return panel
 
 
 def test_admin_recipient_rule_survives_reload_and_limits_alpha(browser, recipient_app):
@@ -87,10 +89,19 @@ def test_admin_recipient_rule_survives_reload_and_limits_alpha(browser, recipien
         author_page.reload()
         expect(limit).to_contain_text("Nur Schreibteams")
         expect(preferences.get_by_test_id("clinic-preferences-mode-person")).to_have_count(0)
+        expect(preferences.get_by_test_id("clinic-preferences-mode-all_eligible")).to_have_count(0)
+        expect(preferences.get_by_test_id("clinic-preferences-mode-self_correction")).to_have_count(0)
         expect(preferences.locator('input[name="clinic-preferences-choice"]')).to_have_count(0)
         target = preferences.get_by_test_id("clinic-preferences-target")
         expect(target.locator("option")).to_have_text(["Bitte wählen", "Schreibdienst Bern"])
         expect(target.locator("option:checked")).to_have_text("Schreibdienst Bern")
+        author_page.reload()
+        expect(limit).to_contain_text("Nur Schreibteams")
+        assert author.request.get(grants).json()["recipient_choice"] == "staff_pools_only"
+
+        set_rule(admin_page, view, grants, "open")
+        author_page.reload()
+        expect(limit).to_contain_text("Personen und Schreibteams")
         preferences.get_by_test_id("clinic-preferences-mode-self_correction").check()
         with author_page.expect_response(lambda res: res.url.endswith(DEFAULT_URL) and res.request.method == "PUT") as saved:
             preferences.get_by_test_id("clinic-preferences-save").click()
@@ -98,13 +109,8 @@ def test_admin_recipient_rule_survives_reload_and_limits_alpha(browser, recipien
         assert "choice" not in saved.value.request.post_data_json
         expect(preferences.get_by_test_id("clinic-preferences-notice")).to_have_text("Gespeichert.")
         author_page.reload()
-        expect(limit).to_contain_text("Nur Schreibteams")
-        expect(preferences.get_by_test_id("clinic-preferences-mode-self_correction")).to_be_checked()
-        assert author.request.get(grants).json()["recipient_choice"] == "staff_pools_only"
-
-        set_rule(admin_page, view, grants, "open")
-        author_page.reload()
         expect(limit).to_contain_text("Personen und Schreibteams")
+        expect(preferences.get_by_test_id("clinic-preferences-mode-self_correction")).to_be_checked()
         preferences.get_by_test_id("clinic-preferences-mode-person").check()
         expect(target.locator("option")).to_contain_text(["Bitte wählen", "Schreib1", "lead-v860"])
     finally:
