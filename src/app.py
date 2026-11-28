@@ -1450,14 +1450,17 @@ def register_clinic_audio(flask_app):
     from src.clinic.admin_dictation_access import can_open_content
     from src.clinic.draft_store import DraftStore
     from src.clinic.ingest import IngestService
+    from src.clinic.live_asr_adapter import LiveAsrAdapter, get_live_asr_config
     from src.clinic.models import ClinicDictation
+    from src.clinic.richtext_graphics import GraphicStore
+    from src.clinic.routes_richtext_graphics import create_blueprint as create_graphics_blueprint
     from src.clinic import routes_live_drafts
 
     dispatch = flask_app.extensions['clinic_parity_dispatch']
     run_once = flask_app.extensions['clinic_run_once']
     # Handler action name -> central policy actions that must all be allowed.
     needs = {
-        'play': ('play',), 'edit': ('edit',), 'export': ('export',), 'import': ('edit',),
+        'play': ('play',), 'view': ('view',), 'edit': ('edit',), 'export': ('export',), 'import': ('edit',),
         'correction_read': ('view',), 'correction_edit': ('edit',), 'clipboard': ('export',),
         'audio_export': ('audio_export',),
     }
@@ -1507,7 +1510,7 @@ def register_clinic_audio(flask_app):
         return may(actor, 'edit', db.session.get(ClinicDictation, dictation_id))
 
     drafts = DraftStore()
-    routes_live.register_live_commands(dispatch, edit_live)
+    routes_live.register_live_commands(dispatch, edit_live, stream_enabled=True)
     flask_app.register_blueprint(routes_audio.create_blueprint(
         authorize=authorize, run_once=run_once, load_sources=load_sources))
     flask_app.register_blueprint(routes_dictation_properties.DictationPropertyRoutes(protection_store).blueprint())
@@ -1516,11 +1519,15 @@ def register_clinic_audio(flask_app):
         bundle_persist, lambda scope, digest, operation: bundle_store.run_locked(scope, digest, operation, run_once, may),
         managed_client))
     flask_app.register_blueprint(routes_live.create_blueprint(
-        edit_live, IngestService(startup.originals_root(flask_app)), drafts=drafts))
+        edit_live, IngestService(originals_root), drafts=drafts,
+        stream_adapter=lambda: LiveAsrAdapter(get_live_asr_config()),
+        authorize_view=lambda actor, dictation_id: may(actor, 'view', db.session.get(ClinicDictation, dictation_id)),
+        authorize_play=lambda actor, dictation_id: may(actor, 'play', db.session.get(ClinicDictation, dictation_id))))
     flask_app.register_blueprint(routes_live_drafts.create_blueprint(drafts, edit_live))
     flask_app.register_blueprint(routes_correction.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation),
         run_once=run_once, require_if_match=True))
+    flask_app.register_blueprint(create_graphics_blueprint(GraphicStore(startup.originals_root(flask_app))))
     flask_app.register_blueprint(routes_correction_documents.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation)))
     # V8 alignment (v8-86)
