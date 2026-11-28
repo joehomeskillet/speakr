@@ -86,6 +86,10 @@ def test_processing_labels_and_dictation_jobs(browser, app_base, role_states, si
             has=page.get_by_text('Titel: Synthetic processing', exact=True)).click()
         page.get_by_role('button', name='Verarbeitung', exact=True).click()
         jobs = page.get_by_test_id('clinic-jobs-view')
+        close = page.get_by_test_id('session-review-close')
+        expect(jobs.or_(close)).to_be_visible()
+        if close.is_visible():
+            close.click()
         expect(jobs.get_by_test_id('job-list')).to_be_visible()
         expect(jobs.get_by_test_id('job-count')).to_have_text('1')
         page.screenshot(path=str(out / f'jobs-{size}-{theme}.png'))

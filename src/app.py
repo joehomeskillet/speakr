@@ -1449,14 +1449,15 @@ def register_clinic_audio(flask_app):
     revision. A source that cannot be read stays empty and is never replaced by synthetic audio.
     """
     from src.clinic import (app_wiring, bundle_store, config, local_tts, policy, pool_policy,
-                            revisions, routes_audio, routes_bundle, routes_clipboard, routes_correction,
+                            revisions, richtext, routes_audio, routes_bundle, routes_clipboard, routes_correction,
                             routes_correction_documents, routes_dictation_properties, routes_live,
-                            routes_output, routes_tts, startup)
+                            routes_live_drafts, routes_output, routes_tts, startup)
     from src.clinic.admin_dictation_access import can_open_content
+    from src.clinic.clipboard_ledger import AuditClipboardLedger
     from src.clinic.draft_store import DraftStore
     from src.clinic.ingest import IngestService
+    from src.clinic.live_asr_adapter import LiveAsrAdapter, get_live_asr_config
     from src.clinic.models import ClinicDictation
-    from src.clinic import routes_live_drafts
     from src.clinic.richtext_graphics import GraphicStore
     from src.clinic.routes_richtext_graphics import create_blueprint as create_graphics_blueprint
 
@@ -1515,7 +1516,7 @@ def register_clinic_audio(flask_app):
             recording=policy.build_facts(dictation.recording_id, dictation.author_user_id))
 
     drafts = DraftStore()
-    routes_live.register_live_commands(dispatch, may_edit_live)
+    routes_live.register_live_commands(dispatch, may_edit_live, stream_enabled=True)
     flask_app.register_blueprint(routes_audio.create_blueprint(
         authorize=authorize, run_once=run_once, load_sources=load_sources))
     protection = routes_dictation_properties.DictationPropertyRoutes(protection_store)
@@ -1526,7 +1527,8 @@ def register_clinic_audio(flask_app):
         bundle_persist, lambda scope, digest, operation: bundle_store.run_locked(scope, digest, operation, run_once, may),
         managed_client))
     flask_app.register_blueprint(routes_live.create_blueprint(
-        may_edit_live, IngestService(originals_root), drafts=drafts))
+        may_edit_live, IngestService(originals_root), drafts=drafts,
+        stream_adapter=lambda: LiveAsrAdapter(get_live_asr_config())))
     flask_app.register_blueprint(routes_live_drafts.create_blueprint(drafts, may_edit_live))
     flask_app.register_blueprint(routes_correction.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation),
@@ -1543,7 +1545,7 @@ def register_clinic_audio(flask_app):
     flask_app.register_blueprint(routes_tts.TtsApi(tts_load, lambda: None, None).blueprint)
     flask_app.register_blueprint(routes_clipboard.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation),
-        source_for=routes_output.output_source, ledger={}))
+        source_for=routes_output.output_source, ledger=AuditClipboardLedger()))
     flask_app.register_blueprint(routes_output.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation),
         adapter_for=lambda: routes_output.configured_adapter(flask_app)))

@@ -54,6 +54,9 @@ class AuditClipboardLedger(MutableMapping[str, OutputAttempt]):
                 entries[attempt.idempotency_key] = attempt
         return entries
 
+    def attempts_for(self, dictation_id: str) -> dict[str, OutputAttempt]:
+        return self._entries(dictation_id=dictation_id)
+
     def __getitem__(self, key):
         entries = self._entries(key=key)
         # Optimistic read token, scoped to this DB session, not authoritative state.
