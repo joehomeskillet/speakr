@@ -159,21 +159,41 @@ const ASR_TEMPLATE = `
     <button class="small" type="button" :disabled="view.loading || view.busy" @click="controller.load()">{{ view.labels.reload }}</button>
   </div>
   <p v-if="adminLayout && view.ready && !view.profile" class="hint">Für Ihr Konto ist noch kein Sprachprofil gespeichert.</p>
-  <p class="hint" id="res-asr-source">{{ view.labels.source }}</p>
+  <p class="hint" id="res-asr-source">{{ view.labels.source }}<template v-if="view.profileMode === 'separate'"> für Live-Erkennung</template></p>
   <div class="actions" role="radiogroup" aria-labelledby="res-asr-source" @keydown="onSourceKey">
     <button v-for="s in view.sources" :key="s.value" type="button" role="radio"
-      :disabled="!view.ready || view.busy" :class="{ active: s.selected }"
+      :disabled="!view.ready || view.busy"
+      :style="s.selected ? { backgroundColor: 'var(--ink)', borderColor: 'var(--ink)', color: 'var(--v8-on-ink, var(--text-button))' } : null"
       :aria-checked="s.selected ? 'true' : 'false'" :tabindex="s.selected ? 0 : -1"
       @click="controller.setSource(s.value)">{{ s.value === 'recorder' ? 'Aufnahmegerät' : s.label }}</button>
   </div>
-  <div class="field-grid">
-    <div v-if="!adminLayout || view.profile || view.live.length" class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
+  <div class="field-grid" :style="adminLayout ? null : 'margin-block-start:var(--sp-3)'">
+    <div v-if="view.profileMode" class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
+      <label for="res-asr-mode">{{ view.labels.profileMode }}</label>
+      <select id="res-asr-mode" style="background-color:var(--surface)" :disabled="!view.ready || view.busy" :value="view.profileMode" @change="controller.setProfileMode($event.target.value)">
+        <option v-for="o in view.profileModes" :key="o.value" :value="o.value">{{ o.label }}</option>
+      </select>
+    </div>
+    <div v-if="view.profileMode === 'separate'" class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
+      <label for="res-asr-batch-source">{{ view.labels.batchSource }}</label>
+      <select id="res-asr-batch-source" style="background-color:var(--surface)" :disabled="!view.ready || view.busy" :value="view.batchSource || ''" @change="controller.setBatchSource($event.target.value)">
+        <option disabled value="">Quelle wählen</option>
+        <option v-for="o in view.sources" :key="o.value" :value="o.value">{{ o.value === 'recorder' ? 'Aufnahmegerät' : o.label }}</option>
+      </select>
+    </div>
+    <div v-if="!adminLayout || view.supportsSaveRule" class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
+      <label for="res-asr-save-rule">{{ view.labels.saveRule }}</label>
+      <select id="res-asr-save-rule" style="background-color:var(--surface)" :disabled="!view.ready || view.busy" :value="view.saveRule" @change="controller.setSaveRule($event.target.value)">
+        <option v-for="o in view.saveRules" :key="o.value" :value="o.value">{{ o.label }}</option>
+      </select>
+    </div>
+    <div v-if="!view.profileMode && (!adminLayout || view.profile || view.live.length)" class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
       <label for="res-asr-live">{{ view.labels.live }}</label>
       <select id="res-asr-live" :disabled="!view.ready || view.busy || (adminLayout && !view.live.length)" :value="selected(view.live)" @change="controller.setProfile('live', $event.target.value || null)">
         <option value="">Kein Profil</option><option v-for="o in view.live" :key="o.value" :value="o.value">{{ o.label }}</option>
       </select>
     </div>
-    <div v-if="!adminLayout || view.profile || view.batch.length" class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
+    <div v-if="!view.profileMode && (!adminLayout || view.profile || view.batch.length)" class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
       <label for="res-asr-batch">{{ view.labels.batch }}</label>
       <select id="res-asr-batch" :disabled="!view.ready || view.busy || (adminLayout && !view.batch.length)" :value="selected(view.batch)" @change="controller.setProfile('batch', $event.target.value || null)">
         <option value="">Kein Profil</option><option v-for="o in view.batch" :key="o.value" :value="o.value">{{ o.label }}</option>
@@ -202,12 +222,13 @@ const ASR_TEMPLATE = `
       </table>
     </div>
     <p v-else class="hint">Keine Fähigkeiten konfiguriert. Es liegt kein Wirkungsnachweis vor.</p>
+    <p v-if="view.profileMode" class="hint">Getrennte Quellen verwenden dasselbe Erkennungsmodell. Getrennte Akustikprofile werden nicht unterstützt.</p>
     <p class="note">${ASR_TRAINING_NOTE}</p>
   </template>
   <div>
     <p v-if="adminLayout && view.profile" class="hint">Sie speichern Änderungen für Ihr eigenes Konto.</p>
     <div class="actions asr-save-actions">
-      <button class="primary" :style="adminLayout ? null : 'background:var(--ink);border-color:var(--ink);color:var(--surface);font-size:13px;padding:9px 13px'"
+      <button class="primary" :style="adminLayout ? null : 'background:var(--ink);border-color:var(--ink);color:var(--v8-on-ink, var(--text-button));font-size:13px;padding:9px 13px'"
         type="button" :disabled="!view.canSave" @click="controller.save()">{{ view.labels.save }}</button>
       <button v-if="!adminLayout || view.dirty" type="button" :disabled="!view.dirty || view.busy" @click="controller.cancel()">{{ view.labels.cancel }}</button>
     </div>
@@ -225,6 +246,7 @@ const ASR_TEMPLATE = `
     <p v-if="!view.profile" class="hint">Bei einem Ausfall der Spracherkennung können Sie den Text von Hand schreiben.</p>
     <details>
       <summary>Technische Details</summary>
+      <p v-if="view.profileMode" class="hint">Getrennte Quellen verwenden dasselbe Erkennungsmodell. Getrennte Akustikprofile werden nicht unterstützt.</p>
       <dl class="keyvalues">
         ${ASR_TECHNICAL_ROWS}
         <div><dt>Modellhash</dt><dd>Nicht gemeldet</dd></div>
@@ -296,7 +318,7 @@ export function createPanels(Vue) {
 }
 
 export const RESOURCES_TEMPLATE = `
-<div class="clinic-resources-view cl-view">
+<div class="clinic-resources-view cl-view v8-page">
   <h1 class="cl-title">${LABELS.tablist}</h1>
   <p v-if="state.denied" role="alert">${LABELS.denied}</p>
   <template v-else>

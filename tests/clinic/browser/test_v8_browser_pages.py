@@ -182,7 +182,10 @@ def test_p15_profile_layout(browser, app_base, role_states, size, theme, state):
         expect(view.get_by_text("Ihr Gerät sendet Aufnahmen an Speakr.", exact=False)).to_be_visible()
         if state == "empty":
             expect(config.get_by_text("Für Ihr Konto ist noch kein Sprachprofil gespeichert.", exact=True)).to_be_visible()
-            expect(config.get_by_role("combobox")).to_have_count(0)
+            expect(config.locator("#res-asr-live, #res-asr-batch")).to_have_count(0)
+            expect(config.get_by_role("combobox")).to_have_count(2)
+            expect(config.get_by_label("Quellenzuordnung", exact=True)).to_have_value("shared")
+            expect(config.get_by_label("Speicherregel", exact=True)).to_have_value("never")
             expect(primary).to_be_enabled()
         else:
             expect(view.get_by_label("Profil beim Diktieren (live)", exact=True)).to_have_value("p")
@@ -228,6 +231,23 @@ def test_p15_first_profile_uses_existing_save_and_vocabulary_link(browser, app_b
         assert response.value.ok
         assert response.value.request.post_data_json["source"] == "recorder"
         expect(page.get_by_role("status").filter(has_text="Profilvorgabe gespeichert.")).to_be_visible()
+        page.get_by_label("Quellenzuordnung", exact=True).select_option("separate")
+        batch_source = page.get_by_label("Quelle für Hintergrund-Erkennung", exact=True)
+        batch_source.select_option("headset")
+        rule = page.get_by_label("Speicherregel", exact=True)
+        rule.select_option("ask")
+        expect(page.get_by_role("status").filter(has_text="Ungespeicherte Änderungen")).to_be_visible()
+        expect(page.get_by_role("status").filter(has_text="Profilvorgabe gespeichert.")).to_have_count(0)
+        with page.expect_response(lambda res: res.url.endswith("/asr-profiles/selection")) as response:
+            primary.click()
+        assert response.value.ok
+        payload = response.value.request.post_data_json
+        assert (payload["profile_mode"], payload["batch_source"], payload["save_rule"]) == ("separate", "headset", "ask")
+        expect(page.get_by_role("status").filter(has_text="Profilvorgabe gespeichert.")).to_be_visible()
+        page.reload()
+        expect(page.get_by_label("Quellenzuordnung", exact=True)).to_have_value("separate")
+        expect(batch_source).to_have_value("headset")
+        expect(rule).to_have_value("ask")
         page.get_by_role("link", name="Wortschatz prüfen", exact=True).click()
         expect(page).to_have_url(app_base + "/admin#/wortschatz")
         expect(page.get_by_role("heading", name="Wortschatz", exact=True)).to_be_visible()
