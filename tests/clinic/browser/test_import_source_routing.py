@@ -41,6 +41,7 @@ def test_change_existing_import_routing(browser, tmp_path, monkeypatch):
         assert put.value.status == 200
         expect(page.get_by_role("status").filter(has_text="Importzuordnung gespeichert")).to_be_visible()
         page.reload()
+        support._wait_loading_overlay_gone(page)
         expect(page.get_by_text("Importautor · author-v860", exact=True)).to_be_visible()
         edit.click()
         expect(author).to_have_value(str(actor))
@@ -79,6 +80,7 @@ def test_change_existing_import_routing(browser, tmp_path, monkeypatch):
             True, False, updated["policy_version"] + 1)
         assert (toggled["target_author_user_id"], toggled["target_pool_id"]) == (actor, pool)
         page.reload()
+        support._wait_loading_overlay_gone(page)
         expect(page.get_by_text("Importautor · author-v860", exact=True)).to_be_visible()
         reloaded, = admin.request.get(api).json()["items"]
         assert reloaded == toggled

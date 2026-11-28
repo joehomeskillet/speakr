@@ -1,6 +1,7 @@
 """Web configuration of locally approved import sources."""
 import hashlib
 import json
+from dataclasses import replace
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -10,10 +11,15 @@ from flask_wtf.csrf import validate_csrf
 from sqlalchemy.exc import IntegrityError
 from wtforms.validators import ValidationError
 
+from src.clinic import agent_channel, agent_channel_ingest
 from src.clinic import import_source_config as sources
+from src.clinic import policy
+from src.clinic.admin_dictation_access import _is_active_site_admin
 from src.clinic.agent_channel import AgentChannelError
 from src.clinic.backup_retention_plan import BackupEntry, plan_cleanup
+from src.clinic.config import clinic_mode_enabled, dev_defaults, feature_locked
 from src.clinic.identity import ClinicAccountPolicy
+from src.clinic.models import ClinicDictation
 from src.clinic.parity_dispatch import CommandProblem, _problem
 from src.clinic.parity_receipts import ClinicParityReceipt, run_once, scope_key
 from src.clinic.pools import ClinicAuthorPool, ClinicAuthorPoolMember
@@ -35,10 +41,16 @@ def _visible(config):
     visible = {key: config[key] for key in (
         "id", "source_kind", "source_ref", "target_author_user_id", "target_pool_id", "policy_version",
         *(_FOLDER_FIELDS if config["source_kind"] == "folder" else ()),
-        "autosend_enabled", "eol_filter_enabled",
+        "autosend_enabled", "eol_filter_enabled", "allow_source_delete",
     )}
     visible.update({field: config[key] for field, key in _BACKUP_FIELDS.items()})
     return visible
+
+
+def _with_source_delete_access(actor, visible):
+    available = source_cleanup_enabled() or visible["allow_source_delete"]
+    can_set = available and may_manage_source_deletion(actor, visible)
+    return visible | {"can_set_source_delete": can_set}
 
 
 def _targets():
@@ -137,7 +149,7 @@ def create_source():
             raise
         _audit_change(actor, config["id"], config["target_author_user_id"], "create")
         db.session.commit()
-        return jsonify(_visible(config)), 201
+        return jsonify(_with_source_delete_access(actor, _visible(config))), 201
     except CommandProblem as error:
         db.session.rollback()
         return _problem(str(error))
@@ -184,7 +196,7 @@ def list_sources():
                 sources._clean_root(config["approved_root"])
             except AgentChannelError:
                 continue
-            items.append(_visible(config))
+            items.append(_with_source_delete_access(actor, _visible(config)))
     except AgentChannelError as error:
         return _source_error(error)
     authors, pools = _targets() if items else ([], [])
@@ -199,10 +211,55 @@ def _owned_source(actor, config_id):
 
 
 def get_source(config_id):
+    actor = current_user.id
     try:
-        return jsonify(_visible(_owned_source(current_user.id, config_id)))
+        return jsonify(_with_source_delete_access(actor, _visible(_owned_source(actor, config_id))))
     except AgentChannelError as error:
         return _source_error(error)
+
+
+def may_manage_source_deletion(actor, config):
+    if _is_active_site_admin(db.session, current_user):
+        return True
+    subject = policy.build_subject(actor)
+    grants = tuple(replace(grant, actions=frozenset({"release"})) for grant in subject.grants
+                   if "clinic.import.cleanup" in grant.actions)
+    pool_id = config["target_pool_id"]
+    facts = policy.RecordingFacts(0, config["target_author_user_id"], frozenset({pool_id}) if pool_id else frozenset())
+    return bool(grants) and policy.decide(replace(subject, grants=grants), "release", facts).allowed
+
+
+def source_cleanup_enabled():
+    return clinic_mode_enabled() and not feature_locked("device_delete_runtime_enabled")
+
+
+def source_cleanup_policy_refusal(config):
+    if not source_cleanup_enabled() or config["allow_source_delete"] is not True:
+        return "SOURCE_DELETE_DISABLED"
+    try:
+        root = sources._clean_backup_root(config["backup_root"], config["approved_root"])
+        days = sources._clean_retention(config["backup_retention_days"])
+    except AgentChannelError:
+        return "BACKUP_RETENTION_NOT_READY"
+    if not (config["backup_enabled"] and root and days
+            and dev_defaults().get("privacy", {}).get("retention_policy_approved") is True):
+        return "BACKUP_RETENTION_NOT_READY"
+    return None
+
+
+def may_agent_remove_source(receipt):
+    """Apply the current source policy to an agent's durable receipt."""
+    item = agent_channel.inventory_row(receipt.agent_id, receipt.source_id, receipt.snapshot_version)
+    owners = agent_channel.unique_root_owners(agent_channel.registered_agent_roots())
+    if item is None or owners.get(item.root_id) != receipt.agent_id:
+        return False
+    try:
+        config = sources.delivery_config(item.root_id, item.relative_path)
+    except AgentChannelError:
+        return False
+    return (config is not None and source_cleanup_policy_refusal(config) is None
+            and receipt.dictation_id is not None and db.session.get(ClinicDictation, receipt.dictation_id) is not None
+            and agent_channel_ingest.source_cleanup_refusal(item, receipt.id) is None)
 
 
 def update_source(config_id):
@@ -228,14 +285,14 @@ def update_source(config_id):
         folder_changes = {name: body[name] for name in _FOLDER_FIELDS & body.keys()}
         body = {name: value for name, value in body.items() if name not in folder_changes}
     allowed = {"expected_version", "target_author_user_id", "target_pool_id",
-               "autosend_enabled", "eol_filter_enabled", *_BACKUP_FIELDS}
+               "autosend_enabled", "eol_filter_enabled", "allow_source_delete", *_BACKUP_FIELDS}
     if not isinstance(body, dict) or not set(body) <= allowed or "expected_version" not in body:
         return _problem("INVALID_PAYLOAD")
     target_fields = _TARGET_FIELDS & body.keys()
     if target_fields and target_fields != _TARGET_FIELDS:
         return _problem("INVALID_PAYLOAD")
     routing = bool(target_fields or folder_changes)
-    flags = [name for name in ("autosend_enabled", "eol_filter_enabled") if name in body]
+    flags = [name for name in ("autosend_enabled", "eol_filter_enabled", "allow_source_delete") if name in body]
     backup = {key: body[field] for field, key in _BACKUP_FIELDS.items() if field in body}
     if not routing and not flags and not backup:
         return _problem("INVALID_PAYLOAD")
@@ -254,6 +311,12 @@ def update_source(config_id):
             _validate_target(actor, body["target_author_user_id"], body["target_pool_id"])
     except CommandProblem as error:
         return _problem(str(error))
+    scope_config = config | {name: body[name] for name in target_fields}
+    if "allow_source_delete" in body and (
+        not may_manage_source_deletion(actor, scope_config)
+        or (body["allow_source_delete"] and not source_cleanup_enabled())
+    ):
+        return _problem("FORBIDDEN")
     scope = (actor, "route_import_source", config_id, key)
     digest = hashlib.sha256(json.dumps(body | folder_changes, sort_keys=True).encode()).hexdigest()
     if "asr_profile_id" in folder_changes and folder_changes["asr_profile_id"] is None:
@@ -268,7 +331,9 @@ def update_source(config_id):
             changes[name] = body[name]
         updated = sources.update_source_config(
             actor_user_id=actor, config_id=config_id, expected_version=version, commit=False,
-            may_assign_author=lambda *_: current_user.is_admin, **changes)
+            may_assign_author=lambda *_: current_user.is_admin,
+            may_manage_deletion=lambda uid: source_cleanup_enabled()
+            and may_manage_source_deletion(uid, scope_config), **changes)
         _audit_change(actor, config_id, updated["target_author_user_id"])
         return _visible(updated)
 
@@ -282,7 +347,9 @@ def update_source(config_id):
             result = run_once(scope, digest, write)
         if "approved_root" in result:
             sources._clean_root(result["approved_root"])
-        return jsonify(result)
+        # Older receipts predate the cleanup policy field.
+        result = {"allow_source_delete": config["allow_source_delete"]} | result
+        return jsonify(_with_source_delete_access(actor, result))
     except CommandProblem as error:
         return _problem(str(error))
     except AgentChannelError as error:
