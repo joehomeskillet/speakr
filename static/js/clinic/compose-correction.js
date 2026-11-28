@@ -409,7 +409,15 @@ export function createCorrectionViewController(options) {
         return true;
     }
 
-    const alignment = useCorrectionAlignment({ editor, client, dictationId, seek, vue: V || undefined });
+    const alignment = useCorrectionAlignment({
+        editor, client, dictationId, seek, vue: V || undefined,
+        canRequestAlignment() {
+            const audio = audioEl.value;
+            // A revision can exist before its media is available to the player.
+            return !closing && audio?.readyState >= 1 && !audio.error
+                && audio.currentSrc === audio.src && audio.getAttribute('src') === editor.audio.value.src;
+        },
+    });
 
     // Adapter for the correction modes (w153); inert until the element is bound.
     const modeAudio = {
@@ -542,6 +550,7 @@ export function createCorrectionViewController(options) {
             createAudioContext: factory ? () => { gainContext = factory(); return gainContext; } : undefined,
         }, { shallowRef: api.shallowRef || shallowRef });
         gainState.value = gain.state;
+        listen('loadedmetadata', alignment.requestMissingAlignment);
         listen('play', () => {
             if (gainContext && typeof gainContext.resume === 'function') Promise.resolve(gainContext.resume()).catch(() => {});
             if (gain) gain.start();
@@ -612,7 +621,8 @@ export function createCorrectionViewController(options) {
         }
         ready.value = true;
         loadGeneration.value += 1;
-        await Promise.all([alignment.refresh({ readOnly: readOnlyAlignment }),
+        // Opening with a write lease still only reads alignment until a revision changes.
+        await Promise.all([alignment.refresh({ allowRequest: !readOnlyAlignment }),
             doc ? null : saver.loadResume(), modes.load(), loadReview()]);
         return res;
     }

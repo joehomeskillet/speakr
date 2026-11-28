@@ -181,7 +181,8 @@ function makeRefs(vue) {
     return { ref, shallow, computed };
 }
 
-/** @param {{editor: object, client?: object, dictationId: string, seek?: Function, audioElement?: object, vue?: object}} options */
+/** @param {{editor: object, client?: object, dictationId: string, seek?: Function, audioElement?: object,
+ * canRequestAlignment?: () => boolean, vue?: object}} options */
 export function useCorrectionAlignment(options) {
     const opts = options || {};
     const editor = opts.editor;
@@ -200,6 +201,7 @@ export function useCorrectionAlignment(options) {
     let seq = 0;
     let disposed = false;
     let timer = null;
+    let requestWhenReady = null;
     // Binding keys already requested (one POST per binding); the key stays until a definite answer.
     const requested = new Set();
     const keys = new Map();
@@ -353,7 +355,8 @@ export function useCorrectionAlignment(options) {
         return /\s/u.test(editor.text.value.slice(link.start, link.end).trim()) ? 'segment' : 'word';
     }
 
-    const canEdit = () => Boolean(editor.canEdit && editor.canEdit.value === true);
+    const canRequestAlignment = () => editor.canEdit?.value === true && status.value === 'ready'
+        && (opts.canRequestAlignment?.() ?? true);
 
     // Validate the token document and the alignment payload; sets the state, returns the binding.
     function evaluate(ctx, document, alignment) {
@@ -428,7 +431,7 @@ export function useCorrectionAlignment(options) {
     // POST /alignment once per binding. The Idempotency-Key is kept until a definite answer.
     async function requestAlignment(ctx, mine, attempt) {
         const bk = bindingKey(ctx);
-        if (requested.has(bk)) return;
+        if (requested.has(bk) || !canRequestAlignment()) return;
         if (!keys.has(bk)) keys.set(bk, (opts.newKey || newKey)());
         const res = await client.request(base + '/alignment', {
             method: 'POST',
@@ -466,11 +469,19 @@ export function useCorrectionAlignment(options) {
         }, BACKOFF_MS[Math.min(attempt, BACKOFF_MS.length - 1)]);
     }
 
-    /** Load links of the current text revision and the matching audio revision, then the word alignment. */
-    async function refresh({ readOnly = false } = {}) {
+    async function requestMissingAlignment() {
+        if (!requestWhenReady || !canRequestAlignment()) return;
+        const request = requestWhenReady;
+        requestWhenReady = null;
+        await request();
+    }
+
+    /** Load links and existing word alignment for the current revisions. Request a missing or stale binding when allowed. */
+    async function refresh({ allowRequest = true } = {}) {
         if (disposed) return fail('failed');
         const mine = ++seq;
         stopTimer();
+        requestWhenReady = null;
         announced = null;
         loadState.value = 'loading';
         error.value = null;
@@ -520,8 +531,10 @@ export function useCorrectionAlignment(options) {
         }
         const st = alignState.value;
         if (st === 'pending') schedulePoll(ctx, mine, null, 0);
-        else if (!readOnly && (st === 'unaligned' || st === 'stale') && ctx.documentHash !== null && canEdit()
-            && status.value === 'ready') await requestAlignment(ctx, mine, 0);
+        else if (allowRequest && (st === 'unaligned' || st === 'stale') && ctx.documentHash !== null) {
+            requestWhenReady = () => requestAlignment(ctx, mine, 0);
+            await requestMissingAlignment();
+        }
         return { ok: true };
     }
 
@@ -592,13 +605,14 @@ export function useCorrectionAlignment(options) {
         disposed = true;
         seq += 1;
         stopTimer();
+        requestWhenReady = null;
         current.value = null;
         raw.value = EMPTY_RAW;
     }
 
     return {
         links, status, alignmentState, activeGranularity, error, selection, currentWord, segments, announcement,
-        refresh, setSelection, seekToSelection, seekToSegment, highlightAt, cueAt, granularityOf,
+        refresh, requestMissingAlignment, setSelection, seekToSelection, seekToSegment, highlightAt, cueAt, granularityOf,
         indexBuilds: () => builds, dispose,
     };
 }

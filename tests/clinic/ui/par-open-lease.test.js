@@ -72,6 +72,15 @@ function correction(server, id, options = {}) {
     });
 }
 
+function bindReadyAudio(controller) {
+    const source = controller.editor.audioSource('audio1');
+    const url = new URL(source, 'http://localhost').href;
+    controller.bindAudio(Object.assign(new EventTarget(), {
+        currentTime: 0, duration: 60, paused: true, readyState: 1,
+        currentSrc: url, src: url, getAttribute: () => source,
+    }));
+}
+
 function writes(server) {
     return server.calls.filter(([, method]) => method === 'POST');
 }
@@ -84,6 +93,7 @@ describe('PAR-WF-007 edit lease lifecycle', () => {
     it('reads missing word alignment on writable open and requests it on explicit reload', async () => {
         const server = sharedCase({ hasAudio: true });
         const c = correction(server, 1);
+        bindReadyAudio(c);
         try {
             await c.start();
             expect(c.editor.canEdit.value).toBe(true);
@@ -100,6 +110,7 @@ describe('PAR-WF-007 edit lease lifecycle', () => {
     it('reads alignment on writable open and requests missing alignment after a save', async () => {
         const server = sharedCase({ hasAudio: true });
         const a = correction(server, 1);
+        bindReadyAudio(a);
         try {
             await a.start();
             expect(a.editor.canEdit.value).toBe(true);

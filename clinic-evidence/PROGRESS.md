@@ -1,5 +1,9 @@
 # Speakr V8: geprüfte Änderungen im Klinik-Webclient
 
+## FX-e862a3 – Verarbeitung eines geöffneten Diktats
+
+Beim Öffnen des Schreibplatzes werden vorhandene Wortzuordnungen gelesen. Nach dem Speichern einer neuen Textfassung kann der Schreibplatz eine fehlende Zuordnung anfordern. Alle sechs P17-Varianten zeigen im lokalen Chromium-Lauf mit synthetischen Daten genau den erwarteten abgeschlossenen Auftrag.
+
 ## P-123 – Versandziel bestätigen (PAR-ADM-007)
 
 Synthetische Chromium-Tests zeigen vor dem Einreichen die benannte Vorgabe und nur die erlaubten Alternativen. Die Quittung und die erneut geladenen Diktatdetails zeigen dasselbe gespeicherte Ziel. Versanddaten und Pflichtkategorien bleiben Teil des Ablaufs. Staging und Originalsystemvergleich stehen aus.
