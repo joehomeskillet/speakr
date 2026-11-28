@@ -61,7 +61,7 @@ export default {
     template: `
 <section class="v8-page clinic-model-selection" aria-labelledby="model-title">
     <nav class="cadm-crumb" aria-label="Brotkrumennavigation">
-        <a href="/#/aufnahmen">Speakr</a><span aria-hidden="true">›</span><span>Verwaltung</span>
+        <a href="/#/aufnahmen">Ploudrli</a><span aria-hidden="true">›</span><span>Verwaltung</span>
         <span aria-hidden="true">›</span><span aria-current="page">Modellwahl</span>
     </nav>
     <header class="pagehead"><div><h1 id="model-title">Modellwahl</h1>

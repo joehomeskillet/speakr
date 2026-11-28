@@ -416,7 +416,7 @@ const CONSENT_TEMPLATE = `
 export const SETTINGS_TEMPLATE = `
 <div class="clinic-settings-view v8-page ${HEADINGS}">
   <nav class="breadcrumb" aria-label="Brotkrumennavigation">
-    <a href="#/aufnahmen">Speakr</a><span aria-hidden="true">›</span><span>{{ labels.eyebrow }}</span><span aria-hidden="true">›</span><span aria-current="page">{{ labels.title }}</span>
+    <a href="#/aufnahmen">Ploudrli</a><span aria-hidden="true">›</span><span>{{ labels.eyebrow }}</span><span aria-hidden="true">›</span><span aria-current="page">{{ labels.title }}</span>
   </nav>
   <div class="pagehead">
     <div>

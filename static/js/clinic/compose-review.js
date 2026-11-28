@@ -587,7 +587,7 @@ const ReviewBody = {
     },
     template: `
 <section class="clinic-review-view v8-page" data-testid="clinic-review-view" aria-labelledby="crv-title" :aria-busy="status === 'loading' ? 'true' : 'false'">
-  <nav class="breadcrumb" aria-label="Pfad"><span>Speakr</span><span aria-hidden="true">›</span><span>{{ TEXT.eyebrow }}</span><span aria-hidden="true">›</span><span aria-current="page">{{ TEXT.title }}</span></nav>
+  <nav class="breadcrumb" aria-label="Pfad"><span>Ploudrli</span><span aria-hidden="true">›</span><span>{{ TEXT.eyebrow }}</span><span aria-hidden="true">›</span><span aria-current="page">{{ TEXT.title }}</span></nav>
   <div class="pagehead">
     <div>
       <div class="eyebrow">{{ TEXT.eyebrow }}</div>
