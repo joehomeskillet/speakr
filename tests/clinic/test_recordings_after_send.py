@@ -1,5 +1,7 @@
 """Both cached clinic lists reflect a draft submitted in the same browser tab."""
 
+import re
+
 import pytest
 from playwright.sync_api import expect, sync_playwright
 
@@ -41,6 +43,7 @@ def test_p01_refreshes_submitted_row_in_same_tab(unsubmitted_draft, return_link)
             assert list_reads() == 1
             row.click()
             page.get_by_test_id("clinic-dictation-link-detail").click()
+            expect(page).to_have_url(re.compile(r"#/diktat/details$"), timeout=30_000)
             expect(page.get_by_test_id("status-axes")).to_contain_text("Ohne Erkennung")
             workflow = page.locator(".clinic-workflow-actions")
             workflow.get_by_role("button", name="Einreichen", exact=True).click()
