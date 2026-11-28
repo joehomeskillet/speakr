@@ -33,6 +33,7 @@ from typing import Callable, Iterable
 from flask import Flask, current_app, has_app_context
 
 from src.clinic.config import clinic_mode_enabled
+from src.clinic.recording_type import PRIVATE_TYPES, is_private_source
 
 ACTIONS = frozenset({
     'view', 'play', 'download', 'audio_export', 'edit', 'export', 'delete',
@@ -88,6 +89,22 @@ _POOL_POLICY = 'clinic_pool_policy'
 _adapter_input: ContextVar[RecordingFacts | None] = ContextVar('clinic_pool_input', default=None)
 
 
+def recording_type_denial(dictation, user_id: int, action: str, *, source=None) -> Decision | None:
+    """Restrict private recordings before any grants or administrative exceptions."""
+    if source is not None and is_private_source(source):
+        author = source.user_id if dictation is None else dictation.author_user_id
+        known_private = True
+    elif dictation is None or dictation.is_report:
+        return None
+    else:
+        author = dictation.author_user_id
+        known_private = dictation.recording_type in PRIVATE_TYPES
+    owner = user_id == author
+    if owner and known_private and action in ('view', 'play', 'edit', 'rename', 'delete'):
+        return None
+    return Decision(False, 'private_recording_type', visible=owner)
+
+
 def install_pool_policy(app: Flask) -> None:
     """Install the live adapter once on this app, without reading the database."""
     from src.clinic.pool_policy import decide as pool_decide
@@ -108,7 +125,15 @@ def _pool_decision(subject: Subject, action: str, rec: RecordingFacts) -> Decisi
         ClinicDictation.query.filter_by(recording_id=rec.recording_id).populate_existing().one_or_none()
     )
     if dictation is None:
-        return None
+        from src.clinic.web_ingest import dictation_for_recording
+        from src.database import db
+        from src.models import Recording
+
+        # Web capture may leave a separate worker recording behind the clinic anchor.
+        dictation = dictation_for_recording(rec.recording_id)
+        if dictation is None or dictation.is_report:
+            return recording_type_denial(
+                dictation, subject.user_id, action, source=db.session.get(Recording, rec.recording_id))
     token = _adapter_input.set(rec)
     try:
         return adapter(subject, action, dictation)

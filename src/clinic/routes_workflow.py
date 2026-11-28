@@ -57,7 +57,6 @@ from src.clinic.models import (
 )
 from src.clinic.parity_dispatch import JSON, CommandProblem, ParityDispatch, RunOnce
 from src.clinic.pool_policy import author_pool_ids
-from src.clinic.recording_type import REPORT
 from src.clinic.release import _heads as release_heads, current_audio_id
 from src.database import db
 from src.models import Recording
@@ -71,7 +70,6 @@ PERM_VIEW = 'history'
 Authorize = Callable[[int, str, ClinicDictation], bool]
 _CONFLICT = frozenset({'stale_version', 'stale_revision'})
 _SEND_CONFLICTS = {
-    'recording_type_cannot_send': 'Nur Berichte können an den Schreibdienst gesendet werden.',
     'not_draft': 'Nur neu angelegte Diktate können eingereicht werden.',
     'audio_required': 'Keine Audiorevision vorhanden.',
     'no_staff_pool': 'Kein Schreibkräfte-Pool zugeordnet.',
@@ -374,6 +372,9 @@ def create_blueprint(
         row = db.session.get(ClinicDictation, target, with_for_update=author_only, populate_existing=author_only)
         if author_only and (row is None or row.author_user_id != actor):
             abort(403)
+        if name == 'send' and not row.is_report:
+            return _problem(409, 'not_sendable_type',
+                            detail='Nur Berichte können an den Schreibdienst gesendet werden.')
         if row is None or authorize(actor, permission, row) is not True:
             abort(403 if author_only else 404)
         try:
@@ -513,8 +514,6 @@ def create_blueprint(
         def apply(row, expected, _key, now):
             if row.version_counter != expected:
                 raise workflow.WorkflowError('stale_version')
-            if row.recording_type != REPORT:
-                raise workflow.WorkflowError('recording_type_cannot_send')
             item = db.session.get(workflow.ClinicWorkflowDictation, row.id, with_for_update=True)
             if item is None or item.status != workflow.DRAFT:
                 raise workflow.WorkflowError('not_draft')

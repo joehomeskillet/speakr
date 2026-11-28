@@ -214,7 +214,7 @@ def _in_scope(dictation, scope, subject_user_id, pool_id) -> bool:
 
 
 def _visible(actor_id, dictation) -> bool:
-    return "view" in grants_for(actor_id, dictation)["allowed"]
+    return dictation.is_report and "view" in grants_for(actor_id, dictation)["allowed"]
 
 
 def _released_before(dictation_id: str, revision_id: str) -> bool:

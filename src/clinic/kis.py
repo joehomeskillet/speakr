@@ -27,7 +27,7 @@ from sqlalchemy.exc import IntegrityError
 from src.database import db
 
 from .config import kis_delivery_enabled
-from .models import ClinicContextRevision, ClinicDelivery, ClinicRelease
+from .models import ClinicContextRevision, ClinicDelivery, ClinicDictation, ClinicRelease
 
 PRODUCTION_PROFILE = "production"
 
@@ -344,6 +344,9 @@ def deliver(release, context_revision, adapter, idempotency_key, now) -> Deliver
     refusal = _check_gate(release, context_revision, adapter)
     if refusal is not None:
         return refusal
+    dictation = db.session.get(ClinicDictation, release.dictation_id)
+    if dictation is None or not dictation.is_report:
+        return _refuse("recording type is excluded from delivery")
     check = adapter.check_context(
         {
             "source_system": context_revision.source_system,

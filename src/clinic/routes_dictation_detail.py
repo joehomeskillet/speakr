@@ -18,7 +18,6 @@ from src.clinic.acceptance_policy import AcceptanceLedger, PolicyError, SCOPE_DI
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.models import ClinicDictation
 from src.clinic.pools import ClinicAuthorPool, ClinicPoolRoute, ClinicStaffPool
-from src.clinic.recording_type import REPORT
 from src.clinic.worklist_entries import stamp
 from src.database import db
 from src.models import Recording, User
@@ -65,7 +64,7 @@ def _capabilities(user: User, dictation: ClinicDictation, flow, snap: dict,
     if flow is None:
         return dict(allowed_actions=[], transitions={}, binding={})
     allowed, transitions = [], {}
-    if (dictation.recording_type == REPORT and flow.status == workflow.DRAFT
+    if (dictation.is_report and flow.status == workflow.DRAFT
             and user.id == dictation.author_user_id
             and authorize(user, 'clinic.dictate', dictation) is True):
         allowed.append('send')

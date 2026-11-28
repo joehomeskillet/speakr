@@ -39,6 +39,7 @@ from src.clinic.models import (
     ClinicOriginal,
 )
 from src.clinic.pools import ClinicPoolRoute, ClinicStaffPool
+from src.clinic.recording_type import PRIVATE_TYPES
 from src.database import db
 from src.models import GroupMembership, Recording, User
 from src.services import audit
@@ -166,7 +167,7 @@ def _assignee_names(rows: Iterable[workflow.ClinicWorkflowDictation]) -> dict[in
     return names
 
 
-def load_entries(actor: int) -> list[routes_worklist.WorklistEntry]:
+def load_entries(actor: int, *, include_own_private: bool = False) -> list[routes_worklist.WorklistEntry]:
     """Entries the actor may see (W12/W13); the live view policy still decides every row."""
     item = workflow.ClinicWorkflowDictation
     query = (
@@ -174,6 +175,11 @@ def load_entries(actor: int) -> list[routes_worklist.WorklistEntry]:
         .join(item, item.id == ClinicDictation.id)
         .join(Recording, Recording.id == ClinicDictation.recording_id)
     )
+    types = ClinicDictation.is_report
+    if include_own_private:
+        types = or_(types, and_(ClinicDictation.author_user_id == actor,
+                               ClinicDictation.recording_type.in_(PRIVATE_TYPES)))
+    query = query.filter(types)
     admin = _is_active_site_admin(db.session, db.session.get(User, actor))
     if not admin:
         conditions = [ClinicDictation.author_user_id == actor, item.assignee_user_id == actor]

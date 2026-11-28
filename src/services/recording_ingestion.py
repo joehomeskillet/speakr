@@ -1422,6 +1422,7 @@ def ingest(
                 duplicate_warning=duplicate_warning, success_status=success_status,
             )
 
+        private_upload = clinic_mode and requested_type in recording_type.PRIVATE_TYPES
         stored = store_recording(
             owner=owner,
             storage=storage,
@@ -1437,7 +1438,7 @@ def ingest(
             notes=notes,
             selected_folder=selected_folder,
             selected_tags=selected_tags,
-            processing_source=processing_source,
+            processing_source=recording_type.PRIVATE_WEB_SOURCE if private_upload else processing_source,
             file_hash=file_hash,
             prompt_variables=prompt_variables,
             effective_audio_only=effective_audio_only,

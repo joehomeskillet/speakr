@@ -108,7 +108,7 @@ def _csrf_failed(_error):
 
 def _own_manifest(kind, scope, pool_id) -> dict:
     """Manifest of the calling admin's own dictations at their current heads."""
-    query = ClinicDictation.query.filter_by(author_user_id=current_user.id)
+    query = ClinicDictation.query.filter_by(author_user_id=current_user.id).filter(ClinicDictation.is_report)
     if scope == "pool":
         query = query.filter_by(pool_id=pool_id)
     candidates = []

@@ -79,9 +79,7 @@ def dictation_for_recording(recording_id: int, *, session=None) -> ClinicDictati
 
 def dictations_for_recordings(recording_ids, *, session=None):
     """Resolve job recordings in batches, preserving anchor priority and owner checks."""
-    from sqlalchemy import String, cast
     from sqlalchemy.orm import aliased
-    from src.clinic.legacy_backfill import ORIGIN_REF_PREFIXES
 
     session = db.session if session is None else session
     ids = list(set(recording_ids))
@@ -91,10 +89,8 @@ def dictations_for_recordings(recording_ids, *, session=None):
         part = ids[start:start + 500]
         anchors = {d.recording_id: d for d in session.query(ClinicDictation).filter(
             ClinicDictation.recording_id.in_(part))}
-        refs = [ClinicOriginal.origin_ref.startswith(prefix + cast(source.id, String) + ':')
-                for prefix in ORIGIN_REF_PREFIXES]
         matches = (session.query(source.id, ClinicDictation).select_from(source)
-                   .join(ClinicOriginal, or_(*refs))
+                   .join(ClinicOriginal, source_recording_link(source.id))
                    .join(ClinicDictation, ClinicDictation.id == ClinicOriginal.dictation_id)
                    .join(Recording, Recording.id == ClinicDictation.recording_id)
                    .filter(source.id.in_(part), Recording.user_id == source.user_id))
@@ -104,6 +100,15 @@ def dictations_for_recordings(recording_ids, *, session=None):
         result.update({rid: next(iter(rows.values())) for rid, rows in linked.items() if len(rows) == 1})
         result.update(anchors)
     return result
+
+
+def source_recording_link(recording_id):
+    """SQL match for the worker recording id in a server-generated original reference."""
+    from sqlalchemy import String, cast
+    from src.clinic.legacy_backfill import ORIGIN_REF_PREFIXES
+
+    return or_(*(ClinicOriginal.origin_ref.startswith(prefix + cast(recording_id, String) + ':')
+                 for prefix in ORIGIN_REF_PREFIXES))
 
 
 def author_pool_for(user_id: int) -> str | None:

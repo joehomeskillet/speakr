@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from src.clinic import policy
 from src.clinic.admin_dictations import AdminDictationsPage, query_dictations
 from src.clinic.config import clinic_mode_enabled
+from src.clinic.recording_type import is_private_source
 from src.clinic.identity import ClinicAccountPolicy
 from src.models import Recording, User
 from src.services import audit
@@ -78,8 +79,8 @@ def open_content(
 ) -> tuple[policy.Decision, Recording | None]:
     """Decide an audio or transcript opening and audit-log an admin open.
 
-    Active site administrators get ``Decision(True, 'admin_full')`` for any
-    existing recording, with no confirmation step and no reason prompt. The
+    Active site administrators get ``Decision(True, 'admin_full')`` for reports
+    and legacy untyped recordings, with no confirmation step or reason prompt. The
     opening is audit-logged with the normal event vocabulary
     (``recording.media.played`` for audio, ``recording.content.read`` with
     ``part='transcript'`` for transcript); de-duplication is disabled so every
@@ -113,7 +114,14 @@ def _decide_content(
     if recording is None:
         return policy.Decision(False, "not_found"), None
 
-    if _is_active_site_admin(session, user):
+    from src.clinic.web_ingest import dictation_for_recording
+
+    dictation = dictation_for_recording(recording_id, session=session)
+    restriction = policy.recording_type_denial(dictation, user.id, action, source=recording)
+    if restriction is not None:
+        return restriction, None
+    if (dictation is None or dictation.is_report) and not is_private_source(recording) and _is_active_site_admin(
+            session, user):
         return policy.Decision(True, "admin_full"), recording
 
     subject = policy.build_subject(user.id, bool(user.is_admin))

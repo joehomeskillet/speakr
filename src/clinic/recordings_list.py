@@ -142,7 +142,7 @@ def list_recordings(
             continue
         if author_id is not None and str(dictation.author_user_id) != author_id:
             continue
-        if pools is not None and dictation.pool_id not in pools:
+        if pools is not None and (not dictation.is_report or dictation.pool_id not in pools):
             continue
         if (date_from is not None and day < date_from.isoformat()) or (
                 date_to is not None and day > date_to.isoformat()):

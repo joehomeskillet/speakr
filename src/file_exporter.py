@@ -697,6 +697,7 @@ def export_recording(recording_id):
 
     # Import here to avoid circular imports
     from src.app import app, db
+    from src.clinic.config import clinic_mode_enabled
     from src.models import Recording, User
 
     with app.app_context():
@@ -705,6 +706,13 @@ def export_recording(recording_id):
             if not recording:
                 logger.error(f"Recording {recording_id} not found for export")
                 return None
+            if clinic_mode_enabled():
+                from src.clinic.recording_type import is_private_source
+                from src.clinic.web_ingest import dictation_for_recording
+
+                dictation = dictation_for_recording(recording_id)
+                if is_private_source(recording) or (dictation is not None and not dictation.is_report):
+                    return None
 
             # Get the owner
             user = db.session.get(User, recording.user_id)

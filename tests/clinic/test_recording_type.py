@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from src.clinic import workflow
 from src.clinic.models import ClinicDictation
+from src.clinic.recording_type import PRIVATE_TYPES, is_private_source
 from src.clinic.registry import create_clinic_tables
 from src.database import db
 from src.models import ProcessingJob, Recording
@@ -71,6 +72,7 @@ def test_type_persists_and_reaches_asr(upload_take, api, author, requested, expe
     db.session.expire_all()
     dictation = db.session.get(ClinicDictation, body['dictation_id'])
     assert dictation.recording_type == expected
+    assert is_private_source(db.session.get(Recording, body['id'])) is (expected in PRIVATE_TYPES)
     login_as, allowed, _seen = api
     allowed.add(author['id'])
     detail = login_as(author['id']).get(URL.format(dictation.id))
@@ -125,7 +127,7 @@ def test_non_report_cannot_be_sent_to_writing_service(world, kind):
     db.session.commit()
     response = workflow_post(world, 'send', {}, version=world['dictation'].version_counter)
     assert response.status_code == 409
-    assert response.json['code'] == 'RECORDING_TYPE_CANNOT_SEND'
+    assert response.json['code'] == 'not_sendable_type'
     assert world['item'].status == workflow.DRAFT
 
 

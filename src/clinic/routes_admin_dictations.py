@@ -39,7 +39,11 @@ def _open(dictation_id, part):
     from src.clinic.admin_dictation_access import can_open_content, open_content
     decision = can_open_content(db.session, current_user, dictation_id, part)
     if not decision.allowed:
+        if decision.reason == 'private_recording_type':
+            return None, _refuse(404, 'not_found')
         return None, _refuse(404 if decision.reason == 'not_found' else 403, decision.reason)
+    if decision.reason != 'admin_full':
+        return None, _refuse(404, 'not_found')
     row = db.session.get(Recording, dictation_id)
     if part == 'audio' and not row.audio_path:
         return None, _refuse(404, 'audio_not_found')

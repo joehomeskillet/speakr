@@ -28,7 +28,10 @@ def decide(
     The assigned pool scopes the pool service's rules. A current author
     membership can match an explicit central grant for that assigned pool.
     """
-    if action in ('view', 'play', 'correction_read') and clinic_mode_enabled():
+    restriction = policy.recording_type_denial(dictation, subject.user_id, action)
+    if restriction is not None:
+        return restriction
+    if dictation.is_report and action in ('view', 'play', 'correction_read') and clinic_mode_enabled():
         if _is_active_site_admin(db.session, db.session.get(User, subject.user_id)):
             return policy.Decision(True, 'admin_full', visible=True)
     facts = policy.build_facts(dictation.recording_id, dictation.author_user_id)

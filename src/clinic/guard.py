@@ -179,7 +179,18 @@ def _check_recordings(rule: RouteRule):
         owner_id = _owner_of_recording(recording_id)
         if owner_id is None:
             return _refuse(404, 'not_found')
-        decision = policy.decide(subject, action, policy.build_facts(recording_id, owner_id))
+        decision = None
+        if request.endpoint == 'recordings.merge_recordings_endpoint':
+            from src.clinic.web_ingest import dictation_for_recording
+            from src.database import db
+            from src.models import Recording
+
+            # Merging can turn private audio or notes into an untyped recording.
+            decision = policy.recording_type_denial(
+                dictation_for_recording(recording_id), subject.user_id, 'export',
+                source=db.session.get(Recording, recording_id))
+        if decision is None:
+            decision = policy.decide(subject, action, policy.build_facts(recording_id, owner_id))
         if not decision.allowed:
             logger.warning('clinic policy denied %s %s on recording %s for user %s: %s',
                            action, request.endpoint, recording_id, current_user.id, decision.reason)

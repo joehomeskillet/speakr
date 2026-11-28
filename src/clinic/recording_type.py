@@ -7,6 +7,13 @@ SPEAKER_RANGES = {
     'sitzung': (2, 8),
     'patientengespraech': (2, 3),
 }
+PRIVATE_TYPES = tuple(kind for kind in SPEAKER_RANGES if kind != REPORT)
+PRIVATE_WEB_SOURCE = 'clinic_private_upload'
+
+
+def is_private_source(recording):
+    """The worker recording of a private upload is protected before the clinic link exists."""
+    return recording.processing_source == PRIVATE_WEB_SOURCE
 
 
 def requires_diarization(kind: str) -> bool:

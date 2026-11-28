@@ -108,6 +108,8 @@ def may_take_over(user: User, dictation: ClinicDictation) -> bool:
     from src.clinic import worklist_entries
     from src.clinic.admin_dictation_access import _is_active_site_admin
 
+    if not dictation.is_report:
+        return False
     if _is_active_site_admin(db.session, db.session.get(User, user.id)):
         return True
     return dictation.pool_id is not None and dictation.pool_id in worklist_entries._led_author_pools(user.id)

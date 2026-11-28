@@ -418,6 +418,13 @@ def worklist(session: Session, *, role: str, user_id: int, pool_id: str) -> list
     user = _user_id(user_id)
     pool = _pool_id(pool_id)
     query = session.query(ClinicWorkflowDictation).filter(ClinicWorkflowDictation.pool_id == pool)
+    from src.clinic.config import clinic_mode_enabled
+
+    if clinic_mode_enabled():
+        from src.clinic.models import ClinicDictation
+
+        query = query.outerjoin(ClinicDictation, ClinicDictation.id == ClinicWorkflowDictation.id).filter(
+            ClinicDictation.is_report)
     if role == ROLE_AUTHOR:
         query = query.filter(ClinicWorkflowDictation.author_user_id == user)
     else:

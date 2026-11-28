@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import CheckConstraint, ForeignKeyConstraint, UniqueConstraint, func, text
+from sqlalchemy.ext.hybrid import hybrid_property
 
 from src.clinic.recording_type import REPORT
 from src.database import db
@@ -67,9 +68,18 @@ class ClinicDictation(db.Model):
     pool_id = db.Column(db.String(36), nullable=True, index=True)
     created_at = _created_at()
 
-    @property
+    @hybrid_property
     def recording_type(self) -> str:
-        return self.configured_recording_type or REPORT
+        kind = self.configured_recording_type
+        return REPORT if kind is None else kind
+
+    @recording_type.expression
+    def recording_type(cls):
+        return func.coalesce(cls.configured_recording_type, REPORT)
+
+    @hybrid_property
+    def is_report(self) -> bool:
+        return self.recording_type == REPORT
 
 
 def create_tables(bind=None) -> None:
