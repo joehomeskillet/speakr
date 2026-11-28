@@ -63,6 +63,8 @@ export const HOSTED_CSS = [
     '.v8-ui .v8-empty p{color:var(--v8-muted)}',
     '.v8-ui .worktable .titletext .cl-search-metadata{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6}',
     '.v8-ui .cl-search-metadata mark{border-radius:2px;padding:0;font:inherit}',
+    // Leave the blank area clickable as part of the row when selection reflows the table.
+    '.v8-ui .clinic-worklist-view .worktable .cl-id-disclosure:not([open]){width:fit-content}',
     '.v8-ui .clinic-worklist-view .worktable td.cl-scoped-metadata{white-space:pre-wrap;overflow-wrap:anywhere}',
     '@container (min-width:1101px){',
     '  .v8-ui .clinic-worklist-view .worktable{table-layout:auto;min-width:0}',
