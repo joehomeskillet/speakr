@@ -58,6 +58,7 @@ MODEL_MODULES = (
     "notification_preferences",
     "draft_store",
     "bundle_store",
+    "text_blocks",
 )
 
 

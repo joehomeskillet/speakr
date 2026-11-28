@@ -16,6 +16,11 @@ PUBLIC: tuple[str, ...] = (
     'clinic_identity_providers.iwa_login',
 )
 
+TEXT_BLOCK_WRITES: tuple[str, ...] = (
+    'clinic_commands.create_text_block',
+    'clinic_commands.update_text_block',
+)
+
 AUTH: tuple[str, ...] = (
     'clinic_identity_providers.entra_link_start',
     'clinic_identity_providers.link_request',
@@ -34,6 +39,11 @@ AUTH: tuple[str, ...] = (
     # Versioned command export/import (PAR-VOC-008). Handlers check scope ownership and CSRF.
     'clinic_commands.export_commands',
     'clinic_commands.import_commands',
+    'clinic_commands.list_text_blocks',
+    'clinic_commands.get_text_block',
+    'clinic_commands.get_text_block_graphic',
+    'clinic_commands.create_text_block',
+    'clinic_commands.update_text_block',
     'clinic_preferences.recipient_default',
     'clinic_preferences.recipient_resolve',
     'clinic_preferences.last_selection',
