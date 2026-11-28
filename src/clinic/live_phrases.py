@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from io import BytesIO
@@ -81,6 +82,8 @@ class PhraseReceipt:
     audio_sha256: str
     text_hash: str
     status: str = "server_saved"
+    audio_revision_id: str | None = None
+    transcript_revision_id: str | None = None
 
 
 def create_tables(bind=None) -> None:
@@ -92,13 +95,16 @@ def store_phrase(
     store: ingest.IngestService, *, dictation_id: str, session_id: str,
     user_id: int, client_id: str | None, now: datetime, generation: int,
     sequence: int, event_id: str, audio_start_ms: int, audio_end_ms: int,
-    audio: bytes, audio_revision_id: str, transcript_revision_id: str,
-    text_hash: str,
+    audio: bytes, audio_revision_id: str | None = None, transcript_revision_id: str | None = None,
+    text_hash: str | None = None,
+    _revision_commit: tuple[str, Callable[[str, str], tuple[str, str, str]]] | None = None,
 ) -> PhraseReceipt:
     """Save a final phrase, committing the audio metadata and live receipt.
 
     Callers must authenticate and authorize the dictation at the HTTP boundary.
     This service also fences writes against the current live holder.
+    ``_revision_commit`` binds the request hash to a callback that stages the
+    revisions under the same lock. A replay never invokes the callback.
     """
     for name, value, minimum in (
         ("generation", generation, 1), ("sequence", sequence, 1),
@@ -110,14 +116,19 @@ def store_phrase(
         raise PhraseError("invalid_audio")
     if not isinstance(event_id, str) or not 0 < len(event_id) <= 128 or event_id.strip() != event_id:
         raise PhraseError("invalid_event_id")
-    for field in (dictation_id, session_id, audio_revision_id, transcript_revision_id, text_hash):
-        if not isinstance(field, str) or not field:
+    required = [dictation_id, session_id]
+    if _revision_commit is None:
+        required.extend((audio_revision_id, transcript_revision_id, text_hash))
+    for value in required:
+        if not isinstance(value, str) or not value:
             raise PhraseError("invalid_envelope")
     ingest._checked_size(len(audio))
     audio_hash = hashlib.sha256(audio).hexdigest()
     fields = [dictation_id, session_id, generation, sequence, event_id,
               audio_revision_id, audio_start_ms, audio_end_ms, audio_hash,
               len(audio), transcript_revision_id, text_hash]
+    if _revision_commit is not None:
+        fields.append(_revision_commit[0])
     envelope_hash = hashlib.sha256(json.dumps(fields, separators=(",", ":")).encode()).hexdigest()
     key = f"live:{session_id}:{sequence}"
     storage_key = ingest.storage_key_for(key)
@@ -151,6 +162,8 @@ def store_phrase(
             session_id=session_id, event_id=event_id
         ).first() is not None:
             raise PhraseError("event_conflict")
+        if _revision_commit is not None:
+            audio_revision_id, transcript_revision_id, text_hash = _revision_commit[1](storage_key, audio_hash)
         dictation = db.session.get(ClinicDictation, dictation_id)
         revision = db.session.get(ClinicTranscriptRevision, transcript_revision_id)
         audio_revision = db.session.get(ClinicAudioRevision, audio_revision_id)
@@ -166,6 +179,9 @@ def store_phrase(
             raise PhraseError("stale_version")
 
         path = store.file_path(storage_key)
+        if _revision_commit is not None and path.exists():
+            # A crash can leave the link behind before its directory was synced.
+            ingest._fsync_dir(path.parent)
         spool, digest = ingest._spool(BytesIO(audio), path.parent, len(audio))
         try:
             if not hmac.compare_digest(digest, audio_hash):
@@ -185,8 +201,9 @@ def store_phrase(
         live_session.acknowledge(
             session_id, user_id, now, sequence, audio_end_ms, transcript_revision_id,
             client_id=client_id, generation=generation)
+        receipt = _receipt(phrase)
         db.session.commit()
-        return _receipt(phrase)
+        return receipt
     except Exception:
         db.session.rollback()
         raise
@@ -194,4 +211,6 @@ def store_phrase(
 
 def _receipt(row: ClinicLivePhrase) -> PhraseReceipt:
     return PhraseReceipt(row.id, row.session_id, row.generation, row.sequence,
-                         row.event_id, row.audio_storage_key, row.audio_sha256, row.text_hash)
+                         row.event_id, row.audio_storage_key, row.audio_sha256, row.text_hash,
+                         audio_revision_id=row.audio_revision_id,
+                         transcript_revision_id=row.transcript_revision_id)
