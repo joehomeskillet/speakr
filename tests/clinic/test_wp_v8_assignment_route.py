@@ -175,19 +175,30 @@ def _exercise():
         assert lease.current(sent).expires_at <= datetime.now(timezone.utc)
         assert db.session.get(workflow.ClinicWorkflowDictation, sent).status == workflow.TO_CORRECT
         events = AuditEvent.query.filter_by(event='recording.edited', recording_id=recording_id).order_by(AuditEvent.id)
+        assignment_details = {'fields': ['assignee', f'dictation:{sent}']}
         assert [(row.actor_user_id, row.target_user_id, row.details) for row in events] == [
-            (admin, typist, {'fields': ['assignee']}),
+            (admin, typist, assignment_details),
             (lead, typist, {'fields': [
                 'lease.release', f'dictation:{sent}', f'generation:{generation}', f'from:{typist}',
             ]}),
-            (lead, lead, {'fields': ['assignee']}),
-            (lead, typist, {'fields': ['assignee']}),
-            (lead, None, {'fields': ['assignee']}),
+            (lead, lead, assignment_details),
+            (lead, typist, assignment_details),
+            (lead, None, assignment_details),
         ]
+        audit.record_in_tx('recording.edited', recording_id=recording_id,
+                           details={'fields': ['assignee', f'dictation:{draft}']}, force=True)
         pools.deny(lead, 'pool', pool_id=db.session.get(ClinicDictation, sent).pool_id,
                    actions=['reassign'], actor_id=admin)
     assert candidates(lead_browser).status_code == 403
     assert post(lead_browser, typist, version=4).status_code == 403
+
+    history = f'/api/clinic/v1/dictations/{sent}/history'
+    response = lead_browser[0].get(history)
+    assert response.status_code == 200, response.json
+    assignments = [row for row in response.json['events'] if row.get('action') == 'assignment_changed']
+    assert len(assignments) == 4
+    assert all(set(row) == {'kind', 'id', 'action', 'at'} for row in assignments)
+    assert _client(app, other_lead)[0].get(history).status_code == 404
 
 
 def _utc(value):
