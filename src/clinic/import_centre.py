@@ -81,6 +81,7 @@ class ClinicImportIntent(db.Model):
     target_author_user_id = db.Column(db.Integer, ForeignKey("user.id"), nullable=False)
     target_pool_id = db.Column(db.String(36), nullable=True)
     language_id = db.Column(db.Integer, nullable=False, default=DEFAULT_LANG_ID)
+    asr_profile_id = db.Column(db.String(36), nullable=True)
     # NULL version: intent created before explicit keep/set metadata. See migration_import_intent_metadata.
     metadata_version = db.Column(db.Integer, nullable=True)
     metadata_json = db.Column(db.Text, nullable=True)
@@ -251,13 +252,14 @@ def create_import_intent(
 
 
 def _stage_import_intent(*, actor_user_id, source_kind, source_ref, expected_files, author,
-                         target_pool_id, language_id, metadata, now):
+                         target_pool_id, language_id, metadata, now, asr_profile_id=None):
     """Stage an already-authorized import in the caller's transaction."""
     metadata_version, metadata_json = metadata
     intent = ClinicImportIntent(
         created_by_user_id=actor_user_id, source_kind=source_kind, source_ref=source_ref,
         expected_files=json.dumps(_clean_files(expected_files)), target_author_user_id=author,
         target_pool_id=target_pool_id, language_id=resolve_language(language_id),
+        asr_profile_id=asr_profile_id,
         metadata_version=metadata_version, metadata_json=metadata_json,
         created_at=now, expires_at=now + INTENT_TTL,
     )
@@ -490,13 +492,15 @@ def _verified_author(item, session_row, stream, read_header, lookup, configured_
     finally:
         stream.seek(0)
     device = lookup(device_id=item.root_id)
-    if device.reason != "no_input":
+    if configured_author is not None or device.reason != "no_input":
         owners = agent_channel.unique_root_owners({
             agent_id: (enabled, {root.upper() for root in roots})
             for agent_id, (enabled, roots) in agent_channel.registered_agent_roots().items()
         })
-        if owners.get(item.root_id.upper()) != session_row.agent_id or device.author_user_id is None:
+        if owners.get(item.root_id.upper()) != session_row.agent_id:
             return None
+    if device.reason != "no_input" and device.author_user_id is None:
+        return None
     device_author = device.author_user_id
     if configured_author is not None:
         if device_author is not None and device_author != configured_author:
@@ -522,7 +526,15 @@ def _clinic_delivery_intent(item, session_row, now, device_map, alias_map, embed
         owners = agent_channel.unique_root_owners(agent_channel.registered_agent_roots())
         if owners.get(item.root_id) != session_row.agent_id:
             return None
+    automatic = ClinicAutosendIntent.query.filter_by(agent_intent_id=session_row.intent_id).first()
     configured_author = config.get("target_author_user_id") if config.get("source_kind") == "device" else None
+    if automatic is not None and config.get("source_kind") == "folder":
+        from .identity import ClinicAccountPolicy
+
+        configured_author = config["target_author_user_id"]
+        account = db.session.get(ClinicAccountPolicy, configured_author, populate_existing=True)
+        if account is not None and account.status != "active":
+            return None
     if resolve_verified is not None:
         author = resolve_verified(item, configured_author)
     else:
@@ -534,7 +546,6 @@ def _clinic_delivery_intent(item, session_row, now, device_map, alias_map, embed
         author = _resolved_author(item, session_row, device_map, alias_map, embedded_author_for)
     if author is None or (config and author != config["target_author_user_id"]):
         return None
-    automatic = ClinicAutosendIntent.query.filter_by(agent_intent_id=session_row.intent_id).first()
     if automatic is not None:
         if not config or resolve_verified is None or automatic.inventory_id != item.id:
             return None
@@ -615,6 +626,7 @@ def _ingest_metadata(intent: ClinicImportIntent | None, delivery: ClinicImportDe
     title = filename.rsplit(".", 1)[0].strip()[:200] or None
     return {"intent_metadata": interpret(intent), "import_defaults": ImportDefaults(
         title=title, priority=source.get("priority", ImportDefaults.priority), pool_id=intent.target_pool_id,
+        asr_profile_id=intent.asr_profile_id,
     )}
 
 
