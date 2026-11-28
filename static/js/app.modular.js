@@ -4,7 +4,7 @@ const { createApp, ref, shallowRef, reactive, computed, onMounted, onUnmounted, 
 import { useRecordings } from './modules/composables/recordings.js';
 import { resolveInitialSort } from './modules/utils/sort-preference.js';
 import { useUpload } from './modules/composables/upload.js';
-import { useAudio } from './modules/composables/audio.js';
+import { clinicRecordingFormats, useAudio } from './modules/composables/audio.js';
 import { useUI } from './modules/composables/ui.js';
 import { useUiTheme } from './modules/composables/ui-theme.js';
 import { useModals } from './modules/composables/modals.js';
@@ -278,20 +278,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     const clinicMode = appRootElement?.dataset?.clinicMode === 'True';
     if (clinicMode) {
         try {
-            const [{ createClinicApiClient }, { registerWorklistView }, { registerResourcesView }, { registerCorrectionView, resolveClinicOpenTarget }, { registerRecordingsView }] = await Promise.all([
+            const [{ createClinicApiClient }, { registerWorklistView }, { registerResourcesView }, { registerCorrectionView, resolveClinicOpenTarget }, { registerRecordingsView }, { readStartSelection }] = await Promise.all([
                 import('./clinic/api-client.js'),
                 import('./clinic/compose-worklist.js'),
                 import('./clinic/compose-resources.js'),
                 import('./clinic/compose-correction.js'),
                 import('./clinic/compose-recordings.js'),
+                import('./clinic/selection-ui.js'),
             ]);
+            const client = createClinicApiClient();
             clinicWorklist = {
                 registerWorklistView,
                 registerResourcesView,
                 registerCorrectionView,
                 resolveClinicOpenTarget,
                 registerRecordingsView,
-                client: createClinicApiClient(),
+                client,
+                startSelection: readStartSelection(client, !appRootElement.dataset.clinicCaseView
+                    && ['', '#/aufnahmen'].includes(window.location.hash)),
                 user: { id: appRootElement.dataset.currentUserId, name: appRootElement.dataset.currentUserName, role: appRootElement.dataset.clinicRole || 'author' },
             };
             // V8 dictation views (v8-70)
@@ -885,6 +889,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const selectedMicDeviceId = ref(
                 (typeof localStorage !== 'undefined' && localStorage.getItem('selectedMicDeviceId')) || ''
             );
+            const clinicRecordingMime = ref('');
             const selectedSecondaryDeviceId = ref(
                 (typeof localStorage !== 'undefined' && localStorage.getItem('selectedSecondaryDeviceId')) || ''
             );
@@ -2336,7 +2341,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 canRecordAudio, canRecordSystemAudio, systemAudioSupported, systemAudioError,
                 recordingNotes, showSystemAudioHelp, showSystemAudioHelpModal, disableAudioProcessing,
                 recordSystemVideo, recordingVideoActive,
-                inputAudioDevices, selectedMicDeviceId, selectedSecondaryDeviceId, refreshInputAudioDevices,
+                inputAudioDevices, selectedMicDeviceId, selectedSecondaryDeviceId, refreshInputAudioDevices, clinicRecordingMime,
                 platformInfo, audioCaps, helpModalOsTab, virtualAudioDevices, refreshVirtualAudioDevices,
                 asrLanguage, asrMinSpeakers, asrMaxSpeakers, asrTranscriptionModel,
                 asrInitialPrompt, asrHotwords, applyInitialPromptTemplateToRecording,
@@ -3153,7 +3158,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                 { view: 'clinic-archive', testid: 'menu-archive', label: 'Archiv' },
             ];
             const clinicMenuToolbarVisible = computed(() => clinicMenuActions.some((entry) => entry.view === currentView.value));
-            const clinicUploadFile = clinicMenu?.uploadClinicFile;
+            const clinicFormats = clinicMenu ? clinicRecordingFormats() : [];
+            const clinicUploadFile = clinicMenu && ((file, title, options, progress) => clinicMenu.uploadClinicFile(
+                file, title, {
+                    ...options,
+                    audioMime: file.type === 'audio/wav' ? file.type : state.mediaRecorder.value?.mimeType,
+                }, progress,
+            ));
             const clinicOffline = shallowRef(null);
             if (clinicMenu) {
                 let disposed = false;
@@ -3178,6 +3189,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                 get deviceId() { return selectedMicDeviceId.value; },
                 select: (deviceId) => { selectedMicDeviceId.value = deviceId; },
                 requestAccess: audioComposable.requestMicrophonePermission,
+                switchInput: audioComposable.switchClinicMicrophone,
+                formats: clinicFormats,
+                get mimeType() { return clinicRecordingMime.value; },
+                selectFormat(mimeType) {
+                    if (!mimeType || clinicFormats.some(format => format.mimeType === mimeType)) clinicRecordingMime.value = mimeType;
+                },
             } : null;
             // A view that creates or lists dictations hands over to the existing correction view; the archive is read only.
             const openClinicMenuDictation = (payload) => openClinicDictation({
@@ -5515,6 +5532,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 clinicWorklistEnabled: !!clinicWorklist,
                 clinicClient: clinicWorklist ? clinicWorklist.client : null,
                 clinicUser: clinicWorklist ? clinicWorklist.user : null,
+                clinicStartSelection: clinicWorklist?.startSelection || null,
                 clinicCorrectionId, clinicOpenMode, clinicCorrectionRow, clinicListMount, clinicCorrectionMount, clinicViewMount, clinicOrigin, clinicActiveTab, goClinicView,
                 openClinicDictation, closeClinicCorrection,
                 requestClinicCorrectionClose, clinicAudioContextFactory,

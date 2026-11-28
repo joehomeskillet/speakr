@@ -67,7 +67,7 @@ export function formatRecordingDuration(seconds) {
 
 /** Recorded takes and selected files share the same upload and server receipt. */
 export async function uploadClinicFile(file, recordingTitle, {
-    id: takeId, retry, useSpeechRecognition = true, clientUploadId,
+    id: takeId, retry, useSpeechRecognition = true, clientUploadId, audioMime,
 } = {}, onUploadProgress) {
     if (retry) {
         const saved = await fetch('/api/clinic/v1/recording-takes/' + encodeURIComponent(takeId), {
@@ -83,6 +83,7 @@ export async function uploadClinicFile(file, recordingTitle, {
     if (recordingTitle !== undefined) {
         body.append('title', recordingTitle);
         body.append('from_recorder', 'true');
+        if (audioMime) body.append('audio_mime', audioMime);
     }
     if (takeId) body.append('clinic_take_id', takeId);
 
@@ -175,9 +176,10 @@ export function createClinicRecorder(audio, state, uploadFile, offlineDrafts = (
             const take = previous || { id: globalThis.crypto.randomUUID(), title, uploadOptions };
             takes.set(chunks, take);
             const gated = gatedTake?.chunks === chunks ? gatedTake.blob : null;
-            const file = gated
-                ? new File([gated], 'aufnahme.wav', { type: gated.type })
-                : new File(chunks, 'aufnahme.webm', { type: state.mediaRecorder.value.mimeType.split(';')[0] });
+            const audioMime = gated?.type || state.mediaRecorder.value.mimeType;
+            const type = audioMime.split(';')[0];
+            const extension = { 'audio/wav': 'wav', 'audio/ogg': 'ogg', 'audio/mp4': 'm4a' }[type] || 'webm';
+            const file = new File(gated ? [gated] : chunks, 'aufnahme.' + extension, { type });
             const drafts = offlineDrafts();
             let binding = retained.get(chunks);
             let receipt;

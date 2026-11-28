@@ -784,6 +784,9 @@
     grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.25fr) repeat(2, minmax(0, 1fr)) minmax(0, 2fr) auto;
     align-items: end;
 }
+.v8-ui .vocabulary-ui .voc-filters-can-add {
+    grid-template-columns: minmax(0, 1.2fr) auto minmax(0, 1.25fr) repeat(2, minmax(0, 1fr)) minmax(0, 2fr) auto;
+}
 .v8-ui .vocabulary-ui .voc-filters .field { min-width: 0; }
 .v8-ui .vocabulary-ui .voc-filters :is(input, select) { width: 100%; max-width: none; }
 .v8-ui .voc-filters .voc-search-field select {
@@ -808,7 +811,8 @@
     width: min(560px, calc(100% - var(--sp-4) * 2));
     background: var(--surface);
 }
-.v8-ui .voc-entry-dialog button, .v8-ui .voc-entry-table button { min-height: 48px; }
+.v8-ui .voc-add-word, .v8-ui .voc-entry-dialog button, .v8-ui .voc-entry-table button { min-height: 48px; }
+.v8-ui .voc-entry-notice:empty { position: absolute; }
 .v8-ui .voc-entry-dialog input { height: 48px; --v8-input-line: var(--ui-text-muted); }
 .v8-ui .voc-entry-dialog button:disabled {
     background: var(--v8-s2);
@@ -839,7 +843,7 @@
 @media (max-width: 760px) {
     .v8-ui .voc-entry-table :is(th, td) { padding: var(--sp-1); }
     .v8-ui .voc-entry-table th { text-transform: none; letter-spacing: normal; }
-    .v8-ui .voc-entry-table .actions { gap: var(--sp-1); }
+    .v8-ui .voc-entry-table .actions { flex-wrap: nowrap; gap: var(--sp-1); }
     .v8-ui .voc-entry-table .actions button.small { padding-inline: var(--sp-1); }
     .v8-ui .vocabulary-ui .voc-entry-table .voc-select-entry { gap: var(--sp-1); }
     .v8-ui .voc-entry-table .voc-select-entry strong { min-width: 0; }
@@ -893,10 +897,14 @@
     .cadm .clinic-vocabulary-view > .tabs { flex-wrap: wrap; }
     .cadm .clinic-vocabulary-view > .tabs > button { flex-shrink: 0; }
     .v8-ui .vocabulary-ui .voc-filters {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(6, minmax(0, 1fr));
         row-gap: var(--sp-1);
     }
-    .v8-ui .vocabulary-ui .voc-filters .search { grid-column: auto; }
+    .v8-ui .vocabulary-ui .voc-filters > * { grid-column: span 2; }
+    .v8-ui .vocabulary-ui .voc-filters .voc-list { grid-column: 1 / -1; }
+    .v8-ui .vocabulary-ui .voc-filters-can-add .voc-list,
+    .v8-ui .vocabulary-ui .voc-filters .search { grid-column: span 4; }
+    .v8-ui .vocabulary-ui .voc-filters .voc-pool-feedback { grid-column: 1 / -1; }
     .v8-ui .vocabulary-ui .voc-filters #voc-pool { min-height: 48px; }
     .cadm .clinic-vocabulary-view .vocabulary-ui { gap: var(--sp-1); }
     .cadm .clinic-vocabulary-view .voc-filters .field { gap: var(--sp-1); }
