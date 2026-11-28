@@ -1,5 +1,13 @@
 # Speakr V8: geprüfte Änderungen im Klinik-Webclient
 
+## P-123 – Versandziel bestätigen (PAR-ADM-007)
+
+Synthetische Chromium-Tests zeigen vor dem Einreichen die benannte Vorgabe und nur die erlaubten Alternativen. Die Quittung und die erneut geladenen Diktatdetails zeigen dasselbe gespeicherte Ziel. Versanddaten und Pflichtkategorien bleiben Teil des Ablaufs. Staging und Originalsystemvergleich stehen aus.
+
+## Implementierung P-086
+
+Autoren mit Selbstkorrektur als Versandziel können ohne Schreibpool aufnehmen und einreichen. Synthetische HTTP-/DB-Tests belegen die eigene Editierlease, das Speichern von Text und den Ausschluss impliziter Pool-Sicht und Freigaberechte. Staging- und Referenznachweis für BT-ADM-007 stehen aus.
+
 ## P-062 – Versanddaten vor dem Einreichen
 
 Im lokalen Klinik-Browserlauf wurden Titel, Anmerkung, Priorität und ein Zürcher Tagesendtermin eines synthetischen P04-Entwurfs gespeichert und nach erneutem Öffnen geprüft. Die angezeigte Abnahmepflicht folgte einer separaten Admin-Änderung. Staging und Originalsystemvergleich stehen aus; die offenen Paritätslücken bleiben unverändert.
