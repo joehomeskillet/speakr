@@ -144,7 +144,7 @@ def test_lost_confirmations_keep_one_take_and_offer_keyboard_retry(app_base, siz
             view.get_by_test_id('rec-start').click()
             page.wait_for_function("document.querySelector('#app').__vue_app__._instance.proxy.recordingTime >= 2")
             view.get_by_test_id('rec-stop').click()
-            view.get_by_role('switch', name=re.compile('Spracherkennung')).click()
+            expect(recognition).to_have_attribute('aria-checked', 'false')
             uploads = []
             sends = []
 

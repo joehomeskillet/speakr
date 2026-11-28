@@ -1165,11 +1165,13 @@ export const RECORDING_TEMPLATE = `
         <required-categories v-if="!m.retryingTake && !['retryPending', 'submitting'].includes(m.phase) && m.categories.length && m.canSubmit"
                              :items="m.categories" :disabled="!m.canSelectCategory" @select="c.selectCategory" />
         <span class="sr-only" data-testid="created-id">{{ m.created.dictationId }}</span>
-        <details v-if="m.canSubmit && !m.retryingTake" class="draft-protection" style="margin-bottom: var(--ui-space-3); text-align: left">
-          <summary style="${TOUCH}; cursor: pointer; align-content: center">Diktat-Schutz (optional)</summary>
-          <component :is="Protection" ref="protection" :key="m.created.dictationId"
-                     :client="client" :dictation-id="m.created.dictationId" />
-        </details>
+        <template v-if="!m.retryingTake">
+          <details v-if="m.canSubmit" class="draft-protection" style="margin-bottom: var(--ui-space-3); text-align: left">
+            <summary style="${TOUCH}; cursor: pointer; align-content: center">Diktat-Schutz (optional)</summary>
+            <component :is="Protection" ref="protection" :key="m.created.dictationId"
+                       :client="client" :dictation-id="m.created.dictationId" />
+          </details>
+        </template>
         <div v-if="!m.routing && m.canSubmit && (m.retryingTake || m.directSend) && m.phase !== 'retryPending'"
              style="display: grid; justify-items: center; gap: var(--ui-space-3)">
           <p v-if="m.plannedDestination" data-testid="send-destination" style="margin: 0; overflow-wrap: anywhere">{{ m.plannedDestination }}</p>
