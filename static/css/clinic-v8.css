@@ -1032,10 +1032,11 @@
   .v8-ui .clinic-admin-pools-view .cap-list td{padding:0;border:0}
   .v8-ui .clinic-admin-pools-view .cap-list :is(.cap-identity,.cap-members){grid-column:1/-1}
   .v8-ui .clinic-admin-pools-view .cap-list .cap-action{justify-self:end}
+  .v8-ui .clinic-admin-pools-view .cap-list .cap-desktop-label{display:none}
   .v8-ui .clinic-admin-pools-view .cap-list .cap-phone-label{display:inline}
   .v8-ui .clinic-admin-pools-view .cap-list .cap-members .cap-phone-label{color:var(--v8-text-2)}
   .v8-ui .clinic-admin-pools-view .cap-list .cap-open{width:auto;height:auto;padding-inline:var(--sp-2);gap:var(--sp-1);background:var(--v8-s1);border-color:var(--line);color:var(--v8-text)}
-  .v8-ui .clinic-admin-pools-view :is(button, .button){min-width:48px;min-height:48px}
+  .v8-ui .clinic-admin-pools-view.v8-admin-page :is(button, .button, .field input, .inline-label){min-width:48px;min-height:48px}
   .v8-ui .clinic-admin-pools-view .filterbar input{min-height:48px!important}
   .v8-ui .clinic-admin-pools-view .field-grid{grid-template-columns:minmax(0,1fr)}
   .v8-ui .clinic-admin-pools-view #cap-detail-title{overflow-wrap:anywhere}
