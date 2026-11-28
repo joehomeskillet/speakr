@@ -101,7 +101,7 @@
                         <p style="margin: 0; overflow-wrap: anywhere" v-text="notificationText(n)"></p>
                         <a v-if="notificationLink(n)" :href="notificationLink(n)" data-notification-open style="padding: 0; min-height: 0" v-text="t('notifications.view')"></a>
                     </div>
-                    <button type="button" @click.stop="dismissNotification(n.id)" :title="t('notifications.dismiss')"
+                    <button type="button" class="v8-notification-dismiss" @click.stop="dismissNotification(n.id)" :title="t('notifications.dismiss')"
                             style="border: 0; background: transparent; cursor: pointer; padding: 0">
                         <i class="fas fa-xmark" aria-hidden="true"></i>
                     </button>
@@ -135,7 +135,7 @@
             <hr>
             <div @click="openColorSchemeModal" class="v8-item" role="menuitem" tabindex="0" @keydown.enter="openColorSchemeModal">
                 <i class="fas fa-palette" aria-hidden="true"></i><span v-text="t('modal.colorScheme')"></span>
-                <button type="button" @click.stop="toggleDarkMode" class="v8-theme" style="min-height: 0; padding: 2px"
+                <button type="button" @click.stop="toggleDarkMode" class="v8-theme"
                         :title="isDarkMode ? t('nav.lightMode') : t('nav.darkMode')" :aria-label="isDarkMode ? t('nav.lightMode') : t('nav.darkMode')">
                     <span :class="{ on: !isDarkMode }"><i class="fas fa-sun" aria-hidden="true" style="width: auto; color: inherit"></i></span>
                     <span :class="{ on: isDarkMode }"><i class="fas fa-moon" aria-hidden="true" style="width: auto; color: inherit"></i></span>

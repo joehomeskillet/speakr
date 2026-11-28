@@ -30,7 +30,6 @@ const ACTIVE_STATUS_LABELS = Object.freeze(Object.fromEntries(
 
 export const TEXT = Object.freeze({
     title: 'Aufnahmen',
-    eyebrow: 'Deine Aufnahmen',
     subtitle: 'Alle Aufnahmen an einem Ort, nach Aufnahmezeit geordnet.',
     pending: 'Noch nicht beim Schreibdienst',
     pendingSaved: 'Diese Aufnahmen sind gespeichert.',

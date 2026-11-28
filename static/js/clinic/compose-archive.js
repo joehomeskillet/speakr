@@ -327,7 +327,6 @@ export const ArchiveView = {
   <nav class="breadcrumb" aria-label="Pfad"><span>Speakr</span><span aria-hidden="true">›</span><span>{{ c.text.eyebrow }}</span><span aria-hidden="true">›</span><span aria-current="page">{{ c.text.title }}</span></nav>
   <div class="pagehead">
     <div>
-      <div class="eyebrow">{{ c.text.eyebrow }}</div>
       <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px">
         <h1 id="cav-title" style="${H1}">{{ c.text.title }}</h1>
         <span class="tag neutral" style="margin-bottom: 9px" role="status" aria-live="polite" data-testid="archive-hits">{{ c.hits() }}</span>

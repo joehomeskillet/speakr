@@ -50,7 +50,6 @@ export const LABELS = Object.freeze({
     ruleOnePool: 'Ein Benutzer gehört höchstens einem Autorenpool an. Gleichnamige Pools werden nicht zusammengeschlossen.',
     ruleMultiPool: 'Ein Benutzer kann mehreren Autorenpools angehören. Ressourcen und Sichtregeln gelten dann zusammen. Für Empfänger-Vorgaben zählt der erste Pool nach Name. Gleichnamige Pools werden nicht zusammengeschlossen.',
     ruleNoPerson: 'Diktierende sind bestehende Benutzer. Es gibt keine eigene Personenverwaltung.',
-    eyebrow: 'Verwaltung',
     subline: 'Diktierende Personen eindeutig ausweisen und ihre Autorenressourcen organisieren.',
     search: 'Suche',
     searchPlaceholder: 'Name, Benutzer-ID oder Pool …',
@@ -330,7 +329,6 @@ export const AUTHORS_TEMPLATE = `
 <section class="clinic-authors-view v8-page v8-admin-page" data-testid="clinic-authors-view" aria-labelledby="authors-title">
   <div class="pagehead">
     <div>
-      <div class="eyebrow">{{ labels.eyebrow }}</div>
       <h1 id="authors-title">{{ labels.title }}</h1>
       <p class="subline">{{ labels.subline }}</p>
     </div>

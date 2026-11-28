@@ -31,8 +31,8 @@ PASSWORD = "Synthetic-pass-v860!"
 LOGIN_TIMEOUT_MS = 30000
 SHOW_TIMEOUT_MS = 30000
 
-# Fixed matrix of the V8 test plan (V8-GATE-21): three sizes, light and dark.
-VIEWPORTS = {"1440x900": (1440, 900), "1280x720": (1280, 720), "390x844": (390, 844)}
+# V8-GATE-21 sizes plus the narrow phone case from HM-20.
+VIEWPORTS = {"1440x900": (1440, 900), "1280x720": (1280, 720), "390x844": (390, 844), "320x568": (320, 568)}
 THEMES = ("light", "dark")
 AXE_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]
 
@@ -332,6 +332,73 @@ def run_axe(page, axe_js: str) -> dict:
     return page.evaluate(
         "tags => axe.run(document, {runOnly: {type: 'tag', values: tags}, resultTypes: ['violations', 'incomplete']})",
         AXE_TAGS)
+
+
+def assert_label_floor(page, case: str) -> None:
+    too_small = page.evaluate(r"""() => {
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        const findings = [];
+        while (walker.nextNode()) {
+            const {parentElement: el, textContent} = walker.currentNode;
+            const text = textContent.trim();
+            if (!text || el.closest('script,style,svg,[aria-hidden=true],.sr-only,.cl-sr-only,.mini-avatar')) continue;
+            if (!el.checkVisibility({checkOpacity: true, checkVisibilityCSS: true})) {
+                if (getComputedStyle(el).display !== 'contents') continue;
+                const range = document.createRange();
+                range.selectNode(walker.currentNode);
+                if (!range.getClientRects().length) continue;
+            }
+            const size = parseFloat(getComputedStyle(el).fontSize);
+            if (size < 11) findings.push({text: text.slice(0, 80), size, className: el.className});
+        }
+        for (const cell of document.querySelectorAll('td[data-label]')) {
+            if (!cell.checkVisibility()) continue;
+            const {content, fontSize} = getComputedStyle(cell, '::before');
+            if (content !== 'none' && content !== 'normal' && parseFloat(fontSize) < 11) {
+                findings.push({text: content, size: fontSize});
+            }
+        }
+        for (const el of document.querySelectorAll('input[placeholder],textarea[placeholder]')) {
+            if (!el.matches(':placeholder-shown') || !el.checkVisibility()) continue;
+            const size = parseFloat(getComputedStyle(el, '::placeholder').fontSize);
+            if (size < 11) findings.push({text: el.placeholder, size});
+        }
+        return findings;
+    }""")
+    assert not too_small, f"{case}: {too_small}"
+
+
+def assert_touch_target(target) -> None:
+    box = target.bounding_box()
+    assert box and box["width"] >= 48 and box["height"] >= 48, (target, box)
+    target.tap(trial=True)
+
+
+def assert_phone_control_floor(page, case: str) -> None:
+    too_small = page.evaluate("""() => {
+        const controls = document.querySelectorAll(
+            '.v8-page, .cadm, body.v8-focus:has(#accountInfoForm) main'
+        );
+        const findings = new Set();
+        for (const root of controls) {
+            for (const el of root.querySelectorAll(
+                'button:not(:disabled), select:not(:disabled), summary, input:not(:disabled,[type=hidden]), a.button'
+            )) {
+                if (!el.checkVisibility({checkOpacity: true, checkVisibilityCSS: true}) ||
+                    el.closest('[aria-hidden=true],.sr-only,.cl-sr-only,.v8-quick')) continue;
+                const targets = ['checkbox', 'radio'].includes(el.type) ? [...el.labels, el] : [el];
+                if (targets.some(target => {
+                    const {width, height} = target.getBoundingClientRect();
+                    return width >= 48 && height >= 48;
+                })) continue;
+                const {width, height} = el.getBoundingClientRect();
+                findings.add(`${el.getAttribute('aria-label') || el.dataset.testid || el.id || el.innerText ||
+                    el.tagName} (${width} × ${height})`);
+            }
+        }
+        return [...findings];
+    }""")
+    assert not too_small, f"{case}: {too_small}"
 
 
 def horizontal_overflow(page) -> dict:

@@ -51,7 +51,6 @@ export const LABELS = Object.freeze({
     poolsHint: 'Mitgliedschaften werden unter «Pools verwalten» geändert.',
     reload: 'Erneut laden',
     retry: 'Erneut versuchen',
-    eyebrow: 'Verwaltung',
     subline: 'Lokale Benutzerkonten, Poolbezüge und Fachrechte getrennt verwalten.',
     statAccounts: 'Benutzerkonten',
     statActive: 'Aktive Konten',
@@ -190,7 +189,6 @@ export const USERS_TEMPLATE = `
 <div class="clinic-users-view v8-page v8-admin-page" data-testid="clinic-users-view">
   <div class="pagehead">
     <div>
-      <div class="eyebrow">{{ labels.eyebrow }}</div>
       <h1>{{ labels.title }}</h1>
       <p class="subline">{{ labels.subline }}</p>
     </div>

@@ -58,8 +58,6 @@
     padding: 0 var(--sp-3);
     font-size: var(--fs-label);
     font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
     color: var(--text-muted);
 }
 .cadm-nav__item {
@@ -201,10 +199,12 @@
 .cadm-table thead th {
     font-size: var(--fs-label);
     font-weight: 600;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
     color: var(--text-muted);
     white-space: nowrap;
+}
+.v8-ui thead .t-label {
+    text-transform: none;
+    letter-spacing: normal;
 }
 .cadm-table tbody tr + tr { border-top: var(--border-hairline) solid var(--border-primary); }
 .cadm-table tbody tr:hover { background: var(--bg-tertiary); }
@@ -434,8 +434,6 @@
         display: block;
         font-size: var(--fs-label);
         font-weight: 600;
-        letter-spacing: 0.02em;
-        text-transform: uppercase;
         color: var(--text-muted);
     }
     .cadm-table--stack .cadm-col-actions { width: auto; text-align: left; padding-top: var(--sp-2); }
@@ -466,7 +464,7 @@
 
 @media (max-width: 640px) {
     .cadm, .cadm-layout, .cadm-main { gap: var(--sp-2); }
-    .cadm-head__lead, .cadm .pagehead .eyebrow { display: none; }
+    .cadm-head__lead { display: none; }
     .cadm .pagehead { margin-bottom: var(--sp-3); }
     .cadm .head-actions { margin-top: var(--sp-2); padding-top: 0; }
     .cadm .pagehead h1 { margin-bottom: var(--sp-1); }
@@ -770,6 +768,11 @@
     .v8-ui .asr-admin-layout .asr-panels { grid-template-columns: minmax(0, 1fr); }
     .v8-ui .asr-admin-layout .asr-wait input { max-width: none; }
     .v8-ui .asr-admin-layout .asr-save-actions .primary { width: 100%; }
+}
+@media (max-width: 530px) {
+    .v8-ui .asr-admin-layout [aria-labelledby="asr-config-title"] { gap: var(--sp-2); }
+    .v8-ui .asr-admin-layout .field-grid { row-gap: var(--sp-1); }
+    .v8-ui .asr-admin-layout .asr-save-actions { margin-top: var(--sp-1); }
 }
 
 .cadm .clinic-vocabulary-view .vocabulary-ui > .filterbar { margin-block: 0; }

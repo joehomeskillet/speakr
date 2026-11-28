@@ -562,7 +562,6 @@ export const SETTINGS_TEMPLATE = `
   </nav>
   <div class="pagehead">
     <div>
-      <div class="eyebrow">{{ labels.eyebrow }}</div>
       <h1>{{ labels.title }}</h1>
       <p class="subline">{{ labels.subline }}</p>
     </div>

@@ -6,12 +6,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
-    <title>{% if is_group_admin_only %}{{ groups_title }}{% else %}{{ admin_title }}{% endif %} - Speakr</title>
+    <title>{% if is_group_admin_only %}{{ groups_title }}{% else %}{{ admin_title }}{% endif %} - {{ 'Ploudrli' if clinic_mode else 'Speakr' }}</title>
 
     <!-- Loading overlay to prevent FOUC - MUST be first -->
     {% include 'includes/loading_overlay.html' %}
 
-    <link rel="icon" href="{{ url_for('static', filename='img/favicon.ico') }}" type="image/svg+xml">
+    {% include 'includes/brand-head.html' %}
         <!-- All dependencies bundled locally for offline support -->
         <!-- All dependencies bundled locally for offline support -->
 <script src="{{ url_for('static', filename='vendor/js/vue.global.js', v=app_version) }}"></script>
@@ -1416,12 +1416,12 @@ Summarization Instructions:
                         <table class="min-w-full divide-y divide-[var(--border-primary)]" data-audit-table>
                             <thead class="bg-[var(--bg-tertiary)]">
                                 <tr>
-                                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">${t('auditLog.time')}</th>
-                                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">${t('auditLog.user')}</th>
-                                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">${t('auditLog.event')}</th>
-                                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">${t('auditLog.recording')}</th>
-                                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">${t('auditLog.address')}</th>
-                                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">${t('auditLog.result')}</th>
+                                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-[var(--text-muted)]{% if not clinic_mode %} uppercase tracking-wider{% endif %}">${t('auditLog.time')}</th>
+                                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-[var(--text-muted)]{% if not clinic_mode %} uppercase tracking-wider{% endif %}">${t('auditLog.user')}</th>
+                                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-[var(--text-muted)]{% if not clinic_mode %} uppercase tracking-wider{% endif %}">${t('auditLog.event')}</th>
+                                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-[var(--text-muted)]{% if not clinic_mode %} uppercase tracking-wider{% endif %}">${t('auditLog.recording')}</th>
+                                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-[var(--text-muted)]{% if not clinic_mode %} uppercase tracking-wider{% endif %}">${t('auditLog.address')}</th>
+                                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-[var(--text-muted)]{% if not clinic_mode %} uppercase tracking-wider{% endif %}">${t('auditLog.result')}</th>
                                 </tr>
                             </thead>
                             <tbody class="bg-[var(--bg-secondary)] divide-y divide-[var(--border-primary)]">
@@ -5054,7 +5054,6 @@ Summarization Instructions:
 <section class="v8-page v8-admin-page" aria-labelledby="cadm-rules-title">
   <header class="pagehead">
     <div>
-      <div class="eyebrow">Verwaltung</div>
       <h1 id="cadm-rules-title">Regeln</h1>
       <p class="subline">Metadatenregeln für ein Diktat laden und prüfen.</p>
     </div>
@@ -5356,7 +5355,7 @@ Summarization Instructions:
         <div v-if="!team" id="clinic-admin-system-content"></div>
         <section v-if="selected" class="cadm-main" data-testid="clinic-admin-view" :data-admin-view="viewName" aria-labelledby="cadm-page-label">
           <nav class="cadm-crumb" aria-label="Brotkrumennavigation" data-testid="clinic-admin-breadcrumb">
-            <a href="/#/aufnahmen">Speakr</a> <span aria-hidden="true">›</span> <span>Verwaltung</span>
+            <a href="/#/aufnahmen">Ploudrli</a> <span aria-hidden="true">›</span> <span>Verwaltung</span>
             <span aria-hidden="true">›</span> <span id="cadm-page-label" aria-current="page" v-text="selected.label"></span>
           </nav>
           <div v-if="active" :key="active.id" :data-testid="viewTestId">

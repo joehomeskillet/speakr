@@ -64,7 +64,6 @@ export const ACTION_TABLE = 'max-md:[&_th]:px-1.5 max-md:[&_td]:px-1.5 max-md:[&
 
 export const TEXT = Object.freeze({
     title: 'Dateien und Geräteimport',
-    eyebrow: 'Aufnahmen',
     subline: 'Importaufträge, Geräteinventar und Klärliste. Dateien ohne eindeutige Zuordnung bleiben sichtbar, bis Autor und Pool ausgewählt wurden.',
     colSource: 'Quelle',
     colFiles: 'Dateien',
@@ -391,7 +390,6 @@ export const IMPORT_TEMPLATE = `
 <section class="${V8_PAGE} clinic-import-view" data-testid="clinic-import-view" aria-labelledby="civ-title">
   <div class="pagehead">
     <div>
-      <div class="eyebrow">{{ c.text.eyebrow }}</div>
       <h1 id="civ-title">{{ c.text.title }}&nbsp;<span class="count-pill align-middle" data-testid="intent-count">{{ c.state.intents.length }}</span></h1>
       <p class="subline">{{ c.text.subline }}</p>
     </div>

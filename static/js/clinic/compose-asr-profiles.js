@@ -30,7 +30,6 @@ export const TRAINING_BASE = '/admin/clinic/training';
 export const KINDS = Object.freeze(['language_model', 'acoustic']);
 
 export const TEXT = Object.freeze({
-    eyebrow: 'Verwaltung',
     title: 'Sprachprofile',
     subline: 'Wählen Sie das Sprachprofil für Diktate mit Headset oder Aufnahmegerät.',
     denied: 'Kein Zugriff. Bitte anmelden.',
@@ -346,7 +345,7 @@ const CONSENT_TEMPLATE = `
   <p v-if="view.notice" role="status" aria-live="polite">{{ view.notice }}</p>
   <p v-if="view.error" role="alert" class="asr-feedback-error">{{ view.error.message }}
     <button type="button" class="small" :disabled="view.loading || view.busy" @click="controller.load()">{{ view.labels.reload }}</button></p>
-  <div><span class="tag" :style="surfaceStyle(view.statusSurface)" data-testid="voice-status">{{ view.status.label }}</span></div>
+  <div role="status"><span class="tag" :style="surfaceStyle(view.statusSurface)" data-testid="voice-status">{{ view.status.label }}</span></div>
   <h3>{{ view.statement.label }}</h3>
   <p class="hint">{{ view.statement.text }}</p>
   <div class="actions">
@@ -491,7 +490,6 @@ export const ASR_PROFILES_TEMPLATE = `
 <div class="v8-page clinic-asr-profiles-view" :class="{ 'asr-admin-layout': adminClient }">
   <div class="pagehead">
     <div>
-      <div class="eyebrow">${TEXT.eyebrow}</div>
       <h1>${TEXT.title}</h1>
       <p class="subline">${TEXT.subline}</p>
       <p v-if="adminClient" class="subline">Ihr Gerät sendet Aufnahmen an Speakr. Die Erkennung ist lokal vorgesehen.</p>

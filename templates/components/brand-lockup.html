@@ -1,0 +1,17 @@
+{% macro brand_images(asset, size, alt) -%}
+    <img src="{{ url_for('static', filename='img/brand/' ~ asset ~ '-light.svg') }}" alt="{{ alt }}"
+         class="block h-auto {{ size }} dark:hidden">
+    <img src="{{ url_for('static', filename='img/brand/' ~ asset ~ '-dark.svg') }}" alt="{{ alt }}"
+         class="hidden h-auto {{ size }} dark:block">
+{%- endmacro %}
+
+{% macro brand_lockup(kind='compact') -%}
+    {% if kind == 'full' %}
+        {{ brand_images('lockup-full', 'w-72 max-w-full', 'Ploudrli. SWISS VOICE INTELLIGENCE. Du redsch. Mir merke.') }}
+    {% elif kind == 'symbol' %}
+        {{ brand_images('symbol', 'w-7', 'Ploudrli') }}
+    {% else %}
+        <span class="block sm:hidden">{{ brand_images('symbol', 'w-7', 'Ploudrli') }}</span>
+        <span class="hidden sm:block">{{ brand_images('lockup-compact', 'w-28', 'Ploudrli') }}</span>
+    {% endif %}
+{%- endmacro %}

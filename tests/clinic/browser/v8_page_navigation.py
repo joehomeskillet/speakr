@@ -68,9 +68,18 @@ def show_jobs(page, base):
     support._click_noting(page, page.get_by_test_id("clinic-dictation-link-jobs"), "Verarbeitung")
     view = page.get_by_test_id("clinic-jobs-view")
     expect(view.get_by_role("heading", name="Aufträge dieses Diktats", exact=True)).to_be_visible()
-    expect(view.get_by_test_id("job-count")).to_have_text("1")
-    expect(view.get_by_test_id("job-list").locator("tbody tr")).to_have_count(1)
-    expect(view.get_by_test_id("job-list")).to_contain_text("Abgeschlossen")
+    count = view.get_by_test_id("job-count")
+    jobs = view.get_by_test_id("job-list")
+    state_filter = view.get_by_test_id("state-filter")
+    expect(count).to_have_text("2")
+    expect(jobs.locator("tbody tr")).to_have_count(2)
+    expect(jobs).to_contain_text("Wartend")
+    state_filter.select_option("completed")
+    expect(count).to_have_text("1")
+    expect(jobs.locator("tbody tr")).to_have_count(1)
+    expect(jobs).to_contain_text("Abgeschlossen")
+    state_filter.select_option(index=0)
+    expect(count).to_have_text("2")
 
 
 def show_activity(page, base):
@@ -129,6 +138,7 @@ def show_vocabulary(page, base):
     support._show_resources(page, base)
     support._open_shell_view(page, base, "#/verwaltung/wortschatz")
     view = page.get_by_test_id("clinic-vocabulary-view")
+    view.wait_for(state="visible", timeout=support.SHOW_TIMEOUT_MS)
     expect(view.get_by_role("heading", name="Wortschatz", exact=True)).to_be_visible()
     expect(view.get_by_role("tabpanel").get_by_test_id("empty")).to_be_visible()
 

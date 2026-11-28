@@ -104,7 +104,6 @@ export const TEXT = Object.freeze({
     history: 'Verlauf',
     close: 'Details schliessen',
     noPool: 'Kein Schreibdienst zugeordnet',
-    eyebrow: 'Aufnahmenverwaltung',
     subline: 'Diktate nach Schreibdienst und diktierender Person bearbeiten.',
     kpiAll: 'Alle Diktate',
     kpiOpen: 'Offen',
@@ -893,7 +892,6 @@ export const WorklistView = {
          @keydown.f5.exact.capture="c.onRefreshKey" @keydown="c.onHistoryKey($event)">
   <div class="page-head">
     <div>
-      <div class="eyebrow">{{ c.text.eyebrow }}</div>
       <div class="hline">
         <h1 id="cwv-title" tabindex="-1">{{ caseView ? 'Diktate zum Fall' : c.text.title }}</h1>
         <span class="count-pill" data-testid="result-count">{{ c.entryCount(c.view.total ?? c.counts.value.all) }}</span>
@@ -973,7 +971,7 @@ export const WorklistView = {
                    @click.capture="c.rememberFirstClick($event)" @dblclick.capture="c.keepDoubleClickOnRow($event)">
               <thead>
                 <tr>
-                  <th class="check"><input type="checkbox" :checked="c.allChecked()" :aria-label="c.text.selectAll" @change="c.toggleAll()"></th>
+                  <th class="check"><label><input type="checkbox" :checked="c.allChecked()" :aria-label="c.text.selectAll" @change="c.toggleAll()"></label></th>
                   <th class="titlecol" scope="col">{{ c.text.dictation }}</th>
                   <th v-for="col in c.scopedMetadataColumns" :key="col.key" scope="col" class="cl-scoped-metadata">{{ col.label }}</th>
                   <th v-for="col in c.columns()" :key="col.key" scope="col" v-bind="c.headerAttrs(col.key)"
@@ -990,7 +988,7 @@ export const WorklistView = {
                   <tr v-else tabindex="0" :class="c.selectedId.value === c.key(item.row) ? 'selected' : ''" data-row :data-id="c.key(item.row)"
                       :aria-selected="c.selectedId.value === c.key(item.row) ? 'true' : 'false'"
                       @click="c.select(item.row)" @dblclick="c.open(item.row)" @keydown="c.onRowKey($event, item.row)">
-                    <td class="check" @click.stop><input type="checkbox" class="rowcheck" :checked="c.isChecked(item.row)" :aria-label="c.text.selectRow + ': ' + c.dictationLabel(item.row)" @change="c.toggleChecked(item.row)" @keydown.stop></td>
+                    <td class="check" @click.stop><label><input type="checkbox" class="rowcheck" :checked="c.isChecked(item.row)" :aria-label="c.text.selectRow + ': ' + c.dictationLabel(item.row)" @change="c.toggleChecked(item.row)" @keydown.stop></label></td>
                     <td>
                       <div class="titlecell">
                         <span class="mini-rec" aria-hidden="true">

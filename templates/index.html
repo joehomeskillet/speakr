@@ -1,3 +1,4 @@
+{% from 'components/brand-lockup.html' import brand_lockup -%}
 <!DOCTYPE html>
 <html lang="{{ user_language or 'en' }}" class="h-full">
 <head>
@@ -60,7 +61,7 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta name="app-version" content="{{ app_version }}">
     <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
-    <title>Speakr</title>
+    <title>Ploudrli</title>
     <!-- All dependencies bundled locally for offline support -->
     <link rel="stylesheet" href="{{ url_for('static', filename='vendor/css/easymde.min.css', v=app_version) }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='vendor/css/fontawesome.min.css', v=app_version) }}">
@@ -77,12 +78,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/phone.css', v=app_version) }}">
     <!-- The processing queue: the indicator and the panel -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/queue.css', v=app_version) }}">
-    <link rel="icon" href="{{ url_for('static', filename='img/favicon.ico') }}">
-    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='img/icon-32x32.png') }}">
-    <link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='img/icon-16x16.png') }}">
-    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='img/icon-180x180.png') }}">
-    <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
-    <meta name="theme-color" content="#2563eb">
+    {% include 'includes/brand-head.html' %}
     <!-- Tailwind utilities, compiled at build time (scripts/build_css.sh). Last in
          <head> so that, as with the former runtime build, they follow the page's
          own stylesheets in the cascade. -->
@@ -134,7 +130,9 @@
         {#- The wrapper keeps the header out of the UI themes' "#app > header" rules: the V8 topbar does not follow a theme. -#}
         <div style="display: contents">
         <header class="topbar v8-chrome" data-testid="clinic-header">
-            <a class="brand-link" href="/#/aufnahmen" aria-label="Speakr – Aufnahmen"><span class="logo" aria-hidden="true"></span><span class="brand">Speakr</span></a>
+            <a class="brand-link min-h-12 min-w-12 justify-center rounded-ui-sm bg-ui-surface" href="/#/aufnahmen" aria-label="Ploudrli – Aufnahmen">
+                {{ brand_lockup() }}
+            </a>
             <!-- Primary tabs (CLINIC_MODE only): Aufnahmen and Arbeitsliste; Ressourcen and the other pages are in the menus. The view is kept in the URL hash (#/aufnahmen, #/arbeitsliste, #/ressourcen, #/diktat). No patient data is shown. -->
             <nav v-if="clinicWorklistEnabled" class="topnav" aria-label="Klinik" data-testid="clinic-primary-nav">
                 <button type="button" data-testid="nav-recordings"
@@ -276,14 +274,13 @@
                 </div>
                 <!-- end V8 menu views (v8-71) -->
                 <!-- V8 Verwaltung views (v8-114): the administration pages inside the clinic shell. Hash routes #/verwaltung/<page>;
-                     the page is shown only when the API authorises its probe (templates/admin.html rule). The page head (eyebrow,
-                     title, subline, actions) belongs to the page component. -->
+                     the page is shown only when the API authorises its probe (templates/admin.html rule). The page head belongs to the page component. -->
                 <div v-if="clinicWorklistEnabled && clinicAdminView"
                      data-testid="clinic-admin-view" data-clinic-shell-view :data-admin-view="clinicAdminView.view"
                      :class="{cadm: ['clinic-admin-pools', 'clinic-admin-authors', 'clinic-admin-users', 'clinic-admin-asr'].includes(clinicAdminView.view)}"
                      class="flex-1 overflow-y-auto content v8-page">
                     <div class="breadcrumb" data-testid="clinic-admin-breadcrumb">
-                        <a href="#/aufnahmen" @click.prevent="goClinicView('clinic-recordings')">Speakr</a><span>›</span><span>Verwaltung</span><span>›</span><span v-text="clinicAdminView.label"></span>
+                        <a href="#/aufnahmen" @click.prevent="goClinicView('clinic-recordings')">Ploudrli</a><span>›</span><span>Verwaltung</span><span>›</span><span v-text="clinicAdminView.label"></span>
                     </div>
                     <p v-if="clinicAdminAccess === null" role="status" aria-live="polite" data-testid="clinic-admin-probing">Berechtigungen werden geprüft …</p>
                     <div v-else-if="!clinicAdminAllowed(clinicAdminView)" role="alert" class="note warning" data-testid="clinic-admin-denied">
@@ -393,7 +390,7 @@
         tbody tr:last-child td:where(.v8-admin-page *){border-bottom:0}
         tbody tr:hover:where(.v8-admin-page *){background:var(--surface)}
         td strong:where(.v8-admin-page *){display:block;color:var(--v8-text);font-weight:650}
-        td small:where(.v8-admin-page *){display:block;font-size:10px;color:var(--v8-muted);margin-top:3px}
+        td small:where(.v8-admin-page *){display:block;font-size:var(--ui-label-min);color:var(--v8-muted);margin-top:3px}
         .tabs:where(.v8-admin-page *){--burgundy:var(--brand-accent);display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:18px;overflow:auto}
         .tabs button:where(.v8-admin-page *){white-space:nowrap;border:0;border-bottom:3px solid transparent;border-radius:0;background:transparent;padding:10px 14px;font-weight:600;color:var(--v8-text-2)}
         .tabs button[aria-selected=true]:where(.v8-admin-page *){color:var(--v8-text);border-bottom-color:var(--burgundy)}
@@ -433,7 +430,7 @@
         .v8-ui .v8-admin-page .note p{margin:6px 0 0}
         .v8-ui .v8-admin-page .table-wrap table{margin:0}
         .v8-ui .v8-admin-page th[scope=row] strong{display:block;color:var(--v8-text);font-weight:650}
-        .v8-ui .v8-admin-page th[scope=row] small{display:block;font-size:10px;font-weight:400;color:var(--v8-muted);margin-top:3px}
+        .v8-ui .v8-admin-page th[scope=row] small{display:block;font-size:var(--ui-label-min);font-weight:400;color:var(--v8-muted);margin-top:3px}
         .v8-ui .v8-admin-page th[scope=row]{font-weight:inherit;padding:13px 14px;border-bottom:1px solid var(--v8-line-2);text-align:left}
         .v8-ui .v8-admin-page tbody tr:last-child th[scope=row]{border-bottom:0}
         .v8-ui .v8-admin-page tbody tr.is-selected{background:var(--v8-s1)}

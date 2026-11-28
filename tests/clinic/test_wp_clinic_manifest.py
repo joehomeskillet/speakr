@@ -26,6 +26,9 @@ def test_manifest_response_by_mode(monkeypatch, clinic_mode):
     assert response.status_code == 200
     manifest = response.json
     upstream = json.loads((Path(app.static_folder) / 'manifest.json').read_text(encoding='utf-8'))
+    assert manifest['name'] == manifest['short_name'] == 'Ploudrli'
+    assert all(shortcut['icons'][0]['src'] == '/static/img/brand/icon-192.png'
+               for shortcut in manifest['shortcuts'])
     if clinic_mode == '0':
         assert manifest == upstream
         assert manifest['lang'] == 'en'

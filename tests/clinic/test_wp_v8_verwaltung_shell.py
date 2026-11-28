@@ -1,7 +1,7 @@
 """Verwaltung inside the clinic shell (v8-114; V8 P10 to P18, DESIGN_SYSTEM section 1).
 
 The administration pages share /admin#/<page>. The original shell URLs forward there, and the header menu
-"Verwaltung & Seiten" opens them directly, with the breadcrumb Speakr > Verwaltung > <page>. Visibility follows the probe rule of
+"Verwaltung & Seiten" opens them directly, with the breadcrumb Ploudrli > Verwaltung > <page>. Visibility follows the probe rule of
 templates/admin.html: a GET the API authorises; a page is withheld when the API answers 403.
 
 Reuses the harness of test_wp_mount_admin (real Flask app in a child process, throwaway SQLite database, synthetic users
@@ -81,9 +81,9 @@ def test_every_page_is_reachable_by_hash_with_breadcrumb_as_admin(live_server, b
         _mounted(page)
         shell = _wait_page(page, view)
         crumb = shell.locator("[data-testid=clinic-admin-breadcrumb]")
-        expect(crumb.get_by_role("link", name="Speakr")).to_have_attribute("href", "/#/aufnahmen")
+        expect(crumb.get_by_role("link", name="Ploudrli", exact=True)).to_have_attribute("href", "/#/aufnahmen")
         expect(crumb.locator('[aria-current="page"]')).to_have_text(label)
-        assert [t.strip() for t in crumb.locator("a, span").all_inner_texts()] == ["Speakr", "›", "Verwaltung", "›", label]
+        assert [t.strip() for t in crumb.locator("a, span").all_inner_texts()] == ["Ploudrli", "›", "Verwaltung", "›", label]
         assert page.url == _canonical(base, route)
         # The primary tabs stay in the header; neither is the current page.
         assert page.locator("[data-testid=clinic-primary-nav] [aria-current=page]").count() == 0
@@ -115,7 +115,8 @@ def test_pools_authors_users_use_the_prototype_page_structure(live_server, brows
         page.goto(base + "/" + PAGES[view][0])
         _mounted(page)
         shell = _wait_page(page, view)
-        assert shell.locator(".pagehead .eyebrow").text_content().strip() == "Verwaltung"
+        assert shell.locator(".pagehead .eyebrow").count() == 0
+        assert shell.get_by_test_id("clinic-admin-breadcrumb").get_by_text("Verwaltung", exact=True).is_visible()
         assert shell.locator(".pagehead h1").count() == 1
         assert shell.locator(".pagehead .subline").count() == 1
         shell.locator(".stats .stat").first.wait_for(state="visible", timeout=30000)
@@ -459,6 +460,6 @@ def test_jobs_filter_matches_the_refresh_button_at_both_widths(live_server, brow
         assert style[0] == "none" and "svg" in style[1] and style[2] == "400", style
         select_box, button_box = field.bounding_box(), refresh.bounding_box()
         assert select_box["y"] == button_box["y"]
-        assert select_box["height"] == button_box["height"] == 38
+        assert select_box["height"] == button_box["height"] == (48 if width == 390 else 38)
         assert refresh.evaluate("el => getComputedStyle(el).fontSize") == "13px"
     assert not errors, errors

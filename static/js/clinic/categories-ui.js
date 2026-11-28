@@ -269,7 +269,6 @@ export function categoriesComponent(vue, options) {
 <section role="region" aria-labelledby="clinic-cat-title" :aria-busy="editor.state.status === 'processing'" class="v8-page v8-admin-page">
   <header class="pagehead">
     <div>
-      <div class="eyebrow">Verwaltung</div>
       <h1 id="clinic-cat-title">${LABELS.title}</h1>
       <p class="subline">Kategorien je Feld festlegen und die Auswahl im Sendeformular prüfen.</p>
     </div>
