@@ -14,7 +14,6 @@ function setup({ active = 'reviewed', released = 'reviewed', refusal, empty = fa
             ...['txt', 'docx', 'pdf'].map((id) => ({ id, channel: 'file', available: true })),
             { id: 'kis', channel: 'kis', available: true },
         ] });
-        if (path === '/preferences/output' && !options) return ok({ version: 1, formats: ['txt'], open_after_export: false });
         if (options?.body.format === 'txt') return ok({ id: 'txt-job', status: 'ready' });
         if (options?.body.format === 'docx') return { outcome: 'validation' };
         throw new Error(`Unexpected request: ${path}`);
@@ -57,8 +56,7 @@ it('requires separate selections and uses the same released revision with distin
     expect(c.state.targets.map(({ id }) => id)).toEqual(['txt', 'docx']);
     c.state.selected.kis = true;
     await c.exportSelected();
-    expect(paths()).toEqual(['leases', 'releases', 'output-targets', 'output']);
-    expect(client.request).toHaveBeenLastCalledWith('/preferences/output');
+    expect(paths()).toEqual(['leases', 'releases', 'output-targets']);
     c.state.selected.txt = c.state.selected.docx = true;
     await Promise.all([c.exportSelected(), c.exportSelected()]);
     const writes = client.request.mock.calls.filter(([, options]) => options?.method === 'POST');
@@ -72,15 +70,14 @@ it('requires separate selections and uses the same released revision with distin
 });
 
 it.each([{ active: 'different' }, { released: 'different' }, { empty: true }])('does not export when no bound targets are presented (%j)', async (fixture) => {
-    const { c, check, client, paths } = setup(fixture);
+    const { c, check, paths } = setup(fixture);
     c.open();
     check();
     await c.release(true);
     expect(c.state.targets).toEqual([]);
     c.state.selected.txt = true;
     await c.exportSelected();
-    expect(paths()).toEqual(['leases', 'releases', 'output-targets', 'output']);
-    expect(client.request).toHaveBeenLastCalledWith('/preferences/output');
+    expect(paths()).toEqual(['leases', 'releases', 'output-targets']);
 });
 
 it('never loads output or exports after a release refusal', async () => {
