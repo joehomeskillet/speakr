@@ -27,13 +27,15 @@ def test_admin_heading_and_keyboard_permission_notice(live_server, browser, widt
         ) <= 1
         expect(page.locator(".cadm > .banner")).to_have_count(0)
         nav = page.get_by_test_id("clinic-v8-nav")
+        if width == 390:
+            page.get_by_test_id("clinic-admin-nav-toggle").press("Enter")
         notice = nav.get_by_test_id("clinic-admin-withheld")
         expect(notice).to_be_visible()
         assert "Aktivität und Audit" in notice.inner_text()
         button = nav.get_by_role("button", name="Benutzer und Rollen", exact=True)
         button.focus()
         button.press("Tab")
-        pools = nav.get_by_role("button", name="Schreibkräfte-Pools", exact=True)
+        pools = nav.get_by_test_id("clinic-v8-panel-admin-pools")
         expect(pools).to_be_focused()
         pools.press("Enter")
         expect(page.get_by_role("heading", name="Schreibkräfte-Pools", exact=True)).to_be_visible()

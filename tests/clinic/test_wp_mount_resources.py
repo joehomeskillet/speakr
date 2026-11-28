@@ -154,7 +154,7 @@ def test_browser_login_resources_load_and_add_entry(live_server):
             view.get_by_text("Keine Einträge").wait_for(state="visible", timeout=20000)
             page.fill("#voc-import", WORD)
             view.get_by_role("button", name="Wortliste importieren").click()
-            view.get_by_role("cell", name=WORD).wait_for(state="visible", timeout=20000)
+            view.get_by_role("cell", name=WORD, exact=True).wait_for(state="visible", timeout=20000)
 
             assert not js_errors, js_errors
         finally:

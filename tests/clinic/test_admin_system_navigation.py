@@ -10,6 +10,13 @@ def test_system_navigation_and_user_audit(live_server, browser, width, height):
     page.set_viewport_size({"width": width, "height": height})
     page.goto(base + "/admin")
     nav = page.get_by_test_id("clinic-v8-nav")
+    toggle = page.get_by_test_id("clinic-admin-nav-toggle")
+
+    def open_navigation():
+        if width == 390:
+            toggle.click()
+
+    open_navigation()
     user_link = nav.get_by_role("button", name="Benutzer und Rollen", exact=True)
     user_link.wait_for()
     assert nav.get_by_role("button", name="Klinik", exact=True).count() == 0
@@ -17,6 +24,8 @@ def test_system_navigation_and_user_audit(live_server, browser, width, height):
     account = page.get_by_test_id("clinic-users-view")
     account.locator("tbody tr").first.wait_for()
     assert len(nav.locator('[aria-current="page"]').all()) == 1
+    if width == 390:
+        toggle.click()
     picker = account.locator("#usr-login-account")
     picker.select_option(index=1)
     account.get_by_role("button", name="Anmelderichtlinie öffnen").click()
@@ -29,16 +38,22 @@ def test_system_navigation_and_user_audit(live_server, browser, width, height):
     assert audit.locator('[data-audit-filter="user"]').input_value() == user_id
     assert nav.locator('[aria-current="page"]').all_inner_texts() == ["System-Auditprotokoll"]
     assert not account.is_visible()
+    if width == 390:
+        assert toggle.inner_text() == "Bereich: System-Auditprotokoll"
+    open_navigation()
     nav.get_by_role("link", name="Systemstatistik").click()
+    open_navigation()
     nav.get_by_role("link", name="Systemeinstellungen").click()
     page.get_by_role("heading", name="Systemeinstellungen").wait_for()
     page.go_back()
     assert nav.locator('[aria-current="page"]').all_inner_texts() == ["Systemstatistik"]
     page.reload()
+    open_navigation()
     nav.get_by_role("link", name="Systemstatistik").wait_for()
     assert nav.locator('[aria-current="page"]').all_inner_texts() == ["Systemstatistik"]
     nav.get_by_role("link", name="Systemeinstellungen").click()
     page.get_by_role("heading", name="Systemeinstellungen").wait_for()
+    open_navigation()
     expect_in_nav = """() => {
         const nav = document.querySelector('[data-testid="clinic-v8-nav"]');
         const active = nav.querySelector('[aria-current="page"]').getBoundingClientRect();
@@ -46,6 +61,8 @@ def test_system_navigation_and_user_audit(live_server, browser, width, height):
         return active.left >= bounds.left - 1 && active.right <= bounds.right + 1;
     }"""
     page.wait_for_function(expect_in_nav)
+    if width == 390:
+        toggle.click()
     menu = page.get_by_test_id("clinic-pages-menu")
     menu.locator("summary").click()
     menu.get_by_role("link", name="Schreibkräfte-Pools").click()
@@ -53,6 +70,7 @@ def test_system_navigation_and_user_audit(live_server, browser, width, height):
     assert nav.locator('[aria-current="page"]').all_inner_texts() == ["Schreibkräfte-Pools"]
     page.goto(base + "/admin")
     account.locator("tbody tr").first.wait_for()
+    open_navigation()
     nav.get_by_role("button", name="Schreibkräfte-Pools").click()
     page.go_back()
     account.locator("tbody tr").first.wait_for()
@@ -92,10 +110,19 @@ def test_account_actions_and_active_pool_group_have_clear_context(live_server, b
     assert not users.get_by_label("Anmelderichtlinie für").is_visible()
 
     nav = page.get_by_test_id("clinic-v8-nav")
+    toggle = page.get_by_test_id("clinic-admin-nav-toggle")
+    if width < 640:
+        toggle.press("Enter")
     pool = nav.get_by_role("button", name="Schreibkräfte-Pools", exact=True)
     pool.focus()
     pool.press("Enter")
     page.get_by_test_id("clinic-v8-view-admin-pools").wait_for()
+    if width < 640:
+        toggle.wait_for()
+        assert toggle.inner_text() == "Bereich: Schreibkräfte-Pools"
+        assert toggle.get_attribute("aria-expanded") == "false"
+        assert toggle.evaluate("el => el === document.activeElement")
+        toggle.press("Enter")
     page.wait_for_function("""() => {
       const nav = document.querySelector('[data-testid="clinic-v8-nav"]');
       const item = nav.querySelector('[aria-current="page"]');
@@ -107,4 +134,5 @@ def test_account_actions_and_active_pool_group_have_clear_context(live_server, b
       });
     }""")
     assert pool.get_attribute("aria-current") == "page"
-    assert pool.evaluate("el => el === document.activeElement")
+    if width >= 640:
+        assert pool.evaluate("el => el === document.activeElement")
