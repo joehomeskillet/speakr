@@ -18,6 +18,61 @@ const fakeClient = (pages) => {
 const make = (client, extra = {}) => createRecordingsController({ client, currentUser: { id: 1, role: 'typist' }, memory: createRecordingsMemory(), ...extra });
 
 describe('recordings view model', () => {
+    it.each([
+        ['aufgabe', 'Aufgabe geplant'],
+        ['neu_angelegt', 'Entwurf bei Dr. Muster'],
+        ['vorbereitung_offline', 'Das System bereitet das Diktat vor'],
+        ['vorbereitung_online', 'Das System bereitet das Diktat vor'],
+        ['zu_schreiben', 'Beim Schreibdienst Pool A'],
+        ['zu_korrigieren', 'Beim Schreibdienst Pool A'],
+        ['in_bearbeitung', 'Beim Schreibdienst Pool A'],
+        ['abzunehmen', 'Wartet auf die zuständige Person zur Abnahme'],
+        ['abgenommen', 'Wartet auf die zuständige Person zur Freigabe'],
+        ['fertiggestellt', 'Fertig'],
+        ['zu_archivieren', 'Zum Ablegen vorgemerkt'],
+        ['zu_loeschen', 'Zum Löschen vorgemerkt'],
+    ])('names the next turn for %s without assigning it to the viewer', (workflow_status, label) => {
+        expect(toViewRow(item('1', { workflow_status }), 1)).toMatchObject({
+            nextStep: `${label} – Sie müssen nichts tun`, needsAction: false,
+        });
+    });
+
+    it('marks only the current author, assigned writer or active holder in their workflow step', () => {
+        const assignee = { id: '1', display_name: 'Schreibkraft' };
+        const lease_holder = { id: '2', display_name: 'Andere Person' };
+        expect(toViewRow(item('1', { workflow_status: 'neu_angelegt' }), '3')).toMatchObject({
+            nextStep: 'Sie sind dran: Diktat an den Schreibdienst senden', needsAction: true,
+        });
+        expect(toViewRow(item('1', { assignee }), 1)).toMatchObject({
+            nextStep: 'Sie sind dran: Diktat schreiben', needsAction: true,
+        });
+        expect(toViewRow(item('1', { workflow_status: 'zu_korrigieren', assignee }), 1)).toMatchObject({
+            nextStep: 'Sie sind dran: Text prüfen', needsAction: true,
+        });
+        const active = item('1', { workflow_status: 'in_bearbeitung', assignee, lease_holder });
+        expect(toViewRow(active, 1)).toMatchObject({
+            nextStep: 'In Bearbeitung durch Andere Person – Sie müssen nichts tun', needsAction: false,
+        });
+        expect(toViewRow(active, 2)).toMatchObject({
+            nextStep: 'Sie sind dran: Diktat weiterbearbeiten', needsAction: true,
+        });
+        expect(toViewRow(item('1', { assignee }), 2).nextStep).toBe('Bei Schreibkraft – Sie müssen nichts tun');
+        expect(toViewRow(item('1', { assignee, workflow_status: 'abzunehmen' }), 1).needsAction).toBe(false);
+        expect(toViewRow(item('1', { workflow_status: 'abzunehmen', viewer_review_turn: true }), 1).nextStep)
+            .toBe('Sie sind dran: Text zur Abnahme prüfen');
+        expect(toViewRow(item('1', { workflow_status: 'abgenommen', viewer_review_turn: true }), 1).nextStep)
+            .toBe('Sie sind dran: Text freigeben');
+    });
+
+    it('keeps processing secondary and does not infer completion or a writer from missing data', () => {
+        expect(toViewRow(item('1', { staff_pools: [] })).nextStep).toBe('Wartet auf eine Zuteilung – Sie müssen nichts tun');
+        expect(toViewRow(item('1', { archived_at: '2026-11-19T08:30:00Z', workflow_status: 'zu_archivieren' })).nextStep)
+            .toBe('Archiviert – Sie müssen nichts tun');
+        expect(toViewRow(item('1', { workflow_status: 'unknown' })).nextStep).toBe('Der nächste Schritt ist nicht bekannt');
+        expect(toViewRow(item('1')).processing).toBe('');
+        expect(toViewRow(item('1', { processing_status: 'queued' })).processing).toBe('Text wird erstellt');
+        expect(toViewRow(item('1', { text_created: true })).processing).toBe('Text erstellt');
+    });
     it('formats the day as de-CH and keeps unknown days explicit', () => {
         expect(formatDay('2026-11-20')).toBe('Freitag, 20.11.2026');
         expect(formatDay(null)).toBe('Ohne Datum');
