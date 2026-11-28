@@ -61,7 +61,7 @@ function recordAad(binding, grant) {
     return aad(['rec', FORMAT, userId, profile, dictationId, sequence, grant.accountVersion, grant.version]);
 }
 
-export function createOfflineCrypto({ client, subtle, iterations } = {}) {
+export function createOfflineCrypto({ client, subtle, iterations, requireExpiry = false } = {}) {
     const api = subtle || globalThis.crypto.subtle;
     const rounds = iterations || WRAP_ITERATIONS;
     let grant = null; // server facts: { version, accountVersion, browserId }
@@ -86,17 +86,30 @@ export function createOfflineCrypto({ client, subtle, iterations } = {}) {
             revoke();
             return { available: false, code: res.outcome === 'ok' ? 'REVOKED' : res.outcome };
         }
-        const next = { version: d.version, accountVersion: d.account_version, browserId: d.browser_id };
-        if (key && grant && (grant.version !== next.version || grant.accountVersion !== next.accountVersion)) {
+        const expiresAt = res.grantExpiresAt;
+        if ((requireExpiry || expiresAt !== undefined)
+                && (!Number.isSafeInteger(expiresAt) || expiresAt * 1000 <= Date.now())) {
+            revoke();
+            return { available: false, code: 'EXPIRED' };
+        }
+        const next = Object.freeze({ version: d.version, accountVersion: d.account_version, browserId: d.browser_id, expiresAt });
+        if (key && grant && (grant.version !== next.version || grant.accountVersion !== next.accountVersion
+                || grant.browserId !== next.browserId)) {
             lock(); // stale grant: unlock again against the new version
         }
         grant = next;
         return { available: true, quotaBytes: d.quota_bytes };
     }
 
-    function requireGrant() {
-        if (!grant) throw fail('UNAUTHORIZED');
+    function currentGrant() {
+        if (grant?.expiresAt && grant.expiresAt * 1000 <= Date.now()) revoke();
         return grant;
+    }
+
+    function requireGrant() {
+        const current = currentGrant();
+        if (!current) throw fail('UNAUTHORIZED');
+        return current;
     }
 
     async function wrappingKey(passphrase, salt, usage) {
@@ -179,8 +192,9 @@ export function createOfflineCrypto({ client, subtle, iterations } = {}) {
 
     return {
         refreshAuthorization, setup, unlock, lock, encryptRecord, decryptRecord,
-        get unlocked() { return key !== null; },
-        get authorized() { return grant !== null; },
+        get unlocked() { return currentGrant() !== null && key !== null; },
+        get authorized() { return currentGrant() !== null; },
+        get reference() { return currentGrant(); },
     };
 }
 

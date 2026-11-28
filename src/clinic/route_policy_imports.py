@@ -26,6 +26,7 @@ AUTH: tuple[str, ...] = (
     'clinic_imports_web.source_cleanup_preview',
     'clinic_imports_web.request_source_cleanup',
     'clinic_imports_web.inventory',
+    'clinic_imports_web.devices',
     'clinic_imports_web.unassigned',
     'clinic_imports_web.assignment_candidates',
     'clinic_imports_web.author_suggestion_view',
