@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
 
-from src.clinic import asr_profiles, asr_repeat, pools, revisions, routes_workflow, workflow
+from src.clinic import asr_profiles, asr_repeat, pools, revisions, routes_dictation_detail, routes_workflow, workflow
 from src.clinic.models import ClinicDictation, ClinicOriginal
 from src.database import db
 from src.models import AuditEvent, ProcessingJob, Recording
@@ -76,10 +76,22 @@ def _exercise():
     assert post(body={'actor_id': editor, 'elapsed': 900}).status_code == 400
     assert post(version=0).json['code'] == 'STALE_VERSION'
 
-    with patch.object(routes_workflow, 'datetime', wraps=datetime) as clock:
+    def detail(browser=editor_browser):
+        response = browser[0].get(f'/api/clinic/v1/dictations/{target}/detail')
+        assert response.status_code == 200, response.json
+        return response.json
+
+    with (patch.object(routes_workflow, 'datetime', wraps=datetime) as clock,
+          patch.object(routes_dictation_detail, 'datetime', clock)):
         clock.now.return_value = queued_at + timedelta(seconds=119)
+        waiting = detail()
+        assert waiting['can_start_manual'] is False
+        assert waiting['asr_wait_message'] == 'Spracherkennung läuft …'
         assert post().json['code'] == 'ASR_WAIT_NOT_ELAPSED'
         clock.now.return_value = queued_at + timedelta(seconds=120)
+        assert detail()['can_start_manual'] is True
+        assert detail(author_browser)['can_start_manual'] is True
+        assert detail(reader_browser)['can_start_manual'] is False
         with patch.object(audit, 'record_in_tx', return_value=None):
             assert post().status_code == 503
         with app.app_context():
@@ -88,13 +100,18 @@ def _exercise():
             asr_profiles.set_profile(author, actor_id=author,
                                      options={'wait_disabled': True, 'skip_wait_minutes': 3})
         clock.now.return_value = queued_at + timedelta(seconds=180)
+        assert detail()['can_start_manual'] is False
         assert post().json['code'] == 'ASR_WAIT_DISABLED'
         with app.app_context():
             asr_profiles.set_profile(author, actor_id=author,
                                      options={'wait_disabled': False, 'skip_wait_minutes': 3})
         clock.now.return_value = queued_at + timedelta(seconds=179)
+        assert detail()['can_start_manual'] is False
         assert post().json['code'] == 'ASR_WAIT_NOT_ELAPSED'
         clock.now.return_value = queued_at + timedelta(seconds=180)
+        ready = detail()
+        assert ready['can_start_manual'] is True
+        assert ready['etag'] == waiting['etag'] == f'"{target}:1"'
         key = str(uuid4())
         done = post(key=key)
         assert done.status_code == 200
@@ -103,6 +120,9 @@ def _exercise():
         assert post(key=key).json == done.json
         assert post(browser=reader_browser, key=key).status_code == 404
         assert post(version=2).json['code'] == 'NOT_PREPARING'
+        after = detail()
+        assert after['can_start_manual'] is False
+        assert after['asr_wait_message'] is None
 
     worklist = author_browser[0].get('/api/clinic/v1/worklist/rows')
     assert worklist.status_code == 200

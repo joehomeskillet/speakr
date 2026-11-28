@@ -206,6 +206,43 @@ describe('dictation files', () => {
             c.dispose();
         }
     });
+
+    it('keeps file import locked during recognition and serializes exports with the manual switch', async () => {
+        const exportPath = '/bundles/d1/export?format=txt&version=3';
+        const skipPath = '/dictations/d1/asr/skip';
+        const confirm = vi.fn(() => true);
+        let finishExport;
+        const pendingExport = new Promise((resolve) => { finishExport = resolve; });
+        const exportResult = ok(new Blob(['test'], { type: 'text/plain' }));
+        const client = fakeClient(base({
+            'GET /dictations/d1/correction': snapshot(),
+            'GET /dictations/d1/detail': ok({ asr_wait_message: 'Spracherkennung läuft …', can_start_manual: true, etag: '"1"' }),
+            ['GET ' + exportPath]: () => pendingExport,
+            ['POST ' + skipPath]: fail('network', 0, ''),
+        }));
+        const c = await openForEdit(client, { contract: 'v8', confirm, downloadSession: vi.fn() });
+        try {
+            expect(c.editor.canEdit.value).toBe(true);
+            expect(c.setText('Zu früh')).toBe(false);
+            expect(await c.openSession({ name: 'test.txt' })).toBe(false);
+            expect(confirm).not.toHaveBeenCalled();
+
+            const exporting = c.saveSession('txt');
+            expect(await c.skipAsr()).toBe(false);
+            expect(count(client, 'POST', skipPath)).toBe(0);
+            finishExport(exportResult);
+            expect(await exporting).toBe(true);
+
+            const skipping = c.skipAsr();
+            expect(await c.saveSession('txt')).toBe(false);
+            expect(await skipping).toBe(false);
+            expect(count(client, 'GET', exportPath)).toBe(1);
+            expect(count(client, 'POST', skipPath)).toBe(1);
+        } finally {
+            finishExport(exportResult);
+            c.dispose();
+        }
+    });
 });
 
 describe('compose-correction contract', () => {

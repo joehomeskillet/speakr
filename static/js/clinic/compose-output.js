@@ -10,13 +10,13 @@
  *   GET  /dictations/{id}/output-targets?file_formats=all  -> { released_revision_id, targets: [{ id, channel, available, reason, status?, job_id? }] }
  *   GET  /templates                                        -> { items: [{ id, name, scope, version, mime_type, content_sha256 }] }
  *   GET  /templates/{template_id}                          -> { id, ..., insertion_mark }
- *   POST /dictations/{id}/exports         body { revision_id, format, template_id?, text_mode? }, Idempotency-Key -> job
+ *   POST /dictations/{id}/exports         body { revision_id, format, template and file options? }, Idempotency-Key -> job
  *   GET  /dictations/{id}/exports/{job}   -> job
  *   GET  /dictations/{id}/exports/{job}/download  -> file attachment
- * Only the released revision is offered for export. One Idempotency-Key is kept
- * per (revision, format, template_id, text_mode) until a known failure, so a
- * retry after an unknown result replays the same request and never starts a
- * second export. A disabled KIS adapter (target unavailable, or 503) is shown
+ * Only the released revision is offered for export. A browser retry after an
+ * unknown result replays the same body and Idempotency-Key. Server placement
+ * is blocked for that revision and format until the user can check the target.
+ * A disabled KIS adapter (target unavailable, or 503) is shown
  * as "nicht verfügbar", never as success. A file job status "ready" means the
  * file was rendered, not saved. 422 template mark errors are reported on the
  * target as a German alert banner without claiming success.
@@ -39,8 +39,8 @@ export const COMPOSE_OUTPUT_VERSION = 1;
 export const TEXT = Object.freeze({
     title: 'Ausgabe',
     eyebrow: 'Arbeitsliste',
-    subline: 'Wählen Sie die Ziele für die freigegebene Version.',
-    colTarget: 'Ziel',
+    subline: 'Wählen Sie Dateiformat und Ablageort für die freigegebene Version.',
+    colTarget: 'Dateiformat',
     colStatus: 'Status',
     colAction: 'Aktion',
     clipboardHint: 'Explizite Browseraktion. Es wird nichts automatisch übertragen.',
@@ -52,6 +52,18 @@ export const TEXT = Object.freeze({
     targets: 'Ausgabeziele',
     empty: 'Keine Ausgabeziele verfügbar.',
     export: 'Ausgabe starten',
+    save: 'Ablegen',
+    nameMode: 'Datei benennen',
+    filename: 'Dateiname ohne Endung',
+    patternHint: '%A steht für den Autor, %T für den Titel.',
+    destination: 'Wohin soll die Datei?',
+    browser: 'Browser-Download',
+    named: 'Name eingeben',
+    pattern: 'Muster verwenden',
+    collisionPolicy: 'Wenn der Name schon vergeben ist',
+    catalogFailed: 'Die Ablageziele sind nicht verfügbar. Sie können die Datei herunterladen.',
+    placementUnknown: 'Die Ablage ist nicht bestätigt. Prüfen Sie das Ziel, bevor Sie die Datei erneut ablegen.',
+    download: 'Herunterladen',
     exportSelected: 'Ausgewählte ausgeben',
     saveDefaults: 'Standardziele speichern',
     savingDefaults: 'Standardziele werden gespeichert …',
@@ -60,7 +72,6 @@ export const TEXT = Object.freeze({
     defaultsSaveFailed: 'Die Standardziele konnten nicht gespeichert werden.',
     defaultsChanged: 'Die Standardziele wurden bereits geändert. Bitte laden Sie die Seite neu.',
     kisUnavailable: 'Ausgabe ans KIS nicht verfügbar.',
-    download: 'Herunterladen',
     downloadStarted: 'Download gestartet',
     downloadHint: 'Ob die Datei auf diesem Gerät gespeichert wurde, bestätigt der Browser nicht.',
     status: 'Status prüfen',
@@ -128,7 +139,7 @@ const TEMPLATE_ERRORS = Object.freeze({
 
 const LOCAL_CSS_ID = 'clinic-v8-output-local';
 const LOCAL_CSS = `
-.v8-ui .clinic-output-view :is(select,button,.button){min-height:48px}
+.v8-ui .clinic-output-view :is(select,button,.button,input[type="checkbox"]){min-height:48px}
 .v8-ui .clinic-output-view :is(button,.button){white-space:nowrap}
 .v8-ui .clinic-output-view .out-template-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-top:8px;min-width:180px}
 .v8-ui .clinic-output-view .out-template-fields .field{margin:0;min-width:0}
@@ -150,6 +161,13 @@ function ensureLocalCss() {
     style.textContent = LOCAL_CSS;
     document.head.appendChild(style);
 }
+
+const PLACEMENT_ERRORS = Object.freeze({
+    NAME_COLLISION: { label: 'Dateiname am Ziel bereits vergeben.', surface: 'warning' },
+    DESTINATION_WRITE_FAILED: { label: 'Die Ablage ist fehlgeschlagen: Die Datei konnte am Ziel nicht geschrieben werden.', surface: 'error' },
+    DESTINATION_REJECTED: { label: 'Die Ablage wurde abgelehnt. Prüfen Sie Ziel und Dateinamen.', surface: 'error' },
+    INVALID_FILENAME: { label: 'Der Dateiname ist ungültig. Prüfen Sie den Namen oder das Muster.', surface: 'error' },
+});
 
 const OUTPUT_PREFERENCES = '/preferences/output';
 const preferenceId = (id) => id === 'kis' ? 'kis_draft' : id;
@@ -178,7 +196,7 @@ export function targetView(target, releasedRevisionId) {
 
 /**
  * Framework-neutral controller. Options: client, dictationId, vue,
- * includeAllFileFormats, includeTemplates, includePreferences, newKey / clipboard / ClipboardItem (test seams).
+ * includeAllFileFormats, includeTemplates, fileOptions, includePreferences, newKey / clipboard / ClipboardItem (test seams).
  */
 export function createOutputViewController(options) {
     const opts = options || {};
@@ -201,37 +219,58 @@ export function createOutputViewController(options) {
     const selectedTemplates = ref({ docx: '', odt: '' });
     const selectedModes = ref({ docx: 'formatted', odt: 'plain' });
     const previousDownloads = ref({}); // format -> { url, label }
-    const keys = new Map(); // revision|format(|template|mode) -> Idempotency-Key
-    const readyBySelection = new Map(); // format|template|mode -> result
+    const keys = new Map(); // request body -> Idempotency-Key
+    const readyBySelection = new Map(); // request body -> downloadable result
+    const inflight = ref(new Set());
+    const destination = ref('');
+    const destinations = ref([]);
+    const catalogFailed = ref(false);
+    const nameMode = ref('manual_name');
+    const filename = ref('');
+    const collisionPolicy = ref('fail');
+    const uncertainPlacements = new Set();
     const selected = ref([]);
     const preferences = ref(null);
     const preferenceNotice = ref('');
     const savingDefaults = ref(false);
     const exportingSelected = ref(false);
-    const inflight = new Set();
     let clipboard = null;
 
     const surfaceOf = (name) => surfaceFor(name);
     const supportsTemplates = (format) => Object.hasOwn(TEMPLATE_MIMES, format);
-    const selectionKeyOf = (format, templateId, mode) => (
-        templateId ? `${format}|${templateId}|${mode || ''}` : `${format}||`
-    );
-    const currentSelectionKey = (format) => {
-        if (!supportsTemplates(format)) return `${format}||`;
-        const tplId = selectedTemplates.value[format] || '';
-        return selectionKeyOf(format, tplId, tplId ? selectedModes.value[format] : '');
-    };
+
+    function placementUnconfirmed(format) {
+        return Boolean(destination.value) && uncertainPlacements.has(releasedRevisionId.value + '|' + format);
+    }
+
+    function baseExportBody(format, templateId, mode) {
+        const body = { revision_id: releasedRevisionId.value, format };
+        if (templateId) Object.assign(body, { template_id: templateId, text_mode: mode });
+        return body;
+    }
+
+    function exportBody(format) {
+        const templateId = includeTemplates && supportsTemplates(format) && selectedTemplates.value[format];
+        const body = baseExportBody(format, templateId, selectedModes.value[format]);
+        if (!opts.fileOptions || find(format)?.channel !== 'file') return body;
+        const name = filename.value.trim();
+        if (name) body[nameMode.value] = name;
+        if (destination.value) {
+            if (!name) body.filename_pattern = '%A - %T';
+            body.destination_alias = destination.value;
+            body.collision_policy = collisionPolicy.value;
+        } else if (name) body.browser_download = true;
+        return body;
+    }
+    const currentSelectionKey = (format) => JSON.stringify(exportBody(format));
     const jobDownloadUrl = (jobId) => (
         '/api/clinic/v1' + base + '/exports/' + encodeURIComponent(jobId) + '/download'
     );
-    const setResult = (format, status, label, surface, job, extra) => {
-        results.value = {
-            ...results.value,
-            [format]: {
-                phase: status, label, tone: surface, surface: surfaceOf(surface), job: job || null,
-                ...(extra || {}),
-            },
-        };
+    const resultView = (phase, label, tone, job, extra) => ({
+        phase, label, tone, surface: surfaceOf(tone), job: job || null, ...extra,
+    });
+    const showResult = (format, result) => {
+        results.value = { ...results.value, [format]: result };
     };
     const clearResult = (format) => {
         if (!Object.hasOwn(results.value, format)) return;
@@ -244,6 +283,12 @@ export function createOutputViewController(options) {
         const next = { ...previousDownloads.value };
         delete next[format];
         previousDownloads.value = next;
+    };
+    const showPrevious = (format, job) => {
+        previousDownloads.value = {
+            ...previousDownloads.value,
+            [format]: { url: jobDownloadUrl(job.id), label: TEXT.previousDownload },
+        };
     };
 
     function templatesFor(format) {
@@ -261,16 +306,11 @@ export function createOutputViewController(options) {
         const currentKey = currentSelectionKey(format);
         const current = results.value[format];
         if (current && current.selectionKey === currentKey) return;
-        if (current && current.phase === 'ready' && current.job?.kind === 'file' && current.job.id) {
-            readyBySelection.set(current.selectionKey || `${format}||`, current);
-            previousDownloads.value = {
-                ...previousDownloads.value,
-                [format]: { url: jobDownloadUrl(current.job.id), label: TEXT.previousDownload },
-            };
-        }
-        if (readyBySelection.has(currentKey)) {
-            const restored = readyBySelection.get(currentKey);
-            results.value = { ...results.value, [format]: restored };
+        const previous = readyBySelection.get(current?.selectionKey);
+        if (previous) showPrevious(format, previous.job);
+        const restored = readyBySelection.get(currentKey);
+        if (restored) {
+            showResult(format, restored);
             clearPrevious(format);
             return;
         }
@@ -305,16 +345,22 @@ export function createOutputViewController(options) {
         releasedRevisionId.value = res.data.released_revision_id || null;
         const offered = res.data.targets || [];
         targets.value = offered.map((t) => targetView(t, releasedRevisionId.value));
+        if (opts.fileOptions && offered.some((t) => t.channel === 'file' && t.available)) {
+            const catalog = await client.request(base + '/output-destinations');
+            catalogFailed.value = catalog.outcome !== 'ok' || !Array.isArray(catalog.data?.destinations);
+            destinations.value = catalogFailed.value ? [] : catalog.data.destinations;
+            if (!destinations.value.some((row) => row.name === destination.value)) destination.value = '';
+        }
         results.value = {};
         readyBySelection.clear();
         previousDownloads.value = {};
         for (const target of offered) {
             if (target.channel === 'file' && target.available && target.status && target.job_id) {
-                const selKey = selectionKeyOf(target.id, target.template_id || '', target.text_mode || '');
+                const key = JSON.stringify(baseExportBody(target.id, target.template_id, target.text_mode));
                 applyJob(target.id, {
                     id: target.job_id, kind: 'file', status: target.status,
-                    template_id: target.template_id, text_mode: target.text_mode,
-                }, selKey);
+                    filename: target.filename,
+                }, key, true);
             }
         }
         if (opts.includePreferences) {
@@ -374,7 +420,7 @@ export function createOutputViewController(options) {
             await Promise.all(selected.value.map(async (id) => {
                 const target = find(id);
                 if (id === 'kis' || !target?.available) {
-                    setResult(id, 'unavailable', id === 'kis' ? TEXT.kisUnavailable : target?.reason || TEXT.unavailable, 'warning');
+                    showResult(id, resultView('unavailable', id === 'kis' ? TEXT.kisUnavailable : target?.reason || TEXT.unavailable, 'warning'));
                 } else {
                     await exportTo(id);
                 }
@@ -387,38 +433,55 @@ export function createOutputViewController(options) {
     /** True when the export of this target may be requested now. */
     function canExport(format) {
         const t = find(format);
-        return Boolean(t) && t.channel !== 'clipboard' && t.available && !inflight.has(format)
-            && !(t.channel === 'file' && results.value[format]?.phase === 'ready');
+        if (!t?.available || t.channel === 'clipboard' || inflight.value.has(format)) return false;
+        if (opts.fileOptions && t.channel === 'file') {
+            if (!destination.value) return !downloadUrl(format);
+            return !placementUnconfirmed(format)
+                && destinations.value.some((row) => row.name === destination.value);
+        }
+        return !(t.channel === 'file' && results.value[format]?.phase === 'ready');
     }
 
     function downloadUrl(format) {
         const target = find(format);
         const result = results.value[format];
         if (!target?.available || target.channel !== 'file' || result?.phase !== 'ready'
-                || result.job?.kind !== 'file' || !result.job.id) return null;
+                || result.job?.kind !== 'file' || !result.job.id || result.job.destination
+                || destination.value || result.selectionKey !== currentSelectionKey(format)) return null;
         return jobDownloadUrl(result.job.id);
     }
 
     function markDownloadStarted(format) {
         if (!downloadUrl(format)) return;
         const updated = { ...results.value[format], label: TEXT.downloadStarted };
-        results.value = { ...results.value, [format]: updated };
-        if (updated.selectionKey) readyBySelection.set(updated.selectionKey, updated);
+        showResult(format, updated);
+        readyBySelection.set(updated.selectionKey, updated);
     }
 
-    function applyJob(format, job, selKey) {
-        const key = selKey || selectionKeyOf(format, job.template_id || '', job.text_mode || '');
+    function applyJob(format, job, key, showFilename = false) {
+        const current = currentSelectionKey(format) === key;
+        if (job.destination?.outcome === 'created') {
+            if (current) {
+                const label = 'Abgelegt: ' + job.destination.filename + ' – ' + job.destination.label;
+                showResult(format, resultView('placed', label, 'success', job, { selectionKey: key }));
+            }
+            return;
+        }
         if (job.status === 'failed' && (job.reason === 'TEMPLATE_MARK_ERROR' || job.reason === 'TEMPLATE_MACRO')) {
             const label = job.reason === 'TEMPLATE_MACRO' ? TEMPLATE_ERRORS.macro : TEMPLATE_ERRORS.mark;
-            setResult(format, 'failed', label, 'error', job, { alert: true, selectionKey: key });
+            if (current) showResult(format, resultView('failed', label, 'error', job, { alert: true, selectionKey: key }));
             return;
         }
         const known = JOB_STATUS[job.status] || JOB_STATUS.unknown;
-        setResult(format, job.status, known.label, known.surface, job, { selectionKey: key });
-        if (job.status === 'ready' && job.kind === 'file' && job.id) {
-            readyBySelection.set(key, results.value[format]);
-            if (currentSelectionKey(format) === key) clearPrevious(format);
+        const label = opts.fileOptions && job.status === 'ready' && job.filename && showFilename
+            ? known.label + ': ' + job.filename : known.label;
+        const result = resultView(job.status, label, known.surface, job, { selectionKey: key });
+        if (job.status === 'ready' && job.kind === 'file' && job.id && !job.destination) {
+            readyBySelection.set(key, result);
+            if (current) clearPrevious(format);
+            else showPrevious(format, job);
         }
+        if (current) showResult(format, result);
     }
 
     async function setTemplate(format, templateId) {
@@ -468,66 +531,66 @@ export function createOutputViewController(options) {
 
     async function exportTo(format) {
         if (!canExport(format)) return results.value[format] || null;
-        const revisionId = releasedRevisionId.value;
-        const useTpl = supportsTemplates(format) ? (selectedTemplates.value[format] || '') : '';
-        const mode = useTpl ? selectedModes.value[format] : '';
-        const selKey = selectionKeyOf(format, useTpl, mode);
-        const keyId = useTpl ? `${revisionId}|${format}|${useTpl}|${mode}` : `${revisionId}|${format}`;
-        if (!keys.has(keyId)) keys.set(keyId, makeKey());
-        const body = useTpl
-            ? { revision_id: revisionId, format, template_id: useTpl, text_mode: mode }
-            : { revision_id: revisionId, format };
-        inflight.add(format);
-        setResult(format, 'working', 'Wird ausgegeben …', 'processing', null, { selectionKey: selKey });
+        const body = exportBody(format);
+        const placing = Boolean(body.destination_alias);
+        const keyId = JSON.stringify(body);
+        const idempotencyKey = placing ? makeKey() : (keys.get(keyId) || makeKey());
+        if (!placing) keys.set(keyId, idempotencyKey);
+        inflight.value = new Set([...inflight.value, format]);
+        showResult(format, resultView('working', 'Wird ausgegeben …', 'processing', null, { selectionKey: keyId }));
         try {
             const res = await client.request(base + '/exports', {
-                method: 'POST', body, idempotencyKey: keys.get(keyId),
+                method: 'POST', body, idempotencyKey,
             });
             if (res.outcome === 'ok' && res.data) {
-                if (res.data.status === 'failed') keys.delete(keyId);
-                if (currentSelectionKey(format) === selKey) {
-                    applyJob(format, res.data, selKey);
-                } else if (res.data.status === 'ready' && res.data.kind === 'file' && res.data.id) {
-                    const known = JOB_STATUS.ready;
-                    readyBySelection.set(selKey, {
-                        phase: 'ready', label: known.label, tone: known.surface,
-                        surface: surfaceOf(known.surface), job: res.data, selectionKey: selKey,
-                    });
-                    previousDownloads.value = {
-                        ...previousDownloads.value,
-                        [format]: { url: jobDownloadUrl(res.data.id), label: TEXT.previousDownload },
-                    };
-                }
-            } else if (res.status === 503 || res.code === 'KIS_UNAVAILABLE') {
-                if (currentSelectionKey(format) === selKey) {
-                    setResult(format, 'unavailable', TEXT.unavailable, 'warning', null, { selectionKey: selKey });
-                }
+                if (opts.fileOptions || res.data.status === 'failed') keys.delete(keyId);
+                applyJob(format, res.data, keyId, body.browser_download === true);
             } else {
-                // A stale or refused request will not be replayed with the same key.
-                if (res.outcome === 'conflict' || res.outcome === 'validation' || (useTpl && res.status === 404)) {
+                let status = res.outcome;
+                let failure;
+                if (placing && (['network', 'UNKNOWN', 'cancelled'].includes(res.outcome)
+                        || res.code === 'DESTINATION_UNCONFIRMED')) {
+                    uncertainPlacements.add(body.revision_id + '|' + format);
+                    status = 'unknown';
+                    failure = { label: TEXT.placementUnknown, surface: 'warning' };
+                } else if (Object.hasOwn(PLACEMENT_ERRORS, res.code)) {
                     keys.delete(keyId);
+                    status = res.code;
+                    failure = PLACEMENT_ERRORS[res.code];
+                } else if (res.status === 503 || res.code === 'KIS_UNAVAILABLE') {
+                    status = 'unavailable';
+                    failure = { label: TEXT.unavailable, surface: 'warning' };
+                } else {
+                    // A stale or refused request will not be replayed with the same key.
+                    if (res.outcome === 'conflict' || res.outcome === 'validation' || (body.template_id && res.status === 404)) {
+                        keys.delete(keyId);
+                    }
+                    failure = failureFor(res, format, body.template_id, body.text_mode);
                 }
-                const f = failureFor(res, format, useTpl, mode);
-                if (currentSelectionKey(format) === selKey) {
-                    setResult(format, res.outcome, f.label, f.surface, null, { alert: f.alert, selectionKey: selKey });
+                if (currentSelectionKey(format) === keyId) {
+                    showResult(format, resultView(status, failure.label, failure.surface, null, {
+                        alert: failure.alert, selectionKey: keyId,
+                    }));
                 }
             }
         } catch {
-            if (currentSelectionKey(format) === selKey) {
-                setResult(format, 'network', FAILURES.network.label, FAILURES.network.surface, null, { selectionKey: selKey });
+            if (placing) uncertainPlacements.add(body.revision_id + '|' + format);
+            if (currentSelectionKey(format) === keyId) {
+                showResult(format, resultView(placing ? 'unknown' : 'network',
+                    placing ? TEXT.placementUnknown : FAILURES.network.label, 'warning', null, { selectionKey: keyId }));
             }
         } finally {
-            inflight.delete(format);
+            inflight.value = new Set([...inflight.value].filter((id) => id !== format));
         }
         return results.value[format];
     }
 
     /** Reads the status of a started export (reconciliation); never sends a new one. */
     async function refreshStatus(format) {
-        const job = results.value[format] && results.value[format].job;
-        if (!job || !job.id) return null;
-        const res = await client.request(base + '/exports/' + encodeURIComponent(job.id));
-        if (res.outcome === 'ok' && res.data) applyJob(format, res.data, results.value[format]?.selectionKey);
+        const result = results.value[format];
+        if (!result?.job?.id) return null;
+        const res = await client.request(base + '/exports/' + encodeURIComponent(result.job.id));
+        if (res.outcome === 'ok' && res.data) applyJob(format, res.data, result.selectionKey);
         return results.value[format];
     }
 
@@ -554,6 +617,9 @@ export function createOutputViewController(options) {
         selected, toggleTarget, preferences, preferenceNotice, savingDefaults, saveDefaults, exportingSelected, exportSelected,
         load, canExport, exportTo, downloadUrl, markDownloadStarted, refreshStatus, clipboardCopy,
         text: TEXT,
+        destination, destinations, catalogFailed, nameMode, filename, collisionPolicy, placementUnconfirmed,
+        busy: () => inflight.value.size > 0,
+        selected, toggleTarget, preferences, preferenceNotice, savingDefaults, saveDefaults, exportingSelected, exportSelected,
     };
 }
 
@@ -572,7 +638,7 @@ export const OutputView = {
         ensureLocalCss();
         const c = createOutputViewController({
             client: props.client, dictationId: props.dictationId, vue: props.vue || undefined,
-            includeAllFileFormats: true, includeTemplates: true, includePreferences: true,
+            includeAllFileFormats: true, includeTemplates: true, fileOptions: true, includePreferences: true,
         });
         c.load();
         const tagClass = (r) => TAG_CLASS[r && r.tone] || '';
@@ -599,7 +665,39 @@ export const OutputView = {
         <p v-if="c.releasedRevisionId.value" class="text-status" style="overflow-wrap: anywhere" data-testid="revision">{{ TEXT.revision }}: {{ c.releasedRevisionId.value }}</p>
         <p v-else class="note warning" data-testid="not-released">{{ TEXT.notReleased }}</p>
         <p v-if="c.templatesFailed.value" class="note warning" role="status" data-testid="templates-warning">{{ TEXT.templatesUnavailable }}</p>
-        <div v-if="c.releasedRevisionId.value && c.targets.value.some((t) => t.channel === 'file')" class="actions">
+        <div v-if="c.targets.value.some((t) => t.channel === 'file' && t.available)" class="field-grid" style="align-items: start">
+          <label class="field">
+            <span>{{ TEXT.destination }}</span>
+            <select v-model="c.destination.value" :disabled="c.busy()" style="min-height: 48px">
+              <option value="">{{ TEXT.browser }}</option>
+              <option v-for="target in c.destinations.value" :key="target.name" :value="target.name">{{ target.label }}</option>
+            </select>
+          </label>
+          <label v-if="c.destination.value" class="field">
+            <span>{{ TEXT.collisionPolicy }}</span>
+            <select v-model="c.collisionPolicy.value" :disabled="c.busy()" style="min-height: 48px">
+              <option value="fail">Nicht ablegen</option>
+              <option value="version">Nummer an den Namen anhängen</option>
+              <option value="unique_name">Eindeutigen Zusatz anhängen</option>
+            </select>
+          </label>
+          <p v-if="c.catalogFailed.value" class="note warning full" role="status">{{ TEXT.catalogFailed }}</p>
+          <label class="field">
+            <span>{{ TEXT.nameMode }}</span>
+            <select v-model="c.nameMode.value" :disabled="c.busy()" style="min-height: 48px">
+              <option value="manual_name">{{ TEXT.named }}</option>
+              <option value="filename_pattern">{{ TEXT.pattern }}</option>
+            </select>
+          </label>
+          <label class="field" style="min-width: 0">
+            <span>{{ TEXT.filename }}</span>
+            <input v-model="c.filename.value" type="text" autocomplete="off" :disabled="c.busy()"
+                   :placeholder="c.nameMode.value === 'filename_pattern' ? '%A - %T' : 'Automatisch'"
+                   :aria-describedby="c.nameMode.value === 'filename_pattern' ? 'out-pattern-hint' : null" style="min-height: 48px">
+            <small v-if="c.nameMode.value === 'filename_pattern'" id="out-pattern-hint">{{ TEXT.patternHint }}</small>
+          </label>
+        </div>
+        <div v-if="c.releasedRevisionId.value && c.targets.value.some((t) => t.channel === 'file')" class="actions" style="margin-top: var(--sp-3)">
           <button type="button" class="primary" style="min-height: 48px; padding-inline: var(--sp-3)" :disabled="!c.selected.value.length || c.exportingSelected.value" @click="c.exportSelected()">{{ TEXT.exportSelected }}</button>
           <button type="button" class="quiet" style="min-height: 48px; padding-inline: var(--sp-3)" :disabled="!c.preferences.value || c.savingDefaults.value" @click="c.saveDefaults()">{{ TEXT.saveDefaults }}</button>
         </div>
@@ -618,7 +716,7 @@ export const OutputView = {
                   <div v-if="c.includeTemplates && c.supportsTemplates(t.id)" class="out-template-fields">
                     <div class="field">
                       <label :for="'out-tpl-' + t.id">{{ TEXT.template }}</label>
-                      <select :id="'out-tpl-' + t.id" :data-testid="'template-select-' + t.id" :disabled="!t.available"
+                      <select :id="'out-tpl-' + t.id" :data-testid="'template-select-' + t.id" :disabled="!t.available || (c.destination.value && c.busy())"
                               :value="c.selectedTemplates.value[t.id] || ''" @change="c.setTemplate(t.id, $event.target.value)">
                         <option value="">{{ TEXT.noTemplate }}</option>
                         <option v-for="tpl in c.templatesFor(t.id)" :key="tpl.id" :value="tpl.id">{{ tpl.name }} (v{{ tpl.version }})</option>
@@ -626,7 +724,7 @@ export const OutputView = {
                     </div>
                     <div class="field">
                       <label :for="'out-mode-' + t.id">{{ TEXT.textMode }}</label>
-                      <select :id="'out-mode-' + t.id" :data-testid="'mode-select-' + t.id" :disabled="!t.available"
+                      <select :id="'out-mode-' + t.id" :data-testid="'mode-select-' + t.id" :disabled="!t.available || (c.destination.value && c.busy())"
                               :value="c.selectedModes.value[t.id]" @change="c.setTextMode(t.id, $event.target.value)">
                         <option value="formatted">{{ TEXT.modeFormatted }}</option>
                         <option value="plain">{{ TEXT.modePlain }}</option>
@@ -642,12 +740,13 @@ export const OutputView = {
                 </td>
                 <td>
                   <span v-if="!t.available" class="tag wait" style="white-space: normal" data-testid="unavailable">{{ t.reason }}</span>
-                  <div v-if="c.results.value[t.id]?.alert" class="note burgundy" role="alert" data-testid="target-error"
+                  <span v-if="c.placementUnconfirmed(t.id)" class="tag wait" role="status" style="white-space: normal">{{ TEXT.placementUnknown }}</span>
+                  <div v-else-if="c.results.value[t.id]?.alert" class="note burgundy" role="alert" data-testid="target-error"
                        :data-phase="c.results.value[t.id].phase"
                        :style="{ marginTop: 0, backgroundColor: c.results.value[t.id].surface.background, color: c.results.value[t.id].surface.color, borderColor: c.results.value[t.id].surface.border }">{{ c.results.value[t.id].label }}</div>
                   <span v-else-if="c.results.value[t.id]" class="tag dot" :class="tagClass(c.results.value[t.id])" role="status" aria-live="polite"
-                        style="white-space: normal" :data-phase="c.results.value[t.id].phase">{{ c.results.value[t.id].label }}</span>
-                  <p v-if="c.previousDownloads.value[t.id]" class="hint" style="margin: 6px 0 0">
+                        style="white-space: normal; overflow-wrap: anywhere" :data-phase="c.results.value[t.id].phase">{{ c.results.value[t.id].label }}</span>
+                  <p v-if="!c.destination.value && c.previousDownloads.value[t.id]" class="hint" style="margin: 6px 0 0">
                     <a :href="c.previousDownloads.value[t.id].url" download>{{ c.previousDownloads.value[t.id].label }}</a>
                   </p>
                 </td>
@@ -655,7 +754,7 @@ export const OutputView = {
                   <div class="actions">
                     <a v-if="c.downloadUrl(t.id)" :href="c.downloadUrl(t.id)" download class="button small" style="min-height: 48px; overflow-wrap: anywhere"
                        @click="c.markDownloadStarted(t.id)">{{ TEXT.download }}</a>
-                    <button v-else type="button" class="small" style="min-height: 48px" :disabled="!c.canExport(t.id)" @click="c.exportTo(t.id)">{{ TEXT.export }}</button>
+                    <button v-else type="button" class="small" style="min-height: 48px" :disabled="!c.canExport(t.id)" @click="c.exportTo(t.id)">{{ c.destination.value ? TEXT.save : TEXT.export }}</button>
                     <button v-if="c.results.value[t.id] && c.results.value[t.id].job && ['pending', 'unknown'].includes(c.results.value[t.id].phase)"
                             type="button" class="small" style="min-height: 48px" @click="c.refreshStatus(t.id)">{{ TEXT.status }}</button>
                   </div>

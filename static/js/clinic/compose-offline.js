@@ -446,9 +446,9 @@ export const OfflineView = {
             <tbody>
               <template v-for="d in s.drafts" :key="d.key">
                 <tr data-testid="draft">
-                  <td><strong>{{ TEXT.draft }} {{ d.dictationId }}</strong><small>{{ TEXT.sequence }} {{ d.sequence }}</small></td>
+                  <td class="whitespace-normal"><strong>{{ TEXT.draft }} {{ d.dictationId }}</strong><small>{{ TEXT.sequence }} {{ d.sequence }}</small></td>
                   <td class="whitespace-normal">
-                    <div class="actions">
+                    <div class="actions whitespace-nowrap">
                       <button type="button" data-testid="restore"
                               :disabled="s.phase !== 'unlocked' || !s.online || s.busy" @click="c.restore(d.dictationId, d.sequence)">{{ TEXT.restore }}</button>
                       <button type="button" :class="DANGER" data-testid="discard" @click="c.askDiscard(d.key)">{{ TEXT.discard }}</button>

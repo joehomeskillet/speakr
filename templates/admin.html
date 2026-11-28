@@ -239,14 +239,21 @@
                     </div>
                   </div>
                 </div>
+                {% set clinic_system_sections = {
+                    '#/system/statistik': {'tab': 'stats', 'label': 'Systemstatistik'},
+                    '#/system/einstellungen': {'tab': 'settings', 'label': 'Systemeinstellungen'},
+                    '#/system/modelle': {'tab': 'models', 'label': 'Modellwahl'},
+                    '#/system/audit': {'tab': 'audit', 'label': 'System-Auditprotokoll'},
+                } %}
                 <teleport v-if="activeTab !== 'mounting'" to="#clinic-admin-system-nav">
                   <div class="cadm-nav__group" role="group" aria-labelledby="admin-system-label">
                     <p id="admin-system-label" class="cadm-nav__label">System</p>
                     <div class="cadm-nav__items">
-                      <a href="#/system/statistik" class="cadm-nav__item" :class="{ 'is-active': activeTab === 'stats' }" :aria-current="activeTab === 'stats' ? 'page' : null">Systemstatistik</a>
-                      <a href="#/system/einstellungen" class="cadm-nav__item" :class="{ 'is-active': activeTab === 'settings' }" :aria-current="activeTab === 'settings' ? 'page' : null">Systemeinstellungen</a>
-                      <a href="#/system/modelle" class="cadm-nav__item" :class="{ 'is-active': activeTab === 'models' }" :aria-current="activeTab === 'models' ? 'page' : null">Modellwahl</a>
-                      <a href="#/system/audit" class="cadm-nav__item" data-audit-tab :class="{ 'is-active': activeTab === 'audit' }" :aria-current="activeTab === 'audit' ? 'page' : null">System-Auditprotokoll</a>
+                      {% for hash, section in clinic_system_sections.items() %}
+                      <a href="{{ hash }}" class="cadm-nav__item"{% if section.tab == 'audit' %} data-audit-tab{% endif %}
+                         :class="{ 'is-active': activeTab === '{{ section.tab }}' }"
+                         :aria-current="activeTab === '{{ section.tab }}' ? 'page' : null">{{ section.label }}</a>
+                      {% endfor %}
                     </div>
                   </div>
                 </teleport>
@@ -2222,6 +2229,9 @@ Summarization Instructions:
 
     <script>
         const { createApp, ref, computed, onMounted, watch, nextTick } = Vue
+        {% if clinic_mode %}
+        const clinicSystemSections = {{ clinic_system_sections | tojson }};
+        {% endif %}
         
         // Initialize i18n before Vue app creation
         initializeI18n().then(() => {
@@ -2243,20 +2253,12 @@ Summarization Instructions:
                 onMounted(() => {
                     const tabFromHash = () => {
                         const path = window.location.hash.split('?')[0];
-                        const pages = { '#/system/statistik': 'stats', '#/system/einstellungen': 'settings', '#/system/modelle': 'models', '#/system/audit': 'audit' };
-                        if (pages[path] === 'audit') {
+                        const section = clinicSystemSections[path];
+                        if (section?.tab === 'audit') {
                             const account = new URLSearchParams(window.location.hash.split('?')[1]).get('konto');
                             auditFilters.value = { ...emptyAuditFilters(), user: /^\d+$/.test(account || '') ? account : '' };
                         }
-                        activeTab.value = pages[path] || 'clinic';
-                        nextTick(() => {
-                            const nav = document.querySelector('#clinic-admin-root nav');
-                            const current = nav?.querySelector('[aria-current="page"]');
-                            if (!current || nav.scrollWidth <= nav.clientWidth) return;
-                            const item = current.getBoundingClientRect(), bounds = nav.getBoundingClientRect();
-                            if (item.left < bounds.left) nav.scrollLeft += item.left - bounds.left;
-                            else if (item.right > bounds.right) nav.scrollLeft += item.right - bounds.right;
-                        });
+                        activeTab.value = section?.tab || 'clinic';
                     };
                     window.addEventListener('clinic-admin-panelchange', tabFromHash);
                     // The inner navigation signals after its permission check and portal mount.
@@ -4810,6 +4812,36 @@ Summarization Instructions:
     <!-- Clinic administration panels (CLINIC_MODE only): a separate small Vue app, one shared api client.
          No interpolation braces here: Jinja would evaluate them, so the template uses v-text. -->
     <style>
+        .clinic-regex-host .clinic-regex { min-width: 0; overflow-wrap: anywhere; }
+        .clinic-regex-host .clinic-regex > * + * { margin-block-start: var(--sp-3); }
+        .clinic-regex-host .clinic-regex :is(fieldset, .field, label) { min-width: 0; }
+        .clinic-regex-host .clinic-regex legend { padding-inline: var(--sp-2); font-weight: 600; }
+        .clinic-regex-host .regex-rule-fields { grid-template-columns: minmax(0, 1fr); gap: var(--sp-3); }
+        .clinic-regex-host .regex-rule-fields + div { margin-block-start: var(--sp-3); }
+        .clinic-regex-host .clinic-regex label { display: block; }
+        .clinic-regex-host .clinic-regex label > span:first-child { display: block; margin-block-end: var(--sp-1); }
+        .clinic-regex-host .clinic-regex .field { margin-block-end: 0; }
+        .clinic-regex-host .regex-test > * + * { margin-block-start: var(--sp-3); }
+        @media (min-width: 48rem) {
+            .clinic-regex-host .regex-rule-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+        .clinic-regex-host .clinic-regex :is(.btn, select, textarea, input:not([type="checkbox"]):not([type="radio"])) {
+            min-height: 3rem; max-width: 100%; transition: none;
+        }
+        .cadm .clinic-regex-host .clinic-regex :is(input.field, select, textarea) { border-color: var(--v8-text-2); }
+        .cadm .clinic-regex-host .clinic-regex .btn--primary:not(:disabled) {
+            background: var(--ink); color: var(--v8-on-ink, var(--text-button)); border-color: var(--ink);
+        }
+        .clinic-regex-host .clinic-regex .btn { min-width: 3rem; white-space: normal; }
+        .clinic-regex-host .clinic-regex :is(.btn, select):disabled {
+            background: var(--v8-s2); color: var(--v8-text-2); cursor: not-allowed; opacity: 1;
+        }
+        .clinic-regex-host .clinic-regex :is(button, input, select, textarea):focus-visible {
+            outline: 2px solid var(--border-focus); outline-offset: 2px;
+        }
+        .clinic-regex-host .regex-dictation-picker { min-width: 0; }
+        .clinic-regex-host .regex-dictation-error { color: var(--text-danger); }
+
         body:has(.clinic-asr-profiles-view, .tab-content:not(.hidden) #statsRecordingsChart) #global-header a:focus-visible {
             outline-color: var(--brand-accent-darkmode);
         }
@@ -4935,11 +4967,13 @@ Summarization Instructions:
         import { getUploadCsrfToken } from "{{ url_for('static', filename='js/modules/csrf.js', v=app_version) }}";
         import { createAccountsAdmin, AccountsAdminPanel } from "{{ url_for('static', filename='js/clinic/accounts-ui.js', v=app_version) }}";
         import { createPoolsComponent } from "{{ url_for('static', filename='js/clinic/pools-ui.js', v=app_version) }}";
-        import { registerDirectoryReview } from "{{ url_for('static', filename='js/clinic/directory-ui.js', v=app_version) }}";
+        import { registerDirectoryReview, WINDOWS_GAP } from "{{ url_for('static', filename='js/clinic/directory-ui.js', v=app_version) }}";
         import { templatesComponent } from "{{ url_for('static', filename='js/clinic/templates-ui.js', v=app_version) }}";
         import { categoriesComponent } from "{{ url_for('static', filename='js/clinic/categories-ui.js', v=app_version) }}";
         import { columnsComponent } from "{{ url_for('static', filename='js/clinic/columns-ui.js', v=app_version) }}";
         import { createRegexRulesComponent } from "{{ url_for('static', filename='js/clinic/regex-ui.js', v=app_version) }}";
+        import { buildPath, formatDay, formatTime } from "{{ url_for('static', filename='js/clinic/recordings-ui.js', v=app_version) }}";
+        import { formatDictationReference } from "{{ url_for('static', filename='js/clinic/worklist-ui.js', v=app_version) }}";
         import { createCentralPreferencesComponent, createPreferencesComponent } from "{{ url_for('static', filename='js/clinic/preferences-ui.js', v=app_version) }}";
         import { registerAdminPoolsView } from "{{ url_for('static', filename='js/clinic/compose-admin-pools.js', v=app_version) }}";
         import { registerAuthorsView } from "{{ url_for('static', filename='js/clinic/compose-authors.js', v=app_version) }}";
@@ -5006,7 +5040,6 @@ Summarization Instructions:
             switchContext: () => { client.switchContext(); adminClient.switchContext(); },
         };
 
-        // Regex rules act on one dictation: the panel needs its id. The API authorises preview and apply.
         const DirectoryHost = {
             emits: ['open-accounts'],
             setup() {
@@ -5030,47 +5063,82 @@ Summarization Instructions:
 <div class="clinic-directory-host">
   <clinic-directory-review v-if="available" :client="client" @open-accounts="$emit('open-accounts')"></clinic-directory-review>
   <section v-else aria-labelledby="directory-status-title">
-    <h2 id="directory-status-title" class="t-heading">Verzeichnisabgleich</h2>
+    <h2 id="directory-status-title" class="t-heading clinic-directory-heading">Verzeichnisabgleich</h2>
     <p role="status" v-text="message"></p>
-    <button type="button" class="btn btn--ghost" @click="$emit('open-accounts')">Lokale Konten verwalten</button>
+    <p role="note">${WINDOWS_GAP}</p>
+    <button type="button" class="btn btn--ghost min-h-12" @click="$emit('open-accounts')">Lokale Konten verwalten</button>
   </section>
 </div>`,
         };
 
         const RegexHost = {
             name: 'ClinicRegexHost',
+            components: { ClinicRegexRules: createRegexRulesComponent(window.Vue) },
             setup() {
-                const draft = ref('');
-                const panel = ref(null);
                 const dictationId = ref('');
-                const regexComponent = markRaw(createRegexRulesComponent(window.Vue));
-                function open() {
-                    const id = draft.value.trim();
-                    dictationId.value = id;
-                    panel.value = id ? regexComponent : null;
+                const choices = ref([]);
+                const nextCursor = ref(null);
+                const loading = ref(false);
+                const error = ref('');
+                const emptyFields = {};
+                const currentFields = computed(() =>
+                    choices.value.find((choice) => choice.id === dictationId.value)?.fields || emptyFields);
+                async function loadChoices() {
+                    if (loading.value) return;
+                    loading.value = true;
+                    const result = await client.request(buildPath({}, nextCursor.value));
+                    if (result.outcome !== 'ok' || !Array.isArray(result.data?.items)) {
+                        error.value = result.outcome === 'permission'
+                            ? 'Sie haben keinen Zugriff auf die Diktatliste.'
+                            : 'Die Diktate konnten nicht geladen werden.';
+                    } else {
+                        error.value = '';
+                        const seen = new Set(choices.value.map((choice) => choice.id));
+                        for (const row of result.data.items) {
+                            if (!row?.dictation_id || seen.has(row.dictation_id)) continue;
+                            seen.add(row.dictation_id);
+                            const title = typeof row.own_title === 'string' ? row.own_title : '';
+                            const label = [title.trim() || row.capture_label || 'Diktat',
+                                row.dictated_by?.display_name || 'Name nicht verfügbar', formatDay(row.day),
+                                formatTime(row.sort_time || row.recorded_at), formatDictationReference(row.dictation_id)].join(', ');
+                            choices.value.push({ id: row.dictation_id, label, fields: title ? { title } : emptyFields });
+                        }
+                        nextCursor.value = result.data.next_cursor || null;
+                    }
+                    loading.value = false;
                 }
-                return { draft, panel, dictationId, open, client };
+                onMounted(loadChoices);
+                return { client, dictationId, currentFields, choices, nextCursor, loading, error, loadChoices };
             },
             template: `
-<section class="v8-page v8-admin-page" aria-labelledby="cadm-rules-title">
+<section class="v8-page v8-admin-page clinic-regex-host" aria-labelledby="cadm-rules-title">
   <header class="pagehead">
     <div>
       <div class="eyebrow">Verwaltung</div>
       <h1 id="cadm-rules-title">Regeln</h1>
-      <p class="subline">Metadatenregeln für ein Diktat laden und prüfen.</p>
+      <p class="subline">Regeln für Titel und andere Diktatangaben verwalten und mit einem Beispieltext prüfen.</p>
     </div>
   </header>
-  <section class="panel" aria-labelledby="cadm-rules-select">
-    <h2 id="cadm-rules-select">Diktat auswählen</h2>
-    <form class="cadm-inline" @submit.prevent="open">
-      <div class="cadm-field">
-        <label for="clinic-regex-dictation">Diktat-ID</label>
-        <input id="clinic-regex-dictation" class="field" type="text" autocomplete="off" v-model="draft">
+  <clinic-regex-rules :client="client" :dictation-id="dictationId" :current-fields="currentFields" manage-rules>
+    <template #dictation>
+      <div class="regex-dictation-picker space-y-2">
+        <div class="field">
+          <label for="clinic-regex-dictation">Diktat auswählen</label>
+          <select id="clinic-regex-dictation" v-model="dictationId" :disabled="!choices.length">
+            <option value="">Kein Diktat ausgewählt</option>
+            <option v-for="choice in choices" :key="choice.id" :value="choice.id" v-text="choice.label"></option>
+          </select>
+        </div>
+        <div role="status">
+          <p v-if="loading">Diktate werden geladen …</p>
+          <p v-else-if="!error && !choices.length && !nextCursor">Keine Diktate verfügbar.</p>
+        </div>
+        <p v-if="error && !loading" class="regex-dictation-error" role="alert" v-text="error"></p>
+        <button v-if="error || nextCursor" type="button" class="btn btn--ghost" :disabled="loading"
+          @click="loadChoices" v-text="error ? 'Erneut laden' : 'Weitere Diktate laden'"></button>
       </div>
-      <button type="submit" class="btn btn--primary">Regeln laden</button>
-    </form>
-  </section>
-  <component :is="panel" v-if="panel" :key="dictationId" :client="client" :dictation-id="dictationId"></component>
+    </template>
+  </clinic-regex-rules>
 </section>`,
         };
 
@@ -5278,12 +5346,21 @@ Summarization Instructions:
                     return id && allDefs.some((d) => d.id === id) ? id : null;
                 };
                 // Landing page: Benutzer und Rollen (it carries the former Konten panel).
-                const onSystemPage = () => !team && /^#\/system\/(statistik|einstellungen|modelle|audit)(?:\?|$)/.test(window.location.hash);
-                const selectedId = () => onSystemPage() ? null : (idFromHash() || (team ? null : 'users'));
+                const systemPage = () => !team && clinicSystemSections[window.location.hash.split('?')[0]];
+                const selectedId = () => systemPage() ? null : (idFromHash() || (team ? null : 'users'));
                 const activeId = ref(selectedId());
+                const systemSection = ref(systemPage());
+                const navExpanded = ref(false);
+                const navToggle = ref(null);
+                const closeNavigation = () => {
+                    if (!navExpanded.value) return;
+                    navExpanded.value = false;
+                    window.Vue.nextTick(() => navToggle.value?.focus());
+                };
                 const notifyShell = () => window.dispatchEvent(new Event('clinic-admin-panelchange'));
                 const open = (id) => {
                     activeId.value = id;
+                    systemSection.value = null;
                     const slug = SLUG_BY_ID[id];
                     if (slug && window.location.hash !== '#/' + slug) {
                         window.history.pushState(null, '', '#/' + slug);
@@ -5292,11 +5369,13 @@ Summarization Instructions:
                 };
                 const syncNavigation = () => {
                     activeId.value = selectedId();
+                    systemSection.value = systemPage();
                     notifyShell();
                 };
                 window.addEventListener('popstate', syncNavigation);
                 window.addEventListener('hashchange', syncNavigation);
                 const selected = computed(() => allDefs.find(d => d.id === activeId.value));
+                const sectionLabel = computed(() => selected.value?.label || systemSection.value?.label);
                 const viewName = computed(() => {
                     const id = activeId.value;
                     const suffix = { 'admin-pools': 'pools', 'commands-templates': 'commands', 'asr-profiles': 'asr' }[id] || id;
@@ -5331,14 +5410,15 @@ Summarization Instructions:
                     const wanted = idFromHash();
                     if (wanted && visible.some((d) => d.id === wanted)) {
                         activeId.value = wanted;
-                    } else if (!onSystemPage() && !wanted && !visible.some((d) => d.id === activeId.value)) {
+                    } else if (!systemPage() && !wanted && !visible.some((d) => d.id === activeId.value)) {
                         activeId.value = visible.length ? visible[0].id : null;
                     }
                     probing.value = false;
                     if (!team) window.Vue.nextTick(notifyShell);
                 }
                 onMounted(probe);
-                return { team, CentralPreferences, shown, shownV8, withheld, withheldText, probing, activeId, active, viewTestId, groups, selected, viewName, deniedIds, open };
+                return { team, CentralPreferences, shown, shownV8, withheld, withheldText, probing, activeId, active, viewTestId, groups, selected, viewName, deniedIds, open,
+                    navExpanded, navToggle, sectionLabel, closeNavigation };
             },
             template: `
 <section class="cadm" aria-labelledby="clinic-admin-title" data-testid="clinic-admin">
@@ -5349,18 +5429,26 @@ Summarization Instructions:
   <p v-if="probing" role="status" class="cadm-state">Berechtigungen werden geprüft …</p>
   <template v-else>
     <div class="cadm-layout">
-      <nav v-if="groups.length || !team || withheld.length" class="cadm-nav" aria-label="Verwaltung" data-testid="clinic-v8-nav">
-        <div v-for="g in groups" :key="g.id" class="cadm-nav__group" role="group" :data-testid="g.id === 'policy' ? 'clinic-policy-nav' : null" :aria-labelledby="'cadm-group-' + g.id">
-          <p class="cadm-nav__label" :id="'cadm-group-' + g.id" v-text="g.label"></p>
-          <div class="cadm-nav__items">
-            <button v-for="d in g.items" :key="d.id" type="button" class="cadm-nav__item" :class="{ 'is-active': d.id === activeId }"
-                    :aria-current="d.id === activeId ? 'page' : null" :data-testid="(d.policy ? 'clinic-policy-panel-' : d.v8 ? 'clinic-v8-panel-' : 'clinic-panel-') + d.id"
-                    @click="open(d.id)"><span v-if="d.id === 'users'" data-testid="admin-tab-clinic" :class="{ 'is-active': d.id === activeId }" v-text="d.label"></span><span v-else v-text="d.label"></span></button>
+      <div v-if="groups.length || !team || withheld.length" class="cadm-section-nav" :class="{ 'is-expanded': navExpanded }" @keydown.esc="closeNavigation">
+        <button ref="navToggle" type="button" class="cadm-nav__item cadm-section-nav__toggle" data-testid="clinic-admin-nav-toggle"
+                :aria-expanded="navExpanded" aria-controls="clinic-admin-section-list" @click="navExpanded = !navExpanded">
+          <span v-text="sectionLabel ? 'Bereich: ' + sectionLabel : 'Bereich wählen'"></span>
+          <i class="fas fa-chevron-down" aria-hidden="true"></i>
+        </button>
+        <nav id="clinic-admin-section-list" class="cadm-nav" aria-label="Verwaltung" data-testid="clinic-v8-nav"
+             @click="$event.target.closest('.cadm-nav__item') && closeNavigation()">
+          <div v-for="g in groups" :key="g.id" class="cadm-nav__group" role="group" :data-testid="g.id === 'policy' ? 'clinic-policy-nav' : null" :aria-labelledby="'cadm-group-' + g.id">
+            <p class="cadm-nav__label" :id="'cadm-group-' + g.id" v-text="g.label"></p>
+            <div class="cadm-nav__items">
+              <button v-for="d in g.items" :key="d.id" type="button" class="cadm-nav__item" :class="{ 'is-active': d.id === activeId }"
+                      :aria-current="d.id === activeId ? 'page' : null" :data-testid="(d.policy ? 'clinic-policy-panel-' : d.v8 ? 'clinic-v8-panel-' : 'clinic-panel-') + d.id"
+                      @click="open(d.id)"><span v-if="d.id === 'users'" data-testid="admin-tab-clinic" :class="{ 'is-active': d.id === activeId }" v-text="d.label"></span><span v-else v-text="d.label"></span></button>
+            </div>
           </div>
-        </div>
-        <div v-if="!team" id="clinic-admin-system-nav"></div>
-        <p v-if="withheld.length" role="status" class="cadm-nav__notice" data-testid="clinic-admin-withheld" v-text="withheldText"></p>
-      </nav>
+          <div v-if="!team" id="clinic-admin-system-nav"></div>
+          <p v-if="withheld.length" role="status" class="cadm-nav__notice" data-testid="clinic-admin-withheld" v-text="withheldText"></p>
+        </nav>
+      </div>
       <div class="cadm-main" :data-testid="active && active.id === 'users' ? 'clinic-view-accounts' : null">
         <div v-if="!team" id="clinic-admin-system-content"></div>
         <section v-if="selected" class="cadm-main" data-testid="clinic-admin-view" :data-admin-view="viewName" aria-labelledby="cadm-page-label">
