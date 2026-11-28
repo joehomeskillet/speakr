@@ -895,8 +895,7 @@
 .v8-ui .v6-admin summary{cursor:pointer;list-style:none;padding:8px 11px;border:1px solid #b2c7c55b;border-radius:8px;background:#31575a;font-size:12px;font-weight:650;white-space:nowrap}
 .v8-ui .v6-admin summary::-webkit-details-marker{display:none}
 .v8-ui .v6-admin summary:after{content:"⌄";margin-left:8px}
-.v8-ui .v6-admin summary:focus-visible{outline:3px solid var(--border-focus);outline-offset:3px}
-.v8-ui .v6-menu a:focus-visible{outline:3px solid var(--border-focus);outline-offset:-2px}
+.v8-ui .v6-admin summary:focus-visible,.v8-ui .v6-menu a:focus-visible{outline:3px solid var(--border-focus);outline-offset:3px}
 .v8-ui .v6-menu{position:absolute;right:0;top:43px;width:520px;max-width:calc(100vw - 30px);max-height:74vh;overflow:auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--v8-text);padding:18px;box-shadow:0 12px 40px #1c3d4228;z-index:90}
 /* The standalone header applies its text color through an ID selector. */
 .v8-ui:is(*,#global-header *) .v6-menu h2{color:var(--v8-text-2)}
@@ -990,7 +989,6 @@
 /* Standalone admin views set a header-wide outline colour. Keep menu links on their surface token. */
 .v8-ui:is(#global-header *) :is(.v6-menu,.v8-usermenu) a:focus-visible{outline-color:var(--border-focus)!important}
 
-:where(.v8-ui):is(.dark .v8-ui,[data-theme="dark"] .v8-ui) :is(.wf-panel,[aria-labelledby="login-panel-title"]){--v8-input-line:var(--v8-input-outline)}
 .v8-ui :is(.v8-page,.v8-chrome) :where(input:not([type=hidden],[type=checkbox],[type=radio],[type=range],[type=button],[type=submit],[type=reset]),select,textarea){border-color:var(--v8-input-line)}
 /* These views carry inline field borders from their component styles. */
 .v8-ui .record-role-filters input[list],
@@ -1000,6 +998,7 @@
 .v8-ui .clinic-asr-profiles-view button.primary{color:var(--v8-on-ink,var(--surface))!important}
 .v8-ui :is(.v8-page,.v8-chrome) :where(input,select,textarea):focus-visible{outline:3px solid var(--border-focus);outline-offset:2px}
 .v8-ui :is(.searchwrap,.record-search){border-color:var(--v8-input-line)}
+.v8-ui .searchwrap:focus-within{border-color:var(--v8-input-line);box-shadow:none}
 .v8-ui :is(.searchwrap,.record-search):has(input:focus-visible){outline:3px solid var(--border-focus);outline-offset:2px}
 .v8-ui :is(.searchwrap,.record-search) input:focus-visible{outline:none}
 
