@@ -64,7 +64,8 @@ export function useWorklistRefresh(options = {}) {
     const tokenVersion = options.tokenVersion !== undefined ? options.tokenVersion : TOKEN_CONTRACT_VERSION;
     const intervalMs = options.intervalMs !== undefined ? options.intervalMs : 30000;
     const { fetchChanges = fetchRecordingChanges } = options;
-    const usesRecordingFeed = fetchChanges === fetchRecordingChanges;
+    const { rowsPath, onSnapshot } = options;
+    const reloadOnChanges = fetchChanges === fetchRecordingChanges || Boolean(rowsPath);
     const mapRecording = options.mapRecording || ((recording) => recording);
     const now = options.now || (() => new Date());
 
@@ -103,6 +104,7 @@ export function useWorklistRefresh(options = {}) {
         worklist.isPermissionLost.value = true;
         worklist.errorMessage.value = message || MESSAGE_DENIED;
         stop();
+        onSnapshot?.(null);
     };
 
     const commitRows = (next) => {
@@ -139,12 +141,12 @@ export function useWorklistRefresh(options = {}) {
         commitRows(list);
     };
 
-    /** Full reload of the worklist rows; manual refresh and fallback after cursor expiry. */
+    /** Reload the current worklist snapshot, including on manual refresh and cursor expiry. */
     const refresh = async () => {
         const { seen } = nextRequest();
         isRefreshing.value = true;
         try {
-            const response = await client.request('/worklist/rows');
+            const response = await client.request(rowsPath ? rowsPath() : '/worklist/rows');
             if (stale(seen)) return { outcome: 'discarded' };
             if (response.outcome === 'permission' || response.status === 401 || response.status === 403) {
                 dropToPermissionLoss(response.message);
@@ -158,6 +160,7 @@ export function useWorklistRefresh(options = {}) {
                 commitRows(items);
                 invalidated = false;
                 touch();
+                onSnapshot?.(response.data);
                 return response;
             }
             if (response.outcome === 'cancelled') return response;
@@ -203,9 +206,8 @@ export function useWorklistRefresh(options = {}) {
                     return response;
                 }
                 failures = 0;
-                if (usesRecordingFeed) {
-                    // The recording feed uses recording IDs and a different object policy.
-                    // Reload the clinic projection before showing any changed rows.
+                if (reloadOnChanges) {
+                    // Reload the authorized projection when feed rows cannot represent this list scope.
                     invalidated ||= Array.isArray(response.data.changes) && response.data.changes.length > 0;
                 } else {
                     applyChanges(response.data.changes);
@@ -239,7 +241,7 @@ export function useWorklistRefresh(options = {}) {
     }
 
     const schedule = () => {
-        if (!isRunning.value || !(intervalMs > 0)) return;
+        if (!isRunning.value || timer !== null || !(intervalMs > 0)) return;
         const delay = intervalMs * Math.min(MAX_BACKOFF_FACTOR, 2 ** failures);
         timer = setTimeout(async () => {
             timer = null;
@@ -255,8 +257,9 @@ export function useWorklistRefresh(options = {}) {
         const seen = generation;
         if (fetchChanges && !cursor) await primeCursor(seen);
         if (!isRunning.value) return;
-        await refresh();
+        const response = await refresh();
         schedule();
+        return response;
     };
 
     /** Stops polling and aborts pending requests; late answers are discarded. */
