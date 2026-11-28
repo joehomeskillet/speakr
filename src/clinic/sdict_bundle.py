@@ -208,14 +208,25 @@ def build_bundle(manifest: dict, files: Mapping[str, bytes]) -> bytes:
 
     members = dict(files)
     members[MANIFEST_NAME] = manifest_bytes
-    buffer = BytesIO()
-    with zipfile.ZipFile(buffer, "w") as archive:
-        for name in sorted(members):
-            info = zipfile.ZipInfo(name, date_time=_FIXED_TIMESTAMP)
-            info.compress_type = zipfile.ZIP_DEFLATED
-            info.create_system = 3
-            info.external_attr = 0o600 << 16
-            archive.writestr(info, members[name])
+    ratio = BundleLimits().max_ratio
+
+    def pack(stored):
+        buffer = BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            for name in sorted(members):
+                info = zipfile.ZipInfo(name, date_time=_FIXED_TIMESTAMP)
+                info.compress_type = zipfile.ZIP_STORED if name in stored else zipfile.ZIP_DEFLATED
+                info.create_system = 3
+                info.external_attr = 0o600 << 16
+                archive.writestr(info, members[name])
+            oversized = {info.filename for info in archive.infolist()
+                         if info.file_size > ratio * info.compress_size}
+        return buffer, oversized
+
+    buffer, stored = pack(set())
+    if stored:
+        # The reader applies its ratio limit even to legitimate silent audio.
+        buffer, _ = pack(stored)
     return buffer.getvalue()
 
 
