@@ -161,9 +161,12 @@ describe('P-257 compose controllers (synthetic HID reports)', () => {
             expect(recorder.stopRecording).not.toHaveBeenCalled();
             expect(recorder.uploadRecordedAudio).not.toHaveBeenCalled();
 
+            c.toggleVox();
             press(0x0100);
-            await vi.waitFor(() => expect(c.model().phase).toBe('recording'));
+            await vi.waitFor(() => expect(c.model().voxStatus).toBe('Diese Aufnahme wird stimmgesteuert.'));
+            expect(c.model().phase).toBe('recording');
             expect(recorder.startRecording).toHaveBeenCalledOnce();
+            expect(recorder.startRecording).toHaveBeenCalledWith({ voxEnabled: true });
             expect(device.sendReport).toHaveBeenLastCalledWith(0, ledReport(12));
             input(0x0100);
             expect(recorder.pauseRecording).not.toHaveBeenCalled();

@@ -53,8 +53,10 @@ MODEL_MODULES = (
     "alignment_tokens", "alignment",
     "output_preferences",
     "statistics_grants",
+    "statistics_retention",
     "notification_preferences",
     "draft_store",
+    "bundle_store",
 )
 
 
