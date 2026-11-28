@@ -79,4 +79,7 @@ ADMIN: tuple[str, ...] = (
     'clinic_training.start',
     'clinic_training.status',
     'clinic_training.cancel',
+    'clinic_statistics.collection_policy',
+    'clinic_statistics.collection_period',
+    'clinic_statistics.collection_retention',
 )
