@@ -41,6 +41,7 @@ The allowlist excludes transcripts, summaries, notes, titles, filenames, search 
 | `recording.archived`, `recording.unarchived` | A recording archive transition, including its rule and scope |
 | `recording.reprocessed`, `recording.job.canceled` | Requested processing or cancellation |
 | `admin.user.*`, `admin.setting.changed` | Account and setting administration; the registry also contains historical upstream operations |
+| `clinic.kis.case_handoff` | The KIS opened Speakr with a case ID in the URL. One row per hand-off; `outcome` is `success` for a valid case ID and `denied` for a malformed or rejected one. The case ID is not recorded, and nothing is written back to the KIS |
 | `audit.viewed`, `audit.exported`, `audit.write_failed` | Access to the log and evidence of writer failures |
 
 The current **KI-Zusammenfassung** panel records each state read as `recording.content.read` with `part=summary`, and each manual generation request as `recording.reprocessed` with `kind=summary`. **Modellwahl** changes are recorded as `admin.setting.changed` for `clinic_task_models`; the model configuration value is not copied into the audit details.
