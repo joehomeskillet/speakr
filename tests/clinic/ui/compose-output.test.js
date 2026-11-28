@@ -27,7 +27,7 @@ const TARGETS = (released, kis = true) => ({
     ],
 });
 
-function fakeClient({ targets, exportResult } = {}) {
+function fakeClient({ targets, exportResult, catalog } = {}) {
     const calls = [];
     return {
         calls,
@@ -35,6 +35,7 @@ function fakeClient({ targets, exportResult } = {}) {
             const method = String((options && options.method) || 'GET').toUpperCase();
             calls.push({ method, path, options });
             if (method === 'GET' && path.split('?')[0].endsWith('/output-targets')) return targets;
+            if (method === 'GET' && path.endsWith('/output-destinations') && catalog) return catalog;
             if (method === 'POST' && path.endsWith('/exports')) return typeof exportResult === 'function' ? exportResult(options) : exportResult;
             if (method === 'GET' && path.includes('/exports/')) return ok({ id: 'j1', status: 'delivered', format: 'kis' });
             return fail('http', 404);
@@ -163,6 +164,148 @@ describe('compose-output', () => {
         await c.exportTo('docx');
         await c.exportTo('docx');
         expect(posts(client).map((p) => p.options.idempotencyKey)).toEqual(['key-1', 'key-1']);
+    });
+
+    describe('file options', () => {
+        const alias = { name: 'team', label: 'Teamablage' };
+        const catalog = ok({ destinations: [alias] });
+
+        it('loads the approved aliases only when file options are enabled', async () => {
+            const client = fakeClient({ targets: ok(TARGETS('r1')), catalog });
+            await loaded(client);
+            expect(client.calls.map(({ path }) => path)).toEqual(['/dictations/d1/output-targets']);
+
+            const c = await loaded(client, { fileOptions: true });
+            expect(client.calls).toContainEqual(expect.objectContaining({
+                method: 'GET', path: '/dictations/d1/output-destinations',
+            }));
+            expect(c.destinations.value).toEqual([alias]);
+            expect(c.catalogFailed.value).toBe(false);
+            expect(c.destination.value).toBe('');
+            expect(c.nameMode.value).toBe('manual_name');
+            expect(c.filename.value).toBe('');
+            expect(c.collisionPolicy.value).toBe('fail');
+        });
+
+        it('keeps the legacy browser download available when the catalog fails', async () => {
+            const client = fakeClient({
+                targets: ok(TARGETS('r1')), catalog: fail('permission', 403), exportResult: ok(job(), 201),
+            });
+            const c = await loaded(client, { fileOptions: true });
+            expect(c.catalogFailed.value).toBe(true);
+            expect(c.destinations.value).toEqual([]);
+            await c.exportTo('docx');
+            expect(posts(client).map(({ options }) => options.body)).toEqual([{ revision_id: 'r1', format: 'docx' }]);
+            expect(c.downloadUrl('docx')).toBe('/api/clinic/v1/dictations/d1/exports/j1/download');
+            c.markDownloadStarted('docx');
+            expect(c.results.value.docx.label).toBe('Download gestartet');
+        });
+
+        it.each([
+            ['', 'manual_name', 'Bericht', { manual_name: 'Bericht' }],
+            ['', 'filename_pattern', '%A - %T', { filename_pattern: '%A - %T' }],
+            [alias.name, 'manual_name', 'Bericht', { manual_name: 'Bericht' }],
+            [alias.name, 'filename_pattern', '%A - %T', { filename_pattern: '%A - %T' }],
+        ])('sends only the selected name field (%j, %s)', async (destination, mode, name, nameField) => {
+            const client = fakeClient({ targets: ok(TARGETS('r1')), catalog, exportResult: ok(job(), 201) });
+            const c = await loaded(client, { fileOptions: true });
+            c.destination.value = destination;
+            c.nameMode.value = mode;
+            c.filename.value = name;
+            c.collisionPolicy.value = 'version';
+            await c.exportTo('docx');
+            expect(posts(client).map(({ options }) => options.body)).toEqual([{
+                revision_id: 'r1', format: 'docx', ...nameField,
+                ...(destination ? { destination_alias: destination, collision_policy: 'version' } : { browser_download: true }),
+            }]);
+        });
+
+        it('shows the placed filename and destination, then sends a fresh key on the next click', async () => {
+            const placement = {
+                alias: alias.name, label: alias.label, outcome: 'created', filename: 'A - Bericht.docx',
+            };
+            const exportResult = vi.fn()
+                .mockResolvedValueOnce(ok(job({ destination: placement }), 201))
+                .mockResolvedValueOnce(fail('conflict', 409, 'NAME_COLLISION'));
+            const client = fakeClient({ targets: ok(TARGETS('r1')), catalog, exportResult });
+            const c = await loaded(client, { fileOptions: true });
+            c.destination.value = alias.name;
+
+            await c.exportTo('docx');
+            expect(c.results.value.docx.label).toContain(placement.filename);
+            expect(c.results.value.docx.label).toContain(placement.label);
+            expect(c.downloadUrl('docx')).toBeNull();
+            expect(c.canExport('docx')).toBe(true);
+            await c.exportTo('docx');
+            const body = {
+                revision_id: 'r1', format: 'docx', filename_pattern: '%A - %T',
+                destination_alias: alias.name, collision_policy: 'fail',
+            };
+            expect(posts(client).map(({ options: { body, idempotencyKey } }) => ({ body, idempotencyKey }))).toEqual([
+                { body, idempotencyKey: 'key-1' },
+                { body, idempotencyKey: 'key-2' },
+            ]);
+            expect(c.results.value.docx.label).toMatch(/Dateiname|Datei.*(existiert|vorhanden)/i);
+        });
+
+        it('distinguishes a name collision, a write failure, and a rejected destination', async () => {
+            const cases = [
+                ['conflict', 409, 'NAME_COLLISION', /Dateiname|Datei.*(existiert|vorhanden)/i],
+                ['validation', 422, 'DESTINATION_WRITE_FAILED', /schreib|ablage|ablegen/i],
+                ['conflict', 409, 'DESTINATION_REJECTED', /abgelehnt|nicht (erlaubt|freigegeben|zulässig)/i],
+            ];
+            const labels = new Set();
+            for (const [outcome, status, code, feedback] of cases) {
+                const client = fakeClient({ targets: ok(TARGETS('r1')), catalog, exportResult: fail(outcome, status, code) });
+                const c = await loaded(client, { fileOptions: true });
+                c.destination.value = alias.name;
+                await c.exportTo('docx');
+                const { label } = c.results.value.docx;
+                expect(label, code).toMatch(feedback);
+                expect(c.downloadUrl('docx')).toBeNull();
+                labels.add(label);
+            }
+            expect(labels.size).toBe(cases.length);
+        });
+
+        it('does not repeat an ambiguous server placement even after changing the filename', async () => {
+            const client = fakeClient({ targets: ok(TARGETS('r1')), catalog, exportResult: fail('network', null) });
+            const c = await loaded(client, { fileOptions: true });
+            c.destination.value = alias.name;
+            await c.exportTo('docx');
+            expect(c.canExport('docx')).toBe(false);
+            await c.exportTo('docx');
+            c.filename.value = 'Anderer Bericht';
+            await c.exportTo('docx');
+            expect(posts(client)).toHaveLength(1);
+        });
+
+        it('retries an ambiguous browser download with the same body and key', async () => {
+            const client = fakeClient({ targets: ok(TARGETS('r1')), catalog, exportResult: fail('network', null) });
+            const c = await loaded(client, { fileOptions: true });
+            c.filename.value = 'Bericht';
+            await c.exportTo('docx');
+            await c.exportTo('docx');
+            const body = { revision_id: 'r1', format: 'docx', manual_name: 'Bericht', browser_download: true };
+            expect(posts(client).map(({ options: { body, idempotencyKey } }) => ({ body, idempotencyKey }))).toEqual([
+                { body, idempotencyKey: 'key-1' },
+                { body, idempotencyKey: 'key-1' },
+            ]);
+        });
+
+        it('lets changed file options start a new export despite an existing browser download', async () => {
+            const data = TARGETS('r1');
+            Object.assign(data.targets.find(({ id }) => id === 'docx'), { status: 'ready', job_id: 'old-job' });
+            const client = fakeClient({ targets: ok(data), catalog, exportResult: ok(job(), 201) });
+            const c = await loaded(client, { fileOptions: true });
+            expect(c.downloadUrl('docx')).toBe('/api/clinic/v1/dictations/d1/exports/old-job/download');
+            c.filename.value = 'Neuer Bericht';
+            expect(c.canExport('docx')).toBe(true);
+            await c.exportTo('docx');
+            expect(posts(client).map(({ options }) => options.body)).toEqual([
+                { revision_id: 'r1', format: 'docx', manual_name: 'Neuer Bericht', browser_download: true },
+            ]);
+        });
     });
 
     it('takes a new key after a conflict', async () => {

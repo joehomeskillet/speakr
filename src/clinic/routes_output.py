@@ -33,11 +33,13 @@ import json
 from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from flask import Blueprint, Flask, Response, abort, jsonify, request, session
 from flask_login import current_user
 from flask_wtf.csrf import CSRFError, validate_csrf
+from sqlalchemy import or_
 from werkzeug.exceptions import HTTPException
 from wtforms.validators import ValidationError
 
@@ -50,7 +52,8 @@ from src.clinic.models import (
     ClinicTranscriptRevision,
 )
 from src.clinic.output import (
-    CHANNEL_TEXT, FORMAT_PLAIN, ClinicOutputReceipt, OutputNameContext, OutputReceiptError, record_output,
+    CHANNEL_TEXT, FORMAT_PLAIN, ClinicOutputReceipt, OutputNameContext, OutputNameError,
+    OutputReceiptError, expand_filename, record_output,
 )
 from src.clinic.output_attempts import OutputAttemptError, OutputSource, bind_output_source
 from src.clinic.output_destinations import (
@@ -83,7 +86,7 @@ _PROBLEMS = {
 }
 _OPTIONAL_EXPORT_KEYS = frozenset({
     'filename_pattern', 'manual_name', 'destination_alias', 'collision_policy',
-    'client_path', 'path', 'destination_path',
+    'client_path', 'path', 'destination_path', 'browser_download',
 })
 _FORMAT_EXTENSION = {'txt': 'txt', 'rtf': 'rtf', 'docx': 'docx', 'odt': 'odt'}
 _ALIAS_ACTIONS = frozenset({'export'})
@@ -125,7 +128,8 @@ def output_source(dictation: ClinicDictation) -> OutputSource:
 
 
 def _job_view(job: dict) -> dict:
-    return {key: value for key, value in job.items() if key not in ('actor_id', 'request', 'stable_docx_zip')}
+    return {key: value for key, value in job.items()
+            if key not in ('actor_id', 'request', 'stable_docx_zip', 'renamed', 'placement_only')}
 
 
 def file_formats() -> dict:
@@ -213,7 +217,8 @@ def _latest_file_results(actor_id: int, release_id: str) -> dict:
     digests = [f'{release_id}:{fmt}' for fmt in offered]
     rows = (
         db.session.query(parity_receipts.ClinicParityReceipt)
-        .filter(parity_receipts.ClinicParityReceipt.digest.in_(digests))
+        .filter(or_(parity_receipts.ClinicParityReceipt.digest.in_(digests),
+                    parity_receipts.ClinicParityReceipt.digest.startswith(f'{release_id}:download:')))
         .all()
     )
     rows.sort(key=lambda row: (row.created_at, row.scope_key))
@@ -304,6 +309,8 @@ def create_blueprint(
                 if include_all and fmt == 'docx' and status == 'ready' and not job.get('stable_docx_zip'):
                     status = 'stale'
                 item.update(status=status, job_id=job.get('id'))
+                if job.get('renamed') and status == 'ready':
+                    item['filename'] = job['filename']
             listed.append(item)
         if kis_delivery_enabled():
             adapter = adapter_for()
@@ -339,13 +346,19 @@ def create_blueprint(
         extra = set(body) - {'revision_id', 'format'}
         if extra - _OPTIONAL_EXPORT_KEYS or body.get('format') not in offered:
             abort(400)
-        placing = bool(extra)
+        placing = 'destination_alias' in body
+        name = _name_choice(body) if extra else None
+        if extra and (not clinic_mode_enabled() or body['format'] == KIS_FORMAT or name is None):
+            abort(400)
         if placing:
             collision_policy = body.get('collision_policy', 'fail')
-            if (body['format'] == KIS_FORMAT or 'destination_alias' not in body
-                    or not isinstance(collision_policy, str) or collision_policy not in POLICIES
-                    or _name_choice(body) is None):
+            if not isinstance(collision_policy, str) or collision_policy not in POLICIES:
                 abort(400)
+        elif extra and (body.get('browser_download') is not True
+                        or extra - {'filename_pattern', 'manual_name', 'browser_download'}):
+            abort(400)
+        if placing and 'browser_download' in body:
+            abort(400)
         revision = db.session.get(ClinicTranscriptRevision, body['revision_id'])
         if revision is None or revision.dictation_id != dictation.id:
             abort(404)
@@ -354,12 +367,22 @@ def create_blueprint(
             return _problem(409, 'NOT_RELEASED', detail='Nur die freigegebene Version kann ausgegeben werden')
         if body['format'] == KIS_FORMAT:
             return _kis_export(dictation, active)
-        placed = _file_export(dictation, active, body['format'], key)
-        if not placing or placed.status_code not in (200, 201):
-            return placed
-        return _place_file_export(dictation, active, body, placed)
+        filename = None
+        if name is not None and not placing:
+            pattern, manual = name
+            try:
+                filename = expand_filename(
+                    pattern if pattern is not None else manual.replace('%', '%%'),
+                    _name_context(dictation, active), extension=_FORMAT_EXTENSION[body['format']],
+                )
+            except OutputNameError:
+                return _problem(400, 'INVALID_FILENAME')
+        rendered = _file_export(dictation, active, body['format'], key, body, filename)
+        if not placing or rendered.status_code not in (200, 201):
+            return rendered
+        return _place_file_export(dictation, active, body, rendered)
 
-    def _file_export(dictation: ClinicDictation, active: ClinicRelease, fmt: str, key: str) -> Response:
+    def _file_export(dictation, active, fmt, key, body, filename) -> Response:
         actor_id = current_user.id
         dictation_id = dictation.id
         release_id = active.id
@@ -367,6 +390,10 @@ def create_blueprint(
         job_id = str(uuid5(NAMESPACE_URL, f'speakr/file-export/{actor_id}/{dictation_id}/{key}'))
         scope = (actor_id, 'file_export', dictation_id, job_id)
         digest = f'{release_id}:{fmt}'
+        if 'destination_alias' in body:
+            digest += ':placement:' + _options_digest(body)
+        elif filename is not None:
+            digest = f'{release_id}:download:{fmt}:' + _options_digest(body)
 
         def render_job():
             # A renderer error used to roll back with no receipt, so the target vanished on reload.
@@ -383,9 +410,13 @@ def create_blueprint(
             job = {
                 'id': job_id, 'kind': 'file', 'status': 'ready', 'format': fmt,
                 'dictation_id': dictation_id, 'release_id': release_id,
-                'revision_id': rendered.transcript_revision_id, 'filename': rendered.filename,
+                'revision_id': rendered.transcript_revision_id, 'filename': filename or rendered.filename,
                 'mimetype': rendered.mimetype, 'sha256': rendered.sha256, 'actor_id': actor_id,
             }
+            if 'destination_alias' in body:
+                job['placement_only'] = True
+            if filename is not None:
+                job['renamed'] = True
             if fmt == 'docx':
                 job['stable_docx_zip'] = True
             return job
@@ -411,6 +442,8 @@ def create_blueprint(
         job = placed.get_json(silent=True) or {}
         if job.get('status') != 'ready' or job.get('sha256') is None:
             return placed
+        if job.get('replayed'):
+            return _problem(409, 'DESTINATION_UNCONFIRMED')
         pattern, manual = _name_choice(body)
         try:
             rendered = file_formats()[body['format']](active)
@@ -477,7 +510,7 @@ def create_blueprint(
         scope = (current_user.id, 'file_export', dictation.id, str(job_id))
         receipt = db.session.get(parity_receipts.ClinicParityReceipt, parity_receipts.scope_key(scope))
         job = receipt.result if receipt is not None and isinstance(receipt.result, dict) else None
-        if (job is None or job.get('kind') != 'file' or job.get('status') != 'ready'
+        if (job is None or job.get('kind') != 'file' or job.get('status') != 'ready' or job.get('placement_only')
                 or job.get('actor_id') != current_user.id or job.get('format') not in file_formats()):
             abort(404)
         active = db.session.get(ClinicRelease, job.get('release_id'))
@@ -488,7 +521,8 @@ def create_blueprint(
             rendered = file_formats()[job['format']](active)
         except export_service.ExportRefused:
             abort(404)
-        if (rendered.sha256 != job.get('sha256') or rendered.filename != job.get('filename')
+        if (rendered.sha256 != job.get('sha256')
+                or (not job.get('renamed') and rendered.filename != job.get('filename'))
                 or hashlib.sha256(rendered.content).hexdigest() != job.get('sha256')):
             abort(409)
         export_service.download_started(rendered)
@@ -498,9 +532,14 @@ def create_blueprint(
         )
         response = Response(rendered.content, mimetype=rendered.mimetype.split(';')[0])
         response.headers['Content-Type'] = rendered.mimetype
-        response.headers['Content-Disposition'] = (
-            f'attachment; filename="{_attachment_name(rendered.filename)}"'
-        )
+        filename = _attachment_name(job['filename'])
+        if job.get('renamed') and not filename.isascii():
+            response.headers['Content-Disposition'] = (
+                f'attachment; filename="{_attachment_name(rendered.filename)}"; '
+                f"filename*=UTF-8''{quote(filename, safe='')}"
+            )
+        else:
+            response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
         response.headers['X-Content-SHA256'] = rendered.sha256
         response.headers['X-Content-Type-Options'] = 'nosniff'
         return response
@@ -521,6 +560,10 @@ def create_blueprint(
                        revision_id=owner.transcript_revision_id)
 
     return bp
+
+
+def _options_digest(body: Mapping) -> str:
+    return hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
 
 
 def _name_choice(body: Mapping) -> tuple[str, None] | tuple[None, str] | None:

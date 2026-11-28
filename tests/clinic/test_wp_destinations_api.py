@@ -218,6 +218,25 @@ def test_fail_policy_collides_on_the_second_export(web):
     assert db.session.query(ClinicOutputReceipt).filter_by(dictation_id=c['dictation'].id).count() == 1
 
 
+def test_replaying_a_placement_key_cannot_write_a_second_file(web):
+    client, c = web
+    _release(c)
+    cl, csrf = client(c['actor'])
+    headers = _key() | csrf
+    url = _base(c) + '/exports'
+    body = _place(c, collision_policy='version')
+    first = cl.post(url, headers=headers, json=body)
+    assert first.status_code == 201
+    repeated = cl.post(url, headers=headers, json=body)
+    assert (repeated.status_code, repeated.json['code']) == (409, 'DESTINATION_UNCONFIRMED')
+    changed = cl.post(url, headers=headers, json=body | {'collision_policy': 'unique_name'})
+    assert (changed.status_code, changed.json['code']) == (409, 'IDEMPOTENCY_CONFLICT')
+    assert [path.name for path in c['root'].iterdir()] == [first.json['destination']['filename']]
+    assert cl.get(url + f"/{first.json['id']}/download").status_code == 404
+    targets = cl.get(_base(c) + '/output-targets?file_formats=all').json['targets']
+    assert all('job_id' not in item for item in targets)
+
+
 @pytest.mark.parametrize('policy', ['version', 'unique_name'])
 def test_rename_policy_places_a_second_file_and_receipt(web, policy):
     client, c = web

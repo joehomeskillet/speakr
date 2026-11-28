@@ -36,7 +36,7 @@ export const TEXT = Object.freeze({
     title: 'Ausgabe',
     eyebrow: 'Arbeitsliste',
     subline: 'Freigegebene Version ausgeben und den Status jedes Ausgabekanals getrennt verfolgen.',
-    colTarget: 'Ziel',
+    colTarget: 'Dateiformat',
     colStatus: 'Status',
     colAction: 'Aktion',
     clipboardHint: 'Explizite Browseraktion. Es wird nichts automatisch übertragen.',
@@ -48,6 +48,17 @@ export const TEXT = Object.freeze({
     targets: 'Ausgabeziele',
     empty: 'Keine Ausgabeziele verfügbar.',
     export: 'Ausgabe starten',
+    save: 'Ablegen',
+    nameMode: 'Datei benennen',
+    filename: 'Dateiname ohne Endung',
+    patternHint: '%A steht für den Autor, %T für den Titel.',
+    destination: 'Wohin soll die Datei?',
+    browser: 'Browser-Download',
+    named: 'Name eingeben',
+    pattern: 'Muster verwenden',
+    collisionPolicy: 'Wenn der Name schon vergeben ist',
+    catalogFailed: 'Die Ablageziele sind nicht verfügbar. Sie können die Datei herunterladen.',
+    placementUnknown: 'Die Ablage ist nicht bestätigt. Prüfen Sie das Ziel, bevor Sie die Datei erneut ablegen.',
     download: 'Herunterladen',
     downloadStarted: 'Download gestartet',
     downloadHint: 'Ob die Datei auf diesem Gerät gespeichert wurde, bestätigt der Browser nicht.',
@@ -87,6 +98,13 @@ const FAILURES = Object.freeze({
     validation: { label: 'Die Ausgabe wurde abgelehnt.', surface: 'error' },
     network: { label: TEXT.offline, surface: 'warning' },
     UNKNOWN: { label: 'Das Ergebnis ist unbekannt.', surface: 'warning' },
+});
+
+const PLACEMENT_ERRORS = Object.freeze({
+    NAME_COLLISION: { label: 'Dateiname am Ziel bereits vergeben.', surface: 'warning' },
+    DESTINATION_WRITE_FAILED: { label: 'Die Ablage ist fehlgeschlagen: Die Datei konnte am Ziel nicht geschrieben werden.', surface: 'error' },
+    DESTINATION_REJECTED: { label: 'Die Ablage wurde abgelehnt. Prüfen Sie Ziel und Dateinamen.', surface: 'error' },
+    INVALID_FILENAME: { label: 'Der Dateiname ist ungültig. Prüfen Sie den Namen oder das Muster.', surface: 'error' },
 });
 
 const plainRef = (init) => {
@@ -129,8 +147,33 @@ export function createOutputViewController(options) {
     const releasedRevisionId = ref(null);
     const targets = ref([]);
     const results = ref({}); // format -> { phase, label, surface, job }
-    const keys = new Map(); // revision|format -> Idempotency-Key
-    const inflight = new Set();
+    const keys = new Map();
+    const inflight = ref(new Set());
+    const destination = ref('');
+    const destinations = ref([]);
+    const catalogFailed = ref(false);
+    const nameMode = ref('manual_name');
+    const filename = ref('');
+    const collisionPolicy = ref('fail');
+    const uncertainPlacements = new Set();
+    const fileBodies = new Map();
+
+    function placementUnconfirmed(format) {
+        return Boolean(destination.value) && uncertainPlacements.has(releasedRevisionId.value + '|' + format);
+    }
+
+    function exportBody(format) {
+        const body = { revision_id: releasedRevisionId.value, format };
+        if (!opts.fileOptions || find(format)?.channel !== 'file') return body;
+        const name = filename.value.trim();
+        if (name) body[nameMode.value] = name;
+        if (destination.value) {
+            if (!name) body.filename_pattern = '%A - %T';
+            body.destination_alias = destination.value;
+            body.collision_policy = collisionPolicy.value;
+        } else if (name) body.browser_download = true;
+        return body;
+    }
     let clipboard = null;
 
     const surfaceOf = (name) => surfaceFor(name);
@@ -149,10 +192,17 @@ export function createOutputViewController(options) {
         releasedRevisionId.value = res.data.released_revision_id || null;
         const offered = res.data.targets || [];
         targets.value = offered.map((t) => targetView(t, releasedRevisionId.value));
+        if (opts.fileOptions && offered.some((t) => t.channel === 'file' && t.available)) {
+            const catalog = await client.request(base + '/output-destinations');
+            catalogFailed.value = catalog.outcome !== 'ok' || !Array.isArray(catalog.data?.destinations);
+            destinations.value = catalogFailed.value ? [] : catalog.data.destinations;
+            if (!destinations.value.some((row) => row.name === destination.value)) destination.value = '';
+        }
         results.value = {};
+        fileBodies.clear();
         for (const target of offered) {
             if (target.channel === 'file' && target.available && target.status && target.job_id) {
-                applyJob(target.id, { id: target.job_id, kind: 'file', status: target.status });
+                applyJob(target.id, { id: target.job_id, kind: 'file', status: target.status, filename: target.filename });
             }
         }
         clipboard = null;
@@ -167,8 +217,13 @@ export function createOutputViewController(options) {
     /** True when the export of this target may be requested now. */
     function canExport(format) {
         const t = find(format);
-        return Boolean(t) && t.channel !== 'clipboard' && t.available && !inflight.has(format)
-            && !(t.channel === 'file' && results.value[format]?.phase === 'ready');
+        if (!t?.available || t.channel === 'clipboard' || inflight.value.has(format)) return false;
+        if (opts.fileOptions && t.channel === 'file') {
+            if (!destination.value) return !downloadUrl(format);
+            return !placementUnconfirmed(format)
+                && destinations.value.some((row) => row.name === destination.value);
+        }
+        return !(t.channel === 'file' && results.value[format]?.phase === 'ready');
     }
 
     function downloadUrl(format) {
@@ -176,6 +231,10 @@ export function createOutputViewController(options) {
         const result = results.value[format];
         if (!target?.available || target.channel !== 'file' || result?.phase !== 'ready'
                 || result.job?.kind !== 'file' || !result.job.id) return null;
+        if (opts.fileOptions && (destination.value || result.job.destination
+                || (fileBodies.has(format)
+                    ? fileBodies.get(format) !== JSON.stringify(exportBody(format))
+                    : Boolean(filename.value.trim())))) return null;
         return '/api/clinic/v1' + base + '/exports/' + encodeURIComponent(result.job.id) + '/download';
     }
 
@@ -189,23 +248,39 @@ export function createOutputViewController(options) {
 
     function applyJob(format, job) {
         const known = JOB_STATUS[job.status] || JOB_STATUS.unknown;
-        setResult(format, job.status, known.label, known.surface, job);
+        if (job.destination?.outcome === 'created') {
+            setResult(format, 'placed', 'Abgelegt: ' + job.destination.filename + ' – ' + job.destination.label, 'success', job);
+        } else {
+            const label = opts.fileOptions && job.status === 'ready' && job.filename ? known.label + ': ' + job.filename : known.label;
+            setResult(format, job.status, label, known.surface, job);
+        }
     }
 
     async function exportTo(format) {
         if (!canExport(format)) return results.value[format] || null;
-        const revisionId = releasedRevisionId.value;
-        const keyId = revisionId + '|' + format;
-        if (!keys.has(keyId)) keys.set(keyId, makeKey());
-        inflight.add(format);
+        const body = exportBody(format);
+        const placing = Boolean(body.destination_alias);
+        const keyId = JSON.stringify(body);
+        const idempotencyKey = placing ? makeKey() : (keys.get(keyId) || makeKey());
+        if (!placing) keys.set(keyId, idempotencyKey);
+        inflight.value = new Set([...inflight.value, format]);
+        fileBodies.set(format, keyId);
         setResult(format, 'working', 'Wird ausgegeben …', 'processing');
         try {
             const res = await client.request(base + '/exports', {
-                method: 'POST', body: { revision_id: revisionId, format }, idempotencyKey: keys.get(keyId),
+                method: 'POST', body, idempotencyKey,
             });
             if (res.outcome === 'ok' && res.data) {
-                if (res.data.status === 'failed') keys.delete(keyId);
+                if (opts.fileOptions || res.data.status === 'failed') keys.delete(keyId);
                 applyJob(format, res.data);
+            } else if (placing && (['network', 'UNKNOWN', 'cancelled'].includes(res.outcome)
+                    || res.code === 'DESTINATION_UNCONFIRMED')) {
+                uncertainPlacements.add(body.revision_id + '|' + format);
+                setResult(format, 'unknown', TEXT.placementUnknown, 'warning');
+            } else if (Object.hasOwn(PLACEMENT_ERRORS, res.code)) {
+                keys.delete(keyId);
+                const failure = PLACEMENT_ERRORS[res.code];
+                setResult(format, res.code, failure.label, failure.surface);
             } else if (res.status === 503 || res.code === 'KIS_UNAVAILABLE') {
                 setResult(format, 'unavailable', TEXT.unavailable, 'warning');
             } else {
@@ -215,7 +290,7 @@ export function createOutputViewController(options) {
                 setResult(format, res.outcome, f.label, f.surface);
             }
         } finally {
-            inflight.delete(format);
+            inflight.value = new Set([...inflight.value].filter((id) => id !== format));
         }
         return results.value[format];
     }
@@ -247,6 +322,8 @@ export function createOutputViewController(options) {
     return {
         dictationId, phase, releasedRevisionId, targets, results, load, canExport, exportTo,
         downloadUrl, markDownloadStarted, refreshStatus, clipboardCopy, text: TEXT,
+        destination, destinations, catalogFailed, nameMode, filename, collisionPolicy, placementUnconfirmed,
+        busy: () => inflight.value.size > 0,
     };
 }
 
@@ -263,7 +340,7 @@ export const OutputView = {
     },
     setup(props) {
         const c = createOutputViewController({
-            client: props.client, dictationId: props.dictationId, vue: props.vue || undefined, includeAllFileFormats: true,
+            client: props.client, dictationId: props.dictationId, vue: props.vue || undefined, includeAllFileFormats: true, fileOptions: true,
         });
         c.load();
         const tagClass = (r) => TAG_CLASS[r && r.tone] || '';
@@ -289,6 +366,38 @@ export const OutputView = {
         <h2 id="out-targets">{{ TEXT.targets }}</h2>
         <p v-if="c.releasedRevisionId.value" class="text-status" style="overflow-wrap: anywhere" data-testid="revision">{{ TEXT.revision }}: {{ c.releasedRevisionId.value }}</p>
         <p v-else class="note warning" data-testid="not-released">{{ TEXT.notReleased }}</p>
+        <div v-if="c.targets.value.some((t) => t.channel === 'file' && t.available)" class="field-grid" style="align-items: start">
+          <label class="field">
+            <span>{{ TEXT.destination }}</span>
+            <select v-model="c.destination.value" :disabled="c.busy()" style="min-height: 48px">
+              <option value="">{{ TEXT.browser }}</option>
+              <option v-for="target in c.destinations.value" :key="target.name" :value="target.name">{{ target.label }}</option>
+            </select>
+          </label>
+          <label v-if="c.destination.value" class="field">
+            <span>{{ TEXT.collisionPolicy }}</span>
+            <select v-model="c.collisionPolicy.value" :disabled="c.busy()" style="min-height: 48px">
+              <option value="fail">Nicht ablegen</option>
+              <option value="version">Nummer an den Namen anhängen</option>
+              <option value="unique_name">Eindeutigen Zusatz anhängen</option>
+            </select>
+          </label>
+          <p v-if="c.catalogFailed.value" class="note warning full" role="status">{{ TEXT.catalogFailed }}</p>
+          <label class="field">
+            <span>{{ TEXT.nameMode }}</span>
+            <select v-model="c.nameMode.value" :disabled="c.busy()" style="min-height: 48px">
+              <option value="manual_name">{{ TEXT.named }}</option>
+              <option value="filename_pattern">{{ TEXT.pattern }}</option>
+            </select>
+          </label>
+          <label class="field" style="min-width: 0">
+            <span>{{ TEXT.filename }}</span>
+            <input v-model="c.filename.value" type="text" autocomplete="off" :disabled="c.busy()"
+                   :placeholder="c.nameMode.value === 'filename_pattern' ? '%A - %T' : 'Automatisch'"
+                   :aria-describedby="c.nameMode.value === 'filename_pattern' ? 'out-pattern-hint' : null" style="min-height: 48px">
+            <small v-if="c.nameMode.value === 'filename_pattern'" id="out-pattern-hint">{{ TEXT.patternHint }}</small>
+          </label>
+        </div>
         <div v-if="c.targets.value.some((t) => t.channel === 'file')" class="table-wrap" style="margin-top: 14px">
           <table :aria-label="TEXT.targets" style="white-space: normal">
             <thead><tr><th scope="col">{{ TEXT.colTarget }}</th><th scope="col">{{ TEXT.colStatus }}</th><th scope="col">{{ TEXT.colAction }}</th></tr></thead>
@@ -297,14 +406,15 @@ export const OutputView = {
                 <td><strong style="overflow-wrap: anywhere">{{ t.label }}</strong></td>
                 <td>
                   <span v-if="!t.available" class="tag wait" style="white-space: normal" data-testid="unavailable">{{ t.reason }}</span>
-                  <span v-if="c.results.value[t.id]" class="tag dot" :class="tagClass(c.results.value[t.id])" role="status" aria-live="polite"
-                        style="white-space: normal" :data-phase="c.results.value[t.id].phase">{{ c.results.value[t.id].label }}</span>
+                  <span v-if="c.placementUnconfirmed(t.id)" class="tag wait" role="status" style="white-space: normal">{{ TEXT.placementUnknown }}</span>
+                  <span v-else-if="c.results.value[t.id]" class="tag dot" :class="tagClass(c.results.value[t.id])" role="status" aria-live="polite"
+                        style="white-space: normal; overflow-wrap: anywhere" :data-phase="c.results.value[t.id].phase">{{ c.results.value[t.id].label }}</span>
                 </td>
                 <td>
                   <div class="actions">
-                    <a v-if="c.downloadUrl(t.id)" :href="c.downloadUrl(t.id)" download class="button small"
+                    <a v-if="c.downloadUrl(t.id)" :href="c.downloadUrl(t.id)" download class="button small" style="min-height: 48px"
                        @click="c.markDownloadStarted(t.id)">{{ TEXT.download }}</a>
-                    <button v-else type="button" class="small primary" :disabled="!c.canExport(t.id)" @click="c.exportTo(t.id)">{{ TEXT.export }}</button>
+                    <button v-else type="button" class="small primary" style="min-height: 48px" :disabled="!c.canExport(t.id)" @click="c.exportTo(t.id)">{{ c.destination.value ? TEXT.save : TEXT.export }}</button>
                     <button v-if="c.results.value[t.id] && c.results.value[t.id].job && ['pending', 'unknown'].includes(c.results.value[t.id].phase)"
                             type="button" class="small" @click="c.refreshStatus(t.id)">{{ TEXT.status }}</button>
                   </div>

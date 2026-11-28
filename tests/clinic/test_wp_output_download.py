@@ -181,6 +181,34 @@ def test_download_matches_the_release_render(web, fmt):
     assert [row.details for row in rows] == [{'part': 'export'}]
 
 
+@pytest.mark.parametrize(('name', 'expected'), [
+    ({'manual_name': 'Bericht 50%'}, 'Bericht 50%.txt'),
+    ({'filename_pattern': 'Bericht %%'}, 'Bericht %.txt'),
+    ({'manual_name': 'Ärztlicher Bericht'}, "filename*=UTF-8''%C3%84rztlicher%20Bericht.txt"),
+])
+def test_named_browser_download_keeps_the_release_bytes_and_binds_the_key(web, name, expected):
+    client, c = web
+    release = _release(c)
+    http, csrf = client(c['actor'])
+    url = _base(c) + '/exports'
+    headers = {'Idempotency-Key': str(uuid.uuid4())} | csrf
+    body = {'revision_id': c['text'].id, 'format': 'txt', 'browser_download': True, **name}
+    created = http.post(url, headers=headers, json=body)
+    assert created.status_code == 201, created.json
+    assert 'destination' not in created.json
+    job_url = url + '/' + created.json['id']
+    downloaded = http.get(job_url + '/download')
+    assert downloaded.status_code == 200
+    assert expected in downloaded.headers['Content-Disposition']
+    assert downloaded.data == render_text(release).content
+    assert downloaded.headers['X-Content-SHA256'] == hashlib.sha256(downloaded.data).hexdigest()
+    targets = http.get(_base(c) + '/output-targets?file_formats=all').json['targets']
+    assert targets[0]['filename'] == created.json['filename']
+    assert http.post(url, headers=headers, json=body).json['id'] == created.json['id']
+    changed = http.post(url, headers=headers, json=body | {next(iter(name)): 'Anders'})
+    assert (changed.status_code, changed.json['code']) == (409, 'IDEMPOTENCY_CONFLICT')
+
+
 def test_docx_download_is_a_zip_and_odt_names_mimetype_first(web):
     client, c = web
     _release(c)
