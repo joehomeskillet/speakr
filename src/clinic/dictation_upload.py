@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Optional
 
 from src.clinic import decoder
+from src.clinic.audio_format_choice import FormatError, declared_matches, parse_mime
 
 DICTATION_EXTENSIONS = ('.ds2', '.dss')
 DICTATION_MIME = {'ds2': 'audio/x-ds2', 'dss': 'audio/x-dss'}
@@ -41,6 +42,21 @@ MSG_EMPTY = (
 MSG_CORRUPT = (
     'Die Diktatdatei konnte nicht dekodiert werden (beschädigt oder nicht unterstütztes '
     'Aufnahmeformat). Das Original bleibt unverändert gespeichert.')
+MSG_FORMAT_MISMATCH = (
+    'Die Datei entspricht nicht dem angegebenen Audioformat. '
+    'Das Original wird nicht umetikettiert übernommen.')
+FORMAT_MISMATCH = 'audio_format_mismatch'
+
+# Declared upload formats whose container the existing matcher can prove.
+# Opus is the negotiated compressed choice; WAV is the standard one.
+_INTAKE_MIMES = {
+    'audio/wav': 'audio/wav',
+    'audio/wave': 'audio/wav',
+    'audio/x-wav': 'audio/wav',
+    'audio/opus': 'audio/ogg;codecs=opus',
+    'audio/ogg': 'audio/ogg;codecs=opus',
+    'audio/webm': 'audio/webm;codecs=opus',
+}
 
 
 class DictationDecodeError(Exception):
@@ -80,6 +96,64 @@ def check_upload(filepath, original_filename) -> UploadCheck:
 
 def mime_for(container: str) -> str:
     return DICTATION_MIME[container]
+
+
+def negotiated_intake_mime(declared: Optional[str]) -> Optional[str]:
+    """Map a declared upload MIME to one the container matcher understands.
+
+    Returns None when nothing was declared, or when the value is not one of
+    the negotiated clinic formats (WAV, Opus in Ogg, Opus in WebM).
+    """
+    if not declared or not str(declared).strip():
+        return None
+    try:
+        base, params = parse_mime(declared)
+    except FormatError:
+        return None
+    codec = (params.get('codecs') or '').lower()
+    if base == 'audio/ogg' and codec and 'opus' not in codec:
+        return None
+    if base == 'audio/webm' and codec and 'opus' not in codec:
+        return None
+    return _INTAKE_MIMES.get(base)
+
+
+def codec_matches_declared(declared: Optional[str], audio_codec: Optional[str]) -> bool:
+    """True when a probed codec agrees with a negotiated Opus or WAV declaration.
+
+    A missing probe does not contradict the header check. A probe that names
+    another codec does: an Ogg container is not enough to call a file Opus.
+    """
+    expected = negotiated_intake_mime(declared)
+    if expected is None or not audio_codec:
+        return True
+    codec = audio_codec.lower()
+    if 'opus' in expected:
+        return codec == 'opus'
+    if expected == 'audio/wav':
+        return codec.startswith('pcm_')
+    return True
+
+
+def container_matches_declared(filepath, declared: Optional[str]) -> tuple[bool, Optional[str]]:
+    """Whether a negotiated MIME was declared, and a refusal message if any.
+
+    The first value is True when ``declared`` is a negotiated clinic format
+    (WAV or Opus). The message is set when the header does not match or the
+    file cannot be read. The original is only read. An absent or unrelated
+    declaration is not this check's concern.
+    """
+    expected = negotiated_intake_mime(declared)
+    if expected is None:
+        return False, None
+    try:
+        with open(filepath, 'rb') as handle:
+            head = handle.read(64)
+    except OSError:
+        return True, MSG_FORMAT_MISMATCH
+    if not declared_matches(expected, head):
+        return True, MSG_FORMAT_MISMATCH
+    return True, None
 
 
 def sniff_container(filepath) -> Optional[str]:
