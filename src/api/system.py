@@ -272,7 +272,11 @@ def get_config():
             from src.clinic import pools, web_ingest
 
             pool_id = web_ingest.author_pool_for(actor.id)
-            response = jsonify(routable=bool(pool_id and pools.routable_staff_pool_ids(pool_id)))
+            staff_pools = pools.routable_staff_pools(pool_id) if pool_id else []
+            if staff_pools:
+                response = jsonify(routable=True, staff_service_names=pools.staff_service_names(staff_pools))
+            else:
+                response = jsonify(routable=False)
             response.headers['Cache-Control'] = 'no-store'
             return response
 

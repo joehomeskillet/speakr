@@ -10,8 +10,8 @@
  *   - Audio and title stay in memory. The recorder reports if a managed
  *     staging browser retained an encrypted copy after a failed upload.
  *   - A dictation counts as created only when the upload resolves with a server
- *     receipt (an object carrying an id). The view shows the dictation id only
- *     (W16: no patient name, no title).
+ *     receipt (an object carrying an id). The microphone receipt displays the
+ *     generated timestamp title and duration. It does not display patient data.
  *   - Leaving the view (dispose) discards an unsent recording; an upload in
  *     flight is not cancelled and its late result is ignored.
  *
@@ -26,7 +26,7 @@
  * dictation_id); it is supplied by the mount package together with the recorder.
  */
 
-import { createRecorderPhases, isTitleEditable, LABELS, receiptDictationId } from './recorder-phases-ui.js';
+import { createRecorderPhases, formatRecordingDuration, isTitleEditable, LABELS, receiptDictationId } from './recorder-phases-ui.js';
 import { createPedalController } from './pedal-ui.js';
 import { CATEGORIES, RequiredCategories } from './categories-ui.js';
 import { PRIORITY_OPTIONS } from './dictation-properties-ui.js';
@@ -178,6 +178,11 @@ export function createRecordingViewController(options) {
     let submission = null;
     let submitError = '';
     let pendingSend = null;
+    let plannedServices = [];
+    let confirmedServices = [];
+    const serviceNames = (names) => Array.isArray(names)
+        ? names.filter((name) => typeof name === 'string' && name.trim()) : [];
+    const singleService = (name) => /\bSchreibdienst\b/i.test(name) ? name : 'Schreibdienst ' + name;
     let draft = null;
     let resumedDraftId = opts.draftId || null;
     let pendingMetadata = null;
@@ -205,14 +210,16 @@ export function createRecordingViewController(options) {
     async function checkRouting() {
         routing = 'routingPending';
         notify();
-        let available;
+        let preflight;
         try {
             const response = await (opts.fetchPreflight || globalThis.fetch)('/api/config?recording_preflight=1', { cache: 'no-store' });
-            if (response.ok) available = (await response.json()).routable;
+            if (response.ok) preflight = await response.json();
         } catch {
             // A failed preflight must never enable capture.
         }
         if (state.disposed) return;
+        const available = preflight?.routable;
+        plannedServices = available === true ? serviceNames(preflight.staff_service_names) : [];
         routing = available === true ? null : available === false ? 'routingMissing' : 'routingError';
         notify();
     }
@@ -471,6 +478,7 @@ export function createRecordingViewController(options) {
             const res = await client.request(path + '/send', { method: 'POST', ...pendingSend });
             if (state.disposed) return denied('cancelled');
             if (res.outcome === 'ok' && res.data?.dictation_id === id && res.data.status) {
+                confirmedServices = serviceNames(res.data.staff_service_names);
                 submission = 'submitted';
                 return { ok: true };
             }
@@ -550,6 +558,7 @@ export function createRecordingViewController(options) {
         submission = null;
         submitError = '';
         pendingSend = null;
+        confirmedServices = [];
         pendingMetadata = null;
         draft = null;
         resumedDraftId = null;
@@ -635,6 +644,9 @@ export function createRecordingViewController(options) {
     function model() {
         const s = machine.getState();
         const fileBusy = state.filePhase === 'sending' || state.filePhase === 'sent';
+        const saved = opts.oneButton && state.mode === 'record' && allowed() && created() ? s.receipt : null;
+        const showDestination = opts.oneButton && state.mode === 'record' && allowed()
+            && (s.phase === 'review' || (saved && !submission && !submitError));
         const separateSubmit = categorySets.length > 0 || ['loading', 'failed'].includes(categoryLoad);
         let recordActionLabel = s.phase === 'review' ? 'Senden' : 'Erneut senden';
         if (separateSubmit) recordActionLabel = created() ? TEXT.submit : s.phase === 'review' ? TEXT.upload : TEXT.retrySave;
@@ -653,6 +665,16 @@ export function createRecordingViewController(options) {
             author: displayName(user),
             authorId: String(user.id),
             title: s.title,
+            plannedDestination: showDestination && plannedServices.length
+                ? 'Wird gesendet an: ' + (plannedServices.length === 1
+                    ? singleService(plannedServices[0]) : 'Schreibdienste ' + plannedServices.join(', ')) : '',
+            recordingReceipt: saved ? {
+                title: typeof saved.title === 'string' && /^Diktat \d{2}\.\d{2}\.\d{4} \d{2}:\d{2}$/.test(saved.title) ? saved.title : '',
+                duration: formatRecordingDuration(saved.audio_duration),
+                arrived: confirmedServices.length === 1 ? 'Beim ' + singleService(confirmedServices[0]) + ' angekommen'
+                    : confirmedServices.length ? 'Bei den Schreibdiensten ' + confirmedServices.join(', ') + ' angekommen' : '',
+            } : null,
+            showStatusBySend: Boolean(saved && submitError && !submission),
             titleLocked: !isTitleEditable(s.phase),
             microphoneOptions: microphoneOptions(),
             selectedMicrophoneId: opts.microphone?.deviceId === 'default' ? '' : opts.microphone?.deviceId || '',
@@ -771,6 +793,7 @@ const REVIEW_SKIP_SECONDS = 5;
 const CAPTURE_TOGGLE = { title: 'start', ready: 'start', recording: 'pause', paused: 'resume' };
 
 const DRAFT_FIELD = 'display: grid; gap: var(--ui-space-1); margin-bottom: var(--ui-space-3); min-width: 0';
+const DRAFT_INPUT = `${TOUCH}; border-color: var(--ui-text-muted)`;
 
 const DraftSendFields = {
     props: ['m', 'c'],
@@ -785,19 +808,19 @@ const DraftSendFields = {
       <fieldset :disabled="!m.canEditDraft" style="min-width: 0">
         <legend class="sr-only">Versanddaten bearbeiten</legend>
         <label style="${DRAFT_FIELD}"><span>Titel</span>
-          <input required maxlength="200" :disabled="!m.draft.editActions.includes('rename')" :value="m.draft.fields.title" @input="c.setDraftField('title', $event.target.value)" />
+          <input required maxlength="200" style="${DRAFT_INPUT}" :disabled="!m.draft.editActions.includes('rename')" :value="m.draft.fields.title" @input="c.setDraftField('title', $event.target.value)" />
         </label>
         <label style="${DRAFT_FIELD}"><span>Anmerkung</span>
-          <textarea maxlength="4000" rows="2" :disabled="!m.draft.editActions.includes('rename')" :value="m.draft.fields.notes" @input="c.setDraftField('notes', $event.target.value)"></textarea>
+          <textarea maxlength="4000" rows="2" style="${DRAFT_INPUT}" :disabled="!m.draft.editActions.includes('rename')" :value="m.draft.fields.notes" @input="c.setDraftField('notes', $event.target.value)"></textarea>
         </label>
         <div class="field-grid">
           <label style="${DRAFT_FIELD}"><span>Priorität</span>
-            <select :disabled="!m.draft.editActions.includes('priority')" :value="m.draft.fields.priority" @change="c.setDraftField('priority', Number($event.target.value))">
+            <select style="${DRAFT_INPUT}" :disabled="!m.draft.editActions.includes('priority')" :value="m.draft.fields.priority" @change="c.setDraftField('priority', Number($event.target.value))">
               <option v-for="p in priorities" :key="p.value" :value="p.value">{{ p.label }}</option>
             </select>
           </label>
           <label style="${DRAFT_FIELD}"><span>Frist</span>
-            <input type="date" :disabled="!m.draft.editActions.includes('priority')" :value="m.draft.fields.deadline_date" @input="c.setDraftField('deadline_date', $event.target.value)" />
+            <input type="date" style="${DRAFT_INPUT}" :disabled="!m.draft.editActions.includes('priority')" :value="m.draft.fields.deadline_date" @input="c.setDraftField('deadline_date', $event.target.value)" />
             <small>Tagesende (Europe/Zurich)</small>
           </label>
         </div>
@@ -823,8 +846,15 @@ export const RECORDING_TEMPLATE = `
          style="display: grid; place-items: center; min-height: min(56dvh, 30rem); padding: var(--ui-space-6) var(--ui-space-4); color: var(--ui-text)">
   <h1 id="crv-title" class="sr-only">{{ c.text.title }}</h1>
   <div style="width: 100%; max-width: 28rem; text-align: center">
-    <p v-show="m.message" role="status" aria-live="polite" data-testid="status" style="margin: 0 0 var(--ui-space-3)"
+    <p v-if="!m.showStatusBySend" v-show="m.message" role="status" aria-live="polite" data-testid="status" style="margin: 0 0 var(--ui-space-3)"
        :style="m.phase === 'submitted' ? { fontSize: '1.25rem', fontWeight: 650 } : null">{{ m.message }}</p>
+    <div v-if="m.recordingReceipt" role="status" style="margin-bottom: var(--ui-space-4); overflow-wrap: anywhere">
+      <p data-testid="receipt-saved" style="margin: 0; font-weight: 650">Aufnahme gespeichert</p>
+      <p v-if="m.recordingReceipt.title || m.recordingReceipt.duration" style="margin: var(--ui-space-2) 0 0">
+        <span v-if="m.recordingReceipt.title" data-testid="receipt-title">{{ m.recordingReceipt.title }}</span><template v-if="m.recordingReceipt.title && m.recordingReceipt.duration"> · </template><span v-if="m.recordingReceipt.duration" data-testid="receipt-duration" :aria-label="'Aufnahmedauer ' + m.recordingReceipt.duration">{{ m.recordingReceipt.duration }}</span>
+      </p>
+      <p v-if="m.recordingReceipt.arrived" data-testid="receipt-arrived" style="margin: var(--ui-space-2) 0 0">{{ m.recordingReceipt.arrived }}</p>
+    </div>
     <template v-if="!m.routing || m.created">
       <template v-if="!m.created && m.mode === 'record'">
         <div class="vox-control" style="display: grid; justify-items: center; gap: var(--ui-space-2); margin: 0 auto var(--ui-space-4); max-width: 100%">
@@ -878,6 +908,7 @@ export const RECORDING_TEMPLATE = `
                  @loadedmetadata="loadReview" @durationchange="c.machine.syncPlayback()" @seeked="finishDurationProbe"
                  @play="c.machine.syncPlayback()" @pause="c.machine.syncPlayback()" @ended="c.machine.syncPlayback()"
                  @error="c.machine.playbackFailed()" style="width: 100%; min-height: 3rem"></audio>
+          <p v-if="m.plannedDestination" data-testid="send-destination" style="margin: 0; overflow-wrap: anywhere">{{ m.plannedDestination }}</p>
           <button type="button" class="button primary" style="${TOUCH}; width: 100%; font-size: 1rem" data-testid="rec-send" @click="c.sendRecording()">
             {{ m.recordActionLabel }}
           </button>
@@ -900,7 +931,13 @@ export const RECORDING_TEMPLATE = `
         <required-categories v-if="m.categories.length && (m.canSubmit || m.phase === 'submitting')"
                              :items="m.categories" :disabled="!m.canSelectCategory" @select="c.selectCategory" />
         <span class="sr-only" data-testid="created-id">{{ m.created.dictationId }}</span>
-        <div class="actions" style="justify-content: center">
+        <p v-if="m.plannedDestination" data-testid="send-destination" style="margin: var(--ui-space-3) 0; overflow-wrap: anywhere">{{ m.plannedDestination }}</p>
+        <p v-if="m.showStatusBySend" role="alert" data-testid="status" style="margin: var(--ui-space-3) 0">{{ m.message }}</p>
+        <div v-if="m.mode === 'record' && m.phase === 'submitted'" style="display: grid; justify-items: center; gap: var(--ui-space-2)">
+          <button type="button" class="button primary" data-testid="open-created" style="${TOUCH}; width: 100%; font-size: 1rem" @click="c.openCreated()">Diktat öffnen</button>
+          <a href="#/neu" data-testid="another" style="${LINK}" @click.prevent="c.another()">{{ c.text.title }}</a>
+        </div>
+        <div v-else class="actions" style="justify-content: center">
           <button v-if="!['submitted', 'notDraft'].includes(m.phase)" type="button" class="button primary" style="${TOUCH}"
                   :disabled="!m.canSubmit || m.categoriesLoading" data-testid="submit-draft" @click="c.submit()">{{ c.text.submit }}</button>
           <a href="#/diktat" data-testid="open-created" style="${LINK}" @click.prevent="c.openCreated()">{{ m.mode === 'file' ? c.text.open : 'Diktat öffnen' }}</a>
@@ -1017,10 +1054,7 @@ export const RecordingView = {
         }
         const enabled = (id) => m.value.controls.some((control) => control.id === id && !control.disabled);
         const level = V.ref(0);
-        const elapsed = V.computed(() => {
-            const seconds = props.recorder.elapsedSeconds || 0;
-            return [Math.floor(seconds / 60), seconds % 60].map((part) => String(part).padStart(2, '0')).join(':');
-        });
+        const elapsed = V.computed(() => formatRecordingDuration(props.recorder.elapsedSeconds || 0));
         const previewUrl = V.computed(() => props.recorder.previewUrl);
         V.watchEffect?.((cleanup) => {
             if (m.value.phase !== 'recording') {
