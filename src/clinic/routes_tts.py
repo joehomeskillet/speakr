@@ -21,7 +21,8 @@ from flask_wtf.csrf import CSRFError, validate_csrf
 from wtforms.validators import ValidationError as CsrfValidationError
 
 from src.clinic import local_tts
-from src.clinic.config import clinic_mode_enabled
+from src.clinic.config import clinic_mode_enabled, is_local_model_url
+from src.clinic.local_tts_engine import SpeachesLocalTtsEngine
 from src.clinic.parity_dispatch import _problem
 from src.clinic.policy import RecordingFacts, Subject
 
@@ -35,6 +36,7 @@ PRONUNCIATION_KIND = "pronunciation"
 _PROBLEM_FOR = {
     "unauthorized": "POLICY_DENIED",
     local_tts.CAPABILITY_UNAVAILABLE: "CAPABILITY_UNAVAILABLE",
+    "voice_missing": "CAPABILITY_UNAVAILABLE",
     "stale_version": "REVISION_CONFLICT",
     "timeout": "DEPENDENCY_UNAVAILABLE",
     "synthesis_failed": "DEPENDENCY_UNAVAILABLE",
@@ -98,7 +100,7 @@ def _parse(body: dict[str, Any]) -> tuple[str, str, int, dict[str, Any], str | N
 class TtsApi:
     """Mount ``blueprint`` once, after supplying the adapters.
 
-    ``capability()`` returns the declared local capability or None; it is read
+    ``capability()`` returns the verified local capability or None; it is read
     per request so an absent capability is visible immediately. ``engine`` is
     the injected local engine, or None.
     """
@@ -117,6 +119,24 @@ class TtsApi:
         self.blueprint.add_url_rule("/api/clinic/v1/tts/speak", "speak", self._speak, methods=["POST"])
         self.blueprint.register_error_handler(CSRFError, lambda _error: _problem("FORBIDDEN"))
 
+    @classmethod
+    def for_local_speaches(cls, load: Load, endpoint: str) -> TtsApi:
+        """A blank endpoint disables TTS. Verify the local inventory before each use."""
+        endpoint = endpoint.strip()
+        if not endpoint.lower().startswith(("http://", "https://")) or not is_local_model_url(endpoint):
+            return cls(load, lambda: None, None)
+        engine = SpeachesLocalTtsEngine(endpoint)
+
+        def capability() -> local_tts.LocalTtsCapability | None:
+            report = engine.availability()
+            if not report.available or report.model_id is None or report.voice_id is None:
+                return None
+            return local_tts.declare_capability(
+                endpoint=endpoint, model_id=report.model_id, voice_id=report.voice_id,
+            )
+
+        return cls(load, capability, engine)
+
     def _authenticated(self) -> bool:
         return bool(
             current_user.is_authenticated
@@ -124,19 +144,22 @@ class TtsApi:
             and session.get("_user_id") == current_user.get_id()
         )
 
-    def _available(self) -> bool:
+    def _available_capability(self) -> local_tts.LocalTtsCapability | None:
+        if not callable(getattr(self._engine, "synthesize", None)):
+            return None
         try:
-            local_tts._require_capability(self._capability())
+            capability = local_tts._require_capability(self._capability())
+            local_tts.resolve_voice(capability, None)
         except local_tts.TtsError:
-            return False
-        return self._engine is not None and callable(getattr(self._engine, "synthesize", None))
+            return None
+        return capability
 
     def _status(self):
         if not clinic_mode_enabled():
             abort(404)
         if not self._authenticated():
             return _problem("UNAUTHORIZED")
-        return jsonify(available=self._available())
+        return jsonify(available=self._available_capability() is not None)
 
     def _speak(self):
         if not clinic_mode_enabled():
@@ -151,8 +174,9 @@ class TtsApi:
             kind, object_id, version, selection, voice = _parse(_json_body())
         except _Refusal as error:
             return _problem(str(error))
-        # No loading, policy call or engine call while the capability is absent.
-        if not self._available():
+        # No document load or synthesis while the capability is absent.
+        capability = self._available_capability()
+        if capability is None:
             return _problem("CAPABILITY_UNAVAILABLE")
         try:
             loaded = self._load(current_user.id, kind, object_id)
@@ -167,7 +191,7 @@ class TtsApi:
                 current_version=version,
                 subject=loaded.subject,
                 recording=loaded.recording,
-                capability=self._capability(),
+                capability=capability,
                 engine=self._engine,
                 requested_voice=voice,
                 browser_voices=self._browser_voices,
@@ -177,7 +201,7 @@ class TtsApi:
             return _problem(_PROBLEM_FOR.get(error.code, "INVALID_PAYLOAD"))
         if len(result.audio) > MAX_AUDIO_BYTES:
             return _problem("DEPENDENCY_UNAVAILABLE")
-        response = Response(result.audio, mimetype="application/octet-stream")
+        response = Response(result.audio, mimetype="audio/wav")
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-TTS-Model"] = result.model_id
         response.headers["X-TTS-Voice"] = result.voice_id

@@ -201,7 +201,9 @@ class SpeachesLocalTtsEngine:
         url = _url(self.endpoint, path)
         if not is_local_model_url(url):
             raise TtsError("Lokale Sprachausgabe ist nicht verfügbar.", CAPABILITY_UNAVAILABLE)
-        self.calls.append((method, path))
+        # Keep test call tracing off long-lived production engines.
+        if self._client is not None:
+            self.calls.append((method, path))
         try:
             if payload is None:
                 response = client.request(method, url, timeout=timeout_s)
