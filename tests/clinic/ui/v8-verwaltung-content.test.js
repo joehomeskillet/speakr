@@ -3,7 +3,7 @@ import { VOCABULARY_VIEW_TEMPLATE } from '../../../static/js/clinic/compose-voca
 import { COMMANDS_TEMPLATES_TEMPLATE, CommandsTemplatesView } from '../../../static/js/clinic/compose-commands-templates.js';
 import { ASR_PROFILES_TEMPLATE, createSections, createTrainingController } from '../../../static/js/clinic/compose-asr-profiles.js';
 
-const head = ['class="pagehead"', 'class="eyebrow"', 'class="subline"', 'class="head-actions"'];
+const head = ['class="pagehead"', 'class="subline"', 'class="head-actions"'];
 
 describe('V8 prototype structure of the content Verwaltung pages', () => {
     it.each([
@@ -13,6 +13,7 @@ describe('V8 prototype structure of the content Verwaltung pages', () => {
     ])('%s renders the V8 page head under the v8-page root', (_name, template) => {
         expect(template).toContain('v8-page');
         for (const part of head) expect(template).toContain(part);
+        expect(template).not.toContain('class="eyebrow"');
         expect(template.match(/<h1[ >]/g)).toHaveLength(1);
     });
 

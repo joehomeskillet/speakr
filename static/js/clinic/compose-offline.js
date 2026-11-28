@@ -424,7 +424,6 @@ export const OfflineView = {
   </nav>
   <div class="pagehead">
     <div>
-      <div class="eyebrow">{{ TEXT.eyebrow }}</div>
       <h1 id="clinic-offline-title">{{ TEXT.title }}</h1>
       <p class="subline">{{ TEXT.subline }}</p>
     </div>

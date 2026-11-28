@@ -88,7 +88,7 @@ export const AssignmentPanel = {
   <button v-if="c.state.error && !c.state.allowed" type="button" class="secondary" @click="c.load()">Neu laden</button>
   <dialog ref="dialog" class="pool-dialog panel" :aria-labelledby="'assign-title-' + dictationId" @keydown.esc.stop.prevent="dialog.close()" @keydown.tab="keepFocus">
     <form @submit.prevent="submit()">
-      <div class="pool-dialog-head"><div><span class="eyebrow">Zuweisung</span><h2 :id="'assign-title-' + dictationId">Diktat zuweisen</h2></div></div>
+      <div class="pool-dialog-head"><div><h2 :id="'assign-title-' + dictationId">Diktat zuweisen</h2></div></div>
       <p class="pool-dialog-record">{{ label }}</p>
       <p class="pool-dialog-author">Diktiert von: <strong>{{ author }}</strong></p>
       <div style="margin-bottom: 12px">

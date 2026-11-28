@@ -18,6 +18,8 @@
   --ui-space-4: 16px;
   --ui-space-6: 24px;
   --ui-space-8: 32px;
+  --ui-label-min: 11px;
+  --ui-touch-min: 48px;
   --ui-font-sans: Inter, 'Segoe UI', system-ui, sans-serif;
   --ui-font-mono: 'JetBrains Mono', ui-monospace, monospace;
 }

@@ -484,8 +484,8 @@ const DetailBody = {
   <template v-if="c.header()">
     <header class="record-detail-heading" data-testid="detail-header">
       <div>
-        <div class="eyebrow">{{ c.header().recordingTime }}</div>
         <h1 id="cdv-title" tabindex="-1" style="font-weight: 700">{{ TEXT.title }}</h1>
+        <p>{{ c.header().recordingTime }}</p>
         <p>{{ TEXT.author }}: {{ c.header().author }} · {{ TEXT.pool }}: {{ c.header().pool }}</p>
         <div class="head-actions">
           <button type="button" class="primary" data-testid="open-editor"

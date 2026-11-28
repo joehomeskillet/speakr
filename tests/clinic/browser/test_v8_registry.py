@@ -26,5 +26,7 @@ def test_unmounted_entries_carry_no_roles():
 
 
 def test_matrix_is_the_v8_plan():
-    assert support.VIEWPORTS == {"1440x900": (1440, 900), "1280x720": (1280, 720), "390x844": (390, 844)}
+    assert support.VIEWPORTS == {
+        "1440x900": (1440, 900), "1280x720": (1280, 720), "390x844": (390, 844), "320x568": (320, 568),
+    }
     assert support.THEMES == ("light", "dark")

@@ -29,7 +29,6 @@ export const TRAINING_BASE = '/admin/clinic/training';
 export const KINDS = Object.freeze(['language_model', 'acoustic']);
 
 export const TEXT = Object.freeze({
-    eyebrow: 'Verwaltung',
     title: 'Sprachprofile',
     subline: 'Profilkonfiguration, nachgewiesene Anpassung und der Zeitplan bleiben getrennt. Eine Wortliste ist nur ein Hinweis und keine Anpassung.',
     denied: 'Kein Zugriff. Bitte anmelden.',
@@ -350,7 +349,7 @@ const CONSENT_TEMPLATE = `
   <p v-if="view.notice" role="status" aria-live="polite" class="note">{{ view.notice }}</p>
   <p v-if="view.error" role="alert" class="note burgundy" :style="errorStyle">{{ view.error.message }}
     <button type="button" class="small" :disabled="view.loading || view.busy" @click="controller.load()">{{ view.labels.reload }}</button></p>
-  <p class="tag" :style="surfaceStyle(view.statusSurface)" data-testid="voice-status">{{ view.status.label }}</p>
+  <p class="tag" :style="surfaceStyle(view.statusSurface)" data-testid="voice-status" role="status">{{ view.status.label }}</p>
   <h3>{{ view.statement.label }}</h3>
   <p class="hint">{{ view.statement.text }}</p>
   <div class="actions">
@@ -489,7 +488,6 @@ export const ASR_PROFILES_TEMPLATE = `
 <div class="v8-page clinic-asr-profiles-view">
   <div class="pagehead">
     <div>
-      <div class="eyebrow">${TEXT.eyebrow}</div>
       <h1>${TEXT.title}</h1>
       <p class="subline">${TEXT.subline}</p>
     </div>
