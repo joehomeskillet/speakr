@@ -190,6 +190,7 @@ def _append(dictation, *, kind, text, explicit_parent, original_version, model_r
             author_user_id=None, reuse_unchanged=True, force_new=False):
     digest = text_hash(text)
     normalised = normalise_text(text)
+    parent = explicit_parent
     if reuse_unchanged:
         rows = _load(dictation.id)
         existing, parent = _link(dictation, explicit_parent, rows, kind, digest)
@@ -197,8 +198,6 @@ def _append(dictation, *, kind, text, explicit_parent, original_version, model_r
             if not force_new:
                 return existing
             parent = existing
-    else:
-        parent = explicit_parent
     if kind == KIND_HUMAN:
         original_id = _human_original_id(parent, original_version, dictation)
         stored_model = None
