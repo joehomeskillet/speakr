@@ -6,11 +6,10 @@ routes for vocabulary review queue inspection and undo.
 
 from __future__ import annotations
 
-import json
 import uuid
 from typing import Any
 
-from flask import Blueprint, abort, jsonify, request, session
+from flask import Blueprint, abort, jsonify, request
 from flask_login import current_user
 from flask_wtf.csrf import validate_csrf
 from wtforms.validators import ValidationError
@@ -253,11 +252,15 @@ def list_resource_vocabulary_reviews():
     scope_type = request.args.get("scope_type")
     scope_id = request.args.get("scope_id")
     status = request.args.get("status", vocabulary.REVIEW_STATUS_PENDING)
+    statuses = vocabulary.OPEN_REVIEW_STATUSES if status == "OPEN" else tuple(
+        part.strip() for part in status.split(",")
+    )
 
     if scope_type not in ("user", "author_pool") or not scope_id:
         return _problem("INVALID_PAYLOAD")
-    if status not in vocabulary.REVIEW_STATUSES:
+    if not statuses or any(value not in vocabulary.REVIEW_STATUSES for value in statuses):
         return _problem("INVALID_PAYLOAD")
+    status_filter = statuses[0] if len(statuses) == 1 else statuses
 
     actor_id = current_user.id
     if scope_type == "user":
@@ -267,7 +270,7 @@ def list_resource_vocabulary_reviews():
             return _problem("INVALID_PAYLOAD")
         if not can_review_user(actor_id, target_user_id):
             return _problem("POLICY_DENIED")
-        rows = vocabulary.list_review_items(user_id=target_user_id, status=status)
+        rows = vocabulary.list_review_items(user_id=target_user_id, status=status_filter)
     else:
         pool_id = scope_id
         user = db.session.get(User, actor_id)
@@ -280,7 +283,7 @@ def list_resource_vocabulary_reviews():
         )
         if not (is_admin or is_member or can_review_pool(actor_id, pool_id)):
             return _problem("POLICY_DENIED")
-        rows = vocabulary.list_review_items(pool_id=pool_id, status=status)
+        rows = vocabulary.list_review_items(pool_id=pool_id, status=status_filter)
 
     try:
         limit = min(100, max(1, int(request.args.get("limit", 50))))
