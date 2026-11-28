@@ -1109,7 +1109,6 @@ export const CorrectionBody = {
             vue: props.vue || undefined,
             contract: 'v8',
             document: props.openMode !== 'player',
-            openMode: props.openMode,
             recordingId: props.recordingId || undefined,
             get openMode() { return props.openMode; },
             hid: props.openMode === 'player' ? undefined : globalThis.navigator?.hid,
@@ -1199,7 +1198,8 @@ export const CorrectionBody = {
         const selectedNodeIndex = V.computed(() => doc?.doc.value.nodes.findIndex((node) => node.id === doc.selection.value.nodeId) ?? -1);
         const runField = (id) => runRoot.value?.querySelector('[data-run-id="' + id + '"]');
         const currentEditorField = () => documentMode.value
-            ? runField((currentRun.value || runRanges.value[0])?.run.id) : textEl.value;
+            ? runField(currentRun.value?.run.id) || runRoot.value?.querySelector('[data-run-id]')
+            : textEl.value;
         const FORMAT_KEYS = Object.freeze({ b: 'bold', i: 'italic', u: 'underline' });
         const canSeekRun = (id) => e.audio.value.status === 'ready' && Boolean(c.audioEl.value) && doc.canSeek(id);
         const documentSegments = V.computed(() => runRanges.value.flatMap(({ run, start, end, startsParagraph }) => {
@@ -1572,7 +1572,7 @@ export const CorrectionBody = {
                 const before = { runId: run.id, start: start - offset, end: end - offset, direction: current.draft.direction };
                 const runText = run.text.slice(0, before.start) + current.preview + run.text.slice(before.end);
                 if (sanitizePaste(runText).text !== runText) {
-                    choice.value = { ...current, preview: null, error: 'Dieser Text kann nicht unverändert eingefügt werden.' };
+                    choice.value = { ...current, preview: null, error: 'Der Text kann nicht unverändert eingefügt werden. Wählen Sie eine kürzere Datei oder Vorlage.' };
                     return;
                 }
                 const caret = before.start + current.caret;

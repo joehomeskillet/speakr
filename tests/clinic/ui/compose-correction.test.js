@@ -105,12 +105,14 @@ async function openForEdit(client, extra = {}) {
 }
 
 describe('compose-correction contract', () => {
-    it('opens a local editable draft for the selection hotkey and writes only on dialog submit', async () => {
+    it.each([false, true])('opens a local editable draft for the selection hotkey and writes only on submit (document mode: %s)', async (documentMode) => {
+        const text = 'Hallo   Welt heute';
+        const nodes = documentMode ? [{ id: 'p1', kind: 'paragraph', level: 0,
+            runs: [{ id: 'run1', text: 'Hallo Welt heute' }] }] : [{ kind: 'graphic' }];
         const client = fakeClient(base({
             'GET /dictations/d1/correction': ok(correction({
-                document_version: 1,
-                document: { schema_version: 1, nodes: [{ id: 'p1', kind: 'paragraph', level: 0,
-                    runs: [{ id: 'run1', text: 'Hallo Welt heute' }] }] },
+                text: documentMode ? 'Hallo Welt heute' : text,
+                document_version: 1, document: { schema_version: 1, nodes },
             })),
         }));
         const vue = {
@@ -120,9 +122,15 @@ describe('compose-correction contract', () => {
         const ui = CorrectionBody.setup({ client, vue, dictationId: 'd1', currentUser: { id: 9 } });
         await ui.c.start();
         await ui.c.editor.acquire();
-        const area = { value: 'Hallo   Welt heute', selectionStart: 0, selectionEnd: 0, focus: vi.fn() };
-        ui.setRunRoot({ querySelector: () => area });
-        ui.onRunInput({ target: area }, 'p1', ui.doc.doc.value.nodes[0].runs[0]);
+        expect(ui.documentMode.value).toBe(documentMode);
+        const area = { value: text, selectionStart: 0, selectionEnd: 0, focus: vi.fn() };
+        if (documentMode) {
+            ui.setRunRoot({ querySelector: (selector) => ['[data-run-id]', '[data-run-id="run1"]'].includes(selector) ? area : null });
+            ui.onRunInput({ target: area }, 'p1', ui.doc.doc.value.nodes[0].runs[0]);
+            ui.onRunSelection({ type: 'focus' }, 'p1', 'run1');
+        } else {
+            ui.setTextEl(area);
+        }
         const press = (extra = {}) => ui.onTextKeydown({ ctrlKey: true, altKey: true, key: 'p', preventDefault: vi.fn(), ...extra });
         press();
         expect(ui.entryDraft.value).toBeNull();
@@ -139,7 +147,7 @@ describe('compose-correction contract', () => {
         expect(client.calls.find(({ path }) => path === '/vocabulary/additions').options.body).toEqual({
             scope: 'user', create_only: true, written: 'Hallo Erde', spoken: 'hallo er de',
         });
-        expect(ui.c.editor.text.value).toBe('Hallo   Welt heute');
+        expect(ui.c.editor.text.value).toBe(text);
         expect(area.focus).toHaveBeenCalledOnce();
         await ui.c.dispose();
     });
