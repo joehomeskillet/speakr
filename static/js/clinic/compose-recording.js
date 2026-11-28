@@ -210,7 +210,7 @@ export function createRecordingViewController(options) {
     let microphoneSwitch = null;
     let microphoneNotice = '';
     let localMessage = '';
-    let usedLocalFile = false;
+    let localTakeState = null;
     let draft = null;
     let resumedDraftId = opts.draftId || null;
     let pendingMetadata = null;
@@ -440,15 +440,19 @@ export function createRecordingViewController(options) {
         }
     }
 
+    const draftForReopenedTake = () => opts.draftMetadata && localTakeState === 'reopened';
+
     // The numeric recording id on older upload receipts is not a workflow target.
     function canSubmit() {
         const id = receipt()?.dictation_id;
         // A read-only draft already has a durable ETag from detail and has no local changes to save.
         const confirmed = draft?.canSend && draft.fields && !draft.loading && !draft.stale
             && (draft.saved || !draft.editActions.length);
+        const confirmationRequired = draft || resumedDraftId || state.mode === 'file' && opts.draftMetadata
+            || draftForReopenedTake();
         return typeof id === 'string' && !!id.trim() && typeof client?.request === 'function'
             && allowed() && !state.disposed && !submission
-            && (!(draft || resumedDraftId || state.mode === 'file' && opts.draftMetadata) || Boolean(confirmed));
+            && (!confirmationRequired || Boolean(confirmed));
     }
 
     async function loadCategories() {
@@ -578,7 +582,7 @@ export function createRecordingViewController(options) {
             link.href = opts.recorder.reviewSource();
             link.download = take.name;
             link.click();
-            usedLocalFile = true;
+            localTakeState ||= 'saved';
             return localResult({ ok: true }, TEXT.localSaveStarted);
         } catch {
             return localResult(denied('local_save_failed'), TEXT.localSaveFailed);
@@ -590,7 +594,7 @@ export function createRecordingViewController(options) {
         if (!isAudioFile(file)) return localResult(denied('invalid_file'), TEXT.fileInvalid);
         try {
             const result = machine.openFile(file);
-            if (result.ok) usedLocalFile = true;
+            if (result.ok) localTakeState = 'reopened';
             return localResult(result, result.ok ? TEXT.localOpened : TEXT.localOpenFailed);
         } catch {
             return localResult(denied('local_open_failed'), TEXT.localOpenFailed);
@@ -600,7 +604,7 @@ export function createRecordingViewController(options) {
     async function start() {
         if (routing || created() || state.mode !== 'record' || state.disposed || noCaptureFormat()) return denied('invalid_phase');
         localMessage = '';
-        usedLocalFile = false;
+        localTakeState = null;
         if (opts.microphone && machine.controls().some(({ id, disabled }) => id === 'start' && !disabled)) {
             clearMicrophoneChoice();
             microphoneNotice = '';
@@ -615,7 +619,7 @@ export function createRecordingViewController(options) {
         return result;
     }
 
-    const separateSubmit = () => categorySets.length > 0 || ['loading', 'failed'].includes(categoryLoad);
+    const separateSubmit = () => draftForReopenedTake() || categorySets.length > 0 || ['loading', 'failed'].includes(categoryLoad);
 
     async function saveRecording() {
         if (state.mode !== 'record' || routing || state.disposed || !allowed() || !['review', 'failed'].includes(phase())) {
@@ -646,7 +650,7 @@ export function createRecordingViewController(options) {
         const result = await machine.cancel();
         if (result.ok) {
             savingTakeAsDraft = false;
-            usedLocalFile = false;
+            localTakeState = null;
             notify();
         }
         return result;
@@ -677,7 +681,7 @@ export function createRecordingViewController(options) {
         retriedAutomatically = false;
         savingTakeAsDraft = false;
         localMessage = '';
-        usedLocalFile = false;
+        localTakeState = null;
         confirmedServices = [];
         confirmedDirectDestination = '';
         pendingMetadata = null;
@@ -828,7 +832,7 @@ export function createRecordingViewController(options) {
         if (s.phase === 'sent' && editableDraftId()) return TEXT.sent;
         if (s.phase === 'failed') {
             if (s.error === 'offline_retained') return TEXT.recordRetained;
-            if (usedLocalFile) return TEXT.recordRetry;
+            if (localTakeState) return TEXT.recordRetry;
             if (opts.oneButton && globalThis.navigator?.onLine !== false) return TEXT.takeNotConfirmed;
             return opts.oneButton || s.title.trim() ? TEXT.recordFailed : LABELS.titleHint;
         }

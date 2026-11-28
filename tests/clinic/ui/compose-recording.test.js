@@ -650,6 +650,29 @@ describe('dispose', () => {
 });
 
 describe('managed take files', () => {
+    it('requires confirmed draft metadata before submitting a reopened file from the one-button recorder', async () => {
+        const rec = {
+            ...recorder(async () => ({ dictation_id: 'd-9', take_id: 'restored-take' })),
+            canUseLocalFiles: () => true, openRecordedFile: vi.fn(),
+        };
+        const client = { request: vi.fn()
+            .mockResolvedValueOnce({ outcome: 'ok', data: { dictation_id: 'd-9', etag: 'v1',
+                allowed_actions: ['send'], draft_edit_actions: ['rename'], draft_metadata: { title: 'Bericht' } } })
+            .mockResolvedValueOnce({ outcome: 'ok', data: { acceptance_required: false } }) };
+        const fetchPreflight = async () => ({ ok: true, json: async () => ({ routable: true }) });
+        const { c } = make({ recorder: rec, options: { client, fetchPreflight, oneButton: true, draftMetadata: true } });
+        await c.checkRouting();
+
+        expect(c.openLocal(audio()).ok).toBe(true);
+        expect(c.model().recordActionLabel).toBe('Entwurf sichern');
+        expect((await c.sendRecording()).ok).toBe(true);
+        expect(c.model()).toMatchObject({ phase: 'sent', canSubmit: false, directSend: false });
+        expect((await c.submit()).code).toBe('invalid_phase');
+        expect(client.request.mock.calls.map(([path]) => path)).toEqual([
+            '/dictations/d-9/detail', '/dictations/d-9/acceptance-policy',
+        ]);
+    });
+
     it('explicitly downloads, reopens and plays offline, then retries through the workflow once', async () => {
         const take = new File(['synthetic take'], 'aufnahme.webm', { type: 'audio/webm' });
         const link = { click: vi.fn() };
