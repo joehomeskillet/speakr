@@ -1380,7 +1380,8 @@ def register_clinic_identity(flask_app):
     to be present (one dispatcher, mounted once). Identity providers stay disabled (default
     EntraConfig, IWA off): their routes answer the inert 422 and the exchange never runs.
     Directory comparison is disabled unless an approved provider is configured.
-    The last selection is durable (clinic user-preset row per user); workstation preferences are process-local.
+    The last selection persists in a clinic user-preset row per user. Workstation
+    preferences, central locks and workflow presets use the shared clinic database.
     """
     from src.clinic import directory_provider
     from src.clinic import (app_wiring, entra, pool_policy, routes_admin_dictations, routes_directory, routes_grants,
@@ -1456,6 +1457,8 @@ def register_clinic_audio(flask_app):
     from src.clinic.ingest import IngestService
     from src.clinic.live_asr_adapter import LiveAsrAdapter, get_live_asr_config
     from src.clinic.models import ClinicDictation
+    from src.clinic.richtext_graphics import GraphicStore
+    from src.clinic.routes_richtext_graphics import create_blueprint as create_graphics_blueprint
 
     dispatch = flask_app.extensions['clinic_parity_dispatch']
     run_once = flask_app.extensions['clinic_run_once']
@@ -1497,6 +1500,10 @@ def register_clinic_audio(flask_app):
     def managed_client():
         return config.client_capabilities()['profiles'][config.client_profile()].get('document_export') is not False
 
+    def may_edit_live(actor, dictation_id):
+        return (may(actor, 'edit', db.session.get(ClinicDictation, dictation_id))
+                and routes_dictation_properties.content_unlocked(actor, dictation_id))
+
     def tts_load(actor, kind, object_id):
         dictation = db.session.get(ClinicDictation, object_id) if kind == routes_tts.SELECTION_KIND else None
         head = None if dictation is None else revisions.current_revision(dictation)
@@ -1507,27 +1514,27 @@ def register_clinic_audio(flask_app):
             subject=policy.build_subject(actor),
             recording=policy.build_facts(dictation.recording_id, dictation.author_user_id))
 
-    def edit_live(actor, dictation_id):
-        return may(actor, 'edit', db.session.get(ClinicDictation, dictation_id))
-
     drafts = DraftStore()
-    routes_live.register_live_commands(dispatch, edit_live, stream_enabled=True)
+    routes_live.register_live_commands(dispatch, may_edit_live, stream_enabled=True)
     flask_app.register_blueprint(routes_audio.create_blueprint(
         authorize=authorize, run_once=run_once, load_sources=load_sources))
-    flask_app.register_blueprint(routes_dictation_properties.DictationPropertyRoutes(protection_store).blueprint())
+    protection = routes_dictation_properties.DictationPropertyRoutes(protection_store)
+    flask_app.extensions['clinic_dictation_protection'] = protection
+    flask_app.register_blueprint(protection.blueprint())
     flask_app.register_blueprint(routes_bundle.create_blueprint(
         bundle_load, lambda actor, dictation_id, action: may(actor, action, db.session.get(ClinicDictation, dictation_id)),
         bundle_persist, lambda scope, digest, operation: bundle_store.run_locked(scope, digest, operation, run_once, may),
         managed_client))
     flask_app.register_blueprint(routes_live.create_blueprint(
-        edit_live, IngestService(startup.originals_root(flask_app)), drafts=drafts,
+        may_edit_live, IngestService(originals_root), drafts=drafts,
         stream_adapter=lambda: LiveAsrAdapter(get_live_asr_config())))
-    flask_app.register_blueprint(routes_live_drafts.create_blueprint(drafts, edit_live))
+    flask_app.register_blueprint(routes_live_drafts.create_blueprint(drafts, may_edit_live))
     flask_app.register_blueprint(routes_correction.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation),
         run_once=run_once, require_if_match=True))
     flask_app.register_blueprint(routes_correction_documents.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation)))
+    flask_app.register_blueprint(create_graphics_blueprint(GraphicStore(originals_root)))
     # V8 alignment (v8-86)
     from src.clinic import alignment_job, routes_alignment
     from src.services.job_queue import register_clinic_handler
