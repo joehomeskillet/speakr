@@ -401,12 +401,14 @@ export const VOCABULARY_TEMPLATE = `
       <tbody><tr v-for="e in state.entries" :key="e.id">
         <td class="wrap"><strong>{{ e.written }}</strong></td><td class="wrap">{{ e.spoken || '–' }}</td>
         <td><span class="tag" :class="{ error: e.status === 'suppressed' }">{{ enumLabel(e.status) }}</span></td>
+        <template v-if="state.canWrite">
         <td>
-          <template v-if="state.canWrite">
-            <button type="button" class="small" v-if="e.status === 'active'" @click="store.suppress(e.id)">{{ label('clinic.vocabulary.suppress') }}</button>
-            <button type="button" class="small" v-else @click="store.reactivate(e.id)">{{ label('clinic.vocabulary.reactivate') }}</button>
-          </template>
-          <button v-else-if="canPropose && e.status === 'active'" type="button" class="small"
+          <button type="button" class="small" v-if="e.status === 'active'" @click="store.suppress(e.id)">{{ label('clinic.vocabulary.suppress') }}</button>
+          <button type="button" class="small" v-else @click="store.reactivate(e.id)">{{ label('clinic.vocabulary.reactivate') }}</button>
+        </td>
+        </template>
+        <td v-else>
+          <button v-if="canPropose && e.status === 'active'" type="button" class="small"
             :disabled="state.proposalBusy || !!state.failedWrite" @click="store.proposeSuppression(e.id)">{{ label('clinic.vocabulary.proposeSuppression') }}</button>
         </td>
       </tr></tbody>
