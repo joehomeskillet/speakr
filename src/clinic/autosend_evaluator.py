@@ -36,7 +36,13 @@ def _evaluate_snapshot(channel_policy, item, raw, changed, owners, now, author_l
         return  # An unapproved path or ambiguous rule can stay visible in inventory.
     if config is None or not config["autosend_enabled"]:
         return
-    author = author_lookup(device_id=item.root_id).author_user_id
+    is_folder = config["source_kind"] == "folder"
+    if is_folder and "/" in item.relative_path.replace("\\", "/"):
+        return  # The dropfolder autosend contract covers direct files only.
+    resolution = author_lookup(device_id=item.root_id)
+    author = resolution.author_user_id
+    if is_folder and resolution.reason == "no_input":
+        author = config["target_author_user_id"]
     eol = (item.completion_source == PHILIPS_EOL and item.evidence_level != UNVERIFIED
            and raw.get("observed_completion") in (None, "completed"))
     filter_enabled = config["eol_filter_enabled"]
@@ -52,6 +58,7 @@ def _evaluate_snapshot(channel_policy, item, raw, changed, owners, now, author_l
     if source is None:
         return
 
+    overrides = {"priority": {"op": "set", "value": config["priority"]}} if is_folder else {}
     transport = agent_channel.stage_snapshot_intent(
         channel_policy, actor_user_id=source.created_by_user_id, agent_id=item.agent_id,
         source_id=item.source_id, snapshot_version=item.snapshot_version, post_step="none", now=now,
@@ -59,7 +66,8 @@ def _evaluate_snapshot(channel_policy, item, raw, changed, owners, now, author_l
     intent = import_centre._stage_import_intent(
         actor_user_id=source.created_by_user_id, source_kind=config["source_kind"], source_ref=config["source_ref"],
         expected_files=(), author=author, target_pool_id=config["target_pool_id"], language_id=config["language_id"],
-        metadata=import_centre._stored_metadata({}, ()), now=now,
+        asr_profile_id=config["asr_profile_id"] if is_folder else None,
+        metadata=import_centre._stored_metadata(overrides, ()), now=now,
     )
     db.session.flush()
     db.session.add(import_centre.ClinicAutosendIntent(
