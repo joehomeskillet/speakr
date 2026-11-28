@@ -1,5 +1,9 @@
 # Speakr V8: geprüfte Änderungen im Klinik-Webclient
 
+## P-252 – Geltungsbereiche für Textbausteine (PAR-VOC-008)
+
+Lokale API- und Editor-Tests prüfen persönliche, Pool- und globale Textbausteine: Pool-Mitglieder können freigegebenen Text einfügen, fremde Pools erhalten keinen Zugriff, und Schreibrechte werden separat geprüft. Lokale PNG-Referenzen sind an den Geltungsbereich gebunden. Staging und der vollständige Referenzvergleich BT-VOC-008 bleiben offen.
+
 ## P-062 – Versanddaten vor dem Einreichen
 
 Im lokalen Klinik-Browserlauf wurden Titel, Anmerkung, Priorität und ein Zürcher Tagesendtermin eines synthetischen P04-Entwurfs gespeichert und nach erneutem Öffnen geprüft. Die angezeigte Abnahmepflicht folgte einer separaten Admin-Änderung. Staging und Originalsystemvergleich stehen aus; die offenen Paritätslücken bleiben unverändert.

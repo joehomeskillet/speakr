@@ -1455,7 +1455,7 @@ def register_clinic_audio(flask_app):
     from src.clinic.draft_store import DraftStore
     from src.clinic.ingest import IngestService
     from src.clinic import routes_live_drafts
-    from src.clinic.models import ClinicDictation, ClinicTranscriptRevision
+    from src.clinic.models import ClinicDictation
     from src.clinic.richtext_graphics import GraphicStore
     from src.clinic.routes_richtext_graphics import create_blueprint as create_graphics_blueprint
 
