@@ -7,7 +7,7 @@ from playwright.sync_api import expect
 import v8_browser_support as support
 
 
-# Only the matrix needs a completed transcription. Keep other browser scenarios' seed unchanged.
+# Only the matrix needs a completed job and its ASR alignment. Keep other scenarios' seed unchanged.
 MATRIX_SEED = '''
 with app.app_context():
     from src.clinic.alignment_ingest import store_asr_alignment
@@ -18,7 +18,8 @@ with app.app_context():
     transcript = current_revision(dictation)
     words = [{"word": word, "start": i * 0.5, "end": (i + 1) * 0.5}
              for i, word in enumerate(transcript.body.split())]
-    store_asr_alignment(dictation, transcript, [{"words": words}], transcript.model_ref)
+    result = store_asr_alignment(dictation, transcript, [{"words": words}], transcript.model_ref)
+    assert result.row is not None and result.row.state == "succeeded"
     db.session.add(ProcessingJob(recording_id=rec.id, user_id=rec.user_id,
                                 job_type="transcribe", status="completed"))
     db.session.commit()
