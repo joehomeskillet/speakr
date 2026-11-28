@@ -1,4 +1,4 @@
-const { createApp, ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } = Vue;
+const { createApp, ref, shallowRef, reactive, computed, onMounted, onUnmounted, watch, nextTick } = Vue;
 
 // Import composables
 import { useRecordings } from './modules/composables/recordings.js';
@@ -278,20 +278,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     const clinicMode = appRootElement?.dataset?.clinicMode === 'True';
     if (clinicMode) {
         try {
-            const [{ createClinicApiClient }, { registerWorklistView }, { registerResourcesView }, { registerCorrectionView, resolveClinicOpenTarget }, { registerRecordingsView }] = await Promise.all([
+            const [{ createClinicApiClient }, { registerWorklistView }, { registerResourcesView }, { registerCorrectionView, resolveClinicOpenTarget }, { registerRecordingsView }, { readStartSelection }] = await Promise.all([
                 import('./clinic/api-client.js'),
                 import('./clinic/compose-worklist.js'),
                 import('./clinic/compose-resources.js'),
                 import('./clinic/compose-correction.js'),
                 import('./clinic/compose-recordings.js'),
+                import('./clinic/selection-ui.js'),
             ]);
+            const client = createClinicApiClient();
             clinicWorklist = {
                 registerWorklistView,
                 registerResourcesView,
                 registerCorrectionView,
                 resolveClinicOpenTarget,
                 registerRecordingsView,
-                client: createClinicApiClient(),
+                client,
+                startSelection: readStartSelection(client, !appRootElement.dataset.clinicCaseView
+                    && ['', '#/aufnahmen'].includes(window.location.hash)),
                 user: { id: appRootElement.dataset.currentUserId, name: appRootElement.dataset.currentUserName, role: appRootElement.dataset.clinicRole || 'author' },
             };
             // V8 dictation views (v8-70)
@@ -322,7 +326,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             const [{ registerRecordingView }, { registerLiveView }, { registerArchiveView }, { registerImportView },
                 { registerSettingsView }, { registerOfflineView }, { createTooltip }, { getUploadCsrfToken },
                 { registerAdminPoolsView }, { registerAuthorsView }, { registerUsersView }, { registerVocabularyView },
-                { registerCommandsTemplatesView }, { registerAsrProfilesView }, { createClinicRecorder }, { registerLiveDraftPicker }] = await Promise.all([
+                { registerCommandsTemplatesView }, { registerAsrProfilesView }, { createClinicRecorder },
+                { registerLiveDraftPicker }, { createManagedRecorderDrafts }] = await Promise.all([
                 import('./clinic/compose-recording.js'),
                 import('./clinic/compose-live.js'),
                 import('./clinic/compose-archive.js'),
@@ -340,6 +345,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 import('./clinic/compose-asr-profiles.js'),
                 import('./clinic/recorder-phases-ui.js'),
                 import('./clinic/live-drafts-ui.js'),
+                import('./clinic/managed-recorder-drafts.js'),
             ]);
             clinicMenu = {
                 register: [registerRecordingView, registerLiveView, registerLiveDraftPicker, registerArchiveView, registerImportView, registerSettingsView, registerOfflineView,
@@ -347,6 +353,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 createTooltip,
                 getUploadCsrfToken,
                 createClinicRecorder,
+                createManagedRecorderDrafts,
             };
         } catch (error) {
             console.error('[Clinic] Menu views could not be loaded:', error);
@@ -3149,9 +3156,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             ];
             const clinicMenuToolbarVisible = computed(() => clinicMenuActions.some((entry) => entry.view === currentView.value));
             // Recorded takes and selected files share the same upload and server receipt.
-            const clinicUploadFile = async (file, recordingTitle) => {
+            const clinicUploadFile = async (file, recordingTitle, { useSpeechRecognition = true, clientUploadId } = {}) => {
                 const body = new FormData();
                 body.append('file', file);
+                body.append('use_speech_recognition', String(useSpeechRecognition));
+                if (clientUploadId) body.append('client_upload_id', clientUploadId);
                 if (recordingTitle !== undefined) {
                     body.append('title', recordingTitle);
                     body.append('from_recorder', 'true');
@@ -3161,7 +3170,25 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (!response.ok) throw new Error('upload_failed');
                 return response.json();
             };
-            const clinicRecorder = clinicMenu?.createClinicRecorder(audioComposable, state, clinicUploadFile);
+            const clinicOffline = shallowRef(null);
+            if (clinicMenu) {
+                let disposed = false;
+                onMounted(async () => {
+                    try {
+                        const drafts = await clinicMenu.createManagedRecorderDrafts({
+                            client: clinicWorklist.client, userId: clinicWorklist.user.id, vue: Vue,
+                            onLoggedOut: () => document.querySelector('form[action="/logout"]')?.requestSubmit(),
+                        });
+                        if (disposed) drafts?.dispose();
+                        else clinicOffline.value = drafts;
+                    } catch (e) { /* keep local persistence unavailable if storage cannot be opened */ }
+                });
+                onUnmounted(() => {
+                    disposed = true;
+                    clinicOffline.value?.dispose();
+                });
+            }
+            const clinicRecorder = clinicMenu?.createClinicRecorder(audioComposable, state, clinicUploadFile, () => clinicOffline.value);
             const clinicMicrophone = clinicRecorder ? {
                 get inputs() { return inputAudioDevices.value; },
                 get deviceId() { return selectedMicDeviceId.value; },
@@ -5504,6 +5531,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 clinicWorklistEnabled: !!clinicWorklist,
                 clinicClient: clinicWorklist ? clinicWorklist.client : null,
                 clinicUser: clinicWorklist ? clinicWorklist.user : null,
+                clinicStartSelection: clinicWorklist?.startSelection || null,
                 clinicCorrectionId, clinicOpenMode, clinicCorrectionRow, clinicListMount, clinicCorrectionMount, clinicViewMount, clinicOrigin, clinicActiveTab, goClinicView,
                 openClinicDictation, closeClinicCorrection,
                 requestClinicCorrectionClose, clinicAudioContextFactory,
@@ -5512,7 +5540,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 openClinicDictationView, closeClinicDictationView, openClinicEditorFromView,
                 // end V8 dictation views (v8-70)
                 // V8 menu views (v8-71)
-                clinicMenuViews, clinicMenuActions, clinicMenuToolbarVisible, clinicRecorder, clinicUploadFile, clinicMicrophone,
+                clinicMenuViews, clinicMenuActions, clinicMenuToolbarVisible, clinicRecorder, clinicUploadFile, clinicMicrophone, clinicOffline,
                 clinicLiveMount, openClinicMenuDictation,
                 // end V8 menu views (v8-71)
                 // V8 Verwaltung views (v8-114)
