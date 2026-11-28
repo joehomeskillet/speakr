@@ -30,7 +30,7 @@
  */
 
 import { useCorrectionPlayerPosition } from './correction-player-position.js';
-import { formatDictationReference } from './worklist-ui.js';
+import { formatDictationReference, STATUS_LABELS } from './worklist-ui.js';
 import { createClinicApiClient } from './api-client.js';
 import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
 import { CorrectionAudioPanel, DictationSummary, createCorrectionToolbar, useCorrectionEditor, vTip, createRepeatTranscription, REPEAT_TEXT } from './correction-editor-ui.js';
@@ -318,6 +318,14 @@ export function createCorrectionViewController(options) {
 
     // contract 'v8': shared lease controller, reconcile before a new key, +-5 s step. Without it the pre-V8 behaviour stays.
     const v8 = opts.contract === 'v8';
+    const dictationPath = '/dictations/' + encodeURIComponent(dictationId);
+    const asrWait = shallowRef(null);
+    const asrSkipBusy = ref(false);
+    const asrSkipError = ref('');
+    const asrSkipStatus = ref('');
+    let waitTimer;
+    let waitGeneration = 0;
+    let pendingSkip;
     const editor = useCorrectionEditor({
         client, dictationId, currentUser: user, vue: V || undefined, exposeLeaseController: v8,
     });
@@ -485,6 +493,54 @@ export function createCorrectionViewController(options) {
             await Promise.all([alignment.refresh(), saver.loadResume(), modes.load(), loadReview()]);
         }
         return res;
+    }
+
+    async function refreshAsrWait() {
+        const generation = ++waitGeneration;
+        const res = await client.request(dictationPath + '/detail');
+        if (disposed || generation !== waitGeneration) return;
+        if (res.outcome === 'ok') {
+            asrWait.value = res.data?.asr_wait_message ? res.data : null;
+        } else if (res.outcome === 'network') {
+            if (asrWait.value) asrWait.value = { ...asrWait.value, can_start_manual: false };
+        } else {
+            asrWait.value = null;
+        }
+        if (asrWait.value || res.outcome === 'network') waitTimer = setTimeout(refreshAsrWait, 5000);
+    }
+
+    async function skipAsr() {
+        const wait = asrWait.value;
+        if (disposed || asrSkipBusy.value || wait?.can_start_manual !== true || !wait.etag) return false;
+        clearTimeout(waitTimer);
+        waitGeneration += 1;
+        pendingSkip ||= { ifMatch: wait.etag, idempotencyKey: globalThis.crypto.randomUUID() };
+        asrSkipBusy.value = true;
+        asrSkipError.value = '';
+        try {
+            const res = await client.request(dictationPath + '/asr/skip', { method: 'POST', body: {}, ...pendingSkip });
+            if (disposed) return false;
+            if (res.outcome === 'ok' && res.data?.status === 'zu_schreiben') {
+                pendingSkip = null;
+                asrSkipStatus.value = STATUS_LABELS[res.data.status];
+                const lease = await editor.acquire();
+                if (disposed) return false;
+                asrWait.value = null;
+                if (lease.status !== 'held') return false;
+                return (await load()).ok;
+            }
+            if (res.outcome === 'network' || (res.outcome === 'UNKNOWN' && res.status !== 404) || res.outcome === 'ok') {
+                asrSkipError.value = 'Der Wechsel konnte nicht bestätigt werden. Bitte erneut versuchen.';
+            } else {
+                asrSkipError.value = 'Manuelles Schreiben konnte nicht gestartet werden.';
+                pendingSkip = null;
+                asrWait.value = null;
+                await refreshAsrWait();
+            }
+            return false;
+        } finally {
+            asrSkipBusy.value = false;
+        }
     }
 
     /** After a save produced a new text revision, text and audio are linked again by the server; adopt the new links. */
@@ -696,7 +752,8 @@ export function createCorrectionViewController(options) {
 
     // --- lifecycle ------------------------------------------------------------
     const leaseRun = { acquire: editor.acquire, release: editor.release, takeOver: editor.takeOver };
-    const leaseButtons = () => editor.availableLeaseActions().filter((a) => typeof leaseRun[a.id] === 'function');
+    const leaseButtons = () => editor.availableLeaseActions().filter((a) =>
+        typeof leaseRun[a.id] === 'function' && (!asrWait.value || a.id !== 'acquire'));
 
     // --- foot pedal, keyboard mode (PAR-OPS-001) -----------------------------
     // Pedal commands bypass correction backstep: hold release already applies its own rewind.
@@ -738,7 +795,7 @@ export function createCorrectionViewController(options) {
             const res = await client.request('/dictations/' + encodeURIComponent(dictationId) + '/leases');
             if (!disposed && res.outcome === 'ok' && res.data?.may_acquire === true) await editor.acquire();
         }
-        const res = await load();
+        const [res] = await Promise.all([load(), v8 && refreshAsrWait()]);
         if (!disposed && !res?.ok && opts.openMode === 'correction'
             && editor.lease.value.status === 'held') await editor.release();
         return res;
@@ -796,6 +853,9 @@ export function createCorrectionViewController(options) {
         if (disposed) return;
         const holdsLease = editor.lease.value && editor.lease.value.status === 'held';
         disposed = true;
+        clearTimeout(waitTimer);
+        asrWait.value = null;
+        pendingSkip = null;
         repeat.dispose();
         for (const stop of stops.splice(0)) if (typeof stop === 'function') stop();
         if (pedal) { pedal.detach(); pedal = null; }
@@ -820,6 +880,7 @@ export function createCorrectionViewController(options) {
         peaksKey, peaksFetch,
         stepSeconds: v8 ? STEP_SECONDS_V8 : STEP_SECONDS, togglePlayback,
         leaseRun, leaseButtons,
+        asrWait, asrSkipBusy, asrSkipError, asrSkipStatus, skipAsr,
         pedalStatus, pedalReady: () => pedalReady, pedal: () => pedal, setPedalSettings,
         start, load, save, setText, reloadLatest, keepMine, takeServer, compare: () => saver.compare(), close, dispose, syncRevision,
         client: scoped, adoptAudioRevision, bindAudio, bindAlignmentRoot, alignmentRootEl: () => alignmentRoot, alignmentNotice, onSync, onShortcut, onKeydown, onInput, onSelect, onTemplate, seekToResume, getPositionMs, seek,
@@ -900,6 +961,9 @@ const LOCAL_CSS = `
 .v8-ui .editor-page .live-inline-status .button{min-height:32px;padding:5px 12px;font-size:12px}
 .v8-ui .editor-page .live-inline-status .button:not(.primary){color:var(--v8-text)}
 .v8-ui .editor-page :is(.live-inline-status .button,.alignment-panel .panel-header>button):disabled{background:var(--v8-s2);border-color:var(--line);color:var(--v8-text);opacity:.55;cursor:not-allowed}
+.v8-ui .editor-page .asr-wait-status{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;font-size:14px;color:var(--v8-text)}
+.v8-ui .editor-page .asr-wait-status .button{min-height:48px;font-size:14px}
+.v8-ui .editor-page .live-inline-status.asr-wait-status .button:disabled{background:var(--v8-s2);color:var(--v8-text-2);border-color:var(--line);opacity:1;cursor:not-allowed}
 .v8-ui .editor-page .context-drawer{background:var(--surface);color:var(--v8-text);border:1px solid var(--line);box-shadow:var(--shadow-lg,var(--shadow));z-index:120}
 .v8-ui .editor-page .context-drawer:not([data-open]){transform:translateX(calc(100% + 40px));pointer-events:none;box-shadow:none}
 .v8-ui .editor-page .context-drawer .dialoghead{display:flex;align-items:center;justify-content:space-between;gap:12px}
@@ -1154,7 +1218,12 @@ export const CorrectionBody = {
         // saveMessage already says "Nicht gespeicherte Änderungen." while dirty; do not repeat it.
         const unsavedSuffix = () => Boolean(e.dirty.value) && !/nicht gespeicherte/i.test(String(s.message.value || ''));
         const pickTemplate = (id) => { templatesOpen.value = false; if (id) e.applyTemplate(id); };
-        const toolStatus = () => tbState.value.readOnlyReason || tbState.value.message || '';
+        const toolStatus = () => (!c.asrWait.value && tbState.value.readOnlyReason) || tbState.value.message || '';
+        async function startManualWriting() {
+            if (!await c.skipAsr()) return;
+            await V.nextTick();
+            textEl.value?.focus();
+        }
         const reviewRefs = new Map();
         const setReviewRef = (id, node) => { if (node) reviewRefs.set(id, node); else reviewRefs.delete(id); };
         const activateReview = (index) => {
@@ -1206,6 +1275,8 @@ export const CorrectionBody = {
             ready: c.ready, loadGeneration: c.loadGeneration, revisionGeneration: c.revisionGeneration,
             audioEl: c.audioEl, gainState: c.gainState, closeMessage: c.closeMessage, resumeLabel: c.resumeLabel,
             pedalStatus: c.pedalStatus, alignmentNotice: c.alignmentNotice,
+            asrWait: c.asrWait, asrSkipBusy: c.asrSkipBusy, asrSkipError: c.asrSkipError, asrSkipStatus: c.asrSkipStatus,
+            startManualWriting,
         };
     },
     template: `
@@ -1277,6 +1348,13 @@ export const CorrectionBody = {
       <div><dt>{{ TEXT.editing }}</dt><dd data-worker-name>{{ workerLabel() }}</dd></div>
     </dl>
 
+    <div v-if="asrWait || asrSkipStatus" class="live-inline-status asr-wait-status">
+      <span id="ccv-asr-status" role="status">{{ asrSkipStatus || asrWait.asr_wait_message }}</span>
+      <button v-if="asrWait?.can_start_manual === true && asrWait.etag && !asrSkipStatus" type="button"
+              class="button primary" :style="FOCUS" :disabled="asrSkipBusy || loading"
+              @click="startManualWriting">Manuell schreiben</button>
+    </div>
+    <p v-if="asrSkipError" role="alert" class="note" :style="box('error')">{{ asrSkipError }}</p>
     <div class="live-inline-status" role="group" :aria-label="TEXT.lease" data-testid="lease-bar"
          style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
       <span role="status" aria-live="polite" :style="{ color: lease.surface.color }">{{ lease.message }}</span>
@@ -1407,7 +1485,7 @@ export const CorrectionBody = {
         <ul v-if="template && template.issues.length" class="template-meta" role="note" aria-label="Hinweise zur Vorlage" style="margin: 0; list-style: none">
           <li v-for="issue in template.issues" :key="issue.code">{{ issue.message }}</li>
         </ul>
-        <p v-if="manual" class="template-meta" role="note">{{ TEXT.manual }}</p>
+        <p v-if="manual && !asrWait && !asrSkipStatus" class="template-meta" role="note">{{ TEXT.manual }}</p>
         <p v-if="toolStatus()" class="template-meta" role="status" data-testid="toolbar-reason">{{ toolStatus() }}</p>
 
         <div class="writing-surface" :class="{ 'has-word-sync': inlineWord }">
@@ -1415,7 +1493,7 @@ export const CorrectionBody = {
             <div class="word-backdrop-content" :style="{ fontSize: fontPx + 'px', transform: 'translateY(' + (-editorScroll) + 'px)' }">{{ text.slice(0, inlineWord.start) }}<mark ref="reviewMark" data-active-word :data-review-span="reviewSpan ? '' : null" :style="reviewSpan ? { background: 'var(--ui-hover)', boxShadow: 'inset 0 -2px 0 var(--brand-accent)' } : null">{{ text.slice(inlineWord.start, inlineWord.end) }}</mark>{{ text.slice(inlineWord.end) }}</div>
           </div>
           <textarea class="editor" :ref="setTextEl" :style="{ ...FOCUS, fontSize: fontPx + 'px' }" :value="text" :readonly="!canEdit" :aria-readonly="String(!canEdit)"
-                    :aria-label="TEXT.text" :aria-describedby="canEdit ? 'ccv-keys' : 'ccv-keys ccv-readonly'" data-testid="text"
+                    :aria-label="TEXT.text" :aria-describedby="canEdit ? 'ccv-keys' : asrWait ? 'ccv-keys ccv-asr-status' : 'ccv-keys ccv-readonly'" data-testid="text"
                     @scroll.passive="editorScroll = $event.target.scrollTop" @input="onTextInput($event)" @keydown="onTextKeydown($event)" @select="followOn = false; c.onSelect($event)"
                     @keyup="c.onSelect($event)" @mouseup="c.onSelect($event)"></textarea>
         </div>
@@ -1443,7 +1521,7 @@ export const CorrectionBody = {
           </ul>
           <p v-if="reviewMessage" role="alert" class="hint" data-testid="review-message">{{ reviewMessage }}</p>
         </section>
-        <p v-if="!canEdit && !loading" id="ccv-readonly" class="template-meta" style="margin: 0">{{ lease.mayAcquire === false ? TEXT.readOnlyAccess : TEXT.readOnly }}</p>
+        <p v-if="!canEdit && !loading && !asrWait" id="ccv-readonly" class="template-meta" style="margin: 0">{{ lease.mayAcquire === false ? TEXT.readOnlyAccess : TEXT.readOnly }}</p>
         <section class="panel alignment-panel" :aria-label="TEXT.alignment" :data-status="alignStatus" data-testid="alignment">
           <div class="panel-header">
             <h2>{{ TEXT.alignment }}</h2>
