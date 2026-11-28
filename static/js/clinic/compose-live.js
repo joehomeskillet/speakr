@@ -707,7 +707,6 @@ const LiveBody = {
         const richEditor = writing?.editor;
         const handoffLocked = V.ref(false);
         const submitted = V.ref(false);
-        const mayEdit = V.computed(() => !submitted.value && state.value.phase !== 'read_only');
         const showHandoff = V.computed(() => writing && state.value.phase === 'stopped' && confirmed.value.length > 0
             && (!props.canWrite || props.canWrite()));
         const handoffReady = V.computed(() => showHandoff.value && !state.value.session.hasUnsaved
@@ -718,7 +717,7 @@ const LiveBody = {
         const canLeave = () => !richEditor?.value?.dirty
             || globalThis.confirm('Ungespeicherte Änderungen gehen verloren. Live-Diktat verlassen?');
         return { c, state, pending, confirmed, local, writing, richEditor, canLeave, handoffLocked, submitted,
-            mayEdit, showHandoff, handoffReady, markSubmitted, FOCUS, DISABLED, box, TEXT, ICON_PATHS };
+            showHandoff, handoffReady, markSubmitted, FOCUS, DISABLED, box, TEXT, ICON_PATHS };
     },
     template: `
 <section class="clinic-live-view v8-page" data-testid="clinic-live-view" aria-labelledby="clv-title" :data-phase="state.phase" style="width: 100%; max-width: 1440px; margin-inline: auto">
@@ -786,7 +785,7 @@ const LiveBody = {
             <li v-if="state.session.partial" data-state="partial"><em>{{ state.session.partial }}</em> <small class="tag neutral">{{ TEXT.partial }}</small></li>
           </ul>
         </section>
-        <div v-if="writing && mayEdit" style="display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;padding:8px 16px;border-bottom:1px solid var(--v8-line-2)">
+        <div v-if="writing && !submitted" style="display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;padding:8px 16px;border-bottom:1px solid var(--v8-line-2)">
           <p role="status" style="margin:0">{{ writing.held.value.message }}</p>
           <p v-if="writing.loading.value && !writing.document.value" role="status">Text wird geladen …</p>
           <button v-if="writing.document.value && ['idle', 'lost', 'error'].includes(writing.held.value.status) && writing.held.value.mayAcquire !== false"
@@ -798,7 +797,7 @@ const LiveBody = {
             style="min-height:48px" @click="writing.load()">Erneut laden</button>
         </div>
         <RichTextEditor v-if="writing?.document.value" ref="richEditor"
-          :client="writing.client" :document="writing.document.value" :can-edit="writing.writable.value && mayEdit && !handoffLocked"
+          :client="writing.client" :document="writing.document.value" :can-edit="writing.writable.value && !handoffLocked"
           :save-document="writing.save" :reload-document="() => writing.load(true)"
           :add-graphic="writing.addGraphic" :graphics-path="writing.graphicsPath" />
       </div>
