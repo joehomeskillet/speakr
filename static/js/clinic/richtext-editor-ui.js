@@ -330,39 +330,58 @@ export function useRichTextEditor(options) {
 
 const keyFormat = { b: 'bold', i: 'italic', u: 'underline' };
 
-/** Vue component. Props: client, savePath, document, version, canEdit. */
+/** Vue component. A correctionSave controller uses the shared correction save instead of the standalone save. */
 export const RichTextEditor = {
     name: 'ClinicRichTextEditor',
     props: {
-        client: { type: Object, required: true },
-        savePath: { type: String, default: '' },
-        document: { type: Object, required: true },
+        client: { type: Object },
+        savePath: { type: String },
+        document: { type: Object },
         version: { type: Number, default: 0 },
         canEdit: { type: Boolean, default: true },
         saveDocument: { type: Function, default: null },
         addGraphic: { type: Function, default: null },
         graphicsPath: { type: String, default: '' },
         reloadDocument: { type: Function, default: null },
+        correctionSave: { type: Object },
     },
     setup(props) {
-        const editor = useRichTextEditor({
+        const correction = props.correctionSave?.document;
+        const liveWriting = !correction && Boolean(props.saveDocument);
+        const editor = correction || useRichTextEditor({
             client: props.client, savePath: props.savePath, document: props.document,
             version: props.version, canEdit: props.canEdit, saveDocument: props.saveDocument,
         });
         const warning = surfaceFor('warning');
         const lossStyle = { background: warning.background, color: warning.color, border: `1px solid ${warning.border}` };
-        const focusStyle = { '--focus-outline': FOCUS_INDICATOR.outline, '--focus-offset': FOCUS_INDICATOR.outlineOffset };
+        const focusStyle = { '--focus-outline': FOCUS_INDICATOR.outline, '--focus-offset': FOCUS_INDICATOR.outlineOffset,
+            '--border-focus': correction ? 'var(--brand-accent)' : undefined };
+        const targetStyle = correction ? { minHeight: '48px' } : null;
+        function correctionRunStyle(run) {
+            const active = correction.activeRunId.value === run.id;
+            return { ...focusStyle, ...targetStyle, maxWidth: '100%', width: '100%',
+                fontWeight: run.bold ? 'bold' : undefined, fontStyle: run.italic ? 'italic' : undefined,
+                textDecoration: run.underline ? 'underline' : undefined,
+                backgroundColor: active ? 'var(--ui-hover)' : undefined,
+                borderColor: active ? 'var(--brand-accent)' : 'var(--ui-text-muted)' };
+        }
         function onKey(event, node, run) {
-            const format = keyFormat[String(event.key).toLowerCase()];
-            if ((event.ctrlKey || event.metaKey) && format) {
+            if (!event.ctrlKey && !event.metaKey) return;
+            const key = String(event.key).toLowerCase();
+            if (correction && (key === 'z' || key === 'y')) {
                 event.preventDefault();
-                editor.toggleFormat(format, node.id, run.id);
+                event.stopPropagation();
+                if (key === 'y' || event.shiftKey) correction.redo();
+                else correction.undo();
+            } else if (keyFormat[key]) {
+                event.preventDefault();
+                editor.toggleFormat(keyFormat[key], node.id, run.id);
             }
         }
         function onPaste(event, node, run) {
             event.preventDefault();
             const data = event.clipboardData && event.clipboardData.getData('text/plain');
-            if (props.saveDocument) {
+            if (liveWriting) {
                 const { selectionStart, selectionEnd } = event.target;
                 const pasted = sanitizePaste(data);
                 if (editor.editRun(node.id, run.id, run.text.slice(0, selectionStart)
@@ -385,7 +404,7 @@ export const RichTextEditor = {
         const uploading = Vue.ref(false);
         const alt = Vue.ref('');
         const file = Vue.shallowRef(null);
-        if (props.saveDocument) {
+        if (liveWriting) {
             Vue.watch(() => props.canEdit, (writable) => { editor.readOnly.value = !writable; }, { flush: 'sync' });
             Vue.watch(() => props.document, (doc) => editor.replace(doc, props.version));
         }
@@ -415,6 +434,7 @@ export const RichTextEditor = {
             ...targetSize, backgroundColor: 'var(--v8-s2)', borderColor: 'var(--v8-text-2)',
         } : targetSize;
         function runStyle(node, run) {
+            if (!liveWriting) return correction ? correctionRunStyle(run) : focusStyle;
             // The V8 phone input reset otherwise overrides the document's font size.
             const size = run.font_size_pt ? run.font_size_pt + 'pt' : (node.kind === 'heading' ? '1.25rem' : '1rem');
             return { ...focusStyle, minHeight: '48px', fieldSizing: 'content', overflowWrap: 'anywhere',
@@ -432,16 +452,19 @@ export const RichTextEditor = {
             await Vue.nextTick();
             editor.announcement.value = loaded ? 'Aktueller Stand geladen.' : 'Der aktuelle Stand konnte nicht geladen werden.';
         }
+        const save = correction ? props.correctionSave : null;
         return { ...editor, label, lossStyle, focusStyle, onKey, onPaste, format, FORMATS, LAYOUT,
-            selectedNode, selectedRun, targetSize, fieldStyle, pressedStyle, showLayout, graphicButton,
-            showGraphic, uploading, alt, file, addPicture,
-            runStyle, reload, isGraphicId: (id) => GRAPHIC_ID.test(id) };
+            selectedNode, selectedRun, targetSize, targetStyle, fieldStyle, pressedStyle, showLayout, graphicButton,
+            showGraphic, uploading, alt, file, addPicture, runStyle, reload,
+            correction, liveWriting, isGraphicId: (id) => GRAPHIC_ID.test(id),
+            ...(save ? { save: save.save, status: save.state, saveMessage: save.message } : {}),
+        };
     },
     template: `
-<section class="clinic-richtext" :aria-label="label('clinic.richtext.toolbar')" :style="saveDocument ? 'display:grid;gap:12px;padding:16px' : null">
+<section class="clinic-richtext" :aria-label="label('clinic.richtext.toolbar')" :style="liveWriting ? 'display:grid;gap:12px;padding:16px' : null">
   <div role="toolbar" :aria-label="label('clinic.richtext.toolbar')"
-    :style="saveDocument ? 'display:flex;flex-wrap:wrap;gap:8px;align-items:end' : null">
-    <template v-if="saveDocument">
+    :style="liveWriting ? 'display:flex;flex-wrap:wrap;gap:8px;align-items:end' : correction ? 'display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px' : null">
+    <template v-if="liveWriting">
       <button type="button" class="button" :style="targetSize" :disabled="readOnly" :aria-expanded="showLayout"
         @click="showLayout = !showLayout">Formatieren</button>
       <button v-if="addGraphic" ref="graphicButton" type="button" class="button" :style="targetSize" :disabled="readOnly"
@@ -450,7 +473,7 @@ export const RichTextEditor = {
         :disabled="readOnly || !dirty || status === 'saving' || status === 'stale'" :aria-busy="status === 'saving'"
         :style="targetSize" @click="save">{{ status === 'failed' ? label('clinic.richtext.retry') : label('clinic.richtext.save') }}</button>
     </template>
-    <div v-if="saveDocument && showLayout" style="display:flex;flex:1 1 100%;flex-wrap:wrap;gap:8px;align-items:end;min-width:0">
+    <div v-if="liveWriting && showLayout" style="display:flex;flex:1 1 100%;flex-wrap:wrap;gap:8px;align-items:end;min-width:0">
       <label v-for="field in LAYOUT" :key="field.key" style="display:grid;gap:4px;flex:1 1 132px;min-width:0">
         {{ field.label }}
         <select :disabled="readOnly || !selectedRun" :style="fieldStyle"
@@ -470,15 +493,23 @@ export const RichTextEditor = {
         :disabled="readOnly || !selectedRun" :style="pressedStyle(selectedRun?.[f])"
         @click="toggleFormat(f)">{{ label('clinic.richtext.' + f) }}</button>
     </div>
-    <template v-if="!saveDocument">
+    <template v-if="!liveWriting">
       <button v-for="f in FORMATS" :key="f" type="button" :aria-pressed="String(!!selectedRun?.[f])"
-        :disabled="readOnly || !selection.runId" :style="focusStyle" @click="toggleFormat(f)">{{ label('clinic.richtext.' + f) }}</button>
-      <button type="button" :disabled="readOnly || !selection.nodeId" :style="focusStyle"
+        :disabled="readOnly || !selection.runId" :style="[focusStyle, targetStyle]" @click="toggleFormat(f)">{{ label('clinic.richtext.' + f) }}</button>
+      <button type="button" :disabled="readOnly || !selection.nodeId" :style="[focusStyle, targetStyle]"
         @click="insertRun(selection.nodeId, undefined, '')">{{ label('clinic.richtext.insert') }}</button>
-      <button type="button" :disabled="readOnly || !dirty || status === 'saving'" :aria-busy="status === 'saving'"
-        :style="focusStyle" @click="save">{{ status === 'failed' ? label('clinic.richtext.retry') : label('clinic.richtext.save') }}</button>
+      <template v-if="correction">
+        <button type="button" :disabled="readOnly || !historyState.canUndo" :style="[focusStyle, targetStyle]" @click="undo">Rückgängig</button>
+        <button type="button" :disabled="readOnly || !historyState.canRedo" :style="[focusStyle, targetStyle]" @click="redo">Wiederholen</button>
+        <button type="button" :disabled="readOnly || doc.nodes.findIndex(n => n.id === selection.nodeId) < 1" :style="[focusStyle, targetStyle]" @click="moveParagraph(-1)">Absatz nach oben</button>
+        <button type="button" :disabled="readOnly || !selection.nodeId || selection.nodeId === doc.nodes.at(-1)?.id" :style="[focusStyle, targetStyle]" @click="moveParagraph(1)">Absatz nach unten</button>
+        <button type="button" :disabled="!canSeek(selection.runId)" :style="[focusStyle, targetStyle]" @click="seekToSegment(selection.runId)">Zur Tonstelle springen</button>
+      </template>
+      <button type="button" :class="correction ? 'button primary' : null" :disabled="readOnly || (correction ? status !== 'unsaved' : !dirty || status === 'saving')" :aria-busy="status === 'saving'"
+        :style="[focusStyle, targetStyle]" @click="save">{{ status === 'failed' ? label('clinic.richtext.retry') : label('clinic.richtext.save') }}</button>
     </template>
   </div>
+  <p v-if="correction && !doc.nodes.some(n => n.runs.some(r => r.text))">Noch kein Text vorhanden.</p>
   <form v-if="showGraphic && !readOnly" aria-label="Grafik einfügen" @submit.prevent="addPicture">
     <label class="field"><span>Bildbeschreibung</span><input type="text" maxlength="200" required v-model="alt" :style="fieldStyle"></label>
     <label class="field"><span>PNG-Datei</span><input type="file" accept="image/png" required
@@ -486,17 +517,17 @@ export const RichTextEditor = {
     <button class="button" :style="targetSize" type="submit" :disabled="uploading">{{ uploading ? 'Grafik wird eingefügt …' : 'Einfügen' }}</button>
   </form>
   <div v-for="(node, ni) in doc.nodes" :key="node.id" :data-node-id="node.id" role="group"
-    :style="saveDocument ? 'display:grid;gap:4px;min-width:0' : null">
+    :style="liveWriting ? 'display:grid;gap:4px;min-width:0' : correction ? 'margin-bottom:8px' : null">
     <img v-if="graphicsPath && node.kind === 'graphic' && isGraphicId(node.object_id)"
       :src="graphicsPath + '/' + node.object_id" :alt="node.alt_text" style="max-width:100%;height:auto">
-    <component :is="saveDocument ? 'textarea' : 'input'" v-for="(run, ri) in node.runs" :key="run.id"
-      :rows="saveDocument ? 1 : undefined" :type="saveDocument ? undefined : 'text'" :data-run-id="run.id" :value="run.text"
-      :readonly="readOnly" :style="saveDocument ? runStyle(node, run) : focusStyle"
-      :aria-label="label('clinic.richtext.run', { run: ri + 1, node: ni + 1 }) + (format(node, run) ? ', ' + format(node, run) : '') + (run.audio_anchor_id ? '' : ', ' + label('clinic.richtext.unaligned'))"
+    <component :is="liveWriting || correction ? 'textarea' : 'input'" v-for="(run, ri) in node.runs" :key="run.id"
+      :rows="liveWriting || correction ? 1 : undefined" :type="liveWriting || correction ? undefined : 'text'" :data-run-id="run.id" :value="run.text"
+      :readonly="readOnly" :style="runStyle(node, run)" :data-playing="correction && activeRunId === run.id ? 'true' : null"
+      :aria-label="label('clinic.richtext.run', { run: ri + 1, node: ni + 1 }) + (format(node, run) ? ', ' + format(node, run) : '') + ((correction ? canSeek(run.id) : run.audio_anchor_id) ? '' : ', ' + label('clinic.richtext.unaligned'))"
       @focus="select(node.id, run.id)" @input="editRun(node.id, run.id, $event.target.value)"
-      @keydown="onKey($event, node, run)" @paste="onPaste($event, node, run)">
+      @keydown="onKey($event, node, run)" @paste="onPaste($event, node, run)"></component>
   </div>
-  <div v-if="!saveDocument && losses.length" role="note" :style="lossStyle">
+  <div v-if="!liveWriting && !correction && losses.length" role="note" :style="lossStyle">
     <strong>{{ label('clinic.richtext.losses') }}</strong>
     <ul><li v-for="l in losses" :key="l.code">{{ l.message }}</li></ul>
   </div>
@@ -504,7 +535,8 @@ export const RichTextEditor = {
     {{ label('clinic.richtext.reload') }}
   </button>
   <p v-else-if="status === 'stale'" role="alert">{{ label('clinic.richtext.stale') }}</p>
-  <p v-if="saveDocument && dirty && !announcement" role="note">Änderungen sind noch nicht gespeichert.</p>
+  <p v-if="liveWriting && dirty && !announcement" role="note">Änderungen sind noch nicht gespeichert.</p>
+  <p v-if="correction" role="status" aria-live="polite">{{ saveMessage }}</p>
   <div role="status" aria-live="polite">{{ announcement }}</div>
 </section>`,
 };

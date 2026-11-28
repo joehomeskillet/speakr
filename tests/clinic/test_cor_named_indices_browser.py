@@ -67,7 +67,7 @@ def test_named_indices_survive_reopen_seek_remove_and_become_historical(audio_se
         try:
             page = mount._login(browser, base, "author213@local.test")
             _open(page)
-            page.locator("[data-action=acquire]").click()
+            expect(page.get_by_test_id("text")).to_be_editable()
             panel = _marks(page)
             expect(panel.get_by_label("Name des Index", exact=True)).to_be_enabled()
             expect(panel.get_by_text("Keine Marken vorhanden.")).to_be_visible()
@@ -92,7 +92,7 @@ def test_named_indices_survive_reopen_seek_remove_and_become_historical(audio_se
 
             # Removing an index leaves the audio revision untouched.
             source = page.locator(".clinic-correction-view audio").get_attribute("src")
-            page.locator("[data-action=acquire]").click()
+            expect(page.get_by_test_id("text")).to_be_editable()
             expect(items.nth(0).get_by_role("button", name="Marke entfernen", exact=True)).to_be_enabled()
             items.nth(0).get_by_role("button", name="Marke entfernen", exact=True).click()
             expect(items).to_have_count(1)
@@ -126,6 +126,8 @@ def test_name_input_without_lease_sends_nothing_and_needs_no_aligned_text(audio_
             replies = []
             page.on("response", lambda r: replies.append((r.status, r.text())) if r.url.endswith("/markers") and r.request.method == "POST" else None)
             _open(page)
+            expect(page.get_by_test_id("text")).to_be_editable()
+            page.locator("[data-action=release]").click()
             panel = _marks(page)
             name = panel.get_by_label("Name des Index", exact=True)
             expect(name).to_be_disabled()

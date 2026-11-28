@@ -77,6 +77,17 @@ assert alice.put(first, headers=auth, json={"text": "Invalid", "base_version": 2
 assert alice.get(first).json["text"] == "First saved"
 assert alice.get(second).json["text"] == "Second saved"
 
+protection = f"/api/clinic/v1/dictations/{ids[0]}"
+code = "synthetic-draft-code"
+assert alice.put(protection + "/protection", headers=auth,
+                 json={"version": 1, "secret": code}).status_code == 200
+locked_owner, locked_auth = log_in(owner_id)
+assert locked_owner.get(first).status_code == 403
+assert [row["draft_id"] for row in locked_owner.get(base).json["drafts"]] == [ids[1]]
+assert locked_owner.post(protection + "/unlock", headers=locked_auth,
+                         json={"secret": code}).status_code == 200
+assert locked_owner.get(first).json["text"] == "First saved"
+
 selection = alice.post(first + "/switch", headers=auth, json={"tab_id": "tab-a"})
 assert selection.status_code == 200
 assert (selection.json["draft_id"], selection.json["state"]) == (ids[0], "PAUSED")

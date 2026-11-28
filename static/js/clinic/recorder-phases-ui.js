@@ -141,17 +141,19 @@ export function createClinicRecorder(audio, state, uploadFile, offlineDrafts = (
             gatedTake = null;
             await audio.clearRecording();
         },
-        async uploadRecordedAudio({ title }) {
+        async uploadRecordedAudio({ title, ...uploadOptions }) {
             const chunks = state.audioChunks.value;
             const file = recordedFile();
             const previous = takes.get(chunks);
-            const take = previous || { id: globalThis.crypto.randomUUID(), title };
+            const take = previous || { id: globalThis.crypto.randomUUID(), title, uploadOptions };
             takes.set(chunks, take);
             const drafts = offlineDrafts();
             let binding = retained.get(chunks);
             let receipt;
             try {
-                receipt = await uploadFile(file, take.title, { id: take.id, retry: Boolean(previous) });
+                receipt = await uploadFile(file, take.title, {
+                    ...take.uploadOptions, id: take.id, retry: Boolean(previous),
+                });
                 if (receiptDictationId(receipt) === null) throw new Error('no_receipt');
             } catch (error) {
                 if (drafts && (globalThis.navigator?.onLine === false || error instanceof TypeError)) {
@@ -354,7 +356,7 @@ export function createRecorderPhases(options) {
         }
     }
 
-    async function send() {
+    async function send(uploadOptions) {
         const blocked = guard(['review', 'failed']);
         if (blocked) return blocked;
         if (!automaticTitle && !state.title.trim()) return denied('missing_title');
@@ -364,7 +366,10 @@ export function createRecorderPhases(options) {
         let receipt = null;
         let error = 'no_receipt';
         try {
-            receipt = await recorder.uploadRecordedAudio({ title: state.title.trim() || localDictationTitle() });
+            receipt = await recorder.uploadRecordedAudio({
+                title: state.title.trim() || localDictationTitle(),
+                ...uploadOptions,
+            });
         } catch (e) {
             if (e?.message === 'offline_retained') error = 'offline_retained';
         }
