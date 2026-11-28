@@ -20,7 +20,8 @@ from src.clinic.models import ClinicAudioRevision, ClinicDictation, ClinicOrigin
 from src.database import db
 
 OP_INSERT, OP_OVERWRITE, OP_CUT, OP_TRIM = "INSERT", "OVERWRITE", "CUT", "TRIM"
-OPERATION_TYPES = (OP_INSERT, OP_OVERWRITE, OP_CUT, OP_TRIM)
+OP_REPLACE = "REPLACE"
+OPERATION_TYPES = (OP_INSERT, OP_OVERWRITE, OP_CUT, OP_TRIM, OP_REPLACE)
 SOURCE_ORIGINAL, SOURCE_SEGMENT = "ORIGINAL", "SEGMENT"
 SOURCE_TYPES = (SOURCE_ORIGINAL, SOURCE_SEGMENT)
 ACTION_INIT, ACTION_APPLY, ACTION_UNDO, ACTION_REDO, ACTION_RESTORE = "INIT", "APPLY_EDIT", "UNDO", "REDO", "RESTORE"
@@ -287,6 +288,8 @@ def apply_operation_to_edl(edl: EditDecisionList, op: ClinicAudioEditOperation |
         return apply_insert_to_edl(edl, pos, str(s_id), str(s_type), s_start, s_end)
     if op_type == OP_OVERWRITE:
         return apply_overwrite_to_edl(edl, pos, str(s_id), str(s_type), s_start, s_end)
+    if op_type == OP_REPLACE:
+        return apply_insert_to_edl(apply_trim_to_edl(edl, 0), 0, str(s_id), str(s_type), s_start, s_end)
     raise AudioRevisionError(f"unknown operation type {op_type}")
 
 
@@ -385,6 +388,12 @@ def apply_insert(dictation: ClinicDictation, position_ms: int, source: ClinicAud
 def apply_overwrite(dictation: ClinicDictation, position_ms: int, source: ClinicAudioSegment | ClinicOriginal, duration_ms: int | None = None, source_start_ms: int = 0, name: str | None = None, description: str | None = None) -> ClinicAudioRevision:
     stype, orig_id, seg_id, dur, send = _extract_source_args(dictation, source, duration_ms, source_start_ms)
     return _apply_edit_step(dictation, OP_OVERWRITE, position_ms, dur, stype, orig_id, seg_id, source_start_ms, send, name, description)
+
+
+def replace_audio(dictation: ClinicDictation, source: ClinicAudioSegment) -> ClinicAudioRevision:
+    """Replace the complete timeline in one undoable edit."""
+    stype, orig_id, seg_id, duration, end = _extract_source_args(dictation, source, None, 0)
+    return _apply_edit_step(dictation, OP_REPLACE, 0, duration, stype, orig_id, seg_id, 0, end, None, None)
 
 
 def apply_cut(dictation: ClinicDictation, start_ms: int, end_ms: int, name: str | None = None, description: str | None = None) -> ClinicAudioRevision:
