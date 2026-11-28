@@ -502,7 +502,7 @@ describe('view registration and setup', () => {
         ];
         vi.stubGlobal('navigator', { mediaDevices: { enumerateDevices: vi.fn(async () => devices) } });
         const view = RecordingView.setup({ currentUser: { id: 2 }, recorder: recorder(), uploadFile: vi.fn(), vue: fakeVue() }, {});
-        const media = { setSinkId: vi.fn(async () => {}) };
+        const media = { sinkId: '', setSinkId: vi.fn(async (id) => { media.sinkId = id; }) };
         view.bindReview(media);
         expect(view.outputSupported.value).toBe(true);
         await Promise.resolve();
@@ -510,9 +510,12 @@ describe('view registration and setup', () => {
         expect(view.outputs.value.map((d) => d.deviceId)).toEqual(['spk-2']);
         await view.chooseOutput('spk-2');
         expect(media.setSinkId).toHaveBeenLastCalledWith('spk-2');
+        view.bindReview(media); // Vue calls function refs again on view updates.
+        expect(navigator.mediaDevices.enumerateDevices).toHaveBeenCalledTimes(1);
         media.setSinkId.mockRejectedValueOnce(new Error('gone'));
         await view.chooseOutput('spk-3');
         expect(view.outputId.value).toBe('');
+        expect(media.sinkId).toBe('');
         expect(RECORDING_TEMPLATE).toContain('data-testid="rec-output"');
     });
 

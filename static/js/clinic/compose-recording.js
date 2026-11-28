@@ -465,12 +465,12 @@ export const RECORDING_TEMPLATE = `
                  @error="c.machine.playbackFailed()" style="width: 100%; min-height: 3rem"></audio>
           <div v-if="!m.created && previewUrl" style="display: grid; gap: var(--ui-space-1); width: 100%; text-align: left; font-size: .875rem">
             <span id="crv-output-label">Wiedergabegerät</span>
-            <div role="radiogroup" aria-labelledby="crv-output-label" data-testid="rec-output" style="display: grid; gap: var(--ui-space-1)">
-              <button type="button" role="radio" class="button" :class="outputId === '' ? 'accent' : 'quiet'" :aria-checked="outputId === ''"
+            <div role="group" aria-labelledby="crv-output-label" data-testid="rec-output" style="display: grid; gap: var(--ui-space-1)">
+              <button type="button" class="button" :class="{ accent: outputSupported && outputId === '' }" :aria-pressed="outputId === ''"
                       :disabled="!outputSupported" data-testid="rec-output-default" @click="chooseOutput('')" style="${TOUCH}; justify-content: flex-start">Systemstandard</button>
-              <button v-for="(d, i) in outputs" :key="d.deviceId" type="button" role="radio" class="button" :class="outputId === d.deviceId ? 'accent' : 'quiet'"
-                      :aria-checked="outputId === d.deviceId" :disabled="!outputSupported" data-testid="rec-output-device" @click="chooseOutput(d.deviceId)"
-                      style="${TOUCH}; justify-content: flex-start">{{ d.label || ('Ausgabegerät ' + (i + 1)) }}</button>
+              <button v-for="(d, i) in outputs" :key="d.deviceId" type="button" class="button" :class="{ accent: outputId === d.deviceId }"
+                      :aria-pressed="outputId === d.deviceId" :disabled="!outputSupported" data-testid="rec-output-device" @click="chooseOutput(d.deviceId)"
+                      style="${TOUCH}; justify-content: flex-start; min-width: 0; overflow-wrap: anywhere">{{ d.label || ('Ausgabegerät ' + (i + 1)) }}</button>
             </div>
             <p v-if="!outputSupported" data-testid="rec-output-note" style="margin: 0; color: var(--ui-text-muted, var(--ui-text))">Dieser Browser verwendet für die Wiedergabe immer den Systemausgang.</p>
           </div>
@@ -546,35 +546,43 @@ export const RecordingView = {
         const outputs = V.ref([]);
         const outputId = V.ref('');
         let reviewMedia = null;
-        async function applyOutput() {
-            if (!reviewMedia || typeof reviewMedia.setSinkId !== 'function') return;
+        let switchingMedia = null;
+        async function chooseOutput(deviceId) {
+            const media = reviewMedia;
+            if (!outputSupported.value || switchingMedia === media) return;
+            switchingMedia = media;
             try {
-                await reviewMedia.setSinkId(outputId.value);
-            } catch (e) {
-                outputId.value = '';
+                await media.setSinkId(deviceId);
+                if (reviewMedia === media) outputId.value = deviceId;
+            } catch {
+                if (reviewMedia !== media) return;
+                if (media.sinkId && deviceId) {
+                    try { await media.setSinkId(''); } catch { /* Keep the actual sink if fallback fails. */ }
+                }
+                if (reviewMedia === media) outputId.value = media.sinkId || '';
+            } finally {
+                if (switchingMedia === media) switchingMedia = null;
             }
         }
-        async function listOutputs() {
+        async function listOutputs(media) {
             try {
                 const all = await globalThis.navigator?.mediaDevices?.enumerateDevices?.();
-                outputs.value = (all || []).filter((d) => d.kind === 'audiooutput' && d.deviceId !== 'default');
-            } catch (e) {
-                outputs.value = [];
+                if (reviewMedia === media) {
+                    outputs.value = (all || []).filter((d) => d.kind === 'audiooutput' && d.deviceId && d.deviceId !== 'default');
+                }
+            } catch {
+                // The system output stays available when the browser cannot list devices.
             }
         }
-        function chooseOutput(deviceId) {
-            outputId.value = deviceId;
-            return applyOutput();
-        }
         function bindReview(media) {
-            reviewMedia = media || null;
+            if (reviewMedia === media) return;
+            reviewMedia = media;
+            outputs.value = [];
             outputSupported.value = !!media && typeof media.setSinkId === 'function';
-            if (media) {
-                if (outputSupported.value) {
-                    void listOutputs();
-                    void applyOutput();
-                }
-            } else {
+            if (outputSupported.value) {
+                void listOutputs(media);
+                if (outputId.value) void chooseOutput(outputId.value);
+            } else if (!media) {
                 probingDuration = false;
                 c.machine.setPlayer(null);
             }
