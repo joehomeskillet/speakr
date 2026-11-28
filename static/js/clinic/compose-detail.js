@@ -32,7 +32,7 @@ import { DictationSummary } from './dictation-summary-ui.js';
 import { DetailPlayback } from './detail-playback-ui.js';
 import { DictationProtectionComponent } from './dictation-protection-ui.js';
 import { readAudioRevision } from './correction-editor-ui.js';
-import { createHistoryComponent } from './history-ui.js';
+import { createHistoryComponent, isHistoryShortcut } from './history-ui.js';
 import { createLeaseController, createLeaseStatusComponent } from './lease-ui.js';
 import { createContextBinding, CONTEXT_BIND_TEMPLATE } from './context-bind-ui.js';
 
@@ -184,6 +184,8 @@ export function createDetailViewController(options) {
 
     const status = ref('idle'); // idle | loading | ready | denied | error | offline
     const message = ref('');
+    const historyOpen = ref(false);
+    const historyVersion = ref(0);
     const data = shallowRef(null); // last confirmed header; cleared on a refusal, kept on a network failure
     const leaseState = shallowRef(null);
     const confirmedAt = ref(null);
@@ -338,6 +340,20 @@ export function createDetailViewController(options) {
 
     function start() { return load(); }
 
+    /** Same Verlauf section as the menu. The history component shows the denial itself. */
+    function openHistory() {
+        if (disposed) return false;
+        historyVersion.value += 1;
+        historyOpen.value = true;
+        return true;
+    }
+
+    function onHistoryKey(event) {
+        if (!isHistoryShortcut(event) || !openHistory()) return false;
+        if (typeof event.preventDefault === 'function') event.preventDefault();
+        return true;
+    }
+
     /** Stops the heartbeat and requests, releases a held lease (unless handed to the editor) and clears clinical data. */
     function dispose() {
         if (disposed) return;
@@ -361,7 +377,7 @@ export function createDetailViewController(options) {
     return {
         vue: V, status, message, data, leaseState, confirmedAt, leaseRun, workflow, detailClient,
         header, offline, leaseBlocksOpen, canOpenEditor, contextBinding, audio, mediaFailed,
-        start, load, openEditor, back, dispose,
+        start, load, openEditor, back, dispose, historyOpen, openHistory, onHistoryKey, historyVersion,
         text: TEXT,
     };
 }
@@ -410,12 +426,28 @@ const DetailBody = {
         // The shell mount supplies its own "Zurück" control; then the package's link would be a second one.
         const root = V.ref(null);
         const shellBack = V.ref(false);
+        const historySummary = V.ref(null);
+        if (typeof V.watch === 'function') {
+            V.watch(c.historyVersion, () => historySummary.value?.focus(), { flush: 'post' });
+        }
+        // Ctrl+I is a page shortcut. A click on a non-focusable control leaves focus on body, so the section keydown never sees it.
+        const doc = typeof document !== 'undefined' ? document : null;
+        const onDocKey = (event) => {
+            if (!root.value?.isConnected) return;
+            const active = doc.activeElement;
+            if (active && active !== doc.body && !root.value.contains(active)) return;
+            c.onHistoryKey(event);
+        };
         if (typeof V.onMounted === 'function') {
             V.onMounted(() => {
                 const host = root.value && typeof root.value.closest === 'function' ? root.value.closest('[data-clinic-shell-view]') : null;
                 shellBack.value = !!(host && host.querySelector('[data-testid="clinic-dictation-back"]'));
                 c.start();
             });
+        }
+        if (doc && typeof doc.addEventListener === 'function') {
+            doc.addEventListener('keydown', onDocKey);
+            if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => doc.removeEventListener('keydown', onDocKey));
         }
         if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => c.dispose());
         const box = (name) => {
@@ -426,10 +458,10 @@ const DetailBody = {
         // Header pill: the workflow status axis in the colour of the V8 status pills.
         const tone = (axes) => statusTone(workflowAxis(axes).value);
         const axisText = (axes) => workflowAxis(axes).text || TEXT.notAvailable;
-        return { c, parts, TEXT, box, tone, axisText, root, shellBack, status: c.status, message: c.message, leaseState: c.leaseState };
+        return { c, parts, TEXT, box, tone, axisText, root, shellBack, historySummary, status: c.status, message: c.message, leaseState: c.leaseState, onHistoryKey: c.onHistoryKey };
     },
     template: `
-<section ref="root" class="v8-page clinic-detail-view" data-testid="clinic-detail-view" aria-labelledby="cdv-title" :aria-busy="status === 'loading' ? 'true' : 'false'">
+<section ref="root" class="v8-page clinic-detail-view" data-testid="clinic-detail-view" aria-labelledby="cdv-title" :aria-busy="status === 'loading' ? 'true' : 'false'" @keydown="onHistoryKey($event)">
   <div v-if="!shellBack" class="record-backbar">
     <button type="button" class="back-link" data-testid="back" @click="c.back()">← {{ TEXT.back }}</button>
   </div>
@@ -491,9 +523,10 @@ const DetailBody = {
                   :disabled="status === 'loading'" @click="c.load()">{{ TEXT.reload }}</button>
         </section>
 
-        <details class="panel" data-testid="history-panel">
-          <summary style="cursor: pointer; font-weight: 700">{{ TEXT.history }}</summary>
-          <component :is="parts.History" :client="c.detailClient" :dictation-id="dictationId" />
+        <details class="panel" data-testid="history-panel" :open="c.historyOpen.value" @toggle="c.historyOpen.value = $event.target.open">
+          <summary ref="historySummary" aria-keyshortcuts="Control+I Meta+I" style="cursor: pointer; font-weight: 700">{{ TEXT.history }}</summary>
+          <component :is="parts.History" v-if="c.historyOpen.value" :key="c.historyVersion.value"
+                     :client="c.detailClient" :dictation-id="dictationId" />
         </details>
       </div>
 
