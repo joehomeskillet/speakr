@@ -57,6 +57,7 @@ MODEL_MODULES = (
     "statistics_retention",
     "notification_preferences",
     "draft_store",
+    "bundle_store",
 )
 
 
