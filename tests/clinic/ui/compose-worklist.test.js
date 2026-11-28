@@ -454,3 +454,41 @@ describe('review fixes', () => {
         for (const text of ui) expect(text).not.toMatch(/class="select field"/);
     });
 });
+
+describe('configured worklist columns', () => {
+    it('uses active XML definitions, saved visibility and display formats even without a value on every row', async () => {
+        const rows = [row('1', { station: 'Lab-A', exam: '2026-11-27T08:30:00Z', clinician: 'Ada Beispiel' }), row('2', { station: null })];
+        const client = fakeClient({
+            ...base(rows),
+            'GET /metadata-fields': ok({ fields: [
+                { name: 'station', label: 'Station', xml_path: 'patient/station', field_type: 'string', is_active: true },
+                { name: 'exam', label: 'Untersuchung', xml_path: 'exam/time', field_type: 'datetime', display_format: 'DD.MM.YYYY HH:mm', is_active: true },
+                { name: 'clinician', label: 'Behandelnde Person', xml_path: 'exam/name', field_type: 'string', display_format: 'Nachname, Vorname', is_active: true },
+                { name: 'form', label: 'Formularfeld', xml_path: null, field_type: 'string', is_active: true },
+                { name: 'old', label: 'Alt', xml_path: 'old', field_type: 'string', is_active: false },
+                { name: 'title', label: 'Kollision', xml_path: 'private', field_type: 'string', is_active: true },
+            ] }),
+            'GET /worklist/layout': ok({ version: 3, layout: { ...layoutDoc,
+                columns: [{ key: 'station', width: 140, visible: true }], group_by: ['station'],
+            } }),
+        });
+        const c = controllerFor(client);
+        await c.start();
+        expect(c.columns()[0]).toMatchObject({ key: 'station', label: 'Station' });
+        expect(c.columns().map(({ key }) => key)).not.toContain('exam');
+        expect(c.layout.state.layout.columns.map(({ key }) => key)).not.toContain('form');
+        expect(c.layout.state.layout.columns.map(({ key }) => key)).not.toContain('old');
+        expect(c.layout.labelOf('title')).toBe('title');
+        expect(c.displayed.value[0].label).toBe('Station: Lab-A');
+        expect(c.cell(rows[0], 'station')).toBe('Lab-A');
+        expect(c.cell(rows[1], 'station')).toBe('');
+        c.layout.toggleVisible('exam');
+        expect(c.columns().some(({ key }) => key === 'exam')).toBe(true);
+        expect(c.cell(rows[0], 'exam')).toBe('27.11.2026 09:30');
+        expect(c.cell(rows[0], 'clinician')).toBe('Beispiel, Ada');
+        expect(c.cell({ clinician: 'Ada Marie Beispiel' }, 'clinician')).toBe('Ada Marie Beispiel');
+        expect(c.cell({ exam: 'unbekannt' }, 'exam')).toBe('unbekannt');
+        expect(rows[0].exam).toBe('2026-11-27T08:30:00Z');
+        c.dispose();
+    });
+});
