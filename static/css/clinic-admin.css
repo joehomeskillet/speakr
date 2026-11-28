@@ -779,13 +779,22 @@
 }
 .v8-ui .voc-editor-body button { justify-self: start; }
 .v8-ui .voc-editor .actions { margin: 0; gap: var(--sp-2); }
+.v8-ui .voc-proposal-empty { min-height: 0; padding: var(--sp-4); }
 @media (max-width: 760px) {
     .v8-ui .voc-editor button { min-height: 44px; }
     .v8-ui .voc-editor-body { grid-template-columns: minmax(0, 1fr); }
     .v8-ui .voc-editor-export { border-top: 1px solid var(--line); padding-top: var(--sp-3); }
+    .v8-ui .voc-proposal-table table { table-layout: fixed; white-space: normal; }
+    .v8-ui .voc-proposal-table :is(th, td) { padding-inline: var(--sp-1); overflow-wrap: anywhere; hyphens: auto; }
+    .v8-ui .voc-proposal-table .wrap { min-width: 0; }
+    .v8-ui .voc-proposal-table th { text-transform: none; letter-spacing: normal; }
+    .v8-ui .voc-proposal-table th:nth-child(3) { width: 19%; }
+    .v8-ui .voc-proposal-table th:last-child { width: 36%; }
+    .v8-ui .voc-proposal-table :is(.small, .tag) { max-width: 100%; white-space: normal; }
     .cadm .clinic-vocabulary-view > .tabs { flex-wrap: wrap; }
     .cadm .clinic-vocabulary-view > .tabs > button { flex-shrink: 0; }
-    .cadm .clinic-vocabulary-view .voc-filters { grid-template-columns: repeat(2, minmax(0, 1fr)) auto; }
+    .cadm .clinic-vocabulary-view .voc-filters { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto; }
+    .cadm .clinic-vocabulary-view .voc-filters select { padding-inline: var(--sp-2) !important; }
     .cadm .clinic-vocabulary-view .voc-list { grid-column: 1 / -1; }
     .cadm .clinic-vocabulary-view .voc-filters .search { grid-column: 1 / -1; }
 }

@@ -141,7 +141,7 @@ const ASR_STATUS_ROWS = `
 
 const ASR_TECHNICAL_ROWS = `
   <div><dt>{{ view.labels.prompts }}</dt><dd>{{ view.prompts.label }}</dd></div>
-  <div v-if="view.output"><dt>{{ view.labels.format }}</dt><dd>{{ view.output.container }} · {{ view.output.codec }} · {{ view.output.sampleRate }} Hz</dd></div>
+  <div v-if="view.output"><dt>{{ view.labels.format }}</dt><dd>{{ [view.output.container, view.output.codec, view.output.sampleRate + ' Hz'].join(adminLayout ? ' · ' : ', ') }}</dd></div>
   <div><dt>Cloudumleitung</dt><dd>Nicht vorgesehen</dd></div>`;
 
 const ASR_TRAINING_NOTE = 'Eine Wortliste ersetzt kein Akustiktraining. Korrekturtexte benötigen eine bewusste Freigabe und einen geprüften Audioabgleich.';
@@ -161,29 +161,28 @@ const ASR_TEMPLATE = `
   <p v-if="adminLayout && view.ready && !view.profile" class="hint">Für Ihr Konto ist noch kein Sprachprofil gespeichert.</p>
   <p class="hint" id="res-asr-source">{{ view.labels.source }}<template v-if="view.profileMode === 'separate'"> für Live-Erkennung</template></p>
   <div class="actions" role="radiogroup" aria-labelledby="res-asr-source" @keydown="onSourceKey">
-    <button v-for="s in view.sources" :key="s.value" type="button" role="radio"
+    <button v-for="s in view.sources" :key="s.value" type="button" role="radio" class="asr-source"
       :disabled="!view.ready || view.busy"
-      :style="s.selected ? { backgroundColor: 'var(--ink)', borderColor: 'var(--ink)', color: 'var(--v8-on-ink, var(--text-button))' } : null"
       :aria-checked="s.selected ? 'true' : 'false'" :tabindex="s.selected ? 0 : -1"
       @click="controller.setSource(s.value)">{{ s.value === 'recorder' ? 'Aufnahmegerät' : s.label }}</button>
   </div>
   <div class="field-grid" :style="adminLayout ? null : 'margin-block-start:var(--sp-3)'">
     <div v-if="view.profileMode" class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
       <label for="res-asr-mode">{{ view.labels.profileMode }}</label>
-      <select id="res-asr-mode" style="background-color:var(--surface)" :disabled="!view.ready || view.busy" :value="view.profileMode" @change="controller.setProfileMode($event.target.value)">
+      <select id="res-asr-mode" :disabled="!view.ready || view.busy" :value="view.profileMode" @change="controller.setProfileMode($event.target.value)">
         <option v-for="o in view.profileModes" :key="o.value" :value="o.value">{{ o.label }}</option>
       </select>
     </div>
     <div v-if="view.profileMode === 'separate'" class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
       <label for="res-asr-batch-source">{{ view.labels.batchSource }}</label>
-      <select id="res-asr-batch-source" style="background-color:var(--surface)" :disabled="!view.ready || view.busy" :value="view.batchSource || ''" @change="controller.setBatchSource($event.target.value)">
+      <select id="res-asr-batch-source" :disabled="!view.ready || view.busy" :value="view.batchSource || ''" @change="controller.setBatchSource($event.target.value)">
         <option disabled value="">Quelle wählen</option>
         <option v-for="o in view.sources" :key="o.value" :value="o.value">{{ o.value === 'recorder' ? 'Aufnahmegerät' : o.label }}</option>
       </select>
     </div>
     <div v-if="!adminLayout || view.supportsSaveRule" class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
       <label for="res-asr-save-rule">{{ view.labels.saveRule }}</label>
-      <select id="res-asr-save-rule" style="background-color:var(--surface)" :disabled="!view.ready || view.busy" :value="view.saveRule" @change="controller.setSaveRule($event.target.value)">
+      <select id="res-asr-save-rule" :disabled="!view.ready || view.busy" :value="view.saveRule" @change="controller.setSaveRule($event.target.value)">
         <option v-for="o in view.saveRules" :key="o.value" :value="o.value">{{ o.label }}</option>
       </select>
     </div>
@@ -228,7 +227,7 @@ const ASR_TEMPLATE = `
   <div>
     <p v-if="adminLayout && view.profile" class="hint">Sie speichern Änderungen für Ihr eigenes Konto.</p>
     <div class="actions asr-save-actions">
-      <button class="primary" :style="adminLayout ? null : 'background:var(--ink);border-color:var(--ink);color:var(--v8-on-ink, var(--text-button));font-size:13px;padding:9px 13px'"
+      <button class="primary asr-profile-save" :style="adminLayout ? null : 'font-size:13px;padding:9px 13px'"
         type="button" :disabled="!view.canSave" @click="controller.save()">{{ view.labels.save }}</button>
       <button v-if="!adminLayout || view.dirty" type="button" :disabled="!view.dirty || view.busy" @click="controller.cancel()">{{ view.labels.cancel }}</button>
     </div>
@@ -266,10 +265,10 @@ export function createPanels(Vue) {
         return { background: s.background, color: s.color, borderColor: s.border };
     }
 
-    function usePanel(controller) {
+    function usePanel(controller, load = () => controller.load()) {
         const view = Vue.shallowRef(controller.view());
         const off = controller.subscribe(() => { view.value = controller.view(); });
-        Vue.onMounted(() => controller.load());
+        Vue.onMounted(load);
         Vue.onBeforeUnmount(off);
         return { view, errorStyle: style('error'), surfaceStyle, enumLabel, errorMessage };
     }
@@ -280,10 +279,26 @@ export function createPanels(Vue) {
         template: REVIEW_TEMPLATE,
         setup(props) {
             const controller = createVocabularyReviewController({ client: props.client, scope: props.scope });
-            const panel = usePanel(controller);
+            const reviewPools = Vue.ref([]);
+            const reviewPoolsFailed = Vue.ref(false);
+            const selectedPool = Vue.ref('');
+            async function loadReviewPools() {
+                reviewPoolsFailed.value = false;
+                const res = await props.client.request('/resources/vocabulary/reviews?catalog=author_pools');
+                if (res.outcome === 'ok') reviewPools.value = res.data?.author_pools || [];
+                else if (res.outcome !== 'cancelled') reviewPoolsFailed.value = true;
+            }
+            function selectReviewPool(id) {
+                if (id === selectedPool.value || controller.state.loading || controller.state.busy) return;
+                if (id && !reviewPools.value.some((pool) => pool.id === id)) return;
+                selectedPool.value = id;
+                return controller.setScope(id ? { type: 'author_pool', id } : props.scope);
+            }
+            const panel = usePanel(controller, () => Promise.all([controller.load(), loadReviewPools()]));
             function onKey(e) {
                 const el = e.target && e.target.closest ? e.target.closest('[data-id]') : null;
-                const id = el ? el.dataset.id : null;
+                if (!el) return;
+                const id = el.dataset.id;
                 const next = controller.onKeydown(e, id);
                 if (next) e.preventDefault?.();
                 if (next && next !== id && e.currentTarget && e.currentTarget.querySelector) {
@@ -291,7 +306,7 @@ export function createPanels(Vue) {
                     if (target) target.focus();
                 }
             }
-            return Object.assign(panel, { controller, onKey });
+            return Object.assign(panel, { controller, onKey, reviewPools, reviewPoolsFailed, selectedPool, loadReviewPools, selectReviewPool });
         },
     };
 

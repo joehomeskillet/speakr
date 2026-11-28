@@ -15,16 +15,22 @@ changes.
 
 from __future__ import annotations
 
+import zipfile
 from io import BytesIO
 from typing import Dict, List, Optional
 
 from docx import Document as DocxDocument
-from docx.shared import Pt
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from docx.shared import Pt
+from lxml import etree
 
+from src.clinic.export import RENDERER_VERSION
 from src.clinic.models import ClinicRelease, ClinicTranscriptRevision
 from src.services.document import add_document_header, new_document
-from src.clinic.export import RENDERER_VERSION
+
+
 
 # ---------------------------------------------------------------------------
 # Template version constants
@@ -68,6 +74,17 @@ _TEMPLATES: Dict[str, dict] = {
 
 class TemplateError(ValueError):
     """Raised when a template version is unknown or a bookmark is unauthorised."""
+
+
+class TemplateMarkError(ValueError):
+    """The template has no single clean insertion point. ``code`` is stable.
+
+    The route maps this to HTTP 422 ``TEMPLATE_MARK_ERROR``. Nothing is appended.
+    """
+
+    def __init__(self, code: str):
+        self.code = code
+        super().__init__(code)
 
 
 def validate_template_version(version: str) -> None:
@@ -217,6 +234,123 @@ def _apply_template_format(doc: DocxDocument, version: str) -> None:
 def _expected_bookmarks(version: str) -> List[str]:
     """Return the bookmark list that must be present for *version*."""
     return _TEMPLATES[version]["bookmarks"]
+
+
+# ---------------------------------------------------------------------------
+# Insertion into an uploaded template (PAR-EXP-004 web alternative)
+# ---------------------------------------------------------------------------
+
+
+def _xml_parts(names: List[str]) -> List[str]:
+    return [
+        name for name in names
+        if name == "word/document.xml" or name.startswith(("word/header", "word/footer"))
+        or name.startswith(("word/footnotes", "word/endnotes"))
+    ]
+
+
+def _has_macro(names: List[str]) -> bool:
+    """A macro-enabled part refuses the whole package. Detection only, never execution."""
+    for name in names:
+        lower = name.lower()
+        if "vbaproject" in lower or "/macros/" in f"/{lower}" or lower.endswith(".bin"):
+            return True
+    return False
+
+
+def _mark_paragraphs(root: etree._Element, mark: str) -> List[etree._Element]:
+    """Paragraphs that are exactly the mark, or hold one bookmark of that name."""
+    found: List[etree._Element] = []
+    for paragraph in root.iter(qn("w:p")):
+        text = "".join(node.text or "" for node in paragraph.iter(qn("w:t"))).strip()
+        if text == mark:
+            found.append(paragraph)
+            continue
+        starts = [node for node in paragraph.iter(qn("w:bookmarkStart")) if node.get(qn("w:name")) == mark]
+        if not starts:
+            continue
+        ids = {node.get(qn("w:id")) for node in starts}
+        ends = [node for node in paragraph.iter(qn("w:bookmarkEnd")) if node.get(qn("w:id")) in ids]
+        # The bookmark names the paragraph even when Word kept an empty run in it.
+        # A paragraph that also carries other text is a second, ambiguous mark.
+        if len(starts) == 1 and len(ends) == 1 and (text == "" or text == mark):
+            found.append(paragraph)
+    return found
+
+
+def _paragraph(text: str, *, bold: bool) -> etree._Element:
+    """One body paragraph. Bold is the only formatting the formatted mode adds."""
+    paragraph = OxmlElement("w:p")
+    run = OxmlElement("w:r")
+    if bold:
+        props = OxmlElement("w:rPr")
+        props.append(OxmlElement("w:b"))
+        run.append(props)
+    node = OxmlElement("w:t")
+    if text.startswith(" ") or text.endswith(" ") or "  " in text:
+        node.set(qn("xml:space"), "preserve")
+    node.text = text
+    run.append(node)
+    paragraph.append(run)
+    return paragraph
+
+
+def _replace(anchor: etree._Element, lines: List[str], *, formatted: bool) -> None:
+    """Put the dictation paragraphs where the mark paragraph was. The mark goes away."""
+    parent = anchor.getparent()
+    position = list(parent).index(anchor)
+    parent.remove(anchor)
+    for offset, line in enumerate(lines):
+        parent.insert(position + offset, _paragraph(line, bold=formatted))
+
+
+def insert_into_template(template: bytes, mark: str, text: str, *, text_mode: str) -> bytes:
+    """Insert text at the one mark of a DOCX template. A refusal returns no bytes.
+
+    ``formatted`` bolds the same characters; it does not rewrite them. Every part
+    without the mark, including headers and footers, is copied unchanged. A macro
+    part, a missing mark or more than one mark raises :class:`TemplateMarkError`.
+    """
+    if text_mode not in ("plain", "formatted"):
+        raise TemplateMarkError("invalid_mode")
+    if not isinstance(mark, str) or not mark.strip():
+        raise TemplateMarkError("missing")
+    try:
+        source = zipfile.ZipFile(BytesIO(template))
+    except zipfile.BadZipFile as exc:
+        raise TemplateMarkError("invalid") from exc
+    with source:
+        names = source.namelist()
+        if _has_macro(names) or "word/document.xml" not in names:
+            raise TemplateMarkError("macro" if _has_macro(names) else "invalid")
+        hits: List[tuple[str, etree._Element, etree._Element]] = []
+        trees: Dict[str, etree._Element] = {}
+        for name in _xml_parts(names):
+            try:
+                root = etree.fromstring(source.read(name))
+            except etree.XMLSyntaxError as exc:
+                raise TemplateMarkError("invalid") from exc
+            trees[name] = root
+            for paragraph in _mark_paragraphs(root, mark.strip()):
+                hits.append((name, root, paragraph))
+        if len(hits) != 1:
+            raise TemplateMarkError("missing" if not hits else "ambiguous")
+        _part_name, _root, anchor = hits[0]
+        lines = text.split("\n") if text else [""]
+        _replace(anchor, lines, formatted=text_mode == "formatted")
+        written = {
+            name: etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+            for name, root in trees.items()
+        }
+        buffer = BytesIO()
+        with zipfile.ZipFile(buffer, "w") as out:
+            for info in source.infolist():
+                payload = written.get(info.filename, source.read(info))
+                clone = zipfile.ZipInfo(info.filename, date_time=info.date_time)
+                clone.compress_type = info.compress_type
+                clone.external_attr = info.external_attr
+                out.writestr(clone, payload)
+    return buffer.getvalue()
 
 
 # ---------------------------------------------------------------------------
