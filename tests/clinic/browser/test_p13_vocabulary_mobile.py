@@ -33,6 +33,8 @@ def test_p13_compact_filters_and_accessible_scope_feedback(browser, vocabulary_b
         view = page.locator('.vocabulary-ui')
         rows = view.locator('tbody tr')
         picker = page.get_by_label('Wortliste', exact=True)
+        expect(picker.locator('option:checked')).to_have_text('Autoren V860')
+        picker.select_option('')
         expect(rows).to_have_count(1)
         expect(rows.first).to_contain_text('Privatwort')
         picker.select_option(label='Autoren V860')
