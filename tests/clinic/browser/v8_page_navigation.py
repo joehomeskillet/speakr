@@ -10,8 +10,17 @@ import v8_browser_support as support
 # Only the matrix needs a processing row. Keep other browser scenarios' seed unchanged.
 MATRIX_SEED = '''
 with app.app_context():
+    from src.clinic.alignment_ingest import store_asr_alignment
+    from src.clinic.revisions import current_revision
     from src.models import ProcessingJob
     rec = Recording.query.filter_by(title="Synthetisch").one()
+    dictation = ClinicDictation.query.filter_by(recording_id=rec.id).one()
+    revision = current_revision(dictation)
+    # The completed transcription already has word timings, so opening it
+    # does not enqueue another job before the processing list is checked.
+    store_asr_alignment(dictation, revision, [
+        {"words": [{"word": "Anamnese", "start": 0.0, "end": 0.4}]},
+    ], revision.model_ref)
     db.session.add(ProcessingJob(recording_id=rec.id, user_id=rec.user_id,
                                 job_type="transcribe", status="completed"))
     db.session.commit()
