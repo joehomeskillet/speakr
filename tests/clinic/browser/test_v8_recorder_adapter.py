@@ -259,7 +259,13 @@ def test_protected_draft_before_submission(app_base, browser, role_states):
             enable.click()
             expect(view.get_by_text('Der Schutz wurde aktiviert.', exact=True)).to_be_visible()
             view.get_by_test_id('submit-draft').click()
-            expect(view.get_by_test_id('status')).to_have_text('Eingereicht.')
+            preview = view.get_by_test_id('send-preview')
+            with page.expect_response(lambda res: res.url == path + '/send' and res.request.method == 'POST') as sent:
+                preview.get_by_role('button', name='Jetzt einreichen').click()
+            assert sent.value.ok, sent.value.text()
+            recipient = sent.value.json()['routing_target']['label']
+            assert recipient
+            expect(view.get_by_test_id('status')).to_have_text(f'Eingereicht. Ziel: {recipient}')
             author.close()
 
             typist, page = open_page('typist', size, theme)
