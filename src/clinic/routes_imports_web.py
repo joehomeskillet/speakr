@@ -13,9 +13,10 @@ from werkzeug.exceptions import BadRequest, RequestEntityTooLarge
 from wtforms.validators import ValidationError
 
 from src.clinic import (
-    agent_channel, agent_channel_ingest, author_suggestion, decoder, device_inventory_view, import_centre,
-    import_source_config, import_visibility, pools, recipient_defaults, speaker_client,
-    speaker_pipeline, worklist_entries,
+    agent_channel, agent_channel_ingest, author_suggestion, decoder,
+    device_inventory_view, import_centre,
+    import_source_config, import_visibility, pools, recipient_defaults,
+    speaker_client, speaker_pipeline, worklist_entries,
 )
 from src.clinic import routes_import_sources_web as source_routing
 from src.clinic.admin_dictation_access import _is_active_site_admin
