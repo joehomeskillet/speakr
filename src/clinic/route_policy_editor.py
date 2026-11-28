@@ -58,6 +58,7 @@ AUTH: tuple[str, ...] = (
     'clinic_correction.change_marker',
     'clinic_correction.get_review_markers',
     'clinic_correction.confirm_review_marker',
+    'clinic_correction.propose_vocabulary',
     # Read-only document and template preview. The handler checks correction_read
     # and never stores the upload or replaces the saved revision.
     'clinic_correction_documents.preview_document',
