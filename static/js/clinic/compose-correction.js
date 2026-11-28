@@ -40,6 +40,8 @@ import { MODES, useCorrectionModes } from './correction-modes-ui.js';
 import { useCorrectionSave } from './correction-save-ui.js';
 import { AudioMarkers } from './audio-markers-ui.js';
 import { PlaybackGain, usePlaybackGain } from './playback-gain-ui.js';
+import { FinishOptions } from './finish-options-ui.js';
+import { createWorkflowActions } from './workflow-actions-ui.js';
 
 export const COMPOSE_CORRECTION_VERSION = 1;
 
@@ -764,7 +766,7 @@ const BODY_PROPS = {
 /** Inner body: one instance per dictation. The outer view re-keys it, which disposes everything. */
 export const CorrectionBody = {
     name: 'ClinicCorrectionBody',
-    components: { DictationSummary, CorrectionAudioPanel, CorrectionWaveform, AudioMarkers, PlaybackTempo, PlaybackGain, UiIcon },
+    components: { DictationSummary, CorrectionAudioPanel, CorrectionWaveform, AudioMarkers, PlaybackTempo, PlaybackGain, UiIcon, FinishOptions },
     directives: { tip: vTip },
     props: BODY_PROPS,
     emits: ['close'],
@@ -794,6 +796,29 @@ export const CorrectionBody = {
         const a = c.alignment;
         const s = c.saver;
         const m = c.modes;
+        const finishOptions = V.shallowRef(null);
+        const finishWorkflow = createWorkflowActions({ client: c.client, reactive: V.reactive });
+        if (typeof V.watch === 'function') {
+            V.watch([c.loadGeneration, e.textRevisionId, () => e.audio.value.revisionId], async ([loaded, textId, audioId], _, onCleanup) => {
+                finishWorkflow.load(null);
+                if (!loaded || !textId || !audioId || props.openMode === 'player') return;
+                let current = true;
+                onCleanup(() => { current = false; });
+                const { outcome, data } = await c.client.request('/dictations/' + encodeURIComponent(props.dictationId) + '/detail');
+                const binding = data?.binding?.release;
+                if (!current || outcome !== 'ok' || !Array.isArray(data?.allowed_actions)
+                        || binding?.transcript_revision_id !== textId
+                        || binding.original_version_id !== audioId || !binding.context_revision_id || !binding.text_sha256) return;
+                finishWorkflow.load({ dictationId: props.dictationId, etag: data.etag, revision: data.revision,
+                    allowedActions: data.allowed_actions, binding: data.binding });
+            });
+        }
+        function onFinishKeydown(event) {
+            // Handle F5 before the nested dialog's own shortcut listener.
+            event.stopPropagation();
+            finishOptions.value?.onKeydown(event);
+            if (!event.defaultPrevented) event.preventDefault();
+        }
         const highlightOn = V.ref(true);
         const editorScroll = V.ref(0);
         const inlineWord = V.computed(() => {
@@ -888,7 +913,7 @@ export const CorrectionBody = {
         const SHORTCUTS = Object.freeze([
             ['Speichern', 'Strg/Cmd+S'], [TEXT.undo, 'Strg/Cmd+Z'], [TEXT.redo, 'Strg/Cmd+Umschalt+Z'],
             [TEXT.paragraph, 'Strg/Cmd+Enter'], [TEXT.marker, 'Strg/Cmd+Umschalt+M'], [TEXT.find, 'Strg/Cmd+F'],
-            ['Vollbild', 'Strg/Cmd+Umschalt+F'], [TEXT.shortcuts, 'F1'],
+            ['Vollbild', 'Strg/Cmd+Umschalt+F'], [TEXT.shortcuts, 'F1'], ['Fertigstellen (wenn verfügbar)', 'F5'],
         ]);
         const WORKER = { held: TEXT.workerHeld, foreign: TEXT.workerForeign, lost: TEXT.workerLost };
         const workerLabel = () => WORKER[e.lease.value.status] || TEXT.workerFree;
@@ -913,7 +938,7 @@ export const CorrectionBody = {
         const toolStatus = () => tbState.value.readOnlyReason || tbState.value.message || '';
         return {
             formatDictationReference,
-            c, FOCUS, MODES, box, styleFor, TEXT, showDiff,
+            c, FOCUS, MODES, box, styleFor, TEXT, showDiff, finishOptions, finishWorkflow, onFinishKeydown,
             tb, tbState, textEl, setTextEl, fontPx, focusMode, shortcutsOpen, highlightOn, inlineWord, editorScroll, followOn, onTextInput, onTextKeydown, onFindKeydown,
             onQuery, onReplacement, onCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, drawerClose, closeDrawer, toggleDrawer, unsavedSuffix,
             repeatState: c.repeat.state, REPEAT_TEXT,
@@ -930,11 +955,16 @@ export const CorrectionBody = {
     },
     template: `
 <section class="clinic-correction-view editor-page v8-page" data-testid="clinic-correction-view" :data-open-mode="openMode === 'player' ? 'player' : 'correction'" aria-labelledby="ccv-title" :aria-busy="loading ? 'true' : 'false'"
-         @keydown="c.onShortcut($event)">
+         @keydown.f5.exact.capture="onFinishKeydown" @keydown="c.onShortcut($event)">
   <div class="pagehead">
     <div>
       <div class="eyebrow">{{ TEXT.eyebrow }}</div>
-      <h1 id="ccv-title" style="font-weight: 700; letter-spacing: -.8px; color: var(--v8-text)">{{ openMode === 'player' ? TEXT.playerPage : TEXT.page }}</h1>
+      <div class="hline">
+        <h1 id="ccv-title" style="font-weight: 700; letter-spacing: -.8px; color: var(--v8-text)">{{ openMode === 'player' ? TEXT.playerPage : TEXT.page }}</h1>
+        <FinishOptions v-if="finishWorkflow.state.allowed.includes('release')"
+                       ref="finishOptions" :workflow="finishWorkflow" :client="c.client" :vue="vue"
+                       :disabled="dirty || loading || !!error" @finished="c.close()" />
+      </div>
       <p class="subline">{{ openMode === 'player' ? TEXT.playerSubline : TEXT.subline }}</p>
     </div>
     <div class="head-actions">
