@@ -484,7 +484,7 @@ export const RECORDING_TEMPLATE = `
       </div>
     </template>
     <div v-if="m.created && m.phase !== 'submitting'" data-testid="created">
-        <details v-if="m.canSubmit" style="margin-bottom: var(--ui-space-3); text-align: left">
+        <details v-if="m.canSubmit" class="draft-protection" style="margin-bottom: var(--ui-space-3); text-align: left">
           <summary style="${TOUCH}; cursor: pointer; align-content: center">Diktat-Schutz (optional)</summary>
           <component :is="Protection" ref="protection" :key="m.created.dictationId"
                      :client="client" :dictation-id="m.created.dictationId" />
