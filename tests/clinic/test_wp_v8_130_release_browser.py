@@ -303,7 +303,9 @@ def test_review_and_release_current_bound_versions(review_scene, tmp_path):
             output_page.get_by_test_id('clinic-dictation-back').click()
             output = _open_output(output_page, did)
             expect(output.get_by_test_id('revision')).to_be_visible()
-            expect(output.locator('[data-target]')).to_have_count(2)
+            expect(output.locator('[data-target]')).to_have_count(4)
+            for target in ('txt', 'docx', 'rtf', 'odt'):
+                expect(output.locator(f'[data-target={target}]')).to_have_count(1)
             expect(output.locator('[data-target=kis]')).to_have_count(0)
             _capture(output_page, output, tmp_path, 'p16-released')
             with output_page.expect_response(lambda r: r.url.endswith('/exports') and r.request.method == 'POST') as exported:
