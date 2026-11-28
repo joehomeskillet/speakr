@@ -23,7 +23,8 @@ ROOT = Path(__file__).resolve().parents[2]
 EXPECTED = {
     "clinic_parity.execute",
     "clinic_vocabulary.search", "clinic_vocabulary.export", "clinic_vocabulary.import_text",
-    "clinic_vocabulary.additions", "clinic_vocabulary.suppress", "clinic_vocabulary.reactivate",
+    "clinic_vocabulary.additions", "clinic_vocabulary.edit_entry",
+    "clinic_vocabulary.suppress", "clinic_vocabulary.reactivate",
     "clinic_vocabulary_review.list_resource_vocabulary_reviews",
     "clinic_vocabulary_review.undo_resource_vocabulary_review",
     "clinic_commands.list_commands", "clinic_commands.list_pronunciations",

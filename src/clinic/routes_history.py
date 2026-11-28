@@ -23,7 +23,7 @@ from src.clinic.parity_dispatch import JSON, CommandProblem, RunOnce
 from src.clinic.parity_receipts import ClinicParityReceipt, scope_key
 from src.clinic.release import ClinicReleaseSupersession, ClinicWorkStateTransfer
 from src.database import db
-from src.models import Recording, User
+from src.models import AuditEvent, Recording, User
 from src.services import audit
 
 PATH = '/api/clinic/v1/dictations/<uuid:dictation_id>'
@@ -82,6 +82,13 @@ def _history(dictation: ClinicDictation) -> list[JSON]:
         dict(kind='routing', id=row.id, action='work_state_transferred', at=_utc(row.transferred_at))
         for row in ClinicWorkStateTransfer.query.filter_by(dictation_id=dictation.id)
     ]
+    # Bind the audit event to the dictation UUID because recording IDs can be reused.
+    fields = AuditEvent.details['fields']
+    assignments = db.session.query(AuditEvent.id, AuditEvent.created_at).filter_by(
+        recording_id=dictation.recording_id, event='recording.edited', outcome='success',
+    ).filter(fields[0].as_string() == 'assignee', fields[1].as_string() == f'dictation:{dictation.id}')
+    timed.extend(dict(kind='routing', id=str(row.id), action='assignment_changed', at=_utc(row.created_at))
+                 for row in assignments)
     recording = db.session.get(Recording, dictation.recording_id)
     if recording is not None:
         archive = ClinicArchiveEvent.query.filter_by(
