@@ -156,6 +156,8 @@ def _output_dom(page):
 
 
 def _open_output(page, dictation_id):
+    if not page.url.endswith('#/aufnahmen'):
+        page.goto(page.url.split('#', 1)[0] + '#/aufnahmen', wait_until='commit')
     page.locator(f'[data-testid=open-link][data-id="{dictation_id}"]').click()
     page.get_by_test_id('clinic-dictation-link-output').click()
     return page.get_by_test_id('output-view')
@@ -351,7 +353,7 @@ def test_review_and_release_current_bound_versions(review_scene, tmp_path):
                 output.get_by_role('button', name='Standardziele speichern').click()
             assert saved.value.status == 200, saved.value.text()
             expect(output.get_by_text('Standardziele gespeichert.')).to_be_visible()
-            output_page.reload()
+            output_page.reload(wait_until='commit')
             output = _open_output(output_page, did)
             expect(rtf).to_be_checked()
             expect(kis).to_be_checked()
@@ -371,7 +373,7 @@ def test_review_and_release_current_bound_versions(review_scene, tmp_path):
                 route.fulfill(response=reply, json={**reply.json(), 'targets': []})
 
             output_page.route(targets_pattern, empty_targets)
-            output_page.reload()
+            output_page.get_by_test_id('clinic-dictation-back').click()
             output = _open_output(output_page, did)
             expect(output.get_by_text('Keine Ausgabeziele verfügbar.')).to_be_visible()
             _capture(output_page, output, tmp_path, 'p091-empty')

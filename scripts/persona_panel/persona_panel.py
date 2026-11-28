@@ -9,6 +9,8 @@ import shutil
 import sys
 import tempfile
 import time
+import warnings
+from contextlib import nullcontext, redirect_stdout
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -57,8 +59,13 @@ def persona_brief(mode, subject, context):
     )
 
 
-def synthesise(client, mode, subject, results):
-    payload = "\n\n".join(f"### {item['name']} ({pid})\n{item['text']}" for pid, item in results.items())
+def synthesise(client, mode, subject, results, own_view=False):
+    payload = "\n\n".join(
+        f"### {item['name']} ({pid})\n"
+        + (f"Screens in order: {', '.join(item['screens'])}\n" if own_view else "")
+        + item['text']
+        for pid, item in results.items()
+    )
     if mode == "walkthrough":
         task = (
             "Rank confusion points and blockers by severity x number of personas affected. "
@@ -68,6 +75,8 @@ def synthesise(client, mode, subject, results):
         )
     else:
         task = "Cluster and rank the ideas by value x number of personas supporting. Note conflicts between roles."
+    if own_view:
+        task += " Match screen numbers to each persona's screen list before comparing scores."
     response = client.send_message([
         {"role": "system", "content": "Synthesise a synthetic persona panel for a product owner. "
          "Be concrete and short. English prose; keep German quotes where useful. "
@@ -84,14 +93,17 @@ def main():
     parser = argparse.ArgumentParser(prog="persona-panel", description=__doc__)
     parser.add_argument("mode", choices=["brainstorm", "walkthrough", "list"])
     parser.add_argument("subject", nargs="?", help="topic (brainstorm) or flow name (walkthrough)")
-    parser.add_argument("images", nargs="*", help="walkthrough: staging screenshots")
+    parser.add_argument("images", nargs="*", help="walkthrough: staging screenshots or, with --own-view, hash routes")
+    parser.add_argument("--own-view", action="store_true", help="capture each persona's own synthetic staging views")
     parser.add_argument("--personas", help="comma-separated persona IDs (default: all)")
     parser.add_argument(
         "--cap-tokens", type=int, default=DEFAULT_CAP,
         help="stop once reported usage reaches this threshold (default: %(default)s)",
     )
     parser.add_argument("--context", default="", help="extra product context, text or @file (synthetic only)")
-    args = parser.parse_args()
+    args = parser.parse_intermixed_args()
+    if args.own_view and args.mode != "walkthrough":
+        parser.error("--own-view requires walkthrough")
 
     available = {p.name.removesuffix(".agent.json"): p for p in sorted(PERSONAS.glob("*.agent.json"))}
     if args.mode == "list":
@@ -105,8 +117,16 @@ def main():
     for pid in ids:
         if pid not in available:
             parser.error(f"unknown persona {pid}; have {', '.join(available)}")
-    images = [Path(image).expanduser().resolve() for image in args.images]
-    if args.mode == "walkthrough":
+    images = []
+    if args.own_view:
+        from capture import CaptureError, capture_views, validate_routes
+
+        try:
+            validate_routes(args.images)
+        except CaptureError as error:
+            parser.error(str(error))
+    elif args.mode == "walkthrough":
+        images = [Path(image).expanduser().resolve() for image in args.images]
         if not images:
             parser.error("walkthrough needs at least one screenshot")
         for image in images:
@@ -153,13 +173,26 @@ def main():
     prefix = f"{time.strftime('%Y%m%d-%H%M%S')}-{args.mode}-{slug}-"
     runs.mkdir(parents=True, exist_ok=True)
     out = Path(tempfile.mkdtemp(prefix=prefix, dir=runs))
+    views, capture_notes = {}, {}
+    if args.own_view:
+        try:
+            views, capture_notes = capture_views(ids, args.images, out / "screenshots")
+        except CaptureError as error:
+            parser.error(str(error))
+        for pid, note in capture_notes.items():
+            print(f"[{pid}] {note}", file=sys.stderr)
     # TinyTroupe reads ./config.ini on import and uses the working directory for its cache.
     shutil.copyfile(HERE / "config.ini.example", out / "config.ini")
     os.chdir(out)
     logging.disable(logging.CRITICAL)
 
-    from tinytroupe import clients, config_manager
-    from tinytroupe.agent import TinyPerson
+    with open(os.devnull, "w") as quiet, redirect_stdout(quiet) if args.own_view else nullcontext():
+        from tinytroupe import clients, config_manager
+        from tinytroupe.agent import TinyPerson
+
+    if args.own_view:
+        TinyPerson.communication_display = False
+        warnings.filterwarnings("ignore", message="Pydantic serializer warnings:", category=UserWarning)
 
     for setting in ("model", "reasoning_model", "vision_model"):
         config_manager.update(setting, model)
@@ -182,10 +215,13 @@ def main():
     aborted = None
     try:
         for pid in ids:
+            if args.own_view and pid not in views:
+                continue
             try:
                 persona = TinyPerson.load_specification(str(available[pid]))
                 if args.mode == "walkthrough":
-                    persona.see(images=[str(image) for image in images], description=brief)
+                    selected = views[pid] if args.own_view else images
+                    persona.see(images=[str(image) for image in selected], description=brief)
                 else:
                     persona.listen(brief)
                 texts = []
@@ -194,6 +230,8 @@ def main():
                     if action.get("type") == "TALK" and action.get("content"):
                         texts.append(action["content"])
                 results[pid] = {"name": persona.name, "text": "\n\n".join(texts)}
+                if args.own_view:
+                    results[pid]["screens"] = [image.stem for image in views[pid]]
                 print(f"[{pid}] ok {len(results[pid]['text'])} chars", file=sys.stderr)
             except Exception as error:
                 # Proxy error messages can contain authentication material.
@@ -204,7 +242,7 @@ def main():
 
         completed = {pid: item for pid, item in results.items() if item["text"]}
         if completed:
-            synthesis = synthesise(client, args.mode, args.subject, completed)
+            synthesis = synthesise(client, args.mode, args.subject, completed, args.own_view)
             check_cap()
     except CapExceeded as error:
         aborted = str(error)
@@ -215,7 +253,12 @@ def main():
         "> Synthetic personas and synthetic staging data only. Suggestions for the owner, not decisions.", "",
         f"- model: {model} via {base_url}", f"- personas: {', '.join(ids)}",
     ]
-    if args.mode == "walkthrough":
+    if args.own_view:
+        lines.append("- screenshots: per-persona synthetic staging views")
+        for pid, paths in views.items():
+            lines.append(f"  - {pid}: " + ", ".join(f"`{path.relative_to(out)}`" for path in paths))
+        lines.extend(f"  - {pid}: {note}" for pid, note in capture_notes.items())
+    elif args.mode == "walkthrough":
         lines.append("- screenshots: " + ", ".join(f"`{image}`" for image in args.images))
     lines.append(
         f"- usage: {stats['model_calls']} calls ({stats['cached_calls']} cached), "

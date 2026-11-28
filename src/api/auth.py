@@ -342,7 +342,7 @@ def _clinic_login():
                 next_page = request.args.get('next')
                 response = redirect(next_page if next_page and is_safe_url(next_page) else url_for('recordings.index'))
                 response.set_cookie('clinic_last_login', user.username, max_age=30 * 86400,
-                                    path=url_for('auth.login'), httponly=True,
+                                    path=url_for(request.endpoint), httponly=True,
                                     secure=request.is_secure, samesite='Lax')
                 return response
         _audit_login_failed(candidate, 'locked' if locked else 'bad_password')

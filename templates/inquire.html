@@ -1,3 +1,4 @@
+{% from 'components/brand-lockup.html' import brand_lockup -%}
 <!DOCTYPE html>
 <html lang="{{ user_language or 'en' }}" class="h-full">
 <head>
@@ -20,7 +21,7 @@
     </script>
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
-    <title>{{ page_title }} - Speakr</title>
+    <title>{{ page_title }} - {{ 'Ploudrli' if 'clinic_worklist' in url_for.__self__.blueprints else 'Speakr' }}</title>
         <!-- All dependencies bundled locally for offline support -->
         <!-- All dependencies bundled locally for offline support -->
         <!-- All dependencies bundled locally for offline support -->
@@ -29,8 +30,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tokens.css', v=app_version) }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css', v=app_version) }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/primitives.css', v=app_version) }}">
-    <link rel="icon" href="{{ url_for('static', filename='img/favicon.ico') }}">
-    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='img/icon-32x32.png') }}">
+    {% include 'includes/brand-head.html' %}
 
     <!-- Loading overlay to prevent FOUC -->
 
@@ -253,13 +253,11 @@
                 </button>
                 
                 <!-- Logo and Title (clickable to go back) -->
-                <a href="/" class="flex items-center gap-2 sm:gap-3 min-w-0 hover:opacity-80 transition-opacity">
-                    <img src="{{ url_for('static', filename='img/icon-64.png') }}" srcset="{{ url_for('static', filename='img/icon-64.png') }} 1x, {{ url_for('static', filename='img/icon-128.png') }} 2x" alt="Speakr" class="app-logo w-6 h-6 sm:w-8 sm:h-8 flex-shrink-0">
-                    <h1 class="text-lg sm:text-xl font-bold text-[var(--text-primary)] truncate">Speakr</h1>
+                <a href="/" class="flex min-h-12 min-w-12 items-center justify-center rounded-ui-sm bg-ui-surface focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ui-text">
+                    <h1 class="min-w-0">{{ brand_lockup() }}</h1>
                 </a>
                 <!-- The page label shows from 768px: below that the Ask Ambrose and
-                     New Recording labels on the right leave it no room, and the
-                     Speakr name was squeezed out of view. -->
+                     New Recording labels on the right need the available space. -->
                 <span class="text-[var(--text-muted)] hidden md:inline" aria-hidden="true">/</span>
                 <span class="t-meta hidden md:inline" v-text="t('inquire.title', { name: assistantName })"></span>
             </div>
