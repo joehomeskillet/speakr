@@ -93,6 +93,7 @@ def test_manual_source_cleanup_is_a_bound_non_deleting_decision(env, monkeypatch
     enabled = enable(admin_client, config)
     assert enabled.status_code == 200
     assert enabled.json["allow_source_delete"] is True
+    assert enabled.json["can_set_source_delete"] is True
     assert preview().json["code"] == "BACKUP_RETENTION_NOT_READY"
     monkeypatch.setitem(dev_defaults()["privacy"], "retention_policy_approved", True)
     assert preview().json["code"] == "STORED_RECEIPT_REQUIRED"
@@ -128,6 +129,7 @@ def test_manual_source_cleanup_is_a_bound_non_deleting_decision(env, monkeypatch
     assert get(outsider_client, route).status_code == 403
     configs = get(admin_client, PREFIX + "sources").json["items"]
     assert next(row for row in configs if row["id"] == config["id"])["can_set_source_delete"] is True
+    assert get(admin_client, PREFIX + f"sources/{config['id']}").json == enabled.json
     configs = get(outsider_client, PREFIX + "sources").json["items"]
     assert next(row for row in configs if row["id"] == ordinary["id"])["can_set_source_delete"] is False
     key = str(uuid4())

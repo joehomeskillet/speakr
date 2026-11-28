@@ -44,6 +44,12 @@ def _visible(config):
     return visible
 
 
+def _with_source_delete_access(actor, visible):
+    available = source_cleanup_enabled() or visible["allow_source_delete"]
+    can_set = available and may_manage_source_deletion(actor, visible)
+    return visible | {"can_set_source_delete": can_set}
+
+
 def _targets():
     authors = db.session.query(User.id, User.name, User.username).join(
         ClinicAccountPolicy, ClinicAccountPolicy.user_id == User.id).filter(ClinicAccountPolicy.status == "active")
@@ -73,10 +79,7 @@ def list_sources():
                 sources._clean_root(config["approved_root"])
             except AgentChannelError:
                 continue
-            items.append(_visible(config) | {
-                "can_set_source_delete": (source_cleanup_enabled() or config["allow_source_delete"])
-                and may_manage_source_deletion(actor, config),
-            })
+            items.append(_with_source_delete_access(actor, _visible(config)))
     except AgentChannelError as error:
         return _source_error(error)
     authors, pools = _targets() if items else ([], [])
@@ -91,8 +94,9 @@ def _owned_source(actor, config_id):
 
 
 def get_source(config_id):
+    actor = current_user.id
     try:
-        return jsonify(_visible(_owned_source(current_user.id, config_id)))
+        return jsonify(_with_source_delete_access(actor, _visible(_owned_source(actor, config_id))))
     except AgentChannelError as error:
         return _source_error(error)
 
@@ -224,7 +228,7 @@ def update_source(config_id):
             if error.code != "conflict" or db.session.get(ClinicParityReceipt, scope_key(scope)) is None:
                 raise
             result = run_once(scope, digest, write)
-        return jsonify(result)
+        return jsonify(_with_source_delete_access(actor, result))
     except CommandProblem as error:
         return _problem(str(error))
     except AgentChannelError as error:

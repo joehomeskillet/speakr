@@ -69,7 +69,7 @@ export const ImportSourceRouting = {
       <h2 id="source-routing-title">Importzuordnung</h2>
       <p v-if="!sources.length" class="empty">Keine lokal freigegebene Quelle zur Verwaltung vorhanden.</p>
       <div v-for="source in sources" :key="source.id" class="space-y-2">
-        <button type="button" class="small min-h-12 focus-visible:outline-brand-accent" :disabled="busy" @click="edit(source)">
+        <button type="button" class="min-h-12 focus-visible:outline-brand-accent" :disabled="busy" @click="edit(source)">
           {{ source.source_kind === 'device' ? 'Gerät' : 'Ordner' }} {{ source.source_ref }} zuordnen
         </button>
         <p v-if="choice?.id !== source.id" class="note">
@@ -97,8 +97,8 @@ export const ImportSourceRouting = {
             </label>
             <p id="source-delete-hint" class="hint">Nur wenn das Löschen beim Import gewählt wurde und Speakr die sichere Übernahme und Sicherung bestätigt hat.</p>
           </div>
-          <button type="submit" class="small primary min-h-12 focus-visible:outline-brand-accent" :disabled="busy">Speichern</button>
-          <button type="button" class="small min-h-12 focus-visible:outline-brand-accent" :disabled="busy" @click="choice = null">Abbrechen</button>
+          <button type="submit" class="primary min-h-12 focus-visible:outline-brand-accent" :disabled="busy">Speichern</button>
+          <button type="button" class="min-h-12 focus-visible:outline-brand-accent" :disabled="busy" @click="choice = null">Abbrechen</button>
         </form>
       </div>
       <p v-if="notice" role="status" class="note">{{ notice }}</p>
