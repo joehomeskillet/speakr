@@ -396,12 +396,12 @@
                   <div class="tab-scroll">
                     <div class="flex flex-wrap items-center justify-between gap-3 mb-1">
                         <h3 class="text-lg font-medium text-[var(--text-secondary)]">${t('adminDashboard.systemStatistics')}</h3>
-                        <div class="flex items-center gap-1.5">
+                        <div class="flex flex-wrap items-center gap-1.5">
                             <button v-for="d in [7, 30, 90]" :key="d" @click="setStatsDays(d)"
-                                    class="btn btn--sm" :class="statsDays === d ? 'btn--primary' : 'btn--ghost'"
+                                    class="btn btn--sm min-h-12 min-w-12" :class="statsDays === d ? 'btn--primary' : 'btn--ghost'"
                                     :aria-pressed="statsDays === d"
                                     v-text="t('adminDashboard.statsPage.lastDays', { count: d })"></button>
-                            <button @click="refreshStats" class="btn btn--sm btn--ghost" :title="t('buttons.refresh')" :aria-label="t('buttons.refresh')">
+                            <button @click="refreshStats" class="btn btn--sm btn--ghost min-h-12 min-w-12" :title="t('buttons.refresh')" :aria-label="t('buttons.refresh')">
                                 <i class="fas fa-sync-alt" :class="{ 'fa-spin': overviewLoading }"></i>
                             </button>
                         </div>
@@ -447,11 +447,12 @@
                             <!-- Health: states now, the job queue, the latest failures -->
                             <div class="bg-[var(--bg-tertiary)] p-4 rounded-lg border border-[var(--border-primary)] shadow-sm">
                                 <h4 class="text-md font-medium text-[var(--text-secondary)] mb-3">${t('adminDashboard.statsPage.health')}</h4>
-                                <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+                                <dl class="grid gap-y-1.5 text-sm">
                                     <template v-for="s in statusRows" :key="s.key">
                                         <div class="flex items-center justify-between gap-2 min-w-0">
-                                            <dt class="flex items-center gap-1.5 text-[var(--text-secondary)] truncate">
-                                                <span class="inline-block w-2 h-2 rounded-full flex-shrink-0" :style="{ background: s.color }"></span><span v-text="s.label"></span>
+                                            <dt class="flex items-center gap-1.5 min-w-0 text-[var(--text-secondary)]">
+                                                <span class="inline-block w-2 h-2 rounded-full flex-shrink-0" aria-hidden="true" :style="{ backgroundColor: s.color }"></span>
+                                                <span class="min-w-0 break-words" v-text="s.label"></span>
                                             </dt>
                                             <dd class="font-semibold text-[var(--text-primary)]" v-text="(s.value || 0).toLocaleString(uiLocale())"></dd>
                                         </div>
@@ -468,9 +469,11 @@
                                     <ul class="space-y-1.5">
                                         <li v-for="f in overview.failed_recent" :key="f.id" class="text-xs min-w-0" :title="f.error">
                                             <p class="text-[var(--text-primary)] truncate" v-text="'#' + f.id"></p>
-                                            <p class="text-[var(--text-muted)] truncate">
-                                                <span v-text="f.username"></span> · <span v-text="formatDate(f.created_at)"></span><span v-if="f.error"> · </span><span v-text="f.error"></span>
+                                            <p class="flex flex-wrap gap-x-2 text-[var(--text-muted)]">
+                                                <span class="min-w-0 break-words" v-text="f.username"></span>
+                                                <span v-text="formatDate(f.created_at)"></span>
                                             </p>
+                                            <p v-if="f.error" class="break-words text-[var(--text-muted)]" v-text="f.error"></p>
                                         </li>
                                     </ul>
                                 </div>
@@ -2927,8 +2930,15 @@ Summarization Instructions:
                           value: formatFileSize(o.storage), note: _t('adminDashboard.statsPage.allRecordings', { count: stats.value.total_recordings || 0 }) },
                     ];
                 });
-                const STATUS_COLORS = { completed: '#16a34a', transcribing: '#d97706', summarizing: '#ca8a04', pending: '#6366f1',
-                                        failed: '#dc2626', audioRemoved: '#94a3b8', archived: '#64748b' };
+                const STATUS_COLORS = {
+                    completed: 'var(--text-success-strong)',
+                    transcribing: 'var(--text-processing-strong)',
+                    summarizing: 'var(--text-processing-strong)',
+                    pending: 'var(--text-pending-strong)',
+                    failed: 'var(--text-danger-strong)',
+                    audioRemoved: 'var(--text-pending-strong)',
+                    archived: 'var(--text-pending-strong)',
+                };
                 const statusRows = computed(() => [
                     { key: 'completed', label: _t('adminDashboard.completedRecordings'), value: stats.value.completed_recordings },
                     { key: 'transcribing', label: _t('adminDashboard.transcribingRecordings'), value: stats.value.transcribing_recordings },
@@ -4800,6 +4810,10 @@ Summarization Instructions:
     <!-- Clinic administration panels (CLINIC_MODE only): a separate small Vue app, one shared api client.
          No interpolation braces here: Jinja would evaluate them, so the template uses v-text. -->
     <style>
+        body:has(.clinic-asr-profiles-view, .tab-content:not(.hidden) #statsRecordingsChart) #global-header a:focus-visible {
+            outline-color: var(--brand-accent-darkmode);
+        }
+
         /* Abnahme page of the clinic admin panel set: layout only, colours come from the theme variables. */
         .acc-host { max-width: 44rem; display: flex; flex-direction: column; gap: var(--sp-3); }
         .acc-lead { margin: 0; }
@@ -4829,19 +4843,21 @@ Summarization Instructions:
         [data-testid="clinic-admin"] { max-width: 100%; min-width: 0; overflow-x: clip; }
         [data-testid="clinic-admin"] .tabs { max-width: 100%; overflow-x: auto; }
         .clinic-asr-profiles-view { max-width: 56rem; display: flex; flex-direction: column; gap: var(--sp-5, 1.5rem); min-width: 0; color: var(--text-primary); }
+        .clinic-asr-profiles-view :is(h1, h2, h3) { text-wrap: balance; }
         .clinic-asr-profiles-view > h2 { margin: 0; font-size: var(--fs-heading, 1.25rem); font-weight: 600; }
         .clinic-asr-profiles-view section { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-3); min-width: 0; padding: var(--sp-4); border: 1px solid var(--border-primary); border-radius: var(--radius-md, 8px); background: var(--bg-secondary); }
         .clinic-asr-profiles-view section > h2, .clinic-asr-profiles-view section > h3 { margin: 0; font-size: var(--fs-subhead, 1.0625rem); font-weight: 600; }
         .clinic-asr-profiles-view p { margin: 0; max-width: 100%; overflow-wrap: anywhere; }
         .clinic-asr-profiles-view p[role="status"], .clinic-asr-profiles-view p[role="alert"], .clinic-asr-profiles-view p[style] { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-primary); border-radius: var(--radius-md, 8px); font-size: var(--fs-meta, 0.875rem); }
         .clinic-asr-profiles-view label { font-size: var(--fs-meta, 0.875rem); font-weight: 500; color: var(--text-secondary); }
-        .clinic-asr-profiles-view select { width: 100%; max-width: 24rem; min-height: 2.25rem; padding: var(--sp-1) 2rem var(--sp-1) var(--sp-3); background-color: var(--bg-input, var(--bg-secondary)); color: var(--text-primary); border: 1px solid var(--border-secondary, var(--border-primary)); border-radius: var(--radius-md, 8px); font-size: var(--fs-body); }
-        .clinic-asr-profiles-view input[type="number"] { width: 8rem; min-height: 2.25rem; padding: var(--sp-1) var(--sp-3); background-color: var(--bg-input, var(--bg-secondary)); color: var(--text-primary); border: 1px solid var(--border-secondary, var(--border-primary)); border-radius: var(--radius-md, 8px); font-size: var(--fs-body); }
+        .cadm .clinic-asr-profiles-view :is(button, select), .clinic-asr-profiles-view #res-asr-wait { min-width: var(--sp-7); min-height: var(--sp-7); }
+        .clinic-asr-profiles-view select { width: 100%; max-width: 24rem; padding: var(--sp-1) 2rem var(--sp-1) var(--sp-3); background-color: var(--bg-input, var(--bg-secondary)); color: var(--text-primary); border: 1px solid var(--text-muted); border-radius: var(--radius-md, 8px); font-size: var(--fs-body); }
+        .clinic-asr-profiles-view #res-asr-wait { width: 8rem; padding: var(--sp-1) var(--sp-3); background-color: var(--bg-input, var(--bg-secondary)); color: var(--text-primary); border: 1px solid var(--text-muted); border-radius: var(--radius-md, 8px); font-size: var(--fs-body); }
         .clinic-asr-profiles-view ul { list-style: none; margin: 0; padding: 0; width: 100%; border: 1px solid var(--border-primary); border-radius: var(--radius-md, 8px); }
         .clinic-asr-profiles-view li { padding: var(--sp-2) var(--sp-3); }
         .clinic-asr-profiles-view li + li { border-top: 1px solid var(--border-primary); }
         .clinic-asr-profiles-view [role="radiogroup"] { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
-        .clinic-asr-profiles-view button { display: inline-flex; align-items: center; justify-content: center; min-height: 2.25rem; padding: var(--sp-1) var(--sp-4); background: transparent; color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: var(--radius-md, 8px); font-size: var(--fs-body); font-weight: 500; cursor: pointer; }
+        .clinic-asr-profiles-view button { display: inline-flex; align-items: center; justify-content: center; padding: var(--sp-1) var(--sp-4); background: transparent; color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: var(--radius-md, 8px); font-size: var(--fs-body); font-weight: 500; cursor: pointer; }
         .clinic-asr-profiles-view button:hover:not(:disabled) { background: var(--bg-tertiary); }
         .clinic-asr-profiles-view button:disabled { opacity: 0.55; cursor: not-allowed; }
         .clinic-asr-profiles-view button[role="radio"][aria-checked="true"] { background: var(--bg-button); color: var(--text-button); border-color: var(--bg-button); }
