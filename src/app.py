@@ -597,6 +597,31 @@ install_clinic_guard(app)
 
 
 @app.before_request
+def serve_clinic_manifest() -> Response | None:
+    if (request.endpoint != 'static' or request.view_args != {'filename': 'manifest.json'}
+            or request.method not in ('GET', 'HEAD') or not _clinic_mode_enabled()):
+        return None
+
+    with app.open_resource('../static/manifest.json', 'r', encoding='utf-8') as source:
+        manifest = json.load(source)
+    manifest['lang'] = 'de'
+    manifest['description'] = 'Speakr für Klinikdiktate'
+    manifest.pop('screenshots', None)
+    manifest['shortcuts'] = [
+        {'name': label, 'url': url}
+        for label, url in (
+            ('Neue Aufnahme', '/#/neu'),
+            ('Aufnahmen', '/#/aufnahmen'),
+            ('Arbeitsliste', '/#/arbeitsliste'),
+        )
+    ]
+    response = jsonify(manifest)
+    response.mimetype = 'application/manifest+json'
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+@app.before_request
 def record_last_active():
     """Note the time of this use of the signed-in account (admin user list).
 
@@ -1438,7 +1463,7 @@ def register_clinic_audio(flask_app):
     Called at startup only in clinic mode, after register_clinic_worklist, and reuses the one
     ParityDispatch (start/stop live session are registered on it). Object decisions go through
     pool_policy.decide; an active site admin may open audio of any user (W12, audited by the
-    audio handler). TTS without a local engine or declared capability answers CAPABILITY_UNAVAILABLE.
+    audio handler). TTS without a verified local capability answers CAPABILITY_UNAVAILABLE.
     Derived rendering reads the stored originals (app_wiring.make_source_loader); the protection store is
     durable (clinic_dictation_protection). The mounted sdict export uses that same current
     revision. A source that cannot be read stays empty and is never replaced by synthetic audio.
@@ -1452,6 +1477,8 @@ def register_clinic_audio(flask_app):
     from src.clinic.ingest import IngestService
     from src.clinic.models import ClinicDictation
     from src.clinic import routes_live_drafts
+    from src.clinic.richtext_graphics import GraphicStore
+    from src.clinic.routes_richtext_graphics import create_blueprint as create_graphics_blueprint
 
     dispatch = flask_app.extensions['clinic_parity_dispatch']
     run_once = flask_app.extensions['clinic_run_once']
@@ -1493,6 +1520,10 @@ def register_clinic_audio(flask_app):
     def managed_client():
         return config.client_capabilities()['profiles'][config.client_profile()].get('document_export') is not False
 
+    def may_edit_live(actor, dictation_id):
+        return (may(actor, 'edit', db.session.get(ClinicDictation, dictation_id))
+                and routes_dictation_properties.content_unlocked(actor, dictation_id))
+
     def tts_load(actor, kind, object_id):
         dictation = db.session.get(ClinicDictation, object_id) if kind == routes_tts.SELECTION_KIND else None
         head = None if dictation is None else revisions.current_revision(dictation)
@@ -1503,33 +1534,34 @@ def register_clinic_audio(flask_app):
             subject=policy.build_subject(actor),
             recording=policy.build_facts(dictation.recording_id, dictation.author_user_id))
 
-    def edit_live(actor, dictation_id):
-        return may(actor, 'edit', db.session.get(ClinicDictation, dictation_id))
-
     drafts = DraftStore()
-    routes_live.register_live_commands(dispatch, edit_live)
+    routes_live.register_live_commands(dispatch, may_edit_live)
     flask_app.register_blueprint(routes_audio.create_blueprint(
         authorize=authorize, run_once=run_once, load_sources=load_sources))
-    flask_app.register_blueprint(routes_dictation_properties.DictationPropertyRoutes(protection_store).blueprint())
+    protection = routes_dictation_properties.DictationPropertyRoutes(protection_store)
+    flask_app.extensions['clinic_dictation_protection'] = protection
+    flask_app.register_blueprint(protection.blueprint())
     flask_app.register_blueprint(routes_bundle.create_blueprint(
         bundle_load, lambda actor, dictation_id, action: may(actor, action, db.session.get(ClinicDictation, dictation_id)),
         bundle_persist, lambda scope, digest, operation: bundle_store.run_locked(scope, digest, operation, run_once, may),
         managed_client))
     flask_app.register_blueprint(routes_live.create_blueprint(
-        edit_live, IngestService(startup.originals_root(flask_app)), drafts=drafts))
-    flask_app.register_blueprint(routes_live_drafts.create_blueprint(drafts, edit_live))
+        may_edit_live, IngestService(originals_root), drafts=drafts))
+    flask_app.register_blueprint(routes_live_drafts.create_blueprint(drafts, may_edit_live))
     flask_app.register_blueprint(routes_correction.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation),
         run_once=run_once, require_if_match=True))
     flask_app.register_blueprint(routes_correction_documents.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation)))
+    flask_app.register_blueprint(create_graphics_blueprint(GraphicStore(originals_root)))
     # V8 alignment (v8-86)
     from src.clinic import alignment_job, routes_alignment
     from src.services.job_queue import register_clinic_handler
     flask_app.register_blueprint(routes_alignment.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation), run_once=run_once))
     register_clinic_handler('clinic_alignment', alignment_job.handle)
-    flask_app.register_blueprint(routes_tts.TtsApi(tts_load, lambda: None, None).blueprint)
+    flask_app.register_blueprint(routes_tts.TtsApi.for_local_speaches(
+        tts_load, os.environ.get('CLINIC_TTS_ENDPOINT', '')).blueprint)
     flask_app.register_blueprint(routes_clipboard.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation),
         source_for=routes_output.output_source, ledger={}))
@@ -1590,15 +1622,16 @@ def register_clinic_operations(flask_app):
 
 # --- v8-75: voice consent and voice enrollment routes ---
 def register_clinic_voice_consent(flask_app):
-    """Mount the own-user voice consent and voice enrollment blueprints.
+    """Mount own-user voice consent, enrollment and the admin voice purge.
 
     Called at startup only in clinic mode. Voice profiles are opt-in: enrollment is refused
     without active consent and again after revocation (enforced in voice_consent).
-    Both modules authenticate the browser session and check CSRF themselves.
+    The blueprints authenticate the browser session and check CSRF themselves.
     """
-    from src.clinic import routes_consent, routes_voice_enrollment
+    from src.clinic import routes_consent, routes_voice_enrollment, routes_voice_purge
     flask_app.register_blueprint(routes_consent.blueprint)
     flask_app.register_blueprint(routes_voice_enrollment.blueprint)
+    flask_app.register_blueprint(routes_voice_purge.blueprint)
 # --- end v8-75 ---
 
 

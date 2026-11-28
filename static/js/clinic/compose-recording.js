@@ -22,10 +22,11 @@
  *   registerRecordingView(app)  app.component('clinic-recording-view', ...).
  *   createRecordingViewController(options)  the controller behind the view.
  *
- * Injected `uploadFile(file)` resolves with the server receipt (id or
+ * Injected `uploadFile(file, title, options)` resolves with the server receipt (id or
  * dictation_id); it is supplied by the mount package together with the recorder.
  */
 
+import { DictationProtectionComponent } from './dictation-protection-ui.js';
 import { createRecorderPhases, formatRecordingDuration, isTitleEditable, LABELS, receiptDictationId } from './recorder-phases-ui.js';
 import { createRecordLevelController, RECORD_LEVEL_TEMPLATE } from './record-level-ui.js';
 import { createPedalController } from './pedal-ui.js';
@@ -78,6 +79,9 @@ export const TEXT = Object.freeze({
     localVisibility: 'Noch nicht gesendet. Die Aufnahme ist nur in diesem Browser auf diesem Gerät.',
     submittedVisibility: 'Die Standortverwaltung kann die Aufnahme anhören und den Text lesen, sobald er vorliegt. Für alle anderen gelten getrennte Zugriffsrechte für Aufnahme und Text.',
     submitUnknown: 'Einreichung nicht bestätigt. Bitte erneut versuchen.',
+    recognition: 'Spracherkennung',
+    recognitionOn: 'ein',
+    recognitionOff: 'aus',
     categoriesLoading: 'Pflichtkategorien werden geladen …',
     categoriesFailed: 'Pflichtkategorien konnten nicht geladen werden. Bitte versuchen Sie es erneut.',
     categoriesChanged: 'Die Pflichtkategorien wurden geändert. Bitte prüfen Sie Ihre Auswahl.',
@@ -181,6 +185,8 @@ export function createRecordingViewController(options) {
     const listeners = new Set();
     const state = { mode: 'record', file: null, filePhase: 'idle', fileError: null, fileReceipt: null, disposed: false };
     let fileGeneration = 0;
+    let useSpeechRecognition = true;
+    let clientUploadId = null;
     let submission = null;
     let submitError = '';
     let pendingSend = null;
@@ -221,6 +227,29 @@ export function createRecordingViewController(options) {
 
     const denied = (code) => ({ ok: false, code: code });
     const recorderBusy = () => !['title', 'ready'].includes(machine.getState().phase);
+
+    function canChangeSpeechRecognition() {
+        return allowed() && !state.disposed && !routing && !created()
+            && ['title', 'ready', 'review', 'idle', 'selected'].includes(phase());
+    }
+
+    function toggleSpeechRecognition() {
+        if (!canChangeSpeechRecognition()) return denied('invalid_phase');
+        useSpeechRecognition = !useSpeechRecognition;
+        notify();
+        return { ok: true };
+    }
+
+    function uploadOptions() {
+        // The same draft keeps its identity on retry, even if another draft uses identical audio.
+        clientUploadId ||= globalThis.crypto.randomUUID();
+        return { useSpeechRecognition, clientUploadId };
+    }
+
+    function resetUploadChoice() {
+        useSpeechRecognition = true;
+        clientUploadId = null;
+    }
 
     async function checkRouting() {
         routing = 'routingPending';
@@ -263,6 +292,7 @@ export function createRecordingViewController(options) {
     function selectFile(file) {
         if (!allowed()) return denied('unauthorized');
         if (state.mode !== 'file' || !['idle', 'selected', 'failed'].includes(state.filePhase)) return denied('invalid_phase');
+        if (state.filePhase === 'failed') resetUploadChoice();
         if (!isAudioFile(file)) {
             Object.assign(state, { file: null, filePhase: 'idle', fileError: 'invalid_file' });
             notify();
@@ -281,7 +311,7 @@ export function createRecordingViewController(options) {
         notify();
         let receipt = null;
         try {
-            receipt = await opts.uploadFile(state.file);
+            receipt = await opts.uploadFile(state.file, undefined, uploadOptions());
         } catch (e) {
             receipt = null;
         }
@@ -301,6 +331,7 @@ export function createRecordingViewController(options) {
         if (!allowed()) return denied('unauthorized');
         if (state.mode !== 'file' || state.filePhase === 'sending' || state.filePhase === 'sent') return denied('invalid_phase');
         fileGeneration += 1;
+        resetUploadChoice();
         Object.assign(state, { file: null, filePhase: 'idle', fileError: null });
         notify();
         return { ok: true };
@@ -339,6 +370,7 @@ export function createRecordingViewController(options) {
                     return;
                 }
                 target.etag = current.etag;
+                target.useSpeechRecognition = current.use_speech_recognition;
                 target.fields = null;
                 target.editActions = Array.isArray(current.draft_edit_actions) ? current.draft_edit_actions : [];
                 target.canSend = current.allowed_actions?.includes('send') === true;
@@ -540,6 +572,10 @@ export function createRecordingViewController(options) {
         }
     }
 
+    function send() {
+        return machine.send(opts.oneButton || opts.draftMetadata || !useSpeechRecognition ? uploadOptions() : undefined);
+    }
+
     async function start() {
         if (routing || created() || state.mode !== 'record' || state.disposed || noCaptureFormat()) return denied('invalid_phase');
         if (opts.microphone && machine.controls().some(({ id, disabled }) => id === 'start' && !disabled)) {
@@ -563,7 +599,7 @@ export function createRecordingViewController(options) {
             return denied('invalid_phase');
         }
         savingTakeAsDraft = true;
-        const uploaded = await machine.send();
+        const uploaded = await send();
         if (uploaded.ok && opts.draftMetadata) await loadDraft();
         return uploaded;
     }
@@ -573,7 +609,7 @@ export function createRecordingViewController(options) {
         if (!receipt()) {
             if (savingTakeAsDraft || (separateSubmit() && opts.draftMetadata)
                 || (opts.draftMetadata && !opts.oneButton)) return saveRecording();
-            const uploaded = await machine.send();
+            const uploaded = await send();
             if (!uploaded.ok || separateSubmit()) return uploaded;
         }
         return submit();
@@ -583,6 +619,7 @@ export function createRecordingViewController(options) {
         const result = await machine.cancel();
         if (result.ok) {
             savingTakeAsDraft = false;
+            resetUploadChoice();
             notify();
         }
         return result;
@@ -620,6 +657,7 @@ export function createRecordingViewController(options) {
         opts.onDraft?.(null);
         categoryValues = {};
         Object.assign(state, { file: null, filePhase: 'idle', fileError: null, fileReceipt: null });
+        resetUploadChoice();
         if (machine.getState().phase === 'sent') machine.reset();
         if (client && typeof client.switchContext === 'function') client.switchContext({});
         if (categoryLoad) void loadCategories();
@@ -817,10 +855,13 @@ export function createRecordingViewController(options) {
             uploadLabel: state.filePhase === 'failed' ? 'Erneut hochladen' : TEXT.upload,
             canCancelFile: allowed() && (state.filePhase === 'selected' || state.filePhase === 'failed'),
             canSwitchMode: allowed() && !recorderBusy() && !fileBusy,
+            canChangeSpeechRecognition: canChangeSpeechRecognition(),
+            useSpeechRecognition: draft?.useSpeechRecognition ?? receipt()?.use_speech_recognition
+                ?? (created() && !clientUploadId ? null : useSpeechRecognition),
             created: created(),
             editableDraftId: editableDraftId(),
             canSaveRecording: (!opts.draftMetadata || opts.oneButton === true) && !routing && state.mode === 'record'
-                && !separateSubmit() && !s.receipt && s.phase === 'review',
+                && !separateSubmit() && !s.receipt && (s.phase === 'review' || (savingTakeAsDraft && s.phase === 'failed')),
             message: message(),
             surface: surface(),
         };
@@ -909,7 +950,7 @@ export function createRecordingViewController(options) {
         pause: () => machine.pause(), resume: () => machine.resume(),
         stop, rewind: () => machine.rewind(), play: () => machine.play(),
         beginning: machine.beginning, end: machine.end,
-        send: () => machine.send(), cancel: cancelRecording,
+        send, cancel: cancelRecording, toggleSpeechRecognition,
         selectFile, sendFile, cancelFile, submit, sendRecording, checkRouting, loadCategories, selectCategory,
         loadDraft, setDraftField, saveDraft, openCreated, toWorklist, another, dispose,
         attachPedal,
@@ -932,23 +973,23 @@ const DraftSendFields = {
     <h2 style="margin: 0 0 var(--ui-space-3); font-size: 1.25rem">Versanddaten</h2>
     <p role="status" v-if="m.draft.loading">Entwurfsdaten werden geladen …</p>
     <button v-else-if="!m.draft.fields" type="button" class="button" style="${TOUCH}" @click="c.loadDraft()">Erneut laden</button>
-    <form v-else data-testid="draft-metadata" style="text-align: left" @submit.prevent="c.saveDraft()">
+    <form v-else class="draft-metadata" data-testid="draft-metadata" style="text-align: left" @submit.prevent="c.saveDraft()">
       <fieldset :disabled="!m.canEditDraft" style="min-width: 0">
         <legend class="sr-only">Versanddaten bearbeiten</legend>
         <label style="${DRAFT_FIELD}"><span>Titel</span>
-          <input required maxlength="200" :disabled="!m.draft.editActions.includes('rename')" :value="m.draft.fields.title" @input="c.setDraftField('title', $event.target.value)" />
+          <input class="!border-ui-text-muted" required maxlength="200" :disabled="!m.draft.editActions.includes('rename')" :value="m.draft.fields.title" @input="c.setDraftField('title', $event.target.value)" />
         </label>
         <label style="${DRAFT_FIELD}"><span>Anmerkung</span>
-          <textarea maxlength="4000" rows="2" :disabled="!m.draft.editActions.includes('rename')" :value="m.draft.fields.notes" @input="c.setDraftField('notes', $event.target.value)"></textarea>
+          <textarea class="!border-ui-text-muted" maxlength="4000" rows="2" :disabled="!m.draft.editActions.includes('rename')" :value="m.draft.fields.notes" @input="c.setDraftField('notes', $event.target.value)"></textarea>
         </label>
         <div class="field-grid">
           <label style="${DRAFT_FIELD}"><span>Priorität</span>
-            <select :disabled="!m.draft.editActions.includes('priority')" :value="m.draft.fields.priority" @change="c.setDraftField('priority', Number($event.target.value))">
+            <select class="!border-ui-text-muted" :disabled="!m.draft.editActions.includes('priority')" :value="m.draft.fields.priority" @change="c.setDraftField('priority', Number($event.target.value))">
               <option v-for="p in priorities" :key="p.value" :value="p.value">{{ p.label }}</option>
             </select>
           </label>
           <label style="${DRAFT_FIELD}"><span>Frist</span>
-            <input type="date" :disabled="!m.draft.editActions.includes('priority')" :value="m.draft.fields.deadline_date" @input="c.setDraftField('deadline_date', $event.target.value)" />
+            <input class="!border-ui-text-muted" type="date" :disabled="!m.draft.editActions.includes('priority')" :value="m.draft.fields.deadline_date" @input="c.setDraftField('deadline_date', $event.target.value)" />
             <small>Tagesende (Europe/Zurich)</small>
           </label>
         </div>
@@ -974,6 +1015,16 @@ export const RECORDING_TEMPLATE = `
          style="display: grid; place-items: center; min-height: min(56dvh, 30rem); padding: var(--ui-space-6) var(--ui-space-4); color: var(--ui-text)">
   <h1 id="crv-title" class="sr-only">{{ c.text.title }}</h1>
   <div style="width: 100%; max-width: 28rem; text-align: center">
+    <button v-if="m.canChangeSpeechRecognition" type="button" role="switch" data-testid="recognition-switch"
+            class="button quiet focus-visible:outline focus-visible:outline-2 focus-visible:outline-ui-text"
+            :aria-checked="m.useSpeechRecognition" @click="c.toggleSpeechRecognition()"
+            style="${TOUCH}; border-color: var(--ui-border); margin-bottom: var(--ui-space-3)">
+      {{ c.text.recognition }} <span aria-hidden="true">{{ m.useSpeechRecognition ? c.text.recognitionOn : c.text.recognitionOff }}</span>
+    </button>
+    <p v-else-if="m.useSpeechRecognition !== null && (m.created || (!m.routing && ['sending', 'failed'].includes(m.phase)))"
+       data-testid="recognition-status" style="margin: 0 0 var(--ui-space-3)">
+      {{ c.text.recognition }} {{ m.useSpeechRecognition ? c.text.recognitionOn : c.text.recognitionOff }}
+    </p>
     <p v-show="m.message" role="status" aria-live="polite" data-testid="status" style="margin: 0 0 var(--ui-space-3)"
        :style="m.phase === 'submitted' ? { fontSize: '1.25rem', fontWeight: 650 } : null">{{ m.message }}</p>
     <div v-if="m.recordingReceipt" role="status" style="margin-bottom: var(--ui-space-4); overflow-wrap: anywhere">
@@ -1106,24 +1157,30 @@ export const RECORDING_TEMPLATE = `
         <draft-send-fields v-if="m.draft && !m.retryingTake && !['retryPending', 'submitted', 'notDraft'].includes(m.phase)" :m="m" :c="c" @reload="reloadDraft" />
         <required-categories v-if="!m.retryingTake && !['retryPending', 'submitting'].includes(m.phase) && m.categories.length && m.canSubmit"
                              :items="m.categories" :disabled="!m.canSelectCategory" @select="c.selectCategory" />
+        <details v-if="m.canSubmit" class="draft-protection" style="margin-bottom: var(--ui-space-3); text-align: left">
+          <summary style="${TOUCH}; cursor: pointer; align-content: center">Diktat-Schutz (optional)</summary>
+          <component :is="Protection" ref="protection" :key="m.created.dictationId"
+                     :client="client" :dictation-id="m.created.dictationId" />
+        </details>
         <span class="sr-only" data-testid="created-id">{{ m.created.dictationId }}</span>
         <div v-if="!m.routing && m.canSubmit && (m.retryingTake || m.directSend) && m.phase !== 'retryPending'"
              style="display: grid; justify-items: center; gap: var(--ui-space-3)">
           <p v-if="m.plannedDestination" data-testid="send-destination" style="margin: 0; overflow-wrap: anywhere">{{ m.plannedDestination }}</p>
-          <button type="button" class="button primary" style="${TOUCH}; width: 100%; font-size: 1rem" data-testid="rec-send" @click="c.submit()">{{ m.recordActionLabel }}</button>
+          <button type="button" class="button primary" style="${TOUCH}; width: 100%; font-size: 1rem" data-testid="rec-send" :disabled="protecting()" @click="c.submit()">{{ m.recordActionLabel }}</button>
         </div>
         <div v-else-if="m.mode === 'record' && m.phase === 'submitted'" style="display: grid; justify-items: center; gap: var(--ui-space-2)">
           <button type="button" class="button primary" data-testid="open-created" style="${TOUCH}; width: 100%; font-size: 1rem" @click="c.openCreated()">Diktat öffnen</button>
           <p v-if="m.submittedVisibility" role="status" data-testid="submitted-visibility" style="margin: var(--ui-space-2) 0 0">{{ m.submittedVisibility }}</p>
           <a href="#/neu" data-testid="another" style="${LINK}" @click.prevent="c.another()">{{ c.text.title }}</a>
         </div>
-        <div v-else-if="!m.directSend && m.phase !== 'retryPending'" class="actions" style="justify-content: center">
+        <fieldset v-else-if="!m.directSend && m.phase !== 'retryPending'" class="actions" :disabled="protecting()"
+                  style="justify-content: center; border: 0; padding: 0; margin: 0; min-inline-size: 0">
           <button v-if="!['submitted', 'notDraft'].includes(m.phase)" type="button" class="button primary" style="${TOUCH}"
                   :disabled="!m.canSubmit || m.categoriesLoading" data-testid="submit-draft" @click="c.submit()">{{ c.text.submit }}</button>
           <a href="#/diktat" data-testid="open-created" style="${LINK}" @click.prevent="c.openCreated()">{{ m.mode === 'file' ? c.text.open : 'Diktat öffnen' }}</a>
           <button v-if="m.mode === 'file'" type="button" class="button" style="${TOUCH}" data-testid="to-worklist" @click="c.toWorklist()">{{ c.text.toWorklist }}</button>
           <button type="button" class="button" style="${TOUCH}" data-testid="another" :disabled="m.draft?.saving || m.draft?.loading || m.phase === 'submitting'" @click="c.another()">{{ c.text.title }}</button>
-        </div>
+        </fieldset>
       </div>
     </template>
     <div v-if="m.canSaveRecording" style="margin-top: var(--ui-space-3)">
@@ -1195,6 +1252,9 @@ export const RecordingView = {
             await V.nextTick();
             microphonePicker.value?.querySelector('[aria-pressed="true"]')?.focus();
         }
+        const protection = V.ref(null);
+        const Protection = { ...DictationProtectionComponent(V), mounted() { void this.model.load(); } };
+        const protecting = () => protection.value?.model.state.status === 'busy';
         const editingDraft = V.ref(null);
         const audioEditButton = V.ref(null);
         function openAudioEdits() {
@@ -1326,6 +1386,7 @@ export const RecordingView = {
             m,
             root,
             microphonePicker, finishMicrophoneChoice,
+            Protection, protection, protecting,
             editingDraft, audioEditButton, openAudioEdits, closeAudioEdits,
             reviewSource,
             bindReview,
