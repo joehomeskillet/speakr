@@ -66,6 +66,7 @@ def test_foreign_lease_allows_listening_without_edits(browser, app_base, role_st
         expect(page.get_by_test_id("text")).to_have_value("Anamnese Husten seit drei Tagen.")
         expect(page.locator('[data-action="acquire"]')).to_have_count(0)
         expect(page.locator('#ccv-readonly')).to_have_text('Sie haben für dieses Diktat Leserechte.')
+        expect(page.locator('#ccv-readonly')).to_have_attribute('role', 'status')
     finally:
         writer.close()
         listener.close()
