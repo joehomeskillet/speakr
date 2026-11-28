@@ -56,6 +56,7 @@ AUTH: tuple[str, ...] = (
     'clinic_output.export_status',
     # P-081: the signed-in user's output formats. The handler reads current_user and checks If-Match.
     'clinic_preferences.output',
+    'clinic_audio.download_original',
 )
 
 ADMIN: tuple[str, ...] = ()
