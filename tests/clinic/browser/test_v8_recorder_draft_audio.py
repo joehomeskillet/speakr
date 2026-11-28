@@ -81,6 +81,12 @@ def test_recorder_saves_and_reopens_draft_audio(recorder_app, size, theme):
             expect(view.get_by_test_id("rec-send")).to_be_enabled()
             save = view.get_by_role("button", name="Entwurf sichern", exact=True)
             expect(save).to_be_enabled()
+            if _CAPTURE:
+                page.wait_for_function("""() => {
+                    const audio = document.querySelector('[data-testid="clinic-recording-view"] audio');
+                    return audio && audio.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+                        && Number.isFinite(audio.duration) && !audio.seeking && audio.currentTime === 0;
+                }""")
             capture("review")
             with page.expect_response(app_base + "/upload") as upload:
                 save.click()

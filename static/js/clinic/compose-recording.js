@@ -81,6 +81,11 @@ export const TEXT = Object.freeze({
     state: 'Stand',
     noValue: '–',
     cancel: 'Abbrechen',
+    vox: 'Stimmsteuerung',
+    voxOff: 'Aus: Sprachpausen bleiben erhalten.',
+    voxNext: 'Ein ab der nächsten Aufnahme.',
+    voxActive: 'Diese Aufnahme wird stimmgesteuert.',
+    voxActiveNextOff: 'Diese Aufnahme bleibt stimmgesteuert. Ab der nächsten Aufnahme aus.',
 });
 
 /** Short phase caption next to the recording controls; the live region carries the full message. */
@@ -167,6 +172,8 @@ export function createRecordingViewController(options) {
     let categoryValues = {};
     // A host that calls checkRouting() right after mounting (RecordingView) starts without the pending state.
     let routing = opts.oneButton && !opts.preflightOnMount ? 'routingPending' : null;
+    let voxEnabled = false;
+    let takeVoxEnabled = false;
 
     const notify = () => { for (const listener of listeners) listener(); };
     machine.subscribe(notify);
@@ -198,6 +205,14 @@ export function createRecordingViewController(options) {
             notify();
         }
         return { ok: true };
+    }
+
+    function toggleVox() {
+        if (!allowed()) return denied('unauthorized');
+        if (state.disposed) return denied('invalid_phase');
+        voxEnabled = !voxEnabled;
+        notify();
+        return { ok: true, enabled: voxEnabled };
     }
 
     function selectFile(file) {
@@ -349,6 +364,17 @@ export function createRecordingViewController(options) {
         }
     }
 
+    async function start() {
+        if (routing || state.mode !== 'record' || state.disposed) return denied('invalid_phase');
+        const forTake = voxEnabled;
+        const result = await machine.start({ voxEnabled: forTake });
+        if (result.ok) {
+            takeVoxEnabled = forTake;
+            notify();
+        }
+        return result;
+    }
+
     function saveRecording() {
         if (state.mode !== 'record' || routing || state.disposed) return denied('invalid_phase');
         return machine.send();
@@ -454,6 +480,11 @@ export function createRecordingViewController(options) {
             authorId: String(user.id),
             title: s.title,
             titleLocked: !isTitleEditable(s.phase),
+            voxEnabled,
+            voxStatus: ['recording', 'paused', 'review', 'failed'].includes(s.phase) && takeVoxEnabled
+                ? (voxEnabled ? TEXT.voxActive : TEXT.voxActiveNextOff)
+                : (voxEnabled ? TEXT.voxNext : TEXT.voxOff),
+            canToggleVox: allowed() && !state.disposed,
             controls: machine.controls(),
             file: state.file ? { name: String(state.file.name || ''), size: Number(state.file.size) || 0 } : null,
             canSelectFile: allowed() && !fileBusy,
@@ -496,7 +527,8 @@ export function createRecordingViewController(options) {
             return () => listeners.delete(listener);
         },
         setMode, setTitle: (value) => machine.setTitle(value),
-        start: () => routing || state.mode !== 'record' || state.disposed ? denied('invalid_phase') : machine.start(),
+        toggleVox,
+        start,
         pause: () => machine.pause(), resume: () => machine.resume(),
         stop: () => machine.stop(), rewind: () => machine.rewind(), play: () => machine.play(),
         beginning: machine.beginning, end: machine.end,
@@ -527,6 +559,14 @@ export const RECORDING_TEMPLATE = `
       <required-categories v-if="m.categories.length && (m.canSubmit || m.phase === 'submitting')"
                            :items="m.categories" :disabled="!m.canSelectCategory" @select="c.selectCategory" />
       <template v-if="m.mode === 'record'">
+        <div class="vox-control" style="display: grid; justify-items: center; gap: var(--ui-space-2); margin: 0 auto var(--ui-space-4); max-width: 100%">
+          <button type="button" role="switch" class="button" :class="{ accent: m.voxEnabled }" data-testid="vox-toggle"
+                  aria-label="Stimmsteuerung" aria-describedby="vox-status" :aria-checked="m.voxEnabled"
+                  :disabled="!m.canToggleVox" @click="c.toggleVox()" style="${TOUCH}; font-size: .875rem">
+            {{ c.text.vox }}: {{ m.voxEnabled ? 'Ein' : 'Aus' }}
+          </button>
+          <small id="vox-status" class="hint" data-testid="vox-status" style="text-align: center">{{ m.voxStatus }}</small>
+        </div>
         <div v-if="m.phase === 'title' || m.phase === 'ready'" style="display: grid; justify-items: center; gap: var(--ui-space-2)">
           <button type="button" class="button accent" data-testid="rec-start" :aria-keyshortcuts="shortcuts.start" :disabled="!enabled('start')" @click="c.start()"
                   style="width: 10rem; height: 10rem; border-radius: 50%; flex-direction: column; gap: var(--ui-space-2); font-size: 1rem">

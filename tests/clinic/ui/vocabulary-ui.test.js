@@ -39,6 +39,39 @@ describe('vocabulary ui', () => {
         expect(await store.setScope('pool', '')).toBeNull();
     });
 
+    it('submits read-only pool additions and suppressions for review without editing the list', async () => {
+        const { client, store, writes } = setup([], [ok({ entries: [ENTRY('v1')], can_write: false })]);
+        client.command = vi.fn().mockResolvedValue(ok({ status: 'committed' }));
+        await store.setScope('pool', 'p1');
+        await store.propose('  Neue   Vokabel  ');
+        await store.proposeSuppression('e1');
+        expect(client.command.mock.calls.map(([command]) => command.payload)).toEqual([
+            { scope_type: 'author_pool', scope_id: 'p1', operation: 'add', written: 'Neue Vokabel' },
+            { scope_type: 'author_pool', scope_id: 'p1', operation: 'negative', written: 'Metformin' },
+        ]);
+        expect(client.command.mock.calls[0][0]).toMatchObject({
+            command: 'propose_vocabulary_change', request_id: expect.any(String), expected_revision: 0,
+        });
+        expect(writes()).toHaveLength(0);
+        expect(store.state.entries).toEqual([ENTRY('v1')]);
+        expect(store.state.message).toContain('zur Prüfung');
+    });
+
+    it('reuses the pending proposal receipt after an unknown response and never in another scope', async () => {
+        const { client, store } = setup([], [ok({ entries: [], can_write: false })]);
+        client.command = vi.fn().mockResolvedValue(bad('UNKNOWN'));
+        await store.setScope('pool', 'p1');
+        await store.propose('Neues Wort');
+        await store.propose('Anderes Wort');
+        await store.retry();
+        expect(client.command.mock.calls).toHaveLength(2);
+        expect(client.command.mock.calls[1]).toEqual(client.command.mock.calls[0]);
+        await store.setScope('user');
+        await store.retry();
+        await store.propose('Andere Liste');
+        expect(client.command.mock.calls).toHaveLength(2);
+    });
+
     it('keeps the selected pool entries when the previous personal search completes late', async () => {
         let finishPersonal;
         const personal = new Promise((resolve) => { finishPersonal = resolve; });
