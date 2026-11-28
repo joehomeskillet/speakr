@@ -66,6 +66,7 @@ export const LABELS = Object.freeze({
     statDisabled: 'Deaktivierte Konten',
     statDisabledNote: 'Nicht anmeldefähig',
     cardMembers: 'Mitglieder',
+    openPool: 'Zum Autorenpool:',
     createTitle: 'Autorenpool anlegen',
     createHelp: 'Der Name muss eindeutig sein. Die Mitglieder werden danach in der Karte des Pools zugeordnet; ein Benutzer kann in mehreren Pools stehen.',
     createName: 'Name des neuen Autorenpools',
@@ -374,26 +375,37 @@ export const AUTHORS_TEMPLATE = `
         </div>
         <p class="result-count" aria-live="polite">{{ controller.visible().length }} von {{ state.rows.length }} {{ labels.list }}</p>
         <p v-if="!controller.visible().length" class="empty">{{ labels.filterEmpty }}</p>
-        <div v-else class="table-wrap" role="region" :aria-label="labels.list" tabindex="0">
-          <table :aria-label="labels.list">
-            <thead><tr>
-              <th scope="col">{{ labels.columns.name }}</th><th scope="col">{{ labels.columns.authorPools }}</th>
-              <th scope="col">{{ labels.columns.staffPools }}</th><th scope="col">{{ labels.columns.role }}</th>
-              <th scope="col">{{ labels.columns.status }}</th>
+        <div v-else class="table-wrap cadm-tablewrap--stack authors-table-wrap" role="region" :aria-label="labels.list" tabindex="0">
+          <table class="cadm-table--stack" role="table" :aria-label="labels.list">
+            <thead role="rowgroup"><tr role="row">
+              <th scope="col" role="columnheader">{{ labels.columns.name }}</th><th scope="col" role="columnheader">{{ labels.columns.authorPools }}</th>
+              <th scope="col" role="columnheader">{{ labels.columns.staffPools }}</th><th scope="col" role="columnheader">{{ labels.columns.role }}</th>
+              <th scope="col" role="columnheader">{{ labels.columns.status }}</th>
             </tr></thead>
-            <tbody>
-              <tr v-for="r in controller.visible()" :key="r.id" :data-user-id="r.id">
-                <th scope="row"><strong>{{ r.name }}</strong><small>{{ labels.columns.id }}: {{ r.id }}</small></th>
-                <td class="wrap">
-                  <div v-for="p in r.authorPools" :key="p.id">{{ p.name }}</div>
-                  <div v-if="r.multiAuthorPool" role="note" class="hint" style="margin-top: 6px">{{ labels.multiMembership }}</div>
+            <tbody role="rowgroup">
+              <tr v-for="r in controller.visible()" :key="r.id" :data-user-id="r.id" role="row">
+                <th scope="row" role="rowheader"><strong>{{ r.name }}</strong><small>{{ labels.columns.id }}: {{ r.id }}</small></th>
+                <td class="wrap authors-memberships" role="cell">
+                  <span class="authors-cell-label" aria-hidden="true">{{ labels.columns.authorPools }}</span>
+                  <div>
+                    <button v-for="p in r.authorPools" :key="p.id" type="button" class="authors-pool-action"
+                            :aria-label="labels.openPool + ' ' + p.name" :aria-controls="'authors-pool-card-' + p.id"
+                            @click="openPoolCard($event)">{{ p.name }}</button>
+                    <div v-if="r.multiAuthorPool" role="note" class="hint" style="margin-top: 6px">{{ labels.multiMembership }}</div>
+                  </div>
                 </td>
-                <td class="wrap">
-                  <div v-for="p in r.staffPools" :key="p.id">{{ p.name }}</div>
-                  <span v-if="r.noStaffPool" class="muted">{{ labels.noStaffPool }}</span>
+                <td class="wrap" role="cell">
+                  <span class="authors-cell-label" aria-hidden="true">{{ labels.columns.staffPools }}</span>
+                  <div>
+                    <div v-for="p in r.staffPools" :key="p.id">{{ p.name }}</div>
+                    <span v-if="r.noStaffPool" class="muted">{{ labels.noStaffPool }}</span>
+                  </div>
                 </td>
-                <td>{{ r.roleLabel }}</td>
-                <td><span class="tag" :class="r.surface === 'success' ? 'neutral' : (r.surface === 'error' ? 'error' : 'wait')">{{ r.statusLabel }}</span></td>
+                <td role="cell"><span class="authors-cell-label" aria-hidden="true">{{ labels.columns.role }}</span><span>{{ r.roleLabel }}</span></td>
+                <td role="cell">
+                  <span class="authors-cell-label" aria-hidden="true">{{ labels.columns.status }}</span>
+                  <span class="tag" :class="r.surface === 'success' ? 'neutral' : (r.surface === 'error' ? 'error' : 'wait')">{{ r.statusLabel }}</span>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -408,7 +420,7 @@ export const AUTHORS_TEMPLATE = `
     </div>
     <div v-if="state.poolCards.length" class="grid three" style="margin-top: 20px" data-testid="author-pool-cards">
       <section v-for="p in state.poolCards" :key="p.id" class="panel" :aria-label="p.name">
-        <h2>{{ p.name }}</h2>
+        <h2 :id="'authors-pool-card-' + p.id" class="authors-pool-target" tabindex="-1">{{ p.name }}</h2>
         <dl class="keyvalues">
           <div><dt>{{ labels.cardMembers }}</dt><dd>{{ p.members.length ? p.members.join(', ') : '–' }}</dd></div>
           <div><dt>{{ labels.cardRouted }}</dt><dd data-testid="author-pool-routes">{{ p.staffPools.length ? p.staffPools.join(', ') : labels.noStaffPool }}</dd></div>
@@ -463,9 +475,13 @@ export const AuthorsView = {
         const controller = createAuthorsController({ client: props.client, reactive: (o) => Vue.reactive(o) });
         const poolsComponent = Vue.markRaw(createPoolsComponent(Vue, props.client));
         const surfaceStyle = (kind) => style(kind);
+        function openPoolCard({ currentTarget }) {
+            const heading = currentTarget.ownerDocument.getElementById(currentTarget.getAttribute('aria-controls'));
+            heading.focus();
+        }
         Vue.onMounted(() => controller.load());
         return {
-            state: controller.state, controller, labels: LABELS, poolsComponent,
+            state: controller.state, controller, labels: LABELS, poolsComponent, openPoolCard,
             errorStyle: style('error'), surfaceStyle,
         };
     },

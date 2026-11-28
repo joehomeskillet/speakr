@@ -574,3 +574,111 @@ def test_import_vocabulary_text_rules(session):
             content="Anamnese", scope="pool", pool_id="pool-test", duplicate_rule="error", session=session
         )
     assert exc.value.code == "duplicate_entry"
+
+
+# ============================================================================
+# 5. Spoken search and confirmed bulk suppress/delete (PAR-VOC-006)
+# ============================================================================
+
+
+def _entry(session, written, spoken):
+    entry = vocabulary.add_vocabulary_entry(
+        scope="user", written_form=written, spoken_form=spoken, user_id=501, session=session
+    )
+    session.commit()
+    return entry
+
+
+def _find(session, query, mode, field):
+    return [
+        row.written_form for row in vocabulary.search_vocabulary(
+            query=query, mode=mode, field=field, scope="user", user_id=501, session=session
+        )
+    ]
+
+
+def test_search_written_spoken_and_both_in_all_four_modes(session):
+    _entry(session, "Hypertonie", "Bluthochdruck")
+    _entry(session, "Blutbild", "Labor")
+    _entry(session, "Anamnese", None)
+
+    # written: only the written form, so the spoken word "Bluthochdruck" misses.
+    assert _find(session, "Hyper", "prefix", "written") == ["Hypertonie"]
+    assert _find(session, "hochdruck", "suffix", "written") == []
+    assert _find(session, "tonie", "contains", "written") == ["Hypertonie"]
+    assert _find(session, "Anamnese", "exact", "written") == ["Anamnese"]
+
+    # spoken: only the spoken form. An entry without one never matches.
+    assert _find(session, "blut", "prefix", "spoken") == ["Hypertonie"]
+    assert _find(session, "druck", "suffix", "spoken") == ["Hypertonie"]
+    assert _find(session, "hoch", "contains", "spoken") == ["Hypertonie"]
+    assert _find(session, "Labor", "exact", "spoken") == ["Blutbild"]
+    assert _find(session, "Anamnese", "exact", "spoken") == []
+
+    # all: either form. "Blut" starts the written form of one and the spoken form of the other.
+    assert _find(session, "Blut", "prefix", "all") == ["Blutbild", "Hypertonie"]
+    assert _find(session, "druck", "suffix", "all") == ["Hypertonie"]
+    assert _find(session, "bor", "contains", "all") == ["Blutbild"]
+    assert _find(session, "Anamnese", "exact", "all") == ["Anamnese"]
+
+    # A query of "%" or "_" stays literal, it is not a wildcard.
+    _entry(session, "100%", "Prozent")
+    assert _find(session, "%", "contains", "written") == ["100%"]
+    assert _find(session, "_", "contains", "written") == []
+
+
+def test_search_rejects_an_unknown_field(session):
+    with pytest.raises(vocabulary.VocabularyError) as exc:
+        vocabulary.search_vocabulary(query="a", field="regex", scope="user", user_id=501, session=session)
+    assert exc.value.code == "invalid_field"
+
+
+def test_bulk_checks_every_version_then_suppresses_or_deletes_all(session):
+    first = _entry(session, "Alpha", "a")
+    second = _entry(session, "Beta", "b")
+    items = [
+        {"id": first.id, "expected_version": first.updated_at.isoformat()},
+        {"id": second.id, "expected_version": second.updated_at.isoformat()},
+    ]
+
+    # One stale version rejects the whole list: nothing is suppressed.
+    stale = [dict(items[0], expected_version="1999-01-01T00:00:00+00:00"), items[1]]
+    with pytest.raises(vocabulary.VocabularyError) as exc:
+        vocabulary.apply_vocabulary_bulk(stale, "suppress", session=session)
+    assert exc.value.code == "stale_version"
+    session.rollback()
+    assert session.get(vocabulary.ClinicVocabularyEntry, first.id).status == vocabulary.STATUS_ACTIVE
+    assert session.get(vocabulary.ClinicVocabularyEntry, second.id).status == vocabulary.STATUS_ACTIVE
+
+    suppressed = vocabulary.apply_vocabulary_bulk(items, "suppress", session=session)
+    session.commit()
+    assert [row.status for row in suppressed] == [vocabulary.STATUS_SUPPRESSED, vocabulary.STATUS_SUPPRESSED]
+
+    # A hard delete of the same versions now fails, because suppression moved them.
+    with pytest.raises(vocabulary.VocabularyError):
+        vocabulary.apply_vocabulary_bulk(items, "delete", session=session)
+    session.rollback()
+    assert session.get(vocabulary.ClinicVocabularyEntry, first.id) is not None
+
+    fresh = [
+        {"id": first.id, "expected_version": first.updated_at.isoformat()},
+        {"id": second.id, "expected_version": second.updated_at.isoformat()},
+    ]
+    assert vocabulary.apply_vocabulary_bulk(fresh, "delete", session=session) == []
+    session.commit()
+    assert session.get(vocabulary.ClinicVocabularyEntry, first.id) is None
+    assert session.get(vocabulary.ClinicVocabularyEntry, second.id) is None
+
+
+def test_bulk_rejects_a_missing_or_repeated_entry_without_touching_the_rest(session):
+    kept = _entry(session, "Gamma", "g")
+    item = {"id": kept.id, "expected_version": kept.updated_at.isoformat()}
+    for bad in (
+        [item, {"id": "missing", "expected_version": item["expected_version"]}],
+        [item, item],
+        [],
+    ):
+        with pytest.raises(vocabulary.VocabularyError):
+            vocabulary.apply_vocabulary_bulk(bad, "suppress", session=session)
+        session.rollback()
+    assert session.get(vocabulary.ClinicVocabularyEntry, kept.id).status == vocabulary.STATUS_ACTIVE

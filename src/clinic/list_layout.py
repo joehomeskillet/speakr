@@ -15,6 +15,7 @@ from datetime import date, datetime, timezone
 from typing import Any
 
 PRIORITY_RANK = {128: 0, 1: 1, 0: 2}
+MAX_COLUMNS = 30
 
 
 class LayoutError(ValueError):
@@ -91,7 +92,8 @@ def merge_layout(default: Mapping, saved: Mapping | None, allowed_columns: Seque
     result = _validate_layout(saved, None)
     columns = [column for column in result["columns"] if column["key"] in allowed]
     saved_keys = {column["key"] for column in columns}
-    columns.extend(dict(column, visible=True) for column in base["columns"] if column["key"] not in saved_keys)
+    missing_defaults = [dict(column, visible=True) for column in base["columns"] if column["key"] not in saved_keys]
+    columns.extend(missing_defaults[:MAX_COLUMNS - len(columns)])
     result["columns"] = columns
     result["sort"] = [entry for entry in result["sort"] if entry[0] in allowed]
     result["group_by"] = [key for key in result["group_by"] if key in allowed]
@@ -224,7 +226,7 @@ def _validate_layout(spec: object, allowed: set[str] | None) -> dict:
         raise LayoutError("bad_version")
 
     columns = _sequence(spec["columns"], "bad_columns")
-    if len(columns) > 30:
+    if len(columns) > MAX_COLUMNS:
         raise LayoutError("too_many_columns")
     result = []
     seen = set()

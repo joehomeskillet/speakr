@@ -390,6 +390,7 @@
     .cadm-nav__group + .cadm-nav__group { padding-left: var(--sp-3); border-left: var(--border-hairline) solid var(--border-primary); }
     .cadm-nav__label { position: sticky; left: 0; align-self: flex-start; margin: 0; padding: 0; white-space: nowrap; }
     .cadm-nav__item { width: auto; white-space: nowrap; padding: var(--sp-2) var(--sp-3); }
+    .cadm-nav__item:focus-visible { outline-offset: -2px; }
     .cadm-nav__notice { white-space: nowrap; }
     .cadm-nav__item.is-active { box-shadow: inset 0 -3px 0 var(--border-accent); border-radius: var(--radius-md) var(--radius-md) 0 0; }
 }
@@ -526,7 +527,7 @@
     }
     .cadm .cadm-account-disclosure i { color: var(--text-muted); font-size: var(--fs-label); }
     .cadm .cadm-account-disclosure[aria-expanded="true"] i { transform: rotate(90deg); }
-    .cadm .cadm-account-disclosure:focus-visible { outline: 2px solid var(--border-accent); }
+    .cadm .cadm-account-disclosure:focus-visible { outline: 2px solid var(--border-focus); }
 }
 
 /* P10–P12 share the prototype's flat filter rows, table surfaces and primary actions. */
@@ -593,6 +594,60 @@
 @media (max-width: 640px) {
     .cadm .cadm-subsection-head .field { flex-basis: 100%; }
     .cadm .v8-admin-page .filterbar .icon-button { min-width: 40px; min-height: 40px; }
+}
+
+.clinic-authors-view .authors-cell-label { display: none; }
+.v8-ui .clinic-authors-view .authors-pool-action {
+    display: flex;
+    align-items: center;
+    width: fit-content;
+    max-width: 100%;
+    min-height: 32px;
+    padding: 0 var(--sp-1);
+    border: 0;
+    background: transparent;
+    color: var(--v8-text);
+    font: inherit;
+    text-align: start;
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+.v8-ui .clinic-authors-view .filterbar :is(input, select) { border-color: var(--v8-text-2); }
+.v8-ui .clinic-authors-view :is(button, input, select, summary, .authors-table-wrap):focus-visible,
+.v8-ui .clinic-authors-view .authors-pool-target:focus {
+    outline: 2px solid var(--v8-text);
+    outline-offset: 2px;
+}
+@media (max-width: 640px) {
+    .v8-ui .clinic-authors-view .authors-table-wrap { border: 0; overflow: visible; }
+    .v8-ui .clinic-authors-view .cadm-table--stack { white-space: normal; overflow-wrap: anywhere; }
+    .v8-ui .clinic-authors-view .cadm-table--stack tbody tr {
+        grid-template-columns: minmax(0, 1fr);
+        gap: var(--sp-2);
+        background: var(--surface);
+    }
+    .v8-ui .clinic-authors-view .cadm-table--stack td {
+        grid-area: auto;
+        grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+        justify-self: stretch;
+        align-items: start;
+        min-width: 0;
+        max-width: none;
+        border: 0;
+    }
+    .v8-ui .clinic-authors-view .cadm-table--stack td::before { content: none; }
+    .v8-ui .clinic-authors-view .cadm-table--stack .authors-memberships { grid-template-columns: minmax(0, 1fr); }
+    .v8-ui .clinic-authors-view .authors-cell-label {
+        display: block;
+        color: var(--v8-text-2);
+        font-weight: 600;
+    }
+    .v8-ui .clinic-authors-view .tag { justify-self: start; white-space: normal; }
+    .v8-ui .clinic-authors-view :is(.head-actions button, .authors-pool-action, .filterbar button, .panel > summary) { min-height: 48px; }
+    .v8-ui .clinic-authors-view :is(.authors-pool-action, .filterbar .icon-button) { min-width: 48px; }
+    .v8-ui .clinic-authors-view .filterbar :is(input, select) { min-height: 48px !important; }
 }
 
 .cadm .clinic-authors-view th[scope="row"] small {
@@ -742,13 +797,22 @@
 }
 .v8-ui .voc-editor-body button { justify-self: start; }
 .v8-ui .voc-editor .actions { margin: 0; gap: var(--sp-2); }
+.v8-ui .voc-proposal-empty { min-height: 0; padding: var(--sp-4); }
 @media (max-width: 760px) {
     .v8-ui .voc-editor button { min-height: 44px; }
     .v8-ui .voc-editor-body { grid-template-columns: minmax(0, 1fr); }
     .v8-ui .voc-editor-export { border-top: 1px solid var(--line); padding-top: var(--sp-3); }
+    .v8-ui .voc-proposal-table table { table-layout: fixed; white-space: normal; }
+    .v8-ui .voc-proposal-table :is(th, td) { padding-inline: var(--sp-1); overflow-wrap: anywhere; hyphens: auto; }
+    .v8-ui .voc-proposal-table .wrap { min-width: 0; }
+    .v8-ui .voc-proposal-table th { text-transform: none; letter-spacing: normal; }
+    .v8-ui .voc-proposal-table th:nth-child(3) { width: 19%; }
+    .v8-ui .voc-proposal-table th:last-child { width: 36%; }
+    .v8-ui .voc-proposal-table :is(.small, .tag) { max-width: 100%; white-space: normal; }
     .cadm .clinic-vocabulary-view > .tabs { flex-wrap: wrap; }
     .cadm .clinic-vocabulary-view > .tabs > button { flex-shrink: 0; }
-    .cadm .clinic-vocabulary-view .voc-filters { grid-template-columns: repeat(2, minmax(0, 1fr)) auto; }
+    .cadm .clinic-vocabulary-view .voc-filters { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto; }
+    .cadm .clinic-vocabulary-view .voc-filters select { padding-inline: var(--sp-2) !important; }
     .cadm .clinic-vocabulary-view .voc-list { grid-column: 1 / -1; }
     .cadm .clinic-vocabulary-view .voc-filters .search { grid-column: 1 / -1; }
 }
