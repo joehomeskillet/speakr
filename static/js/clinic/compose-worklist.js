@@ -789,15 +789,23 @@ export const WorklistView = {
     props: {
         client: { type: Object, required: true },
         currentUser: { type: Object, required: true },
+        caseView: { type: String, default: '' },
+        worklistUrl: { type: String, default: '' },
         vue: { type: Object, default: null },
         fetchChanges: { type: Function, default: null },
         intervalMs: { type: Number, default: undefined },
         autoStart: { type: Boolean, default: true },
     },
     setup(props, ctx) {
+        const client = props.caseView ? {
+            ...props.client,
+            get dictationChanges() { return props.client.dictationChanges; },
+            request: (path, options) => props.client.request(path, /^\/worklist\/rows(?:\?|$)/.test(path)
+                ? { ...options, caseView: props.caseView } : options),
+        } : props.client;
         const c = createWorklistViewController({
             onOpen: (payload) => { if (ctx && typeof ctx.emit === 'function') ctx.emit('open', payload); },
-            client: props.client,
+            client,
             currentUser: props.currentUser,
             vue: props.vue || undefined,
             fetchChanges: props.fetchChanges || undefined,
@@ -835,10 +843,11 @@ export const WorklistView = {
     <div>
       <div class="eyebrow">{{ c.text.eyebrow }}</div>
       <div class="hline">
-        <h1 id="cwv-title" tabindex="-1">{{ c.text.title }}</h1>
+        <h1 id="cwv-title" tabindex="-1">{{ caseView ? 'Diktate zum Fall' : c.text.title }}</h1>
         <span class="count-pill" data-testid="result-count">{{ c.entryCount(c.view.total ?? c.counts.value.all) }}</span>
       </div>
-      <p class="subtitle">{{ c.text.subline }}</p>
+      <a v-if="caseView" class="subtitle underline" :href="worklistUrl">Alle Diktate</a>
+      <p v-else class="subtitle">{{ c.text.subline }}</p>
     </div>
     <div class="page-actions">
       <span role="status" aria-live="polite" class="last-update" data-testid="last-update">{{ c.updatedLabel() }}</span>

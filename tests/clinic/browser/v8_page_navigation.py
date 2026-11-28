@@ -55,7 +55,7 @@ def show_review(page, base):
 
 def show_output(page, base):
     show_detail(page, base)
-    show_dictation_tab(page, "output", "output-targets")
+    show_dictation_tab(page, "output", "output-targets?file_formats=all")
     view = page.get_by_test_id("output-view")
     expect(view.get_by_test_id("not-released")).to_be_visible()
     expect(view.locator("[data-target]").first).to_be_visible()
