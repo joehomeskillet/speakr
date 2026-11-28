@@ -245,12 +245,24 @@ def _open_admin(page, base: str) -> None:
     page.locator("[data-testid=clinic-admin]").wait_for(state="visible", timeout=SHOW_TIMEOUT_MS)
 
 
+def _expand_admin_nav(page) -> None:
+    """AS-02: on phones the section list is collapsed behind the Bereich toggle; open it when it is closed."""
+    toggle = page.get_by_test_id("clinic-admin-nav-toggle")
+    if (page.viewport_size or {}).get("width", 0) > 860:  # clinic-admin.css: the toggle exists below 860px only
+        return
+    toggle.wait_for(state="visible", timeout=SHOW_TIMEOUT_MS)
+    if toggle.get_attribute("aria-expanded") != "true":
+        toggle.click()
+
+
 def _show_admin_accounts(page, base: str) -> None:
     _open_admin(page, base)
     # Keep the former Abnahme check, then prove the actual P12 accounts page.
+    _expand_admin_nav(page)
     page.get_by_role("navigation", name="Verwaltung", exact=True).get_by_role(
         "button", name="Abnahme", exact=True).click()
     page.locator("#acc-title").wait_for(state="visible", timeout=SHOW_TIMEOUT_MS)
+    _expand_admin_nav(page)
     page.get_by_role("navigation", name="Verwaltung", exact=True).get_by_role(
         "button", name="Benutzer und Rollen", exact=True).click()
     view = page.get_by_test_id("clinic-users-view")
@@ -260,6 +272,7 @@ def _show_admin_accounts(page, base: str) -> None:
 
 def _show_admin_pools(page, base: str) -> None:
     _open_admin(page, base)
+    _expand_admin_nav(page)
     nav = page.get_by_role("navigation", name="Verwaltung", exact=True)
     pools = nav.get_by_role("button", name="Schreibkräfte-Pools", exact=True)
     pools.wait_for(state="visible", timeout=SHOW_TIMEOUT_MS)
