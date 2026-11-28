@@ -599,12 +599,15 @@ export const ADMIN_POOLS_TEMPLATE = `
               <td role="cell"><span class="tag dot" :class="p.status.key === 'active' ? 'neutral' : 'wait'">{{ p.status.label }}</span></td>
               <td role="cell" class="cap-action">
                 <button type="button" class="icon-button cap-open" :title="c.text.openDetails"
+                        :aria-labelledby="'cap-open-label-' + p.id"
                         :aria-current="c.state.selectedId === p.id ? 'true' : 'false'" :data-id="p.id"
                         @click="c.select(p.id); $nextTick(() => $refs.details?.focus())">
-                  ${ICONS.edit}<span class="cap-desktop-label visually-hidden">{{ c.text.edit }}: {{ p.name }}</span>
-                  <span class="cap-phone-label">{{ c.text.openDetails }}</span>
-                  <span class="cap-phone-label visually-hidden">für {{ p.name }}</span>
+                  ${ICONS.edit}<span class="cap-phone-label" aria-hidden="true">{{ c.text.openDetails }}</span>
                 </button>
+                <span :id="'cap-open-label-' + p.id" class="visually-hidden">
+                  <span class="cap-desktop-label">{{ c.text.edit }}: {{ p.name }}</span>
+                  <span class="cap-phone-label">{{ c.text.openDetails }} für {{ p.name }}</span>
+                </span>
               </td>
             </tr>
           </tbody>
