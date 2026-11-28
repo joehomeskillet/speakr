@@ -9,18 +9,16 @@ routing, visibility and in-app preferences, builds fixed German text with
 
 The event key is ``clinic.wf:<event>:<dictation>:<transition_id>``. The caller
 passes a durable per-transition id (for example the audit event id of the
-accept or reject). Two accept/reject cycles can share a version counter. A
-repeated or retried call for the same transition skips stored rows, so there are no
-duplicates, a dismissed notice is not revived, and a recipient whose delivery
-failed is the only one retried. The local in-app path needs no SMTP.
+accept or reject). Two accept/reject cycles can share a version counter. A repeated or
+retried call for the same transition finds the stored row per recipient and skips it, so there are no
+duplicates and a dismissed notice is not revived. A missing notice is stored
+only if the recipient currently enables the event. The in-app path needs no SMTP.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
-
-from sqlalchemy import select
 
 from src.clinic import notification_preferences, notification_rules, workflow
 from src.clinic.config import clinic_mode_enabled
@@ -47,7 +45,7 @@ class EmitResult:
     event_key: str
     created: tuple[int, ...]
     existing: tuple[int, ...]
-    dropped: tuple[int, ...]  # visibility or in-app preference prevents delivery
+    dropped: tuple[int, ...]  # no longer allowed to see or be routed this dictation
     failed: tuple[int, ...]  # storing failed; a retry delivers only these
 
 
@@ -59,6 +57,8 @@ def event_key(event: str, dictation_id: str, transition_id: str) -> str:
 
 
 def _committed_params(session, dictation, event, transition_id, actor_user_id, expected_version):
+    from sqlalchemy import select
+
     intent = ClinicParityReceipt.result["_workflow_notice"]
     params = intent["params"]
     return session.execute(select(params).where(
@@ -124,11 +124,7 @@ def emit(
         wanted = notification_rules.recipients_for(
             event, author_id=item.author_user_id, assignee_id=item.assignee_user_id,
             acceptor_ids=acceptor_ids, actor_id=actor_user_id)
-        recipients = [
-            uid for uid in wanted
-            if can_see(uid, item) is True
-            and notification_preferences.read(uid).channels[notification_preferences.CHANNEL_IN_APP][event]
-        ]
+        recipients = [uid for uid in wanted if can_see(uid, item) is True]
         dropped = tuple(uid for uid in wanted if uid not in recipients)
         note = notification_rules.build_notification(
             event, dictation_ref=dictation_id, recipient_ids=recipients, context=context)
@@ -142,6 +138,9 @@ def emit(
     for uid in note.recipient_ids:
         if Notification.query.filter_by(user_id=uid, dedupe_key=key).first() is not None:
             existing.append(uid)
+            continue
+        preference = notification_preferences.read(uid)
+        if not preference.channels[notification_preferences.CHANNEL_IN_APP][event]:
             continue
         notifications.notify(
             KIND, f"{KIND}.{event}", user_ids=[uid], params={"title": note.title, "body": note.body},
