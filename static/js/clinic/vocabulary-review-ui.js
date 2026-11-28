@@ -68,12 +68,15 @@ function uuid() {
 /**
  * @param {{client: {request: Function, command: Function, switchContext: Function},
  *          scope: {type: 'user'|'author_pool', id: string|number},
- *          t?: (key: string) => string}} deps
+ *          t?: (key: string) => string, status?: 'OPEN'}} deps
  */
 export function createVocabularyReviewController(deps) {
     const client = deps.client;
     const translate = typeof deps.t === 'function' ? deps.t : null;
     let scope = deps.scope;
+    const session = deps.status === 'OPEN';
+    const active = deps.active || (() => true);
+    let loaded = false;
     const listeners = new Set();
     // One attempt per item and decision, so a retry replays the same idempotency key.
     const attempts = new Map();
@@ -114,21 +117,49 @@ export function createVocabularyReviewController(deps) {
     }
 
     async function load() {
+        if (session && (state.loading || state.busy)) return false;
+        loaded = false;
         state.loading = true;
         state.error = null;
         state.stale = false;
         emit();
-        const q = new URLSearchParams({ scope_type: scope.type, scope_id: String(scope.id), status: 'PENDING' });
-        const res = await client.request(LIST + '?' + q.toString());
+        const q = new URLSearchParams({ scope_type: scope.type, scope_id: String(scope.id), status: session ? 'OPEN' : 'PENDING' });
+        const items = new Map();
+        let revision = 0;
+        let offset = 0;
+        // Changing an OPEN row before finishing the offset scan can skip rows.
+        while (true) {
+            const res = await client.request(LIST + '?' + q.toString());
+            if (!active()) return false;
+            if (res.outcome !== 'ok') {
+                fail(res);
+                break;
+            }
+            const data = res.data || {};
+            const rows = Array.isArray(data.items) ? data.items : [];
+            if (session && (!Array.isArray(data.items) || rows.some((i) => !Number.isInteger(i.revision)))) {
+                fail({ outcome: 'validation' });
+                break;
+            }
+            if (Number.isInteger(data.revision)) revision = Math.max(revision, data.revision);
+            for (const i of rows) items.set(i.id, { ...i, poolDenied: false, stale: false });
+            if (!session || data.next_cursor == null) break;
+            const next = Number(data.next_cursor);
+            if (!Number.isSafeInteger(next) || next <= offset) {
+                fail({ outcome: 'validation' });
+                break;
+            }
+            offset = next;
+            q.set('cursor', String(offset));
+        }
         state.loading = false;
-        if (res.outcome !== 'ok') {
-            fail(res);
+        if (state.error) {
             emit();
             return false;
         }
-        const data = res.data || {};
-        state.revision = Number.isInteger(data.revision) ? data.revision : 0;
-        state.items = (Array.isArray(data.items) ? data.items : []).map((i) => ({ ...i, poolDenied: false, stale: false }));
+        loaded = true;
+        state.revision = revision;
+        state.items = [...items.values()];
         attempts.clear();
         emit();
         return true;
@@ -136,8 +167,11 @@ export function createVocabularyReviewController(deps) {
 
     async function decide(itemId, decision) {
         const item = itemById(itemId);
-        if (!item || state.busy) return false;
-        if (decision === 'pool' && item.poolDenied) return false;
+        if (!item || state.busy || !active()) return false;
+        if (session && (!loaded || state.loading || item.stale ||
+            (item.status !== 'PENDING' && item.status !== 'DEFERRED') ||
+            (decision === 'defer' && item.status !== 'PENDING'))) return false;
+        if (decision === 'pool' && (item.poolDenied || (session && item.can_accept_pool !== true))) return false;
         const expected = Number.isInteger(item.revision) ? item.revision : (item.status === 'PENDING' ? 1 : state.revision);
         const key = itemId + ':' + decision + ':' + expected;
         let attempt = attempts.get(key);
@@ -175,7 +209,7 @@ export function createVocabularyReviewController(deps) {
         item.status = status;
         item.revision = nextRev;
         item.stale = false;
-        record({ itemId, action: decision, status, revision: nextRev });
+        record({ itemId, action: decision, status, revision: nextRev, operation: item.operation });
         emit();
         return true;
     }
@@ -238,6 +272,9 @@ export function createVocabularyReviewController(deps) {
                     writtenForm: i.written_form,
                     spokenForm: i.spoken_form || '',
                     operation: i.operation,
+                    resourceType: i.resource_type,
+                    canAcceptPool: i.can_accept_pool === true,
+                    teamName: i.target_pool_name,
                     status: i.status,
                     statusLabel: label('clinic.vocabularyReview.' + (Object.hasOwn(STATUS_SURFACE, i.status) ? 'status.' + i.status : 'unknown')),
                     surface: surfaceFor(STATUS_SURFACE[i.status] || 'normal'),
@@ -260,6 +297,7 @@ export function createVocabularyReviewController(deps) {
                 statusLabel: label('clinic.vocabularyReview.' + (Object.hasOwn(STATUS_SURFACE, h.status) ? 'status.' + h.status : 'unknown')),
             })),
             loading: state.loading,
+            ready: loaded,
             error: err,
             errorSurface: err ? surfaceFor('error') : null,
             stale: state.stale,
@@ -357,3 +395,120 @@ export const REVIEW_TEMPLATE = `
     <li v-for="(h, n) in view.history" :key="n" class="break-words">{{ h.writtenForm }} · {{ h.actionLabel }} · {{ h.statusLabel }}</li>
   </ol>
 </section>`;
+
+const SESSION_RESULTS = { user: 'Für mich übernommen', pool: 'Für das Team übernommen', defer: 'Für später zurückgestellt' };
+const REMOVAL_RESULTS = { user: 'Für mich entfernt', pool: 'Für das Team entfernt' };
+const CHANGE_LABELS = { ADD: 'Neu', MODIFY: 'Geändert', DELETE: 'Zum Entfernen vorgeschlagen' };
+// Keep the V8 :focus-visible ring, with a higher-contrast theme color.
+const REVIEW_BUTTON_STYLE = 'min-height:48px;min-width:48px;outline-color:var(--brand-accent)';
+
+export const SessionVocabularyReview = {
+    name: 'ClinicSessionVocabularyReview',
+    props: {
+        client: { type: Object, required: true },
+        userId: { type: [Number, String], required: true },
+        vue: { type: Object, default: null },
+    },
+    emits: ['close'],
+    setup(props, { emit }) {
+        const vue = props.vue || globalThis.Vue;
+        let mounted = true;
+        const controller = createVocabularyReviewController({
+            client: props.client, scope: { type: 'user', id: props.userId }, status: 'OPEN',
+            active: () => mounted,
+        });
+        const dialog = vue.ref(null);
+        const title = vue.ref(null);
+        const view = vue.shallowRef(controller.view());
+        const unsubscribe = controller.subscribe(() => { view.value = controller.view(); });
+        const results = vue.computed(() => new Map(view.value.history.map((h) => [h.itemId,
+            (h.operation === 'DELETE' && REMOVAL_RESULTS[h.action]) || SESSION_RESULTS[h.action],
+        ])));
+        const retryingWrite = vue.computed(() => Boolean(view.value.error?.retryable && view.value.error.itemId));
+        const firstOpen = vue.computed(() => view.value.items.find((item) => !results.value.has(item.id))?.id);
+
+        vue.onMounted(() => {
+            dialog.value.showModal();
+            title.value?.focus();
+            return controller.load();
+        });
+        vue.onBeforeUnmount(() => { mounted = false; unsubscribe(); });
+
+        function dismiss() {
+            if (!controller.state.busy && dialog.value?.open) dialog.value.close();
+        }
+
+        async function run(action, id) {
+            const item = view.value.items.find((entry) => entry.id === id);
+            if (item?.operation === 'DELETE' && (action === 'acceptUser' || action === 'acceptPool')) {
+                const destination = action === 'acceptUser' ? 'für Sie' : `für das Team «${item.teamName}»`;
+                if (!globalThis.confirm(`«${item.writtenForm}» ${destination} entfernen?`)) return false;
+            }
+            const succeeded = await controller[action](id);
+            await vue.nextTick();
+            const modal = dialog.value;
+            if (modal?.open && !modal.contains(modal.ownerDocument.activeElement)) title.value?.focus();
+            return succeeded;
+        }
+
+        function errorText(error) {
+            if (!error.itemId) return 'Die Vorschläge konnten nicht geladen werden. Bitte laden Sie sie erneut.';
+            if (error.outcome === 'conflict') return 'Der Vorschlag hat sich geändert. Bitte laden Sie die Vorschläge neu.';
+            if (error.retryable) return 'Die Änderung konnte nicht bestätigt werden. Bitte versuchen Sie es erneut.';
+            if (error.outcome === 'permission') return 'Sie dürfen diese Änderung nicht übernehmen.';
+            return 'Die Änderung konnte nicht gespeichert werden.';
+        }
+
+        return {
+            dialog, title, view, results, retryingWrite, firstOpen, dismiss, run, errorText,
+            changeLabel: (operation) => CHANGE_LABELS[operation?.toUpperCase()],
+            onClose: () => emit('close'),
+        };
+    },
+    template: `
+<div class="v8-page">
+  <dialog ref="dialog" class="panel" aria-labelledby="session-review-title" aria-describedby="session-review-hint"
+          data-testid="session-vocabulary-review" @cancel.prevent="dismiss" @close="onClose" @keydown.stop>
+    <div class="dialoghead"><h2 id="session-review-title" ref="title" tabindex="-1" autofocus>Wörter und Sprachbefehle prüfen</h2></div>
+    <p id="session-review-hint" class="hint">Nicht bearbeitete Vorschläge bleiben für die nächste Sitzung offen.</p>
+    <p v-if="view.loading" role="status">Vorschläge werden geladen …</p>
+    <p v-if="view.busy" role="status">Änderung wird gespeichert …</p>
+    <p v-if="view.error" class="text-status error" style="color:var(--brand-accent)" role="alert" data-testid="session-review-error">{{ errorText(view.error) }}</p>
+    <button v-if="retryingWrite" type="button" style="${REVIEW_BUTTON_STYLE}" data-testid="session-review-retry"
+            @click="run('retry')">Erneut versuchen</button>
+    <button v-else-if="view.stale || (view.error && !view.error.itemId)" type="button" style="${REVIEW_BUTTON_STYLE}"
+            :disabled="view.busy || view.loading" data-testid="session-review-reload" @click="run('load')">Vorschläge neu laden</button>
+    <p v-if="view.ready && view.empty" role="status" data-testid="session-review-empty">Keine offenen Vorschläge.</p>
+    <ul v-if="view.ready && view.items.length" class="stack" style="list-style:none;padding:0" aria-label="Vorschläge">
+      <li v-for="item in view.items" :key="item.id" :data-id="item.id" class="panel" style="overflow-wrap:anywhere" data-testid="session-review-row">
+        <p class="hint">{{ item.resourceType === 'voice_command' ? 'Sprachbefehl' : 'Wort' }} · {{ changeLabel(item.operation) }}</p>
+        <strong>{{ item.writtenForm }}</strong> <span v-if="item.spokenForm">({{ item.spokenForm }})</span>
+        <p v-if="results.has(item.id)" role="status" data-testid="session-review-result">{{ results.get(item.id) }}</p>
+        <template v-else>
+          <p v-if="item.status === 'DEFERRED'" class="hint">Bereits zurückgestellt</p>
+          <p v-if="item.canAcceptPool && item.teamName" class="hint">Team: {{ item.teamName }}</p>
+          <p v-if="item.stale" class="hint">Dieser Vorschlag hat sich geändert.</p>
+          <p v-else-if="item.notice" class="hint">Für das Team ist keine Freigabe möglich.</p>
+          <div class="actions" style="justify-content:flex-start">
+            <button type="button" :class="{ primary: item.id === firstOpen }" style="${REVIEW_BUTTON_STYLE}" data-testid="session-review-personal"
+                    :disabled="retryingWrite || !item.actions.acceptUser.enabled" @click="run('acceptUser', item.id)">
+              {{ item.operation === 'DELETE' ? 'Für mich entfernen' : 'Für mich übernehmen' }}
+            </button>
+            <button v-if="item.canAcceptPool" type="button" style="${REVIEW_BUTTON_STYLE}" data-testid="session-review-team"
+                    :disabled="retryingWrite || !item.actions.acceptPool.enabled" @click="run('acceptPool', item.id)">
+              {{ item.operation === 'DELETE' ? 'Für das Team entfernen' : 'Für das Team übernehmen' }}
+            </button>
+            <button v-if="item.status === 'PENDING'" type="button" style="${REVIEW_BUTTON_STYLE}" data-testid="session-review-defer"
+                    :disabled="retryingWrite || !item.actions.defer.enabled" @click="run('defer', item.id)">Zurückstellen</button>
+          </div>
+        </template>
+      </li>
+    </ul>
+    <div class="actions">
+      <button type="button" style="${REVIEW_BUTTON_STYLE}" :class="{ primary: view.ready && !firstOpen }"
+              :disabled="view.busy" data-testid="session-review-close"
+              @click="dismiss">Schliessen</button>
+    </div>
+  </dialog>
+</div>`,
+};

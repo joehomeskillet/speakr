@@ -290,7 +290,8 @@ describe('reconnect', () => {
 describe('stop', () => {
     it('sends stop_live_session with generation and the durable checkpoint', async () => {
         const client = fakeClient(baseRoutes());
-        const c = await live(client);
+        const onStopConfirmed = vi.fn();
+        const c = await live(client, { onStopConfirmed });
         await c.finalizePhrase('Guten Tag', wire);
         const state = await c.stop();
         const cmd = client.calls.filter((x) => x.kind === 'command').at(-1);
@@ -301,6 +302,8 @@ describe('stop', () => {
         expect(cmd.body.expected_revision).toBeGreaterThan(0);
         expect(state.phase).toBe('stopped');
         expect(state.actions.map((a) => a.id)).toEqual(['start']);
+        await c.stop();
+        expect(onStopConfirmed.mock.calls).toEqual([[{ dictationId: 'd1', sessionId: 's1' }]]);
     });
 
     it('stops from the paused state with the current positive revision', async () => {
@@ -316,22 +319,41 @@ describe('stop', () => {
 
     it('refuses to stop while a phrase cannot be saved', async () => {
         const client = fakeClient(baseRoutes({ 'POST /sessions/s1/phrases': fail('validation', 400) }));
-        const c = await live(client);
+        const onStopConfirmed = vi.fn();
+        const c = await live(client, { onStopConfirmed });
         await c.finalizePhrase('Guten Tag', wire);
         const state = await c.stop();
         expect(client.calls.some((x) => x.kind === 'command' && x.body.command === 'stop_live_session')).toBe(false);
         expect(state.phase).toBe('live');
         expect(state.note).toBe('Beenden nicht möglich: Es gibt nicht gespeicherte Sätze.');
+        expect(onStopConfirmed).not.toHaveBeenCalled();
     });
 
     it('returns to the previous phase when the stop conflicts and keeps the text', async () => {
-        const c = await live(fakeClient(baseRoutes({ 'CMD stop_live_session': fail('conflict', 409) })));
+        const onStopConfirmed = vi.fn();
+        const c = await live(fakeClient(baseRoutes({ 'CMD stop_live_session': fail('conflict', 409) })), { onStopConfirmed });
         await c.finalizePhrase('Guten Tag', wire);
         const state = await c.stop();
         expect(state.phase).toBe('live');
         expect(state.note).toBe('Beenden fehlgeschlagen. Bitte erneut versuchen.');
         expect(state.session.phrases.map((p) => p.text)).toEqual(['Guten Tag']);
         expect(state.session.phrases[0].state).toBe('server_saved');
+        expect(onStopConfirmed).not.toHaveBeenCalled();
+    });
+
+    it('sends one stop while confirmation is pending and ignores its response after disposal', async () => {
+        let confirm;
+        const stop = new Promise((resolve) => { confirm = resolve; });
+        const onStopConfirmed = vi.fn();
+        const client = fakeClient(baseRoutes({ 'CMD stop_live_session': () => stop }));
+        const c = await live(client, { onStopConfirmed });
+        const finishing = c.stop();
+        await c.stop();
+        expect(client.calls.filter((x) => x.body?.command === 'stop_live_session')).toHaveLength(1);
+        c.dispose();
+        confirm(committed());
+        await finishing;
+        expect(onStopConfirmed).not.toHaveBeenCalled();
     });
 
     it('keeps unsaved text when a conflict blocks the stop', async () => {

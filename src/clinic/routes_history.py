@@ -8,14 +8,19 @@ from uuid import UUID, uuid4
 from flask import Blueprint, Response, abort, jsonify, request, session
 from flask_login import current_user
 from flask_wtf.csrf import CSRFError, validate_csrf
+from sqlalchemy import func
+from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.exceptions import HTTPException
 from wtforms.validators import ValidationError
 
-from src.clinic import lease, live_session, revisions, workflow
+from src.clinic import lease, live_session, policy, pool_policy, revisions, vocabulary, workflow
 from src.clinic.config import clinic_mode_enabled
-from src.clinic.models import ClinicArchiveEvent, ClinicDelivery, ClinicDictation, ClinicRelease
+from src.clinic.models import (
+    ClinicArchiveEvent, ClinicDelivery, ClinicDictation, ClinicRelease, ClinicTranscriptRevision,
+)
 from src.clinic.output import list_outputs
 from src.clinic.parity_dispatch import JSON, CommandProblem, RunOnce
+from src.clinic.parity_receipts import ClinicParityReceipt, scope_key
 from src.clinic.release import ClinicReleaseSupersession, ClinicWorkStateTransfer
 from src.database import db
 from src.models import Recording, User
@@ -118,6 +123,61 @@ def _transition_workflow(dictation_id: str, trigger: str) -> None:
                           populate_existing=True, with_for_update=True)
     if item is not None and (item.status, trigger) in workflow.TRANSITIONS:
         workflow.transition(db.session, dictation_id, trigger)
+
+
+def _can_correct(actor: int, dictation: ClinicDictation) -> bool:
+    # The shared lease's 'review' gate also allows metadata-only users and acceptors.
+    return pool_policy.decide(policy.build_subject(actor), 'edit', dictation).allowed
+
+
+def _correction_grant_key(row: lease.ClinicReviewLease) -> str:
+    # A private receipt namespace: no request key or dependency on optional/prunable audit logs.
+    return scope_key((row.holder_user_id, 'correction-lease-grant', row.dictation_id, row.id, row.generation))
+
+
+def _capture_correction_review(dictation: ClinicDictation, row: lease.ClinicReviewLease,
+                               ended_at: datetime) -> None:
+    grant = db.session.get(ClinicParityReceipt, _correction_grant_key(row))
+    if grant is None:
+        return  # No proven edit-authorized start; never guess from expiry or renewals.
+    started_at = grant.created_at if grant.created_at.tzinfo else grant.created_at.replace(tzinfo=timezone.utc)
+    actor, generation = row.holder_user_id, row.generation
+    if started_at > ended_at:
+        return
+
+    # A human revision alone may come from another workflow (e.g. draft save).
+    # Correction save receipts carry a generation-bound ETag, even when wrapped for notification.
+    receipt, rev = ClinicParityReceipt, ClinicTranscriptRevision
+    wrapped = receipt.result['result']
+    saved_etag = func.coalesce(wrapped['etag'].as_string(), receipt.result['etag'].as_string())
+    state_version = func.coalesce(wrapped['state_version'].as_integer(), receipt.result['state_version'].as_integer())
+    saved = (db.session.query(rev.id, rev.parent_revision_id)
+             .filter(rev.dictation_id == dictation.id, rev.kind == revisions.KIND_HUMAN,
+                     rev.revision_author_user_id == actor, rev.created_at.between(started_at, ended_at),
+                     db.session.query(receipt.scope_key).filter(
+                         receipt.created_at.between(rev.created_at, ended_at),
+                         state_version.is_not(None),
+                         saved_etag == ('"' + rev.id + f'.g{generation}"'),
+                     ).exists())
+             .order_by(rev.created_at, rev.id).all())
+
+    def capture(before: str = '', after: str = '') -> None:
+        # Pool is a destination, not evidence that another member's changes were this actor's.
+        for item in vocabulary.capture_session_changes(actor, dictation.id, started_at, ended_at,
+                                                       before_text=before, after_text=after):
+            item.pool_id = dictation.pool_id
+
+    # Diff each uninterrupted chain; a foreign or non-correction write is a new baseline.
+    runs: dict[str, str | None] = {}
+    for revision_id, parent_id in saved:
+        runs[revision_id] = runs.pop(parent_id, parent_id) if parent_id is not None else None
+    for last_id, parent_id in runs.items():
+        last = db.session.get(rev, last_id)
+        if last is not None:
+            parent = db.session.get(rev, parent_id) if parent_id is not None else None
+            capture(parent.body if parent is not None else '', last.body)
+    if not runs:
+        capture()
 
 
 def create_blueprint(
@@ -284,8 +344,11 @@ def create_blueprint(
             if operation != 'release':
                 live_session.assert_edit_allowed(target, actor, now)
             previous = None
+            prior_generation = 0
             if operation in ('acquire', 'takeover'):
                 lease.audit_lapse(locked, now)
+                prior = lease.current(target)
+                prior_generation = prior.generation if prior is not None else 0
             if operation == 'acquire':
                 row = lease.acquire(target, actor, now)
             elif operation == 'takeover':
@@ -297,11 +360,19 @@ def create_blueprint(
                     abort(409)
                 if operation == 'release':
                     lease.release(row, generation, now, user_id=actor)
+                    if _can_correct(actor, locked):
+                        try:
+                            _capture_correction_review(locked, row, now)
+                        except SQLAlchemyError:
+                            raise CommandProblem('DEPENDENCY_UNAVAILABLE') from None
                     _transition_workflow(target, 'close')
                     lease.audit_operation('release', row, actor, locked)
                     return dict(dictation_snapshot(locked), etag=dictation_etag(locked))
                 row = lease.heartbeat(row, generation, now, user_id=actor)
             if operation in ('acquire', 'takeover'):
+                if row.generation != prior_generation and _can_correct(actor, locked):
+                    db.session.add(ClinicParityReceipt(scope_key=_correction_grant_key(row),
+                                                       digest='correction-lease-grant', result={}, created_at=now))
                 _transition_workflow(target, 'open')
             lease.audit_operation(operation, row, actor, locked, previous_holder=previous)
             result = dict(dictation_id=target, lease_id=row.id, generation=row.generation,

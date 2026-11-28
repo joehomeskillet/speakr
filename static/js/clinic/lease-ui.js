@@ -61,6 +61,7 @@ export function createLeaseController(options) {
     let timer = null;
     let note = '';
     const pendingKeys = { acquire: null, takeover: null };
+    let unconfirmedRelease = null;
     let mayTakeOver = options.mayTakeOver === true;
     let mayListen = false;
     let mayAcquire = null;
@@ -92,6 +93,7 @@ export function createLeaseController(options) {
             generation: proof ? proof.generation : null,
             hasUnsaved: unsaved !== null,
             canTakeOver: status === 'foreign' && mayTakeOver,
+            releaseUnconfirmed: unconfirmedRelease !== null,
             conflict: unsaved !== null && status !== 'held' && status !== 'acquiring',
         };
     }
@@ -144,7 +146,7 @@ export function createLeaseController(options) {
     }
 
     async function requestLease(operation) {
-        if (disposed || status === 'acquiring' || status === 'releasing') return snapshot();
+        if (disposed || status === 'acquiring' || status === 'releasing' || unconfirmedRelease) return snapshot();
         const was = status;
         inspection += 1;
         status = 'acquiring';
@@ -210,21 +212,27 @@ export function createLeaseController(options) {
         }
     }
 
-    async function release() {
-        if (status !== 'held' || !proof) return snapshot();
-        const current = proof;
+    async function release({ confirm = false } = {}) {
+        const retry = confirm && status === 'idle' ? unconfirmedRelease : null;
+        if (disposed || (!retry && (status !== 'held' || !proof))) return snapshot();
+        const attempt = retry || { proof, key: newKey() };
+        const current = attempt.proof;
+        unconfirmedRelease = null;
         // Writes stop first; the release call follows.
         drop('releasing');
+        let released = false;
         try {
-            await client.request(base + '/release', {
+            const res = await client.request(base + '/release', {
                 method: 'POST',
-                idempotencyKey: newKey(),
+                idempotencyKey: attempt.key,
                 body: { lease_id: current.leaseId, generation: current.generation },
             });
+            released = res?.outcome === 'ok';
+            if (!disposed && confirm && ['network', 'UNKNOWN'].includes(res?.outcome)) unconfirmedRelease = attempt;
         } finally {
             if (!disposed) drop('idle');
         }
-        return snapshot();
+        return { ...snapshot(), released: !disposed && released };
     }
 
     async function takeOver() {
@@ -277,12 +285,13 @@ export function createLeaseController(options) {
             }
             return null;
         },
-        dispose() { disposed = true; stopTimer(); listeners.clear(); proof = null; unsaved = null; },
+        dispose() { disposed = true; stopTimer(); listeners.clear(); proof = null; unsaved = null; unconfirmedRelease = null; },
     };
 }
 
 /** Buttons the banner offers, with labels and disabled state. */
 export function leaseActions(state) {
+    if (state.releaseUnconfirmed) return [{ id: 'release', label: 'Erneut freigeben', disabled: false }];
     const actions = [];
     if (state.mayAcquire !== false && (state.status === 'idle' || state.status === 'error')) actions.push({ id: 'acquire', label: 'Bearbeiten', disabled: false });
     if (state.status === 'acquiring' || state.status === 'releasing') actions.push({ id: 'acquire', label: 'Bearbeiten', disabled: true });

@@ -405,6 +405,8 @@ def capture_session_changes(
     created = []
 
     def offer(resource_type, written, spoken, operation, information=None, target_pool_id=None):
+        if len(written) > _MAX_FORM:
+            return  # Dictation text can contain tokens too long for a vocabulary entry.
         key = resource_type, written.casefold(), operation
         if key in offered:
             return

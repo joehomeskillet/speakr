@@ -248,7 +248,7 @@
                                            :recorder="clinicRecorder" :upload-file="clinicUploadFile"
                                            @open="openClinicMenuDictation" @worklist="goClinicView('clinic-worklist')"></clinic-recording-view>
                     <clinic-live-view v-else-if="currentView === 'clinic-live' && clinicLiveId" :client="clinicClient"
-                                      :dictation-id="clinicLiveId"></clinic-live-view>
+                                      :dictation-id="clinicLiveId" :current-user="clinicUser"></clinic-live-view>
                     <section v-else-if="currentView === 'clinic-live'" class="v8-page panel" data-testid="clinic-live-picker" aria-labelledby="clinic-live-picker-title">
                         <h1 id="clinic-live-picker-title" class="text-2xl font-semibold">Live-Diktat</h1>
                         <p class="mt-2">Eigenes offenes Diktat nach Name, Fall-ID oder Datum auswählen. Eine bekannte Diktat-ID ist optional möglich.</p>

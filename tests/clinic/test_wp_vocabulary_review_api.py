@@ -913,7 +913,7 @@ def test_capture_session_changes_covers_words_commands_and_replay(app_env):
             user_id=101, dictation_id=str(uuid.uuid4()),
             started_at=(base - timedelta(minutes=1)).replace(tzinfo=None),
             ended_at=(base + timedelta(minutes=1)).replace(tzinfo=None), pool_id="pool-cardio",
-            before_text="Bekannt", after_text="Bekannt Suedhangwort",
+            before_text="Bekannt", after_text="Bekannt Suedhangwort " + "W" * 256,
         )
         db.session.commit()
         by_form = {item.written_form: item for item in created}
@@ -938,3 +938,141 @@ def test_capture_session_changes_covers_words_commands_and_replay(app_env):
         assert target.scope == "pool" and target.pool_id == "pool-cardio"
         assert target.action_payload == "neu"
         assert db.session.get(vocabulary.ClinicVocabularyEntry, removed.id) is not None
+
+
+def test_open_review_item_revisions_and_permission_sensitive_etag(app_env):
+    app, _ = app_env
+    client = app.test_client()
+    with app.app_context():
+        # Make the pool owner a non-admin reviewer without changing the member's rights.
+        db.session.add(ClinicAuthorPool(id="owned-by-beta", name="Testpool", created_by=102))
+        db.session.flush()
+        db.session.add(ClinicAuthorPoolMember(pool_id="owned-by-beta", user_id=101, created_by=102))
+        pending = vocabulary.submit_review_item(user_id=101, written_form="Offen", pool_id="owned-by-beta")
+        deferred = vocabulary.submit_review_item(user_id=101, written_form="Spaeter", pool_id="owned-by-beta")
+        vocabulary.defer_item(deferred.id, actor_id=101)
+        vocabulary.undo_decision(deferred.id, actor_id=101)
+        vocabulary.defer_item(deferred.id, actor_id=101)
+        missing = vocabulary.submit_review_item(user_id=999, written_form="OhnePool", pool_id="unknown")
+        db.session.commit()
+        pending_id, deferred_id, missing_id = pending.id, deferred.id, missing.id
+
+    pool_queue = f"{PATH_REVIEWS}?scope_type=author_pool&scope_id=owned-by-beta&status=OPEN"
+    _login(client, 101)
+    member = client.get(pool_queue)
+    assert member.status_code == 200
+    assert member.json["revision"] == 4
+    items = {row["id"]: row for row in member.json["items"]}
+    assert {key: row["revision"] for key, row in items.items()} == {pending_id: 1, deferred_id: 4}
+    assert all(row["resource_type"] == "vocabulary" and row["can_accept_pool"] is False for row in items.values())
+
+    _login(client, 102)
+    owner = client.get(pool_queue, headers={"If-None-Match": member.headers["ETag"]})
+    assert owner.status_code == 200
+    assert all(row["can_accept_pool"] is True for row in owner.json["items"])
+    assert owner.headers["ETag"] != member.headers["ETag"]
+    not_modified = client.get(pool_queue, headers={"If-None-Match": owner.headers["ETag"]})
+    assert not_modified.status_code == 304
+    assert not_modified.headers["ETag"] == owner.headers["ETag"]
+    for response in (owner, not_modified):
+        assert response.cache_control.private and response.cache_control.no_store
+        assert "Cookie" in response.vary
+
+    # Change only the lower item revision; the aggregate revision and count stay the same.
+    with app.app_context():
+        vocabulary.defer_item(pending_id, actor_id=101)
+        db.session.commit()
+    changed = client.get(pool_queue, headers={"If-None-Match": owner.headers["ETag"]})
+    assert changed.status_code == 200
+    assert changed.json["revision"] == owner.json["revision"]
+    assert {row["id"]: row["revision"] for row in changed.json["items"]} == {pending_id: 2, deferred_id: 4}
+
+    admin = _login(client, 999)
+    no_pool = client.get(f"{PATH_REVIEWS}?scope_type=user&scope_id=999")
+    assert no_pool.json["items"][0]["can_accept_pool"] is False
+    denied = client.post(PATH_PARITY, headers=admin, json={
+        "command": "review_resource_change", "request_id": str(uuid.uuid4()), "expected_revision": 1,
+        "payload": {"proposal_id": missing_id, "decision": "pool"},
+    })
+    assert denied.status_code == 403
+
+
+def test_session_review_is_private_until_explicit_pool_confirmation(app_env):
+    app, _ = app_env
+    client = app.test_client()
+    with app.app_context():
+        db.session.get(ClinicAuthorPool, "pool-cardio").created_by = 101
+        db.session.add(ClinicAuthorPoolMember(pool_id="pool-cardio", user_id=102, created_by=101))
+        command = vocabulary.add_voice_command(
+            scope="user", user_id=101, trigger_phrase="Befund einfügen", action_payload="Testbefund",
+        )
+        now = datetime.now(timezone.utc)
+        captured = vocabulary.capture_session_changes(
+            user_id=101, dictation_id=str(uuid.uuid4()), pool_id="pool-cardio",
+            started_at=now - timedelta(minutes=1), ended_at=now, after_text="Privatwort",
+        )
+        personal = next(row for row in captured if row.written_form == "Privatwort")
+        pool_command = next(row for row in captured if row.written_form == command.trigger_phrase)
+        submitted = vocabulary.submit_review_item(
+            user_id=101, written_form="Eingereicht", pool_id="pool-cardio", origin=vocabulary.ORIGIN_MANUAL,
+        )
+        db.session.commit()
+        personal_id, command_id, submitted_id = personal.id, pool_command.id, submitted.id
+
+    def decide(actor, proposal, decision, revision):
+        return client.post(PATH_PARITY, headers=_login(client, actor), json={
+            "command": "review_resource_change", "request_id": str(uuid.uuid4()), "expected_revision": revision,
+            "payload": {"proposal_id": proposal, "decision": decision},
+        })
+
+    def undo(actor, proposal, revision):
+        return client.post(f"{PATH_REVIEWS}/{proposal}/undo", headers=_login(client, actor),
+                           json={"expected_revision": revision})
+
+    def pool_ids(actor, status):
+        _login(client, actor)
+        response = client.get(f"{PATH_REVIEWS}?scope_type=author_pool&scope_id=pool-cardio&status={status}")
+        assert response.status_code == 200
+        return {row["id"] for row in response.json["items"]}
+
+    for actor in (102, 999):
+        assert pool_ids(actor, "OPEN") == {submitted_id}
+        for decision in ("user", "pool", "reject", "defer"):
+            assert decide(actor, personal_id, decision, 1).status_code == 403
+        assert undo(actor, personal_id, 99).status_code == 403
+    _login(client, 999)
+    foreign = client.get(f"{PATH_REVIEWS}?scope_type=user&scope_id=101&status=OPEN")
+    assert {row["id"] for row in foreign.json["items"]} == {submitted_id}
+
+    assert decide(101, personal_id, "defer", 1).status_code == 200
+    assert pool_ids(102, "OPEN") == {submitted_id}
+    _login(client, 101)
+    own = client.get(f"{PATH_REVIEWS}?scope_type=user&scope_id=101&status=OPEN")
+    items = {row["id"]: row for row in own.json["items"]}
+    assert items[personal_id]["revision"] == 2 and items[personal_id]["status"] == "DEFERRED"
+    assert items[command_id]["resource_type"] == "voice_command"
+    assert items[command_id]["can_accept_pool"] is True
+    assert items[command_id]["target_pool_name"] == "Kardiologie"
+    assert decide(101, personal_id, "user", items[personal_id]["revision"]).status_code == 200
+    assert decide(101, command_id, "pool", items[command_id]["revision"]).status_code == 200
+    assert pool_ids(102, "ACCEPTED_USER,ACCEPTED_POOL") == {command_id}
+    assert undo(999, personal_id, 3).status_code == 403
+
+    with app.app_context():
+        assert "Privatwort" in vocabulary.get_effective_vocabulary(101, ["pool-cardio"])
+        assert "Privatwort" not in vocabulary.get_effective_vocabulary(102, ["pool-cardio"])
+        assert vocabulary.get_effective_voice_commands(102, ["pool-cardio"])["Befund einfügen"]["source"] == "pool"
+
+    # Undoing personal acceptance never publishes a reopened suggestion (including explicit submissions).
+    assert decide(101, submitted_id, "user", 1).status_code == 200
+    assert pool_ids(102, "ACCEPTED_USER") == set()
+    assert undo(999, submitted_id, 2).status_code == 403
+    assert undo(101, submitted_id, 2).status_code == 200
+    assert undo(101, personal_id, 3).status_code == 200
+    assert undo(999, command_id, 2).status_code == 200
+    with app.app_context():
+        db.session.get(ClinicAuthorPool, "pool-cardio").created_by = 102
+        db.session.commit()
+    assert pool_ids(102, "PENDING,DEFERRED,ACCEPTED_POOL") == set()
+    assert undo(102, submitted_id, 99).status_code == 403
+    assert decide(102, personal_id, "pool", 4).status_code == 403

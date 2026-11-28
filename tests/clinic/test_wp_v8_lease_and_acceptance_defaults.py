@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import pytest
 
-from src.clinic import pools, revisions, workflow
+from src.clinic import pools, revisions, vocabulary, workflow
 from src.clinic.acceptance_policy import SCOPE_DICTATION, AcceptanceLedger
 from src.clinic.identity import ClinicAccountPolicy
 from src.clinic.models import ClinicAudioRevision, ClinicContextRevision, ClinicDictation, ClinicOriginal
@@ -166,11 +166,81 @@ def _publication_controls_submit(app, users, target):
             assert detail['transitions']['submit'] == workflow.TO_ACCEPT
 
 
-@pytest.mark.parametrize('case', ['author', 'typist', 'staff_only', 'finalize', 'publication'])
+def _capture_on_close(app, users, target):
+    actor = users['typist']
+    browser = Browser(app, actor, target['id'])
+    with app.app_context():
+        vocabulary.add_voice_command('user', 'Alter Sprachbefehl', user_id=actor)
+        db.session.commit()
+    held = browser.acquire()
+    saved = browser.write('/correction/save', if_match=f'"{target["head"]}.g{held["generation"]}"', body={
+        'text': TEXT + ' Korrekturwort.', 'audio_position_ms': 0, 'lease_generation': held['generation'],
+        'expected_text_revision_id': target['head'],
+    })
+    assert saved.status_code == 200, saved.json
+    with app.app_context():
+        dictation = db.session.get(ClinicDictation, target['id'])
+        correction = revisions.current_revision(dictation)
+        # A human revision by the same actor is not necessarily a correction save.
+        revisions.add_human_revision(dictation, correction, correction.body + ' Fremdworkflowwort.', actor)
+        vocabulary.add_voice_command('user', 'Neuer Sprachbefehl', user_id=actor)
+        vocabulary.add_voice_command('pool', 'Poolfremdbefehl', pool_id=dictation.pool_id)
+        pool_id = dictation.pool_id
+        db.session.commit()
+    refreshed = browser.acquire()
+    assert refreshed['generation'] == held['generation']
+    proof = {key: held[key] for key in ('lease_id', 'generation')}
+    assert browser.write('/leases/release', body=proof | {'lease_id': str(uuid4())}).status_code == 409
+    with app.app_context():
+        assert not vocabulary.list_review_items(user_id=actor)
+
+    headers = {'X-CSRFToken': browser.csrf, 'Idempotency-Key': str(uuid4())}
+    first = browser.client.post(browser.base + '/leases/release', json=proof, headers=headers)
+    assert first.status_code == 200, first.json
+    replay = browser.client.post(browser.base + '/leases/release', json=proof, headers=headers)
+    assert replay.status_code == 200 and replay.json == first.json
+    assert 'Korrekturwort' not in first.get_data(as_text=True)
+    next_lease = browser.acquire()
+    assert next_lease['generation'] == held['generation'] + 1
+    # If the old window is reused, the old text save will now be proposed again.
+    with app.app_context():
+        old = next(item for item in vocabulary.list_review_items(user_id=actor)
+                   if item.written_form == 'Korrekturwort')
+        vocabulary.reject_item(old.id, actor_id=actor)
+        db.session.commit()
+    assert browser.write('/leases/release', body={
+        key: next_lease[key] for key in ('lease_id', 'generation')
+    }).status_code == 200
+
+    metadata_actor = users['staff_only']
+    with app.app_context():
+        pools.allow(metadata_actor, 'pool', actor_id=users['admin'], pool_id=pool_id, actions=('rename',))
+    metadata_browser = Browser(app, metadata_actor, target['id'])
+    metadata_lease = metadata_browser.acquire()
+    with app.app_context():
+        vocabulary.add_voice_command('user', 'Metadatenbefehl', user_id=metadata_actor)
+        db.session.commit()
+    assert metadata_browser.write('/leases/release', body={
+        key: metadata_lease[key] for key in ('lease_id', 'generation')
+    }).status_code == 200
+
+    with app.app_context():
+        items = vocabulary.list_review_items(user_id=actor, status=None)
+        assert sorted((item.written_form, item.status) for item in items) == [
+            ('Korrekturwort', vocabulary.REVIEW_STATUS_REJECTED),
+            ('Neuer Sprachbefehl', vocabulary.REVIEW_STATUS_PENDING),
+        ]
+        assert all(item.dictation_id == target['id'] and item.pool_id == pool_id for item in items)
+        assert not vocabulary.list_review_items(user_id=metadata_actor)
+
+
+@pytest.mark.parametrize('case', ['author', 'typist', 'staff_only', 'finalize', 'publication', 'capture_on_close'])
 def test_mounted_lease_and_acceptance_defaults(tmp_path, case):
     env = {**os.environ, 'CLINIC_MODE': '1', 'CLINIC_PROFILE': 'staging', 'PYTHONPATH': str(ROOT),
            'SQLALCHEMY_DATABASE_URI': f'sqlite:///{tmp_path / "clinic.db"}',
            'UPLOAD_FOLDER': str(tmp_path / 'uploads'), 'SPEAKR_SKIP_BACKGROUND_TASKS': 'true'}
+    if case == 'capture_on_close':
+        env['AUDIT_LOG_ENABLED'] = 'false'
     done = subprocess.run([sys.executable, __file__, case], cwd=ROOT, env=env,
                           capture_output=True, text=True, timeout=120)
     assert done.returncode == 0, done.stderr
@@ -188,4 +258,4 @@ if __name__ == '__main__':
         _can_save(app, users, target, case)
     else:
         {'staff_only': _staff_cannot_lease, 'finalize': _default_allows_release,
-         'publication': _publication_controls_submit}[case](app, users, target)
+         'publication': _publication_controls_submit, 'capture_on_close': _capture_on_close}[case](app, users, target)

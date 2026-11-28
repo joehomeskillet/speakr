@@ -7,11 +7,13 @@ routes for vocabulary review queue inspection and undo.
 from __future__ import annotations
 
 import uuid
+from hashlib import sha256
 from typing import Any
 
 from flask import Blueprint, abort, jsonify, request
 from flask_login import current_user
 from flask_wtf.csrf import validate_csrf
+from sqlalchemy.sql.elements import ColumnElement
 from wtforms.validators import ValidationError
 
 from src.clinic.config import clinic_mode_enabled
@@ -88,6 +90,49 @@ def can_review_user(actor_id: int, target_user_id: int, session: Any = None) -> 
     return bool(getattr(user, "is_admin", False))
 
 
+def _pool_visible() -> ColumnElement[bool]:
+    item = vocabulary.ClinicVocabularyReviewItem
+    decision = vocabulary.ClinicVocabularyReviewDecision
+    # A personal acceptance stays private when undone and the proposal reopens.
+    accepted_personally = db.session.query(decision.id).filter(
+        decision.review_item_id == item.id, decision.action == vocabulary.ACTION_ACCEPT_USER,
+    ).exists()
+    published = (item.status == vocabulary.REVIEW_STATUS_ACCEPTED_POOL) & (item.pool_id == item.target_pool_id)
+    submitted = (
+        (item.origin != vocabulary.ORIGIN_SESSION)
+        & item.status.notin_((vocabulary.REVIEW_STATUS_ACCEPTED_USER, vocabulary.REVIEW_STATUS_ACCEPTED_POOL))
+        & ~accepted_personally
+    )
+    return published | submitted
+
+
+def _can_review_item(actor_id: int, item: vocabulary.ClinicVocabularyReviewItem, *, undo: bool = False) -> bool:
+    account = db.session.get(ClinicAccountPolicy, actor_id)
+    if db.session.get(User, actor_id) is None or (account is not None and account.status != "active"):
+        return False
+    if actor_id == item.user_id:
+        return True
+    # Keep existing site-admin command access for non-session proposals, but
+    # do not let pool review permissions undo a now-private acceptance.
+    if (
+        item.origin != vocabulary.ORIGIN_SESSION
+        and (not undo or not item.pool_id)
+        and can_review_user(actor_id, item.user_id)
+    ):
+        return True
+    return bool(
+        item.pool_id and can_review_pool(actor_id, item.pool_id)
+        and db.session.query(vocabulary.ClinicVocabularyReviewItem.id)
+        .filter_by(id=item.id).filter(_pool_visible()).first()
+    )
+
+
+def _accept_pool_target(actor_id: int, item: vocabulary.ClinicVocabularyReviewItem) -> ClinicAuthorPool | None:
+    if item.pool_id and can_review_pool(actor_id, item.pool_id) and _can_review_item(actor_id, item):
+        return db.session.get(ClinicAuthorPool, item.pool_id)
+    return None
+
+
 def authorize_review_resource_change(actor_id: int, permission: str, payload: dict[str, Any]) -> str | None:
     """Validate review command actor permissions, target and transition."""
     if permission != PERMISSION_REVIEW:
@@ -98,31 +143,15 @@ def authorize_review_resource_change(actor_id: int, permission: str, payload: di
         return None
 
     s = db.session
-    item = s.get(vocabulary.ClinicVocabularyReviewItem, proposal_id)
+    # Serialize decisions before the parity dispatcher checks the receipt and revision.
+    item = s.get(vocabulary.ClinicVocabularyReviewItem, proposal_id, populate_existing=True, with_for_update=True)
     if item is None:
         return None
 
     uid = int(actor_id)
-    user = s.get(User, uid)
-    if not user:
-        return None
-    account = s.get(ClinicAccountPolicy, uid)
-    if account is not None and account.status != "active":
-        return None
-    if bool(getattr(user, "is_admin", False)):
-        return item.id
-
     if decision == "pool":
-        if not item.pool_id or not can_review_pool(uid, item.pool_id, session=s):
-            return None
-        return item.id
-
-    if can_review_user(uid, item.user_id, session=s):
-        return item.id
-    if item.pool_id and can_review_pool(uid, item.pool_id, session=s):
-        return item.id
-
-    return None
+        return item.id if _accept_pool_target(uid, item) is not None else None
+    return item.id if _can_review_item(uid, item) else None
 
 
 def execute_review_resource_change(actor_id: int, target: str, envelope: dict[str, Any]) -> dict[str, Any]:
@@ -218,17 +247,13 @@ def register_parity_review_handlers(dispatch: ParityDispatch) -> None:
 def undo_review_decision(actor_id: int, proposal_id: str, expected_revision: int | None = None) -> dict[str, Any]:
     """Undo review decision with revision checking and policy guard."""
     s = db.session
-    item = s.get(vocabulary.ClinicVocabularyReviewItem, proposal_id)
-    if item is None:
+    item = s.get(vocabulary.ClinicVocabularyReviewItem, proposal_id, populate_existing=True, with_for_update=True)
+    if item is None or not _can_review_item(int(actor_id), item, undo=True):
         raise CommandProblem("POLICY_DENIED")
 
     current_rev = get_review_item_revision(proposal_id, session=s)
     if expected_revision is not None and current_rev != expected_revision:
         raise CommandProblem("REVISION_CONFLICT")
-
-    if not can_review_user(actor_id, item.user_id, session=s):
-        if not (item.pool_id and can_review_pool(actor_id, item.pool_id, session=s)):
-            raise CommandProblem("POLICY_DENIED")
 
     try:
         undone = vocabulary.undo_decision(proposal_id, actor_id=actor_id, session=s)
@@ -260,9 +285,9 @@ def list_resource_vocabulary_reviews():
         return _problem("INVALID_PAYLOAD")
     if not statuses or any(value not in vocabulary.REVIEW_STATUSES for value in statuses):
         return _problem("INVALID_PAYLOAD")
-    status_filter = statuses[0] if len(statuses) == 1 else statuses
-
     actor_id = current_user.id
+    model = vocabulary.ClinicVocabularyReviewItem
+    query = db.session.query(model).filter(model.status.in_(statuses))
     if scope_type == "user":
         try:
             target_user_id = int(scope_id)
@@ -270,7 +295,11 @@ def list_resource_vocabulary_reviews():
             return _problem("INVALID_PAYLOAD")
         if not can_review_user(actor_id, target_user_id):
             return _problem("POLICY_DENIED")
-        rows = vocabulary.list_review_items(user_id=target_user_id, status=status_filter)
+        query = query.filter_by(user_id=target_user_id)
+        if target_user_id != actor_id:
+            query = query.filter(
+                model.origin != vocabulary.ORIGIN_SESSION, model.status != vocabulary.REVIEW_STATUS_ACCEPTED_USER,
+            )
     else:
         pool_id = scope_id
         user = db.session.get(User, actor_id)
@@ -283,7 +312,9 @@ def list_resource_vocabulary_reviews():
         )
         if not (is_admin or is_member or can_review_pool(actor_id, pool_id)):
             return _problem("POLICY_DENIED")
-        rows = vocabulary.list_review_items(pool_id=pool_id, status=status_filter)
+        query = query.filter_by(pool_id=pool_id).filter(_pool_visible())
+
+    rows = query.order_by(model.created_at.desc(), model.id).all()
 
     try:
         limit = min(100, max(1, int(request.args.get("limit", 50))))
@@ -303,25 +334,33 @@ def list_resource_vocabulary_reviews():
     page_rows = rows[start : start + limit]
     next_cursor = str(start + limit) if (start + limit) < len(rows) else None
 
-    items = [
-        {
+    items = []
+    for r in page_rows:
+        pool = _accept_pool_target(actor_id, r) if r.status in vocabulary.OPEN_REVIEW_STATUSES else None
+        items.append({
             "id": r.id,
             "written_form": r.written_form,
             "spoken_form": r.spoken_form,
             "operation": r.operation,
             "status": r.status,
-        }
-        for r in page_rows
-    ]
+            "revision": get_review_item_revision(r.id) or 1,
+            "resource_type": vocabulary._session_information_data(r).get(
+                vocabulary._SESSION_RESOURCE, "vocabulary",
+            ),
+            "can_accept_pool": pool is not None,
+            "target_pool_name": pool.name if pool is not None else None,
+        })
 
-    rev = max((get_review_item_revision(r.id) or 1 for r in page_rows), default=0)
-    etag = f'"{rev}-{len(items)}"'
-    if request.headers.get("If-None-Match") == etag:
-        return "", 304
-
+    rev = max((item["revision"] for item in items), default=0)
     resp = jsonify({"revision": rev, "next_cursor": next_cursor, "items": items})
-    resp.headers["ETag"] = etag
-    return resp, 200
+    etag = sha256(f"{actor_id}:{request.full_path}:".encode() + resp.get_data()).hexdigest()
+    if request.if_none_match.contains_weak(etag):
+        resp.status_code = 304
+        resp.set_data(b"")
+    resp.set_etag(etag)
+    resp.headers["Cache-Control"] = "private, no-store"
+    resp.vary.add("Cookie")
+    return resp
 
 
 @vocabulary_review_bp.post("/resources/vocabulary/reviews/<proposal_id>/undo")
