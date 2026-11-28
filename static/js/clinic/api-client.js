@@ -232,6 +232,10 @@ export function createClinicApiClient() {
                 if (seen !== generation) return result('cancelled', { code: 'CANCELLED' });
             }
             const response = classify(sent.response, text);
+            if (url === ROOT + '/offline-web/capability' && response.outcome === 'ok') {
+                const expiresAt = sent.response.headers?.get('X-Offline-Grant-Expires-At');
+                if (expiresAt) response.grantExpiresAt = Number(expiresAt);
+            }
             if (unsafe && response.outcome === 'ok' && (url.startsWith(ROOT + '/dictations/') || url === PARITY_COMMANDS)) {
                 dictationChanges += 1;
             }
