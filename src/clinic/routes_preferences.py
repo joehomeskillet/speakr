@@ -1,11 +1,13 @@
-"""HTTP surface for recipient, selection and workstation preferences.
+"""HTTP surface for recipient, selection, workstation, key-binding and output preferences.
 
-PAR-ADM-006, PAR-ADM-007, PAR-ADM-011, PAR-CFG-001. A thin layer over
-``recipient_defaults``, ``last_selection`` and ``workstation_preferences``.
+PAR-ADM-006, PAR-ADM-007, PAR-ADM-011, PAR-CFG-001, PAR-OPS-003, PAR-EXP-001.
+A thin layer over ``recipient_defaults``, ``last_selection``,
+``workstation_preferences``, ``key_bindings`` and ``output_preferences``.
 The actor is always ``current_user``. A body never names an actor, user or
-role. Every write checks CSRF and the session. Allowances (``allowed_for``)
-and the author pool (``author_pool_for``) come from the caller's central
-policy, are read on every request, and so apply at save and at use time.
+role. Every write checks CSRF and the session. Output saves also require
+``If-Match`` equal to the stored version. Allowances (``allowed_for``) and the
+author pool (``author_pool_for``) come from the caller's central policy, are
+read on every request, and so apply at save and at use time.
 
 The OpenAPI catalog has no preference command yet, so these routes are not
 parity commands. Mounting ``blueprint`` in the app is left to the consumer
@@ -14,6 +16,7 @@ package (w196-routes-identity).
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -22,7 +25,14 @@ from flask_login import current_user
 from flask_wtf.csrf import CSRFError, validate_csrf
 from wtforms.validators import ValidationError
 
-from src.clinic import correction_modes, pools, recipient_defaults as rd
+from src.clinic import (
+    correction_modes,
+    key_bindings,
+    notification_preferences,
+    output_preferences,
+    pools,
+    recipient_defaults as rd,
+)
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.last_selection import (
     Allowed,
@@ -49,11 +59,27 @@ _STATUS = {
     "choice_disabled": 403, "person_not_allowed": 403, "capability_forbidden": 403,
     "stale_version": 409, "conflict": 409,
     "selection_not_allowed": 422, "not_author_pool": 422, "invalid_mode": 422, "bad_version": 422,
+    "reserved_chord": 422, "bad_chord": 422, "unknown_action": 422, "bad_bindings": 422,
+    "binding_conflict": 409,
     "preference_read_failed": 503, "preference_write_failed": 503,
     "invalid_transport_policy": 503,
 }
 _TITLES = {400: "Ungültige Anfrage", 401: "Anmeldung erforderlich", 403: "Zugriff verweigert",
-           409: "Versionskonflikt", 422: "Auswahl nicht zulässig", 503: "Dienst nicht verfügbar"}
+           409: "Versionskonflikt", 412: "Version veraltet", 422: "Auswahl nicht zulässig",
+           428: "Voraussetzung fehlt", 503: "Dienst nicht verfügbar"}
+# Flat format ids the output screen saves. Each one is one stored target.
+_OUTPUT_FORMATS = {
+    "clipboard": {"channel": "clipboard", "target_alias": "clipboard", "format": "plain",
+                  "selected_by_default": True},
+    "formatted": {"channel": "clipboard", "target_alias": "formatted", "format": "formatted",
+                  "selected_by_default": True},
+    "txt": {"channel": "download", "target_alias": "txt", "format": "txt", "selected_by_default": True},
+    "rtf": {"channel": "download", "target_alias": "rtf", "format": "rtf", "selected_by_default": True},
+    "docx": {"channel": "download", "target_alias": "docx", "format": "docx", "selected_by_default": True},
+    "kis_draft": {"channel": "kis_draft", "target_alias": "kis_draft", "format": "plain",
+                  "selected_by_default": True},
+}
+_OUTPUT_BODY_KEYS = frozenset({"formats", "open_after_export", "expected_version"})
 
 
 def _problem(code: str, status: int | None = None, **extra: Any):
@@ -74,6 +100,68 @@ def _selection_json(selection: Selection) -> dict[str, Any]:
     return {key: value for key, value in vars(selection).items()}
 
 
+def _if_match_version() -> int | tuple:
+    """Quoted decimal ``If-Match``. Missing is 428, anything else unreadable is 400."""
+    raw = request.headers.get("If-Match")
+    if raw is None or not raw.strip():
+        return _problem("precondition_required", 428)
+    match = re.fullmatch(r'"(0|[1-9][0-9]{0,18})"', raw.strip())
+    if match is None:
+        return _problem("bad_version", 400)
+    return int(match[1])
+
+
+def _targets_for_formats(formats: object) -> list[dict[str, Any]]:
+    if not isinstance(formats, list) or len(formats) > output_preferences.MAX_TARGETS:
+        raise rd.RecipientDefaultError("invalid_payload")
+    if any(type(name) is not str for name in formats) or len(set(formats)) != len(formats):
+        raise rd.RecipientDefaultError("invalid_payload")
+    targets = []
+    for name in formats:
+        spec = _OUTPUT_FORMATS.get(name)
+        if spec is None:
+            raise rd.RecipientDefaultError("invalid_payload")
+        targets.append(dict(spec))
+    return targets
+
+
+def _format_names(prefs: output_preferences.OutputPreferences) -> list[str]:
+    names: list[str] = []
+    for item in prefs.targets:
+        name = item.target_alias if item.target_alias in _OUTPUT_FORMATS else None
+        if name is None and item.format in _OUTPUT_FORMATS:
+            name = item.format
+        elif name is None and item.channel in _OUTPUT_FORMATS:
+            name = item.channel
+        if name is not None:
+            names.append(name)
+    return names
+
+
+def _output_json(prefs: output_preferences.OutputPreferences):
+    response = jsonify(
+        version=prefs.version, formats=_format_names(prefs), open_after_export=prefs.open_after_export,
+    )
+    response.headers["ETag"] = f'"{prefs.version}"'
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+def _output_failure(error: output_preferences.PreferenceError):
+    if error.code == "stale_version":
+        return _problem("stale_version", 412)
+    if error.code == "corrupt":
+        return _problem("corrupt", 409)
+    return _problem(error.code, 400)
+
+
+def _saved_output(actor: int):
+    try:
+        return _output_json(output_preferences.get_preferences(actor))
+    except output_preferences.PreferenceError as error:
+        return _output_failure(error)
+
+
 class PreferenceRoutes:
     """Build the blueprint around injected stores and central allowances."""
 
@@ -89,6 +177,7 @@ class PreferenceRoutes:
         self._author_pool_for = author_pool_for
         self._selections = selections
         self._workstations = workstations
+        self._binding_store = key_bindings.KeyBindingStore()
         bp = self.blueprint = Blueprint("clinic_preferences", __name__)
         bp.before_request(self._guard)
         bp.register_error_handler(CSRFError, lambda _e: _problem("unauthorized"))
@@ -99,6 +188,9 @@ class PreferenceRoutes:
             ("/workstations", "workstation_issue", self._workstation_issue, ("POST",)),
             ("/workstations/<workstation_id>", "workstation", self._workstation, ("GET", "PUT")),
             ("/correction-mode", "correction_mode", self._correction_mode, ("GET", "PUT")),
+            ("/key-bindings", "key_bindings", self._key_bindings, ("GET", "PUT", "DELETE")),
+            ("/output", "output", self._output, ("GET", "PUT")),
+            ("/notifications", "notifications", self._notifications, ("GET", "PUT")),
         ):
             bp.add_url_rule(PREFIX + rule, name, self._wrap(view), methods=list(methods))
 
@@ -126,6 +218,12 @@ class PreferenceRoutes:
             except (rd.RecipientDefaultError, PreferenceError, LastSelectionError) as error:
                 return _problem(error.code)
             except correction_modes.ModeError as error:
+                return _problem(error.code)
+            except key_bindings.StaleVersion as error:
+                return _problem("stale_version", current_version=error.current_version)
+            except key_bindings.BindingConflict as error:
+                return _problem(error.code, conflicts=[list(pair) for pair in error.conflicts])
+            except key_bindings.BindingError as error:
                 return _problem(error.code)
 
         run.__name__ = view.__name__
@@ -239,6 +337,116 @@ class PreferenceRoutes:
         if request.method == "GET":
             mode, version = correction_modes.get_mode(actor)
             return jsonify(mode=mode, version=version)
+
         body = _body()
         mode, version = correction_modes.set_mode(actor, body.get("mode"), body.get("expected_version"))
         return jsonify(mode=mode, version=version)
+
+    # -- output formats (PAR-EXP-001) ---------------------------------------
+    def _output(self):
+        """Selected export formats for the signed-in account only."""
+        actor = current_user.id
+        if request.method == "GET":
+            return _saved_output(actor)
+        body = _body()
+        if body.keys() - _OUTPUT_BODY_KEYS:
+            raise rd.RecipientDefaultError("invalid_payload")
+        version = _if_match_version()
+        if not isinstance(version, int):
+            return version
+        if body.get("expected_version", version) != version:
+            raise rd.RecipientDefaultError("invalid_payload")
+        flag = body.get("open_after_export", False)
+        if type(flag) is not bool:
+            raise rd.RecipientDefaultError("invalid_payload")
+        targets = _targets_for_formats(body.get("formats"))
+        try:
+            saved = output_preferences.save_preferences(
+                actor, targets, flag, expected_version=version,
+            )
+        except output_preferences.PreferenceError as error:
+            return _output_failure(error)
+        return _output_json(saved)
+
+    # -- focused key and pedal bindings (PAR-OPS-003) -----------------------
+    def _key_bindings(self):
+        """Read or change only the signed-in user's bindings."""
+        actor = current_user.id
+        if request.method == "GET":
+            return _bindings_json(self._binding_store.load(actor))
+        if request.method == "DELETE":
+            return self._reset_key_bindings(actor)
+        return self._put_key_binding(actor)
+
+    def _put_key_binding(self, actor: int):
+        body = _body()
+        action, chord = body.get("action"), body.get("chord")
+        _reject_reserved_chord(chord)
+        loaded = self._binding_store.load(actor)
+        version = body["expected_version"] if "expected_version" in body else loaded.version
+        # set_binding checks the chord, the action and conflicts. The store persists that result.
+        stored = self._binding_store.set_binding(actor, action, chord, version)
+        return _bindings_json(stored)
+
+    def _reset_key_bindings(self, actor: int):
+        body = _body() if request.data else {}
+        action = request.args.get("action")
+        if action is not None and not action.strip():
+            action = None
+        if "expected_version" in body:
+            version = body["expected_version"]
+        elif "expected_version" in request.args:
+            version = _query_version(request.args["expected_version"])
+        else:
+            version = self._binding_store.load(actor).version
+        stored = self._binding_store.reset(actor, action, expected_version=version)
+        return _bindings_json(stored)
+
+    def _notifications(self):
+        if request.args or (request.method == "GET" and request.content_length):
+            return _problem("invalid_payload")
+        actor = current_user.id
+        try:
+            if request.method == "GET":
+                preference = notification_preferences.read(actor)
+            else:
+                body = _body()
+                if body.keys() - {"event", "enabled", "expected_version", "channel"}:
+                    return _problem("invalid_payload")
+                preference = notification_preferences.set_event(
+                    actor, body.get("event"), body.get("enabled"), body.get("expected_version"),
+                    channel=body.get("channel", notification_preferences.CHANNEL_IN_APP),
+                )
+        except notification_preferences.StaleVersion as error:
+            return _problem("stale_version", current_version=error.version)
+        except notification_preferences.PreferenceError as error:
+            return _problem(error.code, 503 if error.code == "bad_store" else None)
+        return jsonify(channels=preference.channels, version=preference.version)
+
+
+def _bindings_json(stored: key_bindings.StoredBindings):
+    return jsonify(
+        bindings=stored.bindings,
+        defaults=dict(key_bindings.DEFAULTS),
+        version=stored.version,
+    )
+
+
+def _reject_reserved_chord(chord: object) -> None:
+    """Report a reserved browser chord from ``set_binding`` before other PUT checks.
+
+    An omitted or unknown action would otherwise hide ``reserved_chord``.
+    """
+    if not isinstance(chord, str):
+        return
+    try:
+        key_bindings.set_binding({"stop": "F1"}, "stop", chord)
+    except key_bindings.BindingError as error:
+        if error.code == "reserved_chord":
+            raise
+
+
+def _query_version(raw: object) -> int:
+    if isinstance(raw, str) and raw.isascii() and raw.isdigit():
+        return int(raw)
+    raise key_bindings.BindingError("bad_version")

@@ -315,7 +315,8 @@ export function useWorklist(options = {}) {
             if (response.outcome === 'ok' && response.data) {
                 const raw = response.data.items || response.data;
                 const items = Array.isArray(raw) ? raw : [];
-                const scoped = filterRowsByRole(items, { role: currentRole.value, userId: currentUserId.value });
+                const scoped = options.serverScopedRows ? items
+                    : filterRowsByRole(items, { role: currentRole.value, userId: currentUserId.value });
                 rows.value = scoped;
                 totals.value = computeStatusTotals(scoped, { version: tokenVersion });
                 if (selectedRow.value) selectRow(selectedRow.value);
