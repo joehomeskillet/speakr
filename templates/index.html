@@ -1,3 +1,4 @@
+{% from 'components/brand-lockup.html' import brand_lockup -%}
 <!DOCTYPE html>
 <html lang="{{ user_language or 'en' }}" class="h-full">
 <head>
@@ -60,7 +61,7 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta name="app-version" content="{{ app_version }}">
     <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
-    <title>Speakr</title>
+    <title>Ploudrli</title>
     <!-- All dependencies bundled locally for offline support -->
     <link rel="stylesheet" href="{{ url_for('static', filename='vendor/css/easymde.min.css', v=app_version) }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='vendor/css/fontawesome.min.css', v=app_version) }}">
@@ -77,12 +78,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/phone.css', v=app_version) }}">
     <!-- The processing queue: the indicator and the panel -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/queue.css', v=app_version) }}">
-    <link rel="icon" href="{{ url_for('static', filename='img/favicon.ico') }}">
-    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='img/icon-32x32.png') }}">
-    <link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='img/icon-16x16.png') }}">
-    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='img/icon-180x180.png') }}">
-    <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
-    <meta name="theme-color" content="#2563eb">
+    {% include 'includes/brand-head.html' %}
     <!-- Tailwind utilities, compiled at build time (scripts/build_css.sh). Last in
          <head> so that, as with the former runtime build, they follow the page's
          own stylesheets in the cascade. -->
@@ -134,7 +130,9 @@
         {#- The wrapper keeps the header out of the UI themes' "#app > header" rules: the V8 topbar does not follow a theme. -#}
         <div style="display: contents">
         <header class="topbar v8-chrome" data-testid="clinic-header">
-            <a class="brand-link" href="/#/aufnahmen" aria-label="Speakr – Aufnahmen"><span class="logo" aria-hidden="true"></span><span class="brand">Speakr</span></a>
+            <a class="brand-link min-h-12 min-w-12 justify-center rounded-ui-sm bg-ui-surface" href="/#/aufnahmen" aria-label="Ploudrli – Aufnahmen">
+                {{ brand_lockup() }}
+            </a>
             <!-- Primary tabs (CLINIC_MODE only): Aufnahmen and Arbeitsliste; Ressourcen and the other pages are in the menus. The view is kept in the URL hash (#/aufnahmen, #/arbeitsliste, #/ressourcen, #/diktat). No patient data is shown. -->
             <nav v-if="clinicWorklistEnabled" class="topnav" aria-label="Klinik" data-testid="clinic-primary-nav">
                 <button type="button" data-testid="nav-recordings"
@@ -283,7 +281,7 @@
                      :class="{cadm: ['clinic-admin-pools', 'clinic-admin-authors', 'clinic-admin-users', 'clinic-admin-asr'].includes(clinicAdminView.view)}"
                      class="flex-1 overflow-y-auto content v8-page">
                     <div class="breadcrumb" data-testid="clinic-admin-breadcrumb">
-                        <a href="#/aufnahmen" @click.prevent="goClinicView('clinic-recordings')">Speakr</a><span>›</span><span>Verwaltung</span><span>›</span><span v-text="clinicAdminView.label"></span>
+                        <a href="#/aufnahmen" @click.prevent="goClinicView('clinic-recordings')">Ploudrli</a><span>›</span><span>Verwaltung</span><span>›</span><span v-text="clinicAdminView.label"></span>
                     </div>
                     <p v-if="clinicAdminAccess === null" role="status" aria-live="polite" data-testid="clinic-admin-probing">Berechtigungen werden geprüft …</p>
                     <div v-else-if="!clinicAdminAllowed(clinicAdminView)" role="alert" class="note warning" data-testid="clinic-admin-denied">
