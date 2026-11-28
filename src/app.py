@@ -1356,11 +1356,11 @@ def register_clinic_identity(flask_app):
     to be present (one dispatcher, mounted once). Identity providers stay disabled (default
     EntraConfig, IWA off): their routes answer the inert 422 and the exchange never runs.
     The directory has no provider, so it answers its capability-unavailable problem.
-    Preference stores are process-local; a durable store is a later package.
+    The last selection is durable (clinic user-preset row per user); workstation preferences are process-local.
     """
     from src.clinic import (app_wiring, entra, pool_policy, routes_admin_dictations, routes_directory, routes_grants,
                             routes_identity_providers, routes_pool_admin, routes_pools, routes_preferences)
-    from src.clinic.last_selection import Allowed, SelectionStore
+    from src.clinic.last_selection import Allowed, PresetUserPreferences, SelectionStore
     from src.clinic.routes_metadata_fields import create_metadata_fields_blueprint
     from src.clinic.workstation_preferences import WorkstationPreferences
 
@@ -1375,10 +1375,22 @@ def register_clinic_identity(flask_app):
         return app_wiring.choose_author_pool(user_id)
 
     def allowed_for(user_id):
-        pool_ids = pool_policy.author_pool_ids(user_id)
-        return Allowed(roles=frozenset({'author'}) if pool_ids else frozenset(),
-                       author_ids=frozenset({user_id}) if pool_ids else frozenset(),
-                       pool_ids=pool_ids, own_author_id=user_id if pool_ids else None)
+        # Current roles only: author = member of an author pool; typist = member of a staff pool linked
+        # to an author pool. A typist gets no own author (no author context by default).
+        from src.clinic import pools as clinic_pools
+        author_pools = pool_policy.author_pool_ids(user_id)
+        linked = {pool_id for (pool_id,) in db.session.query(clinic_pools.ClinicPoolRoute.author_pool_id)
+                  .join(clinic_pools.ClinicStaffPool, clinic_pools.ClinicStaffPool.id
+                        == clinic_pools.ClinicPoolRoute.staff_pool_id)
+                  .join(GroupMembership, GroupMembership.group_id == clinic_pools.ClinicStaffPool.group_id)
+                  .filter(GroupMembership.user_id == user_id)}
+        roles = frozenset({'author'} if author_pools else set()) | frozenset({'typist'} if linked else set())
+        member = clinic_pools.ClinicAuthorPoolMember
+        typist_authors = {uid for (uid,) in db.session.query(member.user_id).filter(member.pool_id.in_(linked))} \
+            if linked else set()
+        author_ids = frozenset(typist_authors | ({user_id} if author_pools else set()))
+        return Allowed(roles=roles, author_ids=author_ids, pool_ids=frozenset(author_pools | linked),
+                       own_author_id=user_id if author_pools else None)
 
     flask_app.register_blueprint(
         routes_identity_providers.IdentityProvidersApi(entra.EntraConfig(), disabled_exchange).blueprint)
@@ -1392,28 +1404,31 @@ def register_clinic_identity(flask_app):
     flask_app.register_blueprint(create_metadata_fields_blueprint())
     flask_app.register_blueprint(routes_preferences.PreferenceRoutes(
         allowed_for=allowed_for, author_pool_for=author_pool_for,
-        selections=SelectionStore(), workstations=WorkstationPreferences()).blueprint)
+        selections=SelectionStore(preferences=PresetUserPreferences()), workstations=WorkstationPreferences()).blueprint)
 
 
 def register_clinic_audio(flask_app):
     """Mount the audio, dictation-property, bundle, live, correction and TTS handlers.
 
+    Live draft switching and the draft API share one durable store.
+
     Called at startup only in clinic mode, after register_clinic_worklist, and reuses the one
     ParityDispatch (start/stop live session are registered on it). Object decisions go through
     pool_policy.decide; an active site admin may open audio of any user (W12, audited by the
-    audio handler). Capabilities that do not exist yet answer "unavailable" and are never faked:
-    no bundle persistence (503), no local TTS engine or declared capability
-    (CAPABILITY_UNAVAILABLE), no live-draft coordinator (CAPABILITY_UNAVAILABLE). The derived
-    rendering reads the stored originals (app_wiring.make_source_loader); the protection store is
+    audio handler). TTS without a local engine or declared capability answers CAPABILITY_UNAVAILABLE.
+    Derived rendering reads the stored originals (app_wiring.make_source_loader); the protection store is
     durable (clinic_dictation_protection). The mounted sdict export uses that same current
     revision. A source that cannot be read stays empty and is never replaced by synthetic audio.
     """
-    from src.clinic import (app_wiring, audio_render, audio_revisions, config, local_tts, policy, pool_policy,
+    from src.clinic import (app_wiring, bundle_store, config, local_tts, policy, pool_policy,
                             revisions, routes_audio, routes_bundle, routes_clipboard, routes_correction,
-                            routes_dictation_properties, routes_live, routes_output, routes_tts, startup)
+                            routes_correction_documents, routes_dictation_properties, routes_live,
+                            routes_output, routes_tts, startup)
     from src.clinic.admin_dictation_access import can_open_content
+    from src.clinic.draft_store import DraftStore
     from src.clinic.ingest import IngestService
-    from src.clinic.models import ClinicDictation, ClinicTranscriptRevision
+    from src.clinic.models import ClinicDictation
+    from src.clinic import routes_live_drafts
 
     dispatch = flask_app.extensions['clinic_parity_dispatch']
     run_once = flask_app.extensions['clinic_run_once']
@@ -1421,6 +1436,7 @@ def register_clinic_audio(flask_app):
     needs = {
         'play': ('play',), 'edit': ('edit',), 'export': ('export',), 'import': ('edit',),
         'correction_read': ('view',), 'correction_edit': ('edit',), 'clipboard': ('export',),
+        'audio_export': ('audio_export',),
     }
 
     def may(user_id, name, dictation):
@@ -1436,38 +1452,20 @@ def register_clinic_audio(flask_app):
             return True
         return may(user.id, name, dictation)
 
-    def text_version(dictation):
-        return db.session.query(ClinicTranscriptRevision).filter_by(dictation_id=dictation.id).count()
-
-    load_sources = app_wiring.make_source_loader(startup.originals_root(flask_app))
+    originals_root = startup.originals_root(flask_app)
+    load_sources = app_wiring.make_source_loader(originals_root)
     protection_store = app_wiring.DurableProtectionStore(
         lambda user_id, dictation_id: may(user_id, 'play', db.session.get(ClinicDictation, dictation_id)),
         lambda user_id, dictation_id: may(user_id, 'edit', db.session.get(ClinicDictation, dictation_id)),
         lambda dictation_id: db.session.get(ClinicDictation, dictation_id) is not None)
 
-    def bundle_audio(dictation):
-        # Missing source stays empty so the archive builder refuses it. Never invent audio.
-        revision = audio_revisions.current_audio_revision(dictation)
-        if revision is None:
-            return b''
-        try:
-            edl = audio_revisions.get_revision_edl(dictation, revision)
-            return audio_render.render_current_revision(
-                dictation, revision.id, load_sources(dictation, edl)).wav
-        except audio_revisions.AudioRevisionError:
-            return b''
-
-    def bundle_load(actor, dictation_id):
+    def bundle_load(_actor, dictation_id):
         dictation = db.session.get(ClinicDictation, dictation_id)
-        head = None if dictation is None else revisions.current_revision(dictation)
-        if head is None:
-            return None
-        return routes_bundle.BundleSession(
-            doc=routes_bundle.text_to_document(head.body.encode('utf-8')),
-            audio=bundle_audio(dictation), version=text_version(dictation))
+        return None if dictation is None else bundle_store.load(dictation, originals_root, load_sources)
 
-    def bundle_persist(_actor, _dictation_id, _doc, _audio, _expected):
-        raise OSError('no durable bundle store is wired yet')
+    def bundle_persist(actor, dictation_id, doc, audio, expected):
+        return bundle_store.persist(db.session.get(ClinicDictation, dictation_id), actor, doc, audio,
+                                    expected, originals_root, load_sources)
 
     def managed_client():
         return config.client_capabilities()['profiles'][config.client_profile()].get('document_export') is not False
@@ -1478,24 +1476,30 @@ def register_clinic_audio(flask_app):
         if head is None or not may(actor, 'play', dictation):
             return None
         return routes_tts.Loaded(
-            document=local_tts.CanonicalText(text=head.body, version=text_version(dictation)),
+            document=local_tts.CanonicalText(text=head.body, version=bundle_store.text_version(dictation)),
             subject=policy.build_subject(actor),
             recording=policy.build_facts(dictation.recording_id, dictation.author_user_id))
 
-    routes_live.register_live_commands(
-        dispatch, lambda actor, dictation_id: may(actor, 'edit', db.session.get(ClinicDictation, dictation_id)))
+    def edit_live(actor, dictation_id):
+        return may(actor, 'edit', db.session.get(ClinicDictation, dictation_id))
+
+    drafts = DraftStore()
+    routes_live.register_live_commands(dispatch, edit_live)
     flask_app.register_blueprint(routes_audio.create_blueprint(
         authorize=authorize, run_once=run_once, load_sources=load_sources))
     flask_app.register_blueprint(routes_dictation_properties.DictationPropertyRoutes(protection_store).blueprint())
     flask_app.register_blueprint(routes_bundle.create_blueprint(
         bundle_load, lambda actor, dictation_id, action: may(actor, action, db.session.get(ClinicDictation, dictation_id)),
-        bundle_persist, run_once, managed_client))
+        bundle_persist, lambda scope, digest, operation: bundle_store.run_locked(scope, digest, operation, run_once, may),
+        managed_client))
     flask_app.register_blueprint(routes_live.create_blueprint(
-        lambda actor, dictation_id: may(actor, 'edit', db.session.get(ClinicDictation, dictation_id)),
-        IngestService(startup.originals_root(flask_app))))
+        edit_live, IngestService(startup.originals_root(flask_app)), drafts=drafts))
+    flask_app.register_blueprint(routes_live_drafts.create_blueprint(drafts, edit_live))
     flask_app.register_blueprint(routes_correction.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation),
         run_once=run_once, require_if_match=True))
+    flask_app.register_blueprint(routes_correction_documents.create_blueprint(
+        authorize=lambda user, name, dictation: may(user.id, name, dictation)))
     # V8 alignment (v8-86)
     from src.clinic import alignment_job, routes_alignment
     from src.services.job_queue import register_clinic_handler
@@ -1517,36 +1521,43 @@ def register_clinic_operations(flask_app):
     Called at startup only in clinic mode, after register_clinic_audio, and reuses the one
     receipt runner. The import agent authenticates with a machine credential (proxy secret
     plus certificate fingerprint) and never with a session, so its blueprint is CSRF-exempt.
-    Its secrets come from CLINIC_AGENT_PROXY_SECRET and CLINIC_AGENT_MASTER_SECRET (at least
-    32 bytes each); when one is missing or too short a random per-process value is used, so
-    every agent request answers 401 until the secrets are configured (fail closed).
+    CLINIC_AGENT_PROXY_SECRET and CLINIC_AGENT_MASTER_SECRET need at least 32 bytes each.
+    The machine channel uses random per-process values for missing or invalid secrets.
+    Browser enrollment and rotation require the configured master secret.
     """
     import secrets
 
-    from src.clinic import routes_agent, routes_jobs, routes_recordings, routes_statistics, routes_training, startup
+    from src.clinic import (
+        routes_agent, routes_agent_admin, routes_jobs, routes_recordings, routes_statistics, routes_training, startup,
+    )
     from src.clinic.agent_channel import ChannelPolicy
+    from src.clinic.author_aliases import resolve_stored_author
     from src.clinic.ingest import IngestService
     from src.clinic.worklist_entries import load_entries
 
     def secret_from_env(name):
         value = os.environ.get(name, '').strip().encode('utf-8')
         if len(value) < routes_agent.MIN_PROXY_SECRET_BYTES:
-            flask_app.logger.warning('Clinic import agent: %s is not set or shorter than %d bytes; '
-                                     'agent requests are refused until it is configured',
+            flask_app.logger.warning('Clinic import agent: %s is not set or shorter than %d bytes',
                                      name, routes_agent.MIN_PROXY_SECRET_BYTES)
-            return secrets.token_bytes(routes_agent.MIN_PROXY_SECRET_BYTES)
+            return b''
         return value
 
     run_once = flask_app.extensions['clinic_run_once']
+    master_secret = secret_from_env('CLINIC_AGENT_MASTER_SECRET')
+    proxy_secret = secret_from_env('CLINIC_AGENT_PROXY_SECRET')
     agent_bp = routes_agent.create_agent_blueprint(
-        ChannelPolicy(master_secret=secret_from_env('CLINIC_AGENT_MASTER_SECRET')),
-        IngestService(startup.originals_root(flask_app)), secret_from_env('CLINIC_AGENT_PROXY_SECRET'))
+        ChannelPolicy(master_secret=master_secret or secrets.token_bytes(routes_agent.MIN_PROXY_SECRET_BYTES)),
+        IngestService(startup.originals_root(flask_app)),
+        proxy_secret or secrets.token_bytes(routes_agent.MIN_PROXY_SECRET_BYTES),
+        author_lookup=resolve_stored_author)
     flask_app.register_blueprint(routes_recordings.create_blueprint(load_entries))
     flask_app.register_blueprint(routes_jobs.create_blueprint(run_once=run_once))
     flask_app.register_blueprint(routes_statistics.blueprint)
     flask_app.register_blueprint(routes_training.blueprint)
     flask_app.register_blueprint(agent_bp)
     csrf.exempt(agent_bp)
+    flask_app.register_blueprint(routes_agent_admin.create_blueprint(master_secret))
 
     # --- v8-120: browser import reads ---
     from src.clinic import routes_imports_web
