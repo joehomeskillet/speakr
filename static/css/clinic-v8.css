@@ -72,6 +72,7 @@
 :where(.v8-ui) :where(.v8-page *,.v8-chrome *).field small{font-size:11px;color:var(--v8-muted)}
 /* Login and saved worklist filters use the high-contrast outline in both themes. */
 :where(.v8-ui):is(.dark .v8-ui,[data-theme="dark"] .v8-ui) :is(.wf-panel,[aria-labelledby="login-panel-title"]){--v8-input-line:var(--v8-input-outline)}
+:where(.v8-ui):is(.dark .v8-ui,[data-theme="dark"] .v8-ui) [aria-labelledby="login-panel-title"] input[class~="!border-ui-text-muted"]{border-color:var(--v8-input-line)!important}
 :where(.v8-ui) input:where(.v8-page *,.v8-chrome *):not([type=checkbox]):not([type=radio]):not([type=range]),
 .v8-ui :where(:is(.v8-page,.v8-chrome) :is(select,textarea)){width:100%;padding:10px 11px;border:1px solid var(--v8-input-line);border-radius:7px;color:var(--v8-text);background-color:var(--surface);min-height:40px}
 .v8-ui :where(.v8-page input[readonly]){background:var(--v8-s1)!important;color:var(--v8-text-2)!important}
