@@ -307,6 +307,7 @@ def test_asr_settings_persist_and_render_in_both_views(live_server, browser, tmp
         data = response.json()
         data["profile"]["name"] = "Klinik Deutsch"
         data["capabilities"] = {"configured": ["batch", "live"], "proven": []}
+        data["output_format"] = {"container": "wav", "codec": None, "sample_rate": 48000}
         route.fulfill(response=response, json=data)
 
     panel.get_by_label("Quellenzuordnung").select_option("separate")
@@ -319,6 +320,8 @@ def test_asr_settings_persist_and_render_in_both_views(live_server, browser, tmp
     admin.route("**/api/clinic/v1/asr-profiles", synthetic_capabilities)
     for view in ("admin", "resources"):
         capture(view, "rows")
+    output = admin.get_by_text("Ausgabeformat", exact=True).locator("..")
+    expect(output.locator("dd > span")).to_have_text(["wav", "48000 Hz"])
     assert not (errors + second_errors + author_errors)
 
 
