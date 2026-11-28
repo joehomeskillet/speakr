@@ -22,8 +22,10 @@ from test_audit_live_session_browser import ART, HTML, ROOT, VIEWPORTS, _theme
 from test_wp_mount_correction import _launch
 
 MOUNT = HTML.split('window.calls = [];', 1)[0] + '''
+import { createClinicApiClient } from '/static/js/clinic/api-client.js';
 Vue.createApp(LiveView, {
     dictationId: new URLSearchParams(location.search).get('dictation'), vue: Vue,
+    client: { ...createClinicApiClient(), supportsLiveCapture: false },
     onReady(controller) { window.live = controller; },
 }).mount('#app');
 </script></body></html>'''

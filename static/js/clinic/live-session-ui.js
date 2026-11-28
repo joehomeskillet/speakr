@@ -151,8 +151,19 @@ export function createLiveSessionController(options) {
             && data.event_id === p.eventId;
     }
 
+    function reset() {
+        phrases = [];
+        partial = null;
+        sessionId = null;
+        generation = 1;
+        durableSequence = 0;
+        recovery = null;
+        setStatus('idle');
+    }
+
     return {
         getState: snapshot,
+        reset,
         subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
 
         /** Attach to a started session (its id and position come from the start command / resume). */
@@ -179,6 +190,20 @@ export function createLiveSessionController(options) {
             }
             emit();
             return snapshot();
+        },
+
+        acceptSaved(event) {
+            if (status !== 'live' || event.session_id !== sessionId || event.generation !== generation
+                    || event.sequence !== durableSequence + 1 || !event.event_id || !event.phrase_id
+                    || event.status !== 'server_saved' || typeof event.text !== 'string' || !event.text.trim()) return false;
+            phrases.push({
+                sessionId, generation, sequence: event.sequence, eventId: event.event_id,
+                phraseId: event.phrase_id, text: event.text, state: 'server_saved', wire: null,
+            });
+            durableSequence = event.sequence;
+            partial = null;
+            emit();
+            return true;
         },
 
         /** Partial text replaces the previous partial. It is ignored without write permission. */
@@ -220,7 +245,8 @@ export function createLiveSessionController(options) {
             const res = await client.request(LIVE + '/sessions/' + encodeURIComponent(p.sessionId) + '/phrases', {
                 method: 'POST',
                 idempotencyKey: p.eventId,
-                body: { ...p.wire, generation: p.generation, sequence: p.sequence, event_id: p.eventId },
+                body: { ...p.wire, ...(options.clientId ? { client_id: options.clientId } : {}),
+                    generation: p.generation, sequence: p.sequence, event_id: p.eventId },
             });
             if (res.outcome === 'cancelled' || p.state !== 'final_unsaved') return snapshot();
             if (res.outcome === 'ok') {
@@ -242,11 +268,12 @@ export function createLiveSessionController(options) {
             return snapshot();
         },
 
-        async resume(clientId) {
+        async resume(clientId, holderGeneration) {
             if (disposed || recovery === 'loading') return snapshot();
             recovery = 'loading';
             const body = { after_sequence: options.fullRecovery ? 0 : durableSequence };
             if (clientId) body.client_id = clientId;
+            if (holderGeneration) body.generation = holderGeneration;
             const request = (payload) => client.request(LIVE + '/dictations/' + encodeURIComponent(dictationId) + '/resume', {
                 method: 'POST', idempotencyKey: newKey(), body: payload,
             });
@@ -302,7 +329,7 @@ export function createLiveSessionController(options) {
             emit();
         },
 
-        dispose() { disposed = true; listeners.clear(); phrases = []; partial = null; sessionId = null; },
+        dispose() { disposed = true; listeners.clear(); reset(); },
     };
 }
 

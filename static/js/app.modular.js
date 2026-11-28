@@ -278,13 +278,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     const clinicMode = appRootElement?.dataset?.clinicMode === 'True';
     if (clinicMode) {
         try {
-            const [{ createClinicApiClient }, { registerWorklistView }, { registerResourcesView }, { registerCorrectionView, resolveClinicOpenTarget }, { registerRecordingsView }, { createDictationChoices }] = await Promise.all([
+            const [{ createClinicApiClient }, { registerWorklistView }, { registerResourcesView }, { registerCorrectionView, resolveClinicOpenTarget }, { registerRecordingsView }] = await Promise.all([
                 import('./clinic/api-client.js'),
                 import('./clinic/compose-worklist.js'),
                 import('./clinic/compose-resources.js'),
                 import('./clinic/compose-correction.js'),
                 import('./clinic/compose-recordings.js'),
-                import('./clinic/dictation-choices.js'),
             ]);
             clinicWorklist = {
                 registerWorklistView,
@@ -292,7 +291,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 registerCorrectionView,
                 resolveClinicOpenTarget,
                 registerRecordingsView,
-                createDictationChoices,
                 client: createClinicApiClient(),
                 user: { id: appRootElement.dataset.currentUserId, name: appRootElement.dataset.currentUserName, role: appRootElement.dataset.clinicRole || 'author' },
             };
@@ -325,7 +323,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 { registerSettingsView }, { registerOfflineView }, { createTooltip }, { getUploadCsrfToken },
                 { registerAdminPoolsView }, { registerAuthorsView }, { registerUsersView }, { registerVocabularyView },
                 { registerCommandsTemplatesView }, { registerAsrProfilesView }, { createClinicRecorder },
-                { createManagedRecorderDrafts }] = await Promise.all([
+                { createManagedRecorderDrafts }, { registerLiveDraftPicker }] = await Promise.all([
                 import('./clinic/compose-recording.js'),
                 import('./clinic/compose-live.js'),
                 import('./clinic/compose-archive.js'),
@@ -343,9 +341,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 import('./clinic/compose-asr-profiles.js'),
                 import('./clinic/recorder-phases-ui.js'),
                 import('./clinic/managed-recorder-drafts.js'),
+                import('./clinic/live-drafts-ui.js'),
             ]);
             clinicMenu = {
-                register: [registerRecordingView, registerLiveView, registerArchiveView, registerImportView, registerSettingsView, registerOfflineView,
+                register: [registerRecordingView, registerLiveView, registerLiveDraftPicker, registerArchiveView, registerImportView, registerSettingsView, registerOfflineView,
                     registerAdminPoolsView, registerAuthorsView, registerUsersView, registerVocabularyView, registerCommandsTemplatesView, registerAsrProfilesView],
                 createTooltip,
                 getUploadCsrfToken,
@@ -520,8 +519,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 pool: 'Nicht angegeben',
             });
             const clinicCorrectionMount = ref(null);
-            const clinicLiveMount = ref(null);
             const clinicViewMount = ref(null);
+            const clinicLiveMount = ref(null);
             // The tab view a correction was opened from; closing returns there.
             const clinicOrigin = ref('clinic-recordings');
             // Set when the correction is left towards another view (tab, menu link, browser back).
@@ -574,12 +573,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (button) button.click(); else closeClinicCorrection();
             };
             // Tab and menu navigation; out of a correction it goes through the view's own close (saves first).
-            const mayLeaveClinicLive = (target) => currentView.value !== 'clinic-live' || target === 'clinic-live'
-                || clinicLiveMount.value?.canLeave?.() !== false;
             const goClinicView = (view) => {
-                if (!mayLeaveClinicLive(view)) return;
                 if (currentView.value === 'clinic-correction') {
                     requestClinicCorrectionClose(view);
+                } else if (currentView.value === 'clinic-live' && view !== 'clinic-live' && clinicLiveMount.value?.needsLeave()) {
+                    clinicLiveMount.value.leave(() => { currentView.value = view; });
                 } else {
                     currentView.value = view;
                 }
@@ -621,6 +619,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 clinicOrigin.value = state.origin === 'clinic-worklist' ? 'clinic-worklist' : 'clinic-recordings';
                 return view;
             };
+            let clinicHistoryPosition = window.history.state?.clinicPosition ?? 0;
+            const pushClinicHistory = (state, hash) => {
+                window.history.pushState({ ...state, clinicPosition: ++clinicHistoryPosition }, '', hash);
+            };
             if (clinicWorklist) {
                 watch(currentView, (view) => {
                     const hash = CLINIC_DICTATION_HASH[view];
@@ -629,7 +631,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                         return;
                     }
                     if (window.location.hash === hash) return;
-                    window.history.pushState({ clinicView: view, dictationId: clinicDictationId.value, origin: clinicOrigin.value }, '', hash);
+                    pushClinicHistory({ clinicView: view, dictationId: clinicDictationId.value, origin: clinicOrigin.value }, hash);
                 }, { flush: 'sync' });
             }
             // end V8 dictation views (v8-70)
@@ -638,20 +640,38 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const syncClinicHash = (view) => {
                     const hash = CLINIC_VIEW_HASH[view];
                     if (!hash || window.location.hash === hash) return;
-                    window.history.pushState({ clinicView: view, dictationId: clinicCorrectionId.value, origin: clinicOrigin.value,
-                        openMode: view === 'clinic-correction' ? clinicOpenMode.value : null }, '', hash);
+                    pushClinicHistory({ clinicView: view, dictationId: clinicCorrectionId.value, origin: clinicOrigin.value,
+                        openMode: view === 'clinic-correction' ? clinicOpenMode.value : null }, hash);
                 };
-                if (CLINIC_VIEW_HASH[currentView.value] !== window.location.hash) {
-                    window.history.replaceState(window.history.state, '', CLINIC_VIEW_HASH[currentView.value]);
-                }
+                window.history.replaceState({ ...window.history.state, clinicPosition: clinicHistoryPosition }, '', CLINIC_VIEW_HASH[currentView.value]);
                 watch(currentView, syncClinicHash, { flush: 'sync' });
+                let confirmLivePop = null;
                 window.addEventListener('popstate', () => {
-                    if (clinicAdminHashRedirect()) return;
-                    if (!mayLeaveClinicLive(clinicViewFromHash())) {
-                        syncClinicHash('clinic-live');
+                    const state = window.history.state || {};
+                    if (window.location.hash === CLINIC_VIEW_HASH['clinic-live'] && confirmLivePop) {
+                        const confirm = confirmLivePop;
+                        confirmLivePop = null;
+                        confirm();
                         return;
                     }
-                    const state = window.history.state || {};
+                    if (currentView.value === 'clinic-live' && window.location.hash !== CLINIC_VIEW_HASH['clinic-live']
+                            && clinicLiveMount.value?.needsLeave()) {
+                        // Return to the exact history entry before asking. Cancel keeps both URL and browser history.
+                        const step = (state.clinicPosition ?? clinicHistoryPosition + 1) - clinicHistoryPosition || 1;
+                        const focused = document.activeElement;
+                        confirmLivePop = () => {
+                            focused?.focus();
+                            clinicLiveMount.value?.leave(() => window.history.go(step));
+                        };
+                        window.history.go(-step);
+                        return;
+                    }
+                    if (state.clinicPosition == null) {
+                        window.history.replaceState({ ...state, clinicPosition: ++clinicHistoryPosition }, '');
+                    } else {
+                        clinicHistoryPosition = state.clinicPosition;
+                    }
+                    if (clinicAdminHashRedirect()) return;
                     const reopen = window.location.hash === CLINIC_VIEW_HASH['clinic-correction'] && state.dictationId !== undefined && state.dictationId !== null;
                     const dictationTarget = restoreClinicDictationView(state); // V8 dictation views (v8-70)
                     const target = reopen ? 'clinic-correction' : (dictationTarget || clinicViewFromHash());
@@ -3171,24 +3191,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 select: (deviceId) => { selectedMicDeviceId.value = deviceId; },
                 requestAccess: audioComposable.requestMicrophonePermission,
             } : null;
-            // Live-Diktat runs on an existing dictation: ?dictation=<id> or the id typed into the picker.
-            const clinicLiveChoices = clinicWorklist ? clinicWorklist.createDictationChoices({ client: clinicWorklist.client, makeState: reactive, authorId: clinicWorklist.user.id }) : null;
-            const clinicInitialLiveId = new URLSearchParams(window.location.search).get('dictation');
-            const clinicLiveId = ref(clinicLiveChoices?.resolve(clinicInitialLiveId) || null);
-            const clinicLiveDraft = ref('');
-            watch(currentView, (view) => {
-                clinicLiveChoices?.clear();
-                if (view === 'clinic-live' && !clinicLiveId.value) clinicLiveChoices?.load();
-            }, { immediate: true });
-            onUnmounted(() => clinicLiveChoices?.clear());
-            const openClinicLive = () => {
-                const id = clinicLiveChoices?.resolve(clinicLiveDraft.value);
-                if (!id) return;
-                const url = new URL(window.location.href);
-                url.searchParams.set('dictation', id);
-                window.history.replaceState(window.history.state, '', url);
-                clinicLiveId.value = id;
-            };
             // A view that creates or lists dictations hands over to the existing correction view; the archive is read only.
             const openClinicMenuDictation = (payload) => openClinicDictation({
                 dictationId: payload && payload.dictationId,
@@ -5133,7 +5135,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // Prevent data loss on tab close/refresh during recording
                 window.addEventListener('beforeunload', (e) => {
                     // Check for unsaved recording
-                    if (audioComposable.hasUnsavedRecording()) {
+                    if (audioComposable.hasUnsavedRecording() || clinicLiveMount.value?.isDirty()) {
                         e.preventDefault();
                         e.returnValue = ''; // Chrome requires this
                         return 'You have an unsaved recording. Are you sure you want to leave?';
@@ -5534,7 +5536,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // end V8 dictation views (v8-70)
                 // V8 menu views (v8-71)
                 clinicMenuViews, clinicMenuActions, clinicMenuToolbarVisible, clinicRecorder, clinicUploadFile, clinicMicrophone, clinicOffline,
-                clinicLiveId, clinicLiveDraft, clinicLiveChoices, clinicLiveMount, openClinicLive, openClinicMenuDictation,
+                clinicLiveMount, openClinicMenuDictation,
                 // end V8 menu views (v8-71)
                 // V8 Verwaltung views (v8-114)
                 clinicAdminView, clinicAdminAllowed, clinicAdminAccess, clinicAdminProps
