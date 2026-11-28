@@ -26,13 +26,18 @@ import os
 import sys
 import tempfile
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 
+from sqlalchemy import create_engine
+from sqlalchemy.engine import make_url
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
+from src.clinic.config import clinic_mode_enabled
+from src.clinic.identity import ClinicAccountPolicy
 from src.clinic.statistics import ZONE, StatisticsError, StatisticsQuery, StatisticsResult
-from src.clinic.statistics_access import StatisticsAccessError, read_aggregates
+from src.clinic.statistics_access import StatisticsAccessError, read_aggregates, version_of
 
 logger = logging.getLogger("speakr.clinic.statistics_export")
 
@@ -111,8 +116,17 @@ def export_csv(
     expected_version: int | None = None,
 ) -> ExportReceipt:
     """Run the scoped query and write the CSV. Raises before anything is written."""
+    if not clinic_mode_enabled():
+        raise StatisticsAccessError("clinic_mode_off")
+    account = session.get(ClinicAccountPolicy, actor_id)
+    if account is None or account.status != "active":
+        raise StatisticsAccessError("inactive_account")
+    if expected_version is None:
+        expected_version = version_of(actor_id, session=session)
     result = read_aggregates(session, actor_id, query, role=role, expected_version=expected_version)
     data = render_csv(result)
+    if version_of(actor_id, session=session) != expected_version:
+        raise StatisticsAccessError("stale_version")
     path = Path(destination)
     _write_atomic(path, data)
     audit = {
@@ -156,13 +170,27 @@ def _parse_bound(text: str | None, name: str) -> datetime | None:
     try:
         if len(text) == 10:
             day = date.fromisoformat(text)
-            return datetime(day.year, day.month, day.day, tzinfo=ZONE)
-        value = datetime.fromisoformat(text)
-    except ValueError:
+            value = datetime(day.year, day.month, day.day, tzinfo=ZONE)
+        else:
+            value = datetime.fromisoformat(text)
+        if value.utcoffset() is None:
+            raise ValueError
+        return value.astimezone(timezone.utc)
+    except (ValueError, OverflowError):
         raise StatisticsExportError(f"invalid_{name}") from None
-    if value.tzinfo is None or value.utcoffset() is None:
-        raise StatisticsExportError(f"invalid_{name}")
-    return value
+
+
+def parse_query(
+    *, time_basis: str, start: str | None, end: str | None, grain: str | None, group_by: str,
+) -> StatisticsQuery:
+    """Normalize HTTP and CLI report parameters before the scoped query."""
+    return StatisticsQuery(
+        time_basis=time_basis,
+        start=_parse_bound(start, "start"),
+        end=_parse_bound(end, "end"),
+        grain=grain or None,
+        group_by=tuple(name for name in group_by.split(",") if name),
+    )
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -189,26 +217,42 @@ def main(argv=None, *, session=None, err=None) -> int:
     err = err if err is not None else sys.stderr
     try:
         args = _parser().parse_args(argv)
-    except SystemExit:
-        return EXIT_INVALID
+    except SystemExit as exc:
+        return exc.code
     try:
-        query = StatisticsQuery(
+        if not 0 < args.actor_id <= 2**31 - 1:
+            raise StatisticsExportError("user_id")
+        if args.expected_version is not None and args.expected_version < 0:
+            raise StatisticsExportError("version")
+        query = parse_query(
             time_basis=args.time_basis,
-            start=_parse_bound(args.start, "start"),
-            end=_parse_bound(args.end, "end"),
+            start=args.start,
+            end=args.end,
             grain=args.grain,
-            group_by=tuple(n for n in args.group_by.split(",") if n),
+            group_by=args.group_by,
         )
     except StatisticsExportError as exc:
         print(exc.code, file=err)
         return EXIT_INVALID
     if session is not None:
         return _run(session, args, query, err)
-    from src.app import app
-    from src.database import db
-
-    with app.app_context():
-        return _run(db.session, args, query, err)
+    if not clinic_mode_enabled():
+        print("clinic_mode_off", file=err)
+        return EXIT_REFUSED
+    try:
+        url = make_url(os.environ.get("SQLALCHEMY_DATABASE_URI", ""))
+        if (url.get_backend_name() == "sqlite" and not url.query.get("uri")
+                and not Path(url.database or "").is_file()):
+            raise StatisticsExportError("query_failed")
+        engine = create_engine(url)
+        try:
+            with Session(engine) as database_session:
+                return _run(database_session, args, query, err)
+        finally:
+            engine.dispose()
+    except (SQLAlchemyError, StatisticsExportError, ImportError, OSError, ValueError):
+        print("query_failed", file=err)
+        return EXIT_FAILED
 
 
 def _run(session, args, query, err) -> int:
@@ -228,7 +272,7 @@ def _run(session, args, query, err) -> int:
         return _fail(err, params, exc.code, EXIT_REFUSED)
     except StatisticsExportError as exc:
         return _fail(err, params, exc.code, EXIT_FAILED)
-    except SQLAlchemyError:
+    except (SQLAlchemyError, OverflowError, ValueError):
         return _fail(err, params, "query_failed", EXIT_FAILED)
     logger.info("statistics export done %s", receipt.audit)
     return EXIT_OK

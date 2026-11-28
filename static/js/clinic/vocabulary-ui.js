@@ -52,6 +52,7 @@ const LABELS = {
     'clinic.vocabulary.propose': 'Für Pool vorschlagen',
     'clinic.vocabulary.proposeSuppression': 'Unterdrückung vorschlagen',
     'clinic.vocabulary.proposed': 'Vorschlag zur Prüfung eingereicht.',
+    'clinic.vocabulary.entryWriteDenied': 'Sie dürfen diese Wortliste nicht bearbeiten.',
     'clinic.vocabulary.noSelection': 'Kein gültiger Text markiert.',
     'clinic.vocabulary.import': 'Wortliste importieren',
     'clinic.vocabulary.importLabel': 'Wortliste (Text)',
@@ -175,29 +176,37 @@ export function createVocabularyStore(client, onChange, makeState = (value) => v
     }
 
     // Live membership recheck before every mutation. Own list needs none.
-    async function permitted(write = false) {
+    async function permitted(requireWrite = false) {
         if (state.scope.kind !== 'pool') return true;
         const scope = state.scope;
         const params = scopeParams(new URLSearchParams({ q: '', mode: 'exact', status: 'active' }));
         const res = await client.request(PATH + '/search?' + params.toString());
         if (scope !== state.scope) return false;
         if (res.outcome === 'ok') {
-            if (!write || res.data?.can_write !== false) return true;
-            state.canWrite = false;
+            if (!requireWrite) return true;
+            state.canWrite = res.data?.can_write ?? null;
+            if (state.canWrite === true) return true;
             state.failedWrite = null;
-            state.message = 'Diese Wortliste kann nicht bearbeitet werden.';
+            state.message = label('clinic.vocabulary.entryWriteDenied');
             emit();
             return false;
         }
+        if (requireWrite && res.outcome === 'permission') state.canWrite = null;
         state.entries = [];
         state.failedWrite = null;
         fail(res);
         return false;
     }
 
-    async function send(write) {
+    async function send(write, reportWriteDenied = false) {
         const scope = state.scope;
-        if (state.canWrite === false || !(await permitted(true)) || scope !== state.scope) return null;
+        const allowed = state.canWrite !== false && (await permitted(write.isEntry || state.canWrite === true));
+        if (scope !== state.scope) return null;
+        if (!allowed) {
+            return reportWriteDenied && state.canWrite !== true
+                ? { outcome: 'permission', message: label('clinic.vocabulary.entryWriteDenied') }
+                : null;
+        }
         const res = await client.request(write.path, { method: write.method || 'POST', body: write.body, idempotencyKey: write.key });
         if (scope !== state.scope) return null;
         if (res.outcome === 'ok') {
@@ -297,6 +306,9 @@ export function createVocabularyStore(client, onChange, makeState = (value) => v
             return res;
         },
         saveEntry(draft) {
+            if (state.canWrite !== true) {
+                return Promise.resolve({ outcome: 'permission', message: label('clinic.vocabulary.entryWriteDenied') });
+            }
             const written = canonicalSelection(draft.written);
             const spoken = draft.spoken.trim() ? canonicalSelection(draft.spoken) : null;
             if (!written || (draft.spoken.trim() && !spoken)) {
@@ -309,7 +321,7 @@ export function createVocabularyStore(client, onChange, makeState = (value) => v
                 path: entry ? PATH + '/entries/' + encodeURIComponent(entry.id) : PATH + '/additions',
                 body: entry ? { expected_version: entry.version, written, spoken }
                     : { ...scopeBody(), create_only: true, written, spoken },
-            });
+            }, true);
         },
         propose,
         proposeSuppression(id) {
@@ -459,7 +471,7 @@ export const VOCABULARY_ENTRY_DIALOG = `
       <p v-if="entryError" role="alert" class="note" :style="entryErrorStyle">{{ entryError }}</p>
       <div class="actions">
         <button type="button" :disabled="entryBusy" @click="closeEntry()">Abbrechen</button>
-        <button type="submit" class="primary" :disabled="entryBusy || entryBlocked">{{ entryBusy ? 'Wird gespeichert …' : 'Speichern' }}</button>
+        <button type="submit" class="primary" :disabled="entryBusy || entryBlocked || !entryAllowed">{{ entryBusy ? 'Wird gespeichert …' : 'Speichern' }}</button>
       </div>
     </form>
   </dialog>`;
@@ -541,15 +553,13 @@ export const VOCABULARY_TEMPLATE = `
           <strong>{{ e.written }}</strong>
         </label><strong v-else>{{ e.written }}</strong></td><td class="wrap">{{ e.spoken || '–' }}</td>
         <td><span class="tag" :class="{ error: e.status === 'suppressed' }">{{ enumLabel(e.status) }}</span></td>
-        <template v-if="state.canWrite">
-        <td>
+        <td v-if="state.canWrite">
           <div class="actions">
             <button type="button" class="small" :aria-label="'Bearbeiten: ' + e.written" @click="openEntry(e)">Bearbeiten</button>
             <button type="button" class="small" v-if="e.status === 'active'" aria-describedby="voc-asr-suppression" @click="store.suppress(e.id)">{{ label('clinic.vocabulary.suppress') }}</button>
             <button type="button" class="small" v-else @click="store.reactivate(e.id)">{{ label('clinic.vocabulary.reactivate') }}</button>
           </div>
         </td>
-        </template>
         <td v-else>
           <button v-if="canPropose && e.status === 'active'" type="button" class="small"
             :disabled="state.proposalBusy || !!state.failedWrite" @click="store.proposeSuppression(e.id)">{{ label('clinic.vocabulary.proposeSuppression') }}</button>
@@ -561,10 +571,10 @@ export const VOCABULARY_TEMPLATE = `
     <slot name="empty" :scope="state.scope" :query="state.query">{{ label('clinic.vocabulary.empty') }} für diese Auswahl. Suche oder Status anpassen.</slot>
   </p>
   <div v-if="state.canWrite" class="actions">
-    <button ref="addWordButton" type="button" class="primary" style="min-height:48px" aria-haspopup="dialog" @click="openEntry()">Wort hinzufügen</button>
+    <button ref="addWordButton" type="button" class="primary voc-add-word" aria-haspopup="dialog" @click="openEntry()">Wort hinzufügen</button>
     <button type="button" class="small" style="min-height:48px" aria-haspopup="dialog" @mousedown.prevent @click="addSelected">{{ label('clinic.vocabulary.addSelection') }}</button>
   </div>
-  <span :class="{ 'sr-only': !entryNotice }" role="status">{{ entryNotice }}</span>
+  <p class="voc-entry-notice" role="status">{{ entryNotice }}</p>
   <span :class="{ 'sr-only': !deleteNotice }" role="status">{{ deleteNotice }}</span>
   ${VOCABULARY_ENTRY_DIALOG}
   <dialog ref="deleteDialog" class="voc-entry-dialog" aria-labelledby="voc-delete-title"
@@ -816,7 +826,8 @@ export function createVocabularyComponent(Vue, client, currentUserId = () => nul
                 proposalDraft, canPropose, submitProposal,
                 importDraft, importFile, fileInput, encoding, duplicateRule, importBusy, importError, importErrorStyle, exportBusy, canImport, importReport,
                 pickFile, runImport, doImport, downloadList,
-                ...entryModal, entryListName, addWordButton, selectedIds, deleteDialog, deleteDraft, deleteBusy, deleteNotice,
+                ...entryModal, entryAllowed: Vue.computed(() => state.canWrite === true), entryListName, addWordButton,
+                selectedIds, deleteDialog, deleteDraft, deleteBusy, deleteNotice,
                 openDelete, closeDelete, confirmDelete, maxBulk: MAX_BULK, searchFields: SEARCH_FIELDS,
                 encodings: ENCODINGS, duplicateRules: DUPLICATE_RULES, modes: SEARCH_MODES, filters: STATUS_FILTERS, onKey: (e) => handleKey(store, e),
             };

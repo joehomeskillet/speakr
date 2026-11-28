@@ -34,6 +34,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from src.database import db
 from src.models import User
+from src.models.user import USERNAME_MAX_LENGTH
 from src.services import audit, login_lock
 
 logger = logging.getLogger(__name__)
@@ -312,7 +313,8 @@ def _hash_code(code):
 
 def _checked_email(username, email, *, user_id=None):
     """Normalised email; IdentityConflict for invalid or taken username/email."""
-    if not isinstance(username, str) or len(username) > 20 or len(username.strip()) < 2 or '\x00' in username:
+    if (not isinstance(username, str) or len(username) > USERNAME_MAX_LENGTH
+            or len(username.strip()) < 2 or '\x00' in username):
         raise IdentityConflict("invalid_username")
     email = User.normalize_email(email) if isinstance(email, str) else None
     if not email or len(email) > 120 or '\x00' in email or not _EMAIL_RE.fullmatch(email):
@@ -545,9 +547,12 @@ def _save_account(user, policy, *, actor_id, now, status=None, is_admin=None, is
         changed.append('is_identity_admin')
         revoke = True
     if profile:
-        username = profile.get('username', user.username)
-        email = _checked_email(username, profile.get('email', user.email), user_id=user.id)
-        for field, value in (profile | {'username': username, 'email': email}).items():
+        if 'username' in profile or 'email' in profile:
+            email = _checked_email(profile.get('username', user.username), profile.get('email', user.email),
+                                   user_id=user.id)
+            if 'email' in profile:
+                profile = profile | {'email': email}
+        for field, value in profile.items():
             if field in _PROFILE_FIELDS | {'username', 'email'} and value != getattr(user, field):
                 setattr(user, field, value)
                 changed.append(field)

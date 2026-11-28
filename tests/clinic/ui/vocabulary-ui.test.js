@@ -102,12 +102,12 @@ describe('vocabulary ui', () => {
         expect(writes()).toHaveLength(0);
     });
 
-    it('blocks bulk deletion if a writable pool becomes read-only', async () => {
+    it.each([false, undefined])('blocks bulk deletion unless the pool recheck confirms write access (can_write: %s)', async (canWrite) => {
         const entries = [ENTRY('v1')];
-        const { store, writes } = setup([], [ok({ entries, can_write: true }), ok({ entries, can_write: false })]);
+        const { store, writes } = setup([], [ok({ entries, can_write: true }), ok({ entries, can_write: canWrite })]);
         await store.setScope('pool', 'p1');
         expect(await store.deleteEntries(store.state.entries)).toBeNull();
-        expect(store.state.canWrite).toBe(false);
+        expect(store.state.canWrite).toBe(canWrite ?? null);
         expect(store.state.entries).toEqual(entries);
         expect(writes()).toHaveLength(0);
     });
@@ -116,6 +116,8 @@ describe('vocabulary ui', () => {
         const { client, store, writes } = setup([], [ok({ entries: [ENTRY('v1')], can_write: false })]);
         client.command = vi.fn().mockResolvedValue(ok({ status: 'committed' }));
         await store.setScope('pool', 'p1');
+        expect((await store.saveEntry({ written: 'Neue Vokabel', spoken: '' })).outcome).toBe('permission');
+        expect((await store.saveEntry({ entry: ENTRY('v1'), written: 'Neues Wort', spoken: '' })).outcome).toBe('permission');
         await store.propose('  Neue   Vokabel  ');
         await store.proposeSuppression('e1');
         expect(client.command.mock.calls.map(([command]) => command.payload)).toEqual([
@@ -189,10 +191,10 @@ describe('vocabulary ui', () => {
         async (kind, poolId, scope) => {
             const created = { ...ENTRY('v1'), written: 'Kunstwort', spoken: 'kunst wort' };
             const edited = { ...created, written: 'Neuwort', spoken: null, version: 'v2' };
-            const empty = ok({ entries: [] });
+            const empty = ok({ entries: [], can_write: true });
             const { store, writes, reads } = setup([ok({ entry: created }), ok({ entry: edited })], [
-                empty, ...(poolId ? [empty] : []), ok({ entries: [created] }),
-                ...(poolId ? [empty] : []), ok({ entries: [edited] }),
+                empty, ...(poolId ? [empty] : []), ok({ entries: [created], can_write: true }),
+                ...(poolId ? [empty] : []), ok({ entries: [edited], can_write: true }),
             ]);
             await store.setScope(kind, poolId);
             await store.saveEntry({ written: ' Kunstwort ', spoken: ' kunst  wort ' });
@@ -210,6 +212,18 @@ describe('vocabulary ui', () => {
             expect(reads().filter(([path]) => path.includes('mode=exact'))).toHaveLength(poolId ? 2 : 0);
         },
     );
+
+    it('rechecks direct write access even when the pool is still readable', async () => {
+        const { store, writes } = setup([], [
+            ok({ entries: [ENTRY('v1')], can_write: true }), ok({ entries: [], can_write: false }),
+        ]);
+        await store.setScope('pool', 'p1');
+        const res = await store.saveEntry({ entry: store.state.entries[0], written: 'Neues Wort', spoken: '' });
+        expect(res.outcome).toBe('permission');
+        expect(store.state.canWrite).toBe(false);
+        expect(store.state.entries).toEqual([ENTRY('v1')]);
+        expect(writes()).toHaveLength(0);
+    });
 
     it('rejects invalid forms and never queues a dialog save for background retry', async () => {
         const { store, writes } = setup([bad('network')]);

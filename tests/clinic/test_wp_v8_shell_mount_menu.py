@@ -102,6 +102,34 @@ def test_view_reachable_by_entry_and_by_hash_route(live_server, hash_route, root
             browser.close()
 
 
+@pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
+def test_header_new_recording_is_hidden_only_on_recorder(live_server, width: int, height: int) -> None:
+    from playwright.sync_api import expect, sync_playwright
+
+    base, dictation = live_server
+    with sync_playwright() as p:
+        browser = _launch(p)
+        try:
+            page = _start(browser, base, dictation, width, height)
+            page.route("**/api/config?recording_preflight=1", lambda route: route.fulfill(json={"routable": True}))
+            new = page.get_by_role("link", name="Neue Aufnahme", exact=True).and_(page.get_by_test_id("nav-clinic-new"))
+            expect(new).to_be_visible()
+            new.click()
+            expect(page.get_by_role("button", name="Aufnahme starten", exact=True)).to_be_visible()
+            expect(new).to_have_count(0)
+            page.reload()
+            _mounted(page)
+            expect(page.get_by_role("button", name="Aufnahme starten", exact=True)).to_be_visible()
+            expect(new).to_have_count(0)
+            page.get_by_test_id("nav-recordings").click()
+            expect(new).to_be_visible()
+            new.focus()
+            expect(page.get_by_role("tooltip")).to_have_text("Neue Aufnahme")
+            assert not page.js_errors, page.js_errors
+        finally:
+            browser.close()
+
+
 def test_live_view_without_dictation_asks_for_the_id(live_server):
     from playwright.sync_api import sync_playwright
 
