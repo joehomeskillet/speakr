@@ -294,9 +294,10 @@ def test_asr_settings_persist_and_render_in_both_views(live_server, browser, tmp
     open_settings(second)
     expect(second.get_by_role("radio", name="Aufnahmegerät")).to_have_attribute("aria-checked", "true")
     expect(second.get_by_label("Speicherregel")).to_have_value("ask")
-    acoustic_limit = second.get_by_text("Getrennte Akustikprofile werden nicht unterstützt.", exact=False)
+    current = second.get_by_role("region", name="Profilstand")
+    acoustic_limit = current.get_by_text("Getrennte Akustikprofile werden nicht unterstützt.", exact=False)
     expect(acoustic_limit).to_be_hidden()
-    second.get_by_text("Technische Details", exact=True).click()
+    current.get_by_text("Technische Details", exact=True).click()
     expect(acoustic_limit).to_be_visible()
 
     author, author_errors = _login(browser, base, "w226other@local.test")

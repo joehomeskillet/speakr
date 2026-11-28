@@ -151,6 +151,27 @@ const ASR_TECHNICAL_ROWS = `
   </div>
   <div><dt>Cloudumleitung</dt><dd>Nicht vorgesehen</dd></div>`;
 
+const ASR_SOURCE_FIELDS = `
+    <div v-if="view.profileMode" class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
+      <label for="res-asr-mode">{{ view.labels.profileMode }}</label>
+      <select id="res-asr-mode" :disabled="!view.ready || view.busy" :value="view.profileMode" @change="controller.setProfileMode($event.target.value)">
+        <option v-for="o in view.profileModes" :key="o.value" :value="o.value">{{ o.label }}</option>
+      </select>
+    </div>
+    <div v-if="view.profileMode === 'separate'" class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
+      <label for="res-asr-batch-source">{{ view.labels.batchSource }}</label>
+      <select id="res-asr-batch-source" :disabled="!view.ready || view.busy" :value="view.batchSource || ''" @change="controller.setBatchSource($event.target.value)">
+        <option disabled value="">Quelle wählen</option>
+        <option v-for="o in view.sources" :key="o.value" :value="o.value">{{ o.value === 'recorder' ? 'Aufnahmegerät' : o.label }}</option>
+      </select>
+    </div>
+    <div v-if="!adminLayout || view.supportsSaveRule" class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
+      <label for="res-asr-save-rule">{{ view.labels.saveRule }}</label>
+      <select id="res-asr-save-rule" :disabled="!view.ready || view.busy" :value="view.saveRule" @change="controller.setSaveRule($event.target.value)">
+        <option v-for="o in view.saveRules" :key="o.value" :value="o.value">{{ o.label }}</option>
+      </select>
+    </div>`;
+
 const ASR_TRAINING_NOTE = 'Eine Wortliste ersetzt kein Akustiktraining. Korrekturtexte benötigen eine bewusste Freigabe und einen geprüften Audioabgleich.';
 
 const ASR_TEMPLATE = `
@@ -173,31 +194,12 @@ const ASR_TEMPLATE = `
       :aria-checked="s.selected ? 'true' : 'false'" :tabindex="s.selected ? 0 : -1"
       @click="controller.setSource(s.value)">{{ s.value === 'recorder' ? 'Aufnahmegerät' : s.label }}</button>
   </div>
-  <component :is="adminLayout ? 'details' : 'div'" v-if="!adminLayout || view.profileMode || view.supportsSaveRule">
-    <summary v-if="adminLayout">Quellen und Speichern einstellen</summary>
-    <div class="field-grid" style="margin-block-start:var(--sp-3)">
-      <div v-if="view.profileMode" class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
-        <label for="res-asr-mode">{{ view.labels.profileMode }}</label>
-        <select id="res-asr-mode" :disabled="!view.ready || view.busy" :value="view.profileMode" @change="controller.setProfileMode($event.target.value)">
-          <option v-for="o in view.profileModes" :key="o.value" :value="o.value">{{ o.label }}</option>
-        </select>
-      </div>
-      <div v-if="view.profileMode === 'separate'" class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
-        <label for="res-asr-batch-source">{{ view.labels.batchSource }}</label>
-        <select id="res-asr-batch-source" :disabled="!view.ready || view.busy" :value="view.batchSource || ''" @change="controller.setBatchSource($event.target.value)">
-          <option disabled value="">Quelle wählen</option>
-          <option v-for="o in view.sources" :key="o.value" :value="o.value">{{ o.value === 'recorder' ? 'Aufnahmegerät' : o.label }}</option>
-        </select>
-      </div>
-      <div v-if="!adminLayout || view.supportsSaveRule" class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
-        <label for="res-asr-save-rule">{{ view.labels.saveRule }}</label>
-        <select id="res-asr-save-rule" :disabled="!view.ready || view.busy" :value="view.saveRule" @change="controller.setSaveRule($event.target.value)">
-          <option v-for="o in view.saveRules" :key="o.value" :value="o.value">{{ o.label }}</option>
-        </select>
-      </div>
-    </div>
-  </component>
-  <div class="field-grid">
+  <details v-if="adminLayout && (view.profileMode || view.supportsSaveRule)">
+    <summary>Quellen und Speichern einstellen</summary>
+    <div class="field-grid" style="margin-block-start:var(--sp-3)">${ASR_SOURCE_FIELDS}</div>
+  </details>
+  <div class="field-grid" :style="adminLayout ? null : 'margin-block-start:var(--sp-3)'">
+    <template v-if="!adminLayout">${ASR_SOURCE_FIELDS}</template>
     <div v-if="!view.profileMode && (!adminLayout || view.profile || view.live.length)" class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
       <label for="res-asr-live">{{ view.labels.live }}</label>
       <select id="res-asr-live" :disabled="!view.ready || view.busy || (adminLayout && !view.live.length)" :value="selected(view.live)" @change="controller.setProfile('live', $event.target.value || null)">
