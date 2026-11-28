@@ -170,7 +170,7 @@ export function createRecordingViewController(options) {
     const recorderBusy = () => !['title', 'ready'].includes(machine.getState().phase);
 
     function canChangeSpeechRecognition() {
-        return allowed() && !state.disposed && !routing
+        return allowed() && !state.disposed && !routing && !created()
             && ['title', 'ready', 'review', 'idle', 'selected'].includes(phase());
     }
 
@@ -363,8 +363,8 @@ export function createRecordingViewController(options) {
         submission = null;
         submitError = '';
         pendingSend = null;
-        resetUploadChoice();
         Object.assign(state, { file: null, filePhase: 'idle', fileError: null, fileReceipt: null });
+        resetUploadChoice();
         if (machine.getState().phase === 'sent') machine.reset();
         if (client && typeof client.switchContext === 'function') client.switchContext({});
         notify();
@@ -414,8 +414,6 @@ export function createRecordingViewController(options) {
             phase: submission || phase(),
             routing,
             canSubmit: canSubmit(),
-            canChangeSpeechRecognition: canChangeSpeechRecognition(),
-            useSpeechRecognition: receipt()?.use_speech_recognition ?? useSpeechRecognition,
             author: displayName(user),
             authorId: String(user.id),
             title: s.title,
@@ -427,6 +425,8 @@ export function createRecordingViewController(options) {
             uploadLabel: state.filePhase === 'failed' ? 'Erneut hochladen' : TEXT.upload,
             canCancelFile: allowed() && (state.filePhase === 'selected' || state.filePhase === 'failed'),
             canSwitchMode: allowed() && !recorderBusy() && !fileBusy,
+            canChangeSpeechRecognition: canChangeSpeechRecognition(),
+            useSpeechRecognition: receipt()?.use_speech_recognition ?? (created() && !clientUploadId ? null : useSpeechRecognition),
             created: created(),
             message: message(),
             surface: surface(),
@@ -477,19 +477,19 @@ export const RECORDING_TEMPLATE = `
          style="display: grid; place-items: center; min-height: min(56dvh, 30rem); padding: var(--ui-space-6) var(--ui-space-4); color: var(--ui-text)">
   <h1 id="crv-title" class="sr-only">{{ c.text.title }}</h1>
   <div style="width: 100%; max-width: 28rem; text-align: center">
+    <button v-if="m.canChangeSpeechRecognition" type="button" role="switch" data-testid="recognition-switch"
+            class="button quiet focus-visible:outline focus-visible:outline-2 focus-visible:outline-ui-text"
+            :aria-checked="m.useSpeechRecognition" @click="c.toggleSpeechRecognition()"
+            style="${TOUCH}; border-color: var(--ui-border); margin-bottom: var(--ui-space-3)">
+      {{ c.text.recognition }} <span aria-hidden="true">{{ m.useSpeechRecognition ? c.text.recognitionOn : c.text.recognitionOff }}</span>
+    </button>
+    <p v-else-if="m.useSpeechRecognition !== null && (m.created || (!m.routing && ['sending', 'failed'].includes(m.phase)))"
+       data-testid="recognition-status" style="margin: 0 0 var(--ui-space-3)">
+      {{ c.text.recognition }} {{ m.useSpeechRecognition ? c.text.recognitionOn : c.text.recognitionOff }}
+    </p>
     <p v-show="m.message" role="status" aria-live="polite" data-testid="status" style="margin: 0 0 var(--ui-space-3)"
        :style="m.phase === 'submitted' ? { fontSize: '1.25rem', fontWeight: 650 } : null">{{ m.message }}</p>
     <template v-if="!m.routing">
-      <button v-if="m.canChangeSpeechRecognition" type="button" role="switch" data-testid="recognition-switch"
-              class="button quiet focus-visible:outline focus-visible:outline-2 focus-visible:outline-ui-text"
-              :aria-checked="m.useSpeechRecognition" @click="c.toggleSpeechRecognition()"
-              style="${TOUCH}; border-color: var(--ui-border); margin-bottom: var(--ui-space-3)">
-        {{ c.text.recognition }} <span aria-hidden="true">{{ m.useSpeechRecognition ? c.text.recognitionOn : c.text.recognitionOff }}</span>
-      </button>
-      <p v-else-if="m.created || m.phase === 'sending' || m.phase === 'failed'" data-testid="recognition-status"
-         style="margin: 0 0 var(--ui-space-3)">
-        {{ c.text.recognition }} {{ m.useSpeechRecognition ? c.text.recognitionOn : c.text.recognitionOff }}
-      </p>
       <template v-if="m.mode === 'record'">
         <div v-if="m.phase === 'title' || m.phase === 'ready'" style="display: grid; justify-items: center; gap: var(--ui-space-2)">
           <button type="button" class="button accent" data-testid="rec-start" :aria-keyshortcuts="shortcuts.start" :disabled="!enabled('start')" @click="c.start()"
