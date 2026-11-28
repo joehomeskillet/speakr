@@ -248,6 +248,7 @@ def test_partial_does_not_save_final_is_durable_and_resume_replays_once(world):
     assert resumed.status_code == 200
     assert resumed.json["events"][0]["phrase_id"] == saved["phrase_id"]
     assert resumed.json["events"][0]["event_id"] == saved["event_id"]
+    assert resumed.json["events"][0]["text"] == saved["text"] == "Guten Tag"
     base = f"{routes_live.PREFIX}/sessions/{w.sid}"
     assert w.owner.post(base + "/continue", base_url=ORIGIN, headers={"X-CSRF-Token": w.csrf},
                         json={"client_id": BEGIN["client_id"], "generation": 1}).status_code == 200
@@ -262,6 +263,21 @@ def test_partial_does_not_save_final_is_durable_and_resume_replays_once(world):
     assert (legacy.status_code, legacy.json["code"]) == (403, "POLICY_DENIED")
     assert w.adapter_calls == 1
     assert len(_persisted(w)[1]) == 1
+
+
+def test_released_browser_can_reclaim_without_allowing_an_active_takeover(world):
+    w = world
+    headers = {"X-CSRF-Token": w.csrf}
+    resume = f"{routes_live.PREFIX}/dictations/{w.did}/resume"
+    pause = f"{routes_live.PREFIX}/sessions/{w.sid}/pause"
+    fence = {"client_id": BEGIN["client_id"], "generation": 1}
+    next_tab = {"client_id": "tab-2", "generation": 1, "after_sequence": 0}
+    assert w.owner.post(resume, base_url=ORIGIN, headers=headers, json=next_tab).status_code == 403
+    assert w.owner.post(pause, base_url=ORIGIN, headers=headers, json={**fence, "release": True}).status_code == 200
+    adopted = w.owner.post(resume, base_url=ORIGIN, headers=headers, json=next_tab)
+    assert adopted.status_code == 200
+    assert (adopted.json["state"], adopted.json["session_id"], adopted.json["generation"]) == ("PAUSED", w.sid, 2)
+    assert w.owner.post(pause, base_url=ORIGIN, headers=headers, json=fence).status_code == 403
 
 
 @pytest.mark.parametrize("failure,code", [

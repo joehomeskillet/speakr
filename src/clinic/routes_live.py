@@ -33,6 +33,7 @@ from src.clinic.draft_registry import DraftError
 from src.clinic.draft_store import DraftStore
 from src.clinic.ingest import IngestService
 from src.clinic.live_drafts import HolderFence, LiveDrafts, select_draft
+from src.clinic.models import ClinicTranscriptRevision
 from src.clinic.parity_dispatch import MAX_BODY_BYTES, CommandProblem, ParityDispatch, _problem
 from src.database import db
 
@@ -91,10 +92,21 @@ def _events(session_id: str, after: int) -> list[dict]:
             .filter(live_phrases.ClinicLivePhrase.session_id == session_id,
                     live_phrases.ClinicLivePhrase.sequence > after)
             .order_by(live_phrases.ClinicLivePhrase.sequence).limit(MAX_EVENTS).all())
-    return [{"phrase_id": r.id, "generation": r.generation, "sequence": r.sequence,
-             "event_id": r.event_id, "audio_start_ms": r.audio_start_ms,
-             "audio_end_ms": r.audio_end_ms, "transcript_revision_id": r.transcript_revision_id,
-             "status": "server_saved"} for r in rows]
+    events = []
+    for row in rows:
+        event = {"phrase_id": row.id, "generation": row.generation, "sequence": row.sequence,
+                 "event_id": row.event_id, "audio_start_ms": row.audio_start_ms,
+                 "audio_end_ms": row.audio_end_ms, "transcript_revision_id": row.transcript_revision_id,
+                 "status": "server_saved"}
+        if row.event_id == f"asr:{row.generation}:{row.sequence}":
+            revision = db.session.get(ClinicTranscriptRevision, row.transcript_revision_id)
+            if revision is not None:
+                parent = db.session.get(ClinicTranscriptRevision, revision.parent_revision_id) if revision.parent_revision_id else None
+                prefix = parent.body + "\n" if parent and parent.body else ""
+                if revision.body.startswith(prefix):
+                    event["text"] = revision.body[len(prefix):]
+        events.append(event)
+    return events
 
 
 def _client_id(value: object) -> bool:

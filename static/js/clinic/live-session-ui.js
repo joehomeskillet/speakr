@@ -118,6 +118,7 @@ export function createLiveSessionController(options) {
                 phrases.push(p);
             }
             p.sessionId = data.session_id;
+            if (typeof ev.text === 'string') p.text = ev.text;
             p.phraseId = ev.phrase_id;
             p.state = 'server_saved';
             p.wire = null;
@@ -135,8 +136,18 @@ export function createLiveSessionController(options) {
             && data.event_id === p.eventId;
     }
 
+    function reset() {
+        phrases = [];
+        partial = null;
+        sessionId = null;
+        generation = 1;
+        durableSequence = 0;
+        setStatus('idle');
+    }
+
     return {
         getState: snapshot,
+        reset,
         subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
 
         /** Attach to a started session (its id and position come from the start command / resume). */
@@ -163,6 +174,16 @@ export function createLiveSessionController(options) {
             }
             emit();
             return snapshot();
+        },
+
+        acceptSaved(event) {
+            if (status !== 'live' || event.session_id !== sessionId || event.generation !== generation
+                    || event.sequence !== durableSequence + 1 || !event.event_id || !event.phrase_id
+                    || event.status !== 'server_saved' || typeof event.text !== 'string' || !event.text.trim()) return false;
+            adopt({ ...event, events: [event] });
+            partial = null;
+            emit();
+            return true;
         },
 
         /** Partial text replaces the previous partial. It is ignored without write permission. */
@@ -226,9 +247,10 @@ export function createLiveSessionController(options) {
         },
 
         /** Reconnect from the durable checkpoint. */
-        async resume(clientId) {
+        async resume(clientId, holderGeneration) {
             const body = { after_sequence: durableSequence };
             if (clientId) body.client_id = clientId;
+            if (holderGeneration !== undefined) body.generation = holderGeneration;
             const res = await client.request(LIVE + '/dictations/' + encodeURIComponent(dictationId) + '/resume', {
                 method: 'POST',
                 idempotencyKey: newKey(),
@@ -256,7 +278,7 @@ export function createLiveSessionController(options) {
             emit();
         },
 
-        dispose() { listeners.clear(); phrases = []; partial = null; sessionId = null; },
+        dispose() { listeners.clear(); reset(); },
     };
 }
 
