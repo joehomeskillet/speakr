@@ -1230,7 +1230,7 @@ def merge_diarized_chunks(chunk_results):
     return merged_text, merged_segments, sorted(list(all_speakers))
 
 
-def transcribe_chunks_with_connector(connector, filepath, filename, mime_type, language, diarize=False, hotwords=None, initial_prompt=None, transcription_model=None, task_scope=None, engines=None, model_refs=None):
+def transcribe_chunks_with_connector(connector, filepath, filename, mime_type, language, diarize=False, hotwords=None, initial_prompt=None, transcription_model=None, task_scope=None, engines=None, model_refs=None, *, min_speakers=None, max_speakers=None):
     """
     Transcribe a large audio file using chunking with the connector architecture.
 
@@ -1327,6 +1327,8 @@ def transcribe_chunks_with_connector(connector, filepath, filename, mime_type, l
                                     mime_type='audio/mpeg',  # Chunks are always MP3
                                     language=language,
                                     diarize=True,
+                                    min_speakers=min_speakers,
+                                    max_speakers=max_speakers,
                                     known_speaker_names=known_speaker_names,
                                     known_speaker_references=known_speaker_refs,
                                     prompt=initial_prompt,
@@ -1342,6 +1344,8 @@ def transcribe_chunks_with_connector(connector, filepath, filename, mime_type, l
                                     mime_type='audio/mpeg',
                                     language=language,
                                     diarize=False,
+                                    min_speakers=min_speakers,
+                                    max_speakers=max_speakers,
                                     prompt=initial_prompt,
                                     hotwords=hotwords,
                                     model=transcription_model,
@@ -2073,6 +2077,8 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
                         chunk_result = transcribe_chunks_with_connector(
                             connector, actual_filepath, actual_filename, actual_content_type, language,
                             diarize=should_diarize,  # Pass diarization setting for speaker reference tracking
+                            min_speakers=min_speakers if diarize is not None else None,
+                            max_speakers=max_speakers if diarize is not None else None,
                             hotwords=hotwords,
                             initial_prompt=initial_prompt,
                             transcription_model=transcription_model,
@@ -2570,7 +2576,7 @@ def transcribe_with_connector(app_context, recording_id, filepath, original_file
             raise
 
 
-def transcribe_audio_task(app_context, recording_id, filepath, filename_for_asr, start_time, language=None, min_speakers=None, max_speakers=None, tag_id=None, hotwords=None, initial_prompt=None, transcription_model=None):
+def transcribe_audio_task(app_context, recording_id, filepath, filename_for_asr, start_time, language=None, min_speakers=None, max_speakers=None, tag_id=None, hotwords=None, initial_prompt=None, transcription_model=None, *, diarize=None):
     """Runs the transcription and summarization in a background thread.
 
     Uses the connector-based architecture which supports:
@@ -2586,6 +2592,7 @@ def transcribe_audio_task(app_context, recording_id, filepath, filename_for_asr,
         language: Optional language code override (from upload form)
         min_speakers: Optional minimum speakers override (from upload form)
         max_speakers: Optional maximum speakers override (from upload form)
+        diarize: Optional diarization override. None uses the connector default.
         tag_id: Optional tag ID to apply custom prompt from
         hotwords: Optional comma-separated hotwords to bias recognition
         initial_prompt: Optional initial prompt to steer transcription
@@ -2596,9 +2603,6 @@ def transcribe_audio_task(app_context, recording_id, filepath, filename_for_asr,
     """
     with app_context:
         recording = db.session.get(Recording, recording_id)
-        # Determine diarization setting based on connector capabilities
-        # The connector will handle this, but we pass the user's preference
-        diarize_setting = None  # Let connector decide based on its capabilities
 
         # Use language from upload form if provided, otherwise use user's default
         # language='' (empty string) means auto-detect, language=None means use default
@@ -2622,7 +2626,7 @@ def transcribe_audio_task(app_context, recording_id, filepath, filename_for_asr,
                     app_context, recording_id, input_path, input_name, start_time,
                     mime_type=input_mime,
                     language=user_transcription_language,
-                    diarize=diarize_setting,
+                    diarize=diarize,
                     min_speakers=min_speakers,
                     max_speakers=max_speakers,
                     tag_id=tag_id,
