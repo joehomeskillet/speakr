@@ -772,7 +772,7 @@
     .v8-ui .asr-admin-layout .asr-save-actions .primary { width: 100%; }
 }
 
-.cadm .clinic-vocabulary-view .vocabulary-ui > .filterbar { margin-block: 0; }
+.cadm .clinic-vocabulary-view .panel > .vocabulary-ui > .filterbar { margin-block: 0; }
 .cadm .clinic-vocabulary-view .vocabulary-ui .filterbar label { margin: 0; }
 .v8-ui .vocabulary-ui .voc-filters select { appearance: auto; }
 
@@ -905,7 +905,6 @@
     .v8-ui .vocabulary-ui .voc-filters-can-add :is(.voc-status-filter, .search) { grid-column: span 2; }
     .v8-ui .voc-add-word { padding-inline: var(--sp-1); white-space: normal; }
     .v8-ui .vocabulary-ui .voc-filters #voc-pool { min-height: 48px; }
-    .cadm .clinic-vocabulary-view .panel:has(> .vocabulary-ui) { padding-block-start: var(--sp-2); }
     .cadm .clinic-vocabulary-view .vocabulary-ui { gap: var(--sp-1); }
     .cadm .clinic-vocabulary-view .voc-filters .field { gap: var(--sp-1); }
     .cadm .clinic-vocabulary-view .voc-filters select { padding-inline: var(--sp-2) !important; }

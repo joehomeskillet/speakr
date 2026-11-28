@@ -82,15 +82,19 @@ def _open(page: Page, base: str, mount: str) -> str:
 
 def _open_dialog(page: Page, mount: str, path: str) -> Locator:
     view = page.get_by_test_id(f"clinic-{mount}-view")
+    expect(view).to_have_attribute("aria-busy", "false", timeout=support.SHOW_TIMEOUT_MS)
     if mount == "review":
         expect(view.get_by_test_id("review-text")).to_contain_text(TEXT)
         acquire = view.get_by_test_id("begin-review")
+        with page.expect_response(lambda r: r.url == path + "/leases" and r.request.method == "POST") as acquired:
+            acquire.click()
+        assert acquired.value.ok, acquired.value.text()
     else:
         expect(view.get_by_test_id("text")).to_have_value(TEXT)
-        acquire = view.get_by_test_id("lease-bar").locator('[data-action="acquire"]')
-    with page.expect_response(lambda r: r.url == path + "/leases" and r.request.method == "POST") as lease:
-        acquire.click()
-    assert lease.value.ok, lease.value.text()
+        expect(view.get_by_test_id("text")).to_be_editable()
+        lease = page.request.get(path + "/leases")
+        assert lease.ok, lease.text()
+        assert lease.json()["held"] is True
     start = view.get_by_role("button", name=TITLE, exact=True)
     expect(start).to_be_enabled()
     start.click()
