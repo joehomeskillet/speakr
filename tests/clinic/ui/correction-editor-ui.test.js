@@ -61,10 +61,21 @@ describe('correction editor ui', () => {
         expect(editor.etag.value).toBe('"' + REV + '"');
         expect(editor.manual.value).toBe(false);
         expect(editor.audio.value.status).toBe('ready');
+        expect(editor.audioSynced.value).toBeNull();
         expect(editor.audio.value.etag).toBe('"' + AUDIO + '"');
         expect(editor.audio.value.src).toBe(`/api/clinic/v1${base}/audio/derived?format=wav&audio_revision_id=${AUDIO}`);
         expect(editor.templates.items.map((t) => t.id)).toEqual(['t1', 't0']);
         expect(client.switchContext).toHaveBeenCalledWith({ accountId: 7, dictationId: D });
+    });
+
+    it('keeps audio playable when imported text is unsynced', async () => {
+        const { editor } = make(happy({
+            ['GET ' + base + '/correction']: ok({ text_revision_id: REV, text: 'Import', audio_synced: false }),
+        }));
+        await editor.load();
+        expect(editor.audioSynced.value).toBe(false);
+        expect(editor.text.value).toBe('Import');
+        expect(editor.audio.value.src).toContain(AUDIO);
     });
 
     it('runs in manual mode when ASR produced no text and edits only with the lease', async () => {
