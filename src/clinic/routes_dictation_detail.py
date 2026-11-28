@@ -175,6 +175,17 @@ def create_blueprint(
             )
         audit.record('recording.content.read', recording_id=dictation.recording_id,
                      actor_kind='session', actor_user_id=current_user.id, details={'part': 'detail'})
+        draft_fields = {}
+        if (recording is not None and flow is not None and flow.status == workflow.DRAFT
+                and current_user.id == dictation.author_user_id and authorize(current_user, 'review', dictation)):
+            draft_fields = dict(
+                draft_metadata=dict(
+                    title=recording.title, notes=recording.notes or '', priority=flow.priority,
+                    deadline_date=flow.deadline_date.isoformat() if flow.deadline_date else '',
+                ),
+                draft_edit_actions=[action for action in ('rename', 'priority')
+                                    if authorize(current_user, action, dictation) is True],
+            )
         return jsonify(
             dictation_id=dictation.id,
             etag=snap['etag'],
@@ -195,6 +206,7 @@ def create_blueprint(
                 acceptance=snap['review_state'],
                 output='RELEASED' if snap['active_release_id'] else 'NOT_RELEASED',
             ),
+            **draft_fields,
             **deletion_extra,
             **_capabilities(current_user, dictation, flow, snap, authorize, acceptance_policy,
                             include_delete_request=include_delete_request),
