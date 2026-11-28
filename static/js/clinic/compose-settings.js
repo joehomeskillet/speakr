@@ -425,7 +425,7 @@ const NOTIFICATION_LABELS = Object.freeze({
 const NOTIFICATION_TEMPLATE = `
 <section class="panel" aria-labelledby="clinic-settings-notifications-title" data-testid="clinic-settings-notifications">
   <h2 id="clinic-settings-notifications-title" style="overflow-wrap: break-word">Benachrichtigungen</h2>
-  <p v-if="rows.length" class="hint">Wählen Sie, welche Hinweise Sie in Speakr erhalten möchten.</p>
+  <p v-if="rows.length" class="hint">Wählen Sie, welche Hinweise Sie in Ploudrli erhalten möchten.</p>
   <label v-for="row in rows" :key="row.event" class="inline-label min-h-12">
     <input type="checkbox" class="shrink-0" :name="row.event" :checked="row.enabled" :aria-disabled="busy"
            @change="save(row, $event)">
@@ -528,7 +528,7 @@ function createNotificationSettingsComponent(Vue, client, settingsState) {
 export const SETTINGS_TEMPLATE = `
 <div class="clinic-settings-view v8-page ${HEADINGS}">
   <nav class="breadcrumb" aria-label="Brotkrumennavigation">
-    <a href="#/aufnahmen">Speakr</a><span aria-hidden="true">›</span><span>{{ labels.eyebrow }}</span><span aria-hidden="true">›</span><span aria-current="page">{{ labels.title }}</span>
+    <a href="#/aufnahmen">Ploudrli</a><span aria-hidden="true">›</span><span>{{ labels.eyebrow }}</span><span aria-hidden="true">›</span><span aria-current="page">{{ labels.title }}</span>
   </nav>
   <div class="pagehead">
     <div>

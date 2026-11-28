@@ -360,7 +360,7 @@ export const IMPORT_TEMPLATE = `
       <summary>Geräteautor am Philips LFH9600 oder LFH9620</summary>
       <p>Für ein neues Diktat wählen Sie am Recorder unter „KEYWORD“ das Feld „Author“.
         Die verfügbaren Namen richten Sie mit Philips SpeechExec ein.
-        Der Importautor bestimmt die Zuordnung in Speakr.</p>
+        Der Importautor bestimmt die Zuordnung in Ploudrli.</p>
       <a href="https://www.dictation.philips.com/fileadmin/Products/lfh9600/ifu/lfh96x0_ifu_en.pdf#page=22"
          target="_blank" rel="noopener noreferrer">Philips-Handbuch, Seite 22 (PDF, Englisch)</a>
     </details>

@@ -324,7 +324,7 @@ export const ArchiveView = {
     },
     template: `
 <section class="clinic-archive-view v8-page" data-testid="clinic-archive-view" aria-labelledby="cav-title">
-  <nav class="breadcrumb" aria-label="Pfad"><span>Speakr</span><span aria-hidden="true">›</span><span>{{ c.text.eyebrow }}</span><span aria-hidden="true">›</span><span aria-current="page">{{ c.text.title }}</span></nav>
+  <nav class="breadcrumb" aria-label="Pfad"><span>Ploudrli</span><span aria-hidden="true">›</span><span>{{ c.text.eyebrow }}</span><span aria-hidden="true">›</span><span aria-current="page">{{ c.text.title }}</span></nav>
   <div class="pagehead">
     <div>
       <div class="eyebrow">{{ c.text.eyebrow }}</div>

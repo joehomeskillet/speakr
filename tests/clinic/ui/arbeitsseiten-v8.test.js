@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { ArchiveView, archiveSummary } from '../../../static/js/clinic/compose-archive.js';
 import { ICON_PATHS, PHASE_CAPTIONS, RECORDING_TEMPLATE } from '../../../static/js/clinic/compose-recording.js';
+import ClinicModelSelection from '../../../static/js/clinic/admin-task-models.js';
+import { ImportView } from '../../../static/js/clinic/compose-import.js';
+import { OfflineView } from '../../../static/js/clinic/compose-offline.js';
+import { SettingsView } from '../../../static/js/clinic/compose-settings.js';
 import { LiveView } from '../../../static/js/clinic/compose-live.js';
 import { ReviewView } from '../../../static/js/clinic/compose-review.js';
 import { PHASES, createRecorderPhasesComponent } from '../../../static/js/clinic/recorder-phases-ui.js';
@@ -50,6 +54,17 @@ describe('V8 work pages: prototype structure', () => {
             expect(template).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
         });
     }
+
+    it('uses Ploudrli in clinic breadcrumbs and the Philips device help without changing navigation', () => {
+        for (const template of [templates.archive, templates.live, templates.review]) {
+            expect(template).toContain('<span>Ploudrli</span>');
+        }
+        for (const view of [OfflineView, SettingsView]) {
+            expect(view.template).toContain('<a href="#/aufnahmen">Ploudrli</a>');
+        }
+        expect(ClinicModelSelection.template).toContain('<a href="/#/aufnahmen">Ploudrli</a>');
+        expect(ImportView.template).toContain('Der Importautor bestimmt die Zuordnung in Ploudrli.');
+    });
 
     it('the review page keeps the acceptance state and the confirmation dialog', () => {
         const t = templates.review;

@@ -420,7 +420,7 @@ export const OfflineView = {
 <section class="clinic-offline v8-page [overflow-wrap:anywhere] max-[375px]:[&_.panel]:px-2 max-[280px]:[&_.keyvalues>div]:!grid-cols-1"
          :class="[HEADINGS, CONTROLS]" aria-labelledby="clinic-offline-title">
   <nav class="breadcrumb flex-wrap" aria-label="Brotkrumennavigation">
-    <a href="#/aufnahmen">Speakr</a><span aria-hidden="true">›</span><span>{{ TEXT.eyebrow }}</span><span aria-hidden="true">›</span><span aria-current="page">{{ TEXT.title }}</span>
+    <a href="#/aufnahmen">Ploudrli</a><span aria-hidden="true">›</span><span>{{ TEXT.eyebrow }}</span><span aria-hidden="true">›</span><span aria-current="page">{{ TEXT.title }}</span>
   </nav>
   <div class="pagehead">
     <div>

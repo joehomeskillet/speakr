@@ -1,5 +1,13 @@
 # Speakr V8: geprüfte Änderungen im Klinik-Webclient
 
+## BR-04 – Ploudrli in Klinikansichten
+
+Sechs Navigationspfade und die Philips-Gerätehilfe zeigen den Namen Ploudrli. Die Linkziele bleiben erhalten. Der Staging-Nachweis ist nach der Integration vorgesehen.
+
+## BR-02 – Ploudrli
+
+Anmeldung, Kopfzeilen, Seitentitel und Installationsmetadaten verwenden die Ploudrli-Markenidentität. Die Anmeldung und die Markenvarianten wurden lokal in Chromium geprüft. Der Staging-Nachweis ist nach der Integration vorgesehen.
+
 ## P-254 – Web-Alternative für PAR-OPS-004
 
 Im Klinikmodus bietet das App-Manifest die Schnellzugriffe **Neue Aufnahme**, **Aufnahmen** und **Arbeitsliste**. Sie öffnen bestehende Ansichten und setzen eine gültige Anmeldung voraus. Die [Browser-App-Anleitung](../docs/de/user-guide/pwa.md) erklärt auch Lesezeichen und Browserstart. `WG-OPS-004` bleibt offen; `BT-OPS-004` wurde nicht gegen das Referenzsystem ausgeführt. Kein nativer Autostart- oder Tray-Ersatz.

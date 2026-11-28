@@ -151,6 +151,9 @@ def test_notification_visual_artifacts(
             loaded = _open_preferences(page, app_base, reload=state == "empty")
             panel = _panel(page)
             if state == "rows":
+                expect(panel.get_by_text(
+                    "Wählen Sie, welche Hinweise Sie in Ploudrli erhalten möchten.", exact=True,
+                )).to_be_visible()
                 boxes = panel.get_by_role("checkbox")
                 expect(boxes).to_have_count(len(LABELS))
                 for box in boxes.all():
