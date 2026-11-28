@@ -29,7 +29,8 @@ AUTH: tuple[str, ...] = (
     'clinic_imports_web.author_suggestion_view',
     'clinic_imports_web.assign',
     'clinic_imports_web.list_sources',
+    'clinic_imports_web.get_source',
     'clinic_imports_web.update_source',
 )
 
-ADMIN: tuple[str, ...] = ()
+ADMIN: tuple[str, ...] = ('clinic_imports_web.retention_preview',)
