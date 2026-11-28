@@ -141,6 +141,7 @@ def test_lost_confirmations_keep_one_take_and_offer_keyboard_retry(app_base, siz
             view.get_by_test_id('rec-start').click()
             page.wait_for_function("document.querySelector('#app').__vue_app__._instance.proxy.recordingTime >= 2")
             view.get_by_test_id('rec-stop').click()
+            view.get_by_role('switch', name=re.compile('Spracherkennung')).click()
             uploads = []
             sends = []
 
@@ -169,6 +170,7 @@ def test_lost_confirmations_keep_one_take_and_offer_keyboard_retry(app_base, siz
             with page.expect_response(re.compile('/api/clinic/v1/recording-takes/')) as lookup:
                 send.click()
             assert lookup.value.json() == uploads[0]
+            assert uploads[0]['use_speech_recognition'] is False
             expect(view.get_by_test_id('status')).to_have_text('Sie müssen nichts tun – es wird automatisch erneut gesendet.')
             expect(send).to_have_count(0)
             expect(view.get_by_test_id('status')).to_have_text('Aufnahme gespeichert. Senden hat nicht geklappt.')

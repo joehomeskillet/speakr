@@ -229,7 +229,8 @@ def take_receipt(original: ClinicOriginal, take_id: str, *, file_hash: str | Non
         raise TakeUploadError('clinic_ingest_conflict', 409)
     recording = source or db.session.get(Recording, dictation.recording_id)
     return {'id': source_id, 'dictation_id': original.dictation_id, 'take_id': take_id, 'title': recording.title,
-            'audio_duration': recording.audio_duration_seconds, 'recording_type': dictation.recording_type}
+            'audio_duration': recording.audio_duration_seconds, 'recording_type': dictation.recording_type,
+            'use_speech_recognition': _ASR_MARK not in original.origin_ref}
 
 
 def lock_take(author_id: int, take_id: str) -> None:

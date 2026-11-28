@@ -1301,7 +1301,7 @@ export const RECORDING_TEMPLATE = `
         <div v-if="!m.routing && m.canSubmit && (m.retryingTake || m.directSend) && m.phase !== 'retryPending'"
              style="display: grid; justify-items: center; gap: var(--ui-space-3)">
           <p v-if="m.plannedDestination" data-testid="send-destination" style="margin: 0; overflow-wrap: anywhere">{{ m.plannedDestination }}</p>
-          <button type="button" class="button primary" style="${TOUCH}; width: 100%; font-size: 1rem" data-testid="rec-send" @click="c.submit()">{{ m.recordActionLabel }}</button>
+          <button type="button" class="button primary" style="${TOUCH}; width: 100%; font-size: 1rem" data-testid="rec-send" :disabled="protecting()" @click="c.submit()">{{ m.recordActionLabel }}</button>
         </div>
         <div v-else-if="m.mode === 'record' && m.phase === 'submitted'" style="display: grid; justify-items: center; gap: var(--ui-space-2)">
           <button type="button" class="button primary" data-testid="open-created" style="${TOUCH}; width: 100%; font-size: 1rem" @click="c.openCreated()">Diktat öffnen</button>
