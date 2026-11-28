@@ -1471,13 +1471,12 @@ def register_clinic_audio(flask_app):
     from src.clinic import (app_wiring, bundle_store, config, local_tts, policy, pool_policy,
                             revisions, routes_audio, routes_bundle, routes_clipboard, routes_correction,
                             routes_correction_documents, routes_dictation_properties, routes_live,
-                            routes_output, routes_tts, startup)
+                            routes_live_drafts, routes_output, routes_tts, startup)
     from src.clinic.admin_dictation_access import can_open_content
     from src.clinic.draft_store import DraftStore
     from src.clinic.ingest import IngestService
     from src.clinic.live_asr_adapter import LiveAsrAdapter, get_live_asr_config
     from src.clinic.models import ClinicDictation
-    from src.clinic import routes_live_drafts
     from src.clinic.richtext_graphics import GraphicStore
     from src.clinic.routes_richtext_graphics import create_blueprint as create_graphics_blueprint
 
@@ -1510,9 +1509,10 @@ def register_clinic_audio(flask_app):
         lambda user_id, dictation_id: may(user_id, 'edit', db.session.get(ClinicDictation, dictation_id)),
         lambda dictation_id: db.session.get(ClinicDictation, dictation_id) is not None)
 
-    def bundle_load(_actor, dictation_id):
+    def bundle_load(_actor, dictation_id, include_audio):
         dictation = db.session.get(ClinicDictation, dictation_id)
-        return None if dictation is None else bundle_store.load(dictation, originals_root, load_sources)
+        return None if dictation is None else bundle_store.load(
+            dictation, originals_root, load_sources, include_audio=include_audio)
 
     def bundle_persist(actor, dictation_id, doc, audio, expected):
         return bundle_store.persist(db.session.get(ClinicDictation, dictation_id), actor, doc, audio,

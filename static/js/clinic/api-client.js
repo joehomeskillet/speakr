@@ -192,7 +192,7 @@ export function createClinicApiClient() {
         try {
             const token = unsafe ? await getUploadCsrfToken() : null;
             if (seen !== generation || controller.signal.aborted) return result('cancelled', { code: 'CANCELLED' });
-            let body = unsafe ? opts.formData : undefined;
+            let body = unsafe ? (opts.rawBody ?? opts.formData) : undefined;
             if (unsafe && opts.body !== undefined) {
                 try {
                     body = JSON.stringify(opts.body);
@@ -212,6 +212,16 @@ export function createClinicApiClient() {
             if (sent.cancelled) return result('cancelled', { code: 'CANCELLED' });
             if (sent.network) return result('network', { code: 'NETWORK' });
             if (seen !== generation) return result('cancelled', { code: 'CANCELLED' });
+            if (!unsafe && opts.responseType === 'blob' && sent.response.ok) {
+                try {
+                    const blob = await sent.response.blob();
+                    if (seen !== generation) return result('cancelled', { code: 'CANCELLED' });
+                    return result('ok', { status: sent.response.status, data: blob });
+                } catch (e) {
+                    return seen !== generation ? result('cancelled', { code: 'CANCELLED' })
+                        : result('network', { code: 'NETWORK' });
+                }
+            }
             let text = await readText(sent.response);
             if (seen !== generation) return result('cancelled', { code: 'CANCELLED' });
             if (unsafe && text !== null && isCsrfRejection(sent.response.status, text)) {
@@ -239,6 +249,9 @@ export function createClinicApiClient() {
             }
             if (unsafe && response.outcome === 'ok' && (url.startsWith(ROOT + '/dictations/') || url === PARITY_COMMANDS
                 || (url.startsWith(ROOT + '/recordings/') && /\/(trash|restore)$/.test(url)))) {
+                dictationChanges += 1;
+            }
+            if (unsafe && response.outcome === 'ok' && url.startsWith(ROOT + '/bundles/')) {
                 dictationChanges += 1;
             }
             return response;

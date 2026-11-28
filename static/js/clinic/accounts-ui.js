@@ -72,6 +72,7 @@ export const LABELS = Object.freeze({
         invalid_profile: 'Bitte die Profilwerte prüfen. Grenzen müssen ganze positive Zahlen sein.',
         login_policy_not_permitted: 'Diese Anmelderichtlinie ist für das Konto nicht verfügbar.',
         username_required: 'Bitte einen Benutzernamen eingeben.',
+        invalid_username_length: 'Der Benutzername muss 2 bis 120 Zeichen lang sein.',
         email_required: 'Bitte eine E-Mail-Adresse eingeben.',
         admin_recovery_forbidden: 'Administratorkonten werden nur über die Serverkonsole wiederhergestellt. Ein Einmalcode kann hier nicht ausgestellt werden.',
         conflict: 'Das Konto wurde inzwischen geändert oder die Änderung ist nicht möglich. Der aktuelle Stand wurde geladen; Ihre Eingaben wurden verworfen.',
@@ -118,7 +119,10 @@ const EDITABLE = ['username', 'email', 'name', 'account_note', 'status', 'login_
 
 /** Returns an error key or null for one draft. */
 export function validateDraft(draft) {
-    if (!String(draft.username ?? '').trim()) return 'username_required';
+    // Count Unicode code points like the server. HTML maxlength counts UTF-16 code units.
+    const usernameLength = [...String(draft.username ?? '').trim()].length;
+    if (!usernameLength) return 'username_required';
+    if (usernameLength < 2 || usernameLength > 120) return 'invalid_username_length';
     if (!String(draft.email ?? '').trim()) return 'email_required';
     for (const { key } of LIMITS) {
         const raw = draft[key];
@@ -588,8 +592,8 @@ export const AccountsAdminPanel = {
     <div class="cadm-form">
       <div class="cadm-field">
         <label for="acc-username">{{ labels.username }}</label>
-        <input id="acc-username" ref="username" class="field" type="text" autocomplete="off" maxlength="20" v-model="s.draft.username"
-               :aria-invalid="s.error === 'username_required' ? 'true' : 'false'">
+        <input id="acc-username" ref="username" class="field" type="text" autocomplete="off" v-model="s.draft.username"
+               :aria-invalid="['username_required', 'invalid_username_length'].includes(s.error) ? 'true' : 'false'">
       </div>
       <div class="cadm-field">
         <label for="acc-email">{{ labels.email }}</label>
