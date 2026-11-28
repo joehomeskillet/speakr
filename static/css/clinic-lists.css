@@ -123,6 +123,11 @@
     .v8-ui .clinic-recordings-view .recording-row { transition: none; }
 }
 @media (max-width: 700px) {
+    /* Keep the first result in view below the taller phone header. */
+    .v8-ui .clinic-recordings-view .recordings-head {
+        gap: var(--sp-2);
+        margin-bottom: var(--sp-2);
+    }
     .v8-ui .clinic-recordings-view .recording-row { padding-block: 12px; }
     .v8-ui .clinic-recordings-view .recording-row > .status { grid-column: 2; grid-row: 3; margin-left: 0; }
     .v8-ui .clinic-recordings-view .record-chevron { display: block; grid-column: 3; grid-row: 3; justify-self: end; }
