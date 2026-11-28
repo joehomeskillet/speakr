@@ -255,17 +255,81 @@ def delete_vocabulary_entry(entry_id: str, hard: bool = False, session: Session 
     s.flush()
 
 
+def apply_vocabulary_bulk(
+    items: list[dict[str, str]], action: str, session: Session | None = None,
+) -> list[ClinicVocabularyEntry]:
+    """Suppress or hard-delete every named entry, or none of them.
+
+    Each item is ``{"id", "expected_version"}``. Versions are the entry's
+    ``updated_at`` in ISO format, the same value the HTTP layer exposes. A
+    missing entry, a repeated id or one stale version raises and the caller
+    rolls the session back, so a partial list never lands. Permission stays
+    with the caller: pass only entries already checked.
+    """
+    if action not in ("suppress", "delete"):
+        raise VocabularyError("invalid_action", "action must be suppress or delete.")
+    if not items:
+        raise VocabularyError("empty_bulk", "At least one entry is required.")
+    s = _get_session(session)
+    seen: set[str] = set()
+    chosen: list[ClinicVocabularyEntry] = []
+    for item in items:
+        entry_id, expected = item["id"], item["expected_version"]
+        if entry_id in seen:
+            raise VocabularyError("duplicate_entry", f"Entry {entry_id} is listed twice.")
+        seen.add(entry_id)
+        entry = s.get(ClinicVocabularyEntry, entry_id)
+        if entry is None:
+            raise VocabularyError("entry_not_found", f"Entry {entry_id} not found.")
+        if entry.updated_at.isoformat() != expected:
+            raise VocabularyError("stale_version", f"Entry {entry_id} changed.")
+        chosen.append(entry)
+    if action == "delete":
+        for entry in chosen:
+            s.delete(entry)
+        s.flush()
+        return []
+    now = _utcnow()
+    for entry in chosen:
+        entry.status, entry.updated_at = STATUS_SUPPRESSED, now
+    s.flush()
+    return chosen
+
+
+SEARCH_FIELDS = ("written", "spoken", "all")
+_SEARCH_COLUMNS = {
+    "written": (ClinicVocabularyEntry.written_form,),
+    "spoken": (ClinicVocabularyEntry.spoken_form,),
+    "all": (ClinicVocabularyEntry.written_form, ClinicVocabularyEntry.spoken_form),
+}
+
+
+def _like_pattern(query: str, mode: str) -> str:
+    """Literal LIKE pattern. '%' and '_' in the query stay literal (backslash escape)."""
+    term = query.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return {"prefix": f"{term}%", "suffix": f"%{term}", "exact": term}.get(mode, f"%{term}%")
+
+
 def search_vocabulary(
     query: str, mode: str = "contains", scope: str | None = None,
     user_id: int | None = None, pool_id: str | None = None,
-    status: str | None = STATUS_ACTIVE, session: Session | None = None,
+    status: str | None = STATUS_ACTIVE, field: str = "written",
+    session: Session | None = None,
 ) -> list[ClinicVocabularyEntry]:
+    """Search one scope. ``field`` is written, spoken or all (both forms, OR).
+
+    The default stays the written form, so existing callers keep their results.
+    """
+    if field not in SEARCH_FIELDS:
+        raise VocabularyError("invalid_field", f"field must be one of {SEARCH_FIELDS}.")
     s = _get_session(session)
     q = _scope_filter(s.query(ClinicVocabularyEntry), ClinicVocabularyEntry, scope, user_id, pool_id) if scope else s.query(ClinicVocabularyEntry)
     if status is not None:
         q = q.filter_by(status=status)
-    pat = {"prefix": f"{query.strip()}%", "suffix": f"%{query.strip()}", "exact": query.strip()}.get(mode, f"%{query.strip()}%")
-    return q.filter(ClinicVocabularyEntry.written_form.ilike(pat)).order_by(ClinicVocabularyEntry.written_form.asc()).all()
+    pat = _like_pattern(query, mode)
+    columns = _SEARCH_COLUMNS[field]
+    match = db.or_(*(column.ilike(pat, escape="\\") for column in columns))
+    return q.filter(match).order_by(ClinicVocabularyEntry.written_form.asc()).all()
 
 
 def add_voice_command(

@@ -21,7 +21,7 @@
 
 import { TOKEN_CONTRACT_VERSION, TokenContractError, surfaceFor } from './tokens.js';
 import { ROLE_AUTHOR, STATUS_LABELS, formatAudioDuration, formatDictationReference, formatPriority, getOpenMode, resolveStatusSurface } from './worklist-ui.js';
-import { formatLastUpdate, useWorklistRefresh } from './worklist-refresh-ui.js';
+import { useWorklistRefresh } from './worklist-refresh-ui.js';
 import { WorklistFiltersPanel, createWorklistFilters } from './worklist-filters-ui.js';
 import { WorklistLayoutControls, useWorklistLayout } from './worklist-layout-ui.js';
 import { DictationProtectionComponent } from './dictation-protection-ui.js';
@@ -89,15 +89,13 @@ export const TEXT = Object.freeze({
     title: 'Arbeitsliste',
     refresh: 'Aktualisieren',
     retry: 'Erneut versuchen',
-    paused: 'Die automatische Aktualisierung ist pausiert, solange ein Filter aktiv ist oder eine andere Seite angezeigt wird.',
     loading: 'Laden …',
     empty: 'Keine Diktate vorhanden.',
     noMatch: 'Keine Treffer für den gewählten Filter oder die Suche.',
     denied: 'Keine Berechtigung für diese Aktion.',
-    failed: 'Die Arbeitsliste konnte nicht geladen werden.',
     prev: 'Vorherige Seite',
     next: 'Nächste Seite',
-    keys: 'Tastatur: Pfeil hoch und runter wählt ein Diktat, Eingabetaste öffnet es, Esc schliesst die Details.',
+    keys: 'Tastatur: F5 aktualisiert die Liste. Pfeil hoch und runter wählt ein Diktat, Eingabetaste öffnet es, Esc schliesst die Details.',
     open: 'Öffnen',
     detail: 'Diktat',
     protection: 'Schutz',
@@ -404,25 +402,18 @@ export function createWorklistViewController(options) {
     let pendingDetail;
     let detailKey = null; // `${id}|${revision}|${etag}` of the loaded detail
     let lease = null; // { ctrl, unsubscribe }
-    let reloadQueued = false;
     let loadedRevision = client.dictationChanges;
 
     // --- list modules -------------------------------------------------------
-    let refresh = null;
-    const mapRecording = (recording) => {
-        // A change-feed recording carries no workflow metadata: keep the row
-        // the worklist already has; a new id gets a minimal row and one reload.
-        if (recording && recording.dictation_id != null) return recording;
-        const id = recording && recording.id;
-        const known = refresh.rows.value.find((r) => rowKey(r) === String(id));
-        if (known) return known;
-        if (!reloadQueued) {
-            reloadQueued = true;
-            setTimeout(() => { reloadQueued = false; if (!disposed) reload(); }, 0);
-        }
-        return { dictation_id: id, author_user_id: recording && recording.user_id != null ? recording.user_id : null, status: 'aufgabe' };
-    };
-    refresh = useWorklistRefresh({
+    function rowsPath() {
+        if (view.page === 1 && !view.filterId && !view.search) return '/worklist/rows';
+        const query = new URLSearchParams({ page: String(view.page), page_size: String(PAGE_SIZE) });
+        if (view.filterId) query.set('filter_id', view.filterId);
+        if (view.search) query.set('search', view.search);
+        return '/worklist/rows?' + query;
+    }
+
+    const refresh = useWorklistRefresh({
         apiClient: client,
         role: user.role || ROLE_AUTHOR,
         userId: user.id,
@@ -430,7 +421,11 @@ export function createWorklistViewController(options) {
         tokenVersion: TOKEN_CONTRACT_VERSION,
         intervalMs: options.intervalMs,
         fetchChanges: options.fetchChanges || null, // v8-148: poll the clinic worklist rows by default.
-        mapRecording,
+        rowsPath,
+        onSnapshot(data) {
+            view.total = Number.isInteger(data?.total) ? data.total : null;
+            syncDetail();
+        },
         now: options.now,
         Vue: V || undefined,
         ref,
@@ -464,35 +459,18 @@ export function createWorklistViewController(options) {
         return result;
     };
 
-    const paused = computed(() => Boolean(view.filterId || view.search) || view.page > 1);
-
     // --- loading ------------------------------------------------------------
     async function reload() {
+        if (disposed) return null;
         const revision = client.dictationChanges;
-        let response;
-        if (!paused.value) {
-            response = await refresh.refresh();
-        } else {
-            refresh.stop();
-            response = await worklist.loadWorklist({ page: view.page, pageSize: PAGE_SIZE, filterId: view.filterId, search: view.search });
-            if (response && response.outcome === 'ok') {
-                const at = new Date();
-                refresh.lastUpdate.value = at;
-                refresh.lastUpdateLabel.value = formatLastUpdate(at);
-                refresh.refreshError.value = null;
-            } else if (response && !worklist.isPermissionLost.value) {
-                refresh.refreshError.value = response.message || TEXT.failed;
-            }
-        }
-        if (response && response.outcome === 'ok') {
-            loadedRevision = revision;
-            view.total = response.data && Number.isInteger(response.data.total) ? response.data.total : null;
-        }
-        if (!paused.value && started && !disposed && !refresh.isRunning.value && !worklist.isPermissionLost.value) {
-            refresh.start();
-        }
-        syncDetail();
+        const response = await (started && !refresh.isRunning.value ? refresh.start() : refresh.refresh());
+        if (response?.outcome === 'ok') loadedRevision = revision;
         return response;
+    }
+
+    function onRefreshKey(event) {
+        event.preventDefault();
+        if (!event.repeat) return reload();
     }
 
     function applyFilter(filterId, query) {
@@ -773,12 +751,12 @@ export function createWorklistViewController(options) {
     };
 
     return {
-        vue: V, view, panels, selectedId, selectedRow: worklist.selectedRow, leaseState, leaseRun, paused,
+        vue: V, view, panels, selectedId, selectedRow: worklist.selectedRow, leaseState, leaseRun,
         worklist, refresh, filters, layout, workflow, detailClient, displayed, columns, headerAttrs,
         scopedMetadataColumns: SCOPED_METADATA_COLUMNS,
         detailRequest: (id) => id === detailId ? pendingDetail : null,
         refreshIfChanged: () => loadedRevision !== client.dictationChanges ? reload() : null,
-        start, dispose, reload, assignmentDone, select, open, canOpen, listenOnly, onRowKey,
+        start, dispose, reload, onRefreshKey, assignmentDone, select, open, canOpen, listenOnly, onRowKey,
         rememberFirstClick, keepDoubleClickOnRow, goto, pages, hasNext, applyFilter,
         key: rowKey, cell: cellText, badge: statusBadge, dictationLabel, entryCount, text: TEXT,
         searchMetadata: (row) => searchMetadata(row, view.search),
@@ -876,7 +854,8 @@ export const WorklistView = {
         return { c, parts, rowContext };
     },
     template: `
-<section class="v8-page clinic-worklist-view" data-testid="clinic-worklist-view" aria-labelledby="cwv-title">
+<section class="v8-page clinic-worklist-view" data-testid="clinic-worklist-view" aria-labelledby="cwv-title"
+         @keydown.f5.exact.capture="c.onRefreshKey">
   <div class="page-head">
     <div>
       <div class="eyebrow">{{ c.text.eyebrow }}</div>
@@ -889,7 +868,7 @@ export const WorklistView = {
     </div>
     <div class="page-actions">
       <span role="status" aria-live="polite" class="last-update" data-testid="last-update">{{ c.updatedLabel() }}</span>
-      <button type="button" class="icon-btn" data-testid="refresh-button"
+      <button type="button" class="icon-btn" data-testid="refresh-button" aria-keyshortcuts="F5"
               :aria-label="c.text.refresh" :title="c.text.refresh"
               :disabled="c.refresh.isRefreshing.value" :aria-busy="c.refresh.isRefreshing.value ? 'true' : 'false'"
               @click="c.reload()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.6-4.5M4 4v5h5M4 13a8 8 0 0 0 14.6 4.5M20 20v-5h-5"/></svg>{{ c.text.refresh }}</button>
@@ -919,7 +898,7 @@ export const WorklistView = {
       <WorklistFiltersPanel :controller="c.filters">
         <template #start>
           <span class="viewtitle">{{ c.text.listTitle }}</span>
-          <span class="viewhelp" data-testid="sort-note">{{ c.paused.value ? c.text.paused : c.sortNote() }}</span>
+          <span class="viewhelp" data-testid="sort-note">{{ c.sortNote() }}</span>
         </template>
         <template #end>
           <component :is="parts.Layout" :layout="c.layout" />
@@ -939,7 +918,6 @@ export const WorklistView = {
           </span>
         </template>
       </WorklistFiltersPanel>
-      <p v-if="c.paused.value" class="sr-only cl-sr-only">{{ c.text.paused }}</p>
       <div v-if="c.chipRows.value.length" class="listhead">
         <strong data-testid="list-count">{{ c.shownRows().length }} von {{ c.counts.value.all }} auf dieser Seite ({{ c.worklist.totals.value.formattedTotalDuration }})</strong>
         <span>{{ c.text.hintSelect }}</span>
