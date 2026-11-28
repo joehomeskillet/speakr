@@ -897,6 +897,7 @@
     .v8-ui .vocabulary-ui .voc-filters .search { grid-column: auto; }
     .v8-ui .vocabulary-ui .voc-filters #voc-pool { min-height: 48px; }
     .cadm .clinic-vocabulary-view .vocabulary-ui { gap: var(--sp-1); }
+    .cadm .clinic-vocabulary-view .panel > .vocabulary-ui > .voc-filters { margin-block: 0; }
     .cadm .clinic-vocabulary-view .voc-filters .field { gap: var(--sp-1); }
     .cadm .clinic-vocabulary-view .voc-filters select { padding-inline: var(--sp-2) !important; }
 }
