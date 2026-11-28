@@ -546,7 +546,7 @@ export const VOCABULARY_TEMPLATE = `
         <th scope="col">Aktion</th>
       </tr></thead>
       <tbody><tr v-for="e in state.entries" :key="e.id">
-        <td class="wrap"><label v-if="state.canWrite" class="voc-select-entry">
+        <td class="wrap" :aria-label="e.written"><label v-if="state.canWrite" class="voc-select-entry">
           <input type="checkbox" :value="e.id" v-model="selectedIds" :aria-label="'Auswählen: ' + e.written"
             :disabled="state.status === 'loading' || (!selectedIds.includes(e.id) && selectedIds.length >= maxBulk)">
           <strong>{{ e.written }}</strong>
