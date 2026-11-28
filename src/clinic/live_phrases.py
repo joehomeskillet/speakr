@@ -110,8 +110,8 @@ def store_phrase(
         raise PhraseError("invalid_audio")
     if not isinstance(event_id, str) or not 0 < len(event_id) <= 128 or event_id.strip() != event_id:
         raise PhraseError("invalid_event_id")
-    for value in (dictation_id, session_id, audio_revision_id, transcript_revision_id, text_hash):
-        if not isinstance(value, str) or not value:
+    for field in (dictation_id, session_id, audio_revision_id, transcript_revision_id, text_hash):
+        if not isinstance(field, str) or not field:
             raise PhraseError("invalid_envelope")
     ingest._checked_size(len(audio))
     audio_hash = hashlib.sha256(audio).hexdigest()
@@ -123,7 +123,8 @@ def store_phrase(
     storage_key = ingest.storage_key_for(key)
 
     try:
-        session = live_session.heartbeat(session_id, user_id, now)
+        session = live_session.heartbeat(
+            session_id, user_id, now, client_id=client_id, generation=generation)
         if session.dictation_id != dictation_id or (
             session.client_id is not None and session.client_id != client_id
         ):
@@ -181,7 +182,9 @@ def store_phrase(
             envelope_hash=envelope_hash,
         )
         db.session.add(phrase)
-        live_session.acknowledge(session_id, user_id, now, sequence, audio_end_ms, transcript_revision_id)
+        live_session.acknowledge(
+            session_id, user_id, now, sequence, audio_end_ms, transcript_revision_id,
+            client_id=client_id, generation=generation)
         db.session.commit()
         return _receipt(phrase)
     except Exception:

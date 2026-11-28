@@ -13,7 +13,8 @@
  *
  * Sections: Konten (accounts-ui panel, incl. the rule that an admin account gets no
  * recovery code), Poolbezüge (memberships per user, derived from GET /pools via
- * pools-ui), Fachrechte (grants-ui for the selected user). Identity roles confer no
+ * pools-ui), Fachrechte (grants-ui for the selected user, with the admin client so
+ * authors and exclusions are chosen by name). Identity roles confer no
  * dictation access; the server decides every write. A 403 on the account list
  * replaces the whole view by the denied state. A change of the current user switches
  * the api client context (aborting in-flight calls) and remounts the children.
@@ -266,7 +267,9 @@ export const UsersView = {
             const canEdit = props.currentUser?.is_admin === true;
             const key = userId + ':' + canEdit;
             if (!grantsCache[key]) {
-                grantsCache[key] = Vue.markRaw(createGrantsComponent(Vue, props.client, { userId, canEdit }));
+                grantsCache[key] = Vue.markRaw(createGrantsComponent(Vue, props.client, {
+                    userId, canEdit, adminClient: props.adminClient || null,
+                }));
             }
             return grantsCache[key];
         };
