@@ -1410,13 +1410,13 @@ def register_clinic_identity(flask_app):
 def register_clinic_audio(flask_app):
     """Mount the audio, dictation-property, bundle, live, correction and TTS handlers.
 
+    Live draft switching and the draft API share one durable store.
+
     Called at startup only in clinic mode, after register_clinic_worklist, and reuses the one
     ParityDispatch (start/stop live session are registered on it). Object decisions go through
     pool_policy.decide; an active site admin may open audio of any user (W12, audited by the
-    audio handler). Capabilities that do not exist yet answer "unavailable" and are never faked:
-    no local TTS engine or declared capability (CAPABILITY_UNAVAILABLE), no live-draft
-    coordinator (CAPABILITY_UNAVAILABLE). The derived
-    rendering reads the stored originals (app_wiring.make_source_loader); the protection store is
+    audio handler). TTS without a local engine or declared capability answers CAPABILITY_UNAVAILABLE.
+    Derived rendering reads the stored originals (app_wiring.make_source_loader); the protection store is
     durable (clinic_dictation_protection). The mounted sdict export uses that same current
     revision. A source that cannot be read stays empty and is never replaced by synthetic audio.
     """
@@ -1425,8 +1425,10 @@ def register_clinic_audio(flask_app):
                             routes_correction_documents, routes_dictation_properties, routes_live,
                             routes_output, routes_tts, startup)
     from src.clinic.admin_dictation_access import can_open_content
+    from src.clinic.draft_store import DraftStore
     from src.clinic.ingest import IngestService
     from src.clinic.models import ClinicDictation
+    from src.clinic import routes_live_drafts
 
     dispatch = flask_app.extensions['clinic_parity_dispatch']
     run_once = flask_app.extensions['clinic_run_once']
@@ -1478,8 +1480,11 @@ def register_clinic_audio(flask_app):
             subject=policy.build_subject(actor),
             recording=policy.build_facts(dictation.recording_id, dictation.author_user_id))
 
-    routes_live.register_live_commands(
-        dispatch, lambda actor, dictation_id: may(actor, 'edit', db.session.get(ClinicDictation, dictation_id)))
+    def edit_live(actor, dictation_id):
+        return may(actor, 'edit', db.session.get(ClinicDictation, dictation_id))
+
+    drafts = DraftStore()
+    routes_live.register_live_commands(dispatch, edit_live)
     flask_app.register_blueprint(routes_audio.create_blueprint(
         authorize=authorize, run_once=run_once, load_sources=load_sources))
     flask_app.register_blueprint(routes_dictation_properties.DictationPropertyRoutes(protection_store).blueprint())
@@ -1488,8 +1493,8 @@ def register_clinic_audio(flask_app):
         bundle_persist, lambda scope, digest, operation: bundle_store.run_locked(scope, digest, operation, run_once, may),
         managed_client))
     flask_app.register_blueprint(routes_live.create_blueprint(
-        lambda actor, dictation_id: may(actor, 'edit', db.session.get(ClinicDictation, dictation_id)),
-        IngestService(startup.originals_root(flask_app))))
+        edit_live, IngestService(startup.originals_root(flask_app)), drafts=drafts))
+    flask_app.register_blueprint(routes_live_drafts.create_blueprint(drafts, edit_live))
     flask_app.register_blueprint(routes_correction.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation),
         run_once=run_once, require_if_match=True))
