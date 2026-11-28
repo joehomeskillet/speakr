@@ -232,7 +232,13 @@ export function createClinicApiClient() {
                 if (seen !== generation) return result('cancelled', { code: 'CANCELLED' });
             }
             const response = classify(sent.response, text);
-            if (unsafe && response.outcome === 'ok' && (url.startsWith(ROOT + '/dictations/') || url === PARITY_COMMANDS)) {
+            if (url === ROOT + '/offline-web/capability' && response.outcome === 'ok') {
+                const expiresAt = sent.response.headers?.get('X-Offline-Grant-Expires-At');
+                if (expiresAt) response.grantExpiresAt = Number(expiresAt);
+            }
+            const readOnlyPreview = method === 'POST' && /^\/dictations\/[^/?]+\/documents\/preview(?:\?.*)?$/.test(url.slice(ROOT.length));
+            if (unsafe && response.outcome === 'ok' && !readOnlyPreview
+                && (url.startsWith(ROOT + '/dictations/') || url === PARITY_COMMANDS)) {
                 dictationChanges += 1;
             }
             return response;
