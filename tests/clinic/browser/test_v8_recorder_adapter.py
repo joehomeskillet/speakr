@@ -107,6 +107,8 @@ def test_saved_draft_round_trip(browser, app_base, role_states, size, theme):
         if out:
             page.screenshot(path=Path(out) / f'p04-empty-{size}-{theme}.png', full_page=True, animations='disabled')
         view.get_by_test_id('mode-file').click()
+        expect(view.locator('#crv-file')).to_be_disabled()
+        view.get_by_test_id('file-type-bericht').click()
         audio = io.BytesIO()
         with wave.open(audio, 'wb') as wav:
             wav.setparams((1, 2, 16000, 0, 'NONE', 'not compressed'))

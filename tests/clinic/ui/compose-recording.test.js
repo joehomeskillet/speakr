@@ -597,7 +597,7 @@ describe('file upload path', () => {
         const { c } = make({ uploadFile, options: { client: { request } } });
         const file = audio();
         c.setMode('file');
-        expect(c.model()).toMatchObject({ recordingType: null, canUpload: false });
+        expect(c.model()).toMatchObject({ recordingType: null, canUpload: false, uploadLabel: 'Datei hochladen' });
         expect(c.selectFile(file).ok).toBe(true);
         expect(c.model().canUpload).toBe(false);
         expect((await c.sendFile()).ok).toBe(false);

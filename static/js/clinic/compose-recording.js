@@ -819,9 +819,9 @@ export function createRecordingViewController(options) {
             file: state.file ? { name: String(state.file.name || ''), size: Number(state.file.size) || 0 } : null,
             canSelectFile: canSelectFile(),
             canUpload: canUploadFile(),
-            canUploadFile: canUploadFile(),
-            uploadLabel: isPrivate() ? (state.filePhase === 'failed' ? 'Erneut speichern' : 'Speichern')
-                : state.filePhase === 'failed' ? 'Erneut hochladen' : TEXT.upload,
+            uploadLabel: recordingType === null ? 'Datei hochladen'
+                : isPrivate() ? (state.filePhase === 'failed' ? 'Erneut speichern' : 'Speichern')
+                    : state.filePhase === 'failed' ? 'Erneut hochladen' : TEXT.upload,
             canCancelFile: canSelectFile() && Boolean(recordingType || state.file),
             canSwitchMode: allowed() && !state.disposed && !created() && !recorderBusy() && !fileBusy,
             created: created(),

@@ -88,6 +88,8 @@ def show_recording(page, base):
     expect(view.get_by_test_id("author")).to_have_count(0)
     expect(view.get_by_role("link", name="oder Datei hochladen", exact=True)).to_be_visible()
     expect(view.get_by_test_id("rec-start")).to_be_visible()
+    for kind in ("sitzung", "patientengespraech", "notiz"):
+        expect(view.get_by_test_id(f"rec-start-{kind}")).to_be_visible()
 
 
 def show_live(page, base):

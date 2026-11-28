@@ -10,3 +10,7 @@ Bestehenden Fortschritt nicht durch diese Anfangsnotiz löschen; versioniert zus
 
 ## P-145 – PAR-COR-005
 Zeitbasierter Rücksprung im Schreibplatz (Standard 2 s, 0 s ohne Rücksprung) lokal in Chromium mit synthetischem Audio geprüft: Tipp-Pause, Weiterlaufmodus, manuelle Pause/Neustart und Tastaturemulation der Pedalsteuerung. Referenzvergleich, Wortzahl-Rücksprung und physisches Pedal bleiben `not_run`.
+
+## RT-03 – Aufnahmevorlagen vor dem Start
+
+Auf «Neue Aufnahme» startet die gewählte Vorlage direkt das Mikrofon. Der Bericht verwendet den bestehenden Versandweg. Sitzung, Patientengespräch und persönliche Notizen werden nach bestätigtem Upload als gespeichert angezeigt. Die vier Vorlagen stehen auch beim Datei-Upload zur Auswahl. Vitest prüft die Typwahl, die Zuordnung der Uploads und den ausbleibenden Versand der drei privaten Typen. Die Abnahme nach Integration der serverseitigen Privatregeln aus RT-02 steht aus.
