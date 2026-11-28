@@ -70,13 +70,14 @@ def _exercise() -> None:
         assert response.json == {'pool_id': selected, 'reselection_required': selected is None,
                                  'pools': [{'id': pid, 'name': names[pid]} for pid in options]}
 
-    def upload(client, headers, sample):
+    def upload(client, headers, sample, *, take_id=None):
         with patch('src.services.recording_ingestion.get_duration', return_value=None), \
              patch('src.services.recording_ingestion.get_creation_date', return_value=None), \
              patch('src.services.webhook_dispatch.emit_webhook_event'):
             return client.post('/upload', headers=headers, data={
                 'file': (BytesIO(b'\x03ds2' + bytes([sample]) * 2048), f'p146-{sample}.ds2'),
                 'client_upload_id': f'p146-{uuid4().hex}', 'use_speech_recognition': 'false',
+                **({'from_recorder': 'true', 'clinic_take_id': take_id} if take_id else {}),
             })
 
     assert app.test_client().get(ACTIVE_POOL).status_code == 401
@@ -109,6 +110,11 @@ def _exercise() -> None:
     assert_pool(client.get(ACTIVE_POOL), None, a)
     denied = upload(client, headers, 2)
     assert (denied.status_code, denied.json['code']) == (403, 'clinic_author_pool_reselection_required')
+    take_id = str(uuid4())
+    take_path = f'/api/clinic/v1/recording-takes/{take_id}'
+    denied_take = upload(client, headers, 4, take_id=take_id)
+    assert (denied_take.status_code, denied_take.json['code']) == (403, 'clinic_author_pool_reselection_required')
+    assert client.get(take_path).status_code == 404
     assert client.get(RECIPIENT_DEFAULT).json['overrides'] is None
     denied = client.post(f'{RECIPIENT_DEFAULT}/resolve', headers=headers, json={})
     assert (denied.status_code, denied.json['code']) == (422, 'not_author_pool')
@@ -119,8 +125,13 @@ def _exercise() -> None:
     assert client.get(RECIPIENT_DEFAULT).json['overrides']['persons'] == [str(anne_id)]
     created = upload(client, headers, 3)
     assert created.status_code == 202, created.get_data(as_text=True)
+    created_take = upload(client, headers, 4, take_id=take_id)
+    assert created_take.status_code == 202, created_take.get_data(as_text=True)
+    replay = upload(client, headers, 4, take_id=take_id)
+    assert (replay.status_code, replay.json) == (200, created_take.json)
     with app.app_context():
         assert db.session.get(ClinicDictation, created.json['dictation_id']).pool_id == a
+        assert db.session.get(ClinicDictation, created_take.json['dictation_id']).pool_id == a
         pools.set_pool_validity('author', a, None, datetime(2000, 1, 1, tzinfo=timezone.utc), actor_id=admin_id)
     assert_pool(client.get(ACTIVE_POOL), None)
     denied = client.put(ACTIVE_POOL, headers=headers, json={'pool_id': a})
