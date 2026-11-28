@@ -121,6 +121,10 @@ def _check_density_states(page, page_id: str, width: int, stem: str) -> None:
         capture("_drawer")
         return
 
+    row = page.locator(".worktable tr[data-row]" if page_id == "P02" else ".recording-row").first
+    row.scroll_into_view_if_needed()
+    capture("_rows")
+
     if page_id == "P02":
         touch_target(page.locator(".worktable th.check label"))
         touch_target(page.locator(".worktable td.check label").first)
@@ -144,7 +148,7 @@ def _check_density_states(page, page_id: str, width: int, stem: str) -> None:
     touch_target(search)
     search.fill("HM20 Keine solchen Diktate")
     search.press("Enter")
-    page.get_by_test_id("empty-state").wait_for()
+    page.get_by_test_id("empty-state").scroll_into_view_if_needed()
     capture("_empty")
 
 
