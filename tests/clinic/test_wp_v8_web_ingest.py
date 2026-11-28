@@ -144,8 +144,12 @@ def test_user_without_author_pool_is_refused_and_leaves_nothing(clinic_on, origi
         assert Recording.query.filter_by(user_id=author['nopool']).count() == 0
 
 
-def test_database_failure_is_visible_and_rolls_back(clinic_on, originals, author):
-    with patch('src.clinic.web_ingest.IngestService.store_original', side_effect=RuntimeError('db down')):
+@pytest.mark.parametrize('failing_lookup', [
+    'src.clinic.web_ingest.IngestService.store_original',
+    'src.clinic.web_ingest.app_wiring.active_author_pool',
+])
+def test_database_failure_is_visible_and_rolls_back(clinic_on, originals, author, failing_lookup):
+    with patch(failing_lookup, side_effect=RuntimeError('db down')):
         response = _post(author['id'])
     assert response.status_code == 500
     assert response.get_json()['code'] == 'clinic_ingest_failed'

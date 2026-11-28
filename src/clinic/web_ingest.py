@@ -252,16 +252,6 @@ def register_upload(*, owner, recording, storage, form, now: datetime,
     """
     if processing_source != WEB_SOURCE:
         return None
-    selection = app_wiring.active_author_pool(owner.id)
-    pool_id = selection.pool_id
-    if pool_id is None:
-        if selection.reselection_required:
-            code, message = 'clinic_author_pool_reselection_required', MSG_RESELECT_POOL
-        else:
-            code, message = 'clinic_no_author_pool', MSG_NO_POOL
-        if take_id:
-            raise TakeUploadError(code, 403, message)
-        return _refuse(recording, storage, code, message, 403)
 
     from src.services.upload_cancel import client_upload_id_from
     time_source = _time_source(form, now, meeting_date)
@@ -271,6 +261,16 @@ def register_upload(*, owner, recording, storage, form, now: datetime,
     # parsers that split off the recording id still match.
     asr_mark = ':asr=off' if not speech_recognition_requested(form) else ''
     try:
+        selection = app_wiring.active_author_pool(owner.id)
+        pool_id = selection.pool_id
+        if pool_id is None:
+            if selection.reselection_required:
+                code, message = 'clinic_author_pool_reselection_required', MSG_RESELECT_POOL
+            else:
+                code, message = 'clinic_no_author_pool', MSG_NO_POOL
+            if take_id:
+                raise TakeUploadError(code, 403, message)
+            return _refuse(recording, storage, code, message, 403)
         with storage.materialize(recording.audio_path) as stored:
             path = stored.local_path
             size = os.path.getsize(path)
