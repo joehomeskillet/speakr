@@ -1752,7 +1752,7 @@
     "hotwordsHelp": "Comma-separated words to improve recognition of domain-specific terms",
     "hotwordsPlaceholder": "e.g., Speakr, CTranslate2, PyAnnote",
     "initialPrompt": "Initial prompt",
-    "initialPromptHelp": "Context to steer the transcription model's style and vocabulary",
+    "initialPromptHelp": "Context to steer the transcription model’s style and vocabulary",
     "initialPromptPlaceholder": "e.g., This is a meeting about AI transcription tools.",
     "language": "Language",
     "maxSpeakers": "Max speakers",

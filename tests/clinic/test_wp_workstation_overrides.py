@@ -147,6 +147,14 @@ def test_central_lock_wins_over_a_stored_override_after_it_changes():
     assert released.origins["audio_player_position"] == "workstation"
 
 
+def test_lock_rejects_nonscalar_value_without_changing_the_existing_lock():
+    store, user, workstation_id = _store_for()
+    store.lock("audio_player_position", "bottom")
+    with pytest.raises(PreferenceError, match="bad_value"):
+        store.lock("audio_player_position", ["top"])
+    assert store.effective(user, workstation_id).values == {"audio_player_position": "bottom"}
+
+
 def test_setting_ceiling_wins_after_a_policy_change_and_is_off_without_clinic_mode(clinic, monkeypatch):
     store, user, workstation_id = _store_for()
     store.apply(user, workstation_id, {"ui_theme": "cards"}, expected_version=0)
