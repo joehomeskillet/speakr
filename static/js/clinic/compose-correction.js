@@ -35,12 +35,12 @@ import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
 import { CorrectionAudioPanel, DictationSummary, createCorrectionToolbar, useCorrectionEditor, vTip, createRepeatTranscription, REPEAT_TEXT } from './correction-editor-ui.js';
 import { LABELS as ALIGN_LABELS, createPlaybackHighlighter, useCorrectionAlignment } from './correction-alignment-ui.js';
 import { CorrectionWaveform } from './correction-waveform-ui.js';
+import { createHandmicView } from './handmic-webhid.js';
 import { PlaybackTempo, usePlaybackTempo } from './playback-tempo-ui.js';
 import { MODES, useCorrectionModes } from './correction-modes-ui.js';
 import { useCorrectionSave } from './correction-save-ui.js';
 import { AudioMarkers } from './audio-markers-ui.js';
 import { PlaybackGain, usePlaybackGain } from './playback-gain-ui.js';
-import { createHandmicView } from './handmic-webhid.js';
 
 export const COMPOSE_CORRECTION_VERSION = 1;
 
@@ -308,6 +308,7 @@ export function createCorrectionViewController(options) {
     const editor = useCorrectionEditor({
         client, dictationId, currentUser: user, vue: V || undefined, exposeLeaseController: v8,
     });
+    const lease = createLeaseAdapter(editor, V);
 
     const position = () => {
         const el = audioEl.value;
@@ -326,13 +327,11 @@ export function createCorrectionViewController(options) {
         position,
         isPlaying() { const el = audioEl.value; return Boolean(el) && el.paused === false; },
     };
-    const togglePlayback = () => (modeAudio.isPlaying() ? modeAudio.pause() : modeAudio.play());
     const modes = useCorrectionModes({
         alignment, audio: modeAudio, client, vue: V || undefined,
         ...(opts.modesOptions || {}),
     });
 
-    const lease = createLeaseAdapter(editor, V);
     const saver = useCorrectionSave({
         editor, client, dictationId, getPositionMs, vue: V || undefined,
         lease,
@@ -356,7 +355,7 @@ export function createCorrectionViewController(options) {
                 return;
             }
             switch (command) {
-            case 'play': return togglePlayback();
+            case 'play': return controller.togglePlayback();
             case 'stop': return modeAudio.pause();
             case 'rewind': return tempo?.rewind(stepSeconds);
             case 'forward': return tempo?.skip(stepSeconds);
@@ -594,7 +593,7 @@ export function createCorrectionViewController(options) {
                 commands: {
                     play: () => modeAudio.play(),
                     pause: () => modeAudio.pause(),
-                    playPause: togglePlayback,
+                    playPause: () => (modeAudio.isPlaying() ? modeAudio.pause() : modeAudio.play()),
                     rewind: (s) => { if (tempo) tempo.rewind(s); },
                     skip: (s) => { if (tempo) tempo.skip(s); },
                 },
@@ -670,18 +669,21 @@ export function createCorrectionViewController(options) {
         return handmicClosed;
     }
 
-    return {
+    const controller = {
         vue: V, api, editor, alignment, modes, saver, repeat, gain: () => gain,
         ready, loadGeneration, revisionGeneration, audioEl, gainState, closeMessage, resumeLabel,
         recordingId: () => opts.recordingId || editor.audio.value.recordingId || null,
         peaksKey, peaksFetch,
-        stepSeconds, togglePlayback,
-        leaseRun, leaseButtons, handmic, handmicModel,
+        stepSeconds: v8 ? STEP_SECONDS_V8 : STEP_SECONDS,
+        leaseRun, leaseButtons,
         pedalStatus, pedalReady: () => pedalReady, pedal: () => pedal, setPedalSettings,
         start, load, save, setText, reloadLatest, keepMine, takeServer, compare: () => saver.compare(), close, dispose, syncRevision,
         client: scoped, adoptAudioRevision, bindAudio, bindAlignmentRoot, alignmentRootEl: () => alignmentRoot, alignmentNotice, onSync, onShortcut, onKeydown, onInput, onSelect, onTemplate, seekToResume, getPositionMs, seek,
+        handmic, handmicModel,
         text: TEXT,
     };
+    controller.togglePlayback ??= () => (modeAudio.isPlaying() ? modeAudio.pause() : modeAudio.play());
+    return controller;
 }
 
 /** Icon paths of the V8 symbol set (24x24 grid, stroke icons). Static markup, never built from data. */

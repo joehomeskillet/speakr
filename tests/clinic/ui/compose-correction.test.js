@@ -119,10 +119,11 @@ describe('compose-correction contract', () => {
         ]) expect(source).toContain(`./${mod}.js`);
         expect(source).toContain("from './tokens.js'");
         expect(source).toContain("from './api-client.js'");
-        const imports = [...source.matchAll(/from '(\.\/[^']+)'/g)].map((m) => m[1]);
+        const allImports = [...source.matchAll(/from '(\.\/[^']+)'/g)].map((m) => m[1]);
+        const imports = allImports.filter((path) => path !== './handmic-webhid.js');
+        expect(allImports.length - imports.length).toBe(1);
         expect(imports).toHaveLength(new Set(imports).size);
-        expect(imports).toContain('./handmic-webhid.js');
-        expect(imports).toHaveLength(12);
+        expect(imports).toHaveLength(11);
     });
 
     it('uses German labels, tokens only, keyboard-operable native controls and no browser storage', () => {
