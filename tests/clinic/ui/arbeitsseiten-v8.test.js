@@ -17,12 +17,21 @@ describe('V8 work pages: prototype structure', () => {
     for (const [name, template] of Object.entries(templates)) {
         it(name + ' follows the prototype page head, breadcrumb and panel structure', () => {
             expect(template).toContain('v8-page');
-            expect(template).toContain('class="breadcrumb"');
-            expect(template).toContain('class="pagehead"');
-            expect(template).toContain('class="eyebrow"');
-            expect(template).toContain('class="subline"');
-            expect(template).toContain('class="head-actions"');
-            expect(template).toMatch(/class="(panel|editor-workspace)"/);
+            if (name === 'recording') {
+                for (const part of ['breadcrumb', 'pagehead', 'eyebrow', 'subline', 'head-actions']) {
+                    expect(template).not.toContain(`class="${part}"`);
+                }
+                expect(template).not.toMatch(/class="(panel|editor-workspace)"/);
+                expect(template).toContain('data-testid="rec-start"');
+                expect(template).toContain('>oder Datei hochladen</a>');
+            } else {
+                expect(template).toContain('class="breadcrumb"');
+                expect(template).toContain('class="pagehead"');
+                expect(template).toContain('class="eyebrow"');
+                expect(template).toContain('class="subline"');
+                expect(template).toContain('class="head-actions"');
+                expect(template).toMatch(/class="(panel|editor-workspace)"/);
+            }
         });
 
         it(name + ' styles every button with the shared button class', () => {
@@ -33,7 +42,11 @@ describe('V8 work pages: prototype structure', () => {
 
         it(name + ' does not use the app field class on wrappers and restates the heading size', () => {
             expect(template).not.toMatch(/class="field[ "]/);
-            expect(template).toMatch(/<h1 id="[a-z-]+" style="font-size: clamp\(26px, 4vw, 30px\)/);
+            if (name === 'recording') {
+                expect(template).toContain('<h1 id="crv-title" class="sr-only">{{ c.text.title }}</h1>');
+            } else {
+                expect(template).toMatch(/<h1 id="[a-z-]+" style="font-size: clamp\(26px, 4vw, 30px\)/);
+            }
             expect(template).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
         });
     }
@@ -61,9 +74,13 @@ describe('V8 work pages: prototype structure', () => {
         expect(t).toContain('compact-recorder');
     });
 
-    it('the recording page keeps recorder test ids and shows the author read-only', () => {
+    it('the recording page keeps recorder test ids without showing the author', () => {
         const t = templates.recording;
-        for (const part of ['data-testid="author"', "'rec-' + b.id", 'data-testid="file-upload"', 'data-testid="created"', 'data-testid="status"']) {
+        expect(t).not.toContain('data-testid="author"');
+        for (const action of ['start', 'pause', 'resume', 'stop', 'send', 'cancel']) {
+            expect(t).toContain(`data-testid="rec-${action}"`);
+        }
+        for (const part of ['data-testid="file-upload"', 'data-testid="created"', 'data-testid="status"']) {
             expect(t).toContain(part);
         }
         expect(t).not.toMatch(/<select|<input[^>]*readonly/);

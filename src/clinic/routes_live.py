@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import base64
 import binascii
-from collections.abc import Callable
+from collections.abc import Callable, Set
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -30,8 +30,9 @@ from wtforms.validators import ValidationError
 from src.clinic import live_phrases, live_session, vocabulary
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.draft_registry import DraftError
+from src.clinic.draft_store import DraftStore
 from src.clinic.ingest import IngestService
-from src.clinic.live_drafts import LiveDrafts
+from src.clinic.live_drafts import HolderFence, LiveDrafts, select_draft
 from src.clinic.models import ClinicDictation, ClinicTranscriptRevision
 from src.clinic.parity_dispatch import MAX_BODY_BYTES, CommandProblem, ParityDispatch, _problem
 from src.database import db
@@ -71,6 +72,7 @@ def _code(error: Exception) -> str:
     if isinstance(error, DraftError):
         return {"unauthorized": "POLICY_DENIED", "not_found": "POLICY_DENIED",
                 "stale_version": "REVISION_CONFLICT", "version_conflict": "REVISION_CONFLICT",
+                "discarded": "REVISION_CONFLICT",
                 }.get(error.code, "INVALID_PAYLOAD")
     return "DEPENDENCY_UNAVAILABLE" if isinstance(error, OSError) else "INVALID_PAYLOAD"
 
@@ -80,7 +82,8 @@ def _position(row: live_session.ClinicLiveSession) -> dict:
     last = (live_phrases.ClinicLivePhrase.query.filter_by(session_id=row.id)
             .order_by(live_phrases.ClinicLivePhrase.sequence.desc()).first())
     return {"session_id": row.id, "dictation_id": row.dictation_id, "state": row.state,
-            "generation": last.generation if last else 1, "sequence": row.ack_seq,
+            "generation": row.holder_generation or (last.generation if last else 1),
+            "sequence": row.ack_seq,
             "audio_offset_ms": row.audio_offset_ms}
 
 
@@ -113,6 +116,14 @@ def _capture_session_review(row: live_session.ClinicLiveSession, ended_at: datet
         pool_id=dictation.pool_id if dictation is not None else None,
         before_text=before_text, after_text=after_text,
     )
+
+
+def _client_id(value: object) -> bool:
+    return isinstance(value, str) and 0 < len(value) <= 128 and value == value.strip()
+
+
+def _valid_fence(data: dict) -> bool:
+    return _client_id(data.get("client_id")) and type(data.get("generation")) is int and data["generation"] > 0
 
 
 def register_live_commands(
@@ -152,15 +163,21 @@ def register_live_commands(
 
     def execute_stop(actor: int, target: str, envelope: dict) -> dict:
         payload = envelope["payload"]
-        row = load(target.split(":", 1)[1])
-        position = _position(row)
-        if payload["last_sequence"] != position["sequence"] or (
-                position["sequence"] and payload["generation"] != position["generation"]):
-            raise CommandProblem("REVISION_CONFLICT")
         try:
+            live_session.lock_author(actor)
+            row = live_session._load(target.split(":", 1)[1])
+            position = _position(row)
+            if (envelope["expected_revision"] != row.ack_seq + 1
+                    or payload["last_sequence"] != position["sequence"]
+                    or ((position["sequence"] or row.holder_generation is not None)
+                        and payload["generation"] != position["generation"])):
+                raise CommandProblem("REVISION_CONFLICT")
             ended_at = now()
-            ended = live_session.end(row.id, actor, ended_at)
-            _capture_session_review(row, ended.ended_at or ended_at)
+            ended = live_session.end(
+                row.id, actor, ended_at, client_id=request.headers.get("X-Live-Client-Id"),
+                generation=payload["generation"],
+            )
+            _capture_session_review(ended, ended.ended_at or ended_at)
         except live_session.LiveSessionError as error:
             raise CommandProblem(_code(error)) from error
         return result(envelope, row.ack_seq + 1)
@@ -173,12 +190,15 @@ def register_live_commands(
 
 def create_blueprint(
     authorize_dictation: Authorize, store: IngestService,
-    drafts: LiveDrafts | None = None, now: Clock = _utcnow,
+    drafts: LiveDrafts | DraftStore | None = None, now: Clock = _utcnow,
 ) -> Blueprint:
     """Mount pause, continue, phrase append, resume and draft switch.
 
     ``authorize_dictation(actor_id, dictation_id)`` is the caller's explicit
     per-object policy. ``store`` is the durable audio root for final phrases.
+    Pass a ``DraftStore`` to enable durable draft switching.
+    Switch returns the selected session's position. The caller must use its new
+    tab id and generation on subsequent live requests.
     """
     blueprint = Blueprint("clinic_live", __name__, url_prefix=PREFIX)
 
@@ -199,7 +219,7 @@ def create_blueprint(
         response.headers["Cache-Control"] = "private, no-store"
         return response
 
-    def body(required: set, optional: set = frozenset()) -> dict | None:
+    def body(required: Set[str], optional: Set[str] = frozenset()) -> dict | None:
         if request.content_length is None or request.content_length > MAX_BODY_BYTES:
             return None
         data = request.get_json(silent=True)
@@ -222,13 +242,19 @@ def create_blueprint(
             return _problem(_code(error))
 
     def transition(session_id: str, method):
-        if body(set()) is None:
+        data = body(set(), {"client_id", "generation", "release"} if method is live_session.pause
+                    else {"client_id", "generation"})
+        if data is None or ("release" in data and type(data["release"]) is not bool):
+            return _problem("INVALID_PAYLOAD")
+        release = data.pop("release", False)
+        if (release or data) and not _valid_fence(data):
             return _problem("INVALID_PAYLOAD")
         if owned(session_id) is None:
             return _problem("POLICY_DENIED")
 
         def act():
-            row = method(session_id, current_user.id, now())
+            row = method(session_id, current_user.id, now(), **data,
+                         **({"release": True} if release else {}))
             db.session.commit()
             return jsonify(_position(row))
         return run(act)
@@ -268,34 +294,57 @@ def create_blueprint(
 
     @blueprint.post("/dictations/<dictation_id>/resume")
     def resume(dictation_id):
-        data = body(set(), {"client_id", "after_sequence"})
+        data = body(set(), {"client_id", "generation", "after_sequence"})
         after = None if data is None else data.get("after_sequence", 0)
-        if data is None or type(after) is not int or after < 0 or not isinstance(
-                data.get("client_id"), (str, type(None))):
+        if (data is None or type(after) is not int or after < 0
+                or (data.get("client_id") is not None and not _client_id(data["client_id"]))
+                or ("generation" in data and not _valid_fence(data))):
             return _problem("INVALID_PAYLOAD")
         if not authorize_dictation(current_user.id, dictation_id):
             return _problem("POLICY_DENIED")
 
         def act():
             row, _point = live_session.recover(
-                dictation_id, current_user.id, now(), client_id=data.get("client_id"))
+                dictation_id, current_user.id, now(), client_id=data.get("client_id"),
+                generation=data.get("generation"))
             db.session.commit()
             return jsonify(dict(_position(row), events=_events(row.id, after), max_events=MAX_EVENTS))
         return run(act)
 
     @blueprint.post("/drafts/<draft_id>/switch")
     def switch_draft(draft_id):
-        data = body({"tab_id"})
-        if drafts is None or data is None or not isinstance(data["tab_id"], str):
-            return _problem("INVALID_PAYLOAD" if drafts is not None else "CAPABILITY_UNAVAILABLE")
+        if drafts is None:
+            return _problem("CAPABILITY_UNAVAILABLE")
+        data = body({"tab_id"}, {"acknowledged_holder"})
+        if data is None or not _client_id(data["tab_id"]):
+            return _problem("INVALID_PAYLOAD")
+        ack = data.get("acknowledged_holder")
+        if "acknowledged_holder" in data and (
+            not isinstance(ack, dict) or ack.keys() != {"session_id", "client_id", "generation"}
+            or not _client_id(ack["session_id"]) or not _valid_fence(ack)
+        ):
+            return _problem("INVALID_PAYLOAD")
         if not authorize_dictation(current_user.id, draft_id):
             return _problem("POLICY_DENIED")
 
         def act():
-            draft = drafts.switch(current_user.id, draft_id, data["tab_id"], now())
+            previous = HolderFence(ack["session_id"], ack["client_id"], ack["generation"]) if ack else None
+            try:
+                draft, row = select_draft(
+                    current_user.id, draft_id, data["tab_id"], now(), acknowledged=previous,
+                    draft_store=drafts if isinstance(drafts, DraftStore) else None,
+                )
+            except DraftError as error:
+                if not isinstance(drafts, LiveDrafts) or ack is not None or error.code != "not_found":
+                    raise
+                draft = drafts.switch(current_user.id, draft_id, data["tab_id"], now())
+                db.session.commit()
+                return jsonify({"draft_id": draft.id, "state": draft.state, "version": draft.version,
+                              "holder_token": draft.holder_token})
+            result = dict(_position(row), draft_id=draft.id, version=draft.version,
+                          holder_token=row.holder_generation)
             db.session.commit()
-            return jsonify({"draft_id": draft.id, "state": draft.state, "version": draft.version,
-                          "holder_token": draft.holder_token})
+            return jsonify(result)
         return run(act)
 
     return blueprint

@@ -31,7 +31,7 @@ export const KINDS = Object.freeze(['language_model', 'acoustic']);
 export const TEXT = Object.freeze({
     eyebrow: 'Verwaltung',
     title: 'Sprachprofile',
-    subline: 'Profilkonfiguration und tatsächliche Enginefähigkeiten getrennt betrachten. Eine Wortliste ersetzt kein Akustiktraining.',
+    subline: 'Profilkonfiguration, nachgewiesene Anpassung und der Zeitplan bleiben getrennt. Eine Wortliste ist nur ein Hinweis und keine Anpassung.',
     denied: 'Kein Zugriff. Bitte anmelden.',
     voiceTitle: 'Eigenes Stimmprofil (freiwillig)',
     voiceHint: 'Das Stimmprofil wird nur mit Ihrer Einwilligung erstellt und kann jederzeit widerrufen werden.',
@@ -43,6 +43,10 @@ export const TEXT = Object.freeze({
     capabilityUnknown: 'Nicht ermittelt',
     trainingTitle: 'Optimierung',
     trainingDenied: 'Keine Rechte für die Optimierung. Nur Administratoren dürfen Läufe vorbereiten und starten.',
+    capabilityHeading: 'Nachgewiesene Anpassung',
+    scheduleHeading: 'Zeitplan',
+    noAdaptation: 'Keine Anpassung nachgewiesen.',
+    wordListHint: 'Eine Wortliste ist ein Hinweis, keine Anpassung.',
     kind: 'Art',
     kindLabels: Object.freeze({ language_model: 'Sprachmodell (nur Text)', acoustic: 'Akustik (Text und Audio)' }),
     prepare: 'Material prüfen',
@@ -118,7 +122,7 @@ export function createTrainingController(deps) {
     const listeners = new Set();
     const state = {
         loading: false, busy: false, denied: false, error: null, notice: null,
-        kind: KINDS[0], runs: [], manifest: null, disposed: false,
+        kind: KINDS[0], runs: [], manifest: null, capabilities: {}, disposed: false,
     };
 
     const emit = () => { if (!state.disposed) for (const fn of listeners) fn(state); };
@@ -127,6 +131,11 @@ export function createTrainingController(deps) {
         const f = failure(res);
         if (f.denied) { state.denied = true; state.error = null; } else state.error = f;
         return false;
+    }
+
+    function rememberCapability(kind, data) {
+        const claimed = data && data.learning_claimed === true && data.capability === 'runtime_passed';
+        state.capabilities = { ...state.capabilities, [kind]: claimed ? 'proven' : 'unavailable' };
     }
 
     async function load() {
@@ -147,8 +156,22 @@ export function createTrainingController(deps) {
         state.runs = rows.map((r) => ({
             id: r.job_id, kind: r.kind, scope: r.scope, items: r.items, state: String(r.state || 'none'),
         }));
+        await readCapabilities();
+        if (state.disposed) return false;
         emit();
         return true;
+    }
+
+    // A missing or failed probe is not proof. It never hides the schedule.
+    async function readCapabilities() {
+        const found = {};
+        for (const kind of KINDS) {
+            const res = await client.request(TRAINING_BASE + '/manifest?kind=' + encodeURIComponent(kind) + '&scope=author');
+            if (state.disposed) return;
+            const d = res.outcome === 'ok' ? (res.data || {}) : {};
+            found[kind] = d.learning_claimed === true && d.capability === 'runtime_passed' ? 'proven' : 'unavailable';
+        }
+        state.capabilities = found;
     }
 
     function setKind(kind) {
@@ -176,6 +199,7 @@ export function createTrainingController(deps) {
             return false;
         }
         const d = res.data || {};
+        rememberCapability(state.kind, d);
         state.manifest = {
             items: Array.isArray(d.items) ? d.items.length : 0,
             excluded: Array.isArray(d.exclusions) ? d.exclusions.length : 0,
@@ -252,6 +276,15 @@ export function createTrainingController(deps) {
             error: state.error,
             notice: state.notice,
             empty: !state.loading && !state.denied && !state.error && state.runs.length === 0,
+            capabilities: KINDS.map((value) => {
+                const proven = state.capabilities[value] === 'proven';
+                return {
+                    value,
+                    label: TEXT.kindLabels[value],
+                    proven,
+                    status: proven ? TEXT.proven : TEXT.unavailable,
+                };
+            }),
             kinds: KINDS.map((value) => ({ value, label: TEXT.kindLabels[value], selected: state.kind === value })),
             manifest: state.manifest,
             canStart: !state.busy && !state.denied && !state.loading,
@@ -261,6 +294,7 @@ export function createTrainingController(deps) {
                 items: r.items,
                 stateLabel: RUN_STATES[r.state] || r.state,
                 stateTag: RUN_TAGS[r.state] ?? 'neutral',
+                adaptation: state.capabilities[r.kind] === 'proven' ? '' : TEXT.noAdaptation,
                 canCancel: !state.busy && ['queued', 'running'].includes(r.state),
                 cancelLabel: TEXT.cancelRun + ' ' + r.id,
             })),
@@ -335,8 +369,21 @@ const CONSENT_TEMPLATE = `
 const TRAINING_TEMPLATE = `
 <section class="panel" role="region" :aria-label="text.trainingTitle" data-testid="training">
   <h2>{{ text.trainingTitle }}</h2>
+  <p class="hint" data-testid="word-list-hint">{{ text.wordListHint }}</p>
   <p v-if="view.denied" role="alert" class="note burgundy" :style="errorStyle" data-testid="training-denied">{{ view.deniedMessage }}</p>
   <template v-else>
+    <h3>{{ text.capabilityHeading }}</h3>
+    <div class="table-wrap" style="overflow-x:auto">
+    <table :aria-label="text.capabilityHeading" data-testid="adaptation-capabilities">
+      <thead><tr><th scope="col">{{ text.capabilityColumns.name }}</th><th scope="col">{{ text.capabilityColumns.status }}</th></tr></thead>
+      <tbody>
+        <tr v-for="c in view.capabilities" :key="c.value">
+          <td>{{ c.label }}</td><td><span class="tag" :class="c.proven ? '' : 'wait'">{{ c.status }}</span></td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <h3>{{ text.scheduleHeading }}</h3>
     <p v-if="view.loading" role="status" aria-live="polite" class="note">{{ text.loading }}</p>
     <p v-if="view.error" role="alert" class="note burgundy" :style="errorStyle">{{ view.error.message }}
       <button type="button" class="small" v-if="view.error.retryable" @click="controller.load()">{{ text.retry }}</button></p>
@@ -353,12 +400,14 @@ const TRAINING_TEMPLATE = `
     <p v-if="view.manifest" class="result-count" data-testid="manifest">{{ text.manifestItems }}: {{ view.manifest.items }}, {{ text.manifestExcluded }}: {{ view.manifest.excluded }}</p>
     <p v-if="view.empty" class="hint" data-testid="training-empty">{{ text.noRuns }}</p>
     <div class="table-wrap" style="overflow-x:auto" v-else-if="view.runs.length">
-    <table :aria-label="text.runs">
-      <thead><tr><th scope="col">{{ text.columns.id }}</th><th scope="col">{{ text.columns.kind }}</th><th scope="col">{{ text.columns.items }}</th><th scope="col">{{ text.columns.state }}</th><th></th></tr></thead>
+    <table :aria-label="text.runs" style="table-layout:fixed">
+      <colgroup><col style="width:14%"><col style="width:33%"><col style="width:16%"><col style="width:37%"></colgroup>
+      <thead><tr><th scope="col">{{ text.columns.id }}</th><th scope="col">{{ text.columns.kind }}</th><th scope="col">{{ text.columns.items }}</th><th scope="col">{{ text.columns.state }}</th></tr></thead>
       <tbody>
         <tr v-for="r in view.runs" :key="r.id" :data-id="r.id">
-          <td>{{ r.id }}</td><td>{{ r.kind }}</td><td>{{ r.items }}</td><td><span class="tag" :class="r.stateTag">{{ r.stateLabel }}</span></td>
-          <td><button type="button" class="small" :disabled="!r.canCancel" :aria-label="r.cancelLabel" @click="controller.cancel(r.id)">Abbrechen</button></td>
+          <td>{{ r.id }}</td><td style="overflow-wrap:anywhere">{{ r.kind }}</td><td>{{ r.items }}</td>
+          <td><span class="tag" :class="r.stateTag">{{ r.stateLabel }}</span><span v-if="r.adaptation" class="hint" style="display:block" data-testid="adaptation-gap">{{ r.adaptation }}</span>
+            <button type="button" class="small" :disabled="!r.canCancel" :aria-label="r.cancelLabel" @click="controller.cancel(r.id)">Abbrechen</button></td>
         </tr>
       </tbody>
     </table>

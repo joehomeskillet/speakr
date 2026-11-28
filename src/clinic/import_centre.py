@@ -38,7 +38,7 @@ from .agent_channel import (
 from .agent_channel_ingest import finalize_ingest, get_receipt
 from .author_resolution import AuthorResolutionError, resolve_author
 from .config import clinic_mode_enabled
-from .ingest import IngestError, IngestService, storage_key_for
+from .ingest import ImportDefaults, IngestError, IngestService, storage_key_for
 from .migration_import_intent_metadata import IntentMetadataError, encode_metadata, interpret, upgrade
 from .models import ClinicDictation
 
@@ -532,11 +532,32 @@ def _remember_original(delivery, ingest_service, fields):
     return original
 
 
-def _author_injecting(ingest_service, author_user_id, delivery):
+def _ingest_metadata(intent: ClinicImportIntent | None, delivery: ClinicImportDelivery) -> dict:
+    if not clinic_mode_enabled() or intent is None or intent.metadata_version is None:
+        return {}
+    from . import import_source_config
+
+    path = delivery.relative_path or ""
+    source: dict = {}
+    if delivery.root_id:
+        try:
+            source = import_source_config.resolve_source_config(intent.source_kind, delivery.root_id, path) or {}
+        except AgentChannelError as exc:
+            if exc.code != 'invalid':
+                raise
+    filename = re.split(r"[\\/]", path)[-1]
+    title = filename.rsplit(".", 1)[0].strip()[:200] or None
+    return {"intent_metadata": interpret(intent), "import_defaults": ImportDefaults(
+        title=title, priority=source.get("priority", ImportDefaults.priority), pool_id=intent.target_pool_id,
+    )}
+
+
+def _author_injecting(ingest_service, author_user_id, delivery, intent):
     def store(stream, **kwargs):
         try:
             return ingest_service.store_original(stream, **{**kwargs, "author_user_id": author_user_id},
-                                                 language_id=delivery.language_id)
+                                                 language_id=delivery.language_id,
+                                                 **_ingest_metadata(intent, delivery))
         except IngestError as exc:
             if exc.code == "author_required":
                 _remember_original(delivery, ingest_service, kwargs)
@@ -579,14 +600,16 @@ def _heal_original(original, intent):
     )
     if path is None:
         raise IngestError("storage_failed", "stored import original is missing")
+    delivery = db.session.get(ClinicImportDelivery, original.delivery_id)
+    metadata = _ingest_metadata(intent, delivery)
     with path.open("rb") as stream:
         receipt = service.store_original(
             stream, idempotency_key=original.idempotency_key, declared_sha256=original.content_hash,
             declared_size=original.size_bytes, origin=original.origin, origin_ref=original.origin_ref,
             author_user_id=intent.target_author_user_id, now=aware(original.created_at), commit=False,
-            language_id=intent.language_id,
+            language_id=intent.language_id, **metadata,
         )
-    if intent.target_pool_id:
+    if intent.target_pool_id and not metadata:
         db.session.get(ClinicDictation, receipt.dictation_id).pool_id = intent.target_pool_id
     return receipt
 
@@ -595,7 +618,9 @@ def _complete(delivery, intent, receipt):
     """After a STORED receipt: put the dictation into the target pool and settle the intent."""
     if receipt.get("state") != "STORED":
         return
-    if intent.target_pool_id and receipt.get("dictation_id"):
+    if intent.target_pool_id and receipt.get("dictation_id") and (
+        not clinic_mode_enabled() or intent.metadata_version is None
+    ):
         dictation = db.session.get(ClinicDictation, receipt["dictation_id"])
         if dictation is not None and dictation.pool_id != intent.target_pool_id:
             dictation.pool_id = intent.target_pool_id
@@ -642,7 +667,7 @@ def finalize_delivery(
     else:
         receipt = finalize_ingest(
             principal, policy, ingest_id=ingest_id, body=body, now=now,
-            store_original=_author_injecting(ingest_service, author, delivery),
+            store_original=_author_injecting(ingest_service, author, delivery, intent),
             recover_original=(lambda: _heal_original(original, intent)) if original and intent else None,
         )
     if delivery is not None and intent is not None:

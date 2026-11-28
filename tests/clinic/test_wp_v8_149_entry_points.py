@@ -41,7 +41,11 @@ def test_name_entries_and_visual_proof(live_server, width, height, tmp_path):
             _menu._mounted(page)
             name = page.locator("#app").get_attribute("data-current-user-name")
             assert name
-            assert name in page.locator("[data-testid=clinic-recording-view]").inner_text()
+            # X-NEU-1 owner decision: the one-button recorder on #/neu shows no author block;
+            # the signed-in user is the author implicitly.
+            view = page.locator("[data-testid=clinic-recording-view]")
+            view.wait_for(state="visible")
+            assert view.get_by_test_id("author").count() == 0
             page.goto(base + "/#/archiv")
             _menu._mounted(page)
             page.locator("#cav-author option[value='" + user_id + "']").wait_for(state="attached")

@@ -6,7 +6,7 @@
  * come from the page (package v8-03). Opening a row emits `open` with
  * { dictationId, mode }, the payload of the worklist.
  *
- * Owner decision W16: no patient name, title or notes are read or shown; the
+ * Owner decision W16: no patient name, free-text title or notes are read or shown; the
  * case is referenced by Fall-ID (case_display) when the server supplies it.
  * Colours come from tokens.js. Nothing is written to browser storage or URLs.
  */
@@ -16,9 +16,9 @@ import { PERIODS, RECORDINGS_PAGE_SIZE, TEXT, createRecordingsController, format
 export const COMPOSE_RECORDINGS_VERSION = 1;
 export { RECORDINGS_PAGE_SIZE, createRecordingsController };
 
-/** Use only the list-approved case display or the supplied timestamp and its provenance. */
+/** Use the list-approved case display, capture label or timestamp and its provenance. */
 export function recordingLabel(row) {
-    if (row.caseDisplay) return row.heading;
+    if (row.caseDisplay || row.captureLabel) return row.heading;
     const provenance = row.fallbackText || (row.isFallback ? 'Diktat' : 'Aufnahme');
     return provenance + ' · ' + formatDay(row.day) + (row.datetime ? ', ' + row.time : '');
 }

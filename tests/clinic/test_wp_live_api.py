@@ -16,6 +16,7 @@ from flask_wtf.csrf import CSRFProtect, generate_csrf
 
 from src.app import app as real_app
 from src.clinic import audio_revisions, live_phrases as phrases, live_session as live, revisions, routes_live, vocabulary
+from src.clinic.draft_store import DraftStore
 from src.clinic.ingest import IngestService
 from src.clinic.live_drafts import LiveDrafts
 from src.clinic.models import ClinicDictation, ClinicOriginal
@@ -278,10 +279,23 @@ def test_draft_switch_uses_session_actor(world):
                    json={"tab_id": "t"}).status_code == 403
 
 
-
-def test_stop_queues_new_session_words_without_duplicates(world):
+@pytest.mark.parametrize("fenced", [False, True], ids=["legacy", "fenced"])
+def test_stop_queues_new_session_words_without_duplicates(world, fenced):
     w = world
-    c, h, sid = _open_session(w)
+    fence = {}
+    stop_headers = {}
+    generation = 1
+    if fenced:
+        c, h = w["client"](w["owner"])
+        DraftStore().create(w["owner"], w["dictation"], "Entwurf", NOW)
+        selected = c.post(f"{LIVE}/drafts/{w['dictation']}/switch", headers=h, json={"tab_id": "tab-1"})
+        assert selected.status_code == 200
+        sid, generation = selected.json["session_id"], selected.json["generation"]
+        fence = {"client_id": "tab-1", "generation": generation}
+        assert c.post(f"{LIVE}/sessions/{sid}/continue", headers=h, json=fence).status_code == 200
+        stop_headers = {"X-Live-Client-Id": "tab-1"}
+    else:
+        c, h, sid = _open_session(w)
     dictation = db.session.get(ClinicDictation, w["dictation"])
     original = ClinicOriginal.query.filter_by(dictation_id=dictation.id).one()
     head = revisions.current_revision(dictation)
@@ -290,12 +304,12 @@ def test_stop_queues_new_session_words_without_duplicates(world):
     )
     db.session.commit()
     w["clock"]["now"] = NOW + timedelta(seconds=1)
-    phrase = _phrase(w, transcript_revision_id=added.id, text_hash=added.normalised_text_hash)
+    phrase = _phrase(w, transcript_revision_id=added.id, text_hash=added.normalised_text_hash, **fence)
     assert c.post(f"{LIVE}/sessions/{sid}/phrases", headers=h, json=phrase).status_code == 200
 
-    payload = {"session_id": sid, "generation": 1, "last_sequence": 1}
+    payload = {"session_id": sid, "generation": generation, "last_sequence": 1}
     stopped = c.post(
-        COMMANDS, headers=dict(h, **{"Idempotency-Key": "stop-review-1"}),
+        COMMANDS, headers={**h, **stop_headers, "Idempotency-Key": "stop-review-1"},
         json=_command(w, "stop_live_session", payload, 2),
     )
     assert stopped.status_code == 200
@@ -306,7 +320,7 @@ def test_stop_queues_new_session_words_without_duplicates(world):
     assert all(row.origin == vocabulary.ORIGIN_SESSION for row in rows)
 
     repeated = c.post(
-        COMMANDS, headers=dict(h, **{"Idempotency-Key": "stop-review-2"}),
+        COMMANDS, headers={**h, **stop_headers, "Idempotency-Key": "stop-review-2"},
         json=_command(w, "stop_live_session", payload, 2),
     )
     assert repeated.status_code == 200
