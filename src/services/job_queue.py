@@ -922,6 +922,7 @@ class FairJobQueue:
                 language=params.get('language'),
                 min_speakers=params.get('min_speakers'),
                 max_speakers=params.get('max_speakers'),
+                diarize=params.get('diarize'),
                 tag_id=params.get('tag_id'),
                 hotwords=params.get('hotwords'),
                 initial_prompt=params.get('initial_prompt'),
@@ -1214,6 +1215,14 @@ class FairJobQueue:
                 if existing:
                     logger.warning(f"Job of type {job_type} already exists for recording {recording_id}: {existing.id}")
                     return existing.id
+
+                if (job_type in ('transcribe', 'reprocess_transcription') and clinic_mode_enabled()
+                        and (params or {}).get('diarize') is None):
+                    from src.clinic import recording_type, web_ingest
+
+                    dictation = web_ingest.dictation_for_recording(recording_id)
+                    if dictation is not None and dictation.configured_recording_type is not None:
+                        params = {**(params or {}), **recording_type.transcription_params(dictation.recording_type)}
 
                 # Create new job
                 job = ProcessingJob(

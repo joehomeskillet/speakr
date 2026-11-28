@@ -526,7 +526,7 @@ def _flag(value: bool, code: str) -> bool:
 _ROUTING_MODES = frozenset(("all_eligible", "person", "staff_pool", "self_correction"))
 _ROUTING_LABELS = {
     "all_eligible": "Alle berechtigten", "person": "Person",
-    "staff_pool": "Pool", "self_correction": "Selbstkorrektur",
+    "staff_pool": "Schreibdienst", "self_correction": "Selbstkorrektur",
 }
 
 

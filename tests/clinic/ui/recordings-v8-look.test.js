@@ -37,7 +37,7 @@ describe('recordings prototype look (V8 P01)', () => {
 
     it('derives the Fall-ID heading and fallback text of a row from contract fields only and infers no origin from time_source', () => {
         const rec = toViewRow(item(1));
-        expect(rec).toMatchObject({ heading: 'Fall-ID F-77', fallbackText: '', hasLease: false });
+        expect(rec).toMatchObject({ heading: 'Fallnummer F-77', fallbackText: '', hasLease: false });
         const imp = toViewRow(item(2, { time_source: 'imported', case_display: '', lease_holder: { id: 9, display_name: 'Frau Typ' } }));
         expect(imp).toMatchObject({ heading: 'Diktat', fallbackText: 'Importdatum', hasLease: true });
         for (const row of [rec, imp, toViewRow(item(3, { time_source: 'created' }))]) {
@@ -50,7 +50,7 @@ describe('recordings prototype look (V8 P01)', () => {
 
     it('carries the author-entered title apart from the Fall-ID and renders it only when present', () => {
         const own = toViewRow(item(1, { own_title: ' Eigener Titel ' }));
-        expect(own).toMatchObject({ ownTitle: 'Eigener Titel', heading: 'Fall-ID F-77', caseDisplay: 'F-77' });
+        expect(own).toMatchObject({ ownTitle: 'Eigener Titel', heading: 'Fallnummer F-77', caseDisplay: 'F-77' });
         expect(toViewRow(item(2, { own_title: null })).ownTitle).toBe('');
         expect(toViewRow(item(3)).ownTitle).toBe('');
         expect(RecordingsView.template).toContain('v-if="r.ownTitle"');
@@ -164,8 +164,11 @@ describe('recordings review fixes (V8 P01)', () => {
         expect(toViewRow(item(1, { workflow_status: 'zu_schreiben' })).statusClass).toBe('wartet');
         expect(toViewRow(item(1, { workflow_status: 'unbekannt' })).statusClass).toBe('neu');
         const row = toViewRow(item(1));
-        expect(row.ariaLabel.startsWith('Fall-ID F-77, Diktiert von Dr. Zeller, Schreibkräfte-Pool Radiologie, Freitag, 20. November 2026')).toBe(true);
-        expect(row.ariaLabel).toMatch(/Zu schreiben, 01:05$/);
+        expect(row.ariaLabel.startsWith('Fallnummer F-77, Diktiert von Dr. Zeller, Schreibdienst Radiologie, Freitag, 20. November 2026')).toBe(true);
+        expect(row.ariaLabel).toMatch(/09:30, 01:05$/);
+        expect(row.ariaLabel).not.toContain('Zu schreiben');
+        expect(row.nextStep).toBe('Beim Schreibdienst Radiologie – Sie müssen nichts tun');
+        expect(tpl).toContain("'crv-next-' + r.key");
         expect(row.datetime).toBe('2026-11-20T08:30:00Z');
         expect(tpl).toContain(':datetime="r.datetime || null"');
         expect(tpl).toContain(':aria-label="r.ariaLabel"');
@@ -175,7 +178,7 @@ describe('recordings review fixes (V8 P01)', () => {
         const mounted = []; const unmounted = [];
         const vue = { ref: (v) => ({ value: v }), reactive: (o) => o, onMounted: (f) => mounted.push(f), onBeforeUnmount: (f) => unmounted.push(f), nextTick: () => Promise.resolve() };
         const host = { scrollTop: 0, addEventListener: vi.fn(), removeEventListener: vi.fn() };
-        const memory = { snapshot: { rows: [], nextCursor: null, filters: {}, draft: {}, query: '', scrollTop: 340 } };
+        const memory = { snapshot: { accountId: String(user.id), rows: [], nextCursor: null, filters: {}, draft: {}, query: '', scrollTop: 340 } };
         const s = RecordingsView.setup({ client: mk([]), currentUser: user, vue, memory, autoStart: true }, { emit: vi.fn() });
         s.scroller.value = host; // no DOM in the unit test: the fallback host is used
         await mounted[0]();
